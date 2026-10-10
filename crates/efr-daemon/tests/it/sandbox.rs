@@ -536,8 +536,9 @@ async fn shell_a_needs_write_of_a_missing_home_file_runs_in_the_exit_child() {
     });
     let exit = exit.unwrap();
     // A bind of the missing file alone cannot start, and a bind of `~` opens too much.
+    // The classifier may judge such a write (spec 9.1); with no judge the user answers.
     assert_eq!(exit.launch, Launch::Unsandboxed);
-    assert!(exit.user_only);
+    assert!(!exit.user_only);
     assert!(exit.facts.contains(&"~/gen.txt does not exist yet".to_owned()), "{:?}", exit.facts);
     let [spec] = specs(&fake).try_into().unwrap();
     assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);

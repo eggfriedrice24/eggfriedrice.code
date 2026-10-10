@@ -221,13 +221,14 @@ fn with_sandbox(
             }
         }
     };
-    let envelope: Vec<PathBuf> = PRIVATE_ROOTS
-        .iter()
-        .map(PathBuf::from)
-        .chain(expand(&sandbox.caches))
-        .chain(roots.iter().cloned())
-        .collect();
-    for root in envelope {
+    // NOTE: the private tmp and the cache overlays are write roots whose writes never
+    // reach the real files, so a program there was not written in the sandbox.
+    let private: Vec<PathBuf> =
+        PRIVATE_ROOTS.iter().map(PathBuf::from).chain(expand(&sandbox.caches)).collect();
+    for root in private {
+        locations = add(locations, root, "private root", |l, p| l.with_private_root(p));
+    }
+    for root in roots.iter().cloned() {
         locations = add(locations, root, "envelope root", |l, p| l.with_envelope_root(p));
     }
     for dir in expand(&sandbox.synced_dirs) {

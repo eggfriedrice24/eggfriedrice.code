@@ -27,7 +27,13 @@ pub(super) fn exits(
     for word in needs.write.iter().take(Needs::MAX_WRITE) {
         let Some(path) = resolve(word, dir, locations) else { continue };
         let exit = envelope.write_exit(&path, facts, made);
-        found.extend(write_need(exit, &path, &format!("needs.write {}", path.display()), source));
+        found.extend(write_need(
+            envelope,
+            exit,
+            &path,
+            &format!("needs.write {}", path.display()),
+            source,
+        ));
     }
     for word in needs.hosts.iter().take(Needs::MAX_HOSTS) {
         let Some((host, port)) = host_and_port(word) else { continue };

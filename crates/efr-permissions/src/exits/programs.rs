@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{BusKind, ExitKind, Grant};
 
-use super::PRIVILEGE_EXITS;
+use super::needs::host_and_port;
 use super::scan::is_assignment;
+use super::{Approver, Ecosystem, PRIVILEGE_EXITS};
 use crate::command::PRIVILEGED;
 use crate::{AutoSupport, Egress};
 
@@ -17,15 +18,35 @@ pub(super) struct Found {
     pub(super) kind: ExitKind,
     pub(super) grants: Vec<Grant>,
     pub(super) target: Option<PathBuf>,
+    /// Who may approve it: the default of its kind, unless the form says more.
+    pub(super) approver: Approver,
+    /// The words that name it in a user message.
+    pub(super) names: Vec<String>,
 }
 
 impl Found {
     fn of(kind: ExitKind) -> Self {
-        Found { kind, grants: Vec::new(), target: None }
+        let approver = if kind.user_only() { Approver::User } else { Approver::Classifier };
+        Found { kind, grants: Vec::new(), target: None, approver, names: Vec::new() }
     }
 
     fn bus(bus: BusKind) -> Self {
-        Found { kind: ExitKind::Bus, grants: vec![Grant::Bus { bus }], target: None }
+        Found { grants: vec![Grant::Bus { bus }], ..Found::of(ExitKind::Bus) }
+    }
+
+    /// An `upload` that the classifier judges when a user message names one of `names`
+    /// (spec 9.1): the verb of the program, the remote or the host.
+    fn upload(names: Vec<String>) -> Self {
+        let names = super::names::dedup(names);
+        Found { approver: Approver::ClassifierWhenNamed, names, ..Found::of(ExitKind::Upload) }
+    }
+
+    /// A `desktop_ipc` exit of `program` with `args`: the classifier judges a read or
+    /// reload form of [`DESKTOP_IPC_READ`], the user every other form.
+    fn desktop(program: &str, args: &[String]) -> Self {
+        let approver =
+            if is_desktop_read(program, args) { Approver::Classifier } else { Approver::User };
+        Found { approver, ..Found::of(ExitKind::DesktopIpc) }
     }
 }
 
@@ -373,7 +394,9 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         "git" => found.extend(git(args, &network)),
         "npm" | "pnpm" | "yarn" | "bun" => found.extend(node(program, args, &network)),
         "cargo" => found.extend(match verb(args, &["--color", "-Z", "--config"]) {
-            Some("publish" | "yank" | "owner") => Some(Found::of(ExitKind::Upload)),
+            Some(verb @ ("publish" | "yank" | "owner")) => {
+                Some(Found::upload(vec![verb.to_owned()]))
+            }
             Some(
                 "fetch" | "update" | "install" | "search" | "add" | "login" | "generate-lockfile",
             ) => network.host(),
@@ -416,38 +439,36 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
             }
         }
         "gem" => found.extend(match verb(args, &[]) {
-            Some("push") => Some(Found::of(ExitKind::Upload)),
+            Some("push") => Some(Found::upload(vec!["push".to_owned()])),
             Some("install" | "update" | "fetch") => network.host(),
             _ => None,
         }),
         "twine" => found.push(match verb(args, &[]) {
-            Some("upload" | "register") => Found::of(ExitKind::Upload),
+            Some(verb @ ("upload" | "register")) => Found::upload(vec![verb.to_owned()]),
             _ => Found::of(ExitKind::Host),
         }),
         "gh" => found.extend(gh(args, &network)),
-        "scp" | "sftp" => found.push(Found::of(ExitKind::Upload)),
+        "scp" | "sftp" => found.push(Found::upload(remote_names(program, args))),
         "rsync" if args.iter().any(|arg| is_remote(arg)) => {
-            found.push(Found::of(ExitKind::Upload));
+            found.push(Found::upload(remote_names(program, args)));
         }
         "curl" => found.extend(if curl_uploads(args) {
-            Some(Found::of(ExitKind::Upload))
+            Some(Found::upload(url_names(args)))
         } else {
             network.host()
         }),
         "wget" => found.extend(if wget_uploads(args) {
-            Some(Found::of(ExitKind::Upload))
+            Some(Found::upload(url_names(args)))
         } else {
             network.host()
         }),
         "ssh" | "mosh" | "autossh" => found.extend(network.remote_shell()),
         program if NETWORK_PROGRAMS.contains(&program) => found.extend(network.host()),
-        program if HOST_VIEW.contains(&program) => found.push(Found {
-            kind: ExitKind::HostView,
-            grants: vec![Grant::OpenNetwork],
-            target: None,
-        }),
-        program if DESKTOP_IPC.contains(&program) => found.push(Found::of(ExitKind::DesktopIpc)),
-        "niri" if verb(args, &[]) == Some("msg") => found.push(Found::of(ExitKind::DesktopIpc)),
+        program if HOST_VIEW.contains(&program) => {
+            found.push(Found { grants: vec![Grant::OpenNetwork], ..Found::of(ExitKind::HostView) });
+        }
+        program if DESKTOP_IPC.contains(&program) => found.push(Found::desktop(program, args)),
+        "niri" if verb(args, &[]) == Some("msg") => found.push(Found::desktop("niri", args)),
         // NOTE: `dd of=/dev/null` overwrites nothing; the sandbox has that node.
         "dd" if dd_targets(words).into_iter().any(|target| {
             !crate::path_class::normalize(Path::new(target))
@@ -484,18 +505,18 @@ struct Network<'a> {
 
 impl Network<'_> {
     /// A `host` exit with the whole network for one call in phase 1; nothing once the
-    /// proxy decides (phase 2).
+    /// proxy decides (phase D).
     fn host(&self) -> Option<Found> {
         match self.support.egress {
             Egress::None => {
-                Some(Found { kind: ExitKind::Host, grants: vec![Grant::OpenNetwork], target: None })
+                Some(Found { grants: vec![Grant::OpenNetwork], ..Found::of(ExitKind::Host) })
             }
             Egress::Proxy => None,
         }
     }
 
     /// A remote shell: a `host` exit in phase 1. The proxy carries no ssh, so from
-    /// phase 2 it runs only outside the sandbox.
+    /// phase D it runs only outside the sandbox.
     fn remote_shell(&self) -> Option<Found> {
         match self.support.egress {
             Egress::None => self.host(),
@@ -552,6 +573,135 @@ const DESKTOP_IPC: &[&str] = &[
     "wl-copy",
     "wl-paste",
 ];
+
+/// The forms of the desktop programs that only read the state of the display or reload
+/// the user's own config (spec 7.1): the program, then its exact words. A word that
+/// ends in `*` matches every word that starts with the rest. The classifier judges
+/// these forms; every other form of a desktop program types, runs programs or is
+/// unknown, and only the user approves it. The clipboard readers (`wl-paste`,
+/// `xclip -o`, `xsel`) are not here: a clipboard can hold a password.
+pub const DESKTOP_IPC_READ: &[(&str, &[&str])] = &[
+    ("hyprctl", &["clients"]),
+    ("hyprctl", &["monitors"]),
+    ("hyprctl", &["workspaces"]),
+    ("hyprctl", &["activewindow"]),
+    ("hyprctl", &["version"]),
+    ("hyprctl", &["reload"]),
+    ("swaymsg", &["-t", "get_*"]),
+    ("xrandr", &[]),
+    ("xrandr", &["--verbose"]),
+    ("xrandr", &["--query"]),
+    ("xrandr", &["-q"]),
+    ("wlr-randr", &[]),
+    ("niri", &["msg", "outputs"]),
+    ("niri", &["msg", "workspaces"]),
+    ("niri", &["msg", "windows"]),
+];
+
+/// The options that a form of [`DESKTOP_IPC_READ`] may carry besides its words: they
+/// only change the format of the answer. Any other option, such as `hyprctl --batch`,
+/// refuses the match.
+const DESKTOP_READ_OPTIONS: &[&str] = &["-j", "--json", "-r", "--raw"];
+
+/// True when `program` with `args` is a form of [`DESKTOP_IPC_READ`].
+fn is_desktop_read(program: &str, args: &[String]) -> bool {
+    let words: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|word| !DESKTOP_READ_OPTIONS.contains(word))
+        .collect();
+    DESKTOP_IPC_READ.iter().filter(|(name, _)| *name == program).any(|(_, form)| {
+        form.len() == words.len()
+            && form.iter().zip(&words).all(|(want, word)| match want.strip_suffix('*') {
+                Some(prefix) => word.starts_with(prefix) && word.len() > prefix.len(),
+                None => want == word,
+            })
+    })
+}
+
+/// The ecosystem whose registry the command fetches from, when it is a package
+/// manager's fetch: `cargo fetch` or `cargo build`, `npm ci` or `npm install`,
+/// `pip install`, `uv sync`, `go mod download`, `pacman -Sw`.
+pub(super) fn package_fetch(words: &[String]) -> Option<Ecosystem> {
+    let (first, args) = words.split_first()?;
+    let verb = verb(args, &[]);
+    match base_name(first) {
+        "cargo" => matches!(
+            verb,
+            Some(
+                "fetch"
+                    | "build"
+                    | "check"
+                    | "test"
+                    | "update"
+                    | "generate-lockfile"
+                    | "add"
+                    | "install"
+            )
+        )
+        .then_some(Ecosystem::Crates),
+        "npm" | "pnpm" | "yarn" | "bun" => {
+            matches!(verb, None | Some("ci" | "install" | "i" | "add" | "update"))
+                .then_some(Ecosystem::Npm)
+        }
+        "pip" | "pip3" => matches!(verb, Some("install" | "download")).then_some(Ecosystem::Pypi),
+        "uv" => matches!(verb, Some("sync" | "add" | "lock" | "pip")).then_some(Ecosystem::Pypi),
+        "python" | "python3" if args.first().is_some_and(|arg| arg == "-m") => {
+            package_fetch(&args[1..])
+        }
+        "go" => match verb {
+            Some("mod") => matches!(second_verb(args), Some("download" | "tidy" | "vendor"))
+                .then_some(Ecosystem::Go),
+            Some("get" | "install" | "build" | "test") => Some(Ecosystem::Go),
+            _ => None,
+        },
+        "pacman" => args
+            .iter()
+            .any(|arg| {
+                arg.strip_prefix("-S").is_some_and(|letters| letters.contains('w'))
+                    || arg == "--downloadonly"
+            })
+            .then_some(Ecosystem::Pacman),
+        _ => None,
+    }
+}
+
+/// The words of the paths that a destructive command of `words` deletes or overwrites,
+/// or `None` when it works on the repository of its directory (`git reset --hard`).
+/// An empty list means that efr cannot name the paths.
+pub(super) fn destructive_targets(words: &[String]) -> Option<Vec<&str>> {
+    let Some((first, args)) = words.split_first() else {
+        return Some(Vec::new());
+    };
+    let operands = |values: &[&str]| -> Vec<&str> {
+        let mut found = Vec::new();
+        let mut words = args.iter();
+        while let Some(word) = words.next() {
+            if values.contains(&word.as_str()) {
+                words.next();
+            } else if !word.starts_with('-') {
+                found.push(word.as_str());
+            }
+        }
+        found
+    };
+    match base_name(first) {
+        "git" => None,
+        "dd" => Some(dd_targets(words)),
+        "shred" => Some(operands(&["-n", "--iterations", "-s", "--size"])),
+        "truncate" => Some(operands(&["-s", "--size", "-r", "--reference"])),
+        "find" => {
+            let roots: Vec<&str> = args
+                .iter()
+                .take_while(|word| !word.starts_with('-') && *word != "(" && *word != "!")
+                .map(String::as_str)
+                .collect();
+            Some(if roots.is_empty() { vec!["."] } else { roots })
+        }
+        "rm" => Some(recursive_rm_operands(words)),
+        _ => Some(Vec::new()),
+    }
+}
 
 /// The device nodes that every contained call has (bwrap `--dev`).
 const SANDBOX_DEVICES: &[&str] = &[
@@ -615,9 +765,9 @@ pub(super) fn is_host_device(path: &Path) -> bool {
 /// The `device` exit of the host device `path`.
 pub(super) fn device_exit(path: PathBuf) -> Found {
     Found {
-        kind: ExitKind::Device,
         grants: vec![Grant::Device { path: path.clone() }],
         target: Some(path),
+        ..Found::of(ExitKind::Device)
     }
 }
 
@@ -740,12 +890,41 @@ fn systemctl(args: &[String]) -> Option<Found> {
     match verb(args, SYSTEMCTL_VALUES) {
         None => Some(Found::bus(bus)),
         Some(verb) if SYSTEMCTL_READ.contains(&verb) => Some(Found::bus(bus)),
+        // NOTE: only the user approves it in phase A, also when a message names the unit
+        // (spec 9.1); the unit's names fill the record.
         Some(verb) if user && SYSTEMCTL_PERSIST.contains(&verb) => {
-            Some(Found::of(ExitKind::Persistence))
+            Some(Found { names: unit_names(args, verb), ..Found::of(ExitKind::Persistence) })
         }
         Some(_) if user => Some(Found::bus(bus)),
         Some(_) => Some(Found::of(ExitKind::Privilege)),
     }
+}
+
+/// The units that `systemctl` with `args` names after `verb`, each with and without
+/// its suffix (`syncthing.service`, `syncthing`).
+fn unit_names(args: &[String], verb: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut words = args.iter();
+    let mut after_verb = false;
+    while let Some(word) = words.next() {
+        if SYSTEMCTL_VALUES.contains(&word.as_str()) {
+            words.next();
+            continue;
+        }
+        if word.starts_with('-') {
+            continue;
+        }
+        if !after_verb {
+            after_verb = word == verb;
+            continue;
+        }
+        names.push(word.clone());
+        match word.rsplit_once('.') {
+            Some((stem, _)) if !stem.is_empty() => names.push(stem.to_owned()),
+            _ => names.push(format!("{word}.service")),
+        }
+    }
+    super::names::dedup(names)
 }
 
 /// The options of `git` itself that take the next word as their value.
@@ -768,7 +947,13 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
     let rest = &args[at + 1..];
     let destructive = || vec![Found::of(ExitKind::Destructive)];
     match sub.as_str() {
-        "push" | "send-email" | "send-pack" => vec![Found::of(ExitKind::Upload)],
+        "push" | "send-email" | "send-pack" => {
+            let mut names = vec![sub.clone()];
+            if let Some(remote) = rest.iter().find(|word| !word.starts_with('-')) {
+                names.extend(host_of(remote).or_else(|| Some(remote.clone())));
+            }
+            vec![Found::upload(names)]
+        }
         "fetch" | "pull" | "clone" | "ls-remote" => network.host().into_iter().collect(),
         "remote" if matches!(verb(rest, &[]), Some("update" | "prune" | "show")) => {
             network.host().into_iter().collect()
@@ -863,9 +1048,9 @@ const NODE_FETCH: &[&str] = &[
 
 fn node(program: &str, args: &[String], network: &Network<'_>) -> Option<Found> {
     match verb(args, &["--prefix", "-C", "--dir", "--cwd", "--filter"]) {
-        Some("publish") => Some(Found::of(ExitKind::Upload)),
+        Some("publish") => Some(Found::upload(vec!["publish".to_owned()])),
         Some("npm") if program == "yarn" && args.iter().any(|arg| arg == "publish") => {
-            Some(Found::of(ExitKind::Upload))
+            Some(Found::upload(vec!["publish".to_owned()]))
         }
         // NOTE: `yarn` alone installs.
         None if program == "yarn" => network.host(),
@@ -891,7 +1076,43 @@ fn gh(args: &[String], network: &Network<'_>) -> Option<Found> {
         }),
         _ => false,
     };
-    if writes { Some(Found::of(ExitKind::Upload)) } else { network.host() }
+    if !writes {
+        return network.host();
+    }
+    let mut names: Vec<String> = group.into_iter().map(str::to_owned).collect();
+    if group == Some("pr") {
+        names.push("pull request".to_owned());
+    }
+    Some(Found::upload(names))
+}
+
+/// The names of an upload with `scp`, `sftp` or `rsync`: the program and the host of
+/// each remote operand.
+fn remote_names(program: &str, args: &[String]) -> Vec<String> {
+    let mut names = vec![program.to_owned()];
+    names.extend(args.iter().filter(|arg| !arg.starts_with('-')).filter_map(|arg| host_of(arg)));
+    names
+}
+
+/// The names of an upload with `curl` or `wget`: the verb and the host of each URL.
+fn url_names(args: &[String]) -> Vec<String> {
+    let mut names = vec!["upload".to_owned()];
+    names.extend(args.iter().filter(|arg| arg.contains("://")).filter_map(|arg| host_of(arg)));
+    names
+}
+
+/// The host of a URL (`https://user@host:8443/x`), of a remote operand (`user@host:path`,
+/// `host:path`) or of an `rsync://` address, in lower case.
+fn host_of(word: &str) -> Option<String> {
+    if word.contains("://") {
+        return host_and_port(word).map(|(host, _)| host);
+    }
+    if !is_remote(word) {
+        return None;
+    }
+    let (authority, _) = word.split_once(':')?;
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    (!host.is_empty()).then(|| host.to_lowercase())
 }
 
 /// True for an `rsync` operand on another host: `host:path`, `user@host:path` or

@@ -7,7 +7,7 @@ use efr_protocol::{ExitKind, ExitSource, Grant};
 
 use super::programs::is_sandbox_device;
 use super::scan::OPAQUE;
-use super::{ExitNeed, WriteBind, existing_kind};
+use super::{Approver, ExitNeed, WriteBind, existing_kind};
 use crate::path_class::normalize;
 use crate::tables::{GIT_SURFACE, PROTECTED_NAMES, is_env_file, persistence_floors, sandbox_masks};
 use crate::{Access, CallFacts, Locations, TargetKind};
@@ -19,6 +19,9 @@ pub(crate) struct Envelope<'a> {
     /// The turn's project, `$SCRATCH` and the envelope roots, in normal form under the
     /// home directory.
     roots: Vec<PathBuf>,
+    /// The roots of [`roots`](Self::roots) whose writes reach the real files: all but the
+    /// private tmp and the cache overlays.
+    real_roots: Vec<PathBuf>,
     /// The built-in floors and masks under the home directory.
     floors: Vec<PathBuf>,
     masks: Vec<PathBuf>,
@@ -53,13 +56,23 @@ impl<'a> Envelope<'a> {
     ) -> Self {
         let home = locations.home();
         let mut roots: Vec<PathBuf> = Vec::new();
+        let mut real_roots: Vec<PathBuf> = Vec::new();
         for root in project_root.into_iter().chain(scratch).chain(locations.envelope_roots()) {
             let root = locations.rehome(root).into_owned();
+            if !locations.is_private_root(&root) && !real_roots.contains(&root) {
+                real_roots.push(root.clone());
+            }
             if !roots.contains(&root) {
                 roots.push(root);
             }
         }
-        Envelope { locations, roots, floors: persistence_floors(home), masks: sandbox_masks(home) }
+        Envelope {
+            locations,
+            roots,
+            real_roots,
+            floors: persistence_floors(home),
+            masks: sandbox_masks(home),
+        }
     }
 
     /// The locations the envelope classifies by.
@@ -87,6 +100,42 @@ impl<'a> Envelope<'a> {
     /// True when `path` is a write root of the call or lies below one.
     pub(crate) fn in_root(&self, path: &Path) -> bool {
         self.roots.iter().any(|root| path.starts_with(root))
+    }
+
+    /// True when `path`, in normal form, is a real write root of the call or lies below
+    /// one: the turn's project, `$SCRATCH`, a registered project or a
+    /// `sandbox.write_roots` entry, never the private tmp or a cache overlay. A program
+    /// there may have been written in the sandbox, and a write there reaches the user's
+    /// files.
+    pub(crate) fn in_real_root(&self, path: &Path) -> bool {
+        let path = self.locations.rehome(path);
+        self.real_roots.iter().any(|root| path.starts_with(root))
+    }
+
+    /// Who approves an `above_root` write of `path` (spec 9.1): the user for `~`, `/`, a
+    /// directory above `~` or outside it, and a directory that holds two or more
+    /// registered projects or real write roots, a built-in or added floor, efr's config,
+    /// or a secret; else the classifier when a user message names the path. A project's
+    /// own `.git` and protected names are floors only by their place in a write root,
+    /// so they do not count: a named delete of one whole project can reach the
+    /// classifier.
+    pub(crate) fn above_root_approver(&self, path: &Path) -> Approver {
+        let locations = self.locations;
+        let below = |root: &PathBuf| root.starts_with(path);
+        let mut held: Vec<&Path> = locations.projects_below(path);
+        for root in self.real_roots.iter().filter(|root| below(root)) {
+            if !held.contains(&root.as_path()) {
+                held.push(root);
+            }
+        }
+        let holds = locations.is_at_or_above_home(path)
+            || !path.starts_with(locations.home())
+            || held.len() >= 2
+            || self.floors.iter().chain(locations.floor_roots()).any(below)
+            || locations.write_sealed_roots().iter().any(below)
+            || locations.is_secret(path)
+            || !locations.secrets_below(path).is_empty();
+        if holds { Approver::User } else { Approver::ClassifierWhenNamed }
     }
 
     /// True when `path` runs code later outside the sandbox: a built-in or added floor

@@ -155,6 +155,9 @@ pub struct Locations {
     projects: BTreeMap<ProjectId, PathBuf>,
     /// The write roots of a contained call besides the turn's project and `$SCRATCH`.
     envelope_roots: Vec<PathBuf>,
+    /// The envelope roots whose writes stay private to the conversation: the private
+    /// tmp and the cache overlays. Each is in `envelope_roots` too.
+    private_roots: Vec<PathBuf>,
     /// Folders that a sync service copies off the machine.
     synced_roots: Vec<PathBuf>,
     /// Paths that run code later outside the sandbox, besides the built-in table.
@@ -182,6 +185,7 @@ impl Locations {
             user_config_roots: Vec::new(),
             projects: BTreeMap::new(),
             envelope_roots: Vec::new(),
+            private_roots: Vec::new(),
             synced_roots: Vec::new(),
             floor_roots: Vec::new(),
             mask_roots: Vec::new(),
@@ -219,6 +223,7 @@ impl Locations {
             user_config_roots,
             projects,
             envelope_roots,
+            private_roots,
             synced_roots,
             floor_roots,
             mask_roots,
@@ -229,6 +234,7 @@ impl Locations {
             .chain(write_sealed_roots)
             .chain(user_config_roots)
             .chain(envelope_roots)
+            .chain(private_roots)
             .chain(synced_roots)
             .chain(floor_roots)
             .chain(mask_roots);
@@ -323,6 +329,19 @@ impl Locations {
         Ok(self)
     }
 
+    /// Adds an envelope root whose writes stay private to the conversation, such as the
+    /// private `/tmp`, `/var/tmp` and `/dev/shm`: a contained call writes there without
+    /// an exit, as below [`Locations::with_envelope_root`], but the real files never
+    /// change. So a program there was not written in the sandbox, and an `outside` or
+    /// `destructive` exit about it is no reason to ask the user.
+    pub fn with_private_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(root.into())?;
+        if !self.private_roots.contains(&root) {
+            self.private_roots.push(root.clone());
+        }
+        self.with_envelope_root(root)
+    }
+
     /// Adds a folder that a sync service copies off the machine (`sandbox.synced_dirs`):
     /// in `auto` a write below it is a `synced_write` exit, user only.
     pub fn with_synced_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
@@ -386,6 +405,21 @@ impl Locations {
             .iter()
             .map(PathBuf::as_path)
             .filter(|root| !self.is_at_or_above_home(root))
+    }
+
+    /// True when `root`, in normal form under the home directory, is a private root.
+    pub(crate) fn is_private_root(&self, root: &Path) -> bool {
+        self.private_roots.iter().any(|private| private == root)
+    }
+
+    /// The roots of the registered projects at or below `dir`, a path in normal form.
+    pub(crate) fn projects_below(&self, dir: &Path) -> Vec<&Path> {
+        let dir = self.rehome(dir);
+        self.projects
+            .values()
+            .filter(|root| root.starts_with(dir.as_ref()))
+            .map(PathBuf::as_path)
+            .collect()
     }
 
     /// The write-sealed roots: efr's config and the files behind its links.

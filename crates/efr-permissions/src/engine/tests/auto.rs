@@ -10,7 +10,7 @@ use rstest::rstest;
 
 use super::{SCRATCH, app, input, locations};
 use crate::command::PRIVILEGED;
-use crate::exits::{ONE_COMMAND, unsandboxed_line_problem};
+use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, unsandboxed_line_problem};
 use crate::{
     Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput,
     Effect, Egress, Engine, Layer, Locations, PathClass, PathFacts, Policy, Requirements, Resource,
@@ -20,19 +20,18 @@ use crate::{
 const APP: &str = "/home/u/p/app";
 
 /// The machine of `super::locations`, with efr's config sealed for writing, the
-/// sandbox's envelope roots and a synced folder.
+/// sandbox's envelope roots (the private tmp, two cache overlays and a registered
+/// project that a line names) and a synced folder.
 fn auto_locations() -> Locations {
     let mut locations = locations()
         .with_write_sealed_root("/home/u/.config/efr")
         .unwrap()
         .with_synced_root("/home/u/Dropbox")
         .unwrap();
-    for root in
-        ["/tmp", "/var/tmp", "/dev/shm", "/home/u/.cargo", "/home/u/.cache", "/home/u/p/lib"]
-    {
-        locations = locations.with_envelope_root(root).unwrap();
+    for root in ["/tmp", "/var/tmp", "/dev/shm", "/home/u/.cargo", "/home/u/.cache"] {
+        locations = locations.with_private_root(root).unwrap();
     }
-    locations
+    locations.with_envelope_root("/home/u/p/lib").unwrap()
 }
 
 fn engine() -> Engine {
@@ -400,17 +399,246 @@ fn exits_ss_is_host_view(#[case] line: &str) {
     assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork]);
 }
 
+/// The one approver of the exits of `line`, which must all agree.
+fn approver_of(requirements: Requirements) -> Approver {
+    let decision = decide(requirements);
+    let approvers: Vec<Approver> = decision.exits().map(|need| need.approver).collect();
+    assert!(!approvers.is_empty(), "no exit: {decision:?}");
+    assert!(approvers.iter().all(|approver| *approver == approvers[0]), "{approvers:?}");
+    approvers[0]
+}
+
 #[rstest]
-#[case::xrandr("xrandr --verbose")]
+#[case::xrandr("xrandr")]
+#[case::xrandr_verbose("xrandr --verbose")]
+#[case::xrandr_query("xrandr --query")]
+#[case::wlr_randr("wlr-randr")]
 #[case::swaymsg("swaymsg -t get_outputs")]
+#[case::swaymsg_raw("swaymsg -r -t get_tree")]
 #[case::hyprctl("hyprctl monitors")]
+#[case::hyprctl_json("hyprctl -j clients")]
+#[case::hyprctl_reload("hyprctl reload")]
 #[case::niri("niri msg outputs")]
-#[case::xdotool("xdotool type x")]
-#[case::clipboard("wl-paste")]
-fn exits_xrandr_is_desktop_ipc(#[case] line: &str) {
+fn exits_desktop_read_forms_are_classifier(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::DesktopIpc], "{line:?}");
-    assert!(decision.exits().all(|need| need.user_only() && !need.runs_unsandboxed()));
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.approver, Approver::Classifier, "{line:?}");
+    assert!(!need.runs_unsandboxed(), "{line:?}");
+}
+
+#[rstest]
+#[case::exec("hyprctl dispatch exec kitty")]
+#[case::batch("hyprctl --batch 'clients; dispatch exec x'")]
+#[case::keyword("hyprctl keyword monitor ,disable")]
+#[case::type_text("xdotool type x")]
+#[case::clipboard("wl-paste")]
+#[case::xclip("xclip -o")]
+#[case::output_off("wlr-randr --output DP-1 --off")]
+#[case::xrandr_change("xrandr --output DP-1 --off")]
+#[case::sway_command("swaymsg exec kitty")]
+#[case::niri_action("niri msg action spawn -- kitty")]
+fn exits_desktop_exec_and_unknown_forms_are_user(#[case] line: &str) {
+    assert_eq!(approver_of(shell(line)), Approver::User, "{line:?}");
+}
+
+#[rstest]
+#[case::push("git push origin main", &["push", "origin"])]
+#[case::force("git push --force origin main", &["push", "origin"])]
+#[case::new_remote("git push https://new-remote.example/x main", &["push", "new-remote.example"])]
+#[case::scp_remote("git push git@github.com:o/r.git", &["push", "github.com"])]
+#[case::bare_push("git push", &["push"])]
+#[case::publish("npm publish", &["publish"])]
+#[case::yarn("yarn npm publish", &["publish"])]
+#[case::cargo_publish("cargo publish", &["publish"])]
+#[case::gem("gem push x.gem", &["push"])]
+#[case::twine("twine upload dist/*", &["upload"])]
+#[case::release("gh release create v1", &["release"])]
+#[case::pr("gh pr create --fill", &["pr", "pull request"])]
+#[case::scp("scp build.tar user@host:/tmp", &["scp", "host"])]
+#[case::rsync("rsync -a ~/p/app/ remote:backup/", &["rsync", "remote"])]
+#[case::curl("curl -d @f https://Paste.Example/x", &["upload", "paste.example"])]
+#[case::wget("wget --post-data x https://x.example", &["upload", "x.example"])]
+fn exits_named_upload_is_classifier_when_named(#[case] line: &str, #[case] names: &[&str]) {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::Upload], "{line:?}");
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
+    assert_eq!(need.names, names, "{line:?}");
+    assert!(need.user_only() && need.runs_unsandboxed(), "{line:?}");
+}
+
+#[test]
+fn exits_above_root_of_one_project_is_classifier_when_named() {
+    for (line, path) in [("rm -rf ~/p/lib", "/home/u/p/lib"), ("rm -rf .", APP)] {
+        let decision = decide(shell(line).with_write(path));
+        let need = decision.exits().find(|need| need.kind == ExitKind::AboveRoot).unwrap();
+        assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
+        assert!(need.names.contains(&path.to_owned()), "{line:?}: {:?}", need.names);
+        let destructive = decision.exits().find(|need| need.kind == ExitKind::Destructive);
+        assert_eq!(destructive.map(|need| need.approver), Some(Approver::Classifier), "{line:?}");
+    }
+}
+
+#[rstest]
+#[case::parent("rm -rf ..", "/home/u/p")]
+#[case::home("rm -rf ~", "/home/u")]
+#[case::root("rm -rf /", "/")]
+#[case::above_home("rm -rf /home", "/home")]
+#[case::above_config("rm -rf ~/.config", "/home/u/.config")]
+#[case::above_scratch("rm -rf ~/.local/share", "/home/u/.local/share")]
+fn exits_above_root_home_and_two_projects_are_user(#[case] line: &str, #[case] written: &str) {
+    let decision = decide(shell(line).with_write(written));
+    let need = decision.exits().find(|need| need.kind == ExitKind::AboveRoot);
+    let need = need.unwrap_or_else(|| panic!("{line:?}: {:?}", kinds(&decision)));
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+}
+
+#[test]
+fn exits_above_root_that_holds_a_floor_or_a_secret_is_user() {
+    // `~/p/two` holds a PATH dir that the daemon made a floor, `~/p/keys` a secret.
+    let locations = auto_locations()
+        .with_envelope_root("/home/u/p/two")
+        .unwrap()
+        .with_envelope_root("/home/u/p/keys")
+        .unwrap()
+        .with_floor_root("/home/u/p/two/bin")
+        .unwrap()
+        .with_secret_root("/home/u/p/keys/id")
+        .unwrap();
+    let engine = Engine::with_defaults(locations);
+    for path in ["/home/u/p/two", "/home/u/p/keys"] {
+        let line = format!("rm -rf {path}");
+        let decision = engine.decide(&in_auto(shell(&line).with_write(path)));
+        let need = decision.exits().find(|need| need.kind == ExitKind::AboveRoot).unwrap();
+        assert_eq!(need.approver, Approver::User, "{path}");
+    }
+}
+
+/// The facts of a line whose program words resolve as `programs` say.
+fn programs(programs: &[(&str, Option<&str>, bool)]) -> CallFacts {
+    CallFacts {
+        programs: programs
+            .iter()
+            .map(|(word, path, changed)| ((*word).to_owned(), path.map(PathBuf::from), *changed))
+            .collect(),
+        ..CallFacts::default()
+    }
+}
+
+/// A call of `line` that asks to run outside the sandbox.
+fn outside(line: &str) -> Requirements {
+    shell(line).with_needs(Needs { outside: true, ..Needs::default() })
+}
+
+#[test]
+fn exits_outside_from_a_project_with_trusted_programs_is_classifier() {
+    let facts = programs(&[("git", Some("/usr/bin/git"), false)]);
+    assert_eq!(approver_of(outside("git pull").with_facts(facts)), Approver::Classifier);
+    // A program in a cache overlay or the private tmp was not written in the sandbox.
+    let facts = programs(&[("cargo", Some("/home/u/.cargo/bin/cargo"), false)]);
+    assert_eq!(approver_of(outside("cargo run").with_facts(facts)), Approver::Classifier);
+    // A builtin leads to no file.
+    let facts = programs(&[("cd", None, false), ("gdb", Some("/usr/bin/gdb"), false)]);
+    let line = "cd /tmp && gdb -p 1";
+    assert_eq!(approver_of(outside(line).with_facts(facts)), Approver::Classifier);
+}
+
+#[rstest]
+#[case::changed("./tool", &[("./tool", Some("/usr/bin/tool"), true)])]
+#[case::in_the_project("./tool", &[("./tool", Some("/home/u/p/app/tool"), false)])]
+#[case::in_scratch("x", &[("x", Some("/home/u/.local/share/efr/scratch/2026-10-04-fix-dns-0a1b2c3d/x"), false)])]
+#[case::in_a_named_project("lib", &[("lib", Some("/home/u/p/lib/bin/lib"), false)])]
+#[case::behind_a_wrapper("sudo ./tool", &[("sudo", Some("/usr/bin/sudo"), false), ("./tool", Some("/home/u/p/app/tool"), false)])]
+#[case::one_of_two("ls | ./tool", &[("ls", Some("/usr/bin/ls"), false), ("./tool", Some("/usr/bin/tool"), true)])]
+#[case::missing_word("git pull", &[])]
+fn exits_outside_with_changed_or_root_program_is_user(
+    #[case] line: &str,
+    #[case] facts: &[(&str, Option<&str>, bool)],
+) {
+    let decision = decide(outside(line).with_facts(programs(facts)));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+}
+
+#[test]
+fn exits_outside_without_facts_is_user() {
+    assert_eq!(approver_of(outside("gdb -p 1")), Approver::User);
+}
+
+#[test]
+fn exits_exit_child_write_is_classifier() {
+    let x = PathBuf::from("/home/u/x");
+    let missing = CallFacts { targets: vec![(x.clone(), None)], ..CallFacts::default() };
+    for requirements in [
+        shell("mv src ~/x").with_write(&x).with_facts(missing.clone()),
+        shell("tee /etc/hosts.d/x").with_write("/etc/hosts.d/x"),
+        shell("truncate -s 0 ~/.bash_history").with_write("/home/u/.bash_history"),
+        shell("x")
+            .with_needs(Needs { write: vec!["~/x".to_owned()], ..Needs::default() })
+            .with_facts(missing),
+    ] {
+        let decision = decide(requirements.clone());
+        let write = decision.exits().find(|need| need.kind == ExitKind::Write).unwrap();
+        assert_eq!(write.bind, Some(WriteBind::ExitChild), "{requirements:?}");
+        assert_eq!(write.approver, Approver::Classifier, "{requirements:?}");
+        assert!(!write.user_only() && write.runs_unsandboxed(), "{requirements:?}");
+    }
+}
+
+#[rstest]
+#[case::reset_in_project("git reset --hard", Approver::Classifier)]
+#[case::reset_elsewhere("git -C ~/notes reset --hard", Approver::User)]
+#[case::reset_after_cd("cd ~/notes && git reset --hard", Approver::User)]
+#[case::truncate_in_project("truncate -s 0 log.txt", Approver::Classifier)]
+#[case::truncate_home("truncate -s 0 ~/.bash_history", Approver::User)]
+#[case::dd_in_named_project("dd if=/dev/zero of=~/p/lib/db.sqlite", Approver::Classifier)]
+#[case::dd_home("dd if=/dev/zero of=~/db.sqlite", Approver::User)]
+#[case::shred_unknown("shred -u $FILE", Approver::User)]
+#[case::find_home("find ~ -name '*.o' -delete", Approver::User)]
+#[case::find_project("find . -name '*.o' -delete", Approver::Classifier)]
+#[case::rm_cache("rm -rf ~/.cache/x", Approver::User)]
+#[case::truncation_home(": > ~/notes.txt", Approver::User)]
+fn exits_destructive_outside_roots_is_user(#[case] line: &str, #[case] expected: Approver) {
+    let decision = decide(shell(line));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Destructive);
+    let need = need.unwrap_or_else(|| panic!("{line:?}: {:?}", kinds(&decision)));
+    assert_eq!(need.approver, expected, "{line:?}");
+}
+
+#[rstest]
+#[case::cargo_fetch("cargo fetch", Some(Ecosystem::Crates))]
+#[case::cargo_build("cargo build", Some(Ecosystem::Crates))]
+#[case::npm_ci("npm ci", Some(Ecosystem::Npm))]
+#[case::yarn("yarn", Some(Ecosystem::Npm))]
+#[case::pip("pip install requests", Some(Ecosystem::Pypi))]
+#[case::python_pip("python3 -m pip install x", Some(Ecosystem::Pypi))]
+#[case::uv("uv sync", Some(Ecosystem::Pypi))]
+#[case::go("go mod download", Some(Ecosystem::Go))]
+#[case::pacman("pacman -Sw firefox", Some(Ecosystem::Pacman))]
+#[case::curl("curl https://x", None)]
+#[case::git("git fetch origin", None)]
+fn package_fetch_names_its_ecosystem(#[case] line: &str, #[case] expected: Option<Ecosystem>) {
+    let decision = decide(shell(line).with_network());
+    let host = decision.exits().find(|need| need.kind == ExitKind::Host);
+    let host = host.unwrap_or_else(|| panic!("{line:?}: {:?}", kinds(&decision)));
+    assert_eq!(host.package_fetch, expected, "{line:?}");
+    assert_eq!(host.approver, Approver::Classifier, "{line:?}");
+    let registries = REGISTRY_HOSTS.iter().find(|(ecosystem, _)| Some(*ecosystem) == expected);
+    if expected.is_some_and(|ecosystem| ecosystem != Ecosystem::Pacman) {
+        assert!(registries.is_some_and(|(_, hosts)| !hosts.is_empty()), "{line:?}");
+    }
+}
+
+#[test]
+fn unit_names_fill_the_record_while_the_user_approves() {
+    let decision = decide(shell("systemctl --user enable --now syncthing.service"));
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.kind, ExitKind::Persistence);
+    assert_eq!(need.approver, Approver::User);
+    assert_eq!(need.names, ["syncthing.service", "syncthing"]);
+    let decision = decide(shell("systemctl --user link ~/x/agent"));
+    assert!(decision.exits().next().unwrap().names.contains(&"~/x/agent.service".to_owned()));
 }
 
 #[rstest]
@@ -696,14 +924,14 @@ fn exits_missing_fact_assumes_strict_case() {
         (need.kind, need.bind.clone(), need.user_only()),
         (ExitKind::Write, Some(WriteBind::TargetOnly), false)
     );
-    // A fact that says it is missing: no contained bind serves `mv`, so only the user
-    // may approve, and the line runs in the exit child.
+    // A fact that says it is missing: no contained bind serves `mv`, so the line runs
+    // in the exit child, and the classifier still judges it.
     let missing = CallFacts { targets: vec![(x.clone(), None)], ..CallFacts::default() };
     let decision = decide(shell("mv src ~/x").with_write(&x).with_facts(missing));
     let need = decision.exits().next().unwrap();
     assert_eq!(
         (need.kind, need.bind.clone(), need.user_only()),
-        (ExitKind::Write, Some(WriteBind::ExitChild), true)
+        (ExitKind::Write, Some(WriteBind::ExitChild), false)
     );
     assert!(need.grants.is_empty() && need.runs_unsandboxed());
 }

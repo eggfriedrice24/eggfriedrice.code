@@ -26,6 +26,7 @@ use efr_protocol::{ExitKind, ExitSource, Grant, Needs};
 pub(crate) use self::envelope::Envelope;
 use self::envelope::{WriteExit, read_exit, resolve};
 pub use self::names::{GENERIC_STEMS, names_match};
+pub use self::programs::DESKTOP_IPC_READ;
 use self::scan::{OPAQUE, Segment};
 use crate::command;
 use crate::path_class::normalize;
@@ -81,7 +82,9 @@ pub const ONE_COMMAND: &str = "an approved command outside the sandbox must run 
 /// The engine never reads user text, so it cannot finish the route alone: the turn
 /// resolves [`Approver::ClassifierWhenNamed`] with [`names_match`] and the user's
 /// messages. The enum is deliberately exhaustive: the turn must route every approver.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// It is ordered from the freest to the strictest, so the approver of a call is the
+/// maximum of its exits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Approver {
     /// The classifier judges it first, and may hand it to the user.
     Classifier,
@@ -279,6 +282,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut found = Found::default();
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
+    let mut fetch: Option<Ecosystem> = None;
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
@@ -301,15 +305,25 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 _ => false,
             };
             if bare && !redirect.append && exists(input.facts, &path) {
-                found.push(ExitNeed::new(ExitKind::Destructive, &part, ExitSource::Predicted));
+                found.push(destructive(&envelope, &part, &[Some(path.clone())]));
             }
             made.push((path.clone(), false));
             writes.push((path, part.clone()));
         }
         for command in programs::commands(&segment.words) {
+            fetch = fetch.or_else(|| programs::package_fetch(command));
             for exit in programs::classify(command, input.support) {
-                // NOTE: from phase 5 the filtered bus proxy decides a bus call.
+                // NOTE: from phase E the filtered bus proxy decides a bus call.
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
+                    continue;
+                }
+                if exit.kind == ExitKind::Destructive {
+                    let targets: Vec<Option<PathBuf>> = match programs::destructive_targets(command)
+                    {
+                        Some(words) => words.into_iter().map(at).collect(),
+                        None => vec![git_dir(command, dir, input.locations)],
+                    };
+                    found.push(destructive(&envelope, &part, &targets));
                     continue;
                 }
                 found.push(predicted(exit, &part));
@@ -327,11 +341,13 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     writes.push((path, part.clone()));
                 }
             }
-            let tracked = programs::recursive_rm_operands(command).into_iter().any(|word| {
+            let operands = programs::recursive_rm_operands(command);
+            let tracked = operands.iter().any(|word| {
                 at(word).and_then(|path| input.facts?.tracked(&path)).is_none_or(|count| count > 0)
             });
             if tracked {
-                found.push(ExitNeed::new(ExitKind::Destructive, &part, ExitSource::Predicted));
+                let targets: Vec<Option<PathBuf>> = operands.into_iter().map(at).collect();
+                found.push(destructive(&envelope, &part, &targets));
             }
         }
     }
@@ -359,7 +375,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             continue;
         }
         let exit = envelope.write_exit(&path, input.facts, &made);
-        if let Some(need) = write_need(exit, &path, &part, ExitSource::Predicted) {
+        if let Some(need) = write_need(&envelope, exit, &path, &part, ExitSource::Predicted) {
             found.push(need);
         }
         seen.push(path);
@@ -385,7 +401,62 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             found.push(need);
         }
     }
-    named_targets(found.0, input.locations.home())
+    let mut found = found.0;
+    for need in &mut found {
+        match need.kind {
+            ExitKind::Outside => need.approver = outside_approver(input, &envelope),
+            ExitKind::Host => need.package_fetch = fetch,
+            _ => {}
+        }
+    }
+    named_targets(found, input.locations.home())
+}
+
+/// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of
+/// the line, or a program that a wrapper runs, changed in this turn or lies in a real
+/// write root, so that code the sandbox wrote never gets the user's full rights; the
+/// user too when a fact about a program word is missing. Else the classifier. A cache
+/// overlay and the private tmp are no real write root: the sandbox never writes the
+/// real files there.
+fn outside_approver(input: &ExitInput<'_>, envelope: &Envelope<'_>) -> Approver {
+    let Some(facts) = input.facts else {
+        return Approver::User;
+    };
+    let request = fact_requests(input.line, input.command_dir, input.locations);
+    let trusted =
+        request.programs.iter().filter(|word| !request.builtins.contains(word)).all(|word| {
+            match facts.programs.iter().find(|(known, _, _)| known == word) {
+                None | Some((_, _, true)) => false,
+                Some((_, Some(path), false)) => {
+                    normalize(path).is_some_and(|path| !envelope.in_real_root(&path))
+                }
+                Some((_, None, false)) => true,
+            }
+        });
+    if trusted { Approver::Classifier } else { Approver::User }
+}
+
+/// The `destructive` exit of the simple command `part`, whose paths are `targets` (spec
+/// 9.1): the classifier judges it only when efr knows every path and each lies in a
+/// real write root; else only the user approves it.
+fn destructive(envelope: &Envelope<'_>, part: &str, targets: &[Option<PathBuf>]) -> ExitNeed {
+    let mut need = ExitNeed::new(ExitKind::Destructive, part, ExitSource::Predicted);
+    let known = !targets.is_empty()
+        && targets
+            .iter()
+            .all(|target| target.as_ref().is_some_and(|path| envelope.in_real_root(path)));
+    need.approver = if known { Approver::Classifier } else { Approver::User };
+    need
+}
+
+/// The repository that a `git` command of `words` works on: the directory of `-C`, or
+/// the directory the command runs in.
+fn git_dir(words: &[String], dir: Option<&Path>, locations: &Locations) -> Option<PathBuf> {
+    let at = words.iter().position(|word| word == "-C");
+    match at.and_then(|at| words.get(at + 1)) {
+        Some(other) => resolve(other, dir, locations),
+        None => dir.map(Path::to_path_buf),
+    }
 }
 
 /// `needs` with the forms of each target in [`ExitNeed::names`], where nothing named
@@ -524,12 +595,22 @@ impl FactRequest {
 struct Found(Vec<ExitNeed>);
 
 impl Found {
+    /// Adds `need`, or merges it into a known exit of the same kind, grants and target:
+    /// the stricter approver of the two wins, and the names of both stay.
     fn push(&mut self, need: ExitNeed) {
-        let known = self.0.iter().any(|known| {
+        let known = self.0.iter_mut().find(|known| {
             known.kind == need.kind && known.grants == need.grants && known.target == need.target
         });
-        if !known {
-            self.0.push(need);
+        match known {
+            Some(known) => {
+                known.approver = known.approver.max(need.approver);
+                for name in need.names {
+                    if !known.names.contains(&name) {
+                        known.names.push(name);
+                    }
+                }
+            }
+            None => self.0.push(need),
         }
     }
 }
@@ -539,11 +620,18 @@ fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
     let mut need = ExitNeed::new(exit.kind, part, ExitSource::Predicted);
     need.grants = exit.grants;
     need.target = exit.target;
+    need.approver = exit.approver;
+    need.names = exit.names;
     need
 }
 
 /// The `write` exit, or another kind, of a write of `path` that `exit` describes.
+///
+/// The classifier judges every `write`, also one that runs in the exit child (spec
+/// 9.1); an `above_root` write goes to it only for one path that holds nothing that
+/// only the user may risk ([`Envelope::above_root_approver`]).
 fn write_need(
+    envelope: &Envelope<'_>,
     exit: Option<WriteExit>,
     path: &Path,
     part: &str,
@@ -552,16 +640,18 @@ fn write_need(
     let exit = exit?;
     let mut need = ExitNeed::new(exit.kind, part, source);
     need.target = Some(path.to_path_buf());
-    if exit.kind == ExitKind::Write {
-        need.grants = match &exit.bind {
-            WriteBind::Parent(parent) => vec![Grant::Write { path: parent.clone() }],
-            WriteBind::ExitChild => Vec::new(),
-            _ => vec![Grant::Write { path: path.to_path_buf() }],
-        };
-        if exit.bind == WriteBind::ExitChild {
-            need.approver = Approver::User;
+    match exit.kind {
+        ExitKind::Write => {
+            need.grants = match &exit.bind {
+                WriteBind::Parent(parent) => vec![Grant::Write { path: parent.clone() }],
+                WriteBind::ExitChild => Vec::new(),
+                _ => vec![Grant::Write { path: path.to_path_buf() }],
+            };
+            need.approver = Approver::Classifier;
+            need.bind = Some(exit.bind);
         }
-        need.bind = Some(exit.bind);
+        ExitKind::AboveRoot => need.approver = envelope.above_root_approver(path),
+        _ => {}
     }
     Some(need)
 }

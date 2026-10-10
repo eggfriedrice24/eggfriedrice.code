@@ -1,12 +1,14 @@
 //! The command and attack corpus through the engine in the `auto` mode: every line
-//! gets the phase 1 result of spec Appendix A (`tests/fixtures/auto-corpus.toml`).
+//! gets the phase A result of its `pa` column (`tests/fixtures/auto-corpus.toml`). The
+//! `p1` column keeps the phase 1 result of spec Appendix A.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use efr_permissions::exits::fact_requests;
 use efr_permissions::{
-    CallFacts, Cause, ConversationPolicy, Decision, DecisionInput, Effect, Engine, Locations,
-    Policy, Requirements, SettingsChange, TargetKind,
+    Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, Decision, DecisionInput, Effect,
+    Engine, Locations, Policy, Requirements, SettingsChange, TargetKind,
 };
 use efr_protocol::{ExitKind, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
@@ -32,6 +34,7 @@ struct Line {
     p1: String,
     #[serde(default)]
     engine: Option<String>,
+    pa: String,
     #[serde(default)]
     note: Option<String>,
     exits: Vec<ExitKind>,
@@ -86,21 +89,23 @@ fn engine() -> Engine {
         .unwrap()
         .with_project(id(3), "/home/u/p/project-x")
         .unwrap();
+    for root in ["/tmp", "/var/tmp", "/dev/shm"] {
+        locations = locations.with_private_root(root).unwrap();
+    }
     for root in [
-        "/tmp",
-        "/var/tmp",
-        "/dev/shm",
         "/home/u/.cargo",
         "/home/u/.rustup",
         "/home/u/.cache",
         "/home/u/go/pkg/mod",
         "/home/u/.npm",
-        "/home/u/p/app",
-        "/home/u/p/project-x",
     ] {
+        locations = locations.with_private_root(root).unwrap();
+    }
+    for root in ["/home/u/p/app", "/home/u/p/project-x"] {
         locations = locations.with_envelope_root(root).unwrap();
     }
     Engine::with_rules(locations, Policy::empty())
+        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() })
 }
 
 /// What the call of `line` declares, with the facts the daemon would collect.
@@ -108,8 +113,8 @@ fn requirements(line: &Line) -> Requirements {
     if let Some(summary) = &line.settings {
         return Requirements::none().with_settings_change(SettingsChange::new(summary, true));
     }
-    let mut requirements =
-        Requirements::none().with_command(line.line.clone().unwrap()).with_command_dir(PROJECT);
+    let text = line.line.clone().unwrap();
+    let mut requirements = Requirements::none().with_command(&text).with_command_dir(PROJECT);
     for path in &line.reads {
         requirements = requirements.with_read(path);
     }
@@ -136,12 +141,24 @@ fn requirements(line: &Line) -> Requirements {
         .collect();
     let tracked_counts =
         line.tracked.iter().map(|tracked| (tracked.path.clone(), tracked.count)).collect();
-    requirements.with_facts(CallFacts { targets, tracked_counts, programs: Vec::new() })
+    let locations = Locations::new(HOME).unwrap();
+    let request = fact_requests(&text, Some(PROJECT.as_ref()), &locations);
+    let programs = request
+        .programs
+        .iter()
+        .map(|word| {
+            let resolved = (!request.builtins.contains(word))
+                .then(|| PathBuf::from("/usr/bin").join(word.rsplit('/').next().unwrap()));
+            (word.clone(), resolved, false)
+        })
+        .collect();
+    requirements.with_facts(CallFacts { targets, tracked_counts, programs })
 }
 
-/// The result of `decision` in the words of Appendix A: `R` for a line that runs
-/// contained with no exit (the corpus's `C` lines too), `X(kind)` and `U(kind)` for an
-/// exit that asks, and `D` for a floor.
+/// The result of `decision` in the words of the `pa` column: `R` for a line that runs
+/// contained with no exit (the corpus's `C` lines too), `K(kind)`, `N(kind)` and
+/// `U(kind)` for an exit that asks, by the strictest approver of the call, and `D` for
+/// a floor.
 fn verdict(decision: &Decision, expected: &str) -> String {
     match decision.effect() {
         Effect::Deny => "D".to_owned(),
@@ -160,16 +177,23 @@ fn verdict(decision: &Decision, expected: &str) -> String {
             "asks (settings floor)".to_owned()
         }
         Effect::Ask => {
-            let letter = if decision.exits().any(|need| need.user_only()) { "U" } else { "X" };
-            // NOTE: the kind that Appendix A names must be among the exits; the fixture's
-            // `exits` holds the full set.
+            let approver = decision.exits().map(|need| need.approver).max();
+            let letter = match approver {
+                Some(Approver::User) => "U",
+                Some(Approver::ClassifierWhenNamed) => "N",
+                Some(Approver::Classifier) => "K",
+                None => "none",
+            };
+            // NOTE: the kind that the column names must be an exit with that approver;
+            // the fixture's `exits` holds the full set.
             let named = expected
-                .strip_prefix(['X', 'U'])
+                .strip_prefix(['K', 'N', 'U'])
                 .and_then(|rest| rest.strip_prefix('('))
                 .and_then(|rest| rest.strip_suffix(')'))
                 .unwrap_or_default();
             let kind = decision
                 .exits()
+                .filter(|need| Some(need.approver) == approver)
                 .map(|need| need.kind.as_str())
                 .find(|kind| *kind == named)
                 .unwrap_or("none of them");
@@ -178,8 +202,8 @@ fn verdict(decision: &Decision, expected: &str) -> String {
     }
 }
 
-/// How strict a result is: a floor over a user-only exit over an exit over a routine
-/// or contained line.
+/// How strict a phase 1 result is: a floor over a user-only exit over an exit over a
+/// routine or contained line.
 fn rank(result: &str) -> u8 {
     match result.chars().next() {
         Some('D') => 3,
@@ -190,7 +214,7 @@ fn rank(result: &str) -> u8 {
 }
 
 #[test]
-fn every_line_has_the_phase1_result() {
+fn every_line_has_the_phase_a_result() {
     let corpus: Corpus = toml::from_str(CORPUS).unwrap();
     let engine = engine();
     let mut failures = Vec::new();
@@ -203,15 +227,14 @@ fn every_line_has_the_phase1_result() {
             conversation_policy: ConversationPolicy::new(SCRATCH),
         };
         let decision = engine.decide(&input);
-        let expected = line.engine.as_deref().unwrap_or(&line.p1);
-        let found = verdict(&decision, expected);
+        let found = verdict(&decision, &line.pa);
         let exits: BTreeSet<ExitKind> = decision.exits().map(|need| need.kind).collect();
         let wanted: BTreeSet<ExitKind> = line.exits.iter().copied().collect();
         let text = line.line.as_deref().or(line.settings.as_deref()).unwrap_or_default();
-        if found != expected || exits != wanted {
+        if found != line.pa || exits != wanted {
             failures.push(format!(
-                "line {} {text:?}: expected {expected} with {wanted:?}, found {found} with {exits:?}",
-                line.n
+                "line {} {text:?}: expected {} with {wanted:?}, found {found} with {exits:?}",
+                line.n, line.pa
             ));
         }
     }
@@ -233,6 +256,20 @@ fn the_fixture_holds_all_110_lines_and_only_stricter_overrides() {
                 line.p1
             );
             assert!(line.note.is_some(), "line {}: an override says why", line.n);
+        }
+    }
+}
+
+#[test]
+fn routine_lines_stay_routine_in_phase_a() {
+    // The gate of spec 16.3: a line that ran with no exit in phase 1 makes no exit
+    // now, so it costs no classifier call. `df` is the one change: it shows the
+    // sandbox's mounts until the mount view exists, so it runs outside after a review.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        let df = line.line.as_deref().is_some_and(|text| text.starts_with("df "));
+        if matches!(line.p1.as_str(), "R" | "C") && !df {
+            assert_eq!(line.pa, line.p1, "line {} {:?}", line.n, line.line);
         }
     }
 }
