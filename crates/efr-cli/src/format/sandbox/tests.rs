@@ -49,6 +49,7 @@ fn record(line: &str) -> ExitRecord {
             exits: Vec::new(),
             grants: Vec::new(),
             source: ExitSource::Predicted,
+            edit: None,
         },
         facts: ExitFacts::default(),
     }
@@ -63,6 +64,7 @@ fn target(path: &str) -> TargetFact {
         synced: false,
         exists: true,
         named_in_user_messages: false,
+        backup_before_write: false,
     }
 }
 
@@ -425,6 +427,8 @@ fn the_verbose_record_names_every_fact_but_no_user_message() {
         sandbox_export_names: vec!["VIRTUAL_ENV".to_owned()],
         previous_exits_this_turn: vec![(ExitKind::Host, Verdict::Allow)],
         refusals_in_a_row: 1,
+        denials_in_a_row: 0,
+        denials_this_turn: 0,
     };
     let grants = [Grant::Write { path: PathBuf::from("/home/u/Documents") }];
     let lines = exit_record(&[ExitKind::Write], &grants, ExitSource::Needs, &record, home());

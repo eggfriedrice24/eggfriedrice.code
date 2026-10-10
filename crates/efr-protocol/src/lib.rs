@@ -2,8 +2,9 @@
 //!
 //! Frames, the `Method` enum with one params type per method, results and stream items,
 //! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, the `auto`
-//! sandbox's launches, grants, exits and reports, the files a call or a turn changed,
-//! the context's use and its compactions,
+//! sandbox's launches, grants, exits and reports, the presence of a person at a
+//! conversation, the files a call or a turn changed, the context's use and its
+//! compactions,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -30,6 +31,7 @@ pub mod framing;
 mod ids;
 mod method;
 mod methods;
+mod presence;
 mod sandbox;
 #[cfg(feature = "schema")]
 pub mod schema;
@@ -97,10 +99,11 @@ pub use methods::turn_interrupt::{
 };
 pub use methods::turn_steer::{LateSteer, TurnSteer, TurnSteerResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
+pub use presence::{Presence, PresenceSource};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
 pub use sandbox::record::{
-    ActionFacts, ExitFacts, ExitRecord, GitCounts, HostFact, JudgeKind, Judgement, PathClassName,
-    ProgramFact, Risk, TargetFact, UserAuthorization, Verdict,
+    ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCounts, HostFact, JudgeKind, Judgement,
+    PathClassName, PauseReason, ProgramFact, Risk, TargetFact, UserAuthorization, Verdict,
 };
 pub use sandbox::status::{CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
 pub use sandbox::summary::{BlockReason, Blocked, ReportedFile, SandboxSummary, SurfaceChange};

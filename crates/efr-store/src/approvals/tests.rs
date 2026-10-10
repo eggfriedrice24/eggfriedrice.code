@@ -126,7 +126,11 @@ async fn an_expired_approval_is_no_longer_pending() {
     writer
         .append(Batch::new().event(
             id,
-            Event::ApprovalExpired { turn_id: testing::turn(1), call_id: testing::call(1) },
+            Event::ApprovalExpired {
+                turn_id: testing::turn(1),
+                call_id: testing::call(1),
+                away: false,
+            },
         ))
         .await
         .unwrap();
@@ -235,7 +239,11 @@ async fn an_answer_after_expiry_fails_and_the_approval_stays_expired() {
     writer
         .append(Batch::new().event(id, requested(1, 1, "x")).event(
             id,
-            Event::ApprovalExpired { turn_id: testing::turn(1), call_id: testing::call(1) },
+            Event::ApprovalExpired {
+                turn_id: testing::turn(1),
+                call_id: testing::call(1),
+                away: false,
+            },
         ))
         .await
         .unwrap();

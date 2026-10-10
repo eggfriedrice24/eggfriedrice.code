@@ -21,7 +21,7 @@ use crate::{
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalDecision,
     ApprovalRespond, ApprovalRespondResult, Base64Bytes, BlockReason, Blocked, BusKind, CacheMode,
-    CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChangeKind, CheckOutcome,
+    CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome,
     ClientFrame, Color, CommandId, Compaction, CompactionId, CompactionTrigger, ConfigFileError,
     ConfigStatus, ContextUse, ConversationCompact, ConversationCompactResult, ConversationDiff,
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
@@ -32,16 +32,16 @@ use crate::{
     GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond, InputRespondResult, InputWait,
     JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult, LoginKind, Method,
     Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, Origin,
-    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, ProgramFact, ProjectId,
-    ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, ReportedFile, RequestId, ResentSteers,
-    Risk, RootDir, RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, Usage, UserAuthorization, Verdict, WithdrawTarget,
-    WithdrawnPrompt, WithdrawnSteer,
+    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
+    PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
+    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
+    PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
+    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootSource, RowCells, SandboxCheck,
+    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
+    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange, TargetFact,
+    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
+    UserAuthorization, Verdict, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -99,6 +99,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.extend(answer_fixtures());
     fixtures.extend(event_samples().iter().map(|event| fixture(event_path(event), event)));
     fixtures.push(fixture("events/tool_call_started_freeform.json", &freeform_call_sample()));
+    fixtures.push(fixture("events/exit_requested_floor_edit.json", &floor_edit_exit_sample()));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -367,6 +368,7 @@ fn exit_record() -> ExitRecord {
             exits: vec![ExitKind::Write],
             grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
             source: ExitSource::Predicted,
+            edit: None,
         },
         facts: ExitFacts {
             targets: vec![TargetFact {
@@ -377,6 +379,7 @@ fn exit_record() -> ExitRecord {
                 synced: false,
                 exists: true,
                 named_in_user_messages: true,
+                backup_before_write: false,
             }],
             hosts: vec![HostFact {
                 host: "example.com".into(),
@@ -397,7 +400,54 @@ fn exit_record() -> ExitRecord {
             sandbox_export_names: vec!["VIRTUAL_ENV".into()],
             previous_exits_this_turn: vec![(ExitKind::Host, Verdict::Allow)],
             refusals_in_a_row: 1,
+            denials_in_a_row: 2,
+            denials_this_turn: 4,
         },
+    }
+}
+
+/// The record of a `write_file` call that edits a floor file: it carries the payload and
+/// the backup fact, which a shell line never has.
+fn floor_edit_record() -> ExitRecord {
+    ExitRecord {
+        version: ExitRecord::VERSION,
+        user_messages: vec!["add alias k=kubectl to my zshrc".into()],
+        action: ActionFacts {
+            tool: "write_file".into(),
+            line: String::new(),
+            cwd: "/home/me/p/app".into(),
+            scope: Scope::Project(project_id()),
+            exits: vec![ExitKind::Persistence],
+            grants: Vec::new(),
+            source: ExitSource::Predicted,
+            edit: Some("export EDITOR=nvim\nalias k=kubectl\n".into()),
+        },
+        facts: ExitFacts {
+            targets: vec![TargetFact {
+                path: "/home/me/.zshrc".into(),
+                class: Some(PathClassName::UserConfig),
+                in_write_root: false,
+                floor: true,
+                synced: false,
+                exists: true,
+                named_in_user_messages: true,
+                backup_before_write: true,
+            }],
+            ..ExitFacts::default()
+        },
+    }
+}
+
+/// An `exit_requested` of a floor file edit through a file tool. The sample of
+/// `events/exit_requested.json` is a shell line, which has no payload.
+pub(crate) fn floor_edit_exit_sample() -> Event {
+    Event::ExitRequested {
+        turn_id: turn_id(),
+        call_id: call_id(),
+        kinds: vec![ExitKind::Persistence],
+        grants: Vec::new(),
+        source: ExitSource::Predicted,
+        record: Box::new(floor_edit_record()),
     }
 }
 
@@ -1146,6 +1196,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 }],
                 surface_changes: vec![surface_change()],
                 setup_error: Some("bwrap: Can't mount proc on /newroot/proc".into()),
+                cache_deletes: vec!["/home/me/.cache/go-build/3f".into()],
+                cache_deletes_more: 2,
             }),
             refusal: Some("efr's config (floor)".into()),
             changes: Some(file_changes()),
@@ -1178,7 +1230,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             decision: ApprovalDecision::Deny,
             origin: Origin::Phone,
         },
-        Event::ApprovalExpired { turn_id: turn_id(), call_id: call_id() },
+        Event::ApprovalExpired { turn_id: turn_id(), call_id: call_id(), away: true },
         Event::TurnSteered { turn_id: turn_id(), text: "check the journal too".into() },
         Event::SteeringDelivered { turn_id: turn_id(), steers: vec![Seq::new(45), Seq::new(46)] },
         Event::SteeringWithdrawn {
@@ -1242,6 +1294,36 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
             ),
             cached: true,
+            chain_step: Some(ChainStep::TurnModel),
+            skipped: vec!["gpt-6-luna: missing".into()],
+        },
+        Event::ExitReviewStarted {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            kinds: vec![ExitKind::Write, ExitKind::Host],
+        },
+        Event::ClassifierPaused { turn_id: turn_id(), reason: PauseReason::InARow, denials: 3 },
+        Event::PresenceChanged {
+            conversation_id: conversation_id(),
+            presence: Presence::Away,
+            source: PresenceSource::Timeout,
+        },
+        Event::CacheDeleteApplied {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            paths: vec!["/home/me/.cache/go-build/3f".into(), "/home/me/.cache/go-build/a1".into()],
+            freed_bytes: 1_288_490_188,
+        },
+        Event::HomeFileChanged {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            path: "/home/me/.zshrc".into(),
+            floor: true,
+            covered: true,
+            backup: Some(
+                "/home/me/.local/share/efr/file-backups/0190a8e2-7b1c-7d3e-8f00-1a2b3c4d5e6f/1/1/.zshrc"
+                    .into(),
+            ),
         },
         Event::SandboxSurfaceChanged {
             turn_id: turn_id(),

@@ -39,7 +39,11 @@
         "quarantined": true
       }
     ],
-    "setup_error": "bwrap: Can't mount proc on /newroot/proc"
+    "setup_error": "bwrap: Can't mount proc on /newroot/proc",
+    "cache_deletes": [
+      "/home/me/.cache/go-build/3f"
+    ],
+    "cache_deletes_more": 2
   },
   "refusal": "efr's config (floor)",
   "changes": {

@@ -300,3 +300,25 @@ No protocol version has shipped yet.
   `logout_completed` with the `provider` only; it belongs to no conversation, like
   `login_completed`. New fixture `events/logout_completed.json`;
   `admin_status_result.json` and `admin_logout_result.json` now set the new members.
+- Version 1, additive: the classifier, presence, cache deletes and floor file backups of
+  the auto mode (phase A). New event kinds `exit_review_started` (`turn_id`, `call_id`,
+  `kinds`), `classifier_paused` (`turn_id`, `reason`: `in_a_row` or `per_turn`,
+  `denials`), `presence_changed` (`conversation_id`, `presence`: `present` or `away`,
+  `source`: `input`, `user` or `timeout`; it belongs to no turn),
+  `cache_delete_applied` (`turn_id`, `call_id`, `paths`, `freed_bytes`) and
+  `home_file_changed` (`turn_id`, `call_id`, `path`, `floor`, optional `covered` and
+  `backup`). `approval_expired` gains `away` (false when absent). `exit_judged` gains an
+  optional `chain_step` (`classifier_model`, `turn_model` or `user`) and `skipped` (the
+  models that the chain skipped, absent when none), and its `judge` can be
+  `presence_expired`. In the exit record, `action` gains an optional `edit` (the payload
+  of a file tool edit of a floor file, at most 8 KiB), a target gains
+  `backup_before_write` (false when absent), `facts` gains `denials_in_a_row` and
+  `denials_this_turn` (0 when absent), and a target's `class` can be `cache`,
+  `build_output` or `trash`. The `sandbox` of `tool_call_completed` gains
+  `cache_deletes` and `cache_deletes_more`, absent when none. New fixtures
+  `events/exit_review_started.json`, `events/classifier_paused.json`,
+  `events/presence_changed.json`, `events/cache_delete_applied.json`,
+  `events/home_file_changed.json` and `events/exit_requested_floor_edit.json`;
+  `events/approval_expired.json`, `events/exit_judged.json`,
+  `events/exit_requested.json` and `events/tool_call_completed.json` now set the new
+  members.

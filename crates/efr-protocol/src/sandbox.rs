@@ -61,7 +61,7 @@ impl Launch {
     }
 }
 
-/// One widening of the sandbox for one call, after the user (or, from phase 3, the
+/// One widening of the sandbox for one call, after the user (or, from phase A, the
 /// classifier) approved an exit. A grant never lifts a mask of an engine secret and
 /// never crosses a floor.
 ///
@@ -76,7 +76,7 @@ pub enum Grant {
         /// The path, absolute.
         path: PathBuf,
     },
-    /// TCP to one host through the proxy (phase 2).
+    /// TCP to one host through the proxy (phase D).
     Host {
         /// The host name, in lower case.
         host: String,
@@ -170,7 +170,7 @@ pub enum NetworkMode {
     /// Loopback only (phase 1). A network need is a `host` exit.
     #[default]
     None,
-    /// TCP through the efr proxy to the hosts of the allow list (phase 2).
+    /// TCP through the efr proxy to the hosts of the allow list (phase D).
     Proxy,
 }
 

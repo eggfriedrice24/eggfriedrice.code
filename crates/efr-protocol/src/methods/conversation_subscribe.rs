@@ -39,6 +39,10 @@ pub struct ConversationSubscribe {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "an event is the common item of the stream; a box would cost an allocation for each one"
+)]
 pub enum ConversationSubscribeItem {
     /// One event, replayed or live.
     Event(EventEnvelope),

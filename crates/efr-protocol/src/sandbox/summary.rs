@@ -32,7 +32,7 @@ pub struct SandboxSummary {
     /// shell's terminal, so efr starts a new shell for the next call.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub survivors: Vec<String>,
-    /// Connections that the proxy refused (phase 2).
+    /// Connections that the proxy refused (phase D).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked: Vec<Blocked>,
     /// Git settings and other files that run code, which the call changed.
@@ -42,9 +42,30 @@ pub struct SandboxSummary {
     /// did not run, and efr checks the sandbox again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_error: Option<String>,
+    /// The paths in the tool caches that the call deleted in its private layer, at most
+    /// [`MAX_CACHE_DELETES`](Self::MAX_CACHE_DELETES) and
+    /// [`MAX_CACHE_DELETE_BYTES`](Self::MAX_CACHE_DELETE_BYTES). efr asks whether to
+    /// delete them in the real cache too.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cache_deletes: Vec<PathBuf>,
+    /// The cache deletes that `cache_deletes` leaves out: over its limits, a name that
+    /// is not UTF-8, or a whole directory hidden at once.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cache_deletes_more: u32,
 }
 
-/// A connection that the proxy refused (phase 2).
+impl SandboxSummary {
+    /// The most paths that [`cache_deletes`](Self::cache_deletes) lists.
+    pub const MAX_CACHE_DELETES: usize = 4096;
+    /// The most bytes of paths that [`cache_deletes`](Self::cache_deletes) lists.
+    pub const MAX_CACHE_DELETE_BYTES: usize = 256 * 1024;
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+/// A connection that the proxy refused (phase D).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Blocked {
     /// The host.
@@ -55,7 +76,7 @@ pub struct Blocked {
     pub reason: BlockReason,
 }
 
-/// Why the proxy refused a connection (phase 2).
+/// Why the proxy refused a connection (phase D).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]

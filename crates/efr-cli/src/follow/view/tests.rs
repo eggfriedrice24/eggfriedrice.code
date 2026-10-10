@@ -241,7 +241,11 @@ fn a_denied_call_is_not_reported_as_failed_too() {
     framed(view.event(&tool_started("touch note.txt"), SIZE, true), &mut view);
     framed(view.event(&approval(None), SIZE, true), &mut view);
     framed(
-        view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true),
+        view.event(
+            &Event::ApprovalExpired { turn_id: turn(), call_id: call(), away: false },
+            SIZE,
+            true,
+        ),
         &mut view,
     );
     only_the_command(framed(view.event(&refused_call_completed(), SIZE, true), &mut view));
@@ -319,7 +323,11 @@ fn an_expired_approval_settles_the_question() {
     let mut view = terminal_view();
     framed(view.event(&approval(None), SIZE, true), &mut view);
     let step = framed(
-        view.event(&Event::ApprovalExpired { turn_id: turn(), call_id: call() }, SIZE, true),
+        view.event(
+            &Event::ApprovalExpired { turn_id: turn(), call_id: call(), away: false },
+            SIZE,
+            true,
+        ),
         &mut view,
     );
     assert!(step.settled);
@@ -1523,6 +1531,7 @@ fn an_exit_question_shows_the_whole_line_what_leaves_and_the_models_reason() {
             synced: false,
             exists: true,
             named_in_user_messages: false,
+            backup_before_write: false,
         }],
         programs: vec![program_fact("echo", "shell builtin")],
         ..ExitFacts::default()

@@ -164,6 +164,48 @@ fn events_from_before_the_sandbox_still_load() {
 }
 
 #[test]
+fn events_from_before_the_classifier_still_load() {
+    let expired = json!({
+        "kind": "approval_expired",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+    });
+    let event: Event = serde_json::from_value(expired.clone()).unwrap();
+    assert!(matches!(event, Event::ApprovalExpired { away: false, .. }));
+    assert_eq!(serde_json::to_value(&event).unwrap(), expired);
+
+    let judged = json!({
+        "kind": "exit_judged",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+        "judge": "user",
+        "verdict": "allow",
+    });
+    let event: Event = serde_json::from_value(judged.clone()).unwrap();
+    assert!(
+        matches!(&event, Event::ExitJudged { chain_step: None, skipped, .. } if skipped.is_empty())
+    );
+    assert_eq!(serde_json::to_value(&event).unwrap(), judged);
+}
+
+#[test]
+fn cache_deletes_appear_only_when_a_call_made_some() {
+    let summary = SandboxSummary {
+        confined: true,
+        cache_deletes: vec!["/home/u/.cache/x".into()],
+        cache_deletes_more: 3,
+        ..SandboxSummary::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&summary).unwrap(),
+        json!({ "confined": true, "cache_deletes": ["/home/u/.cache/x"], "cache_deletes_more": 3 })
+    );
+    let back: SandboxSummary = serde_json::from_value(json!({ "confined": false })).unwrap();
+    assert!(back.cache_deletes.is_empty());
+    assert_eq!(back.cache_deletes_more, 0);
+}
+
+#[test]
 fn a_fallback_says_which_mode_was_asked_for_and_why() {
     let settings = EffectiveSettings {
         mode: Mode::Cautious,

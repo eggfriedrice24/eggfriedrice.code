@@ -442,6 +442,8 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             rationale: None,
             record_sha256: None,
             cached: false,
+            chain_step: None,
+            skipped: Vec::new(),
         },
         Event::SandboxSurfaceChanged {
             turn_id: turn(),

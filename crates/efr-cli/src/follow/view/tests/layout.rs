@@ -497,7 +497,7 @@ fn a_question_gives_its_place_to_one_line_when_it_is_answered() {
         // Nobody answered.
         Sent(4_500, shell(4, "systemctl --user restart app")),
         Sent(4_510, asked(4, "shell: run \"systemctl --user restart app\"", None)),
-        Sent(9_000, Event::ApprovalExpired { turn_id: turn(), call_id: id(4) }),
+        Sent(9_000, Event::ApprovalExpired { turn_id: turn(), call_id: id(4), away: false }),
         Sent(9_010, ended(4, None, None)),
     ]));
 }

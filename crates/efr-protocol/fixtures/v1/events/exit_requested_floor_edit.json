@@ -1,0 +1,46 @@
+{
+  "kind": "exit_requested",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "kinds": [
+    "persistence"
+  ],
+  "source": "predicted",
+  "record": {
+    "version": 1,
+    "user_messages": [
+      "add alias k=kubectl to my zshrc"
+    ],
+    "action": {
+      "tool": "write_file",
+      "line": "",
+      "cwd": "/home/me/p/app",
+      "scope": {
+        "kind": "project",
+        "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+      },
+      "exits": [
+        "persistence"
+      ],
+      "source": "predicted",
+      "edit": "export EDITOR=nvim\nalias k=kubectl\n"
+    },
+    "facts": {
+      "targets": [
+        {
+          "path": "/home/me/.zshrc",
+          "class": "user_config",
+          "in_write_root": false,
+          "floor": true,
+          "synced": false,
+          "exists": true,
+          "named_in_user_messages": true,
+          "backup_before_write": true
+        }
+      ],
+      "refusals_in_a_row": 0,
+      "denials_in_a_row": 0,
+      "denials_this_turn": 0
+    }
+  }
+}

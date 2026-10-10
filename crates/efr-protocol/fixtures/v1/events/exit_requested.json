@@ -83,7 +83,9 @@
           "allow"
         ]
       ],
-      "refusals_in_a_row": 1
+      "refusals_in_a_row": 1,
+      "denials_in_a_row": 2,
+      "denials_this_turn": 4
     }
   }
 }

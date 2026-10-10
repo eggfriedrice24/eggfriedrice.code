@@ -22,9 +22,10 @@ Where things are:
 | `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
 | `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant`, `BusKind`, `CacheMode`, `NetworkMode`, `ModeFallback` |
 | `src/sandbox/exit.rs` | `ExitKind`, `ExitSource`, `Needs` (the shell tool's `needs` input and its schema), `ExitInfo` |
-| `src/sandbox/record.rs` | the classifier's `ExitRecord` and its facts, `PathClassName`, `Judgement`, `Verdict`, `Risk`, `UserAuthorization`, `JudgeKind` |
+| `src/sandbox/record.rs` | the classifier's `ExitRecord` and its facts, `PathClassName`, `Judgement`, `Verdict`, `Risk`, `UserAuthorization`, `JudgeKind`, `ChainStep` (the step of the classifier's chain that judged), `PauseReason` (why the classifier stops for the rest of a turn) |
+| `src/presence.rs` | `Presence` (whether a person is at a conversation to answer its questions) and `PresenceSource` (what changed it) |
 | `src/sandbox/status.rs` | the probe's `SandboxStatus`, `SandboxCheck`, `CheckOutcome`, `SandboxPaths` |
-| `src/sandbox/summary.rs` | what a call reports back: `SandboxSummary`, `Blocked`, `BlockReason`, `SurfaceChange`, `ReportedFile` |
+| `src/sandbox/summary.rs` | what a call reports back: `SandboxSummary` (with the paths that it deleted in a private cache layer), `Blocked`, `BlockReason`, `SurfaceChange`, `ReportedFile` |
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |
 | `src/compaction.rs` | the model's context: `ContextUse` (how full it is against the point where efrd compacts), `CompactionTrigger` and `Compaction`, the body of `conversation_compacted` and of the `conversation.compact` result; the rules are in the README of `efr-conversation`, section "Context" |

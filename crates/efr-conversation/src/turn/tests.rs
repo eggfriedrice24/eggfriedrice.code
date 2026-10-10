@@ -623,7 +623,7 @@ async fn a_turn_from_the_phone_asks_before_reading_outside_scratch() {
     let events = h.events().await;
     assert_eq!(
         find(&events, |e| matches!(e, Event::ApprovalExpired { .. })),
-        Event::ApprovalExpired { turn_id: sent.turn_id, call_id }
+        Event::ApprovalExpired { turn_id: sent.turn_id, call_id, away: false }
     );
     h.finish();
 }
@@ -913,7 +913,7 @@ async fn an_approval_that_times_out_expires_and_the_model_hears_it() {
     let events = h.events().await;
     assert_eq!(
         find(&events, |e| matches!(e, Event::ApprovalExpired { .. })),
-        Event::ApprovalExpired { turn_id: sent.turn_id, call_id }
+        Event::ApprovalExpired { turn_id: sent.turn_id, call_id, away: false }
     );
     h.finish();
 }

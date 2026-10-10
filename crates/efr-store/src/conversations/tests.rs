@@ -396,7 +396,11 @@ async fn rebuilding_the_projections_reproduces_them_exactly() {
         Batch::new()
             .event(
                 one,
-                Event::ApprovalExpired { turn_id: testing::turn(1), call_id: testing::call(2) },
+                Event::ApprovalExpired {
+                    turn_id: testing::turn(1),
+                    call_id: testing::call(2),
+                    away: false,
+                },
             )
             .event(one, Event::TurnCancelled { turn_id: testing::turn(1) }),
         Batch::new()

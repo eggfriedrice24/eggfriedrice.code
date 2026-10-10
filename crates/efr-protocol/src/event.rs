@@ -11,10 +11,11 @@ use serde_json::{Map, Value};
 
 use crate::compaction::is_zero_u64;
 use crate::{
-    CallId, CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings, ErrorBody,
-    ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch, Origin,
-    PtyId, QuestionId, ReportedFile, Risk, SandboxSummary, Scope, Seq, ShellContext, SurfaceChange,
-    TurnId, TurnSettings, UserAuthorization, Verdict,
+    CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings,
+    ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch,
+    Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId, ReportedFile, Risk,
+    SandboxSummary, Scope, Seq, ShellContext, SurfaceChange, TurnId, TurnSettings,
+    UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -289,13 +290,17 @@ pub enum Event {
         origin: Origin,
     },
 
-    /// An approval request can no longer be answered, because the daemon restarted while
-    /// it was pending.
+    /// An approval request can no longer be answered: it waited longer than its
+    /// timeout, the turn was interrupted, or the daemon restarted while it was pending.
+    /// The call did not run.
     ApprovalExpired {
         /// The turn.
         turn_id: TurnId,
         /// The call.
         call_id: CallId,
+        /// True when nobody answered while the user was away (`presence.away_wait_secs`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        away: bool,
     },
 
     /// The user added guidance to the running turn.
@@ -442,7 +447,7 @@ pub enum Event {
     },
 
     /// A `shell` call in `auto` leaves the sandbox: the exits, what an approval opens,
-    /// and the record that a classifier would judge (phase 3), stored once per call.
+    /// and the record that a classifier would judge (phase A), stored once per call.
     ExitRequested {
         /// The turn.
         turn_id: TurnId,
@@ -461,7 +466,7 @@ pub enum Event {
     },
 
     /// An exit was judged: by the user, by a floor before any question, by the
-    /// classifier (phase 3) or by an always-allow rule (phase 5).
+    /// classifier (phase A) or by an always-allow rule (phase E).
     ExitJudged {
         /// The turn.
         turn_id: TurnId,
@@ -495,6 +500,77 @@ pub enum Event {
         /// True when the verdict came from the turn's cache.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         cached: bool,
+        /// The step of the classifier's chain that gave the verdict.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chain_step: Option<ChainStep>,
+        /// The models that the classifier's chain skipped, each as `<model>: <reason>`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        skipped: Vec<String>,
+    },
+
+    /// The classifier started to review an exit, so a client can show `reviewing:`. A
+    /// verdict from the turn's cache has none.
+    ExitReviewStarted {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call.
+        call_id: CallId,
+        /// The exits of the call.
+        kinds: Vec<ExitKind>,
+    },
+
+    /// The classifier stopped for the rest of the turn after too many denials: each
+    /// later exit asks the user, or stops the turn while the user is away.
+    ClassifierPaused {
+        /// The turn.
+        turn_id: TurnId,
+        /// Why.
+        reason: PauseReason,
+        /// The denials that the limit counted: in a row, or in the turn.
+        denials: u8,
+    },
+
+    /// The presence of a conversation changed: a person is there to answer its questions,
+    /// or not.
+    PresenceChanged {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// The new state.
+        presence: Presence,
+        /// What changed it.
+        source: PresenceSource,
+    },
+
+    /// efrd deleted paths in the real tool caches that a call had deleted in its private
+    /// layer, after the classifier or the user allowed it. Names only.
+    CacheDeleteApplied {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call that deleted them in its layer.
+        call_id: CallId,
+        /// The deleted paths, at most [`SandboxSummary::MAX_CACHE_DELETES`].
+        paths: Vec<PathBuf>,
+        /// The bytes that the deletes freed.
+        freed_bytes: u64,
+    },
+
+    /// A call changed a file outside the project that runs code later, such as
+    /// `~/.zshrc`, for the line at the end of the turn. Names only.
+    HomeFileChanged {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call.
+        call_id: CallId,
+        /// The file, absolute.
+        path: PathBuf,
+        /// True when the file is a floor.
+        floor: bool,
+        /// True when efr can undo the change (phase B).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        covered: bool,
+        /// The copy of the file before the call, in efr's backup store.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        backup: Option<PathBuf>,
     },
 
     /// The surface guard found git settings or other files that run code, which a call
@@ -615,6 +691,10 @@ impl Event {
             | Event::TurnCancelled { turn_id }
             | Event::ExitRequested { turn_id, .. }
             | Event::ExitJudged { turn_id, .. }
+            | Event::ExitReviewStarted { turn_id, .. }
+            | Event::ClassifierPaused { turn_id, .. }
+            | Event::CacheDeleteApplied { turn_id, .. }
+            | Event::HomeFileChanged { turn_id, .. }
             | Event::SandboxSurfaceChanged { turn_id, .. }
             | Event::SurfaceQuestionRequested { turn_id, .. }
             | Event::SurfaceQuestionAnswered { turn_id, .. }
@@ -627,6 +707,7 @@ impl Event {
             | Event::LoginCompleted { .. }
             | Event::LogoutCompleted { .. }
             | Event::SandboxUnavailable { .. }
+            | Event::PresenceChanged { .. }
             | Event::Unknown { .. } => None,
         }
     }

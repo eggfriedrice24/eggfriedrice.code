@@ -1,0 +1,10 @@
+{
+  "kind": "cache_delete_applied",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "paths": [
+    "/home/me/.cache/go-build/3f",
+    "/home/me/.cache/go-build/a1"
+  ],
+  "freed_bytes": 1288490188
+}

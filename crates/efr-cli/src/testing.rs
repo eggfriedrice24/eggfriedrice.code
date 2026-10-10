@@ -254,6 +254,7 @@ pub(crate) fn exit_record(line: &str, facts: ExitFacts) -> ExitRecord {
             exits: Vec::new(),
             grants: Vec::new(),
             source: ExitSource::Predicted,
+            edit: None,
         },
         facts,
     }

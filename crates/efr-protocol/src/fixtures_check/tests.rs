@@ -5,9 +5,9 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FIXTURES_DIR, all, daemon_roots, draft_part_samples, event_path, event_samples, grant_samples,
-    input_wait_samples, launch_samples, method_samples, method_stem, models_list_sample,
-    withdraw_target_samples,
+    FIXTURES_DIR, all, daemon_roots, draft_part_samples, event_path, event_samples,
+    floor_edit_exit_sample, grant_samples, input_wait_samples, launch_samples, method_samples,
+    method_stem, models_list_sample, withdraw_target_samples,
 };
 use crate::{
     DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource,
@@ -114,10 +114,15 @@ fn event_index(event: &Event) -> usize {
         Event::SteeringWithdrawn { .. } => 34,
         Event::ConversationCompacted(_) => 35,
         Event::LogoutCompleted { .. } => 36,
+        Event::ExitReviewStarted { .. } => 37,
+        Event::ClassifierPaused { .. } => 38,
+        Event::PresenceChanged { .. } => 39,
+        Event::CacheDeleteApplied { .. } => 40,
+        Event::HomeFileChanged { .. } => 41,
     }
 }
 
-const EVENT_COUNT: usize = 37;
+const EVENT_COUNT: usize = 42;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -382,6 +387,20 @@ fn event_files_decode_as_the_kind_they_are_named_after() {
             assert_eq!(format!("events/{}.json", decoded.kind()), path);
         }
     }
+}
+
+#[test]
+fn record_action_edit_round_trips() {
+    let path = "events/exit_requested_floor_edit.json";
+    let text = read(path);
+    let decoded: Event = serde_json::from_str(&text).unwrap();
+    assert_eq!(decoded, floor_edit_exit_sample());
+    let Event::ExitRequested { record, .. } = &decoded else {
+        panic!("{path} is not an exit_requested event");
+    };
+    assert_eq!(record.action.edit.as_deref(), Some("export EDITOR=nvim\nalias k=kubectl\n"));
+    assert!(record.facts.targets.iter().all(|target| target.backup_before_write));
+    assert!(text.contains("\"edit\": "), "the payload is a member of the action");
 }
 
 /// Rewrites every fixture from its sample. Ignored, so it runs only when asked for.

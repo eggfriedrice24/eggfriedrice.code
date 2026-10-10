@@ -1,0 +1,9 @@
+{
+  "kind": "home_file_changed",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "path": "/home/me/.zshrc",
+  "floor": true,
+  "covered": true,
+  "backup": "/home/me/.local/share/efr/file-backups/0190a8e2-7b1c-7d3e-8f00-1a2b3c4d5e6f/1/1/.zshrc"
+}

@@ -1005,6 +1005,8 @@ impl Turn {
                 rationale: None,
                 record_sha256: None,
                 cached: false,
+                chain_step: None,
+                skipped: Vec::new(),
             },
         ];
         self.record(events).await?;
@@ -1140,6 +1142,8 @@ impl Turn {
                 rationale: None,
                 record_sha256: None,
                 cached: false,
+                chain_step: None,
+                skipped: Vec::new(),
             }])
             .await?;
         }
@@ -1150,7 +1154,12 @@ impl Turn {
     /// answer took it first.
     async fn expire(&self, call_id: CallId) -> Result<(), ConversationError> {
         if self.shared.approvals.withdraw(call_id) {
-            self.record(vec![Event::ApprovalExpired { turn_id: self.turn_id(), call_id }]).await?;
+            self.record(vec![Event::ApprovalExpired {
+                turn_id: self.turn_id(),
+                call_id,
+                away: false,
+            }])
+            .await?;
         }
         Ok(())
     }

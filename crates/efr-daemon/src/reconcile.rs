@@ -67,10 +67,11 @@ pub(crate) fn plan(
 ) -> BTreeMap<ConversationId, Vec<Event>> {
     let mut events: BTreeMap<ConversationId, Vec<Event>> = BTreeMap::new();
     for approval in approvals {
-        events
-            .entry(approval.conversation_id)
-            .or_default()
-            .push(Event::ApprovalExpired { turn_id: approval.turn_id, call_id: approval.call_id });
+        events.entry(approval.conversation_id).or_default().push(Event::ApprovalExpired {
+            turn_id: approval.turn_id,
+            call_id: approval.call_id,
+            away: false,
+        });
     }
     for turn in turns.iter().filter(|turn| turn.status == TurnStatus::Running) {
         let settled = events.entry(turn.conversation_id).or_default();

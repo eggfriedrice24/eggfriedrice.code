@@ -367,6 +367,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             synced: place.is_some_and(|place| place.synced),
             exists,
             named_in_user_messages: named(&path_forms(path, home)),
+            backup_before_write: false,
         });
     }
     let mut hosts: Vec<HostFact> = Vec::new();
@@ -429,6 +430,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             exits: kinds(action.decision),
             grants: action.launch.grants().to_vec(),
             source: source(action.decision),
+            edit: None,
         },
         facts: ExitFacts {
             targets,
@@ -441,6 +443,8 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             sandbox_export_names: turn.export_names.clone(),
             previous_exits_this_turn: turn.previous.clone(),
             refusals_in_a_row: turn.refusals_in_a_row,
+            denials_in_a_row: 0,
+            denials_this_turn: 0,
         },
     }
 }

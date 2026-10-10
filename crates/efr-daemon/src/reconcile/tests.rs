@@ -156,7 +156,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
     assert_eq!(
         after(store.events().await.unwrap(), hwm),
         [
-            (Some(busy), Event::ApprovalExpired { turn_id: t1, call_id: call }),
+            (Some(busy), Event::ApprovalExpired { turn_id: t1, call_id: call, away: false }),
             (
                 Some(busy),
                 Event::ToolCallCompleted {

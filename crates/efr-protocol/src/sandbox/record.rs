@@ -1,4 +1,4 @@
-//! The classifier's input and output (phase 3): the record of one exit, which holds
+//! The classifier's input and output (phase A): the record of one exit, which holds
 //! only user messages, the action and facts that efr collected itself, and the verdict.
 //!
 //! They are wire types because `exit_requested`, `exit_judged` and [`ExitInfo`] carry
@@ -54,6 +54,18 @@ pub struct ActionFacts {
     pub grants: Vec<Grant>,
     /// Where the exits came from.
     pub source: ExitSource,
+    /// The payload of a `write_file`, `edit` or `apply_patch` call that edits a floor
+    /// file, which efr copies to its backup store first: the new content, the old and
+    /// the new strings, or the hunks of that file. At most
+    /// [`MAX_EDIT_BYTES`](Self::MAX_EDIT_BYTES); the user decides a longer payload. The
+    /// model wrote it, so it can hold attacker text, as `line` can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<String>,
+}
+
+impl ActionFacts {
+    /// The most bytes of [`edit`](Self::edit) that the classifier judges.
+    pub const MAX_EDIT_BYTES: usize = 8 * 1024;
 }
 
 /// Facts about an exit that efr collected itself, never from the model or a tool.
@@ -77,7 +89,7 @@ pub struct ExitFacts {
     /// For a destructive exit: the counts of the hardened `git status`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_status: Option<GitCounts>,
-    /// Whether the turn's snapshot covers the targets (phase 4).
+    /// Whether the turn's snapshot covers the targets (phase B).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_covers: Option<bool>,
     /// The names, never the values, that sandboxed calls exported.
@@ -86,9 +98,15 @@ pub struct ExitFacts {
     /// The earlier exits of this turn and how each was judged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_exits_this_turn: Vec<(ExitKind, Verdict)>,
-    /// Refusals in a row without a person: classifier and floor denials.
+    /// Floor refusals in a row without a person's answer.
     #[serde(default)]
     pub refusals_in_a_row: u8,
+    /// Classifier denials in a row without an allow or a person's answer.
+    #[serde(default)]
+    pub denials_in_a_row: u8,
+    /// Classifier denials in this turn.
+    #[serde(default)]
+    pub denials_this_turn: u8,
 }
 
 /// The engine's path classes, as the protocol names them (`efr-protocol` cannot name
@@ -107,6 +125,13 @@ pub enum PathClassName {
     System,
     /// Keys, password stores and credentials.
     Secrets,
+    /// A tool cache, such as `~/.cache` or `~/.cargo`, which the tool can fill again.
+    Cache,
+    /// Build output below a registered project, such as `target` or `node_modules`,
+    /// which a build makes again.
+    BuildOutput,
+    /// efr's trash, `$XDG_DATA_HOME/efr/trash`.
+    Trash,
 }
 
 /// A path that an exit writes or reads.
@@ -128,6 +153,10 @@ pub struct TargetFact {
     /// True when a user message names the path: its `~` form, its absolute form or its
     /// last two components.
     pub named_in_user_messages: bool,
+    /// True when efr copies the file to its backup store before the call writes it: a
+    /// floor file that the user can copy back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub backup_before_write: bool,
 }
 
 /// A host that an exit reaches.
@@ -135,11 +164,11 @@ pub struct TargetFact {
 pub struct HostFact {
     /// The host, in lower case.
     pub host: String,
-    /// True when the proxy's allow list holds it (phase 2).
+    /// True when the proxy's allow list holds it (phase D).
     pub on_allow_list: bool,
     /// True when a user message names it.
     pub named_in_user_messages: bool,
-    /// True when the proxy refused it in this conversation's last call (phase 2).
+    /// True when the proxy refused it in this conversation's last call (phase D).
     pub refused_by_proxy: bool,
 }
 
@@ -170,7 +199,7 @@ pub struct GitCounts {
     pub staged: u32,
 }
 
-/// The classifier's answer about one exit (phase 3).
+/// The classifier's answer about one exit (phase A).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Judgement {
     /// Allow, deny or ask the user.
@@ -237,12 +266,39 @@ pub enum UserAuthorization {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum JudgeKind {
-    /// The classifier (phase 3).
+    /// The classifier (phase A).
     Classifier,
     /// The user.
     User,
     /// A floor, before any question.
     Floor,
-    /// An always-allow rule (phase 5).
+    /// An always-allow rule (phase E).
     Always,
+    /// Nobody answered a question while the user was away, so the call did not run.
+    PresenceExpired,
+}
+
+/// The step of the classifier's chain that gave a verdict: its own model, the turn's
+/// model, or the user when each model step failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ChainStep {
+    /// The small model of the turn's provider, or `classifier.model`.
+    ClassifierModel,
+    /// The turn's model at a low effort.
+    TurnModel,
+    /// The user, after each model step failed.
+    User,
+}
+
+/// Why the classifier stops for the rest of a turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PauseReason {
+    /// It denied 3 actions in a row.
+    InARow,
+    /// It denied 10 actions in the turn.
+    PerTurn,
 }

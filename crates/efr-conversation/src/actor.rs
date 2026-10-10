@@ -970,7 +970,7 @@ impl ConversationActor {
             .approvals
             .withdraw_turn(turn_id)
             .into_iter()
-            .map(|call_id| Event::ApprovalExpired { turn_id, call_id })
+            .map(|call_id| Event::ApprovalExpired { turn_id, call_id, away: false })
             .collect();
         let error = ErrorBody::new(ErrorCode::Internal, "the turn stopped unexpectedly");
         events.push(Event::TurnFailed { turn_id, error, usage: None, context: None });
