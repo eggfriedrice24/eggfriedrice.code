@@ -16,17 +16,23 @@
 //! path or at its real path. Every failure stops the call: efrd never runs an edit
 //! whose backup it could not take. After the call, a file that did not change drops its
 //! entry.
+//!
+//! The store follows the keys of the snapshot store: [`collect`] keeps the newest
+//! `snapshot.keep_turns` turns of each conversation and drops a turn older than
+//! `snapshot.max_age_days`. Phase A has no command that restores a backup; the line at
+//! the end of the turn names the copy.
 
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use efr_conversation::FileBackup;
 use efr_protocol::{ConversationId, TurnId};
 use efr_sandbox::{is_within, resolve};
 use efr_stdx::fs::{Claim, claim_dir, write_atomic};
+use efr_stdx::time::{Clock as _, SystemClock};
 use rustix::fs::{FileType, Mode, OFlags};
 use serde::{Deserialize, Serialize};
 
@@ -307,7 +313,71 @@ fn remove_entry(entry: &Path) {
 /// and those older than `max_age` (`snapshot.keep_turns`, `snapshot.max_age_days`).
 /// The snapshot collector of `run.rs` calls it at each round.
 pub(crate) async fn collect(dir: &Path, keep_turns: usize, max_age: Duration) {
-    tracing::trace!(dir = %dir.display(), keep_turns, ?max_age, "no floor file backups to collect yet");
+    let dir = dir.to_path_buf();
+    // NOTE: the call in `run.rs` passes no clock, so the age counts from the system's
+    // time; `collect_at` takes the time for the tests.
+    let now = SystemTime::from(SystemClock.now());
+    let removed = tokio::task::spawn_blocking(move || collect_at(&dir, keep_turns, max_age, now));
+    match removed.await {
+        Ok(0) => {}
+        Ok(removed) => tracing::debug!(removed, "collected old floor file backups"),
+        Err(_) => tracing::warn!("collecting the floor file backups panicked"),
+    }
+}
+
+/// [`collect`] at the time `now`: returns how many turn dirs it removed. A turn's time is
+/// the time in its id (a version 7 UUID), else the time its dir last changed. A name
+/// that is not an id of efr stays. It blocks.
+pub(crate) fn collect_at(
+    dir: &Path,
+    keep_turns: usize,
+    max_age: Duration,
+    now: SystemTime,
+) -> usize {
+    let oldest = now.checked_sub(max_age).unwrap_or(SystemTime::UNIX_EPOCH);
+    let mut removed = 0;
+    let Ok(conversations) = fs::read_dir(dir) else { return 0 };
+    for conversation in conversations.flatten() {
+        let path = conversation.path();
+        let is_id = conversation
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.parse::<ConversationId>().is_ok());
+        if !is_id || !conversation.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let Ok(turns) = fs::read_dir(&path) else { continue };
+        let mut turns: Vec<(SystemTime, PathBuf)> = turns
+            .flatten()
+            .filter(|turn| turn.file_type().is_ok_and(|kind| kind.is_dir()))
+            .filter_map(|turn| {
+                let id = turn.file_name().to_str()?.parse::<TurnId>().ok()?;
+                let time = turn_time(&id).or_else(|| turn.metadata().ok()?.modified().ok())?;
+                Some((time, turn.path()))
+            })
+            .collect();
+        turns.sort_by(|left, right| right.cmp(left));
+        for (n, (time, turn)) in turns.iter().enumerate() {
+            if n < keep_turns && *time >= oldest {
+                continue;
+            }
+            match fs::remove_dir_all(turn) {
+                Ok(()) => removed += 1,
+                Err(error) => {
+                    tracing::warn!(dir = %turn.display(), error = %error, "old floor file backups could not be removed");
+                }
+            }
+        }
+        // NOTE: fails while the conversation keeps a turn, which is the point.
+        let _ = fs::remove_dir(&path);
+    }
+    removed
+}
+
+/// The time in the version 7 UUID of `turn`, when it has one.
+fn turn_time(turn: &TurnId) -> Option<SystemTime> {
+    let (seconds, nanos) = turn.as_uuid().get_timestamp()?.to_unix();
+    SystemTime::UNIX_EPOCH.checked_add(Duration::new(seconds, nanos))
 }
 
 #[cfg(test)]
