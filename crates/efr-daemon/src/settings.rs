@@ -72,6 +72,8 @@ pub(crate) fn conversation_config(
         CompactionConfig::new(settings.compaction.auto, settings.compaction.auto_at);
     config.max_queued = settings.conversation.max_queued;
     config.approval_timeout = settings.conversation.approval_timeout_secs.map(Duration::from_secs);
+    config.classifier_enabled = settings.classifier.enabled;
+    config.away_wait = Duration::from_secs(u64::from(settings.presence.away_wait_secs));
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);
     config.draft_interval = Duration::from_millis(settings.conversation.draft_interval_ms);
     config

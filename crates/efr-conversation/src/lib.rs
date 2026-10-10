@@ -34,8 +34,9 @@
 //! - The `auto` sandbox: the check point runs a contained call with no question, asks
 //!   the user about each exit with its record, runs an approved exit with the narrowest
 //!   launch, and asks whether to keep git settings that a call changed. An `auto` turn
-//!   without a working sandbox runs as `cautious`. [`ExitJudge`] is the seam of the
-//!   classifier (phase 3).
+//!   without a working sandbox runs as `cautious`. [`ExitJudge`] ([`JudgeInput`],
+//!   [`JudgeOutcome`]) is the seam of the classifier (phase A), and [`PresenceReader`]
+//!   ([`AlwaysPresent`]) says whether a person is there to answer a question.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`,
 //! `efr-sandbox` (only `secret_like`), `efr-protocol` and `efr-stdx`. Not `efr-tools`:
@@ -58,6 +59,7 @@ mod history;
 mod interrupt;
 mod judge;
 mod preamble;
+mod presence;
 mod questions;
 mod resolver;
 mod scratch;
@@ -80,6 +82,7 @@ pub use context::{
 pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::ConversationError;
 pub use history::HistoryLimits;
-pub use judge::ExitJudge;
+pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
+pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use toolbox::{CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox};

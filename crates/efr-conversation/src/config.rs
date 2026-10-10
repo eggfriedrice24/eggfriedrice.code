@@ -18,7 +18,8 @@ use serde_json::{Map, Value};
 use tokio::sync::{broadcast, watch};
 
 use crate::{
-    CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, ScopeResolver, Toolbox,
+    CompactionConfig, ConversationDraft, ExitJudge, HistoryLimits, PresenceReader, ScopeResolver,
+    Toolbox,
 };
 
 /// The settings of one conversation.
@@ -70,6 +71,13 @@ pub struct ConversationConfig {
     /// How long a parked approval waits before it expires; `None` waits until the user
     /// answers or interrupts.
     pub approval_timeout: Option<Duration>,
+    /// True when the classifier may judge an exit before the user (`classifier.enabled`);
+    /// false asks the user about every exit. A turn without a judge asks the user
+    /// either way.
+    pub classifier_enabled: bool,
+    /// How long a parked question waits while the user is away
+    /// (`presence.away_wait_secs`); then the call does not run.
+    pub away_wait: Duration,
     /// The most model calls in one turn; a turn that needs more fails.
     pub max_model_calls: u32,
     /// The most prompts that may wait behind the running turn.
@@ -82,7 +90,8 @@ impl ConversationConfig {
     /// model list (any model), no system prompt, UTC dates, no machine facts, no
     /// conversation rules, [`HistoryLimits::default`], [`CompactionConfig::default`],
     /// 200 ms between updates, 16 ms
-    /// between drafts, no approval timeout, 64 model calls per turn and 16 queued prompts.
+    /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
+    /// question while the user is away, 64 model calls per turn and 16 queued prompts.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -101,6 +110,8 @@ impl ConversationConfig {
             update_interval: Duration::from_millis(200),
             draft_interval: Duration::from_millis(16),
             approval_timeout: None,
+            classifier_enabled: true,
+            away_wait: Duration::from_secs(300),
             max_model_calls: 64,
             max_queued: 16,
         }
@@ -193,9 +204,12 @@ pub struct ConversationDeps {
     /// turn starts: an `auto` turn without an available sandbox runs as `cautious`,
     /// with the probe's reason.
     pub sandbox: watch::Receiver<SandboxStatus>,
-    /// Who judges an exit before the user (the classifier, from phase 3); `None` asks
+    /// Who judges an exit before the user (the classifier, from phase A); `None` asks
     /// the user about every exit, as phase 1 does.
     pub judge: Option<Arc<dyn ExitJudge>>,
+    /// Whether a person is at a conversation to answer a question, read when a turn
+    /// parks one ([`AlwaysPresent`](crate::AlwaysPresent) counts one present always).
+    pub presence: Arc<dyn PresenceReader>,
     /// Where the turns send their drafts, for the subscribers that asked for them. The
     /// daemon holds the other end; nothing stores a draft. A send without a receiver
     /// costs nothing, and a turn does no draft work while nobody listens.

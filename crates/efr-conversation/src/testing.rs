@@ -595,6 +595,7 @@ impl Setup {
             home,
             sandbox: sandbox_receiver,
             judge: None,
+            presence: Arc::new(crate::AlwaysPresent),
             drafts: self.drafts.clone(),
         };
         let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));

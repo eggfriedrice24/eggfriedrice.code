@@ -47,6 +47,29 @@ fn the_conversation_settings_follow_the_config() {
 }
 
 #[test]
+fn the_classifier_switch_and_the_away_wait_reach_the_conversations() {
+    let convert = |config: &Settings| {
+        conversation_config(
+            config,
+            &builtin_models(),
+            PathBuf::from("/d/s"),
+            HostInfo::default(),
+            TimeZone::UTC,
+        )
+    };
+    let defaults = convert(&Settings::default());
+    assert!(defaults.classifier_enabled);
+    assert_eq!(defaults.away_wait, Duration::from_secs(300));
+
+    let mut config = Settings::default();
+    config.classifier.enabled = false;
+    config.presence.away_wait_secs = 45;
+    let settings = convert(&config);
+    assert!(!settings.classifier_enabled);
+    assert_eq!(settings.away_wait, Duration::from_secs(45));
+}
+
+#[test]
 fn the_turn_defaults_and_the_model_list_follow_the_config() {
     let mut config = Settings::default();
     config.permissions.mode = Mode::Auto;

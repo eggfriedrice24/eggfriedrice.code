@@ -19,7 +19,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::Settings;
-use efr_conversation::{ConversationDeps, GitScopeResolver, HostInfo, draft_channel};
+use efr_conversation::{
+    AlwaysPresent, ConversationDeps, GitScopeResolver, HostInfo, draft_channel,
+};
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
 use efr_http::{HttpClient, HttpConfig};
@@ -520,6 +522,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         home,
         sandbox: sandbox.status(),
         judge: None,
+        presence: Arc::new(AlwaysPresent),
         drafts: drafts.clone(),
     };
     let ttys = conversations::load_ttys(&readers).await?;
