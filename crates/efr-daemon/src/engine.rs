@@ -20,7 +20,7 @@ use efr_sandbox::{expand_home, is_within, too_wide};
 use efr_scope::{Home, Registry};
 
 use crate::DaemonError;
-use crate::sandbox::links::link_targets;
+use crate::sandbox::links::dotfile_links;
 use crate::sandbox::{HostFacts, launcher};
 use crate::state::SCRATCH_DIR;
 
@@ -38,7 +38,8 @@ pub(crate) const TRASH_DIR: &str = "trash";
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SandboxFacts {
     pub(crate) host: HostFacts,
-    pub(crate) link_targets: Vec<PathBuf>,
+    /// Each dotfile link whose target lies in a write root, with that target.
+    pub(crate) links: Vec<(PathBuf, PathBuf)>,
     pub(crate) efr: EfrPaths,
 }
 
@@ -92,10 +93,10 @@ impl EngineParts {
             .unwrap_or_else(|_| vec![self.config.clone()]);
         let roots = write_roots(self.home.path(), settings, &projects);
         let home = self.home.path().to_path_buf();
-        let links = tokio::task::spawn_blocking(move || link_targets(&home, &roots))
+        let links = tokio::task::spawn_blocking(move || dotfile_links(&home, &roots))
             .await
             .unwrap_or_default();
-        let facts = SandboxFacts { host: self.host.clone(), link_targets: links, efr: self.efr() };
+        let facts = SandboxFacts { host: self.host.clone(), links, efr: self.efr() };
         build(&self.home, &self.secrets, &protected, settings, &projects, &facts)
     }
 
@@ -309,11 +310,19 @@ fn with_sandbox(
     }
     // NOTE: a floor in a group may take a named file edit through the classifier once
     // efrd keeps backups; `sandbox.protect` and the floors of no known group stay with
-    // the user.
-    let mut floors = expand(&sandbox.protect);
-    floors.extend(facts.link_targets.iter().cloned());
-    for floor in floors {
+    // the user. A dotfile link target takes the group of its link.
+    for floor in expand(&sandbox.protect) {
         locations = add(locations, floor, "floor", |l, p| l.with_floor_root(p));
+    }
+    for (link, target) in &facts.links {
+        let kept = locations.clone();
+        locations = match locations.with_link_floor_root(target, link) {
+            Ok(next) => next,
+            Err(error) => {
+                tracing::warn!(error = %error, path = %target.display(), what = "floor", "the engine leaves out a sandbox path");
+                kept
+            }
+        };
     }
     if let Some(zdotdir) = &facts.host.zdotdir {
         for file in ZSH_STARTUP_FILES.iter().map(|name| zdotdir.join(name)) {

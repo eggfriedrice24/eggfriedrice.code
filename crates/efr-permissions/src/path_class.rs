@@ -248,7 +248,11 @@ impl Locations {
             .chain(envelope_roots)
             .chain(private_roots)
             .chain(synced_roots)
-            .chain(floor_roots.iter_mut().map(|floor| &mut floor.root))
+            .chain(
+                floor_roots
+                    .iter_mut()
+                    .flat_map(|floor| std::iter::once(&mut floor.root).chain(floor.link.as_mut())),
+            )
             .chain(mask_roots)
             .chain(efr_binaries)
             .chain(efr_roots);
@@ -400,7 +404,25 @@ impl Locations {
     /// [`PERSISTENCE_FLOORS`](crate::PERSISTENCE_FLOORS).
     pub fn with_floor_root(mut self, root: impl Into<PathBuf>) -> Result<Self, PermissionsError> {
         let root = self.absolute_root(root.into())?;
-        self.floor_roots.push(AddedFloor { root, group: None });
+        self.floor_roots.push(AddedFloor { root, group: None, link: None });
+        Ok(self)
+    }
+
+    /// Adds the target of a dotfile link that lies in a write root, such as
+    /// `~/dotfiles/hypr` behind the link `~/.config/hypr`: a floor with the group of its
+    /// link in [`PERSISTENCE_FLOOR_GROUPS`](crate::PERSISTENCE_FLOOR_GROUPS), and the
+    /// link's forms name it too, so "my hyprland config" names
+    /// `~/dotfiles/hypr/hyprland.conf`. A link in no group gives a floor that only the
+    /// user may change.
+    pub fn with_link_floor_root(
+        mut self,
+        target: impl Into<PathBuf>,
+        link: impl Into<PathBuf>,
+    ) -> Result<Self, PermissionsError> {
+        let root = self.absolute_root(target.into())?;
+        let link = self.absolute_root(link.into())?;
+        let group = crate::tables::floor_group(&self.home, &link);
+        self.floor_roots.push(AddedFloor { root, group, link: Some(link) });
         Ok(self)
     }
 
@@ -414,7 +436,7 @@ impl Locations {
         group: FloorGroup,
     ) -> Result<Self, PermissionsError> {
         let root = self.absolute_root(root.into())?;
-        self.floor_roots.push(AddedFloor { root, group: Some(group) });
+        self.floor_roots.push(AddedFloor { root, group: Some(group), link: None });
         Ok(self)
     }
 
@@ -664,6 +686,9 @@ pub(crate) struct AddedFloor {
     pub(crate) root: PathBuf,
     /// Its group, or `None` when only the user may change it.
     pub(crate) group: Option<FloorGroup>,
+    /// For the target of a dotfile link: the link, in normal form under the home
+    /// directory.
+    pub(crate) link: Option<PathBuf>,
 }
 
 /// The built-in engine secrets for a user whose home directory is `home`: the secret

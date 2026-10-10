@@ -21,9 +21,23 @@ const MAX_ENTRIES: usize = 4096;
 /// The real targets of the links in the scanned directories of `home` that lie at or
 /// below one of `roots`. It blocks.
 pub(crate) fn link_targets(home: &Path, roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut targets = Vec::new();
+    let mut targets: Vec<PathBuf> = Vec::new();
+    for (_, target) in dotfile_links(home, roots) {
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
+    targets
+}
+
+/// Each link in the scanned directories of `home` whose real target lies at or below
+/// one of `roots`, with that target, such as `~/.config/hypr` with `~/dotfiles/hypr`.
+/// The engine gives the target the group and the names of its link (spec 9.1). It
+/// blocks.
+pub(crate) fn dotfile_links(home: &Path, roots: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
+    let mut links = Vec::new();
     if roots.is_empty() {
-        return targets;
+        return links;
     }
     for (relative, dot_only) in SCANNED {
         let dir = if relative.is_empty() { home.to_path_buf() } else { home.join(relative) };
@@ -37,12 +51,12 @@ pub(crate) fn link_targets(home: &Path, roots: &[PathBuf]) -> Vec<PathBuf> {
                 continue;
             }
             let Ok(target) = fs::canonicalize(entry.path()) else { continue };
-            if roots.iter().any(|root| is_within(&target, root)) && !targets.contains(&target) {
-                targets.push(target);
+            if roots.iter().any(|root| is_within(&target, root)) {
+                links.push((entry.path(), target));
             }
         }
     }
-    targets
+    links
 }
 
 #[cfg(test)]

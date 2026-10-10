@@ -532,6 +532,45 @@ fn a_protected_floor_root_is_user() {
 }
 
 #[test]
+fn link_target_floor_takes_group_and_names_of_its_link() {
+    // `~/dotfiles` is a write root; the daemon found `~/.config/hypr` and `~/.tmux.conf`
+    // linked into it.
+    let locations = auto_locations()
+        .with_envelope_root("/home/u/dotfiles")
+        .unwrap()
+        .with_link_floor_root("/home/u/dotfiles/hypr", "/home/u/.config/hypr")
+        .unwrap()
+        .with_link_floor_root("/home/u/dotfiles/tmux.conf", "/home/u/.tmux.conf")
+        .unwrap();
+    let engine = Engine::with_defaults(locations)
+        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() });
+    let conf = "/home/u/dotfiles/hypr/hyprland.conf";
+    let line = shell("echo 'gaps_in = 4' >> ~/dotfiles/hypr/hyprland.conf")
+        .with_write(conf)
+        .with_facts(kinds_of(&[(conf, FILE)]));
+    let need = persistence(&engine, line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert!(need.backup_before_write);
+    for name in
+        ["~/dotfiles/hypr/hyprland.conf", "~/.config/hypr/hyprland.conf", "hyprland", "hypr"]
+    {
+        assert!(need.names.contains(&name.to_owned()), "{name}: {:?}", need.names);
+    }
+    assert!(names_match(&need.names, &["change the gap in my hyprland config".to_owned()]));
+    // The same through `write_file`, which declares the real path.
+    let tool = Requirements::none().with_write(conf).with_facts(kinds_of(&[(conf, FILE)]));
+    assert_eq!(persistence(&engine, tool).approver, Approver::ClassifierWhenNamed);
+    // A link in no group gives a floor that only the user changes.
+    let tmux = "/home/u/dotfiles/tmux.conf";
+    let line = shell("echo x >> ~/dotfiles/tmux.conf")
+        .with_write(tmux)
+        .with_facts(kinds_of(&[(tmux, FILE)]));
+    let need = persistence(&engine, line);
+    assert_eq!(need.approver, Approver::User);
+    assert!(need.names.contains(&"~/.tmux.conf".to_owned()), "{:?}", need.names);
+}
+
+#[test]
 fn backup_before_write_marks_every_floor_file_edit() {
     let zshrc = "/home/u/.zshrc";
     let facts = kinds_of(&[(zshrc, FILE)]);

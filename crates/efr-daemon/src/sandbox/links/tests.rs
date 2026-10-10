@@ -1,6 +1,6 @@
 //! The dotfile link scan: link targets in a write root become floors.
 
-use super::link_targets;
+use super::{dotfile_links, link_targets};
 
 #[test]
 fn links_of_home_config_and_local_bin_into_a_root_are_found() {
@@ -30,4 +30,28 @@ fn links_of_home_config_and_local_bin_into_a_root_are_found() {
     expected.sort();
     assert_eq!(found, expected);
     assert!(link_targets(&home, &[]).is_empty());
+}
+
+#[test]
+fn each_dotfile_link_comes_with_its_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().canonicalize().unwrap();
+    let dotfiles = home.join("dotfiles");
+    std::fs::create_dir_all(dotfiles.join("hypr")).unwrap();
+    std::fs::create_dir_all(home.join(".config")).unwrap();
+    std::fs::write(dotfiles.join("zshrc"), "").unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("hypr"), home.join(".config/hypr")).unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("zshrc"), home.join(".zshrc")).unwrap();
+    // Two links to one target: each link names it.
+    std::os::unix::fs::symlink(dotfiles.join("zshrc"), home.join(".zshrc.local")).unwrap();
+    let mut found = dotfile_links(&home, std::slice::from_ref(&dotfiles));
+    found.sort();
+    let mut expected = vec![
+        (home.join(".config/hypr"), dotfiles.join("hypr")),
+        (home.join(".zshrc"), dotfiles.join("zshrc")),
+        (home.join(".zshrc.local"), dotfiles.join("zshrc")),
+    ];
+    expected.sort();
+    assert_eq!(found, expected);
+    assert!(dotfile_links(&home, &[]).is_empty());
 }

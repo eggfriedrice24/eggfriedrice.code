@@ -31,10 +31,12 @@ pub(crate) struct Envelope<'a> {
 }
 
 /// The floor that a path lies on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Floor {
     /// The group of the floor, or `None` when only the user may change it.
     pub(crate) group: Option<FloorGroup>,
+    /// The same path below the dotfile link whose target holds it.
+    pub(crate) link: Option<PathBuf>,
 }
 
 /// A floor that only its place inside a write root makes.
@@ -168,11 +170,13 @@ impl<'a> Envelope<'a> {
     /// The floor that `path` lies on, or `None` when it lies on none. Its group is the
     /// group of the floors at or above `path`, or `None` when one of them has no group
     /// (`sandbox.protect`, a floor the daemon added without one, the git surface of a
-    /// repository): only the user then approves an edit.
+    /// repository): only the user then approves an edit. Below the target of a dotfile
+    /// link, the floor also knows the same path below the link.
     pub(crate) fn floor_of(&self, path: &Path) -> Option<Floor> {
         let mut found = false;
         let mut group: Option<FloorGroup> = None;
         let mut in_no_group = false;
+        let mut link: Option<PathBuf> = None;
         if let Some(built_in) = floor_group(self.locations.home(), path) {
             found = true;
             group = Some(built_in);
@@ -184,6 +188,15 @@ impl<'a> Envelope<'a> {
             match added.group {
                 Some(added) => group = group.or(Some(added)),
                 None => in_no_group = true,
+            }
+            if let (None, Some(through), Ok(below)) =
+                (&link, &added.link, path.strip_prefix(&added.root))
+            {
+                link = Some(if below.as_os_str().is_empty() {
+                    through.clone()
+                } else {
+                    through.join(below)
+                });
             }
         }
         match self.in_root_floor(path) {
@@ -197,7 +210,7 @@ impl<'a> Envelope<'a> {
             }
             None => {}
         }
-        found.then_some(Floor { group: if in_no_group { None } else { group } })
+        found.then_some(Floor { group: if in_no_group { None } else { group }, link })
     }
 
     /// The floor that only its place inside a write root makes of `path`: a protected
@@ -259,7 +272,12 @@ impl<'a> Envelope<'a> {
         need.approver = if named { Approver::ClassifierWhenNamed } else { Approver::User };
         need.backup_before_write = support.floor_backup
             && !matches!(kind, Some(Some(TargetKind::Dir | TargetKind::Other)));
-        need.names = floor_names(&path, self.locations.home(), floor.group);
+        let home = self.locations.home();
+        let mut names = floor_names(&path, home, floor.group);
+        if let Some(link) = &floor.link {
+            names.extend(floor_names(link, home, floor.group));
+        }
+        need.names = super::names::dedup(names);
     }
 
     /// The mask that hides `path`: a built-in or added mask at or above it, or the
