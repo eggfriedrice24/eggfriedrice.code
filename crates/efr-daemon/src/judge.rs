@@ -20,7 +20,17 @@
 //! The answer must be exactly one JSON object with the five members of the schema and
 //! no other; efrd checks the lengths after the parse, because the providers take no
 //! length keyword. When a step answers that it does not take the output form, the judge
-//! sends the step once more without it; the prompt still asks for the JSON.
+//! sends the step once more without it, and leaves the form out for that model for the
+//! daemon's life; the prompt still asks for the JSON.
+//!
+//! What the judge keeps (`memory`): a model that is missing or refuses is skipped for
+//! the rest of the conversation; a timeout or another error is tried again at the next
+//! exit. An `allow` or a `deny` serves every later exit of the same turn whose record
+//! differs only in its counters (`previous_exits_this_turn` and the refusal and denial
+//! counts), with `cached` set and no request. The provider and the small model stay the
+//! same for the daemon's life, so each conversation keeps one first model until
+//! `classifier.model` changes. The SHA-256 of the record that the model read goes into
+//! the outcome, so `efr-conversation` needs no hash function.
 //!
 //! The judge returns the model's judgement as it is. The turn applies the allow rule and
 //! the naming rule of 9.4 (`efr-conversation`).
@@ -36,7 +46,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_config::{ClassifierSettings, Settings};
 use efr_conversation::{ExitJudge, JudgeInput, JudgeOutcome};
-use efr_protocol::{ChainStep, Judgement, Risk, UserAuthorization, Verdict};
+use efr_protocol::{ChainStep, ExitRecord, Judgement, Risk, UserAuthorization, Verdict};
 use efr_provider::{
     Completion, Message, ModelInfo, OutputSchema, Provider, ProviderError, Request, StopReason,
 };
@@ -48,7 +58,10 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::watch;
 use tracing::Instrument as _;
 
+use self::memory::{Cached, Memory};
 use crate::catalog::Vendor;
+
+mod memory;
 
 /// The static prompt of every classifier request (9.3), the system prompt.
 pub(crate) const PROMPT: &str = include_str!("judge/prompt.md");
@@ -69,6 +82,7 @@ pub(crate) struct ClassifierJudge {
     /// The first model of the chain when `classifier.model` names none.
     small_model: &'static str,
     clock: Arc<dyn Clock>,
+    memory: Memory,
 }
 
 impl ClassifierJudge {
@@ -81,7 +95,13 @@ impl ClassifierJudge {
         vendor: Vendor,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        ClassifierJudge { provider, settings, small_model: vendor.classifier_model(), clock }
+        ClassifierJudge {
+            provider,
+            settings,
+            small_model: vendor.classifier_model(),
+            clock,
+            memory: Memory::default(),
+        }
     }
 
     /// The steps of the chain for `input`, in order: each model with its step.
@@ -122,11 +142,15 @@ impl ClassifierJudge {
             return Err(Failure::Missing);
         }
         let effort = effort(settings, info);
-        let mut with_format = true;
+        let mut with_format = self.memory.takes_format(&step.model);
         loop {
             let request = request(&step.model, effort.clone(), record, with_format);
             match self.send(request, settings).await {
-                Err(Failure::FormatRefused) if with_format => with_format = false,
+                Err(Failure::FormatRefused) if with_format => {
+                    tracing::info!(model = %step.model, "the classifier model refused the output form; efrd sends it without the form from now on");
+                    self.memory.refuses_format(&step.model);
+                    with_format = false;
+                }
                 Err(Failure::FormatRefused) => return Err(Failure::Refused),
                 done => return done,
             }
@@ -189,14 +213,46 @@ impl ExitJudge for ClassifierJudge {
             return self.outcome(started, None, Vec::new(), None);
         };
         let record_sha256 = Some(sha256_hex(record.as_bytes()));
+        let conversation = input.conversation_id;
+        let key = cache_key(input.record);
+        if let Some(key) = &key
+            && let Some(hit) = self.memory.verdict(conversation, input.turn_id, key)
+        {
+            return JudgeOutcome {
+                judgement: Some(hit.judgement),
+                model: Some(hit.model),
+                chain_step: hit.chain_step,
+                skipped: Vec::new(),
+                latency_ms: millis(started, self.clock.now()),
+                record_sha256,
+                cached: true,
+            };
+        }
         let models = self.provider.models();
         let mut skipped = Vec::new();
         for step in self.steps(&settings, &input) {
+            if let Some(reason) = self.memory.skipped(conversation, &step.model) {
+                skipped.push(format!("{}: {reason} earlier in this conversation", step.model));
+                continue;
+            }
             match self.run_step(&step, &settings, &models, &record).await {
                 Ok(judgement) => {
+                    if let Some(key) = key
+                        && matches!(judgement.verdict, Verdict::Allow | Verdict::Deny)
+                    {
+                        let cached = Cached {
+                            judgement: judgement.clone(),
+                            model: step.model.clone(),
+                            chain_step: step.chain_step,
+                        };
+                        self.memory.keep_verdict(conversation, input.turn_id, key, cached);
+                    }
                     return self.outcome(started, Some((judgement, &step)), skipped, record_sha256);
                 }
                 Err(failure) => {
+                    if failure.skips_model() {
+                        self.memory.skip(conversation, &step.model, failure.reason());
+                    }
                     tracing::debug!(
                         conversation_id = %input.conversation_id,
                         call_id = %input.call_id,
@@ -295,6 +351,23 @@ impl Failure {
     fn ends_chain(self) -> bool {
         matches!(self, Failure::Credentials | Failure::Quota)
     }
+
+    /// True when the model fails the same way at every later exit, so the conversation
+    /// skips it from now on. A timeout or an error that can pass is tried again.
+    fn skips_model(self) -> bool {
+        matches!(self, Failure::Missing | Failure::Refused)
+    }
+}
+
+/// The key of a record in the cache of a turn: the SHA-256 of the record without the
+/// facts that change from exit to exit of one turn, the earlier exits and the counters.
+fn cache_key(record: &ExitRecord) -> Option<String> {
+    let mut record = record.clone();
+    record.facts.previous_exits_this_turn.clear();
+    record.facts.refusals_in_a_row = 0;
+    record.facts.denials_in_a_row = 0;
+    record.facts.denials_this_turn = 0;
+    serde_json::to_vec(&record).ok().map(|bytes| sha256_hex(&bytes))
 }
 
 /// True when an error message of a 400 names the output form: the backend does not

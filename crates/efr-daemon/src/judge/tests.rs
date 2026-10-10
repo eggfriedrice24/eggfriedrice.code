@@ -579,3 +579,146 @@ async fn the_record_hash_is_the_hash_of_what_the_model_read() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
 }
+
+/// The ids of another call in the conversation of `first`, in the turn of `turn`.
+fn later(first: &Ids, turn: &Ids, call: u64) -> Ids {
+    Ids { conversation: first.conversation, turn: turn.turn, call: ids(call).call }
+}
+
+const DENY: &str = r#"{"verdict":"deny","risk":"high","user_authorization":"none","category":"exfiltration","rationale":"nobody asked for this host"}"#;
+
+const ASK: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"not clear"}"#;
+
+#[tokio::test]
+async fn cache_hit_same_turn_only() {
+    let setup = setup(Scripted::new([Reply::Text(ALLOW), Reply::Text(ALLOW), Reply::Text(ALLOW)]));
+    let first = ids(1);
+    let record = record();
+    let outcome = setup.judge.judge(input(&first, &record)).await;
+    assert!(!outcome.cached);
+
+    // The same exit later in the turn, after other exits and a denial: no request.
+    let mut again = record.clone();
+    again.facts.previous_exits_this_turn = vec![(ExitKind::Host, Verdict::Deny)];
+    again.facts.denials_in_a_row = 1;
+    again.facts.denials_this_turn = 1;
+    again.facts.refusals_in_a_row = 1;
+    let hit = setup.judge.judge(input(&later(&first, &first, 2), &again)).await;
+    assert!(hit.cached);
+    assert_eq!(hit.judgement, Some(allowed()));
+    assert_eq!(hit.model.as_deref(), Some(SMALL));
+    assert_eq!(hit.chain_step, ChainStep::ClassifierModel);
+    assert_eq!(hit.skipped, Vec::<String>::new());
+    assert_ne!(hit.record_sha256, outcome.record_sha256);
+    assert_eq!(setup.provider.requests().len(), 1);
+
+    // Another record of the turn, or the same record in the next turn, asks again.
+    let mut other = record.clone();
+    other.action.line = "cp report.pdf ~/Desktop/".to_owned();
+    let miss = setup.judge.judge(input(&later(&first, &first, 3), &other)).await;
+    assert!(!miss.cached);
+    assert_eq!(setup.provider.requests().len(), 2);
+    let next_turn = later(&first, &ids(4), 5);
+    let miss = setup.judge.judge(input(&next_turn, &record)).await;
+    assert!(!miss.cached);
+    assert_eq!(setup.provider.requests().len(), 3);
+}
+
+#[tokio::test]
+async fn a_new_user_message_changes_the_key() {
+    let setup = setup(Scripted::new([Reply::Text(DENY), Reply::Text(ALLOW)]));
+    let first = ids(1);
+    let record = record();
+    let outcome = setup.judge.judge(input(&first, &record)).await;
+    assert_eq!(outcome.judgement.map(|judgement| judgement.verdict), Some(Verdict::Deny));
+    let mut steered = record.clone();
+    steered.user_messages.push("yes, copy it there".to_owned());
+    let outcome = setup.judge.judge(input(&later(&first, &first, 2), &steered)).await;
+    assert!(!outcome.cached);
+    assert_eq!(outcome.judgement, Some(allowed()));
+}
+
+#[tokio::test]
+async fn an_ask_user_verdict_is_not_kept() {
+    let setup = setup(Scripted::new([Reply::Text(ASK), Reply::Text(ASK)]));
+    let first = ids(1);
+    let record = record();
+    setup.judge.judge(input(&first, &record)).await;
+    let outcome = setup.judge.judge(input(&later(&first, &first, 2), &record)).await;
+    assert!(!outcome.cached);
+    assert_eq!(setup.provider.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn classifier_chain_skips_refused_model_for_conversation() {
+    let forbidden = || ProviderError::api(Some(403), None, "model not allowed".to_owned());
+    let setup = setup(Scripted::new([
+        Reply::Error(forbidden),
+        Reply::Text(DENY),
+        Reply::Text(ALLOW),
+        Reply::Text(ALLOW),
+    ]));
+    let first = ids(1);
+    let record = record();
+    let outcome = setup.judge.judge(input(&first, &record)).await;
+    assert_eq!(outcome.skipped, [format!("{SMALL}: refused")]);
+
+    // The next exit of the conversation, in a new turn, skips the small model.
+    let next = later(&first, &ids(2), 3);
+    let outcome = setup.judge.judge(input(&next, &record)).await;
+    assert_eq!(outcome.chain_step, ChainStep::TurnModel);
+    assert_eq!(outcome.skipped, [format!("{SMALL}: refused earlier in this conversation")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL, TURN, TURN]);
+
+    // Another conversation asks the small model again.
+    let outcome = setup.judge.judge(input(&ids(4), &record)).await;
+    assert_eq!(outcome.chain_step, ChainStep::ClassifierModel);
+    assert_eq!(setup.provider.models_asked(), [SMALL, TURN, TURN, SMALL]);
+}
+
+#[tokio::test]
+async fn a_missing_model_is_skipped_for_the_conversation() {
+    let setup =
+        setup(Scripted::new([Reply::Error(unknown_model), Reply::Text(ALLOW), Reply::Text(ALLOW)]));
+    let first = ids(1);
+    let record = record();
+    setup.judge.judge(input(&first, &record)).await;
+    let outcome = setup.judge.judge(input(&later(&first, &ids(2), 3), &record)).await;
+    assert_eq!(outcome.skipped, [format!("{SMALL}: missing earlier in this conversation")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL, TURN, TURN]);
+}
+
+#[tokio::test]
+async fn classifier_timeout_retries_step_one_next_exit() {
+    let setup = setup(Scripted::new([Reply::Hang, Reply::Text(ALLOW), Reply::Text(ALLOW)]));
+    let first = ids(1);
+    let record = record();
+    let judging = setup.judge.judge(input(&first, &record));
+    let drive = async {
+        setup.clock.wait_for_sleeps(1).await;
+        setup.clock.advance(Duration::from_secs(20));
+    };
+    let (outcome, ()) = tokio::join!(judging, drive);
+    assert_eq!(outcome.skipped, [format!("{SMALL}: timeout")]);
+    assert_eq!(outcome.chain_step, ChainStep::TurnModel);
+
+    let outcome = setup.judge.judge(input(&later(&first, &ids(2), 3), &record)).await;
+    assert_eq!(outcome.chain_step, ChainStep::ClassifierModel);
+    assert_eq!(outcome.skipped, Vec::<String>::new());
+    assert_eq!(setup.provider.models_asked(), [SMALL, TURN, SMALL]);
+}
+
+#[tokio::test]
+async fn a_refused_format_is_left_out_from_then_on() {
+    let refused =
+        || ProviderError::api(Some(400), None, "Unsupported parameter: 'text.format'".to_owned());
+    let setup =
+        setup(Scripted::new([Reply::Error(refused), Reply::Text(ALLOW), Reply::Text(ALLOW)]));
+    let record = record();
+    setup.judge.judge(input(&ids(1), &record)).await;
+    // Another conversation sends the model no form at once.
+    setup.judge.judge(input(&ids(2), &record)).await;
+    let outputs: Vec<bool> =
+        setup.provider.requests().iter().map(|request| request.output.is_some()).collect();
+    assert_eq!(outputs, [true, false, false]);
+}
