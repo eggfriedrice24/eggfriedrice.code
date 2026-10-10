@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use efr_config::Settings;
 use efr_conversation::{
-    AlwaysPresent, ConversationDeps, GitScopeResolver, HostInfo, draft_channel,
+    ConversationDeps, GitScopeResolver, HostInfo, PresenceReader, draft_channel,
 };
 use efr_credentials::{FileStore, SecretStore};
 use efr_holder::PtyHolder;
@@ -47,6 +47,7 @@ use crate::discovery::{self, DaemonInfo};
 use crate::engine::EngineParts;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
+use crate::presence::PresenceTable;
 use crate::providers::{ProviderFactory, ProviderParts, Providers};
 use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
@@ -502,6 +503,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         Some(host) => host,
         None => tokio::task::spawn_blocking(host_info).await.unwrap_or_default(),
     };
+    let presence =
+        Arc::new(PresenceTable::new(settings_receiver.clone(), Arc::clone(&clock), writer.clone()));
     let live_settings = LiveSettings::new(
         settings_receiver,
         dirs.data().join(SCRATCH_DIR),
@@ -522,7 +525,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         home,
         sandbox: sandbox.status(),
         judge: None,
-        presence: Arc::new(AlwaysPresent),
+        presence: Arc::clone(&presence) as Arc<dyn PresenceReader>,
         drafts: drafts.clone(),
     };
     let ttys = conversations::load_ttys(&readers).await?;
@@ -555,6 +558,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         providers,
         sandbox,
         snapshots,
+        presence,
     });
 
     // The socket opens only now, after migrations and reconciliation.

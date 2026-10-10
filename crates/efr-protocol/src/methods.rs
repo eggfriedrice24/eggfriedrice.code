@@ -32,6 +32,7 @@ pub(crate) mod hello;
 pub(crate) mod input_respond;
 pub(crate) mod lease_report;
 pub(crate) mod models_list;
+pub(crate) mod presence_set;
 pub(crate) mod projects_list;
 pub(crate) mod prompt_send;
 pub(crate) mod prompt_withdraw;

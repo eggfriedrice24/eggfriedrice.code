@@ -322,3 +322,9 @@ No protocol version has shipped yet.
   `events/approval_expired.json`, `events/exit_judged.json`,
   `events/exit_requested.json` and `events/tool_call_completed.json` now set the new
   members.
+- Version 1, additive: presence. New method `presence.set` (scope `operate`, unary,
+  with a command id) with an optional `conversation_id` (absent: each conversation that
+  had input since the daemon started) and `presence` (`present` or `away`), whose result
+  has the `presence`, the `changed` conversations (absent when none changed) and the
+  `seq` of the last `presence_changed` (absent when none changed). New fixtures
+  `presence_set_params.json` and `presence_set_result.json`.

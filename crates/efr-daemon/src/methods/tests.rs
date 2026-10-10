@@ -3,9 +3,9 @@ use efr_protocol::{
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationCompact, ConversationHistory, ConversationId, ConversationSubscribe,
     ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
-    PROTOCOL_VERSION, PageCursor, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId,
-    PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText,
-    Seq, Size, TurnInterrupt, TurnSteer, WithdrawTarget,
+    PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
+    PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond,
+    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -115,13 +115,18 @@ fn every_method() -> Vec<Method> {
             conversation_id,
             focus: None,
         }),
+        Method::PresenceSet(PresenceSet {
+            command_id,
+            conversation_id: Some(conversation_id),
+            presence: Presence::Away,
+        }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 25, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 26, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -160,8 +165,23 @@ fn the_scope_table_is_the_designed_one() {
             ("admin.sandbox_check", ScopeName::Admin),
             ("prompt.withdraw", ScopeName::Operate),
             ("conversation.compact", ScopeName::Operate),
+            ("presence.set", ScopeName::Operate),
         ]
     );
+}
+
+#[test]
+fn presence_set_refused_for_model_side_peer() {
+    let method = every_method().into_iter().find(|method| method.name() == "presence.set").unwrap();
+    for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+        let refused = authorize(Origin::Shell, peer, &method);
+        assert!(
+            matches!(refused, Err(DaemonError::ModelSidePeer { method: "presence.set" })),
+            "{refused:?}"
+        );
+    }
+    assert!(authorize(Origin::Shell, PeerSide::User, &method).is_ok());
+    assert!(authorize(Origin::Phone, PeerSide::User, &method).is_ok(), "a phone may operate");
 }
 
 #[test]

@@ -33,15 +33,16 @@ use crate::{
     JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult, LoginKind, Method,
     Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, Origin,
     OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
-    PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
-    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
-    PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootSource, RowCells, SandboxCheck,
-    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
-    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
-    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange, TargetFact,
-    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
-    UserAuthorization, Verdict, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
+    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, ReportedFile, RequestId, ResentSteers,
+    Risk, RootDir, RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
+    ShellContext, Size, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, Usage, UserAuthorization, Verdict, WithdrawTarget,
+    WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -685,6 +686,11 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             focus: Some("the journal cleanup".into()),
         }),
+        Method::PresenceSet(PresenceSet {
+            command_id: command_id(),
+            conversation_id: Some(conversation_id()),
+            presence: Presence::Away,
+        }),
     ]
 }
 
@@ -1032,6 +1038,14 @@ fn answer_fixtures() -> Vec<Fixture> {
         fixture(
             "sandbox_surface_respond_result.json",
             &SandboxSurfaceRespondResult { seq: Seq::new(47) },
+        ),
+        fixture(
+            "presence_set_result.json",
+            &PresenceSetResult {
+                presence: Presence::Away,
+                changed: vec![conversation_id()],
+                seq: Some(Seq::new(52)),
+            },
         ),
         fixture(
             "admin_config_reload_result.json",

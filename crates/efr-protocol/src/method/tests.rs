@@ -8,8 +8,8 @@ use crate::{
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
     Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationDiff,
     ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
-    InputRespond, LeaseReport, Method, ModelsList, Origin, ProjectsList, PromptSend,
-    PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    InputRespond, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet, ProjectsList,
+    PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
     SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
     WithdrawTarget,
 };
@@ -281,6 +281,17 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 focus: None,
             }),
             "conversation.compact",
+            ScopeName::Operate,
+            true,
+            false,
+        ),
+        (
+            Method::PresenceSet(PresenceSet {
+                command_id: command(),
+                conversation_id: None,
+                presence: Presence::Away,
+            }),
+            "presence.set",
             ScopeName::Operate,
             true,
             false,

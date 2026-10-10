@@ -84,6 +84,7 @@ pub use methods::models_list::{
     CatalogOrigin, CatalogStatus, EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList,
     ModelsListResult, is_effort_word,
 };
+pub use methods::presence_set::{PresenceSet, PresenceSetResult};
 pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};
 pub use methods::prompt_send::{PromptSend, PromptSendResult};
 pub use methods::prompt_withdraw::{

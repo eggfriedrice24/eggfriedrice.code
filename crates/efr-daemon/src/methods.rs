@@ -12,12 +12,16 @@
 //! spec, section 13.5; `sandbox/peers.rs`). A phone connection (the tailnet listener of
 //! a later milestone, where every client is `Origin::Phone`) holds `read`, `operate`
 //! and `approve`; `terminal` is off by default there and `admin` is never granted.
+//!
+//! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction and
+//! keys for the hidden shell are input of a person, so each one makes its conversation
+//! present (`presence.rs`). `Input` takes a side for every method, as the scope does.
 
 use std::sync::Arc;
 
 use efr_protocol::{
-    ErrorBody, ErrorCode, ErrorFrame, Hello, HelloResult, Method, Origin, PageCursor, ScopeName,
-    Seq,
+    ConversationId, ErrorBody, ErrorCode, ErrorFrame, Hello, HelloResult, Method, Origin,
+    PageCursor, ScopeName, Seq,
 };
 use efr_transport::{ConnectionContext, Dispatcher, Request};
 use tracing::Instrument as _;
@@ -44,6 +48,7 @@ mod hello;
 mod input_respond;
 mod lease_report;
 mod models_list;
+mod presence_set;
 mod projects_list;
 mod prompt_send;
 mod prompt_withdraw;
@@ -108,6 +113,90 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationDiff(_) => ScopeName::Read,
         Method::PromptWithdraw(_) => ScopeName::Operate,
         Method::ConversationCompact(_) => ScopeName::Operate,
+        Method::PresenceSet(_) => ScopeName::Operate,
+    }
+}
+
+/// Where a request is input of a person, which makes the conversation present.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Input {
+    /// Not input: a read, a login, a change of the daemon, or `presence.set` itself.
+    None,
+    /// Input in this conversation.
+    Conversation(ConversationId),
+    /// A prompt without a conversation id from this terminal: the conversation is the
+    /// terminal's active one after the prompt.
+    Terminal(String),
+}
+
+impl Input {
+    /// Where `method`, from the connection of `context`, is input. Every method takes a
+    /// side here, so a new one cannot ship without it.
+    fn of(state: &State, context: &ConnectionContext, method: &Method) -> Input {
+        let conversation = match method {
+            Method::PromptSend(params) => match params.conversation_id {
+                Some(conversation_id) => Some(conversation_id),
+                None => {
+                    let hello_tty = state.connections.tty(context.conn_id());
+                    return prompt_send::prompt_tty(params, hello_tty)
+                        .map_or(Input::None, Input::Terminal);
+                }
+            },
+            Method::TurnInterrupt(params) => Some(params.conversation_id),
+            Method::TurnSteer(params) => Some(params.conversation_id),
+            Method::PromptWithdraw(params) => Some(params.conversation_id),
+            Method::ApprovalRespond(params) => Some(params.conversation_id),
+            Method::InputRespond(params) => Some(params.conversation_id),
+            Method::SandboxSurfaceRespond(params) => Some(params.conversation_id),
+            Method::ConversationCompact(params) => Some(params.conversation_id),
+            Method::PtyWrite(params) => state.ptys.conversation(params.pty_id),
+            Method::Hello(_)
+            | Method::ConversationsList(_)
+            | Method::ConversationSubscribe(_)
+            | Method::ConversationHistory(_)
+            | Method::PtyAttach(_)
+            | Method::PtyResize(_)
+            | Method::LeaseReport(_)
+            | Method::ModelsList(_)
+            | Method::ProjectsList(_)
+            | Method::AdminProjectAdd(_)
+            | Method::AdminProjectRemove(_)
+            | Method::AdminStatus(_)
+            | Method::AdminConfigReload(_)
+            | Method::AdminLoginOpenAi(_)
+            | Method::AdminLoginApiKey(_)
+            | Method::AdminLogout(_)
+            | Method::SandboxExplain(_)
+            | Method::AdminSandboxCheck(_)
+            | Method::ConversationDiff(_)
+            | Method::PresenceSet(_) => None,
+        };
+        conversation.map_or(Input::None, Input::Conversation)
+    }
+
+    /// The conversation of the input now, when there is one: for a prompt from a
+    /// terminal, the terminal's active conversation.
+    fn conversation(&self, state: &State) -> Option<ConversationId> {
+        match self {
+            Input::None => None,
+            Input::Conversation(conversation_id) => Some(*conversation_id),
+            Input::Terminal(tty) => {
+                state.conversations.active(tty).map(|active| active.conversation_id)
+            }
+        }
+    }
+
+    /// Marks the input before its request runs, in a conversation that the presence
+    /// table knows; the changes to record after it.
+    fn touch(&self, state: &State) -> Vec<crate::presence::Change> {
+        self.conversation(state).map(|id| state.presence.touch(id)).unwrap_or_default()
+    }
+
+    /// Marks the input after its request succeeded, in the conversation that it reached.
+    async fn mark(&self, state: &State) {
+        if let Some(conversation_id) = self.conversation(state) {
+            state.presence.input(conversation_id).await;
+        }
     }
 }
 
@@ -213,7 +302,12 @@ impl Dispatcher for Methods {
         let handled = async {
             let peer = side_for(state, &context, &method).await;
             authorize(context.surface(), peer, &method)?;
-            match method {
+            let input = Input::of(state, &context, &method);
+            // NOTE: marked before the handler, so a turn that the input starts never
+            // reads the idle state that the input ends; recorded after it, so a prompt
+            // is routed by the conversation's last activity before the input.
+            let touched = input.touch(state);
+            let handled = match method {
                 Method::Hello(_) => Err(DaemonError::HelloRepeated),
                 Method::ConversationsList(params) => {
                     conversations_list::handle(state, params, &responder).await
@@ -293,7 +387,15 @@ impl Dispatcher for Methods {
                 Method::ConversationCompact(params) => {
                     conversation_compact::handle(state, params, &responder).await
                 }
+                Method::PresenceSet(params) => {
+                    presence_set::handle(state, params, &responder).await
+                }
+            };
+            state.presence.record(touched).await;
+            if handled.is_ok() {
+                input.mark(state).await;
             }
+            handled
         };
         handled.instrument(span).await.map_err(|error| answer(name, error))
     }

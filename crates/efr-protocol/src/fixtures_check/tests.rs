@@ -69,10 +69,11 @@ fn method_index(method: &Method) -> usize {
         Method::ConversationDiff(_) => 25,
         Method::PromptWithdraw(_) => 26,
         Method::ConversationCompact(_) => 27,
+        Method::PresenceSet(_) => 28,
     }
 }
 
-const METHOD_COUNT: usize = 28;
+const METHOD_COUNT: usize = 29;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

@@ -19,6 +19,7 @@ mod hello;
 mod input_respond;
 mod interrupt;
 mod login;
+mod presence;
 mod prompt_send;
 mod pty_attach;
 mod receipts;

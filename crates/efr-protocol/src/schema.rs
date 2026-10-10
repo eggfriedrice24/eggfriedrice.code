@@ -17,11 +17,12 @@ use crate::{
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
     ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
     Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, LeaseReport,
-    LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, ProjectsList,
-    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
-    PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId,
-    SandboxExplain, SandboxExplainResult, SandboxSurfaceRespond, SandboxSurfaceRespondResult,
-    ScopeName, TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult,
+    LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, PresenceSet,
+    PresenceSetResult, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
+    PromptWithdraw, PromptWithdrawResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult,
+    PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
+    TurnInterruptResult, TurnSteer, TurnSteerResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -129,6 +130,7 @@ pub fn document() -> Value {
             "conversation.compact",
             ScopeName::Operate,
         ),
+        unary::<PresenceSet, PresenceSetResult>(&mut generator, "presence.set", ScopeName::Operate),
     ];
     let frames = json!({
         "client": client_frame(&mut generator),
