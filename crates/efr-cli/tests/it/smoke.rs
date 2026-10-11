@@ -1,7 +1,8 @@
 //! The built `efr` binary against a real daemon: `efr --help`, `efr status`, an
-//! `efr send` round trip, and the model list and turn settings as `efr models`,
-//! `efr settings`, `efr send` and `efr config reload` meet them, with a `TestDaemon`
-//! serving in this process.
+//! `efr send` round trip, the model list and turn settings as `efr models`,
+//! `efr settings`, `efr send` and `efr config reload` meet them, and `efr undo` of a
+//! turn that wrote a file, off a terminal and on one, with a `TestDaemon` serving in
+//! this process.
 //!
 //! The process gets a cleared environment that names only the test daemon's temporary
 //! roots, so it never sees the real home, config or runtime directory. The daemon's
@@ -12,9 +13,13 @@ use std::process::Output;
 
 use assert_cmd::Command;
 use efr_protocol::{
-    ConversationsList, ConversationsListResult, Method, ModelsList, ModelsListResult,
+    AdminProjectAdd, AdminProjectAddResult, ApprovalDecision, ApprovalRespond,
+    ApprovalRespondResult, ConversationsList, ConversationsListResult, Event, Method, Mode,
+    ModelsList, ModelsListResult, PromptSendResult, TurnId, TurnSettings,
 };
-use efr_test_daemon::{ResponsesAnswer, ResponsesServer, TTY, TestDaemon};
+use efr_test_daemon::{
+    ResponsesAnswer, ResponsesServer, TTY, TestDaemon, command_id, events_until,
+};
 use pretty_assertions::assert_eq;
 
 /// `efr` with only the variables that point it at `daemon`.
@@ -306,5 +311,189 @@ async fn project_add_list_and_remove_change_the_registry_through_the_daemon() {
     assert_eq!(text(&removed.stdout), format!("removed the project app ({})\n", real.display()));
     let empty = run(efr_with(&["project", "list"])).await;
     assert!(text(&empty.stdout).starts_with("no project is registered"), "{}", text(&empty.stdout));
+    daemon.stop().await.unwrap();
+}
+
+/// A daemon whose working directory is a registered project with `a.txt` (`one`), after
+/// one turn in `cautious` whose model wrote `two` into it with `write_file`; the server,
+/// the daemon and the turn.
+async fn after_a_turn_that_wrote_a_file() -> (ResponsesServer, TestDaemon, TurnId) {
+    let server = ResponsesServer::start().await;
+    let input = serde_json::json!({ "path": "a.txt", "content": "two\n" });
+    server.push(ResponsesAnswer::tool_call("call_write_1", "write_file", &input));
+    server.push(ResponsesAnswer::text("Done."));
+    let daemon = TestDaemon::builder().responses(&server).start().await.unwrap();
+    let client = daemon.client().await.unwrap();
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: daemon.cwd().to_path_buf(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    std::fs::write(daemon.cwd().join("a.txt"), "one\n").unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(1, "set a to two", TTY) else {
+        unreachable!()
+    };
+    params.settings = TurnSettings { mode: Some(Mode::Cautious), ..TurnSettings::default() };
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let mut answers = 100;
+    loop {
+        let events = events_until(&mut follow, |event| {
+            matches!(event, Event::ApprovalRequested { .. } | Event::TurnCompleted { .. })
+        })
+        .await
+        .unwrap();
+        let Event::ApprovalRequested { call_id, .. } = events.last().unwrap().event.clone() else {
+            break;
+        };
+        answers += 1;
+        let answer = Method::ApprovalRespond(ApprovalRespond {
+            command_id: command_id(answers),
+            conversation_id: sent.conversation_id,
+            call_id,
+            decision: ApprovalDecision::Allow,
+        });
+        let _: ApprovalRespondResult = client.call(answer).await.unwrap();
+    }
+    assert_eq!(std::fs::read_to_string(daemon.cwd().join("a.txt")).unwrap(), "two\n");
+    (server, daemon, sent.turn_id)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn undo_previews_lists_applies_and_redoes_a_turn() {
+    let (_server, daemon, turn_id) = after_a_turn_that_wrote_a_file().await;
+    let a = daemon.cwd().join("a.txt");
+    let undo = |args: &[&str]| {
+        let mut command = efr(&daemon);
+        command.arg("undo").args(args);
+        command
+    };
+    let read = || std::fs::read_to_string(&a).unwrap();
+    let head = format!("undo turn {turn_id}: set a to two\n");
+    let which = "the newest conversation; efr undo --conversation <id> undoes in another\n";
+
+    let listed = run(undo(&["--list"])).await;
+    assert!(listed.status.success(), "{}", text(&listed.stderr));
+    let row = text(&listed.stdout);
+    assert!(row.starts_with(&turn_id.to_string()) && row.trim_end().ends_with("set a to two"));
+    assert!(!row.contains("undone"), "{row}");
+
+    let preview = run(undo(&["--dry-run"])).await;
+    assert!(preview.status.success(), "{}", text(&preview.stderr));
+    assert_eq!(
+        text(&preview.stdout),
+        format!("{head}restore     a.txt\nempty directories and special files do not come back\n")
+    );
+    assert_eq!(text(&preview.stderr), which, "a muted line says which conversation");
+    assert_eq!(read(), "two\n", "a dry run changes nothing");
+
+    let asked = run(undo(&[])).await;
+    assert_eq!(asked.status.code(), Some(2), "{}", text(&asked.stderr));
+    assert!(text(&asked.stdout).starts_with(&head), "the preview shows first");
+    assert!(
+        text(&asked.stderr).ends_with("efr: efr undo needs a terminal or --yes; nothing changed\n"),
+        "{}",
+        text(&asked.stderr)
+    );
+    assert_eq!(read(), "two\n");
+
+    let applied = run(undo(&["--yes"])).await;
+    assert!(applied.status.success(), "{}", text(&applied.stderr));
+    assert!(
+        text(&applied.stdout).contains("undone: 1 file restored\n"),
+        "{}",
+        text(&applied.stdout)
+    );
+    assert_eq!(read(), "one\n");
+    let listed = run(undo(&["--list"])).await;
+    assert!(text(&listed.stdout).contains("  undone  "), "{}", text(&listed.stdout));
+
+    let redone = run(undo(&["--redo", "--yes"])).await;
+    assert!(redone.status.success(), "{}", text(&redone.stderr));
+    let report = text(&redone.stdout);
+    assert!(report.starts_with(&format!("redo the undo of turn {turn_id}: set a to two\n")));
+    assert!(report.contains("redone: 1 file restored\n"), "{report}");
+    assert_eq!(read(), "two\n");
+    let again = run(undo(&["--redo", "--yes"])).await;
+    assert_eq!(again.status.code(), Some(1), "{}", text(&again.stderr));
+    assert!(text(&again.stderr).contains("efr undo changed nothing"), "{}", text(&again.stderr));
+    daemon.stop().await.unwrap();
+}
+
+/// Runs `efr undo` on a terminal against `daemon` and types `key` once it asks; what
+/// the terminal showed and how `efr` ended.
+async fn undo_on_a_terminal(daemon: &TestDaemon, key: u8) -> (String, std::process::ExitStatus) {
+    let (master, slave) = pty();
+    let mut command =
+        efr_stdx::process::command(env!("CARGO_BIN_EXE_efr"), daemon.cwd()).into_std();
+    let dirs = daemon.dirs().dirs();
+    command
+        .env_clear()
+        .env("HOME", daemon.dirs().home())
+        .env("TERM", "xterm-256color")
+        .env("EFR_CONFIG_DIR", dirs.config())
+        .env("EFR_DATA_DIR", dirs.data())
+        .env("EFR_STATE_DIR", dirs.state())
+        .env("EFR_RUNTIME_DIR", dirs.runtime())
+        .arg("undo")
+        .stdin(slave.try_clone().unwrap())
+        .stdout(slave.try_clone().unwrap())
+        .stderr(slave);
+    let mut child = command.spawn().unwrap();
+    drop(command);
+    let (screen, status) = tokio::task::spawn_blocking(move || {
+        rustix::io::ioctl_fionbio(&master, true).unwrap();
+        let mut screen = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let mut drain = |screen: &mut Vec<u8>| {
+            while let Ok(read) = rustix::io::read(&master, &mut buffer) {
+                if read == 0 {
+                    break;
+                }
+                screen.extend_from_slice(&buffer[..read]);
+            }
+        };
+        let mut answered = false;
+        // NOTE: at most 10 s; the key goes only once the question shows.
+        for _ in 0..1000 {
+            drain(&mut screen);
+            if !answered && String::from_utf8_lossy(&screen).contains("undo? y = yes, n = no") {
+                rustix::io::write(&master, &[key]).unwrap();
+                answered = true;
+            }
+            if let Some(status) = child.try_wait().unwrap() {
+                drain(&mut screen);
+                return (String::from_utf8_lossy(&screen).into_owned(), Some(status));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = child.kill();
+        (String::from_utf8_lossy(&screen).into_owned(), None)
+    })
+    .await
+    .unwrap();
+    let status = status.unwrap_or_else(|| panic!("efr undo did not end: {screen:?}"));
+    (screen, status)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn on_a_terminal_undo_asks_and_takes_the_turn_back_only_on_y() {
+    let (_server, daemon, _) = after_a_turn_that_wrote_a_file().await;
+    let a = daemon.cwd().join("a.txt");
+
+    let (screen, status) = undo_on_a_terminal(&daemon, b'n').await;
+    assert!(status.success(), "{screen}");
+    assert!(screen.contains("restore     a.txt"), "the preview: {screen:?}");
+    assert!(screen.contains("nothing changed"), "{screen:?}");
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "two\n", "{screen:?}");
+
+    let (screen, status) = undo_on_a_terminal(&daemon, b'y').await;
+    assert!(status.success(), "{screen}");
+    let asked = screen.find("undo? y = yes, n = no").unwrap();
+    let done = screen.find("undone: 1 file restored").unwrap();
+    assert!(asked < done, "{screen:?}");
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), "one\n", "{screen:?}");
     daemon.stop().await.unwrap();
 }
