@@ -503,6 +503,8 @@ undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193...
 - Every file that undo overwrites or removes, also outside the project, goes to
   `~/.local/share/efr/undo-trash/<undo-id>/` first. A file that undo makes again gets
   its mode from the snapshot, without set-id bits; a `.env` with mode 0600 stays 0600.
+  A directory that undo makes again gets mode 0700, because no snapshot records the
+  mode of a directory.
 - Undo restores the branches, tags, `refs/stash` and `HEAD` that the turn moved, from
   the mirror that efr took at the turn's first snapshot, by compare and swap. Your git
   index stays as it is.

@@ -43,7 +43,9 @@ const MAX_READ_BYTES: usize = 512 * 1024 * 1024;
 const TRASH_DIR_MODE: u32 = 0o700;
 
 /// The mode of each directory that undo makes again in a root or the home directory.
-const DIR_MODE: u32 = 0o755;
+/// No snapshot records the mode of a directory, so a directory that held a secret, such
+/// as a 0700 `private/` of a `.env`, comes back private too (plan PB11).
+const DIR_MODE: u32 = 0o700;
 
 /// What the result says about the index of a git root.
 pub(crate) const NOTE_INDEX: &str =

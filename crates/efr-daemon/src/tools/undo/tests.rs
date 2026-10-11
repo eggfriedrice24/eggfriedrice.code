@@ -255,6 +255,25 @@ async fn undo_drops_set_id_bits() {
 }
 
 #[tokio::test]
+async fn undo_makes_a_missing_dir_private() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = scratch(&kept);
+    let private = scratch.join("private");
+    std::fs::create_dir_all(&private).unwrap();
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(private.join("notes.md"), "old\n").unwrap();
+
+    delete_turn(&kept, 2, &private.join("notes.md")).await;
+    std::fs::remove_dir(&private).unwrap();
+    let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
+
+    assert!(done.applied, "{done:?}");
+    assert_eq!(read(&private.join("notes.md")), "old\n");
+    assert_eq!(mode(&private), 0o700, "no snapshot records a dir's mode, so it comes back private");
+}
+
+#[tokio::test]
 async fn undo_trash_lands_in_undo_trash_with_modes() {
     let (_temp, root) = canonical_temp();
     let kept = kept(&root, Settings::default()).await;
