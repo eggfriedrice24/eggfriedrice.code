@@ -23,14 +23,19 @@
 #               backup of a floor file before it writes it (`floor_backup`)
 #   pb          the phase B result, in the words of `pa`, on a machine with undo
 #               (`undo`) and the home store: a destructive part that the snapshot
-#               covers runs with no exit. Rows 84 to 89 keep `pa` until the named
-#               persistence of phase B
+#               covers runs with no exit, and a named unit, cron or linger change goes
+#               to the classifier when efrd can copy it and read what it installs
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
 #               `stash:<root>` or `home:<p>`: what the snapshot covers, and what it
 #               left out (such as a file above `snapshot.max_file_mib`). An ask with
 #               no answer is not covered
+#   persist     what efrd can copy before a named unit, cron or linger change in
+#               phase B: `unit:<name>`, `cron` or `linger`
+#   sources     the files that a persistence form installs, as efrd finds them in
+#               phase B: `file:<path>` or `unit:<name>=<unit file>`, each a small text
+#               file that did not change in the turn
 #   exits       every exit kind that the engine predicts in phase A, in any order; a
 #               line whose `pb` is R has none in phase B, and any other line the same
 #   reads, trees, writes, network, interactive
@@ -1218,17 +1223,58 @@ n = 84
 line = "echo '* * * * * x' | crontab -"
 p1 = "U(persistence)"
 pa = "U(persistence)"
-pb = "U(persistence)"
+pb = "N(persistence)"
+note = "the line holds the whole crontab, and efrd copies the crontab first"
+persist = ["cron"]
 exits = ["persistence"]
+
+[[line]]
+n = 84
+line = "crontab ~/jobs.txt"
+p1 = "U(persistence)"
+pa = "U(persistence)"
+pb = "N(persistence)"
+note = "the file lies outside every write root, so its text goes into the record"
+persist = ["cron"]
+sources = ["file:/home/u/jobs.txt"]
+exits = ["persistence"]
+reads = ["/home/u/jobs.txt"]
+
+[[line]]
+n = 84
+line = "crontab jobs.txt"
+p1 = "U(persistence)"
+pa = "U(persistence)"
+pb = "U(persistence)"
+note = "the file lies in the project, which the sandbox can write"
+persist = ["cron"]
+sources = ["file:/home/u/p/efr/jobs.txt"]
+exits = ["persistence"]
+reads = ["/home/u/p/efr/jobs.txt"]
 
 [[line]]
 n = 85
 line = "systemctl --user enable --now myagent.service"
 p1 = "U(persistence)"
 pa = "U(persistence)"
-pb = "U(persistence)"
+pb = "N(persistence)"
+note = "the unit file existed in a unit dir before the turn, so its text goes into the record"
+persist = ["unit:myagent.service"]
+sources = ["unit:myagent.service=/home/u/.config/systemd/user/myagent.service"]
 exits = ["persistence"]
 reads = ["/home/u/p/efr/enable", "/home/u/p/efr/myagent.service"]
+
+[[line]]
+n = 85
+line = "systemctl --user revert myagent.service"
+p1 = "U(persistence)"
+pa = "U(persistence)"
+pb = "U(persistence)"
+note = "revert removes what the user wrote for the unit, which efr does not copy"
+persist = ["unit:myagent.service"]
+sources = ["unit:myagent.service=/home/u/.config/systemd/user/myagent.service"]
+exits = ["persistence"]
+reads = ["/home/u/p/efr/revert", "/home/u/p/efr/myagent.service"]
 
 [[line]]
 n = 86
@@ -1236,8 +1282,23 @@ line = "cp evil.desktop ~/.config/autostart/"
 p1 = "U(persistence)"
 pa = "U(persistence)"
 pb = "U(persistence)"
+note = "the entry comes from the project, which the sandbox can write"
+sources = ["file:/home/u/p/efr/evil.desktop"]
 exits = ["persistence"]
 trees = ["/home/u/p/efr/evil.desktop"]
+writes = ["/home/u/.config/autostart"]
+dirs = ["/home/u/.config/autostart"]
+
+[[line]]
+n = 86
+line = "cp ~/templates/agent.desktop ~/.config/autostart/"
+p1 = "U(persistence)"
+pa = "U(persistence)"
+pb = "N(persistence)"
+note = "the entry lies outside every write root, so its text goes into the record"
+sources = ["file:/home/u/templates/agent.desktop"]
+exits = ["persistence"]
+trees = ["/home/u/templates/agent.desktop"]
 writes = ["/home/u/.config/autostart"]
 dirs = ["/home/u/.config/autostart"]
 
@@ -1256,7 +1317,9 @@ n = 88
 line = "ln -sf ~/evil ~/.config/systemd/user/default.target.wants/x.service"
 p1 = "U(persistence)"
 pa = "U(persistence)"
-pb = "U(persistence)"
+pb = "N(persistence)"
+note = "the source lies outside every write root, so its text goes into the record"
+sources = ["file:/home/u/evil"]
 exits = ["persistence"]
 reads = ["/home/u/evil"]
 writes = ["/home/u/.config/systemd/user/default.target.wants/x.service"]
@@ -1268,7 +1331,9 @@ n = 89
 line = "loginctl enable-linger"
 p1 = "U(persistence)"
 pa = "U(persistence)"
-pb = "U(persistence)"
+pb = "N(persistence)"
+note = "efrd copies the linger setting first"
+persist = ["linger"]
 exits = ["persistence"]
 reads = ["/home/u/p/efr/enable-linger"]
 

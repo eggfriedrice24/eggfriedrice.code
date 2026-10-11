@@ -16,6 +16,7 @@ mod cover;
 mod envelope;
 mod names;
 mod needs;
+mod persist;
 mod programs;
 mod scan;
 
@@ -37,7 +38,7 @@ use crate::path_class::normalize;
 use crate::policy::read_only_commands;
 use crate::{
     Access, AutoSupport, CallFacts, CoverAsk, Egress, Locations, PathAccess, PathClass,
-    Requirements, TargetKind,
+    Requirements, Source, TargetKind,
 };
 
 /// Programs that only the `auto` mode treats as a `privilege` exit, besides the ones
@@ -168,6 +169,30 @@ pub struct ExitNeed {
     /// over the limits, or when no fact says. A write that is not covered still runs
     /// when its approver says yes. `None` when the exit has nothing to copy.
     pub covered: Option<bool>,
+    /// What the persistence form installs, which the record holds so the classifier
+    /// reads it (phase B, plan PB19a): the unit file of `systemctl --user enable`, the
+    /// source of a link into a unit dir or of a copy into a floor, the file of
+    /// `crontab <file>`. Empty for any other exit.
+    pub installs: Vec<Installed>,
+}
+
+/// One file that a persistence form installs, as the classifier reads it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Installed {
+    /// The real file.
+    pub path: PathBuf,
+    /// Its text, at most 8 KiB.
+    pub text: String,
+}
+
+/// The text can hold anything that the file holds, so `Debug` shows its length.
+impl fmt::Debug for Installed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Installed")
+            .field("path", &self.path)
+            .field("text", &format_args!("<{} bytes>", self.text.len()))
+            .finish()
+    }
 }
 
 impl ExitNeed {
@@ -189,6 +214,7 @@ impl ExitNeed {
             link: None,
             copies: Vec::new(),
             covered: None,
+            installs: Vec::new(),
         }
     }
 
@@ -225,6 +251,7 @@ impl fmt::Debug for ExitNeed {
             .field("link", &self.link)
             .field("copies", &self.copies)
             .field("covered", &self.covered)
+            .field("installs", &self.installs)
             .finish()
     }
 }
@@ -351,6 +378,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
     let mut fetch: Option<Ecosystem> = None;
     let mut linked: Vec<PathBuf> = Vec::new();
+    let mut installs: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
@@ -404,8 +432,22 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
                     continue;
                 }
-                found.push(predicted(exit, &part));
+                let mut need = predicted(exit, &part);
+                if need.kind == ExitKind::Persistence {
+                    let facts = input.facts;
+                    persist::route(
+                        &mut need,
+                        command,
+                        input.line,
+                        &envelope,
+                        facts,
+                        input.support,
+                        &at,
+                    );
+                }
+                found.push(need);
             }
+            installs.extend(persist::installs(command, &at));
             for (word, dir_kind) in programs::made_paths(command) {
                 if let Some(path) = at(word) {
                     made.push((path, dir_kind));
@@ -450,7 +492,12 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     let mut seen: Vec<PathBuf> = Vec::new();
-    let cx = WriteFacts { facts: input.facts, support: input.support, linked: &linked };
+    let cx = WriteFacts {
+        facts: input.facts,
+        support: input.support,
+        linked: &linked,
+        installs: &installs,
+    };
     for (path, part) in writes {
         if seen.contains(&path) {
             continue;
@@ -654,8 +701,17 @@ pub struct FactRequest {
     /// [`CoverAsk::Home`] and [`CoverAsk::HomeDir`] asks of the home store, also for
     /// its parent dir ([`FactRequest::with_writes`] adds the declared write paths). The
     /// engine reads the `Home` and `HomeDir` asks only for a write outside the snapshot
-    /// roots, so the daemon may answer one inside a root with no work.
+    /// roots, so the daemon may answer one inside a root with no work. For a named
+    /// persistence form (plan PB19, PB20): a [`CoverAsk::UnitLinks`] for each unit of
+    /// `systemctl --user enable` and the like, [`CoverAsk::CronTable`] for a `crontab`
+    /// form that replaces or removes the crontab, [`CoverAsk::Linger`] for `loginctl
+    /// enable-linger` and `disable-linger`.
     pub covers: Vec<CoverAsk>,
+    /// The files whose bytes a persistence form of the line installs (phase B, plan
+    /// PB19a): the unit files of `systemctl --user enable` and the like, the file of
+    /// `crontab <file>`, the sources of a `cp` or `ln` into a floor. The answers go to
+    /// [`CallFacts::sources`]; the daemon never reads a mask or a secret for them.
+    pub sources: Vec<Source>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the
@@ -671,6 +727,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
         }
     };
     let home = locations.home();
+    let envelope = Envelope::new(locations, None, None);
     let mut covers: Vec<CoverAsk> = Vec::new();
     for segment in scan::scan(line) {
         let dir = if segment.after_cd { None } else { start.as_deref() };
@@ -703,6 +760,12 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 .any(|found| found.kind == ExitKind::Destructive);
             if destroys {
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
+            }
+            covers.extend(persist::covers(command));
+            for source in persist::sources(command, &envelope, &at) {
+                if !request.sources.contains(&source) {
+                    request.sources.push(source);
+                }
             }
             if let Some(program) = command.first()
                 && !program.contains([OPAQUE, '$'])
@@ -842,6 +905,14 @@ impl Found {
         });
         match known {
             Some(known) => {
+                // NOTE: two named persistence forms of one line, such as a unit change and
+                // a crontab, are one exit; a message that names one of them must not
+                // send the other to the classifier.
+                let both_named = known.approver == Approver::ClassifierWhenNamed
+                    && need.approver == Approver::ClassifierWhenNamed;
+                if known.kind == ExitKind::Persistence && both_named && known.names != need.names {
+                    known.approver = Approver::User;
+                }
                 known.approver = known.approver.max(need.approver);
                 for name in need.names {
                     if !known.names.contains(&name) {
@@ -853,6 +924,19 @@ impl Found {
                         known.hosts.push(host);
                     }
                 }
+                // NOTE: the one exit copies what both forms copy, and it is covered only
+                // when both are.
+                for ask in need.copies {
+                    if !known.copies.contains(&ask) {
+                        known.copies.push(ask);
+                    }
+                }
+                known.installs.extend(need.installs);
+                known.backup_before_write |= need.backup_before_write;
+                known.covered = match (known.covered, need.covered) {
+                    (Some(a), Some(b)) => Some(a && b),
+                    (a, b) => a.or(b),
+                };
             }
             None => self.0.push(need),
         }
@@ -870,11 +954,13 @@ fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
 }
 
 /// What the exit of a write needs beyond its path: the daemon's facts, the machine's
-/// support, and the paths that the line makes as symbolic links.
+/// support, the paths that the line makes as symbolic links, and what a `cp` or `ln`
+/// of the line puts where (destination, sources).
 pub(super) struct WriteFacts<'a> {
     pub(super) facts: Option<&'a CallFacts>,
     pub(super) support: &'a AutoSupport,
     pub(super) linked: &'a [PathBuf],
+    pub(super) installs: &'a [(PathBuf, Vec<PathBuf>)],
 }
 
 /// The `write` exit, or another kind, of a write of `path` that `exit` describes.
@@ -908,7 +994,14 @@ fn write_need(
         ExitKind::AboveRoot => need.approver = envelope.above_root_approver(path),
         ExitKind::Persistence => {
             let linked = cx.linked.iter().any(|link| link == path);
-            envelope.floor_edit(&mut need, cx.facts, cx.support, linked);
+            let from: Vec<Source> = cx
+                .installs
+                .iter()
+                .filter(|(dest, _)| dest == path)
+                .flat_map(|(_, sources)| sources.iter().cloned().map(Source::File))
+                .collect();
+            let from = (!from.is_empty()).then_some(from.as_slice());
+            envelope.floor_edit(&mut need, cx.facts, cx.support, linked, from);
         }
         _ => {}
     }

@@ -24,7 +24,7 @@ pub(super) fn exits(
     let source = ExitSource::Needs;
     let locations = envelope.locations();
     let mut found = Vec::new();
-    let cx = WriteFacts { facts, support, linked: &[] };
+    let cx = WriteFacts { facts, support, linked: &[], installs: &[] };
     for word in needs.write.iter().take(Needs::MAX_WRITE) {
         let Some(path) = resolve(word, dir, locations) else { continue };
         let exit = envelope.write_exit(&path, facts, made);

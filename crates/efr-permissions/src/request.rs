@@ -185,6 +185,10 @@ pub struct CallFacts {
     /// whether efr's snapshot or its home store holds what the line can destroy (phase
     /// B). An ask with no answer here is [`Coverage::Unknown`], never covered.
     pub covered: Vec<(CoverAsk, Coverage)>,
+    /// What each file of [`FactRequest::sources`](crate::FactRequest) holds: the file
+    /// whose bytes a persistence form installs, such as the source of a link into a
+    /// unit dir (phase B). A source with no fact here never goes to the classifier.
+    pub sources: Vec<SourceFact>,
 }
 
 impl CallFacts {
@@ -207,6 +211,39 @@ impl CallFacts {
     pub fn tracked(&self, dir: &std::path::Path) -> Option<u32> {
         self.tracked_counts.iter().find(|(known, _)| known == dir).map(|(_, count)| *count)
     }
+
+    /// What the daemon found for `source`, when a fact says.
+    pub fn source(&self, source: &Source) -> Option<&SourceFact> {
+        self.sources.iter().find(|fact| fact.source == *source)
+    }
+}
+
+/// A file whose bytes a persistence form installs, which the classifier must read
+/// before it may allow the form (efr's auto spec 9.1, plan PB19a): the source of
+/// `ln -s <src>` into a unit dir or of `cp <src>` into a floor, the file of
+/// `crontab <file>`, the unit file of `systemctl --user enable <unit>`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Source {
+    /// A file that the line names, resolved as the line resolves it.
+    File(PathBuf),
+    /// The unit file of this unit name, in the user's unit dirs.
+    Unit(String),
+}
+
+/// What the daemon found for one [`Source`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFact {
+    /// The source.
+    pub source: Source,
+    /// The real file, with every link followed; `None` when it is no regular file or
+    /// the daemon found none.
+    pub path: Option<PathBuf>,
+    /// True when the file changed in this turn, or when the daemon could not tell.
+    pub changed: bool,
+    /// Its text, when it is UTF-8 and at most
+    /// [`ActionFacts::MAX_EDIT_BYTES`](efr_protocol::ActionFacts::MAX_EDIT_BYTES), and no
+    /// mask or secret holds it.
+    pub text: Option<String>,
 }
 
 /// What a destructive line or file tool can destroy, which efr must hold before the

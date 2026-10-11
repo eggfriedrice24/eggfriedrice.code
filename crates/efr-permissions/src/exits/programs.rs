@@ -406,6 +406,8 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         "systemctl" => found.extend(systemctl(args)),
         "loginctl" => found.push(match verb(args, &[]) {
             Some("enable-linger") => Found::of(ExitKind::Persistence),
+            // NOTE: for the caller's own user only; another user's needs root.
+            Some("disable-linger") if args.len() == 1 => Found::of(ExitKind::Persistence),
             None => Found::bus(BusKind::System),
             Some(verb) if LOGINCTL_READ.contains(&verb) => Found::bus(BusKind::System),
             Some(_) => Found::of(ExitKind::Privilege),

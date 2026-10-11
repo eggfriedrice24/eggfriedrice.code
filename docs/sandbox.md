@@ -186,9 +186,32 @@ path names a file only as whole parts of the path: `bin/git` does not name
 `write_file`, `edit` or `apply_patch` of `~/.zshrc` that links into a dotfiles dir also
 writes the real file there; it takes the names of the link too, so "my zshrc" names
 both, also when the dotfiles dir is no registered project. Before the write, efr copies the
-file into its home store (below). Only you approve a dir, a link into a `*.wants`
-dir, `crontab`, `systemctl --user enable`, linger, the git surface and
-`sandbox.protect`, and a floor file that no message of yours names.
+file into its home store (below). Only you approve a dir, a link, the git surface and
+`sandbox.protect`, and a floor file that no message of yours names, except the named
+changes of units, cron and linger below.
+
+**Named changes of units, cron and linger.** These change no file that the line names,
+or they install the bytes of another file. The reviewer decides one only when a message
+of yours names it, efr can copy what it changes first, so `efr undo` brings it back,
+and the reviewer can read what it installs:
+
+| Form | The reviewer decides when | efr copies first |
+|---|---|---|
+| `systemctl --user enable`, `reenable`, `preset`, `mask`, `add-wants`, `add-requires` of a unit by name | a message names the unit, and its unit file was in a unit dir before the turn, outside every write root, unchanged in the turn and at most 8 KiB; its text goes to the reviewer | the whole `~/.config/systemd/user` within the dir limits, and each link that the unit's `[Install]` section names |
+| `ln -s <src>` into a `*.wants` or `*.requires` dir; `cp <src>` into a floor dir such as `~/.config/autostart/` | a message names the target, and `<src>` holds the rule of a unit file; its text goes to the reviewer | the target, or the dir with what it holds |
+| `crontab <file>`, `crontab -` fed a literal by `echo` or `printf`, `crontab -r` | a message names cron or the crontab; the file holds the rule of a unit file | the text of the crontab (`crontab -l`) |
+| `loginctl enable-linger`, `loginctl disable-linger` | a message names linger | the linger setting |
+
+Only you approve `systemctl --user link`, `edit`, `revert`, `enable <path>`,
+`set-environment`, `set-default`, `preset-all`, a unit that was not in a unit dir before
+the turn, a template unit (`foo@.service`), `crontab -e`, `crontab -` with any other
+input, `at`, `batch` and `systemd-run --user`. efr reads and sets the crontab and linger
+only with a `crontab` and a `loginctl` that it found when it started, in a dir that
+root owns and only root can write, outside your home dir and efr's dirs. With no such
+program, these forms stay with you. `efr undo` compares the crontab or the linger
+setting with the one after the turn: when you changed it after the turn, undo leaves it
+as it is. After undo removes a unit link, run `systemctl --user daemon-reload`; a unit
+that started stays running.
 
 **Copies before a write outside the roots.** In `auto`, before efrd runs an approved
 write outside the project and `$SCRATCH`, it copies each file that the call can change
@@ -294,7 +317,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
 | `outside` | `df`, `findmnt`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
-| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file that a message of yours names, after a copy into the home store; else only you |
+| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | only you |
 | `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor; else only you |

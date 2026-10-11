@@ -368,6 +368,7 @@ impl DaemonToolbox {
             let requirements = permission_requirements(declared.clone());
             let request =
                 efr_permissions::exits::tool_fact_requests(&requirements, engine.locations());
+            let masks = self.masks();
             let input = facts::FactInput {
                 request: &request,
                 writes: &writes,
@@ -375,6 +376,7 @@ impl DaemonToolbox {
                 shell_path: "",
                 rebuildable: &[],
                 turn_start: self.clock.now(),
+                masks: &masks,
             };
             let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
             // NOTE: the real file behind a dotfile link is a second write; the link
@@ -392,6 +394,7 @@ impl DaemonToolbox {
         let rebuildable = self.settings.borrow().sandbox.rebuildable.clone();
         let turn_start = sandbox.turns().started(call.context.turn_id, self.clock.now());
         let shell_path = sandbox.shell_path(call.context.conversation_id);
+        let masks = self.masks();
         let input = facts::FactInput {
             request: &request,
             writes: &writes,
@@ -399,6 +402,7 @@ impl DaemonToolbox {
             shell_path: &shell_path,
             rebuildable: &rebuildable,
             turn_start,
+            masks: &masks,
         };
         let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
         facts.covered = self.cover_facts(&call.context, &request.covers).await;

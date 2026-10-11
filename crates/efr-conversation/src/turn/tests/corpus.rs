@@ -168,6 +168,7 @@ fn requirements(line: &Line, text: &str) -> Requirements {
         programs,
         links: Vec::new(),
         covered,
+        sources: Vec::new(),
     })
 }
 

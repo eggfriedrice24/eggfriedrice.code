@@ -55,10 +55,13 @@ pub struct ActionFacts {
     /// Where the exits came from.
     pub source: ExitSource,
     /// The payload of a `write_file`, `edit` or `apply_patch` call that edits a floor
-    /// file, which efr copies to its backup store first: the new content, the old and
-    /// the new strings, or the hunks of that file. At most
+    /// file, which efr copies to its home store first: the new content, the old and
+    /// the new strings, or the hunks of that file. For a named persistence form of a
+    /// shell line that installs another file, such as a link into a unit dir: the path
+    /// and the text of that file, which efrd read outside every write root. At most
     /// [`MAX_EDIT_BYTES`](Self::MAX_EDIT_BYTES); the user decides a longer payload. The
-    /// model wrote it, so it can hold attacker text, as `line` can.
+    /// model or the files it chose wrote it, so it can hold attacker text, as `line`
+    /// can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit: Option<String>,
 }

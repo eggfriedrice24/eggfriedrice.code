@@ -10,7 +10,9 @@
 //! [`record`] holds only user messages, the action and facts that efr collected itself:
 //! never tool output, file contents or the model's reason. The one piece of model text
 //! besides the line is the payload of a file tool's floor edit ([`Payload`]), so the
-//! classifier judges what efr will write. [`effective`] applies the allow rule and the
+//! classifier judges what efr will write. The one piece of file content is the text of
+//! a file that a named persistence form installs, such as the source of a link into a
+//! unit dir, which efrd read outside every write root ([`ExitNeed::installs`]). [`effective`] applies the allow rule and the
 //! naming rule of efr's auto spec (section 9.4) to the classifier's verdict.
 
 use std::path::{Component, Path, PathBuf};
@@ -236,10 +238,12 @@ impl Payload {
 }
 
 /// The payload of a file tool call that writes a file that runs code later (an exit of
-/// the kind [`ExitKind::Persistence`]); `None` for any other call. A plain write outside
-/// the roots, such as a large file in `~/Documents`, has none: efrd copies it before the
-/// write too ([`ExitNeed::backup_before_write`]), but the 8 KiB rule of the payload is
-/// for code only. `home` and `cwd` resolve a path of a patch as the tool does.
+/// the kind [`ExitKind::Persistence`]), or of a shell line whose named persistence form
+/// installs another file ([`ExitNeed::installs`]: each file's path and text); `None`
+/// for any other call. A plain write outside the roots, such as a large file in
+/// `~/Documents`, has none: efrd copies it before the write too
+/// ([`ExitNeed::backup_before_write`]), but the 8 KiB rule of the payload is for code
+/// only. `home` and `cwd` resolve a path of a patch as the tool does.
 pub(crate) fn payload(
     tool: &str,
     input: &Value,
@@ -248,7 +252,7 @@ pub(crate) fn payload(
     cwd: &Path,
 ) -> Option<Payload> {
     if !FILE_TOOLS.contains(&tool) {
-        return None;
+        return installed(decision);
     }
     let targets: Vec<&Path> = decision
         .exits()
@@ -278,6 +282,24 @@ pub(crate) fn payload(
         Some(text) => Payload { text, whole: true },
         None => Payload { text: String::new(), whole: false },
     })
+}
+
+/// The payload of the files that the exits of `decision` install, each once: its path
+/// on a line, then its text. `None` when they install none.
+fn installed(decision: &Decision) -> Option<Payload> {
+    let mut seen: Vec<&Path> = Vec::new();
+    let mut text = String::new();
+    for file in decision.exits().flat_map(|need| &need.installs) {
+        if seen.contains(&file.path.as_path()) {
+            continue;
+        }
+        seen.push(&file.path);
+        text.push_str(&format!("{}:\n{}", file.path.display(), file.text));
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+    }
+    (!seen.is_empty()).then_some(Payload { text, whole: true })
 }
 
 /// The text of an `apply_patch` call: the input itself in the freeform form, or its one

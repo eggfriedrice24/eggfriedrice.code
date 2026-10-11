@@ -14,7 +14,7 @@ use crate::path_class::normalize;
 use crate::tables::{
     GIT_SURFACE, PROTECTED_NAMES, floor_group, is_env_file, persistence_floors, sandbox_masks,
 };
-use crate::{Access, AutoSupport, CallFacts, CoverAsk, FloorGroup, Locations, TargetKind};
+use crate::{Access, AutoSupport, CallFacts, CoverAsk, FloorGroup, Locations, Source, TargetKind};
 
 /// The write roots of one call and the locations that classify the rest.
 #[derive(Debug)]
@@ -304,6 +304,7 @@ impl<'a> Envelope<'a> {
         facts: Option<&CallFacts>,
         support: &AutoSupport,
         linked: bool,
+        from: Option<&[Source]>,
     ) {
         let Some(path) = need.target.clone() else { return };
         let Some(floor) = self.floor_of(&path) else { return };
@@ -320,7 +321,25 @@ impl<'a> Envelope<'a> {
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.ends_with(".wants") || name.ends_with(".requires"))
         });
-        let named = support.floor_backup && file && !linked && !enables && floor.group.is_some();
+        // NOTE: what a `cp` or `ln` installs is another file, which the classifier must
+        // read whole (plan PB19a): then a copy into a floor dir and a link into a unit
+        // dir go to it too. A link elsewhere in a floor makes a new name, such as a new
+        // unit, so only the user approves it.
+        let installed = from.map(|sources| super::persist::readable(self, facts, sources));
+        let named = match &installed {
+            None => support.floor_backup && file && !linked && !enables && floor.group.is_some(),
+            Some(None) => false,
+            Some(Some(_)) => {
+                let dir = kind == Some(Some(TargetKind::Dir));
+                support.floor_backup
+                    && (file || dir)
+                    && (!linked || enables)
+                    && floor.group.is_some()
+            }
+        };
+        if let (true, Some(Some(read))) = (named, installed) {
+            need.installs = read;
+        }
         need.approver = if named { Approver::ClassifierWhenNamed } else { Approver::User };
         let home = self.locations.home();
         let mut names = floor_names(&path, home, floor.group);
@@ -440,7 +459,7 @@ impl<'a> Envelope<'a> {
                     ExitSource::Predicted,
                 );
                 need.target = Some(path.to_path_buf());
-                self.floor_edit(&mut need, facts, support, false);
+                self.floor_edit(&mut need, facts, support, false, None);
                 set_copies(&mut need, facts, support);
                 Some(need)
             }
@@ -480,7 +499,7 @@ impl<'a> Envelope<'a> {
         match kind {
             ExitKind::Write => need.approver = Approver::Classifier,
             ExitKind::AboveRoot => need.approver = self.above_root_approver(path),
-            ExitKind::Persistence => self.floor_edit(&mut need, facts, support, false),
+            ExitKind::Persistence => self.floor_edit(&mut need, facts, support, false, None),
             _ => {}
         }
         set_copies(&mut need, facts, support);

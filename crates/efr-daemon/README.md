@@ -566,6 +566,35 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   efrd keeps no store, and a floor edit does not run. Nothing new goes to
   `$XDG_DATA_HOME/efr/file-backups/` of phase A: `backups.rs` keeps only its collector,
   which deletes the old copies by `snapshot.keep_turns` and `snapshot.max_age_days`.
+- Named persistence that is no file edit (plan PB19, PB19a, PB20, PB34). A named unit
+  change (`CoverAsk::UnitLinks`, such as `systemctl --user enable agent.service`)
+  copies the whole unit config dir `~/.config/systemd/user` within the dir limits,
+  and each link that `sandbox/units.rs` predicts from the `[Install]` section of the
+  unit file (`WantedBy=`, `RequiredBy=`, `UpheldBy=`, `Alias=`, one level of `Also=`)
+  as missing; after the call the dir is listed again, so a link that the prediction
+  missed is caught too. A name outside the unit name grammar, a template or an
+  instance, a specifier and a config dir that is a link get no prediction, so the
+  engine keeps the change with the user. A named change of the crontab or of linger
+  (`CoverAsk::CronTable`, `CoverAsk::Linger`) copies the state that the program reads
+  (`home/state.rs`): `crontab -l` (the text, missing, or an error, which is not
+  covered) and `loginctl show-user <uid> -p Linger --value`, as the entries `@crontab`
+  and `@linger`, before the call and after it. Undo compares the state with the one
+  after the turn and sets the one before with `crontab -`, `crontab -r`,
+  `loginctl enable-linger <uid>` or `disable-linger <uid>`; a crontab that it replaces
+  goes to the undo trash as `state/crontab`, and a removed unit link adds the note
+  "run systemctl --user daemon-reload". `STATE_COPIES` turns the state copies off. efrd
+  runs only the `crontab` and `loginctl` of `trusted_programs.rs`: found once at start
+  on efrd's own `PATH` (never the hidden shell's), in a dir that root owns and only root
+  can write, outside the home dir, efr's roots, `/tmp`, `/var/tmp` and `/dev/shm`, as a
+  root-owned file that only root can write. Before each run efrd checks that the file
+  has the device and inode that it found, and it runs it with fixed arguments and a
+  clean environment. With no such program the state copies are off and the forms stay
+  with the user. For the facts of such a form, `sandbox/facts.rs` reads each file that
+  it installs (`FactRequest::sources`): the real file behind every link, whether its
+  change or status time is in the turn, and its text when it is UTF-8 and at most
+  8 KiB, never a mask or a secret. A test daemon finds no program: only
+  `Deps::with_trusted_program_dir` of the feature `test-sandbox-fake` names a dir of
+  fakes.
 - Deletes in the real tool caches (`tools/cache_deletes.rs`): the launcher lists the
   whiteouts of a contained call's private cache layers in `SandboxSummary`, and the
   turn asks the engine, then the reviewer or the user. After an allow,
@@ -749,6 +778,9 @@ conventions that `efr_stdx::env::Var` does not name.
 - Undo never writes through a link, never writes a path that changed since the plan
   read it, and copies every file that it overwrites or removes into the undo trash
   first.
+- efrd runs `crontab` and `loginctl` only from a root-owned dir outside every write
+  root, as the file that it found at start, with fixed arguments and never a word of
+  the model.
 
 ## Tests
 

@@ -9,13 +9,22 @@
 //! A fact that cannot be found is left out, and the engine assumes the stricter case:
 //! the target exists, the directory holds tracked files. So a lost fact asks, and never
 //! runs more.
+//!
+//! For a persistence form whose content is another file (plan PB19a), it also reads
+//! each source that the engine names ([`FactRequest::sources`]): the real file behind
+//! every link, whether it changed in this turn (its change or status time at or after
+//! the turn's start), and its text when it is UTF-8 and at most 8 KiB. A unit name
+//! leads to its file in the user unit dirs (`sandbox/units.rs`). A mask or a secret is
+//! never read.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use efr_permissions::{CallFacts, FactRequest, TargetKind};
+use efr_permissions::{CallFacts, FactRequest, Source, SourceFact, TargetKind};
+use efr_protocol::ActionFacts;
 use efr_scope::{Git, Home};
 use jiff::Timestamp;
+use rustix::fs::{FileType, OFlags};
 
 /// How long one git run for the facts may take; a slower one leaves its fact out.
 const GIT_TIMEOUT: Duration = Duration::from_millis(200);
@@ -51,6 +60,8 @@ pub(crate) struct FactInput<'a> {
     /// When the turn's first call was judged; a program changed after it changed in
     /// this turn.
     pub(crate) turn_start: Timestamp,
+    /// The secrets and masks that efrd never reads for a source.
+    pub(crate) masks: &'a [PathBuf],
 }
 
 /// The facts of one call.
@@ -62,6 +73,11 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
     let builtins = input.request.builtins.clone();
     let command_dir = input.command_dir.map(Path::to_path_buf);
     let turn_start = input.turn_start;
+    let sources = input.request.sources.clone();
+    let (masks, home_dir) = (input.masks.to_vec(), home.path().to_path_buf());
+    let read = tokio::task::spawn_blocking(move || {
+        sources.iter().map(|source| source_fact(source, &home_dir, &masks, turn_start)).collect()
+    });
     let looked = tokio::task::spawn_blocking(move || {
         let mut found: Vec<(PathBuf, Option<TargetKind>)> = Vec::new();
         for target in &targets {
@@ -90,6 +106,7 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
         facts.targets = targets;
         facts.programs = programs;
     }
+    facts.sources = read.await.unwrap_or_default();
     let git = git.clone().with_timeout(GIT_TIMEOUT);
     for dir in &input.request.tracked {
         let rebuildable = dir
@@ -164,6 +181,55 @@ fn changed_since(path: &Path, since: Timestamp) -> bool {
         Some(modified) => modified >= since,
         None => true,
     }
+}
+
+/// What efrd finds for one source of a persistence form: the real file, whether it
+/// changed at or after `since`, and its text, never for a path at or below `masks`.
+fn source_fact(source: &Source, home: &Path, masks: &[PathBuf], since: Timestamp) -> SourceFact {
+    let mut fact = SourceFact { source: source.clone(), path: None, changed: true, text: None };
+    let named = match source {
+        Source::File(path) => Some(path.clone()),
+        Source::Unit(name) => super::units::unit_file(name, home),
+    };
+    let Some(named) = named else { return fact };
+    let Ok(real) = std::fs::canonicalize(&named) else { return fact };
+    if crate::home::masked(&named, masks) || crate::home::masked(&real, masks) {
+        return fact;
+    }
+    let Ok(meta) = std::fs::metadata(&real) else { return fact };
+    if !meta.is_file() {
+        return fact;
+    }
+    fact.changed = changed_since(&real, since) || status_changed_since(&meta, since);
+    fact.text = read_text(&real);
+    fact.path = Some(real);
+    fact
+}
+
+/// True when the status of the file of `meta` changed at or after `since`: a copy that
+/// kept an old change time still has a new status time.
+fn status_changed_since(meta: &std::fs::Metadata, since: Timestamp) -> bool {
+    // NOTE: whole seconds, so a change in the turn's first second counts too.
+    std::os::unix::fs::MetadataExt::ctime(meta) >= since.as_second()
+}
+
+/// The text of the regular file `path` when it is UTF-8 and at most
+/// [`ActionFacts::MAX_EDIT_BYTES`], read with no link on the way and without waiting on
+/// a fifo.
+fn read_text(path: &Path) -> Option<String> {
+    use std::io::Read as _;
+    let fd = super::fs::DaemonFs::open(path, OFlags::RDONLY | OFlags::NONBLOCK).ok()?;
+    let stat = rustix::fs::fstat(&fd).ok()?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    let limit = u64::try_from(ActionFacts::MAX_EDIT_BYTES).unwrap_or(u64::MAX) + 1;
+    std::fs::File::from(fd).take(limit).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > ActionFacts::MAX_EDIT_BYTES {
+        return None;
+    }
+    String::from_utf8(bytes).ok()
 }
 
 /// How many files git tracks at or below `dir`, through the hardened runner; 0 when no

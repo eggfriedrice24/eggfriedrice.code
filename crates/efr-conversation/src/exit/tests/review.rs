@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use efr_permissions::exits::Ecosystem;
 use efr_permissions::{
     Approver, AutoSupport, CallFacts, CoverAsk, Coverage, Decision, Engine, Locations,
-    Requirements, TargetKind,
+    Requirements, Source, SourceFact, TargetKind,
 };
 use efr_protocol::{
     ActionFacts, ExitFacts, ExitKind, ExitRecord, ExitSource, HostFact, Judgement, Launch,
@@ -256,6 +256,50 @@ fn classifier_record_has_floor_edit_payload() {
     let plain = decide(&engine, plain);
     assert_eq!(payload("write_file", &content, &plain, home, Path::new(APP)), None);
     assert_eq!(payload("shell", &content, &decision, home, Path::new(APP)), None);
+}
+
+#[test]
+fn autostart_copy_payload_in_record() {
+    // Corpus 86 from outside every write root: the record holds the text of the entry
+    // that the line installs, so the classifier reads what runs at the next login.
+    let dir = "/home/u/.config/autostart";
+    let source = "/home/u/templates/agent.desktop";
+    let text = "[Desktop Entry]\nExec=/usr/bin/agent\n";
+    let facts = CallFacts {
+        targets: vec![(dir.into(), Some(TargetKind::Dir))],
+        sources: vec![SourceFact {
+            source: Source::File(source.into()),
+            path: Some(source.into()),
+            changed: false,
+            text: Some(text.to_owned()),
+        }],
+        ..CallFacts::default()
+    };
+    let engine = engine();
+    let requirements = shell("cp ~/templates/agent.desktop ~/.config/autostart/")
+        .with_write(dir)
+        .with_facts(facts);
+    let decision = decide(&engine, requirements.clone());
+    let home = Path::new(HOME);
+
+    let found = payload("shell", &json!({}), &decision, home, Path::new(APP)).unwrap();
+    assert!(found.judgeable());
+    let said = messages(&["add the agent to my autostart"]);
+    assert_eq!(route(&decision, &said, Some(&found)), Some(Approver::Classifier));
+    let record = record_of(&engine, "shell", &decision, &requirements, Some(&found), &said);
+    assert_eq!(record.action.edit, Some(format!("{source}:\n{text}")));
+    assert!(record.action.line.contains("agent.desktop"));
+
+    // The same copy from the project has no payload, and only the user approves it.
+    let project = "/home/u/p/app/evil.desktop";
+    let mut facts = requirements.facts.clone().unwrap();
+    facts.sources[0].source = Source::File(project.into());
+    facts.sources[0].path = Some(project.into());
+    let from_project =
+        shell("cp evil.desktop ~/.config/autostart/").with_write(dir).with_facts(facts);
+    let decision = decide(&engine, from_project);
+    assert_eq!(payload("shell", &json!({}), &decision, home, Path::new(APP)), None);
+    assert_eq!(route(&decision, &said, None), Some(Approver::User));
 }
 
 #[test]

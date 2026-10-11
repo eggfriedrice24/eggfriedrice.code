@@ -31,10 +31,17 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, efr can change a file that runs code later, such as `~/.zshrc` or a
   Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
   gap in my hyprland config". The reviewer decides, and it sees the change that efr
-  will write. Enabling a unit, `crontab`, linger and a whole directory still ask you.
-  efr copies the file first, and at the end of the turn each such file gets one line:
+  will write. A whole directory still asks you, and so do the unit, cron and linger
+  changes that the next entry does not name. efr copies the file first, and at the end of the turn each such file gets one line:
   `changed ~/.zshrc; efr undo reverts it`. The line comes also when the turn failed or
   you interrupted it.
+- In `auto`, the reviewer can now allow a change that you name to a unit
+  (`systemctl --user enable`, `mask`), a link into a `*.wants` directory, the autostart
+  directory, your crontab and linger, when it can read what the change installs. efr
+  copies the links, the crontab or the linger setting first, so `efr undo` brings them
+  back. `systemctl --user link`, `edit`, `revert`, `at` and `systemd-run --user` still
+  ask you. efr runs `crontab` and `loginctl` itself only when root owns them and their
+  directory; else these forms ask you.
 - `efr away` and `,away` tell efr that you are away from the conversation of this
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a

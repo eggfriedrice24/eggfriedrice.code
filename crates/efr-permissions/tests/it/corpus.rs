@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
     Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, CoverAsk, Coverage, Decision,
-    DecisionInput, Effect, Engine, Locations, Policy, Requirements, SettingsChange, TargetKind,
+    DecisionInput, Effect, Engine, Locations, Policy, Requirements, SettingsChange, Source,
+    SourceFact, TargetKind,
 };
 use efr_protocol::{ExitKind, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
@@ -43,6 +44,10 @@ struct Line {
     covered: Vec<String>,
     #[serde(default)]
     left_out: Vec<String>,
+    #[serde(default)]
+    persist: Vec<String>,
+    #[serde(default)]
+    sources: Vec<String>,
     exits: Vec<ExitKind>,
     #[serde(default)]
     reads: Vec<PathBuf>,
@@ -139,9 +144,42 @@ fn ask(form: &str) -> CoverAsk {
     }
 }
 
+/// One answer of the fixture's `persist` key: what efrd can copy before a named unit,
+/// cron or linger change, `unit:<name>`, `cron` or `linger`.
+fn persist_ask(form: &str) -> CoverAsk {
+    match form.split_once(':') {
+        Some(("unit", name)) => CoverAsk::UnitLinks(name.to_owned()),
+        None if form == "cron" => CoverAsk::CronTable,
+        None if form == "linger" => CoverAsk::Linger,
+        _ => panic!("unknown persist form {form:?}"),
+    }
+}
+
+/// One fact of the fixture's `sources` key: a file that the line installs,
+/// `file:<path>`, or the unit file of a unit, `unit:<name>=<path>`, each a small text
+/// file outside every write root that did not change in the turn.
+fn source_fact(form: &str) -> SourceFact {
+    let (source, path) = match form.split_once(':') {
+        Some(("file", path)) => (Source::File(PathBuf::from(path)), PathBuf::from(path)),
+        Some(("unit", rest)) => {
+            let (name, path) =
+                rest.split_once('=').unwrap_or_else(|| panic!("no path in {form:?}"));
+            (Source::Unit(name.to_owned()), PathBuf::from(path))
+        }
+        _ => panic!("unknown source form {form:?}"),
+    };
+    SourceFact {
+        source,
+        path: Some(path),
+        changed: false,
+        text: Some("[Install]\nWantedBy=default.target\n".to_owned()),
+    }
+}
+
 /// What the call of `line` declares, with the facts the daemon would collect: in phase
-/// B also its answers to the coverage asks.
-fn requirements(line: &Line) -> Requirements {
+/// B also its answers to the coverage asks. `phase_b` adds the facts that only a phase
+/// B efrd collects for named persistence (`persist`, `sources`).
+fn requirements(line: &Line, phase_b: bool) -> Requirements {
     if let Some(summary) = &line.settings {
         return Requirements::none().with_settings_change(SettingsChange::new(summary, true));
     }
@@ -189,26 +227,34 @@ fn requirements(line: &Line) -> Requirements {
         .iter()
         .map(|form| (ask(form), Coverage::Covered))
         .chain(line.left_out.iter().map(|form| (ask(form), Coverage::LeftOut)))
+        .chain(
+            line.persist
+                .iter()
+                .filter(|_| phase_b)
+                .map(|form| (persist_ask(form), Coverage::Covered)),
+        )
         .collect();
+    let sources = line.sources.iter().filter(|_| phase_b).map(|form| source_fact(form)).collect();
     requirements.with_facts(CallFacts {
         targets,
         tracked_counts,
         programs,
         links: Vec::new(),
         covered,
+        sources,
     })
 }
 
 /// The lines of the corpus whose result on `engine` is not the one of `column`, each
 /// with what it found. A line that runs with no exit (`R` or `C`) must have none; any
 /// other line must have the exits of the fixture.
-fn mismatches(engine: &Engine, column: impl Fn(&Line) -> &str) -> Vec<String> {
+fn mismatches(engine: &Engine, phase_b: bool, column: impl Fn(&Line) -> &str) -> Vec<String> {
     let corpus: Corpus = toml::from_str(CORPUS).unwrap();
     let mut failures = Vec::new();
     for line in &corpus.line {
         let expected = column(line);
         let input = DecisionInput {
-            requirements: requirements(line),
+            requirements: requirements(line, phase_b),
             scope: Scope::Project(id(1)),
             origin: Origin::Shell,
             mode: Mode::Auto,
@@ -293,19 +339,19 @@ fn rank(result: &str) -> u8 {
 
 #[test]
 fn every_line_has_the_phase_a_result() {
-    assert_eq!(mismatches(&engine(), |line| &line.pa), Vec::<String>::new());
+    assert_eq!(mismatches(&engine(), false, |line| &line.pa), Vec::<String>::new());
 }
 
 #[test]
 fn every_line_has_the_phase_b_result() {
-    assert_eq!(mismatches(&undo_engine(), |line| &line.pb), Vec::<String>::new());
+    assert_eq!(mismatches(&undo_engine(), true, |line| &line.pb), Vec::<String>::new());
 }
 
 #[test]
 fn ask_destructive_always_keeps_every_destructive_exit() {
     // `sandbox.ask_destructive = "always"` (or `undo.enabled = false`) keeps the phase
     // A route of every line, whatever the snapshot covers.
-    assert_eq!(mismatches(&engine(), |line| &line.pa), Vec::<String>::new());
+    assert_eq!(mismatches(&engine(), false, |line| &line.pa), Vec::<String>::new());
     let corpus: Corpus = toml::from_str(CORPUS).unwrap();
     let covered = corpus.line.iter().filter(|line| !line.covered.is_empty()).count();
     assert!(covered >= 3, "the corpus has covered lines: {covered}");
@@ -318,9 +364,9 @@ fn the_fixture_holds_all_110_lines_and_only_stricter_overrides() {
     assert_eq!(numbers, (1..=110).collect::<BTreeSet<u32>>());
     for line in &corpus.line {
         assert!(line.line.is_some() != line.settings.is_some(), "line {}", line.n);
-        // NOTE: the named persistence of phase B changes these rows later.
-        if (84..=89).contains(&line.n) {
-            assert_eq!(line.pb, line.pa, "line {}", line.n);
+        // NOTE: only a phase B efrd collects the facts of named persistence.
+        if !line.persist.is_empty() || !line.sources.is_empty() {
+            assert!(line.pb.starts_with('N') || line.pb.starts_with('U'), "line {}", line.n);
         }
         if let Some(engine) = &line.engine {
             assert!(
@@ -351,13 +397,16 @@ fn routine_lines_stay_routine_in_phase_a() {
 #[test]
 fn routine_lines_stay_routine_in_phase_b() {
     // A line that runs with no exit in phase A makes no exit in phase B either; phase B
-    // only takes exits away, where the snapshot covers what a line destroys.
+    // only takes exits away, where the snapshot covers what a line destroys, and lets
+    // the classifier judge a named persistence change that efrd copies first.
     let corpus: Corpus = toml::from_str(CORPUS).unwrap();
     for line in &corpus.line {
         if matches!(line.pa.as_str(), "R" | "C") {
             assert_eq!(line.pb, line.pa, "line {} {:?}", line.n, line.line);
         }
-        if line.pb != line.pa {
+        if line.pb != line.pa && line.pa == "U(persistence)" {
+            assert_eq!(line.pb, "N(persistence)", "line {} {:?}", line.n, line.line);
+        } else if line.pb != line.pa {
             assert_eq!(line.pb, "R", "line {} {:?}", line.n, line.line);
             assert_eq!(line.pa, "K(destructive)", "line {} {:?}", line.n, line.line);
         }

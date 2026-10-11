@@ -232,7 +232,8 @@ proptest property:
   project, floor, efr path or secret, and a floor file edit go to it only when a user
   message names them; a floor file edit only while `AutoSupport::floor_backup` holds, a
   fact says that the target is a file or a new file in an existing dir, and the line
-  makes no link and touches no `*.wants` dir. On a machine with undo, a `destructive`
+  makes no link and touches no `*.wants` dir, unless it installs a file under the rule
+  of named persistence below. On a machine with undo, a `destructive`
   exit goes away when the snapshot covers every target of its part (spec 10.7,
   `src/engine/tests/coverage.rs`), never for `shred`, a target at or above a root, in a
   git dir, on a floor or in a `sandbox.write_roots` entry. An `outside` exit asks the user when a
@@ -240,10 +241,23 @@ proptest property:
   in a real write root (not the private tmp or a cache), or the line runs an
   interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script). A `destructive` exit goes to
   the classifier only when efr knows every target and each lies in a real write root.
-  Persistence that is no file edit (`crontab`, `systemctl --user enable`, linger), the
-  git surface, `sandbox.protect`, a privilege, a masked read, a synced write and a
-  socket of a credential agent or under a mask stay with the user; a socket inside a
-  secret or efr's own roots is a floor (`src/engine/tests/auto.rs`).
+  Named persistence that is no file edit goes to the classifier only when a user
+  message names it, efrd says that it can copy what it changes, and the classifier can
+  read what it installs (plan PB19, PB19a, PB20, `src/exits/persist.rs`):
+  `systemctl --user enable`, `reenable`, `preset`, `mask`, `add-wants` and
+  `add-requires` of units by name (`CoverAsk::UnitLinks`), when each unit file existed
+  in a unit dir before the turn, outside every write root, and fits in 8 KiB; `ln -s`
+  into a `*.wants` or `*.requires` dir and `cp` or `ln` into a floor, when the source
+  holds the same rule (`FactRequest::sources`, `CallFacts::sources`); `crontab <file>`
+  under that rule, `crontab -` fed a literal by `echo` or `printf`, and `crontab -r`
+  (`CoverAsk::CronTable`); `loginctl enable-linger` and `disable-linger` for the
+  user's own account (`CoverAsk::Linger`). The text of each installed file goes into
+  `ExitNeed::installs`, and the turn puts it in the record. `systemctl --user link`,
+  `edit`, `revert`, `enable <path>`, `crontab -e`, `at`, `batch`,
+  `systemd-run --user`, a link into a floor file, the git surface, `sandbox.protect`,
+  a privilege, a masked read, a synced write and a socket of a credential agent or
+  under a mask stay with the user; a socket inside a secret or efr's own roots is a
+  floor (`src/engine/tests/auto.rs`).
 - A write of efr's own programs, or of its runtime, data or state roots outside
   `$SCRATCH` and efr's trash, is denied in every mode (`Cause::EfrOwn`), and in `auto`
   a shell write there is a `config` exit.

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_permissions::{FactRequest, TargetKind};
+use efr_permissions::{FactRequest, Source, TargetKind};
 use efr_scope::{Git, Home};
 use efr_test_support::TestClock;
 use jiff::Timestamp;
@@ -52,6 +52,7 @@ async fn targets_parents_tracked_counts_and_programs_are_collected() {
         shell_path: &format!("relative:{}", bin.display()),
         rebuildable: &rebuildable,
         turn_start: Timestamp::UNIX_EPOCH,
+        masks: &[],
     };
     let git_runner = Git::new(TestClock::new().shared()).isolated();
     let facts = collect(&input, &git_runner, &Home::new(&home).unwrap()).await;
@@ -95,4 +96,60 @@ fn a_program_resolves_through_absolute_path_entries_only() {
         Some(root.join("x"))
     );
     let _: PathBuf = root;
+}
+
+#[tokio::test]
+async fn sources_of_persistence_forms_give_their_text_and_never_a_mask() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().canonicalize().unwrap();
+    let units = home.join(".config/systemd/user");
+    std::fs::create_dir_all(&units).unwrap();
+    std::fs::write(units.join("agent.service"), "[Install]\nWantedBy=default.target\n").unwrap();
+    std::fs::write(home.join("evil"), "x").unwrap();
+    std::os::unix::fs::symlink(home.join("evil"), home.join("link")).unwrap();
+    std::fs::write(home.join("big"), "x".repeat(9000)).unwrap();
+    std::fs::create_dir_all(home.join(".ssh")).unwrap();
+    std::fs::write(home.join(".ssh/id"), "secret").unwrap();
+    let mut request = FactRequest::default();
+    request.sources = vec![
+        Source::Unit("agent.service".to_owned()),
+        Source::File(home.join("link")),
+        Source::File(home.join("big")),
+        Source::File(home.join(".ssh/id")),
+        Source::Unit("absent.service".to_owned()),
+    ];
+    let masks = [home.join(".ssh")];
+    let input = FactInput {
+        request: &request,
+        writes: &[],
+        command_dir: None,
+        shell_path: "",
+        rebuildable: &[],
+        turn_start: Timestamp::UNIX_EPOCH,
+        masks: &masks,
+    };
+    let git_runner = Git::new(TestClock::new().shared()).isolated();
+    let facts = collect(&input, &git_runner, &Home::new(&home).unwrap()).await;
+
+    let found: Vec<(Option<PathBuf>, bool, Option<&str>)> = facts
+        .sources
+        .iter()
+        .map(|fact| (fact.path.clone(), fact.changed, fact.text.as_deref()))
+        .collect();
+    let unit_text = "[Install]\nWantedBy=default.target\n";
+    assert_eq!(
+        found,
+        [
+            (Some(units.join("agent.service")), true, Some(unit_text)),
+            (Some(home.join("evil")), true, Some("x")),
+            (Some(home.join("big")), true, None),
+            (None, true, None),
+            (None, true, None),
+        ]
+    );
+    // A file from before the turn did not change in it.
+    let later = Timestamp::now().checked_add(jiff::SignedDuration::from_hours(1)).unwrap();
+    let input = FactInput { turn_start: later, ..input };
+    let facts = collect(&input, &git_runner, &Home::new(&home).unwrap()).await;
+    assert!(!facts.sources[0].changed);
 }

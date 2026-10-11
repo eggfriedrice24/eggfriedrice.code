@@ -12,9 +12,10 @@ use super::{SCRATCH, app, input, locations};
 use crate::command::PRIVILEGED;
 use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, names_match, unsandboxed_line_problem};
 use crate::{
-    Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, CoverAsk, Decision,
-    DecisionInput, Effect, Egress, Engine, ExitNeed, Layer, Locations, PathClass, PathFacts,
-    Policy, Rebuild, Requirements, Resource, Rule, Subject, TargetKind, WriteBind,
+    Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, CoverAsk, Coverage, Decision,
+    DecisionInput, Effect, Egress, Engine, ExitNeed, Installed, Layer, Locations, PathClass,
+    PathFacts, Policy, Rebuild, Requirements, Resource, Rule, Source, SourceFact, Subject,
+    TargetKind, WriteBind,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -410,7 +411,7 @@ fn unnamed_floor_edit_still_asks_user() {
     // names still goes to the user, whatever the snapshot covers.
     let zshrc = "/home/u/.zshrc";
     let mut facts = kinds_of(&[(zshrc, FILE)]);
-    facts.covered = vec![(CoverAsk::Home(PathBuf::from(zshrc)), crate::Coverage::Covered)];
+    facts.covered = vec![(CoverAsk::Home(PathBuf::from(zshrc)), Coverage::Covered)];
     let line = shell("echo 'alias ll=ls' >> ~/.zshrc").with_write(zshrc).with_facts(facts);
     let engine = engine().with_support(AutoSupport {
         floor_backup: true,
@@ -468,36 +469,335 @@ fn floor_autostart_unit_and_program_files_are_classifier_when_named(
 }
 
 #[test]
-fn floor_wants_link_is_user() {
-    // Corpus 88: a link into a `*.wants` dir enables a unit, which is no file edit.
+fn link_into_wants_goes_to_classifier_when_named() {
+    // Corpus 88: a link into a `*.wants` dir enables a unit. It goes to the classifier
+    // when its source lies outside every write root, did not change in the turn and
+    // goes into the record (plan PB19a).
     let link = "/home/u/.config/systemd/user/default.target.wants/x.service";
     let facts =
         kinds_of(&[(link, None), ("/home/u/.config/systemd/user/default.target.wants", DIR)]);
     let line = format!("ln -sf ~/evil {link}");
-    let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(facts.clone()));
+    let evil = "/home/u/evil";
+    let sourced = with_sources(facts.clone(), &[], &[(file_source(evil), evil)]);
+    let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(sourced));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.installs, [installed(evil)]);
+    assert!(need.backup_before_write);
+    // Without a fact of the source, only the user approves it.
+    let unsourced = shell(&line).with_write(link).with_facts(facts.clone());
+    let need = persistence(&with_backup(), unsourced);
     assert_eq!(need.approver, Approver::User);
-    // A plain file there enables the unit too.
+    assert!(need.installs.is_empty());
+    // A plain file from the project there enables the unit too: the sandbox could have
+    // written it.
     let line = format!("cp x.service {link}");
-    let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(facts));
+    let source = "/home/u/p/app/x.service";
+    let sourced = with_sources(facts, &[], &[(file_source(source), source)]);
+    let need = persistence(&with_backup(), shell(&line).with_write(link).with_facts(sourced));
     assert_eq!(need.approver, Approver::User);
-    // A link that the line makes elsewhere in a floor is no file edit either.
+    // A link that the line makes elsewhere in a floor makes a new unit name.
     let unit = "/home/u/.config/systemd/user/x.service";
+    let source = "/home/u/x.service";
     let facts = kinds_of(&[(unit, None), ("/home/u/.config/systemd/user", DIR)]);
+    let facts = with_sources(facts, &[], &[(file_source(source), source)]);
     let line = format!("ln -s ~/x.service {unit}");
     let need = persistence(&with_backup(), shell(&line).with_write(unit).with_facts(facts));
     assert_eq!(need.approver, Approver::User);
 }
 
 #[test]
-fn floor_dir_target_is_user() {
-    // Corpus 86: a copy into the autostart dir makes a file that efr cannot name first.
+fn dir_target_in_autostart_goes_to_classifier_when_named() {
+    // Corpus 86: a copy into the autostart dir from the project stays with the user.
     let dir = "/home/u/.config/autostart";
+    let source = "/home/u/p/app/evil.desktop";
+    let facts = with_sources(kinds_of(&[(dir, DIR)]), &[], &[(file_source(source), source)]);
     let line = shell("cp evil.desktop ~/.config/autostart/").with_write(dir);
-    let need = persistence(&with_backup(), line.with_facts(kinds_of(&[(dir, DIR)])));
+    let need = persistence(&with_backup(), line.with_facts(facts));
     assert_eq!(need.approver, Approver::User);
     // efrd copies the dir with what it holds, within the limits of the home store.
     assert!(need.backup_before_write);
     assert_eq!(need.copies, [CoverAsk::HomeDir(PathBuf::from(dir))]);
+    // An entry from outside every write root goes into the record, and the classifier
+    // judges it when a message names the autostart dir.
+    let source = "/home/u/templates/agent.desktop";
+    let facts = with_sources(kinds_of(&[(dir, DIR)]), &[], &[(file_source(source), source)]);
+    let line = shell("cp ~/templates/agent.desktop ~/.config/autostart/").with_write(dir);
+    let need = persistence(&with_backup(), line.with_facts(facts.clone()));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.installs, [installed(source)]);
+    assert!(names_match(&need.names, &["add the agent to my autostart".to_owned()]));
+    // Without the home store it stays with the user.
+    let line = shell("cp ~/templates/agent.desktop ~/.config/autostart/").with_write(dir);
+    let need = persistence(&engine(), line.with_facts(facts));
+    assert_eq!(need.approver, Approver::User);
+}
+
+#[test]
+fn link_floor_to_project_file_stays_with_user() {
+    let zshrc = "/home/u/.zshrc";
+    let project = "/home/u/p/app/zshrc";
+    let dotfiles = "/home/u/dotfiles/zshrc";
+    let facts = with_sources(
+        kinds_of(&[(zshrc, FILE)]),
+        &[],
+        &[(file_source(project), project), (file_source(dotfiles), dotfiles)],
+    );
+    for line in [
+        "ln -sf ~/p/app/zshrc ~/.zshrc",
+        "cp ~/p/app/zshrc ~/.zshrc",
+        "ln -sf ~/dotfiles/zshrc ~/.zshrc",
+    ] {
+        let call = shell(line).with_write(zshrc).with_facts(facts.clone());
+        let need = persistence(&with_backup(), call);
+        assert_eq!(need.approver, Approver::User, "{line}");
+        assert!(need.installs.is_empty(), "{line}");
+    }
+    // A copy of a file from outside every write root is a file edit that the classifier
+    // reads whole.
+    let line = shell("cp ~/dotfiles/zshrc ~/.zshrc").with_write(zshrc).with_facts(facts);
+    let need = persistence(&with_backup(), line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.installs, [installed(dotfiles)]);
+}
+
+/// The unit file of `myagent.service` in the user's unit config dir.
+const UNIT_FILE: &str = "/home/u/.config/systemd/user/myagent.service";
+
+/// The text of each source of [`with_sources`].
+const UNIT_TEXT: &str = "[Install]\nWantedBy=default.target\n";
+
+/// `facts` with an answer of `Covered` to each of `asks`, and each of `sources` a small
+/// text file at its path that did not change in the turn.
+fn with_sources(mut facts: CallFacts, asks: &[CoverAsk], sources: &[(Source, &str)]) -> CallFacts {
+    facts.covered.extend(asks.iter().map(|ask| (ask.clone(), Coverage::Covered)));
+    facts.sources.extend(sources.iter().map(|(source, path)| SourceFact {
+        source: source.clone(),
+        path: Some(PathBuf::from(path)),
+        changed: false,
+        text: Some(UNIT_TEXT.to_owned()),
+    }));
+    facts
+}
+
+fn file_source(path: &str) -> Source {
+    Source::File(PathBuf::from(path))
+}
+
+fn installed(path: &str) -> Installed {
+    Installed { path: PathBuf::from(path), text: UNIT_TEXT.to_owned() }
+}
+
+/// The facts of a machine where efrd can copy the unit config dir, whose
+/// `myagent.service` existed before the turn.
+fn unit_facts() -> CallFacts {
+    let unit = Source::Unit("myagent.service".to_owned());
+    let ask = CoverAsk::UnitLinks("myagent.service".to_owned());
+    with_sources(CallFacts::default(), &[ask], &[(unit, UNIT_FILE)])
+}
+
+#[test]
+fn named_unit_enable_goes_to_classifier() {
+    // Corpus 85.
+    let enable = "systemctl --user enable --now myagent.service";
+    let need = persistence(&with_backup(), shell(enable).with_facts(unit_facts()));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.copies, [CoverAsk::UnitLinks("myagent.service".to_owned())]);
+    assert_eq!(need.covered, Some(true));
+    assert!(need.backup_before_write);
+    assert_eq!(need.installs, [installed(UNIT_FILE)]);
+    assert!(names_match(&need.names, &["enable the myagent service".to_owned()]));
+    assert!(!names_match(&need.names, &["fix the tests".to_owned()]));
+    // A name without its suffix is a service; the other named verbs route the same.
+    for line in [
+        "systemctl --user enable myagent",
+        "systemctl --user reenable myagent.service",
+        "systemctl --user mask myagent.service",
+        "systemctl --user --now preset myagent.service",
+    ] {
+        let need = persistence(&with_backup(), shell(line).with_facts(unit_facts()));
+        assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line}");
+    }
+    let target = Source::Unit("default.target".to_owned());
+    let facts = with_sources(
+        unit_facts(),
+        &[CoverAsk::UnitLinks("default.target".to_owned())],
+        &[(target, "/usr/lib/systemd/user/default.target")],
+    );
+    let line = shell("systemctl --user add-wants default.target myagent.service");
+    let need = persistence(&with_backup(), line.with_facts(facts));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.installs, [installed(UNIT_FILE)], "only the unit that it enables");
+
+    // Each fact must hold, or only the user approves it.
+    let mut changed = unit_facts();
+    changed.sources[0].changed = true;
+    let mut in_project = unit_facts();
+    in_project.sources[0].path = Some(PathBuf::from("/home/u/p/app/myagent.service"));
+    let mut long = unit_facts();
+    long.sources[0].text = None;
+    let mut not_covered = unit_facts();
+    not_covered.covered[0].1 = Coverage::OverLimit;
+    for (why, facts) in [
+        ("no unit file", CallFacts::default()),
+        ("changed in the turn", changed),
+        ("a link into the project", in_project),
+        ("longer than 8 KiB", long),
+        ("over the dir limits", not_covered),
+    ] {
+        let need = persistence(&with_backup(), shell(enable).with_facts(facts));
+        assert_eq!(need.approver, Approver::User, "{why}");
+        assert!(need.copies.is_empty() && need.installs.is_empty(), "{why}");
+    }
+    let line = shell("systemctl --user --runtime enable myagent.service");
+    let need = persistence(&with_backup(), line.with_facts(unit_facts()));
+    assert_eq!(need.approver, Approver::User, "a runtime link outlives no copy");
+    let system = with_backup()
+        .decide(&in_auto(shell("systemctl enable myagent.service").with_facts(unit_facts())));
+    assert_eq!(kinds(&system), [ExitKind::Privilege], "a system unit needs root");
+    let need = persistence(&engine(), shell(enable).with_facts(unit_facts()));
+    assert_eq!(need.approver, Approver::User, "without the home store");
+}
+
+#[rstest]
+#[case::edit("systemctl --user edit myagent.service")]
+#[case::set_environment("systemctl --user set-environment X=1")]
+#[case::preset_all("systemctl --user preset-all")]
+#[case::set_default("systemctl --user set-default myagent.service")]
+#[case::set_property("systemctl --user set-property myagent.service CPUQuota=10%")]
+fn unit_edit_stays_with_user(#[case] line: &str) {
+    let need = persistence(&with_backup(), shell(line).with_facts(unit_facts()));
+    assert_eq!(need.approver, Approver::User, "{line}");
+    assert!(need.copies.is_empty(), "{line}");
+}
+
+#[test]
+fn unit_revert_stays_with_user() {
+    let line = shell("systemctl --user revert myagent.service").with_facts(unit_facts());
+    let need = persistence(&with_backup(), line);
+    assert_eq!(need.approver, Approver::User);
+    assert!(need.installs.is_empty());
+}
+
+#[test]
+fn link_of_a_unit_in_the_project_stays_with_user() {
+    let unit = "/home/u/p/app/agent.service";
+    let facts = with_sources(
+        unit_facts(),
+        &[CoverAsk::UnitLinks("agent.service".to_owned())],
+        &[(file_source(unit), unit)],
+    );
+    for line in [
+        "systemctl --user link ~/p/app/agent.service",
+        "systemctl --user enable ~/p/app/agent.service",
+        "systemctl --user enable ./agent.service",
+    ] {
+        let need = persistence(&with_backup(), shell(line).with_facts(facts.clone()));
+        assert_eq!(need.approver, Approver::User, "{line}");
+    }
+    let link = "/home/u/.config/systemd/user/default.target.wants/agent.service";
+    let wants = "/home/u/.config/systemd/user/default.target.wants";
+    let facts =
+        with_sources(kinds_of(&[(link, None), (wants, DIR)]), &[], &[(file_source(unit), unit)]);
+    let line = shell(&format!("ln -s ~/p/app/agent.service {link}")).with_write(link);
+    let need = persistence(&with_backup(), line.with_facts(facts));
+    assert_eq!(need.approver, Approver::User);
+}
+
+/// Facts that say efrd can copy the crontab.
+fn cron_facts() -> CallFacts {
+    with_sources(CallFacts::default(), &[CoverAsk::CronTable], &[])
+}
+
+#[test]
+fn named_crontab_pipe_goes_to_classifier() {
+    // Corpus 84: the line holds the whole crontab.
+    for line in [
+        "echo '* * * * * x' | crontab -",
+        "printf '%s\\n' '0 * * * * backup' | crontab -",
+        "crontab -r",
+    ] {
+        let need = persistence(&with_backup(), shell(line).with_facts(cron_facts()));
+        assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line}");
+        assert_eq!(need.copies, [CoverAsk::CronTable], "{line}");
+        assert!(need.installs.is_empty(), "{line}");
+        assert!(names_match(&need.names, &["add a cron job that runs x".to_owned()]), "{line}");
+    }
+    // Any other input is text that efr cannot show the classifier.
+    for line in [
+        "cat jobs | crontab -",
+        "echo \"$JOB\" | crontab -",
+        "echo x; crontab -",
+        "echo x | tee y | crontab -",
+        "crontab - < jobs",
+    ] {
+        let need = persistence(&with_backup(), shell(line).with_facts(cron_facts()));
+        assert_eq!(need.approver, Approver::User, "{line}");
+    }
+    // Without a trusted crontab, efrd cannot copy it.
+    let need = persistence(&with_backup(), shell("echo x | crontab -"));
+    assert_eq!(need.approver, Approver::User);
+}
+
+#[rstest]
+#[case::edit("crontab -e")]
+#[case::list("crontab -l")]
+#[case::other_user("crontab -u root jobs.txt")]
+#[case::interactive_remove("crontab -i -r")]
+fn crontab_e_stays_with_user(#[case] line: &str) {
+    let need = persistence(&with_backup(), shell(line).with_facts(cron_facts()));
+    assert_eq!(need.approver, Approver::User, "{line}");
+}
+
+#[test]
+fn crontab_file_from_project_stays_with_user() {
+    let project = "/home/u/p/app/jobs.txt";
+    let home = "/home/u/jobs.txt";
+    let facts = with_sources(
+        cron_facts(),
+        &[],
+        &[(file_source(project), project), (file_source(home), home)],
+    );
+    let need = persistence(&with_backup(), shell("crontab jobs.txt").with_facts(facts.clone()));
+    assert_eq!(need.approver, Approver::User);
+    let need = persistence(&with_backup(), shell("crontab ~/jobs.txt").with_facts(facts));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.installs, [installed(home)]);
+}
+
+#[test]
+fn named_linger_goes_to_classifier() {
+    // Corpus 89.
+    let facts = with_sources(CallFacts::default(), &[CoverAsk::Linger], &[]);
+    for line in ["loginctl enable-linger", "loginctl disable-linger"] {
+        let need = persistence(&with_backup(), shell(line).with_facts(facts.clone()));
+        assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line}");
+        assert_eq!(need.copies, [CoverAsk::Linger]);
+        assert!(names_match(&need.names, &["turn on lingering for my user".to_owned()]));
+    }
+    let need = persistence(&with_backup(), shell("loginctl enable-linger bob").with_facts(facts));
+    assert_eq!(need.approver, Approver::User);
+    let need = persistence(&with_backup(), shell("loginctl enable-linger"));
+    assert_eq!(need.approver, Approver::User, "efrd cannot copy the setting");
+    // Two named forms on one line are one exit: a message that names one of them does
+    // not send the other to the classifier.
+    let mut facts = unit_facts();
+    facts.covered.push((CoverAsk::Linger, Coverage::Covered));
+    let line = "systemctl --user enable myagent.service && loginctl enable-linger";
+    let need = persistence(&with_backup(), shell(line).with_facts(facts));
+    assert_eq!(need.approver, Approver::User);
+}
+
+#[rstest]
+#[case::at("at now + 1 hour")]
+#[case::batch("batch")]
+#[case::user_run("systemd-run --user x")]
+#[case::user_timer("systemd-run --user --on-calendar=daily x")]
+fn at_and_systemd_run_stay_with_user(#[case] line: &str) {
+    let mut facts = with_sources(unit_facts(), &[CoverAsk::CronTable, CoverAsk::Linger], &[]);
+    facts.covered.push((CoverAsk::Home(PathBuf::from("/home/u/x")), Coverage::Covered));
+    let need = persistence(&with_backup(), shell(line).with_facts(facts));
+    assert_eq!(need.approver, Approver::User, "{line}");
+    assert!(need.copies.is_empty(), "{line}");
 }
 
 #[test]
