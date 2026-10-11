@@ -1,6 +1,6 @@
 [package]
 name = "efr-snapshot"
-description = "efr's own snapshot store: hardened git trees of the files that the agent can change, before and after each call and turn"
+description = "efr's own snapshot store: hardened git trees of the files that the agent can change, before and after each call and turn, copies of the home files that a call can change, and the plan of an undo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
