@@ -122,6 +122,16 @@ impl Runner {
         &self.clock
     }
 
+    /// The git command of a run in `cwd` with `args`, before any hardening: the
+    /// environment of `efr_scope::Git::command` and [`SCRUBBED_ENV`] removed.
+    pub(crate) fn bare_command(&self, cwd: &Path, args: &[OsString]) -> tokio::process::Command {
+        let mut command = self.git.command(cwd, &self.home, args);
+        for name in SCRUBBED_ENV {
+            command.env_remove(name);
+        }
+        command
+    }
+
     /// Runs `git <args>` on `store` as `run` says.
     pub(crate) async fn run<S: AsRef<OsStr>>(
         &self,
@@ -142,10 +152,7 @@ impl Runner {
             all.push(setting);
         }
         all.extend(args.iter().map(|arg| arg.as_ref().to_owned()));
-        let mut command = self.git.command(cwd, &self.home, &all);
-        for name in SCRUBBED_ENV {
-            command.env_remove(name);
-        }
+        let mut command = self.bare_command(cwd, &all);
         command
             .env("GIT_DIR", store.git_dir())
             .env("GIT_INDEX_FILE", store.index())
@@ -172,13 +179,22 @@ impl Runner {
                 .env("GIT_COMMITTER_EMAIL", "efr@localhost")
                 .env("GIT_COMMITTER_DATE", time);
         }
-        if run.stdin.is_some() {
-            command.stdin(Stdio::piped());
-        }
         if run.stderr {
             command.stderr(Stdio::piped());
         }
-        let stdin = run.stdin;
+        self.execute(command, run.stdin).await
+    }
+
+    /// Runs `command` off the async workers under the timeout, with `stdin` as its
+    /// standard input.
+    pub(crate) async fn execute(
+        &self,
+        mut command: tokio::process::Command,
+        stdin: Option<Vec<u8>>,
+    ) -> Result<Output, SnapshotError> {
+        if stdin.is_some() {
+            command.stdin(Stdio::piped());
+        }
         let work = async move {
             // NOTE: spawning returns only once the child has changed into its working
             // directory, and on a hung mount that never ends; the blocking pool holds

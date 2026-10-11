@@ -9,5 +9,6 @@ mod calls;
 mod cost;
 mod gc;
 mod logs;
+mod mirror;
 mod support;
 mod turns;

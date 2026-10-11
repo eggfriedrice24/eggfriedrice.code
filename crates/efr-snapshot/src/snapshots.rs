@@ -13,6 +13,7 @@ use efr_stdx::time::{Clock, Stopwatch};
 use crate::SnapshotError;
 use crate::capture::{self, LeftOut, Limits, Reported, Staged};
 use crate::changes::{self, RootChange, Shown};
+use crate::project_git::GitDirs;
 use crate::runner::{Run, Runner};
 use crate::store::Store;
 use crate::turn::TurnRecord;
@@ -53,13 +54,22 @@ pub struct Root {
     path: PathBuf,
     shown: String,
     mode: Option<String>,
+    dirs: Option<GitDirs>,
 }
 
 impl Root {
     /// The root at `path`, whose changed files show as `shown` and their path, such as
     /// `""`, `"$SCRATCH/"` or `"~/p/app/"` ([`shown_prefix`](crate::shown_prefix)).
     pub fn new(path: impl Into<PathBuf>, shown: impl Into<String>) -> Self {
-        Root { path: path.into(), shown: shown.into(), mode: None }
+        Root { path: path.into(), shown: shown.into(), mode: None, dirs: None }
+    }
+
+    /// The root with the git dirs of its project that the daemon trusts. Only a root
+    /// with them gets a mirror of its refs; this crate never reads a `.git` file of a
+    /// root to find them.
+    pub fn with_git(mut self, dirs: Option<GitDirs>) -> Self {
+        self.dirs = dirs;
+        self
     }
 
     /// The root with the mode of the turn (`auto`, `cautious`, `manual`), which the
@@ -82,6 +92,11 @@ impl Root {
     /// The mode of the turn, when the caller named it.
     pub fn mode(&self) -> Option<&str> {
         self.mode.as_deref()
+    }
+
+    /// The trusted git dirs of the root's project.
+    pub fn git(&self) -> Option<&GitDirs> {
+        self.dirs.as_ref()
     }
 }
 
@@ -186,7 +201,7 @@ impl Snapshots {
             let first = !self.in_turn(turn, root.path());
             let snap = self.snap(root.path(), &limits, first).await;
             let snap = if first {
-                self.start_root(conversation, turn, &root, snap).await?
+                self.start_root(conversation, turn, &root, snap, &limits).await?
             } else {
                 match snap {
                     Ok(snap) => snap,
@@ -244,7 +259,7 @@ impl Snapshots {
             roots.into_iter().filter(|root| !self.in_turn(turn, root.path())).collect();
         futures::future::join_all(missing.into_iter().map(|root| async move {
             let snap = self.snap(root.path(), &limits, true).await;
-            self.start_root(conversation, turn, &root, snap).await;
+            self.start_root(conversation, turn, &root, snap, &limits).await;
         }))
         .await;
     }

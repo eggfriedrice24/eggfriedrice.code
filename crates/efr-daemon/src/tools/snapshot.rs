@@ -50,6 +50,7 @@ impl CallSnapshots {
             max_file_bytes: u64::from(snapshot.max_file_mib) * MIB,
             ignored_small: snapshot.ignored == IgnoredFiles::Small,
             max_files: u64::from(snapshot.max_files),
+            ..Limits::default()
         })
     }
 

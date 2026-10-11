@@ -27,6 +27,18 @@ without undo).
 - `Snapshots::before_write`: the turn's first snapshot of a root before a file tool
   writes into it. The tool's own diff lists its change; `Snapshots::after_write` adds
   the files it wrote to `touched`.
+- The mirror (`mirror.rs`): at the turn's first snapshot of a root with trusted git
+  dirs (`Root::with_git`), the store fetches the project's `refs/heads/*`,
+  `refs/tags/*`, `refs/stash` and a detached `HEAD` into
+  `refs/efr-mirror/<conversation>/<turn>/`, and the `pre` line records their values,
+  `HEAD`, the git dirs and their `(dev, ino)`. `post` records the values at the end.
+  `refs/remotes/*` stays out. No mirror, and `TurnEnd::not_covered` says
+  `refs: <why>`, for a root with a `.git` but no trusted dirs, a git dir that is a
+  link or that changed, alternates, a `commondir` file where none belongs, a shallow
+  clone, an object dir above `Limits::mirror_max_bytes` (an `lstat` walk that follows
+  no link; 0 turns the mirror off), a failed fetch, or a fetch that adds more than
+  `mirror_max_bytes` to the store (its refs go again). A linked work tree fetches
+  from its own git dir, so its `HEAD` is its own.
 - A snapshot that fails marks the root for the turn. When the first one fails, no
   later snapshot becomes `pre`, because a call of the turn may have written in
   between.
@@ -122,9 +134,16 @@ attribute file outside the root (`core.attributesFile=/dev/null`,
 `GIT_ATTR_NOSYSTEM=1`), so each blob holds the exact bytes of its file. A store from
 before this rule has no `efr.format=2` in its config: it drops its index once and
 takes a full snapshot. The project's `.git`, its config, its hooks
-and its index are never written; only its `info/exclude` (at most 64 KiB, never through
-a link) and its `HEAD` are read. Objects are written by `git add` in the store, never
-hardlinked. One snapshot, commit or collection of a store runs at a time. Under that
+and its index are never written by a snapshot. A snapshot reads its `info/exclude` (at
+most 64 KiB, never through a link) and its `HEAD`; with the git dirs that the daemon
+trusts (`GitDirs`), also its refs and objects, through `ProjectGit` (`project_git.rs`):
+a second hardened mode with the project's git dir as `GIT_DIR`, no system or global
+config, `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c
+core.alternateRefsCommand=`, no automatic gc or maintenance, bounded packing, and only
+the commands that the module names. The same `-c` list is in the `--upload-pack` of
+the mirror's fetch, because the `-c` of a fetch does not reach a local `upload-pack`.
+Objects are written by `git add`, `commit-tree` and the mirror's fetch in the store,
+never hardlinked. One snapshot, commit or collection of a store runs at a time. Under that
 gate, a lock that a killed git left (the index's or `packed-refs`'s) is removed, so a
 timeout or a stop of efrd cannot block a store for good; a `git add` that a lock still
 stops fails the snapshot instead of listing no changes.

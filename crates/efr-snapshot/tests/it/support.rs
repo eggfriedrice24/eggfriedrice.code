@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{ConversationId, TurnId};
 use efr_scope::{Git, Home};
-use efr_snapshot::{DEFAULT_SNAPSHOT_TIMEOUT, Limits, Root, SnapshotParts, Snapshots};
+use efr_snapshot::{DEFAULT_SNAPSHOT_TIMEOUT, GitDirs, Limits, Root, SnapshotParts, Snapshots};
 use efr_test_support::TestClock;
 use jiff::Timestamp;
 
@@ -140,7 +140,7 @@ fn uuid(n: u128) -> uuid::Uuid {
 
 /// The limits of the tests: untracked files up to 1 KiB.
 pub(crate) fn limits() -> Limits {
-    Limits { max_file_bytes: 1024, ignored_small: true, max_files: 20_000 }
+    Limits { max_file_bytes: 1024, ..Limits::default() }
 }
 
 pub(crate) fn root(path: &Path) -> Root {
@@ -229,6 +229,27 @@ pub(crate) fn left_out(meta: &serde_json::Value) -> Vec<(String, String)> {
             )
         })
         .collect()
+}
+
+/// A git project below the home directory with one commit of `a.txt`.
+pub(crate) async fn project(world: &World, name: &str) -> PathBuf {
+    let home = world.home();
+    let dir = world.dir(name);
+    write(&dir.join("a.txt"), "a\n");
+    git(&dir, &home, &[], &["init", "-q"]).await;
+    git(&dir, &home, &[], &["add", "a.txt"]).await;
+    git(&dir, &home, &[], &["commit", "-q", "-m", "one"]).await;
+    dir
+}
+
+/// The git dirs of the main work tree at `dir`, as the daemon trusts them.
+pub(crate) fn dirs_of(dir: &Path) -> GitDirs {
+    GitDirs { git_dir: dir.join(".git"), common_dir: dir.join(".git") }
+}
+
+/// The root at `dir` with the git dirs of its main work tree.
+pub(crate) fn git_root(dir: &Path) -> Root {
+    Root::new(dir, "").with_git(Some(dirs_of(dir)))
 }
 
 /// Every ref of the store at `git_dir`, sorted.

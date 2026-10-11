@@ -1,15 +1,15 @@
 //! The changes of one call, in a plain directory and in a git project.
 
 use std::fs;
-use std::os::unix::fs::{PermissionsExt as _, symlink};
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _, symlink};
 
 use efr_protocol::{ChangeKind, FileChange, FileChanges};
 use efr_snapshot::{LeftOutReason, Limits, Phase, Root};
 use pretty_assertions::assert_eq;
 
 use crate::support::{
-    World, all_bytes, conversation, git, left_out, limits, meta_of, root, tree_of, turn, turn_ref,
-    write,
+    World, all_bytes, conversation, git, git_root, left_out, limits, meta_of, project, refs, root,
+    tree_of, turn, turn_ref, write,
 };
 
 fn file(path: &str, kind: ChangeKind, added: u32, removed: u32) -> FileChange {
@@ -84,17 +84,119 @@ async fn snapshot_leaves_user_index_untouched() {
     let before = all_bytes(&dir.join(".git"));
     let status = git(&dir, &home, &[], &["status", "--porcelain"]).await;
 
+    // NOTE: with the git dirs, the turn also mirrors the project's refs, which reads
+    // the project's .git and writes nothing there.
     let call =
-        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+        world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits()).await;
     edit_everything(&dir);
     let changes = world.snapshots.after_call(call, limits()).await.unwrap();
     assert_eq!(changes, expected());
     let finished = world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
     assert_eq!(finished, expected());
+    assert!(refs(&world.only_store(), &home).await.iter().any(|name| name.contains("efr-mirror")));
 
     assert_eq!(all_bytes(&dir.join(".git")), before, "the project's .git and index are unchanged");
     edit_back(&dir);
     assert_eq!(git(&dir, &home, &[], &["status", "--porcelain"]).await, status);
+}
+
+/// The names of the files in `dir`, sorted.
+fn names(dir: &std::path::Path) -> Vec<String> {
+    let mut found: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    found
+}
+
+/// A project whose config makes git run a program for every code key it can: each
+/// writes a marker into the returned directory.
+async fn trapped_project(world: &World) -> (std::path::PathBuf, std::path::PathBuf) {
+    let home = world.home();
+    let dir = project(world, "trapped").await;
+    git(&dir, &home, &[], &["branch", "feature"]).await;
+    let markers = world.base.path().join("markers");
+    let hooks = world.base.path().join("hooks");
+    fs::create_dir_all(&markers).unwrap();
+    fs::create_dir_all(&hooks).unwrap();
+    for hook in ["post-index-change", "reference-transaction", "pre-auto-gc", "post-checkout"] {
+        let path = hooks.join(hook);
+        write(&path, &format!("#!/bin/sh\ntouch '{}/hook-{hook}'\n", markers.display()));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mark = |name: &str| format!("touch '{}/{name}'; true", markers.display());
+    let settings = [
+        ("core.fsmonitor".to_owned(), mark("fsmonitor")),
+        ("filter.x.clean".to_owned(), format!("{}; cat", mark("clean"))),
+        ("filter.x.process".to_owned(), mark("process")),
+        ("core.hooksPath".to_owned(), hooks.display().to_string()),
+        ("core.alternateRefsCommand".to_owned(), mark("alternate-refs")),
+        ("uploadpack.packObjectsHook".to_owned(), mark("pack-objects-hook")),
+    ];
+    for (key, value) in &settings {
+        git(&dir, &home, &[], &["config", key, value]).await;
+    }
+    write(&dir.join(".gitattributes"), "* filter=x\n");
+    (dir, markers)
+}
+
+#[tokio::test]
+async fn snapshot_never_runs_repo_config() {
+    let world = World::new();
+    let home = world.home();
+    let (dir, markers) = trapped_project(&world).await;
+
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "changed\n");
+    world.snapshots.after_call(call, limits()).await.unwrap();
+    let end = world.snapshots.turn_end(turn(1), limits()).await;
+    assert!(end.kept && end.not_covered.is_empty(), "{end:?}");
+    let store = world.only_store();
+    let mirrored = refs(&store, &home).await;
+    assert!(mirrored.iter().any(|name| name.ends_with("/heads/feature")), "{mirrored:?}");
+    assert_eq!(names(&markers), Vec::<String>::new(), "the capture and the mirror ran no code");
+
+    // NOTE: the keys act for plain git, so the test proves something.
+    git(&dir, &home, &[], &["add", "-A"]).await;
+    assert!(!names(&markers).is_empty());
+}
+
+#[tokio::test]
+async fn snapshot_objects_not_hardlinked() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "linked").await;
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "b\n");
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.turn_end(turn(1), limits()).await;
+    let store = world.only_store();
+    assert!(refs(&store, &home).await.iter().any(|name| name.starts_with("refs/efr-mirror/")));
+
+    let inodes = |dir: &std::path::Path| {
+        let mut found = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(at) = stack.pop() {
+            for entry in fs::read_dir(&at).unwrap().filter_map(Result::ok) {
+                let metadata = fs::symlink_metadata(entry.path()).unwrap();
+                if metadata.is_dir() {
+                    stack.push(entry.path());
+                } else {
+                    assert_eq!(metadata.nlink(), 1, "{}", entry.path().display());
+                    found.push((metadata.dev(), metadata.ino()));
+                }
+            }
+        }
+        found
+    };
+    let ours = inodes(&store.join("objects"));
+    let theirs = inodes(&dir.join(".git/objects"));
+    assert!(!ours.is_empty());
+    assert!(ours.iter().all(|inode| !theirs.contains(inode)), "no object is shared");
 }
 
 /// Undoes [`edit_everything`] by hand, so the project's status can be compared.

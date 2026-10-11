@@ -4,7 +4,7 @@
 //! `efr-meta:` line carries the paths that the turn's calls changed (`touched`), so an
 //! undo acts on those paths only, and a change between two calls stays.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
@@ -13,7 +13,9 @@ use efr_protocol::{ConversationId, FileChanges, TurnId};
 use crate::SnapshotError;
 use crate::capture::{LeftOut, LeftOutReason, Limits};
 use crate::changes::{self, RootChange, Shown};
-use crate::meta::{MAX_TOUCHED, Meta};
+use crate::meta::{GitMeta, MAX_TOUCHED, Meta};
+use crate::mirror::{MIRROR_FETCH_FAILED, Mirror};
+use crate::project_git::{GitDirs, Pins, ProjectGit, ProjectRefs};
 use crate::runner::Run;
 use crate::snapshots::{Missed, Pin, Root, Snap, Snapshots};
 use crate::store::{self, Store};
@@ -67,6 +69,14 @@ pub const NOT_COVERED_FAILED: &str = "a snapshot failed";
 /// The reason in [`TurnEnd::not_covered`] for a root whose `pre` ref is gone or moved,
 /// as when an approved command outside the sandbox changed efr's store.
 pub const NOT_COVERED_STORE_CHANGED: &str = "the snapshot store changed";
+/// The start of the reason in [`TurnEnd::not_covered`] for a git root whose refs the
+/// turn's mirror does not hold; why follows, such as `refs: shallow`,
+/// `refs: alternates`, `refs: over snapshot.mirror_max_mib`, `refs: mirror over
+/// budget` or `refs: the git dir is not trusted`.
+pub const NOT_COVERED_REFS: &str = "refs: ";
+
+/// What the `mirror` field of a `pre` line says when the store holds the mirror.
+const MIRROR_TAKEN: &str = "taken";
 
 /// One root of a running turn.
 #[derive(Debug, Clone)]
@@ -96,6 +106,9 @@ pub(crate) struct Kept {
     pub(crate) touched: BTreeSet<String>,
     /// True when a later snapshot of the root failed in the turn.
     pub(crate) failed: bool,
+    /// What the turn's first snapshot took of the project's refs; `None` for a root
+    /// that is no git work tree.
+    pub(crate) mirror: Option<Mirror>,
     _pin: Pin,
 }
 
@@ -139,15 +152,17 @@ impl Snapshots {
         turn: TurnId,
         root: &Root,
         snap: Result<Snap, Missed>,
+        limits: &Limits,
     ) -> Option<Snap> {
         let state = match &snap {
-            Ok(snap) => match self.write_pre(conversation, turn, root, snap).await {
-                Ok((commit, meta)) => State::Kept(Box::new(Kept {
+            Ok(snap) => match self.write_pre(conversation, turn, root, snap, limits).await {
+                Ok((commit, meta, mirror)) => State::Kept(Box::new(Kept {
                     pre: snap.clone(),
                     commit,
                     meta,
                     touched: BTreeSet::new(),
                     failed: false,
+                    mirror,
                     _pin: Pin::new(self.slot(root.path()), &snap.tree),
                 })),
                 Err(error) => {
@@ -310,6 +325,9 @@ impl Snapshots {
             ms: kept.pre.ms,
         });
         end.add_left_out(&path, &kept.pre.left_out);
+        if let Some(reason) = kept.mirror.as_ref().and_then(|mirror| mirror.missing) {
+            end.not_covered.push((path.clone(), format!("{NOT_COVERED_REFS}{reason}")));
+        }
         let post = match self.snap(&path, &limits, true).await {
             Ok(post) => post,
             Err(missed) => {
@@ -353,6 +371,23 @@ impl Snapshots {
         meta.set_left_out(&post.left_out);
         meta.set_modes(&post.modes);
         set_touched(&mut meta, &kept.touched);
+        if let Some((dirs, pins)) = kept.mirror.as_ref().and_then(|mirror| mirror.git.as_ref()) {
+            match self.refs_at_end(dirs, *pins).await {
+                Ok(refs) => {
+                    meta.head = refs.head_ref.clone().or_else(|| refs.head_commit.clone());
+                    meta.refs = refs_with_head(&refs);
+                }
+                Err(reason) => {
+                    meta.head = None;
+                    meta.refs.clear();
+                    let already =
+                        kept.mirror.as_ref().is_some_and(|mirror| mirror.missing.is_some());
+                    if !already {
+                        end.not_covered.push((path.clone(), format!("{NOT_COVERED_REFS}{reason}")));
+                    }
+                }
+            }
+        }
         match self.keep_post(conversation, turn, &path, &post.tree, &kept.commit, meta).await {
             Ok(commit) => {
                 end.snapshots.push(SnapshotInfo {
@@ -387,7 +422,8 @@ impl Snapshots {
         turn: TurnId,
         root: &Root,
         snap: &Snap,
-    ) -> Result<(String, Meta), SnapshotError> {
+        limits: &Limits,
+    ) -> Result<(String, Meta, Option<Mirror>), SnapshotError> {
         let path = root.path().to_path_buf();
         let store = Store::new(self.dir(), &path);
         let slot = self.slot(&path);
@@ -419,6 +455,21 @@ impl Snapshots {
         };
         meta.set_left_out(&snap.left_out);
         meta.set_modes(&snap.modes);
+        let mirror = self.take_mirror(conversation, turn, root, &store, limits).await;
+        if let Some(mirror) = &mirror {
+            meta.mirror = Some(mirror.missing.unwrap_or(MIRROR_TAKEN).to_owned());
+            if let Some((dirs, pins)) = &mirror.git {
+                meta.git = Some(GitMeta {
+                    git_dir: dirs.git_dir.to_string_lossy().into_owned(),
+                    common_dir: dirs.common_dir.to_string_lossy().into_owned(),
+                    git_dir_dev_ino: pins.git_dir,
+                    common_dir_dev_ino: pins.common_dir,
+                });
+                meta.head =
+                    mirror.refs.head_ref.clone().or_else(|| mirror.refs.head_commit.clone());
+                meta.refs = refs_with_head(&mirror.refs);
+            }
+        }
         let commit = self.commit(&store, &snap.tree, None, meta.message(), &time).await?;
         let name = turn_ref(conversation, turn, "pre");
         let update = format!("create {name} {commit}\n");
@@ -430,7 +481,24 @@ impl Snapshots {
                 Run { stdin: Some(update.into_bytes()), ..Run::default() },
             )
             .await?;
-        Ok((commit, meta))
+        Ok((commit, meta, mirror))
+    }
+
+    /// The project's refs of `root` at the end of a turn, from the git dirs that its
+    /// first snapshot pinned; `Err` with why not.
+    async fn refs_at_end(&self, dirs: &GitDirs, pins: Pins) -> Result<ProjectRefs, &'static str> {
+        let runner = self.runner().clone();
+        let looked = dirs.clone();
+        let opened = self
+            .runner()
+            .blocking(&dirs.git_dir, move || ProjectGit::open(&runner, &looked, Some(pins)))
+            .await;
+        let project = match opened {
+            Ok(Ok(project)) => project,
+            Ok(Err(refusal)) => return Err(refusal.reason()),
+            Err(_) => return Err(MIRROR_FETCH_FAILED),
+        };
+        project.refs().await.map_err(|_| MIRROR_FETCH_FAILED)
     }
 
     /// Points the turn's `last` ref of `root` at a commit of `tree` with `meta`.
@@ -529,6 +597,19 @@ impl RootEnd {
             }
         }
     }
+}
+
+/// The refs of `refs`, with `HEAD` and the commit it names.
+fn refs_with_head(refs: &ProjectRefs) -> BTreeMap<String, String> {
+    let mut all = refs.refs.clone();
+    let head = refs
+        .head_commit
+        .clone()
+        .or_else(|| refs.head_ref.as_ref().and_then(|name| refs.refs.get(name).cloned()));
+    if let Some(head) = head {
+        all.insert("HEAD".to_owned(), head);
+    }
+    all
 }
 
 /// Sets the `touched` paths of `meta`, cut at [`MAX_TOUCHED`].

@@ -54,11 +54,19 @@ pub struct Limits {
     pub ignored_small: bool,
     /// A root with more files than this is not snapshotted.
     pub max_files: u64,
+    /// The largest object dir of a project whose refs a turn mirrors, and the most
+    /// that one turn's mirror adds to a store; 0 turns the mirror off.
+    pub mirror_max_bytes: u64,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { max_file_bytes: 10 * 1024 * 1024, ignored_small: true, max_files: 20_000 }
+        Limits {
+            max_file_bytes: 10 * 1024 * 1024,
+            ignored_small: true,
+            max_files: 20_000,
+            mirror_max_bytes: 512 * 1024 * 1024,
+        }
     }
 }
 
