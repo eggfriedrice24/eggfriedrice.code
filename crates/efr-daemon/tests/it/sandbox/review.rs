@@ -1,10 +1,11 @@
-//! The reviewer from the prompt to the real files (efr's auto spec, section 16.3, the
-//! tests of the phase A plan for P7): a floor file edit through each file tool and
-//! through a dotfiles link, with the record that the reviewer reads, the backup and
-//! `home_file_changed`; and deletes in a private cache layer that reach the user's real
-//! cache after the reviewer allows them, and stay private after it refuses. The cache
-//! tests run a real zsh with a fake launcher that reports the deletes, or under `just
-//! test-sandbox` the real `efr-sbx`.
+//! The reviewer from the prompt to the real files (efr's auto spec, sections 16.3 and
+//! 16.4): a floor file edit through each file tool, through a `shell` line and through
+//! a dotfiles link, with the record that the reviewer reads, the copy in the home store,
+//! `home_file_changed` and, for the line, `efr undo`; and deletes in a private cache
+//! layer that reach the user's real cache after the reviewer allows them, and stay
+//! private after it refuses. The `shell_` tests run a real zsh with a fake launcher
+//! (the cache tests with one that reports the deletes), or under `just test-sandbox`
+//! the real `efr-sbx`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -14,7 +15,7 @@ use async_trait::async_trait;
 use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, AdminStatus, AdminStatusResult, ApprovalDecision,
     Event, EventEnvelope, ExitKind, ExitRecord, ExitSource, JudgeKind, Method, Mode, PathClassName,
-    Verdict,
+    UndoAction, Verdict,
 };
 use efr_provider::{
     ContentBlock, EditTool, Provider, ProviderError, ProviderId, ProviderStream, Request,
@@ -26,10 +27,11 @@ use serde_json::json;
 
 use super::{
     FAKE_LAUNCHER, REVIEWER_ALLOWS, ScriptedModel, completed, fake_launcher, judgements, kinds,
-    ready, real_launcher, reviewed_daemon, run_turn, skip, with_zsh,
+    ready, real_launcher, reviewed_daemon, run_turn, skip, specs, with_zsh,
 };
 use crate::home::home_copies;
 use crate::support::zsh_enabled;
+use crate::undo::{entry, undo};
 
 /// The reviewer's answer that refuses an action.
 const REVIEWER_REFUSES: &str = r#"{"verdict":"deny","risk":"high","user_authorization":"none","category":"unrelated","rationale":"nothing the user said relates to it"}"#;
@@ -71,9 +73,11 @@ fn changed(events: &[EventEnvelope]) -> Vec<(PathBuf, bool, bool, Option<PathBuf
 }
 
 /// Checks the flow of a named floor file edit that the reviewer allowed, through a file
-/// tool, of the file `path` (the real file), and returns its one record: no question,
-/// one review before the call ran, the file's new text, a backup of the old text, and
-/// `home_file_changed` with the backup before the turn's end.
+/// tool or a `shell` line, of the file `path` (the real file), and returns its one
+/// record: no question,
+/// one review before the call ran, the file's new text, a copy of the old text in the
+/// home store, and `home_file_changed`, covered and with no backup, before the turn's
+/// end.
 async fn assert_reviewed_edit(
     dirs: &TestDirs,
     model: &ScriptedModel,
@@ -149,6 +153,40 @@ async fn unnamed_floor_file_edit_end_to_end_asks_user() {
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), OLD_RC);
     assert!(home_copies(&dirs).await.is_empty());
     assert!(changed(&events).is_empty());
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_named_floor_edit_goes_to_classifier_with_snapshot() {
+    if !zsh_enabled("shell_named_floor_edit_goes_to_classifier_with_snapshot") {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let zshrc = dirs.home().join(".zshrc");
+    std::fs::write(&zshrc, OLD_RC).unwrap();
+    let line = json!({ "command": "echo 'alias k=kubectl' >> ~/.zshrc" });
+    let model = ScriptedModel::reviewed(vec![("shell", line)], REVIEWER_ALLOWS);
+    let (launcher, fake) = fake_launcher(&dirs);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .sandbox_launcher(&launcher)
+        .probe_override(ready())
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+
+    let (_, events) = run_turn(&daemon, NAMED, Mode::Auto, ApprovalDecision::Deny).await;
+
+    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc).await;
+    // The reviewer reads that efr undo can bring the file back.
+    assert_eq!(record.facts.snapshot_covers, Some(true), "{:?}", record.facts);
+    let [spec] = specs(&fake).try_into().unwrap();
+    assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed, "the exit child runs it");
+    let undone = undo(&daemon, 10, |_| {}).await.unwrap();
+    assert!(undone.applied);
+    assert_eq!(undone.entries, [entry(UndoAction::Restore, "~/.zshrc")]);
+    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), OLD_RC);
     daemon.stop().await.unwrap();
 }
 
