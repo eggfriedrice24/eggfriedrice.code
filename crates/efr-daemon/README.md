@@ -473,6 +473,15 @@ spec; `docs/sandbox.md` for the user's view):
   The engine gets `$SSH_AUTH_SOCK` and the socket of `$GPG_AGENT_INFO` from the hidden
   shells' environment as credential sockets (`HostFacts::agent_sockets`), so only the
   user approves one.
+- The desktop socket of a `desktop` grant (`sandbox/desktop.rs`): `prompt.send` keeps
+  the six desktop variables of the prompt's terminal (`ShellContext.desktop`) for its
+  conversation; a call takes them, or efrd's own start environment when the prompt
+  sent none (`HostFacts::desktop`). efrd computes the one control socket from the
+  variable (`efr_sandbox::desktop_socket_path`), never scans `$XDG_RUNTIME_DIR`, and
+  checks it with `lstat` at each call: a socket of the user (an X server's may be
+  root's), each dir on the way a real dir of the user. No such socket, or an X server
+  that needs a cookie (`$XAUTHORITY` or `~/.Xauthority`), refuses the call with
+  `SandboxError::NoDesktop`, and no probe runs again.
 - `prepare` takes the plan lock of the call's projects (`sandbox/lock.rs`), makes the
   target of an approved `MakeFile` or `MakeDir` grant through its parent's descriptor
   (`sandbox/fs.rs`, `openat2` with no link on the way), and writes the call dir

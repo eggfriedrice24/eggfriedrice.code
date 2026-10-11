@@ -61,6 +61,7 @@ impl Fixture {
             bwrap: Path::new("/usr/bin/bwrap"),
             cache_mode: CacheMode::Tmp,
             launcher: &self.dirs.runtime().join("bin/efr-sbx"),
+            desktops: &[],
         };
         build(&input)
     }

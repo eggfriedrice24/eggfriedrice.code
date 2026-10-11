@@ -10,9 +10,12 @@ use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{Approver, Engine, ExitNeed, Locations, WriteBind};
 use efr_protocol::{
-    CallId, ConversationId, Event, ExitKind, ExitSource, Grant, Launch, ProjectId, Scope, TurnId,
+    CallId, ConversationId, DesktopEnv, DesktopKind, Event, ExitKind, ExitSource, Grant, Launch,
+    ProjectId, Scope, TurnId,
 };
-use efr_sandbox::{ProbeFailure, ProbeReport, SandboxSpec, SpecLaunch, parse_nonce_hex};
+use efr_sandbox::{
+    DesktopSocket, ProbeFailure, ProbeReport, SandboxSpec, SpecLaunch, parse_nonce_hex,
+};
 use efr_scope::{Git, Home};
 use efr_stdx::paths::Dirs;
 use efr_test_support::{TestClock, TestRng, TestStore};
@@ -214,4 +217,46 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
     drop(prepared);
     let again = service.prepare(&call(&fixture, Launch::Unsandboxed, Vec::new()), &input).await;
     assert!(again.is_err());
+}
+
+#[tokio::test]
+async fn a_desktop_grant_binds_the_socket_of_the_prompts_terminal() {
+    let fixture = Fixture::new().await;
+    let service = fixture.service().await;
+    let settings = Settings::default();
+    service.probe(&settings).await;
+    let engine = Engine::with_defaults(Locations::new(&fixture.home).unwrap());
+    let input = PrepareInput { settings: &settings, engine: &engine, named_paths: Vec::new() };
+    let instance = fixture.root.join("xrt/hypr/abc_1760000000_1");
+    std::fs::create_dir_all(&instance).unwrap();
+    let _listener = std::os::unix::net::UnixListener::bind(instance.join(".socket.sock")).unwrap();
+    let launch =
+        Launch::Contained { grants: vec![Grant::Desktop { desktop: DesktopKind::Hyprland }] };
+    let conversation = ConversationId::from_uuid(uuid::Uuid::from_u128(1));
+
+    // efrd's own start environment names no Hyprland, and no prompt sent one.
+    let refused = service.prepare(&call(&fixture, launch.clone(), Vec::new()), &input).await;
+    let Err(error) = refused else { panic!("refused: {refused:?}") };
+    assert_eq!(
+        efr_stdx::with_causes(&error),
+        "the sandbox could not plan the call: efr found no Hyprland session in the terminal of \
+         this prompt"
+    );
+
+    let desktop = DesktopEnv {
+        hyprland_instance_signature: Some("abc_1760000000_1".to_owned()),
+        ..DesktopEnv::default()
+    };
+    service.set_desktop(conversation, Some(&desktop));
+    let prepared = service.prepare(&call(&fixture, launch, Vec::new()), &input).await.unwrap();
+    let spec = SandboxSpec::from_json(&std::fs::read(prepared.run.dir.join("spec.json")).unwrap())
+        .unwrap();
+    assert_eq!(
+        spec.runtime.desktops,
+        [DesktopSocket {
+            desktop: DesktopKind::Hyprland,
+            path: instance.join(".socket.sock"),
+            value: "abc_1760000000_1".to_owned(),
+        }]
+    );
 }

@@ -179,6 +179,7 @@ async fn send(
     let sent = match target(&params, hello_tty, |_| active)? {
         Target::Existing(conversation_id) => {
             ensure_exists(state, conversation_id).await?;
+            keep_desktop(state, conversation_id, &params);
             let sent = state.conversations.open(conversation_id).send_prompt(params, origin).await;
             if let (Ok(_), Some(tty), Some(pid)) = (&sent, &tty, shell_pid)
                 && active == Some(conversation_id)
@@ -190,6 +191,7 @@ async fn send(
         Target::New { tty } => {
             let conversation_id = ConversationId::from_uuid(uuid_v7(&*state.clock, &*state.rng));
             let handle = state.conversations.create(conversation_id, origin, tty.clone());
+            keep_desktop(state, conversation_id, &params);
             let sent = handle.send_prompt(params, origin).await;
             match (&sent, tty) {
                 (Ok(_), Some(tty)) => {
@@ -209,6 +211,15 @@ async fn send(
         }
         Err(ConversationError::DuplicateCommand { receipt }) => receipts::replay(METHOD, *receipt),
         Err(error) => Err(error.into()),
+    }
+}
+
+/// Keeps the desktop variables of the terminal of a prompt with a shell context for
+/// the desktop grants of its conversation's calls; they go to no model. A prompt
+/// without a context, such as one from the phone, keeps the ones before it.
+fn keep_desktop(state: &State, conversation_id: ConversationId, params: &PromptSend) {
+    if let Some(context) = &params.context {
+        state.sandbox.set_desktop(conversation_id, context.desktop.as_deref());
     }
 }
 

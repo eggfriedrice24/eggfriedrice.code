@@ -24,9 +24,11 @@ use std::time::Duration;
 use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{Engine, ExitNeed, WriteBind};
-use efr_protocol::{ConversationId, Event, SandboxPaths, SandboxStatus, Scope};
+use efr_protocol::{
+    ConversationId, DesktopEnv, DesktopKind, Event, Grant, SandboxPaths, SandboxStatus, Scope,
+};
 use efr_sandbox::{
-    NONCE_FILE, ProbeReport, SPEC_FILE, SpecLaunch, expand_home, nonce_hex, too_wide,
+    DesktopSocket, NONCE_FILE, ProbeReport, SPEC_FILE, SpecLaunch, expand_home, nonce_hex, too_wide,
 };
 use efr_scope::{Git, Home};
 use efr_shell::SandboxRun;
@@ -39,6 +41,7 @@ use tokio::sync::{Semaphore, watch};
 use crate::DaemonError;
 use crate::engine::load_registry;
 
+pub(crate) mod desktop;
 mod explain;
 pub(crate) mod facts;
 pub(crate) mod fs;
@@ -113,6 +116,9 @@ struct Inner {
     running: Mutex<HashMap<ConversationId, usize>>,
     /// The `PATH` that a hidden shell reported last.
     reported_path: Mutex<Option<String>>,
+    /// The desktop variables of the terminal of each conversation's last prompt that
+    /// sent any, for its desktop grants.
+    desktops: Mutex<HashMap<ConversationId, DesktopEnv>>,
     writer: WriterHandle,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
@@ -210,6 +216,7 @@ impl SandboxService {
                 turns: report::Turns::default(),
                 running: Mutex::new(HashMap::new()),
                 reported_path: Mutex::new(None),
+                desktops: Mutex::new(HashMap::new()),
                 writer,
                 clock,
                 rng,
@@ -265,6 +272,69 @@ impl SandboxService {
             }
             None => last.clone().unwrap_or_else(|| self.inner.host.path.clone()),
         }
+    }
+
+    /// Keeps the desktop variables that a prompt of `conversation` sent with its shell
+    /// context, `None` when its terminal has none of them; the desktop grants of its
+    /// calls then use efrd's own start environment.
+    pub(crate) fn set_desktop(&self, conversation: ConversationId, desktop: Option<&DesktopEnv>) {
+        // NOTE: the value is replaced whole, so a poisoned lock still holds usable ones.
+        let mut desktops = self.inner.desktops.lock().unwrap_or_else(PoisonError::into_inner);
+        match desktop.filter(|env| !env.is_empty()) {
+            Some(env) => {
+                desktops.insert(conversation, env.clone());
+            }
+            None => {
+                desktops.remove(&conversation);
+            }
+        }
+    }
+
+    /// The control sockets of the desktop grants of `call`, found and checked now for
+    /// the variables of the terminal of the conversation's last prompt, else efrd's
+    /// own. A grant without a socket that a call may use refuses the call with
+    /// [`SandboxError::NoDesktop`](efr_sandbox::SandboxError::NoDesktop).
+    fn desktop_sockets(&self, call: &CallContext) -> Result<Vec<DesktopSocket>, DaemonError> {
+        let wanted: Vec<DesktopKind> = call
+            .launch
+            .grants()
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::Desktop { desktop } => Some(*desktop),
+                _ => None,
+            })
+            .collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let client = self
+            .inner
+            .desktops
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&call.conversation_id)
+            .cloned();
+        let host = &self.inner.host;
+        let env = desktop::chosen(client.as_ref(), &host.desktop);
+        let cookie = self.inner.home.path().join(".Xauthority");
+        let facts = desktop::Facts {
+            user_runtime: &host.user_runtime,
+            uid: rustix::process::getuid().as_raw(),
+            needs_cookie: host.xauthority.is_some() || desktop::lstat(&cookie).is_some(),
+        };
+        let mut sockets = Vec::with_capacity(wanted.len());
+        for kind in wanted {
+            let socket = desktop::find(kind, env, &facts, &desktop::lstat)
+                .map_err(|source| DaemonError::SandboxSpec { source })?;
+            tracing::debug!(
+                desktop = kind.name(),
+                socket = %socket.path.display(),
+                from_prompt = client.is_some(),
+                "a desktop grant binds its socket"
+            );
+            sockets.push(socket);
+        }
+        Ok(sockets)
     }
 
     /// The hardened git runner.
@@ -457,6 +527,7 @@ impl SandboxService {
                 reason: "no bubblewrap was found".to_owned(),
             });
         };
+        let desktops = self.desktop_sockets(call)?;
         let projects = self.projects().await;
         let turn_project = match &call.scope {
             Scope::Project(id) => input.engine.locations().project_root(id).map(Path::to_path_buf),
@@ -486,6 +557,7 @@ impl SandboxService {
             bwrap: &bwrap,
             cache_mode: status.cache_mode,
             launcher: &self.inner.copy,
+            desktops: &desktops,
         };
         let roots: Vec<PathBuf> =
             plan::project_roots(&plan_input).into_iter().map(|root| root.path).collect();

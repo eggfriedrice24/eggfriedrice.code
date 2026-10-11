@@ -15,11 +15,11 @@ use std::path::{Path, PathBuf};
 
 use efr_config::{SandboxSettings, WriteProjects};
 use efr_permissions::{PROTECTED_NAMES, ZSH_STARTUP_FILES, persistence_floors, sandbox_masks};
-use efr_protocol::{CacheMode, CallId, ConversationId, Grant, Launch};
+use efr_protocol::{CacheMode, CallId, ConversationId, DesktopEnv, Grant, Launch};
 use efr_sandbox::{
-    CacheOverlay, EnvPlan, Floor, FloorKind, Mask, MaskKind, NetworkPlan, RecordLimits,
-    RuntimePaths, SCAN_SKIP, SPEC_VERSION, SandboxSpec, SpecLaunch, WorktreeCheck, WriteRoot,
-    WriteRootKind, expand_home, is_within, name_matches, too_wide,
+    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, Mask, MaskKind, NetworkPlan,
+    RecordLimits, RuntimePaths, SCAN_SKIP, SPEC_VERSION, SandboxSpec, SpecLaunch, WorktreeCheck,
+    WriteRoot, WriteRootKind, expand_home, is_within, name_matches, too_wide,
 };
 use efr_stdx::paths::Dirs;
 
@@ -60,6 +60,9 @@ pub(crate) struct HostFacts {
     /// The sockets of the user's credential agents: `$SSH_AUTH_SOCK` and the socket of
     /// `$GPG_AGENT_INFO`. In `auto` only the user approves one of them.
     pub(crate) agent_sockets: Vec<PathBuf>,
+    /// The desktop variables of efrd's start environment, for a desktop grant of a
+    /// prompt whose terminal sent none.
+    pub(crate) desktop: DesktopEnv,
 }
 
 impl HostFacts {
@@ -86,6 +89,7 @@ impl HostFacts {
             zdotdir: absolute("ZDOTDIR"),
             binaries: Vec::new(),
             agent_sockets: agent_sockets(env),
+            desktop: super::desktop::from_env(env),
         }
     }
 }
@@ -126,6 +130,9 @@ pub(crate) struct PlanInput<'a> {
     pub(crate) cache_mode: CacheMode,
     /// The launcher's copy in efr's runtime root.
     pub(crate) launcher: &'a Path,
+    /// The desktop sockets of the call's desktop grants, which efrd found and checked
+    /// for the terminal of the prompt.
+    pub(crate) desktops: &'a [DesktopSocket],
 }
 
 /// A built spec, and what the tool result says about it.
@@ -273,7 +280,7 @@ pub(crate) fn runtime_paths(input: &PlanInput<'_>) -> RuntimePaths {
         bwrap: input.bwrap.to_path_buf(),
         session_bus: input.host.session_bus.clone(),
         system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
-        desktops: Vec::new(),
+        desktops: input.desktops.to_vec(),
     }
 }
 
