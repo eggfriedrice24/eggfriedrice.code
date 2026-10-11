@@ -432,17 +432,12 @@ fn outside_commands_names_the_command_that_leaves() {
         payload: None,
     };
 
-    let record = record(action, &["how full are my disks".to_owned()], &TurnExits::default());
+    let leaving = record(action, &["how full are my disks".to_owned()], &TurnExits::default());
 
-    assert_eq!(record.facts.outside_commands, vec!["df -h"]);
+    assert_eq!(leaving.facts.outside_commands, vec!["df -h"]);
     let plain = decide(&engine, shell("uname -a"));
     let action = Action { decision: &plain, ..action };
-    assert!(record_of(action).facts.outside_commands.is_empty());
-}
-
-/// The record of `action` with no user message.
-fn record_of(action: Action<'_>) -> ExitRecord {
-    record(action, &[], &TurnExits::default())
+    assert!(record(action, &[], &TurnExits::default()).facts.outside_commands.is_empty());
 }
 
 #[test]
