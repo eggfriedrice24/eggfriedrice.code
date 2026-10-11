@@ -45,11 +45,39 @@ fn the_walk_answers_for_the_root_the_git_dir_and_paths_outside() {
     assert_eq!(walk(&root.join("gone")), Ok(None));
     assert_eq!(
         walk(&root.join("src/a.rs")),
-        Ok(Some(("src/a.rs".to_owned(), vec!["src/a.rs".to_owned()])))
+        Ok(Some((vec!["src/a.rs".to_owned()], vec!["src/a.rs".to_owned()])))
     );
     assert_eq!(
         walk_target(&root, &root.join("src/a.rs"), None, 0),
-        Ok(Some(("src/a.rs".to_owned(), vec!["src/a.rs".to_owned()]))),
+        Ok(Some((vec!["src/a.rs".to_owned()], vec!["src/a.rs".to_owned()]))),
         "a single file needs no walk"
     );
+}
+
+#[test]
+fn the_walk_takes_what_a_link_at_the_end_names() {
+    let base = tempfile::tempdir().unwrap();
+    let top = fs::canonicalize(base.path()).unwrap();
+    let root = top.join("p");
+    fs::create_dir_all(root.join("data")).unwrap();
+    fs::write(root.join("data/model.bin"), "m").unwrap();
+    fs::write(top.join("outside.txt"), "o").unwrap();
+    std::os::unix::fs::symlink(root.join("data/model.bin"), root.join("model")).unwrap();
+    std::os::unix::fs::symlink(root.join("data"), root.join("dir")).unwrap();
+    std::os::unix::fs::symlink(top.join("outside.txt"), root.join("out")).unwrap();
+    std::os::unix::fs::symlink(root.join("gone"), root.join("dangling")).unwrap();
+    let walk = |name: &str| walk_target(&root, &root.join(name), None, 100);
+    let names = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        walk("model"),
+        Ok(Some((names(&["data/model.bin", "model"]), names(&["data/model.bin", "model"])))),
+        "`: > model` writes the file that the link names"
+    );
+    assert_eq!(
+        walk("dir"),
+        Ok(Some((names(&["data", "dir"]), names(&["data/model.bin", "dir"])))),
+        "`rm -r dir/` removes what the linked dir holds"
+    );
+    assert_eq!(walk("out"), Err(CoverResult::OutsideRoot), "the link leads out of the root");
+    assert_eq!(walk("dangling"), Ok(Some((names(&["dangling"]), names(&["dangling"])))));
 }

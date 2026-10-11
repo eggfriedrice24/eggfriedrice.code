@@ -71,6 +71,26 @@ async fn covers_is_false_with_snapshot_ignored_none() {
 }
 
 #[tokio::test]
+async fn truncate_through_a_link_to_a_large_ignored_file_is_not_covered() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join(".gitignore"), "*.bin\n");
+    fs::write(dir.join("model.bin"), vec![b'm'; 4 * 1024 * 1024]).unwrap();
+    write(&dir.join("small.txt"), "s\n");
+    std::os::unix::fs::symlink(dir.join("model.bin"), dir.join("weights")).unwrap();
+    std::os::unix::fs::symlink(dir.join("small.txt"), dir.join("note")).unwrap();
+    let wide = Limits { max_file_bytes: 64 * 1024 * 1024, ..limits() };
+    // `: > weights`, `truncate weights` and `dd of=weights` write the file behind it.
+    let asks = [path(&dir, "weights"), path(&dir, "note")];
+    let found = world.snapshots.covers(conversation(1), turn(1), &root(&dir), &asks, wide).await;
+    assert_eq!(
+        found,
+        [CoverResult::LeftOut(LeftOutReason::IgnoredTooLarge), CoverResult::Covered],
+        "the link is in the tree, but the large file that it names is not"
+    );
+}
+
+#[tokio::test]
 async fn rm_in_git_dir_is_never_covered() {
     let world = World::new();
     let dir = project(&world, "p").await;

@@ -135,12 +135,12 @@ impl Snapshots {
             Ok(Err(result)) => return result,
             Err(_) => return CoverResult::Failed,
         };
-        let Some((relative, files)) = walked else { return CoverResult::Covered };
+        let Some((below, files)) = walked else { return CoverResult::Covered };
         if files.is_empty() {
             return CoverResult::Covered;
         }
         let store = Store::new(self.dir(), root.path());
-        let held = match self.tree_paths(&store, &fresh.tree, Some(&relative)).await {
+        let held = match self.tree_paths(&store, &fresh.tree, &below).await {
             Ok(held) => held,
             Err(()) => return CoverResult::Failed,
         };
@@ -174,10 +174,10 @@ impl Snapshots {
         let store = Store::new(self.dir(), root.path());
         // NOTE: the mirror took HEAD's commit at the turn's first snapshot; a commit
         // made since is not in the store, so its list of files is not known here.
-        let Ok(tracked) = self.tree_paths(&store, &head, None).await else {
+        let Ok(tracked) = self.tree_paths(&store, &head, &[]).await else {
             return CoverResult::NoMirror;
         };
-        let Ok(held) = self.tree_paths(&store, &fresh.tree, None).await else {
+        let Ok(held) = self.tree_paths(&store, &fresh.tree, &[]).await else {
             return CoverResult::Failed;
         };
         let missing: Vec<String> =
@@ -254,16 +254,18 @@ impl Snapshots {
         opened.ok()?.ok()
     }
 
-    /// The paths of the blobs and links of `tree` in `store`, below `below`, sorted.
+    /// The paths of the blobs and links of `tree` in `store`, at or below the paths of
+    /// `below` (all of them when it is empty), sorted.
     async fn tree_paths(
         &self,
         store: &Store,
         tree: &str,
-        below: Option<&str>,
+        below: &[String],
     ) -> Result<Vec<String>, ()> {
         let mut args = vec!["ls-tree", "-r", "-z", "--full-tree", tree];
-        if let Some(below) = below {
-            args.extend(["--", below]);
+        if !below.is_empty() {
+            args.push("--");
+            args.extend(below.iter().map(String::as_str));
         }
         let out = self
             .runner()
@@ -330,42 +332,46 @@ pub(crate) fn recorded(left_out: &[LeftOut], path: &str) -> Option<LeftOutReason
         .map(|left| left.reason)
 }
 
-/// The path of `target` relative to `root` and every file at or below it (regular
-/// files and links, sorted), with an `lstat` walk that follows no link; `None` when
-/// `target` does not exist; `Err` with the answer when the path itself decides it.
+/// The paths relative to `root` that a command on `target` can destroy, and every file
+/// at or below them (regular files and links, sorted), with an `lstat` walk that
+/// follows no link; `None` when `target` does not exist; `Err` with the answer when the
+/// path itself decides it. A link at the end of `target` counts with what it names:
+/// `rm` removes the link, but `: >`, `truncate`, `dd of=` and `rm -r link/` write
+/// through it, so both must be in the snapshot, and what it names must lie in the root.
 fn walk_target(
     root: &Path,
     target: &Path,
     git: Option<&crate::project_git::GitDirs>,
     max_files: u64,
-) -> Result<Option<(String, Vec<String>)>, CoverResult> {
+) -> Result<Option<(Vec<String>, Vec<String>)>, CoverResult> {
     let target = resolve(target);
-    let in_git = git.is_some_and(|dirs| {
-        [&dirs.git_dir, &dirs.common_dir].iter().any(|dir| {
-            let dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-            target.starts_with(dir)
-        })
-    });
-    if in_git {
-        return Err(CoverResult::GitInternal);
-    }
-    let Ok(relative) = target.strip_prefix(root) else { return Err(CoverResult::OutsideRoot) };
-    if relative.as_os_str().is_empty() {
-        return Err(CoverResult::IsRoot);
-    }
-    if relative.components().any(|part| part.as_os_str() == ".git") {
-        return Err(CoverResult::GitInternal);
-    }
-    let Some(relative) = relative.to_str().map(str::to_owned) else {
-        return Err(CoverResult::LeftOut(LeftOutReason::NotUtf8));
-    };
+    let relative = checked_relative(root, &target, git)?;
     let Ok(metadata) = fs::symlink_metadata(&target) else { return Ok(None) };
+    if metadata.file_type().is_symlink() {
+        // NOTE: a link that names nothing makes a new file when a command writes
+        // through it, which destroys nothing.
+        let Ok(real) = fs::canonicalize(&target) else {
+            return Ok(Some((vec![relative.clone()], vec![relative])));
+        };
+        let (mut below, mut files) = match walk_target(root, &real, git, max_files)? {
+            Some(found) => found,
+            None => (Vec::new(), Vec::new()),
+        };
+        below.push(relative.clone());
+        files.push(relative);
+        files.sort();
+        files.dedup();
+        if files.len() as u64 > max_files {
+            return Err(CoverResult::LeftOut(LeftOutReason::RootTooLarge));
+        }
+        return Ok(Some((below, files)));
+    }
     let mut files = Vec::new();
     if !metadata.is_dir() {
-        if metadata.is_file() || metadata.file_type().is_symlink() {
+        if metadata.is_file() {
             files.push(relative.clone());
         }
-        return Ok(Some((relative, files)));
+        return Ok(Some((vec![relative], files)));
     }
     let mut stack = vec![target.clone()];
     while let Some(dir) = stack.pop() {
@@ -397,12 +403,38 @@ fn walk_target(
         }
     }
     files.sort();
-    Ok(Some((relative, files)))
+    Ok(Some((vec![relative], files)))
+}
+
+/// `target` relative to `root`, or the answer when the path itself decides it: outside
+/// the root, the root itself, in a git dir, or a name that is not UTF-8.
+fn checked_relative(
+    root: &Path,
+    target: &Path,
+    git: Option<&crate::project_git::GitDirs>,
+) -> Result<String, CoverResult> {
+    let in_git = git.is_some_and(|dirs| {
+        [&dirs.git_dir, &dirs.common_dir].iter().any(|dir| {
+            let dir = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+            target.starts_with(dir)
+        })
+    });
+    if in_git {
+        return Err(CoverResult::GitInternal);
+    }
+    let Ok(relative) = target.strip_prefix(root) else { return Err(CoverResult::OutsideRoot) };
+    if relative.as_os_str().is_empty() {
+        return Err(CoverResult::IsRoot);
+    }
+    if relative.components().any(|part| part.as_os_str() == ".git") {
+        return Err(CoverResult::GitInternal);
+    }
+    relative.to_str().map(str::to_owned).ok_or(CoverResult::LeftOut(LeftOutReason::NotUtf8))
 }
 
 /// `path` with `.` and `..` taken out and its parent directory resolved, so it
-/// compares with the canonical root; the last part stays as it is, since a command
-/// acts on a link itself.
+/// compares with the canonical root; the last part stays as it is, and
+/// [`walk_target`] looks at a link there and at what it names.
 fn resolve(path: &Path) -> PathBuf {
     let mut plain = PathBuf::new();
     for part in path.components() {
