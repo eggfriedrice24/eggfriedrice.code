@@ -69,9 +69,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, the read and reload forms of `hyprctl`, `swaymsg -t get_*`, `xrandr`,
   `wlr-randr` and `niri msg` go to the reviewer. Other desktop commands still ask you.
 - A write to efr's own programs, to `$XDG_RUNTIME_DIR/efr`, to `~/.local/state/efr`
-  or to `~/.local/share/efr` is refused in every mode. `$SCRATCH` and efr's trash
-  (`~/.local/share/efr/trash`) stay open: a write there goes to the reviewer, and a
-  write in the trash needs no message that names it.
+  or to `~/.local/share/efr` is refused in every mode. Two places stay open:
+  `$SCRATCH`, which the model writes freely, and efr's trash
+  (`~/.local/share/efr/trash`), where the reviewer decides a write without a message
+  that names it.
 - The shell tool tells the model to try what you asked first, and to call again with
   the narrowest `needs` after an access error. The note after a failed sandboxed
   command no longer lists what the sandbox cannot do.
