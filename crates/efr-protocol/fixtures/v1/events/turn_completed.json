@@ -57,5 +57,24 @@
   "stop": {
     "reason": "refusal",
     "empty": true
+  },
+  "undo": {
+    "undoable": true,
+    "roots": [
+      {
+        "shown": "eggfriedrice.code",
+        "files": 4
+      },
+      {
+        "shown": "$SCRATCH",
+        "files": 1
+      }
+    ],
+    "home_files": 2,
+    "not_covered": [
+      "target/ (ignored, large)",
+      "refs of app (shallow)"
+    ],
+    "not_covered_more": 1
   }
 }

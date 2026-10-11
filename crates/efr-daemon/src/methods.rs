@@ -13,8 +13,8 @@
 //! a later milestone, where every client is `Origin::Phone`) holds `read`, `operate`
 //! and `approve`; `terminal` is off by default there and `admin` is never granted.
 //!
-//! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction and
-//! keys for the hidden shell are input of a person, so each one makes its conversation
+//! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction, an
+//! undo and keys for the hidden shell are input of a person, so each one makes its conversation
 //! present (`presence.rs`). `Input` takes a side for every method, as the scope does.
 
 use std::sync::Arc;
@@ -59,6 +59,7 @@ mod sandbox_explain;
 mod sandbox_surface_respond;
 mod turn_interrupt;
 mod turn_steer;
+mod turn_undo;
 
 /// The scopes of a phone connection.
 const PHONE_SCOPES: &[ScopeName] = &[ScopeName::Read, ScopeName::Operate, ScopeName::Approve];
@@ -114,6 +115,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::PromptWithdraw(_) => ScopeName::Operate,
         Method::ConversationCompact(_) => ScopeName::Operate,
         Method::PresenceSet(_) => ScopeName::Operate,
+        Method::TurnUndo(_) => ScopeName::Operate,
     }
 }
 
@@ -149,6 +151,7 @@ impl Input {
             Method::InputRespond(params) => Some(params.conversation_id),
             Method::SandboxSurfaceRespond(params) => Some(params.conversation_id),
             Method::ConversationCompact(params) => Some(params.conversation_id),
+            Method::TurnUndo(params) => params.conversation_id,
             Method::PtyWrite(params) => state.ptys.conversation(params.pty_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
@@ -390,6 +393,7 @@ impl Dispatcher for Methods {
                 Method::PresenceSet(params) => {
                     presence_set::handle(state, params, &responder).await
                 }
+                Method::TurnUndo(params) => turn_undo::handle(state, params, &responder).await,
             };
             state.presence.record(touched).await;
             if handled.is_ok() {

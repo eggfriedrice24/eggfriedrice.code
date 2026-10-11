@@ -661,11 +661,20 @@ impl Turn {
         let tokens = self.meter.known().or(self.estimated);
         let context = tokens.map(|tokens| self.limits().gauge(tokens));
         let event = match ending {
-            Ending::Completed => {
-                Event::TurnCompleted { turn_id, usage, context, changes, stop: self.final_stop }
+            Ending::Completed => Event::TurnCompleted {
+                turn_id,
+                usage,
+                context,
+                changes,
+                stop: self.final_stop,
+                undo: None,
+            },
+            Ending::Failed(error) => {
+                Event::TurnFailed { turn_id, error, usage, context, changes: None, undo: None }
             }
-            Ending::Failed(error) => Event::TurnFailed { turn_id, error, usage, context },
-            Ending::Interrupted => Event::TurnInterrupted { turn_id, usage, context },
+            Ending::Interrupted => {
+                Event::TurnInterrupted { turn_id, usage, context, changes: None, undo: None }
+            }
         };
         let key = self.model_key();
         let mut batch = Batch::new();

@@ -117,6 +117,20 @@ uuid_id!(
 );
 
 uuid_id!(
+    /// One undo of a turn, or one redo: the name of its refs in efr's snapshot stores
+    /// and of its directory in the undo trash.
+    UndoId
+);
+
+impl UndoId {
+    /// The form that a person sees and that names the undo trash directory:
+    /// `u-<uuid>`.
+    pub fn shown(&self) -> String {
+        format!("u-{}", self.0.hyphenated())
+    }
+}
+
+uuid_id!(
     /// The identity of one daemon installation, created at its first start. Clients pin
     /// it, so they notice when a socket path leads to a different daemon.
     DaemonId

@@ -123,6 +123,7 @@ async fn scene() -> Scene {
                 changes: None,
                 context: None,
                 stop: None,
+                undo: None,
             },
         )
         .enqueue(NewOutboxItem::process_bound("notify", json!({})))

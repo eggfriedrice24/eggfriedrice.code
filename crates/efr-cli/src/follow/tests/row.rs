@@ -217,7 +217,14 @@ fn answer(turn_id: TurnId, text: &str) -> Event {
 }
 
 fn ended(turn_id: TurnId) -> Event {
-    Event::TurnCompleted { turn_id, usage: None, changes: None, context: None, stop: None }
+    Event::TurnCompleted {
+        turn_id,
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
 }
 
 /// The part of `text` after the last time it showed `marker`.
@@ -381,7 +388,16 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         conn.item(sub, &item(17, shell_completed(130))).await;
         conn.item(
             sub,
-            &item(18, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+            &item(
+                18,
+                Event::TurnInterrupted {
+                    turn_id: turn(),
+                    usage: None,
+                    context: None,
+                    changes: None,
+                    undo: None,
+                },
+            ),
         )
         .await;
         shows(&seen, RESENT).await;
@@ -426,7 +442,16 @@ async fn esc_with_nothing_unread_ends_as_ctrl_c_does_and_the_text_shows_without_
         conn.reply(id, &result).await;
         conn.item(
             sub,
-            &item(12, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+            &item(
+                12,
+                Event::TurnInterrupted {
+                    turn_id: turn(),
+                    usage: None,
+                    context: None,
+                    changes: None,
+                    undo: None,
+                },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -470,6 +495,7 @@ async fn alt_up_takes_back_the_newest_queued_prompt() {
             changes: None,
             context: None,
             stop: None,
+            undo: None,
         };
         conn.item(sub, &item(17, done)).await;
         conn.until_closed().await;
@@ -602,7 +628,16 @@ async fn esc_on_a_waiting_prompt_takes_back_the_newest_first_and_interrupts_one_
         conn.item(sub, &item(12, started(turn()))).await;
         conn.item(
             sub,
-            &item(15, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+            &item(
+                15,
+                Event::TurnInterrupted {
+                    turn_id: turn(),
+                    usage: None,
+                    context: None,
+                    changes: None,
+                    undo: None,
+                },
+            ),
         )
         .await;
         conn.until_closed().await;

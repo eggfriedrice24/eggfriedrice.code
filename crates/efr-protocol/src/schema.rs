@@ -22,7 +22,7 @@ use crate::{
     PromptWithdraw, PromptWithdrawResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult,
     PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
     SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult,
+    TurnInterruptResult, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -131,6 +131,7 @@ pub fn document() -> Value {
             ScopeName::Operate,
         ),
         unary::<PresenceSet, PresenceSetResult>(&mut generator, "presence.set", ScopeName::Operate),
+        unary::<TurnUndo, TurnUndoResult>(&mut generator, "turn.undo", ScopeName::Operate),
     ];
     let frames = json!({
         "client": client_frame(&mut generator),

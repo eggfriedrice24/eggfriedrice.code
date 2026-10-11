@@ -7,11 +7,11 @@ use pretty_assertions::assert_eq;
 use super::{
     FIXTURES_DIR, all, daemon_roots, draft_part_samples, event_path, event_samples,
     floor_edit_exit_sample, grant_samples, input_wait_samples, launch_samples, method_samples,
-    method_stem, models_list_sample, withdraw_target_samples,
+    method_stem, models_list_sample, undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
     DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource,
-    WithdrawTarget,
+    UndoAction, UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -70,10 +70,11 @@ fn method_index(method: &Method) -> usize {
         Method::PromptWithdraw(_) => 26,
         Method::ConversationCompact(_) => 27,
         Method::PresenceSet(_) => 28,
+        Method::TurnUndo(_) => 29,
     }
 }
 
-const METHOD_COUNT: usize = 29;
+const METHOD_COUNT: usize = 30;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -120,10 +121,12 @@ fn event_index(event: &Event) -> usize {
         Event::PresenceChanged { .. } => 39,
         Event::CacheDeleteApplied { .. } => 40,
         Event::HomeFileChanged { .. } => 41,
+        Event::SnapshotTaken { .. } => 42,
+        Event::UndoApplied { .. } => 43,
     }
 }
 
-const EVENT_COUNT: usize = 42;
+const EVENT_COUNT: usize = 44;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -244,6 +247,61 @@ fn withdraw_target_index(target: &WithdrawTarget) -> usize {
 }
 
 const WITHDRAW_TARGET_COUNT: usize = 2;
+
+/// The position of an undo action in the enum, for the same purpose as `method_index`.
+fn undo_action_index(action: UndoAction) -> usize {
+    match action {
+        UndoAction::Restore => 0,
+        UndoAction::Trash => 1,
+        UndoAction::Delete => 2,
+        UndoAction::Skip => 3,
+        UndoAction::NotCovered => 4,
+        UndoAction::Command => 5,
+    }
+}
+
+const UNDO_ACTION_COUNT: usize = 6;
+
+/// The position of an undo reason in the enum, for the same purpose as `method_index`.
+fn undo_reason_index(reason: UndoReason) -> usize {
+    match reason {
+        UndoReason::ChangedAfterTurn => 0,
+        UndoReason::NoRecordAfterTurn => 1,
+        UndoReason::LeftOut => 2,
+        UndoReason::Masked => 3,
+        UndoReason::OverLimit => 4,
+        UndoReason::NewInTurn => 5,
+        UndoReason::LaterTurnNotUndone => 6,
+        UndoReason::NoMirror => 7,
+        UndoReason::ObjectsMissing => 8,
+        UndoReason::OutsideTurnCalls => 9,
+        UndoReason::AlreadyDone => 10,
+        UndoReason::RootReplaced => 11,
+        UndoReason::Unknown => 12,
+        UndoReason::CallUnfinished => 13,
+        UndoReason::SnapshotFailed => 14,
+        UndoReason::StoreChanged => 15,
+        UndoReason::StoreFull => 16,
+        UndoReason::StagedOnly => 17,
+    }
+}
+
+const UNDO_REASON_COUNT: usize = 18;
+
+/// The position of an undo refusal in the enum, for the same purpose as `method_index`.
+fn undo_refused_index(refused: &UndoRefused) -> usize {
+    match refused {
+        UndoRefused::Off => 0,
+        UndoRefused::NothingToUndo => 1,
+        UndoRefused::TurnNotFound => 2,
+        UndoRefused::LaterTurnsNotUndone { .. } => 3,
+        UndoRefused::NoRedo => 4,
+        UndoRefused::PhoneOrigin => 5,
+        UndoRefused::NeedsForce => 6,
+    }
+}
+
+const UNDO_REFUSED_COUNT: usize = 7;
 
 #[test]
 fn every_sample_matches_its_frozen_file() {
@@ -376,6 +434,16 @@ fn every_draft_part_has_a_sample() {
 fn every_withdraw_target_has_a_sample() {
     let covered: Vec<usize> = withdraw_target_samples().iter().map(withdraw_target_index).collect();
     assert_eq!(covered, (0..WITHDRAW_TARGET_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_undo_action_reason_and_refusal_has_a_sample() {
+    let actions: Vec<usize> = UndoAction::ALL.into_iter().map(undo_action_index).collect();
+    assert_eq!(actions, (0..UNDO_ACTION_COUNT).collect::<Vec<_>>());
+    let reasons: Vec<usize> = UndoReason::ALL.into_iter().map(undo_reason_index).collect();
+    assert_eq!(reasons, (0..UNDO_REASON_COUNT).collect::<Vec<_>>());
+    let refusals: Vec<usize> = undo_refused_samples().iter().map(undo_refused_index).collect();
+    assert_eq!(refusals, (0..UNDO_REFUSED_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

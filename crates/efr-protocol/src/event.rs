@@ -13,9 +13,9 @@ use crate::compaction::is_zero_u64;
 use crate::{
     CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings,
     ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch,
-    Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId, ReportedFile, Risk,
-    SandboxSummary, Scope, Seq, ShellContext, SurfaceChange, TurnId, TurnSettings,
-    UserAuthorization, Verdict,
+    Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange, ReportedFile,
+    Risk, SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase, SurfaceChange, TurnId,
+    TurnSettings, TurnUndoInfo, UndoId, UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -356,6 +356,15 @@ pub enum Event {
         /// recorded before efr counted it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<ContextUse>,
+        /// The files that the turn changed before it stopped, as for
+        /// [`Event::TurnCompleted`]. Absent when nothing changed, and in turns recorded
+        /// before efr reported it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changes: Option<FileChanges>,
+        /// What `efr undo` can take back of the turn. Absent when the turn has no
+        /// snapshot, and in turns recorded before undo.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        undo: Option<TurnUndoInfo>,
     },
 
     /// A turn finished normally.
@@ -380,6 +389,10 @@ pub enum Event {
         /// answer, and in turns recorded before efr reported it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stop: Option<TurnStop>,
+        /// What `efr undo` can take back of the turn. Absent when the turn has no
+        /// snapshot, and in turns recorded before undo.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        undo: Option<TurnUndoInfo>,
     },
 
     /// A turn ended with an error, such as a provider failure.
@@ -396,6 +409,15 @@ pub enum Event {
         /// recorded before efr counted it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<ContextUse>,
+        /// The files that the turn changed before it failed, as for
+        /// [`Event::TurnCompleted`]. Absent when nothing changed, and in turns recorded
+        /// before efr reported it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        changes: Option<FileChanges>,
+        /// What `efr undo` can take back of the turn. Absent when the turn has no
+        /// snapshot, and in turns recorded before undo.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        undo: Option<TurnUndoInfo>,
     },
 
     /// A turn that was running or waiting when the daemon stopped was cancelled at the
@@ -559,8 +581,10 @@ pub enum Event {
         freed_bytes: u64,
     },
 
-    /// A call changed a file outside the project that runs code later, such as
-    /// `~/.zshrc`, for the line at the end of the turn. Names only.
+    /// A call changed a file outside the project, such as `~/.zshrc`, for the line at
+    /// the end of the turn. Names only. Phase A sent it for a file that runs code later,
+    /// with `backup`. From phase B efrd sends it for each changed file outside the
+    /// roots, with `covered` and no `backup`.
     HomeFileChanged {
         /// The turn.
         turn_id: TurnId,
@@ -570,10 +594,12 @@ pub enum Event {
         path: PathBuf,
         /// True when the file is a floor.
         floor: bool,
-        /// True when efr can undo the change (phase B).
+        /// True when efr copied the file into its home store before the call, so
+        /// `efr undo` can bring it back.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         covered: bool,
-        /// The copy of the file before the call, in efr's backup store.
+        /// The copy of the file before the call, in efr's phase A backup store. Absent
+        /// from phase B.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         backup: Option<PathBuf>,
         /// The real file, absolute, when `path` reaches it through a link, such as a
@@ -646,6 +672,59 @@ pub enum Event {
         reason: String,
     },
 
+    /// efr took a snapshot of a root for a turn: once per root before the turn's first
+    /// call that can write it and once at the turn's end, both sent at the turn's end,
+    /// and once per copy of files outside the roots.
+    SnapshotTaken {
+        /// The turn.
+        turn_id: TurnId,
+        /// The root as a client shows it: the project's name, `$SCRATCH`, or `home` for
+        /// a copy of files outside the roots.
+        root: String,
+        /// Before or after.
+        phase: SnapshotPhase,
+        /// The snapshot's commit in efr's store, in hex.
+        commit: String,
+        /// The files in the snapshot.
+        files: u32,
+        /// The files that the snapshot left out, such as large or ignored files.
+        skipped: u32,
+        /// How long the snapshot took, in milliseconds.
+        ms: u64,
+    },
+
+    /// `turn.undo` took back the changes of a turn, or a redo took back an undo. It
+    /// belongs to the conversation, not to a turn: `undone_turn_id` names the turn.
+    UndoApplied {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// The turn whose changes the undo took back.
+        undone_turn_id: TurnId,
+        /// The undo.
+        undo_id: UndoId,
+        /// True for a redo. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        redo: bool,
+        /// The surface that asked.
+        origin: Origin,
+        /// The files that the undo wrote back.
+        restored: u32,
+        /// The files that the undo moved to the undo trash.
+        trashed: u32,
+        /// The links and empty entries that the undo removed.
+        deleted: u32,
+        /// The paths that the undo skipped, because they changed after the turn.
+        conflicts: u32,
+        /// The paths that no snapshot covers, so the undo left them as they are.
+        not_covered: u32,
+        /// The refs that the undo moved, or tried to. Absent when none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refs: Vec<RefChange>,
+        /// The directory of the undo trash. Absent when the undo put nothing there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trash: Option<PathBuf>,
+    },
+
     /// An event of a kind that this build does not know. It encodes back to the same JSON
     /// object it was decoded from. The schema leaves it out: it describes the known
     /// kinds, and says that readers must accept others.
@@ -708,9 +787,13 @@ impl Event {
             | Event::SandboxSurfaceChanged { turn_id, .. }
             | Event::SurfaceQuestionRequested { turn_id, .. }
             | Event::SurfaceQuestionAnswered { turn_id, .. }
-            | Event::TurnSurfaceReport { turn_id, .. } => Some(*turn_id),
+            | Event::TurnSurfaceReport { turn_id, .. }
+            | Event::SnapshotTaken { turn_id, .. } => Some(*turn_id),
             Event::ConversationCompacted(compaction) => compaction.turn_id,
-            Event::ConversationCreated { .. }
+            // NOTE: an undo runs between turns; a view that follows a turn must not end
+            // or show it as part of the undone turn.
+            Event::UndoApplied { .. }
+            | Event::ConversationCreated { .. }
             | Event::ShellStarted { .. }
             | Event::ShellExited { .. }
             | Event::CwdChanged { .. }

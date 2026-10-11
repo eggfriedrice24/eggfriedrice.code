@@ -118,7 +118,7 @@ pub struct Compaction {
 }
 
 // NOTE: serde's `skip_serializing_if` passes a reference.
-fn is_zero_u32(value: &u32) -> bool {
+pub(crate) fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 

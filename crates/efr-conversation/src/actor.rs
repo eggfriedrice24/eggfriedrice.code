@@ -981,7 +981,14 @@ impl ConversationActor {
             .map(|call_id| Event::ApprovalExpired { turn_id, call_id, away: false })
             .collect();
         let error = ErrorBody::new(ErrorCode::Internal, "the turn stopped unexpectedly");
-        events.push(Event::TurnFailed { turn_id, error, usage: None, context: None });
+        events.push(Event::TurnFailed {
+            turn_id,
+            error,
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        });
         let batch = events
             .into_iter()
             .fold(Batch::new(), |batch, event| batch.event(self.conversation_id(), event));

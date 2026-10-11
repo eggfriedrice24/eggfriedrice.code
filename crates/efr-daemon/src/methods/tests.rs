@@ -5,7 +5,7 @@ use efr_protocol::{
     ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
     PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
     PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond,
-    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, WithdrawTarget,
+    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -120,13 +120,22 @@ fn every_method() -> Vec<Method> {
             conversation_id: Some(conversation_id),
             presence: Presence::Away,
         }),
+        Method::TurnUndo(TurnUndo {
+            command_id,
+            conversation_id: Some(conversation_id),
+            turn_id: None,
+            dry_run: true,
+            force: false,
+            redo: false,
+            list: false,
+        }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 26, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 27, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -166,8 +175,27 @@ fn the_scope_table_is_the_designed_one() {
             ("prompt.withdraw", ScopeName::Operate),
             ("conversation.compact", ScopeName::Operate),
             ("presence.set", ScopeName::Operate),
+            ("turn.undo", ScopeName::Operate),
         ]
     );
+}
+
+/// An undo writes the user's files, so it needs `operate`: a model-side peer holds
+/// `read` only and cannot undo. A phone holds `operate`; the handler refuses it itself.
+#[test]
+fn turn_undo_needs_operate_scope() {
+    let method = every_method().into_iter().find(|method| method.name() == "turn.undo").unwrap();
+    assert_eq!(scope(&method), ScopeName::Operate);
+    assert_eq!(ScopeName::for_method(&method), ScopeName::Operate);
+    for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+        let refused = authorize(Origin::Shell, peer, &method);
+        assert!(
+            matches!(refused, Err(DaemonError::ModelSidePeer { method: "turn.undo" })),
+            "{refused:?}"
+        );
+    }
+    assert!(authorize(Origin::Shell, PeerSide::User, &method).is_ok());
+    assert!(authorize(Origin::Cli, PeerSide::User, &method).is_ok());
 }
 
 #[test]

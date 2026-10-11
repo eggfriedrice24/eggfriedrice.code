@@ -59,6 +59,7 @@ fn completed(tokens: u64) -> Event {
         changes: None,
         context: Some(context(tokens)),
         stop: None,
+        undo: None,
     }
 }
 
@@ -188,7 +189,13 @@ fn an_interrupted_turn_shows_the_gauge_and_one_without_a_count_keeps_its_line() 
         let mut view = view(RenderOptions::new(SIZE.cols).with_colour(ColourMode::None));
         view.envelope(&sent(11, 0, turn_started()), SIZE, false);
         view.frame(SIZE, at(0));
-        let event = Event::TurnInterrupted { turn_id: turn(), usage: None, context };
+        let event = Event::TurnInterrupted {
+            turn_id: turn(),
+            usage: None,
+            context,
+            changes: None,
+            undo: None,
+        };
         view.envelope(&sent(12, 12_400, event), SIZE, false);
         bare(&view.frame(SIZE, at(12_400)))
     };
@@ -205,6 +212,7 @@ fn an_interrupted_turn_shows_the_gauge_and_one_without_a_count_keeps_its_line() 
             changes: None,
             context: None,
             stop: None,
+            undo: None,
         };
         view.envelope(&sent(12, 42_000, end), SIZE, false);
         bare(&view.frame(SIZE, at(42_000)))

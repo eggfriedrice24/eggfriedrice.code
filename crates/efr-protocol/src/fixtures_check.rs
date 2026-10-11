@@ -37,13 +37,14 @@ use crate::{
     ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
     PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
     PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootSource, RowCells, SandboxCheck,
-    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
-    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
-    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, StopReason, SurfaceChange,
-    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, Usage, UserAuthorization, Verdict, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    RefChange, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource,
+    RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths,
+    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope,
+    ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase,
+    StopReason, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
+    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
+    Verdict, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -112,7 +113,53 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("launches.json", &launch_samples()));
     fixtures.push(fixture("draft_parts.json", &draft_part_samples()));
     fixtures.push(fixture("withdraw_targets.json", &withdraw_target_samples()));
+    fixtures.push(fixture("undo_actions.json", &UndoAction::ALL.to_vec()));
+    fixtures.push(fixture("undo_reasons.json", &UndoReason::ALL.to_vec()));
+    fixtures.push(fixture("undo_refusals.json", &undo_refused_samples()));
     fixtures
+}
+
+/// Every refusal of `turn.undo`, so `undo_refusals.json` freezes the wire form of each.
+pub(crate) fn undo_refused_samples() -> Vec<UndoRefused> {
+    vec![
+        UndoRefused::Off,
+        UndoRefused::NothingToUndo,
+        UndoRefused::TurnNotFound,
+        UndoRefused::LaterTurnsNotUndone { turn_id: queued_turn_id() },
+        UndoRefused::NoRedo,
+        UndoRefused::PhoneOrigin,
+        UndoRefused::NeedsForce,
+    ]
+}
+
+fn undo_id() -> UndoId {
+    parse("019a9b1c-3d00-7a10-8b20-00000000000f")
+}
+
+/// What undo can take back of a turn, with every member set.
+fn turn_undo_info() -> TurnUndoInfo {
+    TurnUndoInfo {
+        undoable: true,
+        roots: vec![
+            RootFiles { shown: "eggfriedrice.code".into(), files: 4 },
+            RootFiles { shown: "$SCRATCH".into(), files: 1 },
+        ],
+        home_files: 2,
+        not_covered: vec!["target/ (ignored, large)".into(), "refs of app (shallow)".into()],
+        not_covered_more: 1,
+    }
+}
+
+/// A ref that an undo moved, with every member set.
+fn ref_change() -> RefChange {
+    RefChange {
+        root: "eggfriedrice.code".into(),
+        name: "main".into(),
+        from: Some("9fceb02".into()),
+        to: Some("3b18e51".into()),
+        applied: Some(true),
+        reason: Some(UndoReason::ChangedAfterTurn),
+    }
 }
 
 /// A `tool_call_started` of a freeform tool, whose input is text. The sample of
@@ -710,6 +757,15 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: Some(conversation_id()),
             presence: Presence::Away,
         }),
+        Method::TurnUndo(TurnUndo {
+            command_id: command_id(),
+            conversation_id: Some(conversation_id()),
+            turn_id: Some(turn_id()),
+            dry_run: true,
+            force: true,
+            redo: true,
+            list: true,
+        }),
     ]
 }
 
@@ -828,6 +884,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                         context: None,
                         changes: None,
                         stop: None,
+                        undo: None,
                     },
                 )],
                 next_cursor: Some(PageCursor::new("h1:10")),
@@ -1060,6 +1117,47 @@ fn answer_fixtures() -> Vec<Fixture> {
             &SandboxSurfaceRespondResult { seq: Seq::new(47) },
         ),
         fixture(
+            "turn_undo_result.json",
+            &TurnUndoResult {
+                conversation_id: conversation_id(),
+                turn_id: Some(turn_id()),
+                title: Some("clean up the journal".into()),
+                undo_id: Some(undo_id()),
+                applied: true,
+                resumed: true,
+                entries: vec![
+                    UndoEntry { action: UndoAction::Restore, path: "src/a.rs".into(), reason: None },
+                    UndoEntry { action: UndoAction::Trash, path: "notes.md".into(), reason: None },
+                    UndoEntry {
+                        action: UndoAction::Skip,
+                        path: "~/.zshrc".into(),
+                        reason: Some(UndoReason::ChangedAfterTurn),
+                    },
+                    UndoEntry {
+                        action: UndoAction::NotCovered,
+                        path: ".env.large".into(),
+                        reason: Some(UndoReason::LeftOut),
+                    },
+                    UndoEntry { action: UndoAction::Command, path: "@crontab".into(), reason: None },
+                ],
+                entries_more: 3,
+                refs: vec![ref_change()],
+                trash: Some(
+                    "/home/me/.local/share/efr/undo-trash/u-019a9b1c-3d00-7a10-8b20-00000000000f"
+                        .into(),
+                ),
+                notes: vec!["your git index stays as it is".into()],
+                turns: vec![UndoableTurn {
+                    turn_id: turn_id(),
+                    title: Some("clean up the journal".into()),
+                    auto: true,
+                    undone: true,
+                    stopped: true,
+                    ended: Some(at("2026-10-11T09:30:00Z")),
+                }],
+            },
+        ),
+        fixture(
             "presence_set_result.json",
             &PresenceSetResult {
                 presence: Presence::Away,
@@ -1277,6 +1375,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
             turn_id: turn_id(),
             usage: Some(Usage::new(900, 20)),
             context: Some(context_use()),
+            changes: Some(file_changes()),
+            undo: Some(turn_undo_info()),
         },
         Event::TurnCompleted {
             turn_id: turn_id(),
@@ -1292,6 +1392,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             context: Some(context_use()),
             changes: Some(file_changes()),
             stop: Some(TurnStop { reason: StopReason::Refusal, empty: true }),
+            undo: Some(turn_undo_info()),
         },
         Event::TurnFailed {
             turn_id: turn_id(),
@@ -1299,6 +1400,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 .with_data(json!({ "provider": "openai", "status": 502 })),
             usage: Some(Usage::new(600, 0)),
             context: Some(context_use()),
+            changes: Some(file_changes()),
+            undo: Some(turn_undo_info()),
         },
         Event::TurnCancelled { turn_id: turn_id() },
         Event::ShellStarted { pty_id: pty_id(), cwd: "/home/me".into(), pid: Some(6060) },
@@ -1393,6 +1496,32 @@ pub(crate) fn event_samples() -> Vec<Event> {
             reason: "Landlock ABI 6 found; auto needs 9 (Linux 7.1)".into(),
         },
         Event::ConversationCompacted(compaction()),
+        Event::SnapshotTaken {
+            turn_id: turn_id(),
+            root: "eggfriedrice.code".into(),
+            phase: SnapshotPhase::Pre,
+            commit: "9fceb02d0ae598e95dc970b74767f19372d61af8".into(),
+            files: 1840,
+            skipped: 3,
+            ms: 41,
+        },
+        Event::UndoApplied {
+            conversation_id: conversation_id(),
+            undone_turn_id: turn_id(),
+            undo_id: undo_id(),
+            redo: true,
+            origin: Origin::Cli,
+            restored: 2,
+            trashed: 1,
+            deleted: 1,
+            conflicts: 1,
+            not_covered: 1,
+            refs: vec![ref_change()],
+            trash: Some(
+                "/home/me/.local/share/efr/undo-trash/u-019a9b1c-3d00-7a10-8b20-00000000000f"
+                    .into(),
+            ),
+        },
         Event::Unknown { kind: "device_enrolled".into(), payload: future },
     ]
 }

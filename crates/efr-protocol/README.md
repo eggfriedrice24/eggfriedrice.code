@@ -16,7 +16,7 @@ Where things are:
 | File | Holds |
 |---|---|
 | `src/version.rs` | `PROTOCOL_VERSION` |
-| `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `QuestionId`, `CompactionId`, `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
+| `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `QuestionId`, `CompactionId`, `UndoId` (shown as `u-<uuid>`), `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
 | `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state, and `DesktopEnv`, the desktop variables of the shell and whether it has `$XAUTHORITY` |
 | `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
@@ -30,6 +30,7 @@ Where things are:
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |
 | `src/compaction.rs` | the model's context: `ContextUse` (how full it is against the point where efrd compacts), `CompactionTrigger` and `Compaction`, the body of `conversation_compacted` and of the `conversation.compact` result; the rules are in the README of `efr-conversation`, section "Context" |
 | `src/changes.rs` | what a call or a turn changed in files: `FileChanges`, `FileChange`, `ChangeKind`, and the caps `MAX_LISTED_FILES`, `MAX_CALL_DIFF_LINES` and `MAX_TURN_DIFF_LINES` |
+| `src/undo.rs` | the undo of a turn (phase B): `SnapshotPhase`, `RootFiles`, `TurnUndoInfo` (what `efr undo` can take back, at the end of a turn), `UndoAction`, `UndoReason`, `UndoEntry`, `RefChange`, `UndoableTurn`, `UndoRefused` (why `turn.undo` changes nothing), and the caps `MAX_UNDO_ENTRIES` and `MAX_NOT_COVERED` |
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |
 | `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage`, `TurnStop` and `StopReason` (why the model of a completed turn stopped) |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |

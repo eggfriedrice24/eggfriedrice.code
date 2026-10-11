@@ -123,6 +123,7 @@ fn turn_completed() -> Event {
         changes: None,
         context: None,
         stop: None,
+        undo: None,
     }
 }
 
@@ -626,6 +627,7 @@ fn turn_changed(changes: FileChanges) -> Event {
         changes: Some(changes),
         context: None,
         stop: None,
+        undo: None,
     }
 }
 
@@ -950,6 +952,7 @@ fn a_turn_that_compacts_its_context() {
         changes: None,
         context: Some(ContextUse { tokens: 196_000, limit: 206_720, window: 272_000 }),
         stop: None,
+        undo: None,
     };
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),
@@ -1238,7 +1241,7 @@ fn floor_edit_turn_end_line_names_backup() {
                 data: None,
             },
             usage: None,
-            context: None,
+            context: None, changes: None, undo: None,
         },
     ));
     insta::assert_snapshot!(format!(

@@ -119,6 +119,7 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
         changes: None,
         context: None,
         stop: None,
+        undo: None,
     };
     let envelope =
         EventEnvelope { seq: Seq::new(12), conversation_id: None, at: at(2000), event: done };
@@ -145,6 +146,7 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
         changes: None,
         context: None,
         stop: None,
+        undo: None,
     };
     let envelope =
         EventEnvelope { seq: Seq::new(14), conversation_id: None, at: at(3000), event: ended };
@@ -210,7 +212,13 @@ fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
         seq: Seq::new(16),
         conversation_id: None,
         at: at(400),
-        event: Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+        event: Event::TurnInterrupted {
+            turn_id: turn(),
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        },
     };
     let step = view.envelope(&envelope, SIZE, true);
     assert_eq!(step.end, None, "the steer runs next as a prompt");
@@ -248,7 +256,13 @@ fn the_note_of_a_resend_comes_at_once_when_the_turn_already_ended() {
         &mut view,
         14,
         100,
-        Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+        Event::TurnInterrupted {
+            turn_id: turn(),
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        },
     );
     assert_eq!(view.turn(), turn_2());
     let result = TurnInterruptResult {

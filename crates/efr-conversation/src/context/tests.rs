@@ -97,13 +97,22 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         context: Some(limits.gauge(tokens)),
         changes: None,
         stop: None,
+        undo: None,
     };
-    let uncounted = Event::TurnInterrupted { turn_id: turn, usage: Some(usage), context: None };
+    let uncounted = Event::TurnInterrupted {
+        turn_id: turn,
+        usage: Some(usage),
+        context: None,
+        changes: None,
+        undo: None,
+    };
     let estimated = Event::TurnFailed {
         turn_id: turn,
         error: ErrorBody::new(ErrorCode::Internal, "the context is full"),
         usage: None,
         context: Some(limits.gauge(900)),
+        changes: None,
+        undo: None,
     };
 
     assert_eq!(context_base(&[envelope(1, ended(800)), envelope(2, ended(900))], MODEL), Some(900));
@@ -161,6 +170,7 @@ fn the_count_of_another_model_is_no_base() {
         context: Some(limits.gauge(500_887)),
         changes: None,
         stop: None,
+        undo: None,
     };
     let claude = [envelope(1, started("claude-opus-5-5")), envelope(2, ended.clone())];
 

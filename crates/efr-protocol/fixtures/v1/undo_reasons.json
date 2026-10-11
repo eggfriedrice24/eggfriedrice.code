@@ -1,0 +1,20 @@
+[
+  "changed_after_turn",
+  "no_record_after_turn",
+  "left_out",
+  "masked",
+  "over_limit",
+  "new_in_turn",
+  "later_turn_not_undone",
+  "no_mirror",
+  "objects_missing",
+  "outside_turn_calls",
+  "already_done",
+  "root_replaced",
+  "unknown",
+  "call_unfinished",
+  "snapshot_failed",
+  "store_changed",
+  "store_full",
+  "staged_only"
+]

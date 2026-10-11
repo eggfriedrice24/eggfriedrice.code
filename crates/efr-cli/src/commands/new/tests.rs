@@ -55,6 +55,7 @@ async fn new_with_a_prompt_starts_a_conversation_and_follows_the_reply() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )
@@ -99,6 +100,7 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )
@@ -154,6 +156,7 @@ async fn new_carries_the_turn_settings_of_the_flags_and_variables() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )

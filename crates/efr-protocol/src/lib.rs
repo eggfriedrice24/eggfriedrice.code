@@ -3,8 +3,8 @@
 //! Frames, the `Method` enum with one params type per method, results and stream items,
 //! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, the `auto`
 //! sandbox's launches, grants, exits and reports, the presence of a person at a
-//! conversation, the files a call or a turn changed, the context's use and its
-//! compactions,
+//! conversation, the files a call or a turn changed and the undo of a turn, the
+//! context's use and its compactions,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -41,6 +41,7 @@ mod secret_prompt;
 mod secret_text;
 mod settings;
 mod shell_context;
+mod undo;
 mod version;
 
 pub use capabilities::Capabilities;
@@ -53,7 +54,7 @@ pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, StopReason, T
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
     CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,
-    RequestId, Seq, TurnId,
+    RequestId, Seq, TurnId, UndoId,
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
@@ -99,6 +100,7 @@ pub use methods::turn_interrupt::{
     ResentSteers, TurnInterrupt, TurnInterruptResult, WithdrawnSteer,
 };
 pub use methods::turn_steer::{LateSteer, TurnSteer, TurnSteerResult};
+pub use methods::turn_undo::{TurnUndo, TurnUndoResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use presence::{Presence, PresenceSource};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
@@ -115,4 +117,8 @@ pub use secret_prompt::looks_secret;
 pub use secret_text::SecretText;
 pub use settings::{EffectiveSettings, Mode, OverriddenSettings, TurnSettings};
 pub use shell_context::{DesktopEnv, ShellContext};
+pub use undo::{
+    MAX_NOT_COVERED, MAX_UNDO_ENTRIES, RefChange, RootFiles, SnapshotPhase, TurnUndoInfo,
+    UndoAction, UndoEntry, UndoReason, UndoRefused, UndoableTurn,
+};
 pub use version::PROTOCOL_VERSION;

@@ -1,0 +1,57 @@
+{
+  "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+  "title": "clean up the journal",
+  "undo_id": "019a9b1c-3d00-7a10-8b20-00000000000f",
+  "applied": true,
+  "resumed": true,
+  "entries": [
+    {
+      "action": "restore",
+      "path": "src/a.rs"
+    },
+    {
+      "action": "trash",
+      "path": "notes.md"
+    },
+    {
+      "action": "skip",
+      "path": "~/.zshrc",
+      "reason": "changed_after_turn"
+    },
+    {
+      "action": "not_covered",
+      "path": ".env.large",
+      "reason": "left_out"
+    },
+    {
+      "action": "command",
+      "path": "@crontab"
+    }
+  ],
+  "entries_more": 3,
+  "refs": [
+    {
+      "root": "eggfriedrice.code",
+      "name": "main",
+      "from": "9fceb02",
+      "to": "3b18e51",
+      "applied": true,
+      "reason": "changed_after_turn"
+    }
+  ],
+  "trash": "/home/me/.local/share/efr/undo-trash/u-019a9b1c-3d00-7a10-8b20-00000000000f",
+  "notes": [
+    "your git index stays as it is"
+  ],
+  "turns": [
+    {
+      "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+      "title": "clean up the journal",
+      "auto": true,
+      "undone": true,
+      "stopped": true,
+      "ended": "2026-10-11T09:30:00Z"
+    }
+  ]
+}

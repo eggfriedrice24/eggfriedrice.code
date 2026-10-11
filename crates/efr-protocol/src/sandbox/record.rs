@@ -97,7 +97,9 @@ pub struct ExitFacts {
     /// For a destructive exit: the counts of the hardened `git status`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_status: Option<GitCounts>,
-    /// Whether the turn's snapshot covers the targets (phase B).
+    /// True when efr's snapshot or its home store covers every target of the exit, so
+    /// `efr undo` can bring them back: the AND over the exit's needs. False is a higher
+    /// risk. Absent when no need has a target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot_covers: Option<bool>,
     /// The names, never the values, that sandboxed calls exported.
@@ -161,8 +163,8 @@ pub struct TargetFact {
     /// True when a user message names the path: its `~` form, its absolute form or its
     /// last two components.
     pub named_in_user_messages: bool,
-    /// True when efr copies the file to its backup store before the call writes it: a
-    /// floor file that the user can copy back.
+    /// True when efr copies the file into its home store before the call writes it, so
+    /// `efr undo` can bring it back.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub backup_before_write: bool,
     /// True when a contained call reads the path as empty: a credential store, a

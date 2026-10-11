@@ -299,7 +299,14 @@ async fn a_text_turn_records_the_answer_and_completes() {
     let context = Some(unknown_window().gauge(14));
     assert_eq!(
         end,
-        Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None, context, stop: None }
+        Event::TurnCompleted {
+            turn_id: sent.turn_id,
+            usage,
+            changes: None,
+            context,
+            stop: None,
+            undo: None
+        }
     );
     assert_eq!(
         h.kinds().await,
@@ -822,7 +829,16 @@ async fn an_interrupt_mid_stream_completes_the_partial_text_and_ends_the_turn() 
     assert_eq!(requested.turn_id, sent.turn_id);
     let end = h.wait_end(sent.turn_id).await;
 
-    assert_eq!(end, Event::TurnInterrupted { turn_id: sent.turn_id, usage: None, context });
+    assert_eq!(
+        end,
+        Event::TurnInterrupted {
+            turn_id: sent.turn_id,
+            usage: None,
+            context,
+            changes: None,
+            undo: None
+        }
+    );
     assert_eq!(
         h.kinds().await,
         kinds(&[

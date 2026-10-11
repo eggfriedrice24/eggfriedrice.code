@@ -17,5 +17,63 @@
     "tokens": 89000,
     "limit": 206720,
     "window": 272000
+  },
+  "changes": {
+    "files": [
+      {
+        "path": "src/a.rs",
+        "kind": "modified",
+        "added": 3,
+        "removed": 1
+      },
+      {
+        "path": "notes.md",
+        "kind": "added",
+        "added": 12,
+        "removed": 0
+      },
+      {
+        "path": "old.rs",
+        "kind": "deleted",
+        "added": 0,
+        "removed": 40
+      },
+      {
+        "path": "src/new_name.rs",
+        "kind": "renamed",
+        "from": "src/old_name.rs",
+        "added": 0,
+        "removed": 0
+      },
+      {
+        "path": "$SCRATCH/plot.png",
+        "kind": "added",
+        "added": 0,
+        "removed": 0,
+        "binary": true
+      }
+    ],
+    "more": 2,
+    "added": 24,
+    "removed": 47
+  },
+  "undo": {
+    "undoable": true,
+    "roots": [
+      {
+        "shown": "eggfriedrice.code",
+        "files": 4
+      },
+      {
+        "shown": "$SCRATCH",
+        "files": 1
+      }
+    ],
+    "home_files": 2,
+    "not_covered": [
+      "target/ (ignored, large)",
+      "refs of app (shallow)"
+    ],
+    "not_covered_more": 1
   }
 }

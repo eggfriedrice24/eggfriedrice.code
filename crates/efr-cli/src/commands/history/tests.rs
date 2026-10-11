@@ -121,7 +121,16 @@ fn events() -> Vec<EventEnvelope> {
                 delta: " mid".to_owned(),
             },
         ),
-        envelope(9, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+        envelope(
+            9,
+            Event::TurnInterrupted {
+                turn_id: turn(),
+                usage: None,
+                context: None,
+                changes: None,
+                undo: None,
+            },
+        ),
     ]
 }
 
@@ -149,6 +158,8 @@ fn a_failed_turn_shows_its_message_safely() {
                 error: ErrorBody::new(ErrorCode::Internal, "boom\u{1b}[2J"),
                 usage: None,
                 context: None,
+                changes: None,
+                undo: None,
             },
         )],
         next_cursor: None,
@@ -545,6 +556,7 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
         changes: None,
         context: None,
         stop: None,
+        undo: None,
     };
     // While the first turn runs, the user queues two prompts and takes the second
     // back, then steers and presses Esc: the steer runs next as a new prompt.
@@ -578,7 +590,13 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
             changes: None,
             diff: None,
         },
-        Event::TurnInterrupted { turn_id: first, usage: None, context: None },
+        Event::TurnInterrupted {
+            turn_id: first,
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        },
         started(resent),
         answer(resent, "The logs show a timeout."),
         done(resent),
@@ -627,7 +645,16 @@ fn a_turn_that_started_before_the_page_comes_first() {
                 steers: Vec::new(),
             },
         ),
-        envelope(21, Event::TurnInterrupted { turn_id: turn(), usage: None, context: None }),
+        envelope(
+            21,
+            Event::TurnInterrupted {
+                turn_id: turn(),
+                usage: None,
+                context: None,
+                changes: None,
+                undo: None,
+            },
+        ),
         envelope(
             22,
             Event::TurnStarted {

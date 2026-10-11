@@ -346,6 +346,7 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                             changes: None,
                             context: None,
                             stop: None,
+                            undo: None,
                         },
                     ),
                 );
@@ -354,7 +355,17 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                 let error = ErrorBody::new(ErrorCode::Internal, message);
                 conn.item(
                     sub,
-                    &event(4, Event::TurnFailed { turn_id, error, usage: None, context: None }),
+                    &event(
+                        4,
+                        Event::TurnFailed {
+                            turn_id,
+                            error,
+                            usage: None,
+                            context: None,
+                            changes: None,
+                            undo: None,
+                        },
+                    ),
                 );
             }
         }
@@ -439,6 +450,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         );

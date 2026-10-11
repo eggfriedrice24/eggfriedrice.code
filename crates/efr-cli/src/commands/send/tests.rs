@@ -59,6 +59,7 @@ async fn answer(
                 changes: None,
                 context: None,
                 stop: None,
+                undo: None,
             },
         ),
     )
@@ -318,6 +319,7 @@ async fn a_queued_prompt_says_so_and_still_follows_its_turn() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )
@@ -385,6 +387,7 @@ async fn on_a_terminal_the_reply_is_rendered() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )
@@ -470,7 +473,17 @@ async fn a_turn_without_a_login_says_how_to_log_in() {
             ErrorBody::new(ErrorCode::Unauthorized, "no credentials are stored for the provider");
         conn.item(
             sub,
-            &item(11, Event::TurnFailed { turn_id: turn(), error, usage: None, context: None }),
+            &item(
+                11,
+                Event::TurnFailed {
+                    turn_id: turn(),
+                    error,
+                    usage: None,
+                    context: None,
+                    changes: None,
+                    undo: None,
+                },
+            ),
         )
         .await;
         conn.until_closed().await;
@@ -756,6 +769,7 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )
@@ -803,6 +817,7 @@ async fn on_a_terminal_the_settings_note_is_dim() {
                     changes: None,
                     context: None,
                     stop: None,
+                    undo: None,
                 },
             ),
         )
@@ -827,7 +842,14 @@ fn row_context(env: &TestEnv, keys: &Arc<ScriptedKeys>, dir: &std::path::Path) -
 }
 
 fn completed_turn() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None, stop: None }
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
 }
 
 #[tokio::test]

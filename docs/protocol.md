@@ -353,3 +353,25 @@ No protocol version has shipped yet.
   gains an optional `real`: the real file when `path` reaches it through a link.
   `events/exit_requested.json` and `events/home_file_changed.json` now set the new
   members.
+- Version 1, additive: undo of a turn (phase B). New method `turn.undo` (scope
+  `operate`, unary, with a command id) with an optional `conversation_id` and
+  `turn_id` and the flags `dry_run`, `force`, `redo` and `list` (false when absent).
+  Its result has the `conversation_id`, the optional `turn_id`, `title`, `undo_id` and
+  `trash`, the flags `applied` and `resumed`, and the lists `entries` (each with an
+  `action`: `restore`, `trash`, `delete`, `skip`, `not_covered` or `command`, a `path`
+  and an optional `reason`), `entries_more`, `refs` (each with `root`, `name` and the
+  optional `from`, `to`, `applied` and `reason`), `notes` and `turns` (with `list`: each
+  with `turn_id` and the optional `title`, `auto`, `undone`, `stopped` and `ended`),
+  each absent when empty. A refusal is a `conflict` error; `undo_refusals.json` freezes
+  its forms. New event kinds `snapshot_taken` (`turn_id`, `root`, `phase`: `pre` or
+  `post`, `commit`, `files`, `skipped`, `ms`) and `undo_applied` (`conversation_id`,
+  `undone_turn_id`, `undo_id`, `redo`, `origin`, `restored`, `trashed`, `deleted`,
+  `conflicts`, `not_covered`, optional `refs` and `trash`; it belongs to no turn).
+  `turn_completed`, `turn_failed` and `turn_interrupted` gain an optional `undo` (the
+  optional `undoable`, `roots` with `shown` and `files`, `home_files`, `not_covered`
+  and `not_covered_more`), and `turn_failed` and `turn_interrupted` gain an optional
+  `changes`. From phase B, `home_file_changed` has `covered` and no `backup`. New
+  fixtures `turn_undo_params.json`, `turn_undo_result.json`,
+  `events/snapshot_taken.json`, `events/undo_applied.json`, `undo_actions.json`,
+  `undo_reasons.json` and `undo_refusals.json`; `events/turn_completed.json`,
+  `events/turn_failed.json` and `events/turn_interrupted.json` now set the new members.

@@ -11,7 +11,7 @@ use crate::{
     InputRespond, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet, ProjectsList,
     PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
     SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
-    WithdrawTarget,
+    TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -292,6 +292,21 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 presence: Presence::Away,
             }),
             "presence.set",
+            ScopeName::Operate,
+            true,
+            false,
+        ),
+        (
+            Method::TurnUndo(TurnUndo {
+                command_id: command(),
+                conversation_id: None,
+                turn_id: None,
+                dry_run: true,
+                force: false,
+                redo: false,
+                list: false,
+            }),
+            "turn.undo",
             ScopeName::Operate,
             true,
             false,

@@ -9,7 +9,7 @@ use crate::{
     ConversationCompact, ConversationDiff, ConversationHistory, ConversationSubscribe,
     ConversationsList, Hello, InputRespond, LeaseReport, ModelsList, PresenceSet, ProjectsList,
     PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer,
+    SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -113,6 +113,9 @@ pub enum Method {
     /// `presence.set`: say that the user is away from a conversation, or back.
     #[serde(rename = "presence.set")]
     PresenceSet(PresenceSet),
+    /// `turn.undo`: take back the file and ref changes of a turn.
+    #[serde(rename = "turn.undo")]
+    TurnUndo(TurnUndo),
 }
 
 impl Method {
@@ -149,6 +152,7 @@ impl Method {
             Method::PromptWithdraw(_) => "prompt.withdraw",
             Method::ConversationCompact(_) => "conversation.compact",
             Method::PresenceSet(_) => "presence.set",
+            Method::TurnUndo(_) => "turn.undo",
         }
     }
 
@@ -165,6 +169,7 @@ impl Method {
             Method::PromptWithdraw(params) => Some(params.command_id),
             Method::ConversationCompact(params) => Some(params.command_id),
             Method::PresenceSet(params) => Some(params.command_id),
+            Method::TurnUndo(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -221,7 +226,8 @@ impl Method {
             | Method::ConversationDiff(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)
-            | Method::PresenceSet(_) => false,
+            | Method::PresenceSet(_)
+            | Method::TurnUndo(_) => false,
         }
     }
 }
@@ -249,7 +255,8 @@ impl ScopeName {
             | Method::ConversationCompact(_)
             | Method::TurnInterrupt(_)
             | Method::TurnSteer(_)
-            | Method::PresenceSet(_) => ScopeName::Operate,
+            | Method::PresenceSet(_)
+            | Method::TurnUndo(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.

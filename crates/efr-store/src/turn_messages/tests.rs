@@ -42,6 +42,7 @@ async fn finish_turn(writer: &WriterHandle, id: ConversationId, turn: u64) {
                         changes: None,
                         context: None,
                         stop: None,
+                        undo: None,
                     },
                 )
                 .turn_messages(saved(id, turn)),
@@ -112,6 +113,7 @@ async fn messages_are_saved_only_when_their_batch_commits() {
                         changes: None,
                         context: None,
                         stop: None,
+                        undo: None,
                     },
                 )
                 .turn_messages(saved(id, 1)),

@@ -81,7 +81,14 @@ fn resolved(origin: Origin) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None, stop: None }
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
 }
 
 /// `step` with the frame that shows it, at a time that never moves, in its `out`.
@@ -446,6 +453,8 @@ fn a_failed_turn_commits_what_arrived_and_ends() {
                 error: error.clone(),
                 usage: None,
                 context: None,
+                changes: None,
+                undo: None,
             },
             SIZE,
             false,
@@ -461,7 +470,13 @@ fn an_interrupted_turn_says_so() {
     let mut view = raw_view();
     let step = framed(
         view.event(
-            &Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+            &Event::TurnInterrupted {
+                turn_id: turn(),
+                usage: None,
+                context: None,
+                changes: None,
+                undo: None,
+            },
             SIZE,
             false,
         ),
@@ -928,7 +943,13 @@ fn the_end_of_the_turn_settles_an_input() {
     framed(view.event(&input(InputWait::Visible), SIZE, true), &mut view);
     let step = framed(
         view.event(
-            &Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+            &Event::TurnInterrupted {
+                turn_id: turn(),
+                usage: None,
+                context: None,
+                changes: None,
+                undo: None,
+            },
             SIZE,
             true,
         ),
@@ -2161,13 +2182,20 @@ fn a_completed_turn_ends_with_its_time_and_tokens() {
         changes: None,
         context: None,
         stop: None,
+        undo: None,
     };
     insta::assert_snapshot!(ended(ALL, end, 42_000));
 }
 
 #[test]
 fn an_interrupted_turn_ends_with_its_time() {
-    let end = Event::TurnInterrupted { turn_id: turn(), usage: None, context: None };
+    let end = Event::TurnInterrupted {
+        turn_id: turn(),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+    };
     let frame = ended(ALL, end, 12_400);
     assert!(frame.contains("interrupted after 12s"), "{frame}");
     assert!(frame.contains("\\e]9;4;0\\e\\"), "{frame}");
@@ -2190,8 +2218,18 @@ fn a_turn_stopped_with_ctrl_c_says_how_long_it_ran() {
 #[test]
 fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
     let error = ErrorBody::new(ErrorCode::Internal, "boom");
-    let frame =
-        ended(ALL, Event::TurnFailed { turn_id: turn(), error, usage: None, context: None }, 3_000);
+    let frame = ended(
+        ALL,
+        Event::TurnFailed {
+            turn_id: turn(),
+            error,
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        },
+        3_000,
+    );
     assert!(!frame.contains("done"), "{frame}");
     assert!(frame.contains("\\e]9;4;2;100\\e\\"), "{frame}");
     assert!(frame.ends_with("\\e[?25h\\e]9;4;2;100\\e\\"), "{frame}");
@@ -2205,12 +2243,19 @@ fn without_the_summary_a_turn_ends_as_before() {
         changes: None,
         context: None,
         stop: None,
+        undo: None,
     };
     let frame = ended(Look::default(), end, 5_000);
     assert!(!frame.contains("done"), "{frame}");
     let frame = ended(
         Look::default(),
-        Event::TurnInterrupted { turn_id: turn(), usage: None, context: None },
+        Event::TurnInterrupted {
+            turn_id: turn(),
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        },
         5_000,
     );
     assert!(frame.contains("interrupted\\e[0m"), "{frame}");
@@ -2224,6 +2269,7 @@ fn stopped(reason: StopReason, empty: bool) -> Event {
         changes: None,
         context: None,
         stop: Some(TurnStop { reason, empty }),
+        undo: None,
     }
 }
 
@@ -2308,6 +2354,7 @@ fn piped_output_has_no_status_row_and_no_escape_sequences() {
             changes: None,
             context: None,
             stop: None,
+            undo: None,
         },
     ]) {
         let step = view.envelope(&sent(seq, 0, event), SIZE, false);

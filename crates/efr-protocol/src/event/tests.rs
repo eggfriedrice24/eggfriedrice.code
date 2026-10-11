@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use crate::{
     CallId, CommandId, Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
     EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq,
-    ShellContext, StopReason, TurnId, TurnSettings, TurnStop, Usage,
+    ShellContext, SnapshotPhase, StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -207,6 +207,8 @@ fn a_known_event_reads_back_as_itself() {
         error: ErrorBody::new(ErrorCode::Internal, "the provider stream broke"),
         usage: None,
         context: None,
+        changes: None,
+        undo: None,
     };
     let back: Event = serde_json::from_value(serde_json::to_value(&event).unwrap()).unwrap();
     assert_eq!(back, event);
@@ -290,6 +292,37 @@ fn turn_id_names_the_turn_of_turn_events_only() {
     assert_eq!(shell.turn_id(), None);
     assert_eq!(Event::LoginCompleted { provider: "openai".to_owned() }.turn_id(), None);
     assert_eq!(Event::LogoutCompleted { provider: "openai-api".to_owned() }.turn_id(), None);
+}
+
+/// An undo runs between turns, so a view that follows a turn never takes it as an
+/// event of the undone turn; the snapshot of a turn belongs to that turn.
+#[test]
+fn undo_applied_has_no_turn_id() {
+    let undo = Event::UndoApplied {
+        conversation_id: ConversationId::from_str(CONVERSATION).unwrap(),
+        undone_turn_id: turn(),
+        undo_id: UndoId::from_str(TURN).unwrap(),
+        redo: false,
+        origin: Origin::Cli,
+        restored: 2,
+        trashed: 1,
+        deleted: 0,
+        conflicts: 0,
+        not_covered: 0,
+        refs: Vec::new(),
+        trash: None,
+    };
+    assert_eq!(undo.turn_id(), None);
+    let snapshot = Event::SnapshotTaken {
+        turn_id: turn(),
+        root: "eggfriedrice.code".to_owned(),
+        phase: SnapshotPhase::Pre,
+        commit: "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_owned(),
+        files: 3,
+        skipped: 0,
+        ms: 12,
+    };
+    assert_eq!(snapshot.turn_id(), Some(turn()));
 }
 
 #[test]
@@ -548,6 +581,7 @@ fn turn_completed_without_stop_reads_as_before() {
         context: None,
         changes: None,
         stop: Some(TurnStop { reason: StopReason::Refusal, empty: true }),
+        undo: None,
     };
     let wire = serde_json::to_value(&stopped).unwrap();
     assert_eq!(wire["stop"], json!({ "reason": "refusal", "empty": true }));

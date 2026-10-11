@@ -139,7 +139,8 @@ async fn a_turn_ends_with_the_sums_and_the_context_of_its_last_call() {
             usage: Some(usage),
             context: Some(limits.gauge(1230)),
             changes: None,
-            stop: None
+            stop: None,
+            undo: None
         },
         "the sums, and the input plus the output of the last call"
     );
