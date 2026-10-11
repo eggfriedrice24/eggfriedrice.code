@@ -45,6 +45,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use efr_permissions::{
     Approver, ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements,
@@ -82,6 +83,7 @@ use crate::gap::CallGap;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
+use crate::presence::PRESENCE_CHECK;
 use crate::questions::Questions;
 use crate::scratch::Scratch;
 use crate::settings::{self, Place};
@@ -1175,24 +1177,44 @@ impl Turn {
         let interrupt = self.control.interrupt.clone();
         let clock = Arc::clone(&self.shared.deps.clock);
         // NOTE: read at each call, not at turn start, so a reload reaches the next
-        // approval of a running turn. Presence is read once, when the question parks;
-        // an answer wins during the whole wait.
+        // approval of a running turn. An answer wins during the whole wait.
         let config = self.shared.config.current();
-        let presence = &self.shared.deps.presence;
-        let away = presence.presence(self.shared.conversation_id) == Presence::Away;
-        let timeout = if away {
-            presence.push(self.shared.conversation_id, call_id);
-            Some(config.away_wait)
-        } else {
-            config.approval_timeout
-        };
+        let presence = Arc::clone(&self.shared.deps.presence);
+        let conversation_id = self.shared.conversation_id;
+        let parked = clock.now();
+        let mut answer = answer;
+        // NOTE: presence is read when the question parks and again every
+        // `PRESENCE_CHECK` while it waits, so a user who leaves, or says so with
+        // `efr away`, after it parked still gets the away wait, from the moment efr
+        // sees it. A user who comes back gets the normal wait again.
+        let mut away_from: Option<Duration> = None;
+        let mut pushed = false;
         let watch = Stopwatch::start();
-        let waited = tokio::select! {
-            biased;
-            () = interrupt.raised() => Waited::Interrupted,
-            answer = answer => Waited::Answer(answer.ok()),
-            () = sleep_or_pending(&*clock, timeout) => Waited::TimedOut,
+        let waited = loop {
+            let elapsed =
+                Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default();
+            if presence.presence(conversation_id) == Presence::Away {
+                away_from.get_or_insert(elapsed);
+                if !pushed {
+                    presence.push(conversation_id, call_id);
+                    pushed = true;
+                }
+            } else {
+                away_from = None;
+            }
+            let left = match away_from {
+                Some(from) => Some((from + config.away_wait).saturating_sub(elapsed)),
+                None => config.approval_timeout.map(|timeout| timeout.saturating_sub(elapsed)),
+            };
+            tokio::select! {
+                biased;
+                () = interrupt.raised() => break Waited::Interrupted,
+                received = &mut answer => break Waited::Answer(received.ok()),
+                () = sleep_or_pending(&*clock, left) => break Waited::TimedOut,
+                () = clock.sleep(PRESENCE_CHECK) => {}
+            }
         };
+        let away = away_from.is_some();
         tracing::debug!(phase = "approval_wait", elapsed_ms = %watch, "phase=approval_wait elapsed_ms={}", watch);
         let authorization = match waited {
             Waited::Answer(Some(ApprovalDecision::Allow)) => Authorization::Allowed {

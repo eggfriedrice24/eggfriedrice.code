@@ -2,13 +2,20 @@
 //!
 //! The daemon owns the state of each conversation (the input of its attached clients,
 //! `efr away`, the idle timeout) and implements [`PresenceReader`] over it. A turn reads
-//! it when it parks a question: while the user is away, the question waits only
-//! [`ConversationConfig::away_wait`](crate::ConversationConfig::away_wait), and then the
-//! call does not run. An answer always wins during the wait.
+//! it when it parks a question, and again every [`PRESENCE_CHECK`] while the question
+//! waits: while the user is away, the question waits only
+//! [`ConversationConfig::away_wait`](crate::ConversationConfig::away_wait) from the
+//! moment the turn sees it, and then the call does not run. An answer always wins
+//! during the wait.
 
 use std::fmt;
+use std::time::Duration;
 
 use efr_protocol::{CallId, ConversationId, Presence};
+
+/// How often a waiting question reads the presence again. The daemon runs no timer per
+/// conversation, so this read is also what finds that the idle limit passed.
+pub(crate) const PRESENCE_CHECK: Duration = Duration::from_secs(15);
 
 /// Reads the presence of a conversation, and sends a question that waits while the user
 /// is away to the user's phones.

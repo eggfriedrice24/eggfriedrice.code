@@ -143,9 +143,12 @@ turns.
   actions in a row and nobody could decide. ..."). A classifier allow or any answer of
   the user resets the denials in a row; an error, a step of the chain and an expired
   question count as none. The counts live in the turn, so the model cannot reset them.
-- Presence (`PresenceReader`, `ConversationDeps::presence`). A question reads it once,
-  when it parks. While the user is away it pushes the question once
-  (`PresenceReader::push`) and waits `ConversationConfig::away_wait`; with no answer it
+- Presence (`PresenceReader`, `ConversationDeps::presence`). A question reads it when
+  it parks and again every 15 seconds while it waits (`PRESENCE_CHECK`), so a user who
+  leaves or runs `efr away` after the question parked gets the away wait too, and a
+  user who comes back gets the normal wait again. While the user is away it pushes the
+  question once (`PresenceReader::push`) and waits `ConversationConfig::away_wait` from
+  the moment it sees the user away; with no answer it
   records `approval_expired` with `away`, and `exit_judged` (judge `presence_expired`)
   for an exit, and the model reads "Nobody could approve this now; it did not run.
   Continue without it, and name it in your final answer." The turn goes on. An answer

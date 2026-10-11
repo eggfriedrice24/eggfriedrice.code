@@ -44,8 +44,9 @@ into the GitHub release notes, and it stops when the section is missing.
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a
   running turn shows `away`, and a question waits 5 minutes
-  (`presence.away_wait_secs`). Then the call does not run, and the model goes on
-  without it and names it in its answer. Your next input ends the away state.
+  (`presence.away_wait_secs`), also a question that already waited when you left. Then
+  the call does not run, and the model goes on without it and names it in its answer.
+  Your next input ends the away state.
 - When a command in `auto` deletes files in a tool cache, such as `~/.cache` or
   `~/.cargo`, the reviewer decides whether efr deletes them in your real cache too. So
   "free some disk space" frees real space. efr never deletes below `~/.cargo/bin`, a

@@ -522,8 +522,8 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   prompt, a steer, an interrupt, an answer, keys for the hidden shell).
   `presence.set` (`methods/presence_set.rs`, the method of `efr away`) sets a
   conversation away, or each one that is present. No timer runs: the idle state is
-  found when a turn parks a question or the next input comes, and only then is
-  `presence_changed` recorded. The push to a phone does nothing yet.
+  found when a waiting question reads the presence (when it parks, then every 15
+  seconds) or the next input comes, and only then is `presence_changed` recorded. The push to a phone does nothing yet.
 - The backup store of floor files (`backups.rs`): before efrd runs a call, the top of
   `DaemonToolbox::invoke` (`tools.rs`) copies the target of each approved exit with
   `backup_before_write` to `$XDG_DATA_HOME/efr/file-backups/<conversation>/<turn>/<n>/`

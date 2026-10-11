@@ -335,6 +335,8 @@ is a prompt, a steer, an answer or keys for the hidden shell; keys in the input 
 count only when you send them. The status row of a running turn shows `away`. Your
 next input ends it. While you are away, a question waits only `presence.away_wait_secs`
 (300): `approval expired: nobody answered while you were away; the call did not run`.
+A question that already waits when you leave gets the same wait, from the moment efr
+sees that you are away (it looks every 15 seconds).
 The model goes on without the call and names it in its answer. An expired question is
 no refusal.
 

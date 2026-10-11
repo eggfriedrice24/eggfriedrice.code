@@ -121,14 +121,30 @@ pub(crate) fn unanswered() -> JudgeOutcome {
     }
 }
 
-/// A presence that a test sets, which counts the pushes of away questions.
+/// A presence that a test sets, which counts its reads and the pushes of away
+/// questions.
 #[derive(Debug, Default)]
 pub(crate) struct FakePresence {
     away: Mutex<bool>,
     pushed: Mutex<Vec<CallId>>,
+    reads: Mutex<usize>,
+    read: tokio::sync::Notify,
 }
 
 impl FakePresence {
+    /// Waits until a turn read the presence `count` times in all.
+    pub(crate) async fn wait_for_reads(&self, count: usize) {
+        loop {
+            let read = self.read.notified();
+            tokio::pin!(read);
+            read.as_mut().enable();
+            if *self.reads.lock().unwrap_or_else(PoisonError::into_inner) >= count {
+                return;
+            }
+            read.await;
+        }
+    }
+
     /// Counts the user away from now on, or present.
     pub(crate) fn set_away(&self, away: bool) {
         *self.away.lock().unwrap_or_else(PoisonError::into_inner) = away;
@@ -142,6 +158,8 @@ impl FakePresence {
 
 impl PresenceReader for FakePresence {
     fn presence(&self, _conversation_id: ConversationId) -> Presence {
+        *self.reads.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        self.read.notify_waiters();
         if *self.away.lock().unwrap_or_else(PoisonError::into_inner) {
             Presence::Away
         } else {

@@ -368,7 +368,9 @@ the turn stops instead.
 **Away.** efr counts you away from a conversation after `presence.away_after_minutes`
 (10) without input, or after `efr away` or `,away`. Your next input there ends it.
 While you are away, a question waits `presence.away_wait_secs` (300); then the call
-does not run, and the model goes on without it and names it in its answer.
+does not run, and the model goes on without it and names it in its answer. A question
+that already waits when you leave gets the same wait, from the moment efr sees that you
+are away (it looks every 15 seconds).
 
 An exit of the kinds `privilege`, `persistence`, `upload`, `outside`, `synced_write`,
 `above_root`, or a write that no bind can serve, runs outside the sandbox. Such a line

@@ -7,7 +7,8 @@
 //! user says so with `presence.set` (`efr away`, `,away`), until the next input.
 //!
 //! No timer runs per conversation. The idle state is found when efrd first looks: when
-//! a turn reads the presence to park a question, or when the next input comes. Only
+//! a waiting question reads the presence (when it parks, then every 15 seconds), or
+//! when the next input comes. Only
 //! then is the change recorded as `presence_changed` with the source `timeout`, so the
 //! event can come later than the moment the limit passed. A change by input or by the
 //! user is recorded at once. A conversation that the table does not know yet, such as

@@ -11,6 +11,7 @@ use pretty_assertions::assert_eq;
 use super::review::{judgements, reviewed, shell};
 use crate::ConversationError;
 use crate::exit::AWAY_EXPIRED;
+use crate::presence::PRESENCE_CHECK;
 use crate::testing::{Harness, Script, Setup};
 
 /// Starts a turn of `setup`, whose model makes one unnamed push, a question for the user,
@@ -85,6 +86,42 @@ async fn a_present_user_gets_no_push_and_no_away_wait() {
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(turn_id).await;
     assert_eq!(judgements(&h).await, vec![(JudgeKind::User, Verdict::Deny)]);
+}
+
+#[tokio::test]
+async fn a_user_who_leaves_while_a_question_waits_gets_the_away_wait() {
+    let (mut h, _, turn_id, call_id) = asked(reviewed(None), false).await;
+    h.presence.wait_for_reads(1).await;
+    h.presence.set_away(true);
+    // The next presence check finds the user away and starts the away wait.
+    h.clock.advance(PRESENCE_CHECK);
+    h.presence.wait_for_reads(2).await;
+    assert_eq!(h.presence.pushed(), vec![call_id], "the question goes to the phones once");
+    h.clock.advance(Duration::from_secs(299));
+    assert!(!h.has_ended(turn_id), "the away wait starts when efr sees the user away");
+    h.clock.advance(Duration::from_secs(1));
+    h.wait_end(turn_id).await;
+
+    assert!(h.toolbox.invoked().is_empty());
+    let events = h.events().await;
+    assert!(events.contains(&Event::ApprovalExpired { turn_id, call_id, away: true }));
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::PresenceExpired, Verdict::Deny)]);
+}
+
+#[tokio::test]
+async fn a_user_who_comes_back_gets_the_normal_wait_again() {
+    let (mut h, _, turn_id, call_id) = asked(reviewed(None), true).await;
+    h.presence.wait_for_reads(1).await;
+    h.presence.set_away(false);
+    h.clock.advance(PRESENCE_CHECK);
+    h.presence.wait_for_reads(2).await;
+    // No approval timeout is set, so the question waits for the answer.
+    h.clock.advance(Duration::from_secs(600));
+    tokio::task::yield_now().await;
+    assert!(!h.has_ended(turn_id), "a present user's question does not expire");
+    h.answer(call_id, ApprovalDecision::Allow).await;
+    h.wait_end(turn_id).await;
+    assert_eq!(h.toolbox.invoked().len(), 1);
 }
 
 /// Answers `call_id` with `decision` from `origin`.
