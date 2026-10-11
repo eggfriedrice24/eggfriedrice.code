@@ -37,8 +37,13 @@ into the GitHub release notes, and it stops when the section is missing.
   Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
   gap in my hyprland config". The reviewer decides, and it sees the change that efr
   will write. Enabling a unit, `crontab`, linger and a whole directory still ask you.
-- efr counts you away after 10 minutes without input in the conversation
-  (`presence.away_after_minutes`). While you are away, a question waits 5 minutes
+  At the end of the turn, each such file that the turn changed gets one line that
+  names its backup: `changed ~/.zshrc; backup at <path>`. The line comes also when the
+  turn failed or you interrupted it.
+- `efr away` and `,away` tell efr that you are away from the conversation of this
+  terminal. efr also counts you away after 10 minutes without input in the
+  conversation (`presence.away_after_minutes`). While you are away, the status row of a
+  running turn shows `away`, and a question waits 5 minutes
   (`presence.away_wait_secs`). Then the call does not run, and the model goes on
   without it and names it in its answer. Your next input ends the away state.
 - When a command in `auto` deletes files in a tool cache, such as `~/.cache` or
@@ -47,6 +52,10 @@ into the GitHub release notes, and it stops when the section is missing.
   cargo config or a credentials file. The call shows the freed size.
 - After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
   rest of the turn, and efr asks you instead. When you are away, the turn stops.
+- `efr history` shows the lines of the reviewer, its pause, the expiry of a question
+  while you were away, the space that a cache delete freed and the backup of each
+  changed file. `efr history --verbose` adds the model of each review, the step of its
+  chain, its time and the models that it skipped.
 
 ### Changed
 
@@ -66,7 +75,8 @@ into the GitHub release notes, and it stops when the section is missing.
   command no longer lists what the sandbox cannot do.
 - The auto rule of the system prompt is short: the model does what you ask, tries
   first, and lets efr decide. Older prompts of a conversation keep the old rule.
-- `efr sandbox explain` says that the reviewer decides a named floor file.
+- `efr sandbox explain` says that the reviewer decides a named floor file. It adds
+  `user only` only for a kind that only you approve, such as a synced write.
 
 ## [0.0.3] - 2026-10-09
 
