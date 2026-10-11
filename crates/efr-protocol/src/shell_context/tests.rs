@@ -13,11 +13,11 @@ fn full() -> ShellContext {
         shlvl: Some(1),
         ssh_connection: None,
         hostname: Some("desk".into()),
-        desktop: Some(DesktopEnv {
+        desktop: Some(Box::new(DesktopEnv {
             wayland_display: Some("wayland-1".into()),
             hyprland_instance_signature: Some("abc_1760000000_123".into()),
             ..DesktopEnv::default()
-        }),
+        })),
     }
 }
 
@@ -31,7 +31,7 @@ fn a_desktop_holds_only_the_names_it_has() {
     assert!(DesktopEnv::default().is_empty());
     let back: ShellContext =
         serde_json::from_value(json!({ "pwd": "/etc", "desktop": {} })).unwrap();
-    assert_eq!(back.desktop, Some(DesktopEnv::default()));
+    assert_eq!(back.desktop.as_deref(), Some(&DesktopEnv::default()));
 }
 
 #[test]

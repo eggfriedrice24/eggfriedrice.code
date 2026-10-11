@@ -270,7 +270,7 @@ fn shell_context() -> ShellContext {
         shlvl: Some(1),
         ssh_connection: Some("192.0.2.10 51234 192.0.2.20 22".into()),
         hostname: Some("desk".into()),
-        desktop: Some(DesktopEnv {
+        desktop: Some(Box::new(DesktopEnv {
             wayland_display: Some("wayland-1".into()),
             display: Some(":0".into()),
             hyprland_instance_signature: Some(
@@ -279,7 +279,7 @@ fn shell_context() -> ShellContext {
             swaysock: Some("/run/user/1000/sway-ipc.1000.1234.sock".into()),
             i3sock: Some("/run/user/1000/i3/ipc-socket.1234".into()),
             niri_socket: Some("/run/user/1000/niri.wayland-1.1234.sock".into()),
-        }),
+        })),
     }
 }
 

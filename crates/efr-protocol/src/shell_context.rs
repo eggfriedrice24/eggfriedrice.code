@@ -44,9 +44,10 @@ pub struct ShellContext {
     pub hostname: Option<String>,
     /// The variables that name the desktop of the terminal, so that a desktop grant
     /// reaches the session of this prompt. Absent when the shell has none of them. They
-    /// never go into the model's preamble.
+    /// never go into the model's preamble. Boxed, so a method that carries a context
+    /// stays small.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub desktop: Option<DesktopEnv>,
+    pub desktop: Option<Box<DesktopEnv>>,
 }
 
 /// The desktop variables of the user's shell, as the shell has them. Only these six
