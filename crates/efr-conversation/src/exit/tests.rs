@@ -7,9 +7,9 @@ use efr_permissions::{
     Requirements, TargetKind,
 };
 use efr_protocol::{
-    BusKind, Event, EventEnvelope, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, Launch, Mode,
-    Needs, Origin, PathClassName, ProjectId, SandboxSummary, Scope, Seq, SurfaceChange, TurnId,
-    Verdict,
+    BusKind, DesktopKind, Event, EventEnvelope, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant,
+    Launch, Mode, Needs, Origin, PathClassName, ProjectId, SandboxSummary, Scope, Seq,
+    SurfaceChange, TurnId, Verdict,
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Clock;
@@ -122,6 +122,52 @@ fn a_mix_of_contained_exits_gets_every_grant_once() {
     assert!(grants.contains(&Grant::Bus { bus: BusKind::System }), "{grants:?}");
     assert_eq!(grants.iter().filter(|grant| **grant == Grant::OpenNetwork).count(), 1);
     assert_eq!(source(&decision), ExitSource::Needs);
+}
+
+#[test]
+fn grant_keeps_desktop_grant_in_contained_launch() {
+    let hyprland = Grant::Desktop { desktop: DesktopKind::Hyprland };
+    assert_eq!(launch_of("hyprctl monitors"), Launch::Contained { grants: vec![hyprland.clone()] });
+    assert_eq!(
+        launch_of("hyprctl dispatch exec kitty"),
+        Launch::Contained { grants: vec![hyprland.clone()] },
+        "a form that only the user approves still runs in the sandbox with the socket"
+    );
+    let Launch::Contained { grants } = launch_of("hyprctl monitors && wlr-randr") else {
+        panic!("contained");
+    };
+    assert_eq!(grants, [hyprland, Grant::Desktop { desktop: DesktopKind::Wayland }]);
+    assert_eq!(launch_of("ydotool type x"), Launch::Contained { grants: vec![] });
+}
+
+/// The record of a call whose line is `line`, with no facts and no messages.
+fn record_of(line: &str) -> ExitRecord {
+    let engine = engine();
+    let requirements = shell(line);
+    let decision = decide(&engine, requirements.clone());
+    let launch = grant(&decision);
+    let action = Action {
+        tool: "shell",
+        decision: &decision,
+        requirements: &requirements,
+        launch: &launch,
+        cwd: Path::new(APP),
+        scope: &Scope::Project(app()),
+        scratch: Path::new(SCRATCH),
+        engine: &engine,
+        payload: None,
+    };
+    record(action, &[], &TurnExits::default())
+}
+
+#[test]
+fn a_desktop_read_form_is_recorded_as_a_read() {
+    let read = record_of("hyprctl -j monitors");
+    assert!(read.facts.desktop_read);
+    assert_eq!(read.action.grants, [Grant::Desktop { desktop: DesktopKind::Hyprland }]);
+    for line in ["hyprctl dispatch exec kitty", "hyprctl monitors; hyprctl keyword x y", "ls"] {
+        assert!(!record_of(line).facts.desktop_read, "{line}");
+    }
 }
 
 #[test]

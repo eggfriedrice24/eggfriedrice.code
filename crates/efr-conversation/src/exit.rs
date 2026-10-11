@@ -103,7 +103,8 @@ const FETCH_WORDS: &[&str] = &[
 /// keeps the plain sandbox. An exit that cannot run in the sandbox (privilege,
 /// persistence, upload, outside, a synced or above-root write, or a write that no bind
 /// serves) runs the whole line in the exit child. Every other exit adds its grants for
-/// this one call; `desktop_ipc` has none, because the daemon finds the display socket.
+/// this one call; a `desktop_ipc` grant names the desktop, and the daemon finds its one
+/// control socket for the terminal of the prompt.
 pub(crate) fn grant(decision: &Decision) -> Launch {
     let mut grants: Vec<Grant> = Vec::new();
     for need in decision.exits() {
@@ -512,7 +513,7 @@ fn narrower_than_outside(decision: &Decision, home: &Path) -> Option<String> {
     let mut grants: Vec<String> = Vec::new();
     for need in decision.exits().filter(|need| !asked(need)) {
         // NOTE: a destructive exit runs in the same sandbox and opens nothing. Any
-        // other exit without a grant, such as a desktop's socket that the daemon finds,
+        // other exit without a grant, such as `ydotool`, which talks to its own daemon,
         // has no words here, so efr says nothing rather than too little.
         let unnamed = need.grants.is_empty() && need.kind != ExitKind::Destructive;
         if need.kind.is_floor() || need.runs_unsandboxed() || unnamed {
@@ -544,6 +545,7 @@ fn grant_words(grant: &Grant, home: &Path) -> Option<String> {
         Grant::Socket { path } => format!("the socket {}", tilde(path, home)),
         Grant::Bus { bus: BusKind::System } => "the system bus".to_owned(),
         Grant::Bus { bus: BusKind::Session } => "the session bus".to_owned(),
+        Grant::Desktop { desktop } => format!("the {} socket", desktop.name()),
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
         _ => return None,
@@ -804,6 +806,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             changed_this_turn: *changed,
         })
         .collect();
+    let desktop_read = desktop_read(action.decision);
     let upload_patterns = action
         .decision
         .exits()
@@ -829,7 +832,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             programs,
             upload_patterns,
             outside_commands: Vec::new(),
-            desktop_read: false,
+            desktop_read,
             repo_surface_changed_this_turn: turn.surface_changed,
             git_status: None,
             snapshot_covers: None,
@@ -840,6 +843,15 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             denials_this_turn: turn.denials_this_turn,
         },
     }
+}
+
+/// True when `decision` has a `desktop_ipc` exit and the classifier may judge each
+/// one: the engine gives that approver only to a read or reload form of
+/// `DESKTOP_IPC_READ`, such as `hyprctl monitors`. A form that types or runs commands,
+/// and a socket that the model names, are the user's.
+fn desktop_read(decision: &Decision) -> bool {
+    let mut desktop = decision.exits().filter(|need| need.kind == ExitKind::DesktopIpc).peekable();
+    desktop.peek().is_some() && desktop.all(|need| need.approver == Approver::Classifier)
 }
 
 /// The protocol's class of a path that efr or a tool can make again, for the naming
