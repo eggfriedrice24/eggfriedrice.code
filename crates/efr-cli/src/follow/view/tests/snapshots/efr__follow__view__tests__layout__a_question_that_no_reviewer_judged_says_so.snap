@@ -1,0 +1,89 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10,\nstarted(1, \"shell\", json!({ \"command\": line }), Some(Launch::contained()))),\nSent(20, exit_requested(1, line, ExitFacts::default(), &info)),\nSent(20, review_started(1, &info.kinds)), Sent(2_400, failed),\nSent(2_400,\nasked(1, \"shell: run \\\"curl -LO https://example.com/tool.tar.gz\\\"\",\nSome(info))), Shot(\"asked\"), Key(1, ApprovalDecision::Allow),\nSent(4_000, ended(1, Some(0), None)),])"
+---
+=== 40 columns, colour
+[asked]
+\e[1;33m? allow full network for this call\e[0m
+\e[2m│ \e[0m\e[36mcurl -LO https://example.com/tool.tar\e[0m\e[2m↩\e[0m
+\e[2m│ \e[0m\e[36m.gz\e[0m
+\e[2m│ \e[0m\e[2mwhy: network\e[0m
+\e[2m│ \e[0m\e[2mreviewer: no answer (skipped\e[0m
+\e[2m│ \e[0m  \e[2mgpt-6-luna: parse error,\e[0m
+\e[2m│ \e[0m  \e[2mgpt-6.1-sol: refused)\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36m$ curl -LO https://example.com/tool.t\e[0m\e[2m↩\e[0m
+    \e[36mar.gz\e[0m
+  \e[32m✓ 3.9s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== 40 columns, NO_COLOR
+[asked]
+\e[1m? allow full network for this call\e[0m
+\e[2m│ \e[0mcurl -LO https://example.com/tool.tar\e[2m↩\e[0m
+\e[2m│ \e[0m.gz
+\e[2m│ \e[0m\e[2mwhy: network\e[0m
+\e[2m│ \e[0m\e[2mreviewer: no answer (skipped\e[0m
+\e[2m│ \e[0m  \e[2mgpt-6-luna: parse error,\e[0m
+\e[2m│ \e[0m  \e[2mgpt-6.1-sol: refused)\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+✓ allowed
+\e[1m·\e[0m $ curl -LO https://example.com/tool.t\e[2m↩\e[0m
+    ar.gz
+  ✓ 3.9s
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== 80 columns, colour
+[asked]
+\e[1;33m? allow full network for this call\e[0m
+\e[2m│ \e[0m\e[36mcurl -LO https://example.com/tool.tar.gz\e[0m
+\e[2m│ \e[0m\e[2mwhy: network\e[0m
+\e[2m│ \e[0m\e[2mreviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+\e[32m✓ allowed\e[0m
+\e[33m·\e[0m \e[36m$ curl -LO https://example.com/tool.tar.gz\e[0m
+  \e[32m✓ 3.9s\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== 80 columns, NO_COLOR
+[asked]
+\e[1m? allow full network for this call\e[0m
+\e[2m│ \e[0mcurl -LO https://example.com/tool.tar.gz
+\e[2m│ \e[0m\e[2mwhy: network\e[0m
+\e[2m│ \e[0m\e[2mreviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m
+
+[end]
+✓ allowed
+\e[1m·\e[0m $ curl -LO https://example.com/tool.tar.gz
+  ✓ 3.9s
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m  \e[2m4s\e[0m
+
+=== not a terminal
+[asked]
+stdout:
+stderr:
+? allow full network for this call
+│ curl -LO https://example.com/tool.tar.gz
+│ why: network
+│ reviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)
+│ y allow · n deny
+
+[end]
+stdout:
+stderr:
+? allow full network for this call
+│ curl -LO https://example.com/tool.tar.gz
+│ why: network
+│ reviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)
+│ y allow · n deny
+✓ allowed
+· $ curl -LO https://example.com/tool.tar.gz
+  ✓ 3.9s

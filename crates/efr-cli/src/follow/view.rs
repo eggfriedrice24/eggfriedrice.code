@@ -489,9 +489,9 @@ pub(crate) struct TurnView {
     contained: HashSet<CallId>,
     /// The exit of each call, for the lines of its approval and of the reviewer.
     exits: HashMap<CallId, sandbox::Requested>,
-    /// What the reviewer thought of a call's exit before it handed the question over,
-    /// for the card when the question does not carry it.
-    reviewed: HashMap<CallId, (Verdict, String)>,
+    /// The row of what the reviewer thought of a call's exit before it handed the
+    /// question over, for the card when the question does not carry it.
+    reviewed: HashMap<CallId, String>,
     /// The command of each shell call, whose approval shows each of its lines.
     commands: HashMap<CallId, String>,
     /// efr counts the user away from the conversation (`presence_changed`): the status
@@ -1409,8 +1409,9 @@ impl TurnView {
                 verdict,
                 risk,
                 rationale,
+                skipped,
                 ..
-            } => self.judged(*call_id, *verdict, *risk, rationale.as_deref(), size),
+            } => self.judged(*call_id, *verdict, *risk, rationale.as_deref(), skipped, size),
             Event::ApprovalRequested {
                 call_id, summary, diff_preview, interactive, exit, ..
             } => {
@@ -1649,20 +1650,28 @@ impl TurnView {
 
     /// The reviewer judged the exit of call `call_id`. An allow or a refusal is one muted
     /// line, which the call's rows follow at once, as they follow an answer; an unsure
-    /// verdict shows on the card of the question that comes next.
+    /// verdict shows on the card of the question that comes next. A verdict without a
+    /// risk is one that no reviewer model gave: every step of the chain failed, which
+    /// the card says with the steps in `skipped`.
     fn judged(
         &mut self,
         call_id: CallId,
         verdict: Verdict,
         risk: Option<Risk>,
         rationale: Option<&str>,
+        skipped: &[String],
         size: Size,
     ) -> Step {
         let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
         let exit = self.exits.get(&call_id);
         let Some(line) = sandbox::reviewed(verdict, risk, rationale, exit, self.home.as_deref())
         else {
-            self.reviewed.insert(call_id, (verdict, rationale.unwrap_or_default().to_owned()));
+            let row = if risk.is_none() {
+                sandbox::no_answer_row(skipped)
+            } else {
+                sandbox::reviewer_row(verdict, rationale.unwrap_or_default())
+            };
+            self.reviewed.insert(call_id, row);
             return Step::default();
         };
         match verdict {
@@ -2393,10 +2402,7 @@ impl TurnView {
         // NOTE: an exit shows the whole line from its record, never a shortened summary.
         if let Some(exit) = request.exit {
             let record = self.exits.get(&call_id).map(|exit| &exit.record);
-            let reviewed = self
-                .reviewed
-                .get(&call_id)
-                .map(|(verdict, rationale)| (*verdict, rationale.as_str()));
+            let reviewed = self.reviewed.get(&call_id).map(String::as_str);
             // NOTE: the exit's card says why on its own row, so the subject is only what
             // runs: the lines of the command, else the summary's first row.
             let commands: Vec<card::Row> = card

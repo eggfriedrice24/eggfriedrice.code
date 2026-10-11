@@ -1062,6 +1062,42 @@ fn a_reviewer_hands_an_unsure_question_over_with_its_reason() {
 }
 
 #[test]
+fn a_question_that_no_reviewer_judged_says_so() {
+    let line = "curl -LO https://example.com/tool.tar.gz";
+    let info = exit_info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] });
+    let failed = Event::ExitJudged {
+        turn_id: turn(),
+        call_id: id(1),
+        judge: JudgeKind::Classifier,
+        verdict: Verdict::AskUser,
+        model: None,
+        latency_ms: Some(2_400),
+        risk: None,
+        user_authorization: None,
+        category: None,
+        rationale: None,
+        record_sha256: None,
+        cached: false,
+        chain_step: Some(ChainStep::User),
+        skipped: vec!["gpt-6-luna: parse error".to_owned(), "gpt-6.1-sol: refused".to_owned()],
+    };
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, started(1, "shell", json!({ "command": line }), Some(Launch::contained()))),
+        Sent(20, exit_requested(1, line, ExitFacts::default(), &info)),
+        Sent(20, review_started(1, &info.kinds)),
+        Sent(2_400, failed),
+        Sent(
+            2_400,
+            asked(1, "shell: run \"curl -LO https://example.com/tool.tar.gz\"", Some(info))
+        ),
+        Shot("asked"),
+        Key(1, ApprovalDecision::Allow),
+        Sent(4_000, ended(1, Some(0), None)),
+    ]));
+}
+
+#[test]
 fn a_paused_reviewer_asks_the_user_for_the_rest_of_the_turn() {
     let paused = |reason, denials| Event::ClassifierPaused { turn_id: turn(), reason, denials };
     insta::assert_snapshot!(every_way(&[

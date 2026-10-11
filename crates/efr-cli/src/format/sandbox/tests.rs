@@ -12,9 +12,9 @@ use pretty_assertions::assert_eq;
 use super::{
     AWAY_EXPIRED, Requested, background_stopped, blocked, cache_freed, check, exit_heading,
     exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
-    home_changed, judge_details, paused, presence_changed, reviewed, reviewer_row, reviewing,
-    setup_failed, status_line, surface_answered, surface_change, surface_changed, surface_report,
-    survivors, tilde,
+    home_changed, judge_details, no_answer_row, paused, presence_changed, reviewed, reviewer_row,
+    reviewing, setup_failed, status_line, surface_answered, surface_change, surface_changed,
+    surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -656,6 +656,11 @@ fn a_handed_over_question_says_what_the_reviewer_thought() {
         "reviewer: unsure; no message of yours names this host"
     );
     assert_eq!(reviewer_row(Verdict::AskUser, " "), "reviewer: unsure");
+    assert_eq!(no_answer_row(&[]), "reviewer: no answer");
+    assert_eq!(
+        no_answer_row(&["gpt-6-luna: parse error".to_owned(), "gpt-6.1-sol: refused".to_owned()]),
+        "reviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)"
+    );
     let judged = Judgement {
         verdict: Verdict::AskUser,
         risk: Risk::Medium,

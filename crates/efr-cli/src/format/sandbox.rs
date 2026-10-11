@@ -465,7 +465,7 @@ pub(crate) fn exit_lines(
 ///   it resolves to and the untrusted mark (in the `warning` role) only for a program
 ///   that the sandbox wrote or may have written (muted);
 /// - what the reviewer thought before it handed the question over, from the question
-///   (`judged`), else `reviewed`, the verdict that the view saw (muted);
+///   (`judged`), else `reviewed`, the row of the verdict that the view saw (muted);
 /// - efr's own facts after `efr:`, and the model's reason as `the model says: "..."`
 ///   (muted).
 pub(crate) fn exit_card(
@@ -473,7 +473,7 @@ pub(crate) fn exit_card(
     record: Option<&ExitRecord>,
     home: Option<&Path>,
     subject: Vec<Row>,
-    reviewed: Option<(Verdict, &str)>,
+    reviewed: Option<&str>,
 ) -> Card {
     let unsandboxed = matches!(info.launch, Launch::Unsandboxed);
     let title = match &info.launch {
@@ -517,9 +517,9 @@ pub(crate) fn exit_card(
         }
         rows.push(Row::Text(pieces));
     }
-    let judged = info.judged.as_ref().map(|judged| (judged.verdict, judged.rationale.as_str()));
-    if let Some((verdict, rationale)) = judged.or(reviewed) {
-        rows.push(Row::text(reviewer_row(verdict, rationale), Tone::Dim));
+    let judged = info.judged.as_ref().map(|judged| reviewer_row(judged.verdict, &judged.rationale));
+    if let Some(row) = judged.or_else(|| reviewed.map(str::to_owned)) {
+        rows.push(Row::text(row, Tone::Dim));
     }
     let mut facts: Vec<String> = info.facts.iter().map(|fact| one_line(fact)).collect();
     if info.user_only {
@@ -737,6 +737,17 @@ pub(crate) fn reviewer_row(verdict: Verdict, rationale: &str) -> String {
     } else {
         format!("reviewer: {opinion}; {rationale}")
     }
+}
+
+/// The row of a question's card when no reviewer model judged before efr handed the
+/// question over: every step of the chain failed, timed out or refused, such as
+/// `reviewer: no answer (skipped gpt-6-luna: parse error, gpt-6.1-sol: refused)`.
+pub(crate) fn no_answer_row(skipped: &[String]) -> String {
+    if skipped.is_empty() {
+        return "reviewer: no answer".to_owned();
+    }
+    let skipped: Vec<String> = skipped.iter().map(|text| one_line(text)).collect();
+    format!("reviewer: no answer (skipped {})", skipped.join(", "))
 }
 
 /// The note when the reviewer stops for the rest of a turn after `denials` refusals
