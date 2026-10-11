@@ -71,6 +71,10 @@ pub(crate) struct Target {
     pub(crate) path: PathBuf,
     /// True when it is a floor.
     pub(crate) floor: bool,
+    /// The same file below a dotfile link, when the exit names the real file behind
+    /// the link ([`ExitNeed::link`](efr_permissions::ExitNeed::link)): the path that
+    /// the user knows, which names the copy when it leads to the same real file.
+    pub(crate) link: Option<PathBuf>,
 }
 
 /// The content and the mode of a file.
@@ -152,13 +156,16 @@ fn take_one(
         Ok(Read::Other) => return Ok(None),
         Err(error) => return Err(failed(&error)),
     };
-    let Some(name) = path.file_name() else {
+    // NOTE: the copy is of the file that the exit names; the link only names it, and
+    // only while it still leads to that file.
+    let (shown, links) = linked(target, &real).unwrap_or_else(|| (path.clone(), resolved.links));
+    let Some(name) = shown.file_name() else {
         return Err(failed(&"the path names no file"));
     };
     let entry = new_entry(dir, conversation, turn).map_err(|error| failed(&error))?;
     let meta = Meta {
-        path: path.clone(),
-        links: resolved.links,
+        path: shown.clone(),
+        links,
         real: real.clone(),
         mode: before.as_ref().map(|content| content.mode),
         missing: before.is_none(),
@@ -171,7 +178,16 @@ fn take_one(
             return Err(failed(&error));
         }
     };
-    Ok(Some(Taken { path: path.clone(), real, entry, backup, before, floor: target.floor }))
+    Ok(Some(Taken { path: shown, real, entry, backup, before, floor: target.floor }))
+}
+
+/// The link of `target` with each link on its way, when it leads to `real`: a new file
+/// under a dotfile link is named by the link, such as `~/.config/hypr/x.conf`, not by
+/// `~/dotfiles/hypr/x.conf`. `None` without a link or when it leads elsewhere.
+fn linked(target: &Target, real: &Path) -> Option<(PathBuf, Vec<PathBuf>)> {
+    let link = target.link.as_ref()?;
+    let resolved = resolve(&DaemonFs, link).ok()?;
+    (resolved.path == real).then(|| (link.clone(), resolved.links))
 }
 
 /// Writes the copy and `meta.json` into `entry`, and returns the backup: the copy, or
@@ -245,7 +261,8 @@ pub(crate) fn finish(taken: Vec<Taken>) -> Vec<FileBackup> {
             remove_entry(&one.entry);
             continue;
         }
-        backups.push(FileBackup { path: one.path, backup: one.backup, floor: one.floor });
+        let real = (one.real != one.path).then_some(one.real);
+        backups.push(FileBackup { path: one.path, backup: one.backup, floor: one.floor, real });
     }
     backups
 }

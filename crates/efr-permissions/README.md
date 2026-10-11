@@ -126,7 +126,8 @@ Modules:
   the grants a "yes" opens, the bind of a write (`WriteBind`), its `Approver` (the
   classifier, the classifier when a user message names the exit, or only the user),
   the `names` that name it, whether efrd copies its target first
-  (`backup_before_write`) and the `Ecosystem` of a package manager's fetch
+  (`backup_before_write`), the same file below a dotfile link for a floor edit of the
+  real file behind it (`link`, which names the backup) and the `Ecosystem` of a package manager's fetch
   (`REGISTRY_HOSTS`). The engine never reads user text: `names_match` is the one
   check of the user's messages, for the turn's route and the exit record alike. Path
   forms match as text, only as whole path components; word forms and the phrases of

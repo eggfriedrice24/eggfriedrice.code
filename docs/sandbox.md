@@ -206,7 +206,9 @@ and whether it was missing. This happens for every approver: the reviewer or you
 - The turn ends with one dim line for each changed file, such as `changed ~/.zshrc;
   backup at ~/.local/share/efr/file-backups/<conversation>/<turn>/1/.zshrc`. To undo
   the change, copy the backup back. A file that did not exist before has only its
-  `meta.json`.
+  `meta.json`. A file behind a dotfile link keeps the path through the link and names
+  its real file too, such as `changed ~/.config/hypr/x.conf (real file
+  ~/dotfiles/hypr/x.conf); ...`.
 - efr keeps the backups of the newest `snapshot.keep_turns` turns of each conversation,
   for at most `snapshot.max_age_days` days. There is no restore command yet.
 

@@ -278,6 +278,7 @@ impl<'a> Envelope<'a> {
             names.extend(floor_names(link, home, floor.group));
         }
         need.names = super::names::dedup(names);
+        need.link = floor.link;
     }
 
     /// True when a mask hides `path` in a contained call.

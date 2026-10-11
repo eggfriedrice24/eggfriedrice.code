@@ -1040,6 +1040,7 @@ fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
         source: efr_protocol::ExitSource::Predicted,
         target: Some(target.to_path_buf()),
         bind: None,
+        link: None,
     }
 }
 
@@ -1093,7 +1094,12 @@ async fn floor_backup_taken_before_write_file() {
     assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
     assert_eq!(
         outcome.backups,
-        [efr_conversation::FileBackup { path: zshrc, backup: entry.join(".zshrc"), floor: true }]
+        [efr_conversation::FileBackup {
+            path: zshrc,
+            backup: entry.join(".zshrc"),
+            floor: true,
+            real: None
+        }]
     );
 }
 

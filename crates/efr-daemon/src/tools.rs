@@ -511,7 +511,8 @@ impl DaemonToolbox {
             .filter(|need| need.backup_before_write)
             .filter_map(|need| {
                 let floor = need.kind == ExitKind::Persistence;
-                need.target.clone().map(|path| backups::Target { path, floor })
+                let link = need.link.clone();
+                need.target.clone().map(|path| backups::Target { path, floor, link })
             })
             .collect();
         if targets.is_empty() {

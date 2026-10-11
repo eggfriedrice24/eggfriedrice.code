@@ -20,7 +20,7 @@ fn root() -> (tempfile::TempDir, PathBuf) {
 }
 
 fn floor(path: &Path) -> Target {
-    Target { path: path.to_path_buf(), floor: true }
+    Target { path: path.to_path_buf(), floor: true, link: None }
 }
 
 fn meta(entry: &Path) -> Meta {
@@ -91,6 +91,54 @@ fn two_names_of_one_file_take_one_copy_and_the_next_call_takes_the_next_entry() 
     std::fs::write(&real, "gaps_in = 10\n").unwrap();
     assert_eq!(finish(first).len(), 1);
     assert_eq!(finish(second).len(), 1);
+}
+
+/// The live run (case 5.6): the turn's line named `~/dotfiles/hypr/efr-test.conf`,
+/// the real file of a new file under `~/.config/hypr`, a link to `~/dotfiles/hypr`.
+/// The copy and the line keep the path through the link and name the real file too.
+#[test]
+fn a_new_file_under_a_dir_link_is_named_by_the_link() {
+    let (_temp, root) = root();
+    let home = root.join("home");
+    let dots = home.join("dotfiles/hypr");
+    std::fs::create_dir_all(&dots).unwrap();
+    std::fs::create_dir_all(home.join(".config")).unwrap();
+    std::os::unix::fs::symlink(&dots, home.join(".config/hypr")).unwrap();
+    let store = root.join("data/file-backups");
+    std::fs::create_dir_all(store.parent().unwrap()).unwrap();
+    let (conversation, turn) = ids();
+    let real = dots.join("efr-test.conf");
+    let linked = home.join(".config/hypr/efr-test.conf");
+    let target = Target { path: real.clone(), floor: true, link: Some(linked.clone()) };
+
+    let taken = take(&store, conversation, turn, &[target], &[]).unwrap();
+
+    let entry = store.join(conversation.to_string()).join(turn.to_string()).join("1");
+    assert_eq!(
+        meta(&entry),
+        Meta {
+            path: linked.clone(),
+            links: vec![home.join(".config/hypr")],
+            real: real.clone(),
+            mode: None,
+            missing: true,
+        }
+    );
+    std::fs::write(&real, "# efr\n").unwrap();
+    let backups = finish(taken);
+    assert_eq!(backups.len(), 1);
+    assert_eq!(backups[0].path, linked);
+    assert_eq!(backups[0].real, Some(real.clone()));
+    assert_eq!(backups[0].backup, entry.join(META_FILE));
+
+    // A link that no longer leads to the file does not name it.
+    let elsewhere = home.join(".config/other.conf");
+    let target = Target { path: real.clone(), floor: true, link: Some(elsewhere) };
+    let taken = take(&store, conversation, turn, &[target], &[]).unwrap();
+    std::fs::write(&real, "# efr again\n").unwrap();
+    let backups = finish(taken);
+    assert_eq!(backups[0].path, real);
+    assert_eq!(backups[0].real, None);
 }
 
 #[test]

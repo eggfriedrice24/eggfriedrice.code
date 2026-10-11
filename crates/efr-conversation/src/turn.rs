@@ -916,7 +916,7 @@ impl Turn {
                     floor: backup.floor,
                     covered: false,
                     backup: Some(backup.backup),
-                    real: None,
+                    real: backup.real,
                 }
             }));
             let mut quarantined = Vec::new();

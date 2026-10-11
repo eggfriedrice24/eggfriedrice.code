@@ -1461,8 +1461,13 @@ impl TurnView {
                 self.answer_came(*call_id);
                 self.expired(*call_id, *away, size)
             }
-            Event::HomeFileChanged { path, backup, .. } => {
-                let line = sandbox::home_changed(path, backup.as_deref(), self.home.as_deref());
+            Event::HomeFileChanged { path, real, backup, .. } => {
+                let line = sandbox::home_changed(
+                    path,
+                    real.as_deref(),
+                    backup.as_deref(),
+                    self.home.as_deref(),
+                );
                 self.home_changes.push(line);
                 Step::default()
             }

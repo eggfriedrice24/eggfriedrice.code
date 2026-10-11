@@ -830,9 +830,19 @@ const BACKUP_META: &str = "meta.json";
 /// The line at the end of a turn for a file outside the project that runs code later
 /// and that a call changed (`home_file_changed`): `changed ~/.zshrc; backup at <path>`.
 /// A file that did not exist before has no copy, only the record of efrd's backup
-/// store, so the line says so.
-pub(crate) fn home_changed(path: &Path, backup: Option<&Path>, home: Option<&Path>) -> String {
-    let shown = tilde(path, home);
+/// store, so the line says so. A file changed through a link names the path that the
+/// user knows, then its `real` file: `changed ~/.config/hypr/x.conf (real file
+/// ~/dotfiles/hypr/x.conf); ...`.
+pub(crate) fn home_changed(
+    path: &Path,
+    real: Option<&Path>,
+    backup: Option<&Path>,
+    home: Option<&Path>,
+) -> String {
+    let mut shown = tilde(path, home);
+    if let Some(real) = real.filter(|real| *real != path) {
+        let _ = write!(shown, " (real file {})", tilde(real, home));
+    }
     let Some(backup) = backup else {
         return format!("changed {shown}");
     };

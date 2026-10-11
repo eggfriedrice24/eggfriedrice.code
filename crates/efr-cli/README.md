@@ -373,7 +373,9 @@ Replies:
   line and before the line of the files that the turn changed and the end-of-turn
   line: `changed ~/.zshrc; backup at ~/.local/share/efr/file-backups/<conversation>/<turn>/1/.zshrc`.
   A file that did not exist before has no copy, only the record of efrd's backup store:
-  `changed <path>, which did not exist before; record at <dir>/meta.json`. The lines
+  `changed <path>, which did not exist before; record at <dir>/meta.json`. A file
+  changed through a link names the path that you know and its real file:
+  `changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf); ...`. The lines
   come however the turn ended, also after a failure or an interrupt, and they show
   whole, in rows of the screen, because they name where the copy is. `efr history`
   shows the same line at its place in the turn.

@@ -865,6 +865,7 @@ fn a_changed_floor_file_names_its_backup_or_says_that_it_is_new() {
     assert_eq!(
         home_changed(
             zshrc,
+            None,
             Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/1/.zshrc")),
             home()
         ),
@@ -873,14 +874,45 @@ fn a_changed_floor_file_names_its_backup_or_says_that_it_is_new() {
     assert_eq!(
         home_changed(
             Path::new("/home/u/.config/autostart/sync.desktop"),
+            None,
             Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/2/meta.json")),
             home(),
         ),
         "changed ~/.config/autostart/sync.desktop, which did not exist before; record at \
          ~/.local/share/efr/file-backups/c/t/2/meta.json"
     );
-    assert_eq!(home_changed(zshrc, None, home()), "changed ~/.zshrc");
+    assert_eq!(home_changed(zshrc, None, None, home()), "changed ~/.zshrc");
     // A path is shown safely: it cannot move the cursor or turn the line around.
-    let hostile = home_changed(Path::new("/home/u/.zshrc\u{202e}\n"), None, home());
+    let hostile = home_changed(Path::new("/home/u/.zshrc\u{202e}\n"), None, None, home());
     assert_eq!(hostile, "changed ~/.zshrc\u{fffd} ");
+}
+
+/// The live run (case 5.6): the line named the real file in `~/dotfiles` and not the
+/// path through `~/.config/hypr` that the user named.
+#[test]
+fn backup_line_names_the_link_and_the_real_file() {
+    let linked = Path::new("/home/u/.config/hypr/x.conf");
+    let real = Path::new("/home/u/dotfiles/hypr/x.conf");
+    assert_eq!(
+        home_changed(
+            linked,
+            Some(real),
+            Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/1/x.conf")),
+            home(),
+        ),
+        "changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf); backup at \
+         ~/.local/share/efr/file-backups/c/t/1/x.conf"
+    );
+    assert_eq!(
+        home_changed(
+            linked,
+            Some(real),
+            Some(Path::new("/home/u/.local/share/efr/file-backups/c/t/2/meta.json")),
+            home(),
+        ),
+        "changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf), which did not \
+         exist before; record at ~/.local/share/efr/file-backups/c/t/2/meta.json"
+    );
+    // A real file that is the path itself adds nothing.
+    assert_eq!(home_changed(real, Some(real), None, home()), "changed ~/dotfiles/hypr/x.conf");
 }

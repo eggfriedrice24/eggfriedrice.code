@@ -400,6 +400,10 @@ pub struct FileBackup {
     pub backup: PathBuf,
     /// True when the file is a floor.
     pub floor: bool,
+    /// The real file, when `path` reaches it through a link, such as
+    /// `~/dotfiles/hypr/x.conf` for `~/.config/hypr/x.conf`; `None` when `path` is the
+    /// real file.
+    pub real: Option<PathBuf>,
 }
 
 /// What [`Toolbox::delete_cache_paths`] deleted in the real tool caches.

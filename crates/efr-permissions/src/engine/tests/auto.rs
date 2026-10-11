@@ -568,6 +568,8 @@ fn link_target_floor_takes_group_and_names_of_its_link() {
         assert!(need.names.contains(&name.to_owned()), "{name}: {:?}", need.names);
     }
     assert!(names_match(&need.names, &["change the gap in my hyprland config".to_owned()]));
+    // The path below the link names the backup.
+    assert_eq!(need.link, Some(PathBuf::from("/home/u/.config/hypr/hyprland.conf")));
     // The same through `write_file`, which declares the real path.
     let tool = Requirements::none().with_write(conf).with_facts(kinds_of(&[(conf, FILE)]));
     assert_eq!(persistence(&engine, tool).approver, Approver::ClassifierWhenNamed);

@@ -547,7 +547,10 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   child share one hook. The copy follows the links of a dotfiles layout to the real
   file, opens the real parent with no link on its path and reads the file with
   `O_NOFOLLOW`. It never copies a secret or a mask. A copy that fails stops the call,
-  and a file that the call did not change drops its entry. The outcome's backups go
+  and a file that the call did not change drops its entry. When the exit names the
+  real file behind a dotfile link (`ExitNeed::link`, such as a new file under
+  `~/.config/hypr`), the entry and `home_file_changed` keep the path through the link
+  while it leads to that file, and `real` names the real file. The outcome's backups go
   to the turn, which records `home_file_changed`. `backups::collect` runs with the
   snapshot collector in `run.rs`, with `snapshot.keep_turns` and
   `snapshot.max_age_days` and the daemon's clock.

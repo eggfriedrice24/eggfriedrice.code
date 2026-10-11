@@ -101,7 +101,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, `i3-msg` is a desktop command. `i3-msg -t get_*` goes to the reviewer.
 - The line of a desktop command names its socket and what it does, such as
   `reviewer allowed: the Hyprland socket, to read its state or reload it`.
-- Labels name the command that leaves the sandbox, and show no rule numbers.
+- Labels name the command that leaves the sandbox and the link path that you used,
+  such as `changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf)`, and show
+  no rule numbers.
 
 ### Fixed
 

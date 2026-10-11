@@ -145,6 +145,11 @@ pub struct ExitNeed {
     /// How a contained call writes [`target`](Self::target), for a `write` exit of a
     /// shell call.
     pub bind: Option<WriteBind>,
+    /// The same file below a dotfile link, for a floor edit whose target is the real
+    /// file behind the link, such as `~/.config/hypr/x.conf` for
+    /// `~/dotfiles/hypr/x.conf`: the path that the user knows. efrd names the backup
+    /// by it. `None` when no link of a floor leads to the target.
+    pub link: Option<PathBuf>,
 }
 
 impl ExitNeed {
@@ -163,6 +168,7 @@ impl ExitNeed {
             source,
             target: None,
             bind: None,
+            link: None,
         }
     }
 
@@ -196,6 +202,7 @@ impl fmt::Debug for ExitNeed {
             .field("source", &self.source)
             .field("target", &self.target)
             .field("bind", &self.bind)
+            .field("link", &self.link)
             .finish()
     }
 }
