@@ -162,7 +162,11 @@ async fn a_root_with_too_many_files_never_lists_its_ignored_files() {
     let few = Limits { max_files: 3, ..limits() };
     let call = world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], few).await;
     assert!(call.is_empty());
-    assert_eq!(world.git_runs(), ["init", "ls-files"], "one listing; the ignored one never ran");
+    assert_eq!(
+        world.git_runs(),
+        ["config", "config", "init", "ls-files"],
+        "the format check and one listing; the ignored one never ran"
+    );
 
     // A root below the limit lists its ignored files too, after the check.
     let small = world.dir("small");

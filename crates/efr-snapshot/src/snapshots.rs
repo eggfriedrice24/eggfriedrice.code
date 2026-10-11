@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -121,6 +122,8 @@ pub(crate) struct Slot {
     tree: Mutex<Option<String>>,
     live: Mutex<Vec<String>>,
     skipped_until: Mutex<Option<jiff::Timestamp>>,
+    /// True once this process checked the store's format (`capture::prepare`).
+    ready: AtomicBool,
 }
 
 impl Default for Slot {
@@ -130,6 +133,7 @@ impl Default for Slot {
             tree: Mutex::new(None),
             live: Mutex::new(Vec::new()),
             skipped_until: Mutex::new(None),
+            ready: AtomicBool::new(false),
         }
     }
 }
@@ -180,6 +184,12 @@ impl Slot {
 
     pub(crate) fn set_tree(&self, tree: Option<String>) {
         *self.tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tree;
+    }
+
+    /// Forgets the format check, for a store that the collector deleted.
+    pub(crate) fn forget_store(&self) {
+        self.set_tree(None);
+        self.ready.store(false, std::sync::atomic::Ordering::Release);
     }
 
     /// The trees that running turns and calls still need, each once, sorted.
@@ -421,6 +431,7 @@ impl Snapshots {
                 limits,
                 ignored,
                 cached.is_none(),
+                &slot.ready,
             )
             .await?
             {
@@ -479,6 +490,7 @@ impl Snapshots {
                 limits,
                 false,
                 cached.is_none(),
+                &slot.ready,
             )
             .await?;
             match staged {

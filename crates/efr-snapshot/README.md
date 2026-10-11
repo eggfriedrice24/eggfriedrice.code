@@ -91,7 +91,12 @@ that read it, `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, `-c
 core.fsmonitor=false -c core.hooksPath=/dev/null -c core.untrackedCache=false`, no
 automatic gc, no line-end conversion, literal pathspecs, and `--no-ext-diff
 --no-textconv` on every diff. No filter or diff driver is defined, so a
-`.gitattributes` in a root runs nothing. The project's `.git`, its config, its hooks
+`.gitattributes` in a root runs nothing. The store's own `info/attributes` turns off
+`text`, `eol`, `ident`, `filter` and `working-tree-encoding`, and git reads no other
+attribute file outside the root (`core.attributesFile=/dev/null`,
+`GIT_ATTR_NOSYSTEM=1`), so each blob holds the exact bytes of its file. A store from
+before this rule has no `efr.format=2` in its config: it drops its index once and
+takes a full snapshot. The project's `.git`, its config, its hooks
 and its index are never written; only its `info/exclude` (at most 64 KiB, never through
 a link) and its `HEAD` are read. Objects are written by `git add` in the store, never
 hardlinked. One snapshot, commit or collection of a store runs at a time. Under that

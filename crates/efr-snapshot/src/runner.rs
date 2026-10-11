@@ -7,8 +7,11 @@
 //! system or global config, and `-c` settings that switch off everything that could
 //! run code or write outside the store: fsmonitor, hooks, the untracked cache,
 //! automatic gc, line-end conversion. No filter or diff driver is defined, so a
-//! `.gitattributes` in a root cannot run anything. The project's own `.git`, its config
-//! and its index are never read or written.
+//! `.gitattributes` in a root cannot run anything. The store's own `info/attributes`
+//! turns off every attribute that changes bytes, and no other attribute file outside
+//! the root is read (`core.attributesFile=/dev/null`, `GIT_ATTR_NOSYSTEM=1`), so each
+//! blob holds the exact bytes of its file. The project's own `.git`, its config and its
+//! index are never read or written.
 
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -33,6 +36,7 @@ const HARDENING: &[&str] = &[
     "core.autocrlf=false",
     "core.safecrlf=false",
     "core.symlinks=true",
+    "core.attributesFile=/dev/null",
     "core.quotePath=false",
     "gc.auto=0",
     "gc.autoDetach=false",
@@ -147,6 +151,7 @@ impl Runner {
             .env("GIT_INDEX_FILE", store.index())
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_ATTR_NOSYSTEM", "1")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("LC_ALL", "C");
         match run.work_tree {

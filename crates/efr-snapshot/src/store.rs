@@ -21,6 +21,16 @@ const MAX_EXCLUDE_BYTES: u64 = 64 * 1024;
 /// How stale the stamp of a store may get before a snapshot touches it again.
 const STAMP_EVERY: Duration = Duration::from_secs(3600);
 
+/// The store's own `info/attributes`: every attribute that makes `git add` change the
+/// bytes of a file is off. `$GIT_DIR/info/attributes` comes before every
+/// `.gitattributes` of the root, so each blob holds the exact bytes of its file.
+pub(crate) const ATTRIBUTES: &[u8] = b"* -text -eol -ident -filter -working-tree-encoding\n";
+
+/// The value of `efr.format` in the config of a store whose index holds exact bytes. A
+/// store without it was made before [`ATTRIBUTES`]: its stat cache can hold a blob that
+/// an in-tree `.gitattributes` changed, so it drops its index once.
+pub(crate) const FORMAT: &str = "2";
+
 /// The store of one root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Store {
@@ -101,15 +111,40 @@ impl Store {
             .map_err(|source| SnapshotError::Io { path: self.dir.clone(), source })
     }
 
-    /// Writes the root file and the store's `info` directory once the repository
-    /// exists.
+    /// Writes the root file, the store's `info` directory and its `info/attributes`
+    /// once the repository exists.
     pub(crate) fn finish_init(&self) -> Result<(), SnapshotError> {
         let info = self.git_dir().join("info");
         fs::create_dir_all(&info).map_err(|source| SnapshotError::Io { path: info, source })?;
         let file = self.root_file();
         efr_stdx::fs::write_atomic(&file, self.root.as_os_str().as_bytes()).map_err(|source| {
             SnapshotError::Io { path: file.clone(), source: std::io::Error::other(source) }
+        })?;
+        self.ensure_attributes()
+    }
+
+    /// Writes the store's `info/attributes` ([`ATTRIBUTES`]) when it holds anything
+    /// else.
+    pub(crate) fn ensure_attributes(&self) -> Result<(), SnapshotError> {
+        let info = self.git_dir().join("info");
+        let target = info.join("attributes");
+        if fs::read(&target).is_ok_and(|current| current == ATTRIBUTES) {
+            return Ok(());
+        }
+        fs::create_dir_all(&info).map_err(|source| SnapshotError::Io { path: info, source })?;
+        efr_stdx::fs::write_atomic(&target, ATTRIBUTES).map_err(|source| SnapshotError::Io {
+            path: target.clone(),
+            source: std::io::Error::other(source),
         })
+    }
+
+    /// Removes the persistent index, so the next snapshot hashes every file again.
+    pub(crate) fn drop_index(&self) -> Result<(), SnapshotError> {
+        match fs::remove_file(self.index()) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(SnapshotError::Io { path: self.index(), source }),
+        }
     }
 
     /// The number of entries in the persistent index, read from its header; `None`

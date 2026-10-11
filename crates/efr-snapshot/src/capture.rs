@@ -19,12 +19,13 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
 use crate::SnapshotError;
 use crate::runner::{MAX_STDERR_BYTES, Output, Run, Runner};
-use crate::store::Store;
+use crate::store::{FORMAT, Store};
 
 /// The largest ignored file a snapshot takes.
 pub const MAX_IGNORED_BYTES: u64 = 1024 * 1024;
@@ -98,7 +99,8 @@ pub(crate) fn parse_listing(out: &[u8]) -> Listing {
 
 /// Brings the persistent index of `store` up to its root with `limits`; `ignored`
 /// also takes the small ignored files, and `fresh` (no tree known in this process)
-/// copies the project's exclude file first. `reported` keeps which roots the log named
+/// copies the project's exclude file first. `ready` is false until this process
+/// checked the store's format ([`prepare`]). `reported` keeps which roots the log named
 /// for their unreadable files.
 pub(crate) async fn stage(
     runner: &Runner,
@@ -107,6 +109,7 @@ pub(crate) async fn stage(
     limits: &Limits,
     ignored: bool,
     fresh: bool,
+    ready: &AtomicBool,
 ) -> Result<Staged, SnapshotError> {
     let root = store.root().to_path_buf();
     if !store.exists() {
@@ -115,6 +118,11 @@ pub(crate) async fn stage(
         runner.init(store).await?;
         let prepared = store.clone();
         runner.blocking(store.dir(), move || prepared.finish_init()).await??;
+    }
+    let format_checked = ready.load(Ordering::Acquire);
+    if fresh || !format_checked {
+        prepare(runner, store, !format_checked).await?;
+        ready.store(true, Ordering::Release);
     }
     let unlocked = store.clone();
     if runner.blocking(&root, move || unlocked.clear_leftover_locks()).await? {
@@ -229,6 +237,32 @@ pub(crate) async fn stage(
         }
     }
     Ok(Staged::Changed)
+}
+
+/// Makes sure that `store` takes exact bytes: its `info/attributes` holds
+/// [`ATTRIBUTES`](crate::store::ATTRIBUTES), and with `format`, a store of an older
+/// format drops its index once, so no blob that an in-tree `.gitattributes` changed
+/// stays in its stat cache. The format mark comes last, so a stop on the way repeats
+/// the check.
+pub(crate) async fn prepare(
+    runner: &Runner,
+    store: &Store,
+    format: bool,
+) -> Result<(), SnapshotError> {
+    let checked = store.clone();
+    runner.blocking(store.dir(), move || checked.ensure_attributes()).await??;
+    if !format {
+        return Ok(());
+    }
+    let format = runner.run(store, &["config", "--get", "efr.format"], Run::default()).await?;
+    if String::from_utf8_lossy(&format.stdout).trim() == FORMAT {
+        return Ok(());
+    }
+    tracing::info!(root = %store.root().display(), "a snapshot store of an older format takes a full snapshot once");
+    let dropped = store.clone();
+    runner.blocking(store.dir(), move || dropped.drop_index()).await??;
+    runner.checked(store, "config", &["config", "efr.format", FORMAT], Run::default()).await?;
+    Ok(())
 }
 
 /// The exit code of a git that stopped at a fatal error, such as a path that went away

@@ -106,6 +106,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - Labels name the command that leaves the sandbox and the link path that you used,
   such as `changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf)`, and show
   no rule numbers.
+- A snapshot now keeps the exact bytes of each file, also when the project's
+  `.gitattributes` asks git to change line ends or encodings. An older snapshot store
+  takes one full snapshot to get there.
 
 ### Fixed
 

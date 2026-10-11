@@ -4,6 +4,7 @@
 
 #![cfg(test)]
 
+mod bytes;
 mod calls;
 mod cost;
 mod gc;

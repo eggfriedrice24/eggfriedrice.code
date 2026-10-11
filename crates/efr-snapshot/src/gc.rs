@@ -63,7 +63,7 @@ impl Snapshots {
                     .await
                     .unwrap_or(false);
                 if gone {
-                    slot.set_tree(None);
+                    slot.forget_store();
                     report.stores_deleted += 1;
                     tracing::info!(root = %store.root().display(), "deleted an idle snapshot store");
                 }

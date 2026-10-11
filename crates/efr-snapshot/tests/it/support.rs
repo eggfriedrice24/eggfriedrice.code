@@ -185,6 +185,30 @@ pub(crate) async fn tree_of(git_dir: &Path, home: &Path, rev: &str) -> BTreeMap<
         .collect()
 }
 
+/// `git ls-tree -r` of `rev` in the store at `git_dir`: path to blob id.
+pub(crate) async fn blobs_of(git_dir: &Path, home: &Path, rev: &str) -> BTreeMap<String, String> {
+    let out = git(home, home, &[("GIT_DIR", git_dir)], &["ls-tree", "-r", rev]).await;
+    out.lines()
+        .filter_map(|line| {
+            let (meta, path) = line.split_once('\t')?;
+            Some((path.to_owned(), meta.split(' ').nth(2)?.to_owned()))
+        })
+        .collect()
+}
+
+/// The blob ids of the persistent index of the store at `git_dir`: path to blob id.
+pub(crate) async fn index_blobs(git_dir: &Path, home: &Path) -> BTreeMap<String, String> {
+    let index = git_dir.with_extension("index");
+    let env = [("GIT_DIR", git_dir), ("GIT_INDEX_FILE", index.as_path())];
+    let out = git(home, home, &env, &["ls-files", "-s"]).await;
+    out.lines()
+        .filter_map(|line| {
+            let (meta, path) = line.split_once('\t')?;
+            Some((path.to_owned(), meta.split(' ').nth(1)?.to_owned()))
+        })
+        .collect()
+}
+
 /// Every file below `dir` with its bytes, for a comparison before and after.
 pub(crate) fn all_bytes(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut found = BTreeMap::new();
