@@ -1,6 +1,9 @@
 use std::future::pending;
+use std::io;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use efr_protocol::framing::MAX_FRAME_LEN;
 use efr_protocol::{
@@ -9,12 +12,13 @@ use efr_protocol::{
 use efr_stdx::time::Clock;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use tokio::io::DuplexStream;
+use tokio::io::{AsyncWrite, DuplexStream};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::{ConnectionParams, RequestTable, run};
+use super::{ConnectionParams, RequestTable, run, write_frames};
+use crate::codec::EncodedFrame;
 use crate::subscriptions::{Offer, subscription};
 use crate::testing::{
     Closed, FakeDispatcher, InstantClock, StoppedClock, TestClient, cancel_frame, drop_signal,
@@ -550,4 +554,85 @@ fn the_request_table_refuses_an_id_in_flight_until_it_is_removed() {
     table.remove(id(1));
     assert_eq!(table.len(), 0);
     assert!(table.insert(id(1), CancellationToken::new()));
+}
+
+/// A socket whose every write fails with `kind`.
+struct FailingSocket(io::ErrorKind);
+
+impl AsyncWrite for FailingSocket {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Poll::Ready(Err(io::Error::from(self.0)))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Every log line of this thread, at every level, as text.
+#[derive(Clone, Default)]
+struct Logs(Arc<Mutex<Vec<u8>>>);
+
+impl Logs {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+impl io::Write for Logs {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The log lines of a writer whose socket fails with `kind`.
+async fn logged_write_failure(kind: io::ErrorKind) -> String {
+    let logs = Logs::default();
+    let sink = logs.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || sink.clone())
+        .with_ansi(false)
+        .with_max_level(tracing::Level::TRACE)
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let (outbound, queue) = mpsc::channel(4);
+    outbound.send(EncodedFrame::new(&ServerFrame::end(id(1))).unwrap()).await.unwrap();
+    drop(outbound);
+    let closing = CancellationToken::new();
+    write_frames(FailingSocket(kind), queue, closing.clone()).await;
+    assert!(closing.is_cancelled());
+    logs.text()
+}
+
+#[tokio::test]
+async fn a_broken_pipe_is_logged_at_trace() {
+    for kind in
+        [io::ErrorKind::BrokenPipe, io::ErrorKind::ConnectionReset, io::ErrorKind::NotConnected]
+    {
+        let text = logged_write_failure(kind).await;
+        assert!(text.contains("TRACE"), "{kind:?}: {text}");
+        assert!(text.contains("the peer closed the connection before its last frames"), "{text}");
+        assert!(!text.contains("DEBUG"), "{kind:?}: {text}");
+    }
+}
+
+#[tokio::test]
+async fn another_write_error_is_logged_at_debug() {
+    let text = logged_write_failure(io::ErrorKind::PermissionDenied).await;
+    assert!(text.contains("DEBUG"), "{text}");
+    assert!(text.contains("writing to the connection failed"), "{text}");
+    assert!(!text.contains("TRACE"), "{text}");
 }

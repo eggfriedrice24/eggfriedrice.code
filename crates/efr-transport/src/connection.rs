@@ -473,9 +473,24 @@ async fn write_frames<W: AsyncWrite + Unpin>(
     }
     .await;
     if let Err(error) = result {
-        tracing::debug!(error = %error, "writing to the connection failed");
+        if peer_closed(&error) {
+            // NOTE: a client such as `efr send` closes its end as soon as it has its
+            // answer, while frames of its subscription are still queued; nobody waits
+            // for them, so this is no failure worth a line at debug.
+            tracing::trace!(error = %error, "the peer closed the connection before its last frames");
+        } else {
+            tracing::debug!(error = %error, "writing to the connection failed");
+        }
         closing.cancel();
     }
+}
+
+/// True when a write failed only because the peer had closed its end.
+fn peer_closed(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset | io::ErrorKind::NotConnected
+    )
 }
 
 #[cfg(test)]
