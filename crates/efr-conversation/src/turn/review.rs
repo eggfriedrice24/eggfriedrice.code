@@ -185,7 +185,15 @@ impl Turn {
                     refusal: None,
                 })
             }
-            _ => Reviewed::Ask { recorded: true, judgement: outcome.judgement.clone() },
+            // NOTE: the question shows the verdict that efr applied, as `exit_judged`
+            // does: an allow that broke a rule reads as unsure, never as allowed.
+            _ => Reviewed::Ask {
+                recorded: true,
+                judgement: outcome
+                    .judgement
+                    .clone()
+                    .map(|judgement| Judgement { verdict, ..judgement }),
+            },
         };
         self.record(events).await?;
         Ok(reviewed)

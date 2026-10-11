@@ -276,6 +276,9 @@ async fn an_allow_that_breaks_the_naming_rule_asks_the_user() {
     let (mut h, _, turn_id) = start(setup, vec![call], "keep a log of the build").await;
     let (call_id, exit) = question(&mut h).await;
     assert_eq!(exit.kinds, vec![ExitKind::Write]);
+    let judged = exit.judged.expect("the question shows the classifier's answer");
+    assert_eq!(judged.verdict, Verdict::AskUser, "efr applied the naming rule");
+    assert_eq!(judged.risk, Risk::Low, "the rest is the model's");
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(turn_id).await;
 
