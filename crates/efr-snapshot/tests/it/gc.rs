@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use pretty_assertions::assert_eq;
 
-use crate::support::{World, conversation, limits, root, stores, turn, write};
+use crate::support::{
+    World, conversation, git, git_root, limits, project, refs, root, stores, turn, write,
+};
 
 const KEEP_LONG: Duration = Duration::from_secs(30 * 24 * 3600);
 
@@ -114,4 +116,108 @@ async fn a_collection_keeps_the_trees_of_a_running_turn_and_call() {
     assert_eq!(paths, ["a.txt", "b.txt"], "the turn's first tree is still there");
     let diff = world.snapshots.turn_diff(conversation(2), None, true, 100).await.unwrap().unwrap();
     assert!(diff.diff.unwrap().contains("-only before the long turn\n"));
+}
+
+/// A bare repository `home.git` in the store directory, as the home store is, with the
+/// refs of a turn of conversation 1 that is newer than every turn of the test.
+async fn home_store(world: &World) -> std::path::PathBuf {
+    let home = world.home();
+    let git_dir = world.store_dir().join("home.git");
+    std::fs::create_dir_all(world.store_dir()).unwrap();
+    git(&home, &home, &[], &["init", "-q", "--bare", git_dir.to_str().unwrap()]).await;
+    let env = [("GIT_DIR", git_dir.as_path())];
+    let tree = git(&home, &home, &env, &["mktree"]).await;
+    let commit = git(&home, &home, &env, &["commit-tree", tree.trim(), "-m", "home"]).await;
+    for name in ["pre", "post"] {
+        let name = format!("refs/efr/{}/{}/home/1/{name}", conversation(1), turn(99));
+        git(&home, &home, &env, &["update-ref", &name, commit.trim()]).await;
+    }
+    git_dir
+}
+
+#[tokio::test]
+async fn stores_skip_the_home_store() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "0\n");
+    let home_git = home_store(&world).await;
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "1\n");
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
+
+    let newest = world.snapshots.turn_diff(conversation(1), None, false, 100).await.unwrap();
+    assert_eq!(newest.unwrap().turn_id, turn(1), "the home store is no root store");
+    let report = world.snapshots.gc(0, KEEP_LONG).await;
+    assert_eq!(report.refs_deleted, 2, "only the root store's pre and post");
+    assert_eq!(refs(&home_git, &home).await.len(), 2, "the home store keeps its refs");
+}
+
+#[tokio::test]
+async fn gc_never_deletes_home_store_without_root_file() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "0\n");
+    let home_git = home_store(&world).await;
+    world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await;
+    world.clock.advance(KEEP_LONG + Duration::from_secs(1));
+    let report = world.snapshots.gc(50, KEEP_LONG).await;
+    assert_eq!(report.stores_deleted, 1, "the idle root store goes");
+    assert!(home_git.join("HEAD").is_file(), "the home store, which has no root file, stays");
+}
+
+#[tokio::test]
+async fn gc_packs_loose_objects() {
+    let world = World::new();
+    let dir = world.dir("many");
+    for n in 0..8000 {
+        write(&dir.join(format!("d{}/f{n}", n % 40)), &format!("{n}\n"));
+    }
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await;
+    let store = world.only_store();
+    let loose = || {
+        std::fs::read_dir(store.join("objects"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().len() == 2)
+            .map(|entry| std::fs::read_dir(entry.path()).unwrap().count())
+            .sum::<usize>()
+    };
+    assert!(loose() > 6700, "{} loose objects", loose());
+
+    world.snapshots.gc(50, KEEP_LONG).await;
+    assert!(loose() < 100, "{} loose objects after the collection", loose());
+    let packs = std::fs::read_dir(store.join("objects/pack"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "pack"))
+        .count();
+    assert_eq!(packs, 1);
+    // The snapshots still work.
+    let call =
+        world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
+    write(&dir.join("d0/f0"), "changed\n");
+    assert!(world.snapshots.after_call(call, limits()).await.is_some());
+}
+
+#[tokio::test]
+async fn gc_drops_the_mirror_with_its_turn() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "p").await;
+    for n in 1..=2 {
+        let roots = vec![git_root(&dir)];
+        world.snapshots.before_call(conversation(1), turn(n), roots, limits()).await;
+        world.snapshots.finish_turn(turn(n), limits()).await;
+    }
+    let report = world.snapshots.gc(1, KEEP_LONG).await;
+    let left = refs(&world.only_store(), &home).await;
+    assert_eq!(report.refs_deleted, 3, "pre, post and the mirror of turn 1: {left:?}");
+    assert!(left.iter().all(|name| name.contains(&turn(2).to_string())), "{left:?}");
 }

@@ -1,11 +1,14 @@
 //! The collector of the store: two bounds keep it small.
 //!
 //! - Count: each conversation keeps the refs of its newest `keep_turns` turns in each
-//!   store; older refs are deleted, then `git prune` removes the loose objects that no
-//!   ref and no index entry reaches any more (older than an hour, so a snapshot that is
-//!   being written keeps its objects), and `git gc --auto` packs the rest when there
-//!   are many. The trees that a running turn or call still needs reach no ref yet, so
-//!   they are pinned under `refs/efr-live/<tree>` while the prune runs.
+//!   store, the mirror of each turn's project refs with them; older refs are deleted,
+//!   then `git prune` removes the loose objects that no ref and no index entry reaches
+//!   any more (older than an hour, so a snapshot that is being written keeps its
+//!   objects), and `git gc --auto` packs them at each collection once there are many.
+//!   The trees that a running turn or call still needs reach no ref yet, so they are
+//!   pinned under `refs/efr-live/<tree>` while the prune and the packing run.
+//! - Only `<16 hex>.git` is a root store; another repository in the directory, such
+//!   as the home store, is no business of this collector.
 //! - Age: a store whose last snapshot is older than `max_age` (the root file's time,
 //!   which each snapshot touches at most once an hour) is deleted whole: its
 //!   repository, its index and its root file.
@@ -22,6 +25,18 @@ use crate::store::Store;
 
 /// The refs that pin the trees of running turns and calls during a collection.
 const LIVE_REFS: &str = "refs/efr-live/";
+
+/// The refs of the turns: `pre`, `last` and `post`.
+const TURN_REFS: &str = "refs/efr/";
+
+/// The mirrors of the project's refs, which go with their turn.
+const MIRROR_REFS: &str = "refs/efr-mirror/";
+
+/// `git gc --auto`: it packs once there are about 6700 loose objects (git's own
+/// default, which the store's `gc.auto=0` turns off for every other command) and
+/// prunes what nothing reaches and is older than an hour.
+const GC_AUTO: &[&str] =
+    &["-c", "gc.auto=6700", "-c", "gc.pruneExpire=1.hour.ago", "gc", "--auto", "--quiet"];
 
 /// What one collection did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -103,7 +118,7 @@ impl Snapshots {
             .checked(
                 store,
                 "for-each-ref",
-                &["for-each-ref", "--format=%(refname)", "refs/efr/", LIVE_REFS],
+                &["for-each-ref", "--format=%(refname)", TURN_REFS, MIRROR_REFS, LIVE_REFS],
                 Run::default(),
             )
             .await?;
@@ -114,11 +129,11 @@ impl Snapshots {
             .lines()
             .filter(|name| name.starts_with(LIVE_REFS) && !pins.iter().any(|pin| pin == name))
             .collect();
-        // conversation -> turn -> its refs
+        // conversation -> turn -> its refs, the mirror's with the turn's own
         let mut by_conversation: BTreeMap<&str, BTreeMap<&str, Vec<&str>>> = BTreeMap::new();
         for name in text.lines() {
             let mut parts = name.splitn(5, '/');
-            let (Some("refs"), Some("efr"), Some(conversation), Some(turn)) =
+            let (Some("refs"), Some("efr" | "efr-mirror"), Some(conversation), Some(turn)) =
                 (parts.next(), parts.next(), parts.next(), parts.next())
             else {
                 continue;
@@ -133,34 +148,31 @@ impl Snapshots {
                 doomed.extend(refs.iter().copied());
             }
         }
-        if doomed.is_empty() {
-            return Ok(0);
-        }
         let mut commands: String =
             doomed.iter().chain(&leftover).map(|name| format!("delete {name}\n")).collect();
         for (pin, tree) in pins.iter().zip(live) {
             commands.push_str(&format!("update {pin} {tree}\n"));
         }
-        self.runner()
-            .checked(
-                store,
-                "update-ref",
-                &["update-ref", "--stdin"],
-                Run { stdin: Some(commands.into_bytes()), ..Run::default() },
-            )
-            .await?;
+        if !commands.is_empty() {
+            self.runner()
+                .checked(
+                    store,
+                    "update-ref",
+                    &["update-ref", "--stdin"],
+                    Run { stdin: Some(commands.into_bytes()), ..Run::default() },
+                )
+                .await?;
+        }
         // NOTE: prune and gc keep every object that the persistent index names, because
         // GIT_INDEX_FILE points at it.
-        self.runner()
-            .checked(store, "prune", &["prune", "--expire=1.hour.ago"], Run::default())
-            .await?;
-        self.runner()
-            .run(
-                store,
-                &["-c", "gc.pruneExpire=1.hour.ago", "gc", "--auto", "--quiet"],
-                Run::default(),
-            )
-            .await?;
+        if !doomed.is_empty() {
+            self.runner()
+                .checked(store, "prune", &["prune", "--expire=1.hour.ago"], Run::default())
+                .await?;
+        }
+        // NOTE: the store's hardening has gc.auto=0, which makes `gc --auto` do nothing;
+        // a later -c wins, so the collector packs once there are many loose objects.
+        self.runner().run(store, GC_AUTO, Run::default()).await?;
         if !pins.is_empty() {
             let unpin: String = pins.iter().map(|pin| format!("delete {pin}\n")).collect();
             self.runner()

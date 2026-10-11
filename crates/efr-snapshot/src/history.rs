@@ -209,7 +209,10 @@ fn candidates(dir: &Path, name: &str) -> Vec<Store> {
         .collect()
 }
 
-/// Every store in `dir` with the root its root file names.
+/// Every root store in `dir` with the root its root file names: only a
+/// `<root-id>.git` whose id has the 16 lowercase hex characters of
+/// [`root_id`](crate::store::root_id), so another repository there, such as the home
+/// store, is never read, trimmed or deleted as a root's.
 pub(crate) fn stores(dir: &Path) -> Vec<Store> {
     let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
     let mut found = Vec::new();
@@ -218,6 +221,11 @@ pub(crate) fn stores(dir: &Path) -> Vec<Store> {
         let Some(id) = name.to_str().and_then(|name| name.strip_suffix(".git")) else {
             continue;
         };
+        let root_id =
+            id.len() == 16 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        if !root_id {
+            continue;
+        }
         let root = fs::read(dir.join(format!("{id}.root")))
             .ok()
             .map(|bytes| PathBuf::from(String::from_utf8_lossy(&bytes).into_owned()))

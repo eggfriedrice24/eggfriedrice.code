@@ -70,10 +70,14 @@ without undo).
   `post` (`hidden`). A turn with only `pre`, which efrd stopped before its end, has no
   record after the turn and shows no changes.
 - `Snapshots::gc`: the refs of the newest `keep_turns` turns of each conversation stay
-  in each store (then `git prune` of loose objects older than an hour, and `git gc
-  --auto`), and a store without a snapshot for `max_age` goes whole. The first tree of
-  a running turn and the tree before a running call reach no ref yet, so the prune
-  runs with them pinned under `refs/efr-live/<tree>`.
+  in each store, each with its mirror (then `git prune` of loose objects older than an
+  hour, and `git gc --auto` with `gc.auto=6700`, which packs the loose objects once
+  there are about that many; the store's `gc.auto=0` holds for every other command),
+  and a store without a snapshot for `max_age` goes whole. The first tree of a running
+  turn and the tree before a running call reach no ref yet, so the prune and the
+  packing run with them pinned under `refs/efr-live/<tree>`. Only a `<16 hex>.git` is
+  a root store: another repository in the directory, such as the home store, is never
+  listed, trimmed or deleted as one.
 
 What a snapshot takes (`Limits`): tracked files; new untracked files up to
 `max_file_bytes` (a link as a link, never followed); at the first and last snapshot of
