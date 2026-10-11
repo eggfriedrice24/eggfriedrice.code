@@ -7,7 +7,9 @@
 //! limit, the verdict schema as the output form, `side_call` and `one_shot`, and no
 //! `prompt_cache_key`, so an OpenAI request goes over HTTP and never touches the
 //! WebSocket of the turn. The effort is `classifier.effort` when the model lists it or
-//! lists no efforts. Each step has `classifier.timeout_secs` on the daemon's clock.
+//! lists no efforts. Each step has `classifier.timeout_secs` on the daemon's clock, for
+//! all its requests: a step that sends its request again, without the output form or
+//! for a placeholder rationale, stays within that one time.
 //!
 //! The chain: the classifier model (`classifier.model`, else the small model of the
 //! provider's company, [`Vendor::classifier_model`]), then the turn's model when
@@ -143,9 +145,9 @@ impl ClassifierJudge {
         steps
     }
 
-    /// Runs one step: the request, then once more without the output form when the
-    /// model does not take it, and once more when the classifier model wrote a
-    /// placeholder as its rationale.
+    /// Runs one step within `classifier.timeout_secs`: the request, then once more
+    /// without the output form when the model does not take it, and once more when the
+    /// classifier model wrote a placeholder as its rationale.
     async fn run_step(
         &self,
         step: &Step,
@@ -161,30 +163,30 @@ impl ClassifierJudge {
         let mut with_format = self.memory.takes_format(&step.model);
         // NOTE: only the classifier model is asked again, once, before the turn's model.
         let mut ask_again = step.chain_step == ChainStep::ClassifierModel;
-        loop {
-            let request = request(&step.model, effort.clone(), record, with_format);
-            match self.send(request, settings).await {
-                Err(Failure::FormatRefused) if with_format => {
-                    tracing::info!(model = %step.model, "the classifier model refused the output form; efrd sends it without the form from now on");
-                    self.memory.refuses_format(&step.model);
-                    with_format = false;
+        let requests = async {
+            loop {
+                let request = request(&step.model, effort.clone(), record, with_format);
+                match self.send(request).await {
+                    Err(Failure::FormatRefused) if with_format => {
+                        tracing::info!(model = %step.model, "the classifier model refused the output form; efrd sends it without the form from now on");
+                        self.memory.refuses_format(&step.model);
+                        with_format = false;
+                    }
+                    Err(Failure::FormatRefused) => return Err(Failure::Refused),
+                    Err(Failure::Placeholder) if ask_again => {
+                        tracing::debug!(model = %step.model, "the classifier model wrote no real rationale; efrd asks it once more");
+                        ask_again = false;
+                    }
+                    done => return done,
                 }
-                Err(Failure::FormatRefused) => return Err(Failure::Refused),
-                Err(Failure::Placeholder) if ask_again => {
-                    tracing::debug!(model = %step.model, "the classifier model wrote no real rationale; efrd asks it once more");
-                    ask_again = false;
-                }
-                done => return done,
             }
-        }
+        };
+        let timeout = Duration::from_secs(u64::from(settings.timeout_secs));
+        self.clock.timeout(timeout, requests).await.unwrap_or(Err(Failure::Timeout))
     }
 
-    /// Sends `request` within the step's time and reads the answer.
-    async fn send(
-        &self,
-        request: Request,
-        settings: &ClassifierSettings,
-    ) -> Result<Judgement, Failure> {
+    /// Sends `request` and reads the answer.
+    async fn send(&self, request: Request) -> Result<Judgement, Failure> {
         let span = tracing::debug_span!(
             "provider_request",
             provider = %self.provider.id(),
@@ -192,12 +194,10 @@ impl ClassifierJudge {
             purpose = "classifier",
         );
         let with_format = request.output.is_some();
-        let timeout = Duration::from_secs(u64::from(settings.timeout_secs));
-        let answer = self.clock.timeout(timeout, self.provider.complete(request)).instrument(span);
+        let answer = self.provider.complete(request).instrument(span);
         match answer.await {
-            Err(_) => Err(Failure::Timeout),
-            Ok(Err(error)) => Err(Failure::of(&error, with_format)),
-            Ok(Ok(completion)) => read(&completion),
+            Err(error) => Err(Failure::of(&error, with_format)),
+            Ok(completion) => read(&completion),
         }
     }
 

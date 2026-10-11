@@ -509,6 +509,31 @@ async fn a_junk_rationale_is_asked_again_once_then_goes_to_the_next_step() {
     assert_eq!(requests[1], requests[0]);
 }
 
+/// The review of fix batch A: the timeout was per request, so a step with a re-ask
+/// could take twice `classifier.timeout_secs` before the turn's model. A step has one
+/// time for all its requests.
+#[tokio::test]
+async fn a_re_ask_stays_within_the_time_of_its_step() {
+    let setup = setup(Scripted::new([Reply::Text(ALLOW_X), Reply::Hang, Reply::Text(ALLOW)]));
+    let record = record();
+    let judging = judge(&setup, &record);
+    let drive = async {
+        setup.clock.wait_for_sleeps(1).await;
+        setup.clock.advance(Duration::from_secs(20));
+    };
+    let (outcome, ()) = tokio::join!(judging, drive);
+    assert_eq!(outcome.judgement, Some(allowed()));
+    assert_eq!(outcome.chain_step, ChainStep::TurnModel);
+    assert_eq!(outcome.skipped, [format!("{SMALL}: timeout")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL, TURN]);
+    assert_eq!(outcome.latency_ms, 20_000);
+    assert_eq!(
+        setup.clock.requested_sleeps(),
+        [Duration::from_secs(20), Duration::from_secs(20)],
+        "one time for each step, not for each request"
+    );
+}
+
 #[tokio::test]
 async fn an_empty_rationale_goes_to_the_next_step() {
     let setup = setup(Scripted::new([

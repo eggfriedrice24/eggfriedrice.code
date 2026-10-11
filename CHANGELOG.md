@@ -108,7 +108,8 @@ into the GitHub release notes, and it stops when the section is missing.
 ### Fixed
 
 - The reviewer writes its reason before its verdict, and efr asks again once when the
-  reason is empty.
+  reason is empty. The second request stays within `classifier.timeout_secs` of that
+  step.
 - In `auto`, an allowed desktop command (`hyprctl`, `swaymsg`, `wlr-randr`, `xrandr`,
   `niri msg`, `i3-msg`) now reaches the compositor socket of your terminal's session.
   The call gets that one socket and the one variable that names it, such as
