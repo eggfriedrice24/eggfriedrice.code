@@ -5,7 +5,8 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{names_match, path_forms, word_forms};
+use super::{floor_names, names_match, path_forms, word_forms};
+use crate::FloorGroup;
 
 fn forms(list: &[&str]) -> Vec<String> {
     list.iter().map(|form| (*form).to_owned()).collect()
@@ -37,6 +38,14 @@ fn named(names: &[&str], message: &str) -> bool {
 #[case::path_text("~/.zshrc", "look at ~/.zshrc now", true)]
 #[case::path_case("/home/u/.zshrc", "look at /HOME/U/.zshrc", false)]
 #[case::last_two("u/.zshrc", "edit u/.zshrc", true)]
+#[case::path_after_a_slash("bin/git", "edit ~/.local/bin/git", true)]
+#[case::path_inside_a_longer_name("bin/git", "see src/bin/github.rs", false)]
+#[case::path_glued_before("bin/git", "the xbin/git file", false)]
+#[case::path_end_of_sentence("~/.zshrc", "change ~/.zshrc.", true)]
+#[case::path_other_suffix("~/.zshrc", "restore ~/.zshrc.bak", false)]
+#[case::path_in_quotes("~/.zshrc", "edit `~/.zshrc` now", true)]
+#[case::path_below("~/.config/hypr", "edit ~/.config/hypr/hyprland.conf", true)]
+#[case::path_other_dir("u/.config", "see /home/uu/.config", false)]
 fn names_match_whole_words(#[case] form: &str, #[case] message: &str, #[case] expected: bool) {
     assert_eq!(named(&[form], message), expected, "{form:?} in {message:?}");
 }
@@ -76,4 +85,65 @@ fn path_forms_are_the_absolute_tilde_and_last_two_forms() {
 #[case::gitconfig("/home/u/.gitconfig", &["gitconfig"])]
 fn word_forms_leave_out_generic_stems(#[case] path: &str, #[case] expected: &[&str]) {
     assert_eq!(word_forms(Path::new(path)), forms(expected), "{path}");
+}
+
+#[rstest]
+#[case::program("/home/u/.local/bin/git", FloorGroup::Programs, "commit this with git", false)]
+#[case::program_by_path(
+    "/home/u/.local/bin/git",
+    FloorGroup::Programs,
+    "edit ~/.local/bin/git",
+    true
+)]
+#[case::unit_stem(
+    "/home/u/.config/systemd/user/backup.service",
+    FloorGroup::Systemd,
+    "run the backup",
+    false
+)]
+#[case::unit_name(
+    "/home/u/.config/systemd/user/backup.service",
+    FloorGroup::Systemd,
+    "fix backup.service",
+    true
+)]
+#[case::unit_phrase(
+    "/home/u/.config/systemd/user/backup.service",
+    FloorGroup::Systemd,
+    "change the backup unit",
+    true
+)]
+#[case::desktop_entry(
+    "/home/u/.config/autostart/firefox.desktop",
+    FloorGroup::Autostart,
+    "open firefox",
+    false
+)]
+#[case::agent_config(
+    "/home/u/p/app/.vscode/tasks.json",
+    FloorGroup::Agent,
+    "list the tasks",
+    false
+)]
+#[case::agent_config_name(
+    "/home/u/p/app/.vscode/tasks.json",
+    FloorGroup::Agent,
+    "add a job to tasks.json",
+    true
+)]
+#[case::zsh_word("/home/u/.zshrc", FloorGroup::Zsh, "add an alias to my zshrc", true)]
+#[case::hypr_stem(
+    "/home/u/.config/hypr/hyprland.conf",
+    FloorGroup::Hypr,
+    "fix my hyprland gaps",
+    true
+)]
+fn common_file_names_name_a_floor_file_only_with_their_suffix(
+    #[case] path: &str,
+    #[case] group: FloorGroup,
+    #[case] message: &str,
+    #[case] expected: bool,
+) {
+    let names = floor_names(Path::new(path), Path::new("/home/u"), Some(group));
+    assert_eq!(names_match(&names, &[message.to_owned()]), expected, "{path} in {message:?}");
 }

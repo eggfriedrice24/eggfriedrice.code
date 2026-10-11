@@ -426,8 +426,10 @@ fn floor_program_persistence_is_user(#[case] line: &str) {
     "/home/u/.config/systemd/user",
     "backup unit"
 )]
-#[case::local_bin("/home/u/.local/bin/deploy", "/home/u/.local/bin", "deploy")]
-#[case::cargo_bin("/home/u/.cargo/bin/tool", "/home/u/.cargo/bin", "tool")]
+// NOTE: a program's bare name is a common word ("deploy", "git"), so only a path form
+// names it.
+#[case::local_bin("/home/u/.local/bin/deploy", "/home/u/.local/bin", "bin/deploy")]
+#[case::cargo_bin("/home/u/.cargo/bin/tool", "/home/u/.cargo/bin", "~/.cargo/bin/tool")]
 #[case::agent_config("/home/u/p/app/.mcp.json", "/home/u/p/app", "mcp.json")]
 fn floor_autostart_unit_and_program_files_are_classifier_when_named(
     #[case] target: &str,

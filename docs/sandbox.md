@@ -177,8 +177,12 @@ A write to a floor path is a `persistence` exit, and it runs outside the sandbox
 efrd for a file tool). For a floor FILE of the built-in groups above (shell startup,
 autostart and services, programs on `PATH`, tool configs, dotfile link targets, agent
 and editor configs), the reviewer decides when a message of yours names the file,
-such as "add an alias to my zshrc" or "change the gap in my hyprland config". A link
-target takes the group and the names of its link. Before the write, efr copies the
+such as "add an alias to my zshrc" or "change the gap in my hyprland config". A
+program on `PATH`, a unit, a desktop entry and an agent or editor config have common
+names, so their bare name names nothing: write the path (`~/.local/bin/git`), the name
+with its suffix (`backup.service`, `tasks.json`) or, for a unit, "the backup unit". A
+path names a file only as whole parts of the path: `bin/git` does not name
+`src/bin/github.rs`. A link target takes the group and the names of its link. Before the write, efr copies the
 file into its backup store (below). Only you approve a dir, a link into a `*.wants`
 dir, `crontab`, `systemctl --user enable`, linger, the git surface and
 `sandbox.protect`, and a floor file that no message of yours names.
@@ -615,7 +619,7 @@ question, and none needs a restart.
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
 | no network | a build that must download fails | the network is an exit; `sandbox.offline_hints` tells package managers to use the cache |
 | MCP servers | they run outside the sandbox | none yet |
-| the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone; wide targets ask you |
+| the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
 | an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a backup | a script that the model did not write in this turn can change `~/.zshrc` with no name and no backup | the one-command rule; a program written in this turn or in a write root asks you; the reviewer sees the line |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
 | older system prompts of a conversation keep the old auto rule | the model can still read the old, longer rule in its history | the newest rule says that only the newest block counts |

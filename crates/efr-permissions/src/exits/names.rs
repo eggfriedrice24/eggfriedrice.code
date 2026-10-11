@@ -46,22 +46,49 @@ pub const GENERIC_STEMS: &[&str] = &[
 /// True when a message of `messages` names one of `names`.
 ///
 /// A form with a `/` is a path form (`/home/u/.zshrc`, `~/.zshrc`, `u/.zshrc`) and
-/// matches as text. Any other form is a word or a phrase (`zshrc`, `sway config`,
-/// `github.com`) and matches whole words in the same order, case-insensitive, with only
-/// white space between them; its first word may carry a possessive `'s` ("sway's
-/// config"). A word ends at a character that is not a letter, a digit or `_`, so
-/// `zshrc` does not name `zshrcx`.
+/// matches as text, but only as whole path components: `bin/git` names
+/// `~/.local/bin/git`, and not `src/bin/github.rs` or `xbin/git`. Any other form is a
+/// word or a phrase (`zshrc`, `sway config`, `github.com`) and matches whole words in
+/// the same order, case-insensitive, with only white space between them; its first word
+/// may carry a possessive `'s` ("sway's config"). A word ends at a character that is
+/// not a letter, a digit or `_`, so `zshrc` does not name `zshrcx`.
 pub fn names_match(names: &[String], messages: &[String]) -> bool {
     messages.iter().any(|message| {
         let lower = message.to_lowercase();
         names.iter().any(|form| {
             if form.contains('/') {
-                message.contains(form.as_str())
+                path_in(form, message)
             } else {
                 phrase_in(&form.to_lowercase(), &lower)
             }
         })
     })
+}
+
+/// True when the path form `form` stands in `text` as whole path components: no
+/// character of a file name right before it, and after it the end, a `/`, or a
+/// character that no file name of a path form holds. A `.` after it ends it only when no
+/// letter or digit follows, so `~/.zshrc.` at the end of a sentence names `~/.zshrc`,
+/// and `~/.zshrc.bak` does not.
+fn path_in(form: &str, text: &str) -> bool {
+    let in_name = |c: char| is_word_char(c) || matches!(c, '.' | '-' | '~' | '+' | '@');
+    let mut from = 0;
+    while let Some(at) = text[from..].find(form) {
+        let start = from + at;
+        let end = start + form.len();
+        let before = text[..start].chars().next_back();
+        let mut after = text[end..].chars();
+        let ends = match after.next() {
+            None | Some('/') => true,
+            Some('.') => !after.next().is_some_and(is_word_char),
+            Some(c) => !in_name(c),
+        };
+        if !before.is_some_and(in_name) && ends {
+            return true;
+        }
+        from = start + text[start..].chars().next().map_or(1, char::len_utf8);
+    }
+    false
 }
 
 /// True when the words of `phrase`, in lower case, stand in `text`, in lower case, as
@@ -155,11 +182,20 @@ pub(crate) fn word_forms(path: &Path) -> Vec<String> {
     dedup(vec![base.to_owned(), stem.to_owned()])
 }
 
+/// The groups whose file names are common words: a program on the `PATH` (`git`), a
+/// unit (`backup.service`), a desktop entry (`firefox.desktop`) and an agent or editor
+/// config (`.vscode/tasks.json`). Their bare stem names nothing alone, so "commit this
+/// with git" does not name `~/.local/bin/git`; the name with its suffix still does.
+const STEMLESS_GROUPS: &[FloorGroup] =
+    &[FloorGroup::Programs, FloorGroup::Systemd, FloorGroup::Autostart, FloorGroup::Agent];
+
 /// The forms that name the floor file `path` of `group`: its path forms, its word
-/// forms, and the phrases of its group.
+/// forms (for a group of [`STEMLESS_GROUPS`] only the name with a suffix), and the
+/// phrases of its group.
 pub(crate) fn floor_names(path: &Path, home: &Path, group: Option<FloorGroup>) -> Vec<String> {
     let mut forms = path_forms(path, home);
-    forms.extend(word_forms(path));
+    let stemless = group.is_some_and(|group| STEMLESS_GROUPS.contains(&group));
+    forms.extend(word_forms(path).into_iter().filter(|form| !stemless || form.contains('.')));
     if let Some(group) = group {
         let phrases = NAME_PHRASES.iter().filter(|(known, _)| *known == group);
         forms.extend(

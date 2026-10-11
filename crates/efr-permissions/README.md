@@ -126,8 +126,10 @@ Modules:
   (`backup_before_write`) and the `Ecosystem` of a package manager's fetch
   (`REGISTRY_HOSTS`). The engine never reads user text: `names_match` is the one
   check of the user's messages, for the turn's route and the exit record alike. Path
-  forms match as text; word forms and the phrases of `NAME_PHRASES` match whole words,
-  and a stem of `GENERIC_STEMS` names nothing alone. `DESKTOP_IPC_READ` holds the read
+  forms match as text, only as whole path components; word forms and the phrases of
+  `NAME_PHRASES` match whole words, a stem of `GENERIC_STEMS` names nothing alone, and
+  the bare stem of a program, a unit, a desktop entry or an agent config names nothing
+  (only its name with the suffix). `DESKTOP_IPC_READ` holds the read
   and reload forms of the desktop programs that the classifier may judge.
   `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
