@@ -229,8 +229,9 @@ yours from the call's change.
   that exists) can change any file there. efrd copies the dir too, while it holds at
   most `snapshot.home_max_files` files (2000) and `snapshot.home_max_mib` MiB (256).
   After the call it lists the dir again, and a new file in it is "missing" before.
-  Over the limits it copies the target only, and the turn says `not covered: the call
-  can write all of <dir>`.
+  Over the limits it copies the target only, and the turn says `not covered: <dir>
+  (over the copy limits)`. A file in the dir that no copy holds, such as a file over
+  16 MiB, shows only when the call changed it.
 - A copy holds at most 16 MiB per file. efrd never copies a mask or a secret. A masked
   file that a message of yours names, such as `~/.aws/config`, runs with no copy, and
   the turn says `changed ~/.aws/config; efr undo cannot revert it (masked)`.
@@ -517,10 +518,19 @@ undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193...
   while a command of the conversation still runs after its timeout. A prompt that you
   send during an undo waits for it.
 - An undo that stopped half way, such as after a stop of efrd, goes on at the next
-  `efr undo`. Undo holds the plan lock of each project that it writes.
+  `efr undo`. Undo holds the plan lock of each project that it writes. An undo that
+  stopped at a write that failed says `undo stopped: ...`, and `efr history` shows it.
+  An undo that could write nothing, such as when each path changed again, leaves the
+  turn as it is.
+- A call that you interrupt, or a command that runs on after its timeout, can change
+  files after efr's last snapshot of the call. The turn then says `not covered:
+  <project> (a snapshot failed)`, and `efr undo --force` takes back those files too. A
+  home copy whose call did not finish shows as `not covered: <path> (the call did not
+  finish)`.
 - Undo works for a turn of every mode with a snapshot. The hint `efr undo reverts this
   turn` shows only after an `auto` turn. In `manual` and `cautious`, a line runs in
-  your own shell, and writes outside the project are not covered.
+  your own shell, and writes outside the project are not covered; the preview of such
+  a turn says so.
 - A phone cannot undo. The model has no undo tool, and `undo.*` and `snapshot.*` are
   settings that only you change.
 
@@ -766,7 +776,7 @@ question, and none needs a restart.
 | a cache whose path holds a link | efrd refuses to apply its deletes | the deletes stay private; nothing is lost |
 | `sandbox.cache_mode = "overlay"` | a refused delete stays in the layer of the conversation and comes back after each call | efr does not raise the same paths again in the conversation |
 | a snapshot leaves out large files, ignored files above 1 MiB, more than 2000 ignored files, names that are not UTF-8 and nested repositories | undo cannot bring them back | the preview and the turn-end line say `not covered`; a delete of such a path is not routine |
-| a directory over `snapshot.home_max_files` or `snapshot.home_max_mib` | undo cannot bring back the other files of that dir | the turn-end line says `not covered: the call can write all of <dir>` |
+| a directory over `snapshot.home_max_files` or `snapshot.home_max_mib` | undo cannot bring back the other files of that dir | the turn-end line says `not covered: <dir> (over the copy limits)` |
 | an approved exit outside the sandbox can change efr's snapshot store | undo can lose its record of a turn | at the turn's end efr checks each `pre` ref; a missing one says `not covered: <root> (the snapshot store changed)` |
 | a command that runs on after its timeout | it can change files after the turn's last snapshot | the turn-end line says `not covered: <root> (a call still runs)`, undo refuses while it runs, and undo checks each path again |
 | another conversation writes the same project while a call runs | that write counts as the call's change | undo moves its bytes to the undo trash; the plan lock orders the calls |
