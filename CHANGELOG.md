@@ -51,6 +51,12 @@ into the GitHub release notes, and it stops when the section is missing.
   `~/.cargo`, the reviewer decides whether efr deletes them in your real cache too. So
   "free some disk space" frees real space. efr never deletes below `~/.cargo/bin`, a
   cargo config or a credentials file. The call shows the freed size.
+- Undo also covers files outside the project. Before efr writes a file outside the
+  project and `$SCRATCH` in `auto`, such as `~/.zshrc` or `~/Documents/notes.md`, or
+  deletes a cache, it copies the file into its snapshot store. A file that did not
+  exist before goes to the undo trash. A directory with more than
+  `snapshot.home_max_files` files (2000) or `snapshot.home_max_mib` MiB (256) gets no
+  copy, and the end of the turn says so.
 - After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
   rest of the turn, and efr asks you instead. When you are away, the turn stops.
 - `efr history` shows the lines of the reviewer, its pause, the expiry of a question
@@ -109,6 +115,19 @@ into the GitHub release notes, and it stops when the section is missing.
 - A snapshot now keeps the exact bytes of each file, also when the project's
   `.gitattributes` asks git to change line ends or encodings. An older snapshot store
   takes one full snapshot to get there.
+- In `auto`, a command that deletes or overwrites files in the project runs at once
+  when efr's snapshot holds every file that it can touch, such as `git reset --hard` or
+  `: > file`. A delete or a move through `apply_patch` does the same. `shred`,
+  `git clean -x`, `git reflog expire`, a file that the snapshot left out, content that
+  is only staged, and a delete above the project still go to the reviewer or to you.
+  `sandbox.ask_destructive = "always"` keeps the old behaviour. In `cautious` and
+  `manual`, efr still asks you for each delete.
+- efr no longer writes `~/.local/share/efr/file-backups/`. The snapshot store
+  replaces it. efr deletes the old backups after `snapshot.max_age_days` days.
+- With `snapshot.enabled = false`, a named edit of a file that runs code later, such
+  as `~/.zshrc`, asks you again, because efr cannot copy it first.
+- `efr sandbox explain` says that `efr undo` reverts an allowed edit of a file that
+  runs code later.
 
 ### Fixed
 

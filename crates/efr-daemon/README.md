@@ -511,7 +511,7 @@ spec; `docs/sandbox.md` for the user's view):
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
   only (`methods.rs`, `granted(surface, peer)`).
 
-### The reviewer, presence and floor file backups
+### The reviewer, presence and the home store
 
 Phase A of efr's auto spec. The turn in `efr-conversation` decides who answers an exit
 and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
@@ -542,20 +542,30 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   conversation away, or each one that is present. No timer runs: the idle state is
   found when a waiting question reads the presence (when it parks, then every 15
   seconds) or the next input comes, and only then is `presence_changed` recorded. The push to a phone does nothing yet.
-- The backup store of floor files (`backups.rs`): before efrd runs a call, the top of
-  `DaemonToolbox::invoke` (`tools.rs`) copies the target of each approved exit with
-  `backup_before_write` to `$XDG_DATA_HOME/efr/file-backups/<conversation>/<turn>/<n>/`
-  (`docs/storage.md`). So `write_file`, `edit`, `apply_patch` and a line in the exit
-  child share one hook. The copy follows the links of a dotfiles layout to the real
-  file, opens the real parent with no link on its path and reads the file with
-  `O_NOFOLLOW`. It never copies a secret or a mask. A copy that fails stops the call,
-  and a file that the call did not change drops its entry. When the exit names the
-  real file behind a dotfile link (`ExitNeed::link`, such as a new file under
-  `~/.config/hypr`), the entry and `home_file_changed` keep the path through the link
-  while it leads to that file, and `real` names the real file. The outcome's backups go
-  to the turn, which records `home_file_changed`. `backups::collect` runs with the
-  snapshot collector in `run.rs`, with `snapshot.keep_turns` and
-  `snapshot.max_age_days` and the daemon's clock.
+- The home store (`home.rs`, spec 10.8, phase B): before efrd runs a call, the top of
+  `DaemonToolbox::invoke` (`tools.rs`) copies what each approved exit names in
+  `ExitNeed::copies` into the home store of `efr-snapshot`,
+  `$XDG_DATA_HOME/efr/snapshots/home.git` (`docs/storage.md`). So `write_file`,
+  `edit`, `apply_patch` and a line in the exit child share one hook. A file
+  (`CoverAsk::Home`) is copied with each link on its way from the path that the user
+  knows: the link as a link, the real file as an entry of its own. A directory
+  (`CoverAsk::HomeDir`, also the parent of a `WriteBind::Parent` bind) is walked with
+  no link followed, within `snapshot.home_max_files` files and `snapshot.home_max_mib`
+  MiB; over the limits only the target is copied, and the directory is "not covered".
+  efrd reads each path through `DaemonFs` and hands the entries to the store one at a
+  time, at most one file of 16 MiB in memory. After the call it reads the same paths
+  again and lists each walked directory again, so a file that the call made there was
+  missing before and undo moves it to the undo trash. The failure rule (plan PB14): a
+  read error stops the call; a floor or persistence file that efrd cannot copy (masked,
+  larger than 16 MiB) stops it too; any other path over a limit, and a masked path,
+  runs with no copy and its `FileBackup::reason` says why. The refused list is the
+  plan's masks: the engine's secrets, the sandbox-only masks, a `$XAUTHORITY` or
+  `$HISTFILE` outside its usual place and `sandbox.mask`. When the exit names the real
+  file behind a dotfile link (`ExitNeed::link`), `home_file_changed` keeps the path
+  through the link and `real` names the real file. With `snapshot.enabled = false`
+  efrd keeps no store, and a floor edit does not run. Nothing new goes to
+  `$XDG_DATA_HOME/efr/file-backups/` of phase A: `backups.rs` keeps only its collector,
+  which deletes the old copies by `snapshot.keep_turns` and `snapshot.max_age_days`.
 - Deletes in the real tool caches (`tools/cache_deletes.rs`): the launcher lists the
   whiteouts of a contained call's private cache layers in `SandboxSummary`, and the
   turn asks the engine, then the reviewer or the user. After an allow,
@@ -563,7 +573,9 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   and masks of the latest settings, and one path that fails refuses the whole list.
   Each delete goes through `DaemonFs::remove_beneath` (`sandbox/fs.rs`): the cache
   opens with no link on its path, and every path below it with `RESOLVE_BENEATH` and
-  `RESOLVE_NO_SYMLINKS`, so a link never leads the delete out of the cache.
+  `RESOLVE_NO_SYMLINKS`, so a link never leads the delete out of the cache. Before the
+  deletes, efrd copies what they remove into the home store within the same limits;
+  over them the deletes run with no copy, and the end of the turn names them.
 
 ### What a call changed
 
@@ -588,15 +600,56 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   each hunk stay as they are.
   Before the call writes into a root, the turn gets its first snapshot of that
   root.
-- At the end of a turn (`Toolbox::turn_changes`), the last snapshot of each root, the
-  refs `refs/efr/<conversation>/<turn>/pre` and `/post`, and the turn's changes for
-  `turn_completed`.
+- A root's git dirs come from efrd (plan PB6): the worktree record while the `.git`
+  file still names it (`sandbox/projects.rs`), else `<root>/.git` when it is a
+  directory. Only such a root gets the mirror of its refs; `snapshot.mirror_max_mib`
+  is the store's budget (0 turns the mirror off). A file tool's writes join the turn's
+  `touched` paths, which undo takes back.
+- The coverage facts (plan PB15): in `auto`, `DaemonToolbox::facts` answers each
+  `CoverAsk` of the engine's `FactRequest::covers` in `CallFacts::covered`. A snapshot
+  ask (a path, the tracked or untracked files, the refs or the stash of a root) is
+  answered by `Snapshots::covers` from a snapshot taken now, under the plan lock of
+  its root; a home ask outside the roots from the sizes, the walk and the masks
+  (`home::coverage`). The answers stay with the call: under the call's own plan lock,
+  after its snapshot, efrd asks each covered snapshot ask again, and the call does not
+  start when one is no longer covered or the snapshot failed; a home copy that the
+  facts said covers a path and no longer does stops the call too. The lock is never
+  held across the decision, so a question or a review blocks no other call.
+- At the end of a turn (`Toolbox::turn_changes`), `Snapshots::turn_end`: `post` of
+  each root, the turn's changes for `turn_completed`, the `pre` and `post` of each
+  root and one record per home copy for `snapshot_taken`, and `TurnUndoInfo`: the
+  changed files of each root by the name that a person sees, the home files that a
+  copy covers, and what no copy covers (a left-out file, a failed snapshot, a store
+  that changed, refs without a mirror, a home path over the limits or masked, a call
+  that still runs). `undoable` is true only for an `auto` turn with a kept snapshot
+  while `undo.enabled` holds and no launcher of the conversation runs
+  (`SandboxService::launcher_runs`, plan PB39).
+- Undo (`tools/undo.rs`, `Toolbox::undo`): `efr-snapshot` plans; efrd writes. It
+  refuses with `undo.enabled = false`, from a phone, while a newer turn is not undone
+  (unless `force`), and lists the turns. An undo that stopped half way resumes first.
+  The apply holds the plan lock of each root of the plan for all of it: the "before"
+  snapshot and the journal ref, then for each path a fresh read and a compare with
+  what the plan expects (git's blob id), a copy of what is there into
+  `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (from the store's blob, so another file
+  system needs nothing special; directories 0700, files their own mode), and the
+  write: a new file next to the path, renamed over it, or a link made the same way.
+  Every path opens below its root (or `/` for a home path) with `RESOLVE_BENEATH |
+  RESOLVE_NO_SYMLINKS` (`sandbox/fs.rs`, `Beneath`), so a path through a link is
+  left alone. A file that undo makes again gets its recorded mode without set-id
+  bits; one that exists keeps its mode. A root whose `(dev, ino)` changed is written
+  only with `force`. Then the project's refs by compare and swap, the home paths, each
+  checked again against the masks and efr's own roots, and the end marker. A write
+  error stops the undo; the result lists what it did, and the next `efr undo`
+  resumes it.
 - `conversation.diff` (`methods/conversation_diff.rs`) reads the refs back. Without a
   `turn_id` it takes the newest finished turn of the conversation; without a
   `conversation_id` it takes the named turn's conversation, else the terminal's. A
   turn without snapshots changed no files, so its list is empty.
 - An hourly task keeps the refs of the newest `snapshot.keep_turns` turns of each
-  conversation and deletes a store without a snapshot for `snapshot.max_age_days`.
+  conversation whole across every store, the home store too, keeps the mirrors of a
+  store within four times `snapshot.mirror_max_mib`, and deletes a store without a
+  snapshot for `snapshot.max_age_days`. It deletes an undo of the undo trash and the
+  phase A backups older than `snapshot.max_age_days` too.
   `snapshot.enabled = false` takes no snapshot; a file tool still shows its diff.
 - At start, efrd reads the user's own `core.excludesFile` once, because the store's
   git reads no global config.
@@ -691,8 +744,11 @@ conventions that `efr_stdx::env::Var` does not name.
 - A daemon with an injected provider never fetches the model catalog.
 - The judge never allows by failing: a chain of models that gives no verdict ends at
   the user.
-- efrd never runs an approved floor file edit whose backup it could not take, and it
-  never copies a secret or a mask into the backup store.
+- efrd never runs an approved floor file edit whose copy it could not take, and it
+  never copies a secret or a mask into the home store.
+- Undo never writes through a link, never writes a path that changed since the plan
+  read it, and copies every file that it overwrites or removes into the undo trash
+  first.
 
 ## Tests
 
@@ -725,8 +781,12 @@ the judge (its request with no output limit and no cache key, each step of the c
 and why it goes on, the check of the answer, the second request after a placeholder
 rationale, the order of the schema on the wire, the resend without the output form, and
 what it keeps: the verdicts of a turn and the skipped models of a conversation),
-presence, the backup store of floor files (links, masks, a missing file, a failed
-copy, an unchanged file and the collector) and the check of cache deletes. The tests
+presence, the home store (`home/tests.rs` and `tools/tests.rs`: links, masks, a
+missing file, the dir limits, a failed copy, an unchanged file, a cache delete, the
+coverage facts and the check under the lock, the counts at the end of a turn), the
+undo applier (`tools/undo/tests.rs`: modes, the undo trash, links, the plan lock, a
+replaced root, a write error and its resume, home files and the masks), the collectors
+of the phase A backups and the undo trash, and the check of cache deletes. The tests
 in `run/tests.rs` start the real daemon
 in-process on temporary directories with a manual clock, a seeded generator, vt100
 screens, an in-memory database and a scripted model, and talk to it over its socket in
@@ -816,8 +876,8 @@ failed start that runs the probe again; and a double-forked process of an approv
 command, which python3 plays, that reaches the socket and may only read. With
 `EFR_TEST_SBX_BIN` (`just test-sandbox`) one call runs in the real sandbox. A finished
 call's dir is removed. The same module runs the reviewer with efrd's judge: a named
-floor file edit that runs after the reviewer's allow with its backup and
-`home_file_changed`, one that the reviewer refuses, and an unnamed one that asks the
+floor file edit that runs after the reviewer's allow with its copy in the home store
+and `home_file_changed`, one that the reviewer refuses, and an unnamed one that asks the
 user. Its child module `sandbox::review` follows a floor file edit through
 `apply_patch`, `write_file`, `edit` and a dotfiles link, with the record that the
 reviewer reads (the target's facts from efrd's own look, the payload of the edit), and,

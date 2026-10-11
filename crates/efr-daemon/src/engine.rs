@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_config::{Settings, WriteProjects};
+use efr_config::{AskDestructive, Settings, WriteProjects};
 use efr_permissions::{
     AutoSupport, Engine, FloorGroup, Locations, PermissionsError, ZSH_STARTUP_FILES,
 };
@@ -215,10 +215,16 @@ pub(crate) fn build(
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
     locations = with_efr(locations, sandbox)?;
-    // NOTE: no proxy (phase D), no bus proxy (phase E) and no undo (phase B) yet. efrd
-    // copies each floor file before an approved edit (`backups.rs`), and the mount view
-    // of phase D sets `mount_view`.
-    let support = AutoSupport { floor_backup: true, mount_view: false, ..AutoSupport::default() };
+    // NOTE: no proxy (phase D), no bus proxy (phase E) yet, and the mount view of phase D
+    // sets `mount_view`. efrd keeps the home store while snapshots are on (`home.rs`),
+    // and a covered destructive part runs with no review only while undo is on too and
+    // `sandbox.ask_destructive` lets it (plan PB17). With snapshots off, a named floor
+    // file edit goes back to the user: stricter, never looser.
+    let floor_backup = settings.snapshot.enabled;
+    let undo = floor_backup
+        && settings.undo.enabled
+        && settings.sandbox.ask_destructive == AskDestructive::UnlessUndoable;
+    let support = AutoSupport { floor_backup, undo, mount_view: false, ..AutoSupport::default() };
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
 }
 

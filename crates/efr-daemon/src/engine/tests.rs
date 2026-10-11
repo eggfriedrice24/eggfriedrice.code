@@ -321,3 +321,23 @@ async fn the_file_that_efr_config_set_writes_is_sealed_and_the_writer_still_writ
         assert_eq!(decide(&created, &home, mode, write), Effect::Deny, "{mode}");
     }
 }
+
+#[tokio::test]
+async fn the_auto_support_follows_snapshot_undo_and_ask_destructive() {
+    let (_root, home) = home();
+    let support = async |change: fn(&mut Settings)| {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+        let support = *engine.support();
+        (support.floor_backup, support.undo)
+    };
+
+    assert_eq!(support(|_| {}).await, (true, true), "the defaults keep the home store and undo");
+    assert_eq!(support(|settings| settings.snapshot.enabled = false).await, (false, false));
+    assert_eq!(support(|settings| settings.undo.enabled = false).await, (true, false));
+    let always = |settings: &mut Settings| {
+        settings.sandbox.ask_destructive = efr_config::AskDestructive::Always;
+    };
+    assert_eq!(support(always).await, (true, false), "always keeps every destructive exit");
+}

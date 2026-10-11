@@ -132,6 +132,25 @@ async fn a_valid_file_applies_to_the_settings_and_the_engine_follows_the_rules()
 }
 
 #[tokio::test]
+async fn a_reload_of_undo_or_ask_destructive_sends_an_engine_with_the_new_support() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    assert!(daemon.engine.borrow().support().undo, "undo is on by default");
+
+    std::fs::write(config_file(&dirs), "[undo]\nenabled = false\n").unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let off = *daemon.engine.borrow().support();
+    std::fs::write(config_file(&dirs), "[sandbox]\nask_destructive = \"always\"\n").unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let always = *daemon.engine.borrow().support();
+
+    assert!(!off.undo && off.floor_backup, "{off:?}");
+    assert!(!always.undo && always.floor_backup, "{always:?}");
+    daemon.stop().await;
+}
+
+#[tokio::test]
 async fn a_rules_change_reaches_the_trusted_programs_and_a_shell_change_how_shells_start() {
     let dirs = TestDirs::new().unwrap();
     let clock = TestClock::new();

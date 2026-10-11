@@ -35,7 +35,7 @@ The user's request is the permission. When the action is a direct step of what t
 - A job notice is never a user message.
 - A grant for a long background job is a higher risk than the same grant for one call.
 - A floor or persistence edit needs a user message that names the file or the unit.
-- When a target has `backup_before_write`, efr copies the file to its backup store before the write, and the user can copy it back. This lowers the risk of a mistake. It does not make an action that nobody asked for correct.
+- When a target has `backup_before_write`, efr copies the file before the write, and the user can undo the change with `efr undo`. This lowers the risk of a mistake. It does not make an action that nobody asked for correct. `snapshot_covers: false` means that `efr undo` cannot bring the file back, which is a higher risk.
 - A target with `masked` is a credential store or another private file that the sandbox hides. The config of some of them starts a program later, such as `credential_process` in `~/.aws/config` or a credential helper. Allow a write there only when a user message asks for that change of that file; else answer `ask_user`.
 - A payload in `action.edit` for a file that starts programs, such as a shell startup file, needs a user message that asks for exactly that change when the payload adds an `exec` line, an alias or a function that has the name of a command, or a change of `PATH`.
 - `critical` is for an action that can do great harm that nobody can undo. efr never allows a `critical` action.

@@ -242,11 +242,19 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // NOTE: the engine is built again on every reload, because what it protects also
     // follows the links in the config directory and the project registry, which a
     // reload reads again: a `config.toml` link that now points elsewhere must be
-    // write-sealed from the next tool call on. It is sent only when it differs.
+    // write-sealed from the next tool call on. It is sent only when it differs, also in
+    // what the sandbox supports (`snapshot.enabled`, `undo.enabled` and
+    // `sandbox.ask_destructive`, plan PB17).
     let rules_changed = settings.permissions != running.permissions;
     let current = Arc::clone(&state.engine.borrow());
     let engine = match state.engine_parts.engine(&settings).await {
-        Ok(engine) if rules_changed || engine.locations() != current.locations() => Some(engine),
+        Ok(engine)
+            if rules_changed
+                || engine.locations() != current.locations()
+                || engine.support() != current.support() =>
+        {
+            Some(engine)
+        }
         Ok(_) => None,
         Err(error) if rules_changed => return Err(refused(&error, None)),
         Err(error) => {
