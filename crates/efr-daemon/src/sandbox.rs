@@ -56,6 +56,7 @@ pub(crate) mod projects;
 pub(crate) mod quarantine;
 pub(crate) mod report;
 pub(crate) mod seams;
+pub(crate) mod units;
 
 pub(crate) use lock::PlanGuard;
 pub(crate) use plan::HostFacts;

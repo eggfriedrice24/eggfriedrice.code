@@ -33,6 +33,7 @@ use sha2::{Digest as _, Sha256};
 use crate::home;
 use crate::home::state::{self, StateCopy};
 use crate::sandbox::fs::{Beneath, Node};
+use crate::sandbox::units;
 use crate::tools::DaemonToolbox;
 
 /// The largest file that undo reads again before it writes over it.
@@ -50,6 +51,10 @@ pub(crate) const NOTE_INDEX: &str =
 
 /// What the result says about what a snapshot never holds.
 pub(crate) const NOTE_SPECIAL: &str = "empty directories and special files do not come back";
+
+/// What the result says when it changes a link or a file of the user's units.
+pub(crate) const NOTE_UNITS: &str =
+    "run systemctl --user daemon-reload so that systemd reads the units again";
 
 /// What the result says after a write error.
 pub(crate) const NOTE_STOPPED: &str = "efr undo stopped at a write that failed; run efr undo \
@@ -570,6 +575,12 @@ impl DaemonToolbox {
         }
         if writes {
             result.notes.push(NOTE_SPECIAL.to_owned());
+        }
+        // NOTE: systemd keeps a unit enabled in its manager until it reads its links
+        // again (plan PB34, KB14).
+        let unit_dir = units::config_dir(&home);
+        if plan.home.steps.iter().any(|step| step.acts() && step.path.starts_with(&unit_dir)) {
+            result.notes.push(NOTE_UNITS.to_owned());
         }
         if let Some((path, error)) = applied.and_then(|applied| applied.failed.as_ref()) {
             tracing::warn!(path = %path.display(), error = %error, "an undo stopped at a write that failed");

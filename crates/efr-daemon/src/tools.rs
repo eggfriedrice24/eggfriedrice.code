@@ -66,7 +66,7 @@ use crate::DaemonError;
 use crate::connections::Connections;
 use crate::home::state::{self, StateCopy};
 use crate::home::{self, HomeLimits};
-use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
+use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine, units};
 use crate::trusted_programs::TrustedPrograms;
 
 mod cache_deletes;
@@ -440,12 +440,40 @@ impl DaemonToolbox {
             ),
         }
         // NOTE: the crontab and linger have no file; efrd copies them with the programs
-        // that set them, when it found those (plan PB20).
+        // that set them, when it found those (plan PB20). A unit change writes links in
+        // the unit config dir, which efrd copies whole (PB34).
         let kept = self.snapshots.is_some() && self.settings.borrow().snapshot.enabled;
         for ask in asks.iter().filter(|ask| StateCopy::of(ask).is_some()) {
             let coverage =
                 if kept { state::coverage(&self.programs, ask) } else { Coverage::NoSnapshot };
             answers.push((ask.clone(), coverage));
+        }
+        let unit_asks: Vec<String> = asks
+            .iter()
+            .filter_map(|ask| match ask {
+                CoverAsk::UnitLinks(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        if !unit_asks.is_empty() {
+            let (masks, home) = (self.masks(), self.home.path().to_path_buf());
+            let limits = HomeLimits::of(&self.settings.borrow());
+            let answered = tokio::task::spawn_blocking(move || {
+                unit_asks
+                    .into_iter()
+                    .map(|name| {
+                        let coverage = if kept {
+                            units::coverage(&name, &home, &masks, limits)
+                        } else {
+                            Coverage::NoSnapshot
+                        };
+                        (CoverAsk::UnitLinks(name), coverage)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            answers.extend(answered);
         }
         let mut inside: Vec<PathBuf> = projects;
         inside.push(call.scratch.clone());
@@ -760,7 +788,37 @@ impl DaemonToolbox {
     /// before the call; `None` when there is nothing to copy. `Err` is the text that the
     /// model reads: the call does not run.
     async fn copy_before(&self, call: &CallContext) -> Result<Option<Copying>, String> {
-        let targets = home::targets(&call.exits);
+        let mut targets = home::targets(&call.exits);
+        let units: Vec<String> = call
+            .exits
+            .iter()
+            .flat_map(|need| &need.copies)
+            .filter_map(|ask| match ask {
+                CoverAsk::UnitLinks(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        // NOTE: a named change of a unit runs only with a copy of the unit config dir,
+        // as a floor file edit does (plan PB14, PB34).
+        let unit_dir = units::config_dir(self.home.path());
+        for name in &units {
+            let (unit, home) = (name.clone(), self.home.path().to_path_buf());
+            let found = tokio::task::spawn_blocking(move || units::targets(&unit, &home))
+                .await
+                .ok()
+                .flatten();
+            let Some(found) = found else {
+                return Err(format!(
+                    "efr could not tell which links a change of the unit {name} writes, so the \
+                     call did not run"
+                ));
+            };
+            for target in found {
+                if !targets.iter().any(|known| known.ask == target.ask) {
+                    targets.push(target);
+                }
+            }
+        }
         let mut states: Vec<StateCopy> = Vec::new();
         for copy in call.exits.iter().flat_map(|need| &need.copies).filter_map(StateCopy::of) {
             if !states.contains(&copy) {
@@ -791,6 +849,12 @@ impl DaemonToolbox {
                 .unwrap_or_else(|_| {
                     Err("copying the files before the change panicked".to_owned())
                 })?;
+        if !units.is_empty() && !prepared.covers(&CoverAsk::HomeDir(unit_dir.clone())) {
+            return Err(format!(
+                "efr could not copy {} before the change, so the call did not run",
+                unit_dir.display()
+            ));
+        }
         // NOTE: a named change of the crontab or of linger runs only with a copy of the
         // state before it, as a floor file edit does (plan PB14, PB20).
         for copy in states {

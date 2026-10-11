@@ -1271,6 +1271,47 @@ async fn home_copy_failure_stops_the_call() {
 }
 
 #[tokio::test]
+async fn home_copy_of_a_unit_or_cron_change_stops_without_its_copy() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let notes = kept.home.join("notes.md");
+    let named = |ask: efr_permissions::CoverAsk| {
+        let mut need = floor_edit(&notes);
+        need.copies = vec![ask];
+        need
+    };
+
+    // efrd finds no file of the unit, so it cannot tell what enabling it writes.
+    let unit = named(efr_permissions::CoverAsk::UnitLinks("absent.service".to_owned()));
+    let unit = write_with(&kept.toolbox, &kept.home, &notes, "x\n", vec![unit]).await;
+    // This efrd found no trusted crontab.
+    let cron = named(efr_permissions::CoverAsk::CronTable);
+    let cron = write_with(&kept.toolbox, &kept.home, &notes, "x\n", vec![cron]).await;
+
+    assert!(unit.is_error && unit.output.contains("absent.service"), "{unit:?}");
+    assert!(cron.is_error && cron.output.contains("@crontab"), "{cron:?}");
+    assert!(!notes.exists(), "neither call ran");
+}
+
+#[tokio::test]
+async fn home_copy_of_a_named_unit_change_holds_the_unit_dir() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let dir = kept.home.join(".config/systemd/user");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("agent.service"), "[Install]\nWantedBy=default.target\n").unwrap();
+    let notes = kept.home.join("notes.md");
+    let mut need = floor_edit(&notes);
+    need.copies = vec![efr_permissions::CoverAsk::UnitLinks("agent.service".to_owned())];
+
+    let outcome = write_with(&kept.toolbox, &kept.home, &notes, "x\n", vec![need]).await;
+
+    assert!(!outcome.is_error, "{outcome:?}");
+    let paths: Vec<PathBuf> = copied(&kept).await.into_iter().map(|(path, _)| path).collect();
+    assert!(paths.is_empty(), "nothing in the unit dir changed: {paths:?}");
+}
+
+#[tokio::test]
 async fn home_copy_never_copies_a_masked_floor() {
     let (_temp, root) = canonical_temp();
     let kept = kept(&root, Settings::default()).await;
