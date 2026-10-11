@@ -32,7 +32,6 @@ use efr_conversation::FileBackup;
 use efr_protocol::{ConversationId, TurnId};
 use efr_sandbox::{is_within, resolve};
 use efr_stdx::fs::{Claim, claim_dir, write_atomic};
-use efr_stdx::time::{Clock as _, SystemClock};
 use rustix::fs::{FileType, Mode, OFlags};
 use serde::{Deserialize, Serialize};
 
@@ -311,12 +310,10 @@ fn remove_entry(entry: &Path) {
 
 /// Removes the backups of all but the newest `keep_turns` turns of each conversation,
 /// and those older than `max_age` (`snapshot.keep_turns`, `snapshot.max_age_days`).
-/// The snapshot collector of `run.rs` calls it at each round.
-pub(crate) async fn collect(dir: &Path, keep_turns: usize, max_age: Duration) {
+/// The snapshot collector of `run.rs` calls it at each round, with the time of the
+/// daemon's clock.
+pub(crate) async fn collect(dir: &Path, keep_turns: usize, max_age: Duration, now: SystemTime) {
     let dir = dir.to_path_buf();
-    // NOTE: the call in `run.rs` passes no clock, so the age counts from the system's
-    // time; `collect_at` takes the time for the tests.
-    let now = SystemTime::from(SystemClock.now());
     let removed = tokio::task::spawn_blocking(move || collect_at(&dir, keep_turns, max_age, now));
     match removed.await {
         Ok(0) => {}

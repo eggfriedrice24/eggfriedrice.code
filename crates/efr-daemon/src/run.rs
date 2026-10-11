@@ -16,7 +16,7 @@ use std::fmt;
 use std::os::unix::ffi::OsStringExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use efr_config::Settings;
 use efr_conversation::{
@@ -721,7 +721,8 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
         let report = state.snapshots.gc(keep_turns, max_age).await;
         tracing::debug!(?report, "collected old snapshots");
         let backups = state.dirs.data().join(backups::FILE_BACKUPS_DIR);
-        backups::collect(&backups, keep_turns, max_age).await;
+        let now = SystemTime::from(state.clock.now());
+        backups::collect(&backups, keep_turns, max_age, now).await;
     }
 }
 
