@@ -128,7 +128,7 @@ pub(crate) fn undo_refused_samples() -> Vec<UndoRefused> {
         UndoRefused::LaterTurnsNotUndone { turn_id: queued_turn_id() },
         UndoRefused::NoRedo,
         UndoRefused::PhoneOrigin,
-        UndoRefused::NeedsForce,
+        UndoRefused::StoreFailed,
     ]
 }
 

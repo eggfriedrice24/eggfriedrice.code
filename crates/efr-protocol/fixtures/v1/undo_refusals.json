@@ -19,6 +19,6 @@
     "kind": "phone_origin"
   },
   {
-    "kind": "needs_force"
+    "kind": "store_failed"
   }
 ]

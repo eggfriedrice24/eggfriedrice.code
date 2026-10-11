@@ -371,7 +371,6 @@ impl CliError {
                 Some("later_turns_not_undone") => {
                     Some("undo the newer turn first, or add --force to undo this one anyway")
                 }
-                Some("needs_force") => Some("add --force to undo it anyway"),
                 Some("nothing_to_undo") => Some("efr undo --list shows the turns and their state"),
                 Some("no_redo") => Some("efr undo --list shows which turns are undone"),
                 _ => None,

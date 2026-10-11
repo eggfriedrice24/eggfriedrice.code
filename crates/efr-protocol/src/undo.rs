@@ -242,8 +242,7 @@ pub struct UndoableTurn {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum UndoRefused {
-    /// Undo is off: `undo.enabled` or `snapshot.enabled` is false, or this build has
-    /// no undo.
+    /// Undo is off: `undo.enabled` is false, or this efrd keeps no snapshot store.
     Off,
     /// No turn of the conversation has a snapshot from before it that is not undone.
     NothingToUndo,
@@ -258,9 +257,9 @@ pub enum UndoRefused {
     NoRedo,
     /// A phone cannot undo: undo writes files on this machine.
     PhoneOrigin,
-    /// The undo needs `force`: the turn has no snapshot from its end, its calls
-    /// changed more paths than efr records, or a root is another directory now.
-    NeedsForce,
+    /// efr could not read its snapshot store, such as after a git failure or a
+    /// timeout; the log of efrd says why.
+    StoreFailed,
 }
 
 impl fmt::Display for UndoRefused {
@@ -274,7 +273,9 @@ impl fmt::Display for UndoRefused {
             }
             UndoRefused::NoRedo => f.write_str("no undo can be taken back"),
             UndoRefused::PhoneOrigin => f.write_str("a phone cannot undo a turn"),
-            UndoRefused::NeedsForce => f.write_str("this undo needs --force"),
+            UndoRefused::StoreFailed => {
+                f.write_str("efr could not read its snapshot store; the log of efrd says why")
+            }
         }
     }
 }

@@ -297,7 +297,7 @@ fn undo_refused_index(refused: &UndoRefused) -> usize {
         UndoRefused::LaterTurnsNotUndone { .. } => 3,
         UndoRefused::NoRedo => 4,
         UndoRefused::PhoneOrigin => 5,
-        UndoRefused::NeedsForce => 6,
+        UndoRefused::StoreFailed => 6,
     }
 }
 

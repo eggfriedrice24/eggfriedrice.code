@@ -679,7 +679,7 @@ fn moved_away(error: &std::io::Error) -> bool {
 /// The refusal for a store that failed, with a line in the log.
 fn failed(error: &SnapshotError) -> UndoRefused {
     tracing::warn!(error = %efr_stdx::with_causes(error), "an undo could not be planned");
-    UndoRefused::TurnNotFound
+    UndoRefused::StoreFailed
 }
 
 /// The turn that `request` undoes: an undo that stopped half way first (PB37), else
