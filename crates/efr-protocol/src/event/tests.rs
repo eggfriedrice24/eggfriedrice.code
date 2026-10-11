@@ -557,6 +557,23 @@ fn turn_completed_without_stop_reads_as_before() {
 }
 
 #[test]
+fn home_file_changed_without_real_reads_as_before() {
+    let old = json!({
+        "kind": "home_file_changed",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "path": "/home/me/.zshrc",
+        "floor": true,
+    });
+    let read: Event = serde_json::from_value(old.clone()).unwrap();
+    let Event::HomeFileChanged { real, .. } = &read else {
+        panic!("a changed home file");
+    };
+    assert_eq!(*real, None);
+    assert_eq!(serde_json::to_value(&read).unwrap(), old, "and writes none");
+}
+
+#[test]
 fn every_stop_reason_is_its_wire_name() {
     for reason in [
         StopReason::EndTurn,

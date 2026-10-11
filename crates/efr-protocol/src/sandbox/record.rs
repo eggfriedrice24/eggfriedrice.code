@@ -83,6 +83,14 @@ pub struct ExitFacts {
     /// The upload patterns that the line matched, such as `git push`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub upload_patterns: Vec<String>,
+    /// For an `outside` exit: the commands of the line that run outside the sandbox,
+    /// such as `df -h`, in the order of the line.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outside_commands: Vec<String>,
+    /// For a `desktop_ipc` exit: true when every desktop command of the line only reads
+    /// the desktop's state or reloads its config, such as `hyprctl monitors`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub desktop_read: bool,
     /// True when a git setting or another file that runs code changed in this turn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub repo_surface_changed_this_turn: bool,

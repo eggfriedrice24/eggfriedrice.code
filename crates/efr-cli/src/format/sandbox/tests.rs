@@ -424,6 +424,8 @@ fn the_verbose_record_names_every_fact_but_no_user_message() {
         }],
         programs: vec![program("cp", "/usr/bin/cp")],
         upload_patterns: vec!["git push".to_owned()],
+        outside_commands: Vec::new(),
+        desktop_read: false,
         repo_surface_changed_this_turn: true,
         git_status: Some(GitCounts { modified: 3, untracked: 1, staged: 0 }),
         snapshot_covers: None,

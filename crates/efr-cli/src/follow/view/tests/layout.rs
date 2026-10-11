@@ -1197,6 +1197,7 @@ fn home_changed(n: u8, path: &str, backup: &str) -> Event {
         floor: true,
         covered: false,
         backup: Some(PathBuf::from(backup)),
+        real: None,
     }
 }
 

@@ -344,3 +344,10 @@ No protocol version has shipped yet.
   `pause_turn`) and `empty` (false when absent): the last model call gave no text and
   no tool call. It is absent for a normal answer and in turns recorded before it.
   `events/turn_completed.json` now sets it.
+- Version 1, additive: labels of exits and changed files. In the exit record, `facts`
+  gains `outside_commands` (the commands of an `outside` exit that run outside the
+  sandbox, absent when none) and `desktop_read` (a desktop command that only reads
+  the desktop's state or reloads its config; false when absent). `home_file_changed`
+  gains an optional `real`: the real file when `path` reaches it through a link.
+  `events/exit_requested.json` and `events/home_file_changed.json` now set the new
+  members.

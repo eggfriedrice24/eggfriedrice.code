@@ -983,6 +983,7 @@ fn reviewer_events() -> Vec<EventEnvelope> {
             floor: true,
             covered: false,
             backup: Some(PathBuf::from("/home/user/.local/share/efr/file-backups/c1/t1/1/.zshrc")),
+            real: None,
         },
         Event::ExitRequested {
             turn_id: turn(),

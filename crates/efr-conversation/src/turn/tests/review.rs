@@ -694,6 +694,7 @@ async fn home_file_changed_recorded_after_call() {
         floor: true,
         covered: false,
         backup: Some(copy),
+        real: None,
     };
     let at = events.iter().position(|e| *e == changed).expect("the change is recorded");
     assert!(matches!(events[at - 1], Event::ToolCallCompleted { .. }), "with the call's end");

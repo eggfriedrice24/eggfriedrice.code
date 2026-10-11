@@ -828,6 +828,8 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             hosts,
             programs,
             upload_patterns,
+            outside_commands: Vec::new(),
+            desktop_read: false,
             repo_surface_changed_this_turn: turn.surface_changed,
             git_status: None,
             snapshot_covers: None,

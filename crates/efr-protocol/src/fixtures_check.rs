@@ -410,6 +410,8 @@ fn exit_record() -> ExitRecord {
                 changed_this_turn: false,
             }],
             upload_patterns: vec!["git push".into()],
+            outside_commands: vec!["df -h /".into()],
+            desktop_read: true,
             repo_surface_changed_this_turn: true,
             git_status: Some(GitCounts { modified: 3, untracked: 1, staged: 0 }),
             snapshot_covers: Some(false),
@@ -1356,6 +1358,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 "/home/me/.local/share/efr/file-backups/0190a8e2-7b1c-7d3e-8f00-1a2b3c4d5e6f/1/1/.zshrc"
                     .into(),
             ),
+            real: Some("/home/me/dotfiles/zsh/.zshrc".into()),
         },
         Event::SandboxSurfaceChanged {
             turn_id: turn_id(),

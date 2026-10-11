@@ -67,6 +67,10 @@
       "upload_patterns": [
         "git push"
       ],
+      "outside_commands": [
+        "df -h /"
+      ],
+      "desktop_read": true,
       "repo_surface_changed_this_turn": true,
       "git_status": {
         "modified": 3,

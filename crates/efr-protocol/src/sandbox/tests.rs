@@ -2,9 +2,33 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    BusKind, CacheMode, DesktopKind, EffectiveSettings, Event, ExitKind, Grant, Launch, Mode,
-    ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus, SandboxSummary,
+    BusKind, CacheMode, DesktopKind, EffectiveSettings, Event, ExitFacts, ExitKind, Grant, Launch,
+    Mode, ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus, SandboxSummary,
 };
+
+#[test]
+fn exit_facts_without_new_fields_read_as_before() {
+    let old = json!({
+        "upload_patterns": ["git push"],
+        "refusals_in_a_row": 0,
+        "denials_in_a_row": 0,
+        "denials_this_turn": 0,
+    });
+    let read: ExitFacts = serde_json::from_value(old.clone()).unwrap();
+    assert!(read.outside_commands.is_empty());
+    assert!(!read.desktop_read);
+    assert_eq!(serde_json::to_value(&read).unwrap(), old, "and writes neither");
+
+    let facts = ExitFacts {
+        outside_commands: vec!["df -h /".to_owned()],
+        desktop_read: true,
+        ..ExitFacts::default()
+    };
+    let wire = serde_json::to_value(&facts).unwrap();
+    assert_eq!(wire["outside_commands"], json!(["df -h /"]));
+    assert_eq!(wire["desktop_read"], json!(true));
+    assert_eq!(serde_json::from_value::<ExitFacts>(wire).unwrap(), facts);
+}
 
 #[test]
 fn a_routine_contained_launch_leaves_out_its_empty_grants() {

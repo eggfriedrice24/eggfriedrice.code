@@ -576,6 +576,11 @@ pub enum Event {
         /// The copy of the file before the call, in efr's backup store.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         backup: Option<PathBuf>,
+        /// The real file, absolute, when `path` reaches it through a link, such as a
+        /// dotfile link into `~/dotfiles`. Absent when `path` is the real file, and in
+        /// events recorded before efr reported it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        real: Option<PathBuf>,
     },
 
     /// The surface guard found git settings or other files that run code, which a call
