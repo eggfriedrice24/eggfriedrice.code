@@ -384,7 +384,11 @@ async fn undo_previews_lists_applies_and_redoes_a_turn() {
     assert!(preview.status.success(), "{}", text(&preview.stderr));
     assert_eq!(
         text(&preview.stdout),
-        format!("{head}restore     a.txt\nempty directories and special files do not come back\n")
+        format!(
+            "{head}restore     a.txt\nwrites outside the project are not covered in a manual \
+             turn\nempty directories and special files do not come back\n"
+        ),
+        "a cautious turn says what no copy covers"
     );
     assert_eq!(text(&preview.stderr), which, "a muted line says which conversation");
     assert_eq!(read(), "two\n", "a dry run changes nothing");
