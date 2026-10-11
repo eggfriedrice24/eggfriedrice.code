@@ -338,12 +338,10 @@ impl ProjectGit {
 
 /// The text of the `HEAD` file of the git dir `dir`, never through a link.
 fn read_head(dir: &Path) -> Option<String> {
-    let path = dir.join("HEAD");
-    if !fs::symlink_metadata(&path).ok()?.is_file() {
-        return None;
-    }
-    let text = fs::read(&path).ok()?;
-    String::from_utf8(text.into_iter().take(4096).collect()).ok().map(|text| text.trim().to_owned())
+    let mut text = Vec::new();
+    let file = crate::undo::open_regular(&dir.join("HEAD")).ok()?;
+    std::io::Read::read_to_end(&mut std::io::Read::take(file, 4096), &mut text).ok()?;
+    String::from_utf8(text).ok().map(|text| text.trim().to_owned())
 }
 
 #[cfg(test)]

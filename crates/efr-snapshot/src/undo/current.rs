@@ -3,10 +3,12 @@
 //! just before it writes it.
 
 use std::fs;
-use std::io;
+use std::io::{self, Read as _};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Component, Path};
+
+use rustix::fs::{Mode, OFlags};
 
 use crate::object::{ObjectId, blob_id_of, link_id};
 
@@ -70,7 +72,7 @@ pub(crate) fn read(root: &Path, relative: &str) -> Current {
     if !seen.is_file() {
         return Current::Unknown;
     }
-    let Ok(mut file) = fs::File::open(&at) else { return Current::Unknown };
+    let Ok(mut file) = open_regular(&at) else { return Current::Unknown };
     let Ok(opened) = file.metadata() else { return Current::Unknown };
     if (opened.dev(), opened.ino()) != (seen.dev(), seen.ino()) || !opened.is_file() {
         return Current::Unknown;
@@ -86,12 +88,25 @@ pub(crate) fn read(root: &Path, relative: &str) -> Current {
 pub(crate) fn bytes_of(root: &Path, relative: &str, id: &ObjectId) -> Option<Vec<u8>> {
     match read(root, relative) {
         Current::File { id: found, .. } if &found == id => {
-            let bytes = fs::read(root.join(relative)).ok()?;
+            let mut bytes = Vec::new();
+            open_regular(&root.join(relative)).ok()?.read_to_end(&mut bytes).ok()?;
             (crate::object::blob_id(&bytes) == *id).then_some(bytes)
         }
         Current::Link { target } if link_id(&target) == *id => Some(target),
         _ => None,
     }
+}
+
+/// Opens the regular file `path` to read it, never through a link at its end and
+/// without waiting: a fifo that someone put in its place between a check and the open
+/// fails at once instead of stalling a thread of the blocking pool.
+pub(crate) fn open_regular(path: &Path) -> io::Result<fs::File> {
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let file = fs::File::from(rustix::fs::open(path, flags, Mode::empty())?);
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::from(io::ErrorKind::InvalidInput));
+    }
+    Ok(file)
 }
 
 /// The `(dev, ino)` of `path`, without following a last link.

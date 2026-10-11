@@ -124,3 +124,17 @@ fn undo_ids_name_a_ref_and_a_directory() {
         assert!(!valid_undo_id(bad), "{bad:?}");
     }
 }
+
+#[test]
+fn a_read_of_the_planner_never_waits_on_a_fifo_or_follows_a_link() {
+    let base = tempfile::tempdir().unwrap();
+    let dir = base.path();
+    std::fs::write(dir.join("a.txt"), "a").unwrap();
+    nix::unistd::mkfifo(&dir.join("fifo"), nix::sys::stat::Mode::S_IRWXU).unwrap();
+    std::os::unix::fs::symlink(dir.join("a.txt"), dir.join("link")).unwrap();
+
+    assert!(super::open_regular(&dir.join("a.txt")).is_ok());
+    // NOTE: a fifo with no writer would block a plain open for read forever.
+    assert!(super::open_regular(&dir.join("fifo")).is_err(), "a fifo is no regular file");
+    assert!(super::open_regular(&dir.join("link")).is_err(), "a link at the end is refused");
+}

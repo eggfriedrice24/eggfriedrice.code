@@ -17,6 +17,7 @@ efr-scope.workspace = true
 efr-stdx.workspace = true
 futures.workspace = true
 jiff.workspace = true
+rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true

@@ -49,7 +49,7 @@ mod refs;
 
 use refs::RefSides;
 
-pub(crate) use current::Current;
+pub(crate) use current::{Current, open_regular};
 pub(crate) use held::{CommitInfo, Held, TurnHas, UndoHas, undo_ref, valid_undo_id};
 
 use decide::{Facts, Side};
