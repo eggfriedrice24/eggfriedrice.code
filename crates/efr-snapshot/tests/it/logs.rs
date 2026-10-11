@@ -88,11 +88,8 @@ async fn an_unreadable_file_is_reported_once_per_root() {
     assert!(!text.contains("WARN"), "{text}");
 }
 
-#[tokio::test]
-async fn a_fatal_git_add_is_a_warn() {
-    let world = World::new();
-    let script = world.base.path().join("git-fatal-add");
-    let text = "#!/bin/sh\n\
+/// A git whose `add` stops with a fatal error before it reads its stdin.
+const FATAL_ADD: &str = "#!/bin/sh\n\
                 skip=\n\
                 for arg; do\n\
                 \x20 if [ -n \"$skip\" ]; then skip=; elif [ \"$arg\" = -c ]; then skip=1; \
@@ -101,7 +98,12 @@ async fn a_fatal_git_add_is_a_warn() {
                 else break; fi\n\
                 done\n\
                 exec git \"$@\"\n";
-    let world = world.with_git_script(&script, text);
+
+#[tokio::test]
+async fn a_fatal_git_add_is_a_warn() {
+    let world = World::new();
+    let script = world.base.path().join("git-fatal-add");
+    let world = world.with_git_script(&script, FATAL_ADD);
     let dir = world.dir("plain");
     write(&dir.join("a.txt"), "0\n");
 
@@ -120,4 +122,29 @@ async fn a_fatal_git_add_is_a_warn() {
         assert!(line.contains("fatal: pathspec 'gone.txt' did not match any files"), "{text}");
     }
     assert!(!text.contains("some files could not be added to a snapshot"), "{text}");
+}
+
+#[tokio::test]
+async fn a_git_that_stops_before_it_reads_its_stdin_still_gives_its_exit() {
+    let world = World::new();
+    let script = world.base.path().join("git-fatal-add");
+    let world = world.with_git_script(&script, FATAL_ADD);
+    let dir = world.dir("plain");
+    write(&dir.join("a.txt"), "0\n");
+    // More path bytes than a pipe holds (64 KiB), so the write of the list to
+    // `git add` meets the closed pipe every time.
+    for n in 0..2000 {
+        write(&dir.join(format!("a-file-with-a-long-name-so-the-list-is-large-{n:05}.txt")), "x\n");
+    }
+
+    let (logs, _guard) = Logs::start();
+    two_turns(&world, &dir).await;
+
+    let text = logs.text();
+    let warnings = text
+        .lines()
+        .filter(|line| line.contains("git stopped and added no file to a snapshot"))
+        .count();
+    assert_eq!(warnings, 4, "{text}");
+    assert!(!text.contains("git could not be run"), "{text}");
 }

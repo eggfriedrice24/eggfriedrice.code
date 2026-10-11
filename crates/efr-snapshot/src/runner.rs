@@ -182,7 +182,13 @@ impl Runner {
                 .await
                 .map_err(io::Error::other)??;
             if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-                pipe.write_all(&bytes).await?;
+                // NOTE: git can stop before it reads its stdin (a fatal error, such as
+                // a held index lock); its exit code and stderr say why, so a broken
+                // pipe here is no error of its own.
+                match pipe.write_all(&bytes).await {
+                    Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+                    result => result?,
+                }
                 drop(pipe);
             }
             let stderr = child.stderr.take();
