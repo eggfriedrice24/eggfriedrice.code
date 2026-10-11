@@ -1143,6 +1143,7 @@ fn cache_deletes(n: u8, paths: &[&str]) -> Event {
                 exists: true,
                 named_in_user_messages: false,
                 backup_before_write: false,
+                masked: false,
             })
             .collect(),
         ..ExitFacts::default()

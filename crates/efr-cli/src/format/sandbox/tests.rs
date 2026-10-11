@@ -67,6 +67,7 @@ fn target(path: &str) -> TargetFact {
         exists: true,
         named_in_user_messages: false,
         backup_before_write: false,
+        masked: false,
     }
 }
 

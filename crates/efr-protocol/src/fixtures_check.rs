@@ -381,6 +381,7 @@ fn exit_record() -> ExitRecord {
                 exists: true,
                 named_in_user_messages: true,
                 backup_before_write: false,
+                masked: false,
             }],
             hosts: vec![HostFact {
                 host: "example.com".into(),
@@ -433,6 +434,7 @@ fn floor_edit_record() -> ExitRecord {
                 exists: true,
                 named_in_user_messages: true,
                 backup_before_write: true,
+                masked: false,
             }],
             ..ExitFacts::default()
         },

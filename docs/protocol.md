@@ -312,7 +312,8 @@ No protocol version has shipped yet.
   models that the chain skipped, absent when none), and its `judge` can be
   `presence_expired`. In the exit record, `action` gains an optional `edit` (the payload
   of a file tool edit of a floor file, at most 8 KiB), a target gains
-  `backup_before_write` (false when absent), `facts` gains `denials_in_a_row` and
+  `backup_before_write` and `masked` (a path that the sandbox hides, such as a
+  credential store; both false when absent), `facts` gains `denials_in_a_row` and
   `denials_this_turn` (0 when absent), and a target's `class` can be `cache`,
   `build_output` or `trash`. An exit's `source` can be `cache_delete`: a delete in a
   real cache that a contained call made. The `sandbox` of `tool_call_completed` gains

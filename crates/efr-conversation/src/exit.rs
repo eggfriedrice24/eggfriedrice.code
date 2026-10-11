@@ -753,6 +753,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             exists,
             named_in_user_messages: named,
             backup_before_write: need.backup_before_write,
+            masked: place.is_some_and(|place| place.masked),
         });
     }
     let mut hosts: Vec<HostFact> = Vec::new();

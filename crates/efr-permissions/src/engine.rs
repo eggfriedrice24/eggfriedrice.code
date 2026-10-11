@@ -421,12 +421,14 @@ impl Engine {
         let envelope = Envelope::new(&self.locations, project_root, scratch.as_deref());
         let class = self.locations.classify_normal(&path, scratch.as_deref());
         let floor = envelope.is_floor(&path);
-        let guarded = floor || class == PathClass::Secrets || envelope.is_masked(&path);
+        let masked = envelope.is_masked(&path);
+        let guarded = floor || class == PathClass::Secrets || masked;
         Some(PathFacts {
             class,
             in_write_root: envelope.in_root(&path),
             floor,
             synced: self.locations.synced_roots().iter().any(|root| path.starts_with(root)),
+            masked,
             rebuild: if guarded { None } else { self.locations.rebuild(&path) },
         })
     }

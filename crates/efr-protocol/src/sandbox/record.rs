@@ -157,6 +157,11 @@ pub struct TargetFact {
     /// floor file that the user can copy back.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub backup_before_write: bool,
+    /// True when a contained call reads the path as empty: a credential store, a
+    /// browser profile or a history (the sandbox masks). The config of some of these
+    /// starts a program later, such as `credential_process` in `~/.aws/config`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub masked: bool,
 }
 
 /// A host that an exit reaches.

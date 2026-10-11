@@ -1859,7 +1859,10 @@ fn path_facts_name_the_write_root_the_floor_and_the_synced_folder(
     #[case] synced: bool,
 ) {
     let facts = engine().path_facts(path.as_ref(), &Scope::Project(app()), SCRATCH.as_ref());
-    assert_eq!(facts, Some(PathFacts { class, in_write_root, floor, synced, rebuild: None }));
+    assert_eq!(
+        facts,
+        Some(PathFacts { class, in_write_root, floor, synced, masked: false, rebuild: None })
+    );
 }
 
 #[rstest]

@@ -294,7 +294,7 @@ A grant lives for one call. The next call asks again.
 decides most exits before any question: it allows an action that fits what you asked,
 refuses an action that nothing you said relates to, and hands an unsure case to you.
 It reads your messages and efr's facts about the exit (the line, the targets with
-their class, the hosts, the programs, the counts, and for a file tool edit of a floor
+their class and whether the sandbox hides them as a credential store, the hosts, the programs, the counts, and for a file tool edit of a floor
 file the new text, at most 8 KiB), and never the output of a command, a project file
 or the model's reason. A longer edit asks you, so the reviewer never allows what it
 saw only in part. efr applies its own rules to each allow: a `critical` risk never

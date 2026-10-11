@@ -230,6 +230,9 @@ pub struct PathFacts {
     pub floor: bool,
     /// True when the path lies in a folder that a sync service copies off the machine.
     pub synced: bool,
+    /// True when a contained call reads the path as empty: a sandbox mask, such as a
+    /// credential store, or a project `.env` file.
+    pub masked: bool,
     /// What can make the path again, when something can: a tool cache, the build
     /// output of a registered project, or efr's trash. The classifier's naming rule
     /// needs no user message that names such a target (spec 9.4). `None` for a floor, a

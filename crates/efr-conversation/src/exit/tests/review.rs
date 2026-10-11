@@ -154,6 +154,26 @@ fn the_hosts_of_the_line_need_a_name_before_an_allow_stands() {
 }
 
 #[test]
+fn a_masked_target_says_so_in_the_record() {
+    let engine = engine();
+    let config = "/home/u/.aws/config";
+    let requirements = Requirements::none().with_write(config).with_facts(file_fact(config));
+    let decision = decide(&engine, requirements.clone());
+    let said = messages(&["set the region in ~/.aws/config"]);
+
+    let record = record_of(&engine, "write_file", &decision, &requirements, None, &said);
+
+    let target = record.facts.targets.iter().find(|target| target.path == Path::new(config));
+    let target = target.expect("the config is a target");
+    assert!(target.masked, "the classifier sees that it is a credential store");
+    assert!(target.named_in_user_messages);
+    // Without a message that names it, an allow goes to the user.
+    let record = record_of(&engine, "write_file", &decision, &requirements, None, &[]);
+    let judgement = allow(Risk::Low, UserAuthorization::Medium);
+    assert_eq!(effective(&record, &judgement, None), Verdict::AskUser);
+}
+
+#[test]
 fn a_cache_delete_target_has_the_cache_class() {
     let engine = engine();
     let paths = [PathBuf::from("/home/u/.cache/go-build/ab/cd")];
@@ -294,6 +314,7 @@ fn target(path: &str, class: PathClassName, named: bool) -> TargetFact {
         exists: true,
         named_in_user_messages: named,
         backup_before_write: false,
+        masked: false,
     }
 }
 

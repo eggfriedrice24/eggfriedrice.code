@@ -1533,6 +1533,7 @@ fn an_exit_question_shows_the_whole_line_what_leaves_and_the_models_reason() {
             exists: true,
             named_in_user_messages: false,
             backup_before_write: false,
+            masked: false,
         }],
         programs: vec![program_fact("echo", "shell builtin")],
         ..ExitFacts::default()
