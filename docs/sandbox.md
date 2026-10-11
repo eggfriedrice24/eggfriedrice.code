@@ -603,7 +603,7 @@ the current directory:
 $ efr sandbox explain ~/.zshrc
 ~/.zshrc, from ~/p/eggfriedrice.code in auto:
   read   yes
-  write  no: a shell startup file (floor); a write goes to the reviewer when a message of yours names the file, and efr undo reverts it; else you decide; a write is a persistence exit
+  write  no: a shell startup file (floor); a write goes to the reviewer when a message of yours names the file, and efr copies the file first, so efr undo reverts it; else you decide; a write is a persistence exit
 ```
 
 `, user only` follows the exit for a kind that only you approve, such as a synced
