@@ -51,7 +51,8 @@ pub struct ShellContext {
 }
 
 /// The desktop variables of the user's shell, as the shell has them. Only these six
-/// names, never another variable. efrd checks each value before it binds a socket.
+/// names, never another variable, and whether the shell has `$XAUTHORITY`. efrd checks
+/// each value before it binds a socket.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DesktopEnv {
     /// `$WAYLAND_DISPLAY`: a socket name below `$XDG_RUNTIME_DIR`, or an absolute path.
@@ -72,12 +73,17 @@ pub struct DesktopEnv {
     /// `$NIRI_SOCKET`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub niri_socket: Option<String>,
+    /// True when the shell has `$XAUTHORITY`, so its X server needs a cookie. Only
+    /// that the variable is set, never its path: the cookie file stays masked.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub has_xauthority: bool,
 }
 
 impl DesktopEnv {
-    /// True when the shell has none of the variables.
+    /// True when the shell has none of the six variables. `has_xauthority` alone
+    /// names no desktop.
     pub fn is_empty(&self) -> bool {
-        *self == DesktopEnv::default()
+        DesktopEnv { has_xauthority: false, ..self.clone() } == DesktopEnv::default()
     }
 }
 

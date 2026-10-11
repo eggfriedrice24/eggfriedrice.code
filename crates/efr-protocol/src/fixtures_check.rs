@@ -279,6 +279,7 @@ fn shell_context() -> ShellContext {
             swaysock: Some("/run/user/1000/sway-ipc.1000.1234.sock".into()),
             i3sock: Some("/run/user/1000/i3/ipc-socket.1234".into()),
             niri_socket: Some("/run/user/1000/niri.wayland-1.1234.sock".into()),
+            has_xauthority: true,
         })),
     }
 }

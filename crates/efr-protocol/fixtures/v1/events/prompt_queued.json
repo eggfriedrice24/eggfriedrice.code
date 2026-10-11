@@ -19,7 +19,8 @@
       "hyprland_instance_signature": "0b4a3e5a8d1c2f6e7a9b0c1d2e3f4a5b6c7d8e9f_1760000000_1234567890",
       "swaysock": "/run/user/1000/sway-ipc.1000.1234.sock",
       "i3sock": "/run/user/1000/i3/ipc-socket.1234",
-      "niri_socket": "/run/user/1000/niri.wayland-1.1234.sock"
+      "niri_socket": "/run/user/1000/niri.wayland-1.1234.sock",
+      "has_xauthority": true
     }
   },
   "settings": {

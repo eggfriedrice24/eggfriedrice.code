@@ -127,10 +127,13 @@ async fn shell_context_carries_desktop_names_only() {
     let want = DesktopEnv {
         hyprland_instance_signature: Some("abc_1760000000_1".to_owned()),
         wayland_display: Some("wayland-1".to_owned()),
+        has_xauthority: true,
         ..DesktopEnv::default()
     };
     assert_eq!(desktop.as_deref(), Some(&want));
     assert_eq!(desktop_env(|_| None), None, "a console has none");
+    let cookie_only = |name: &str| (name == "XAUTHORITY").then(|| "/home/u/.Xauthority".to_owned());
+    assert_eq!(desktop_env(cookie_only), None, "a cookie alone names no desktop");
 
     let env = TestEnv::new();
     let daemon = env.listen();
@@ -153,8 +156,10 @@ async fn shell_context_carries_desktop_names_only() {
         serde_json::json!({
             "wayland_display": "wayland-1",
             "hyprland_instance_signature": "abc_1760000000_1",
+            "has_xauthority": true,
         })
     );
+    assert!(!wire.to_string().contains("xauth_x"), "never the cookie's path: {wire}");
 }
 
 /// A context whose environment holds what the zsh plugin hands over.

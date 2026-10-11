@@ -335,7 +335,9 @@ No protocol version has shipped yet.
   socket of the desktop of the prompt's terminal. A `shell_context` gains an optional
   `desktop` with the optional members `wayland_display`, `display`,
   `hyprland_instance_signature`, `swaysock`, `i3sock` and `niri_socket`, the values of
-  these variables in the user's shell; absent when the shell has none. `grants.json`
+  these variables in the user's shell, and `has_xauthority` (true when the shell has
+  `$XAUTHORITY`, never its path; false when absent); absent when the shell has none of
+  the six variables. `grants.json`
   now holds a desktop grant of each desktop, and `prompt_send_params.json`,
   `turn_steer_params.json`, `turn_interrupt_params.json` and
   `events/prompt_queued.json` now set `desktop`.

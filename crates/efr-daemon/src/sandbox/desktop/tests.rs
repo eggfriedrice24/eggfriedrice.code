@@ -6,7 +6,7 @@ use efr_protocol::{DesktopEnv, DesktopKind};
 use efr_sandbox::{DesktopSocket, SandboxError};
 use pretty_assertions::assert_eq;
 
-use super::{Facts, Node, NodeKind, chosen, find, from_env, lstat};
+use super::{Facts, Node, NodeKind, chosen, find, from_env, lstat, needs_cookie};
 
 const UID: u32 = 1000;
 const XRT: &str = "/run/user/1000";
@@ -126,6 +126,26 @@ fn desktop_x11_with_xauthority_refuses() {
     assert_eq!(no_desktop(find(DesktopKind::X11, &env, &facts(false), &fake(&foreign))).1, false);
     let remote = DesktopEnv { display: Some("host:0".to_owned()), ..DesktopEnv::default() };
     assert_eq!(no_desktop(find(DesktopKind::X11, &remote, &facts(false), &fake(&nodes))).1, false);
+}
+
+/// The review of fix batch A: a display manager sets `$XAUTHORITY` in the session,
+/// and efrd under systemd often does not have it. The terminal's flag counts.
+#[test]
+fn desktop_x11_needs_a_cookie_when_the_terminal_has_xauthority() {
+    let with = DesktopEnv {
+        display: Some(":0".to_owned()),
+        has_xauthority: true,
+        ..DesktopEnv::default()
+    };
+    let without = DesktopEnv { display: Some(":0".to_owned()), ..DesktopEnv::default() };
+    assert!(needs_cookie(Some(&with), false, false));
+    assert!(!needs_cookie(Some(&without), false, false));
+    assert!(!needs_cookie(None, false, false));
+    assert!(needs_cookie(Some(&without), true, false), "efrd's start env has one");
+    assert!(needs_cookie(None, false, true), "~/.Xauthority exists");
+    // The flag alone is no desktop, so a prompt with only it keeps efrd's variables.
+    let cookie_only = DesktopEnv { has_xauthority: true, ..DesktopEnv::default() };
+    assert!(cookie_only.is_empty());
 }
 
 #[test]

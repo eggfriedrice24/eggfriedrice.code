@@ -480,7 +480,9 @@ spec; `docs/sandbox.md` for the user's view):
   variable (`efr_sandbox::desktop_socket_path`), never scans `$XDG_RUNTIME_DIR`, and
   checks it with `lstat` at each call: a socket of the user (an X server's may be
   root's), each dir on the way a real dir of the user. No such socket, or an X server
-  that needs a cookie (`$XAUTHORITY` or `~/.Xauthority`), refuses the call with
+  that needs a cookie (`$XAUTHORITY` in the prompt's terminal, which only
+  `DesktopEnv::has_xauthority` says, or in efrd's start environment, or
+  `~/.Xauthority`), refuses the call with
   `SandboxError::NoDesktop`, and no probe runs again.
 - `prepare` takes the plan lock of the call's projects (`sandbox/lock.rs`), makes the
   target of an approved `MakeFile` or `MakeDir` grant through its parent's descriptor

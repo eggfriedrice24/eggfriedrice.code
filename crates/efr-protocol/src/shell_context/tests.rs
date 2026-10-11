@@ -35,6 +35,22 @@ fn a_desktop_holds_only_the_names_it_has() {
 }
 
 #[test]
+fn the_xauthority_flag_is_on_the_wire_only_when_set_and_names_no_desktop() {
+    let flagged = DesktopEnv {
+        display: Some(":0".to_owned()),
+        has_xauthority: true,
+        ..DesktopEnv::default()
+    };
+    assert_eq!(
+        serde_json::to_value(&flagged).unwrap(),
+        json!({ "display": ":0", "has_xauthority": true })
+    );
+    let unflagged = DesktopEnv { has_xauthority: false, ..flagged };
+    assert_eq!(serde_json::to_value(&unflagged).unwrap(), json!({ "display": ":0" }));
+    assert!(DesktopEnv { has_xauthority: true, ..DesktopEnv::default() }.is_empty());
+}
+
+#[test]
 fn a_last_command_sent_inside_a_context_is_dropped() {
     let context: ShellContext = serde_json::from_value(json!({
         "pwd": "/etc",

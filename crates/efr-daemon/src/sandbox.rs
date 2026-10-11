@@ -320,7 +320,11 @@ impl SandboxService {
         let facts = desktop::Facts {
             user_runtime: &host.user_runtime,
             uid: rustix::process::getuid().as_raw(),
-            needs_cookie: host.xauthority.is_some() || desktop::lstat(&cookie).is_some(),
+            needs_cookie: desktop::needs_cookie(
+                client.as_ref(),
+                host.xauthority.is_some(),
+                desktop::lstat(&cookie).is_some(),
+            ),
         };
         let mut sockets = Vec::with_capacity(wanted.len());
         for kind in wanted {

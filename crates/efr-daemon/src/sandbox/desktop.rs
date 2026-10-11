@@ -44,8 +44,8 @@ pub(crate) struct Facts<'a> {
     pub(crate) user_runtime: &'a Path,
     /// The user's id.
     pub(crate) uid: u32,
-    /// True when an X server needs a cookie: the host has `$XAUTHORITY` or
-    /// `~/.Xauthority`.
+    /// True when an X server needs a cookie: the prompt's terminal or efrd's start
+    /// environment has `$XAUTHORITY`, or `~/.Xauthority` exists.
     pub(crate) needs_cookie: bool,
 }
 
@@ -73,6 +73,7 @@ pub(crate) fn from_env(env: &BTreeMap<String, String>) -> DesktopEnv {
         swaysock: get("SWAYSOCK"),
         i3sock: get("I3SOCK"),
         niri_socket: get("NIRI_SOCKET"),
+        has_xauthority: get("XAUTHORITY").is_some(),
     }
 }
 
@@ -80,6 +81,18 @@ pub(crate) fn from_env(env: &BTreeMap<String, String>) -> DesktopEnv {
 /// it sent any; else efrd's own start environment, `daemon`.
 pub(crate) fn chosen<'a>(client: Option<&'a DesktopEnv>, daemon: &'a DesktopEnv) -> &'a DesktopEnv {
     client.filter(|env| !env.is_empty()).unwrap_or(daemon)
+}
+
+/// True when an X server needs a cookie: the prompt's terminal, `client`, has
+/// `$XAUTHORITY`, efrd's start environment has it (`daemon_xauthority`), or
+/// `~/.Xauthority` exists (`home_cookie`). A display manager often sets `$XAUTHORITY`
+/// in the session but not for the user service, so the terminal's flag counts too.
+pub(crate) fn needs_cookie(
+    client: Option<&DesktopEnv>,
+    daemon_xauthority: bool,
+    home_cookie: bool,
+) -> bool {
+    client.is_some_and(|env| env.has_xauthority) || daemon_xauthority || home_cookie
 }
 
 /// The value of the variable of `desktop` in `env`.

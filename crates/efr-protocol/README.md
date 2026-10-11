@@ -18,7 +18,7 @@ Where things are:
 | `src/version.rs` | `PROTOCOL_VERSION` |
 | `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `QuestionId`, `CompactionId`, `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
-| `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state, and `DesktopEnv`, the desktop variables of the shell |
+| `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state, and `DesktopEnv`, the desktop variables of the shell and whether it has `$XAUTHORITY` |
 | `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
 | `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant`, `BusKind`, `DesktopKind` (with the variable that names its socket and its name for a person), `CacheMode`, `NetworkMode`, `ModeFallback` |
 | `src/sandbox/exit.rs` | `ExitKind`, `ExitSource`, `Needs` (the shell tool's `needs` input and its schema), `ExitInfo` |

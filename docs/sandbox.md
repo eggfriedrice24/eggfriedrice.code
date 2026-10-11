@@ -317,7 +317,8 @@ session bus or a credential agent. The call never gets another socket of the
 desktop, such as Hyprland's event socket `.socket2.sock`, and never its dir or its
 log. When efr finds no such socket, the call does not run, and the model reads "efr
 found no Hyprland session in the terminal of this prompt". An X server that needs an
-X cookie (`$XAUTHORITY` or `~/.Xauthority`) is refused for now: the cookie file stays
+X cookie (`$XAUTHORITY` in your terminal or in efrd's environment, or
+`~/.Xauthority`) is refused for now: the cookie file stays
 masked. `ydotool` talks to its own daemon, so its exit opens nothing.
 
 **The reviewer.** In `auto`, the user's request is the permission. A reviewer model

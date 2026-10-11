@@ -214,7 +214,8 @@ impl KeyInput for ProcessKeyInput {
 }
 
 /// The desktop variables that `var` gives: only the six names of [`DesktopEnv`], never
-/// another variable, an empty one counts as unset; `None` when none is set.
+/// another variable, an empty one counts as unset, and whether `$XAUTHORITY` is set,
+/// never its path; `None` when none of the six is set.
 pub(crate) fn desktop_env(var: impl Fn(&str) -> Option<String>) -> Option<Box<DesktopEnv>> {
     let get = |name: &str| var(name).filter(|value| !value.is_empty());
     let env = DesktopEnv {
@@ -224,6 +225,7 @@ pub(crate) fn desktop_env(var: impl Fn(&str) -> Option<String>) -> Option<Box<De
         swaysock: get("SWAYSOCK"),
         i3sock: get("I3SOCK"),
         niri_socket: get("NIRI_SOCKET"),
+        has_xauthority: get("XAUTHORITY").is_some(),
     };
     (!env.is_empty()).then(|| Box::new(env))
 }
