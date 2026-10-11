@@ -183,15 +183,7 @@ fn the_three_modes_and_who_changes_the_settings_are_in_every_preamble() {
             "\n- manual: every read, write, command and network access asks the user",
             "\n- cautious: reads outside secrets, the read-only commands, and writes in \
              $SCRATCH and in the turn's registered project run at once",
-            "\n- auto: shell commands run at once in a sandbox.",
-            "call shell again with the narrowest needs that fits and a reason; the user \
-             decides.",
-            "needs.bus a message bus for systemctl",
-            "journalctl needs no grant",
-            "Ask for needs.outside only when nothing narrower fits, and say why in the reason",
-            "A command that must run outside the sandbox (sudo, a push) must be alone in its \
-             call",
-            "nested_shell is not available in auto.",
+            "\n- auto: do what the user asks. The request is the permission.",
             "Only the user changes this terminal's mode, model and effort, with the lines \
              ,mode ,model and ,effort",
             "in sticky mode a bare line such as mode auto works too",
@@ -240,7 +232,56 @@ fn a_turn_that_fell_back_says_which_mode_it_runs_as_and_why() {
 #[test]
 fn the_auto_rule_promises_nothing_of_a_later_phase() {
     let text = minimal().render();
-    for later in ["phase", "reviewer", "proxy", "undo", "registries"] {
+    for later in ["phase", "proxy", "undo", "registries", "background: true", "notice"] {
         assert!(!text.contains(later), "{later:?} in {text}");
     }
+}
+
+/// The rule of `auto` alone.
+fn auto_rule() -> &'static str {
+    super::mode_rule(Mode::Auto)
+}
+
+#[test]
+fn prompt_auto_says_do_what_the_user_asks() {
+    let rule = auto_rule();
+    for says in [
+        "do what the user asks.",
+        "The request is the permission.",
+        "Never tell the user that you lack permission before you try.",
+        "efr decides: it runs it in a sandbox, or it asks its reviewer or the user.",
+        "so run such commands as they are.",
+        "call shell again with the narrowest needs and a short reason.",
+        "must be alone in its call.",
+        "If efr refuses an action, do not try it another way.",
+    ] {
+        assert!(rule.contains(says), "{says:?} in {rule}");
+    }
+    assert!(!rule.starts_with("In auto"), "the list names the mode already: {rule}");
+}
+
+#[test]
+fn prompt_auto_has_no_cannot_list() {
+    let rule = auto_rule();
+    for refused in ["cannot", "have no network", "can write only", "D-Bus", "nested_shell", "ask;"]
+    {
+        assert!(!rule.contains(refused), "{refused:?} in {rule}");
+    }
+    // One short sentence about what differs in the sandbox, and nothing else of limits.
+    let limits =
+        rule.split(". ").filter(|sentence| sentence.contains("differ")).collect::<Vec<_>>();
+    assert_eq!(limits, vec!["In the sandbox, tty, $$ and df can differ from the host."]);
+}
+
+#[test]
+fn prompt_auto_names_scratch_and_background() {
+    let rule = auto_rule();
+    assert!(rule.contains("share files with the user through $SCRATCH"), "{rule}");
+    assert!(
+        rule.contains(
+            "Background processes stop when the command ends, so start a server and its test \
+             in one command."
+        ),
+        "{rule}"
+    );
 }
