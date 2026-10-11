@@ -64,11 +64,11 @@ impl PtyHolder for NoHolder {
     }
 }
 
-fn toolbox(home: &Path) -> DaemonToolbox {
+pub(super) fn toolbox(home: &Path) -> DaemonToolbox {
     toolbox_with(home, Settings::default()).0
 }
 
-fn toolbox_with(
+pub(super) fn toolbox_with(
     home: &Path,
     settings: Settings,
 ) -> (DaemonToolbox, tokio::sync::watch::Sender<Arc<Settings>>) {
@@ -141,7 +141,7 @@ fn only_an_approved_interactive_call_gets_the_interactive_limit_of_the_latest_se
     );
 }
 
-fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {
+pub(super) fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {
     let id = |n: u128| uuid::Uuid::from_u128(n);
     let context = CallContext::new(
         ConversationId::from_uuid(id(1)),
@@ -937,7 +937,7 @@ async fn sandboxed(root: &Path, settings: Settings) -> DaemonToolbox {
 }
 
 /// A temp dir and its path with every link resolved.
-fn canonical_temp() -> (tempfile::TempDir, PathBuf) {
+pub(super) fn canonical_temp() -> (tempfile::TempDir, PathBuf) {
     let temp = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(temp.path()).unwrap();
     (temp, root)
@@ -1027,12 +1027,20 @@ async fn a_cache_delete_never_follows_a_link_out_of_its_cache() {
 }
 
 /// An approved `persistence` exit for `target` whose file efrd copies first.
-fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
+pub(super) fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
+    let mut need = home_write(target);
+    need.kind = efr_protocol::ExitKind::Persistence;
+    need.approver = efr_permissions::Approver::ClassifierWhenNamed;
+    need
+}
+
+/// An approved `write` exit for the home file `target` whose file efrd copies first.
+pub(super) fn home_write(target: &Path) -> efr_permissions::ExitNeed {
     efr_permissions::ExitNeed {
-        kind: efr_protocol::ExitKind::Persistence,
+        kind: efr_protocol::ExitKind::Write,
         grants: Vec::new(),
         part: format!("write_file {}", target.display()),
-        approver: efr_permissions::Approver::ClassifierWhenNamed,
+        approver: efr_permissions::Approver::Classifier,
         names: Vec::new(),
         hosts: Vec::new(),
         backup_before_write: true,
@@ -1041,18 +1049,89 @@ fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
         target: Some(target.to_path_buf()),
         bind: None,
         link: None,
-        copies: Vec::new(),
-        covered: None,
+        copies: vec![efr_permissions::CoverAsk::Home(target.to_path_buf())],
+        covered: Some(true),
     }
 }
 
-/// A toolbox for `root/home` that keeps backups in `root/data/file-backups`.
-fn backing_up(root: &Path) -> (DaemonToolbox, PathBuf, PathBuf) {
+/// A toolbox with the sandbox service, the snapshot store and the undo trash, all below
+/// `root`, whose home is `root/home`.
+pub(super) struct Kept {
+    pub(super) toolbox: DaemonToolbox,
+    pub(super) home: PathBuf,
+    pub(super) store: efr_snapshot::Snapshots,
+    pub(super) settings: tokio::sync::watch::Sender<Arc<Settings>>,
+}
+
+pub(super) async fn kept(root: &Path, settings: Settings) -> Kept {
+    kept_in(root, &root.join("d"), settings).await
+}
+
+/// [`kept`] with efr's data root at `data`.
+pub(super) async fn kept_in(root: &Path, data: &Path, settings: Settings) -> Kept {
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let store = root.join("data/file-backups");
-    std::fs::create_dir_all(store.parent().unwrap()).unwrap();
-    (toolbox(&home).with_backup_dir(store.clone()), home, store)
+    let clock = TestClock::new();
+    let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
+    let dirs =
+        efr_stdx::paths::Dirs::new(root.join("c"), data, root.join("s"), root.join("r")).unwrap();
+    let sandbox = crate::sandbox::SandboxService::new(crate::sandbox::ServiceParts {
+        dirs: dirs.clone(),
+        home: Home::new(&home).unwrap(),
+        host: crate::sandbox::HostFacts::default(),
+        source: None,
+        seams: crate::sandbox::Seams::default(),
+        registry: dirs.config().join("projects.toml"),
+        writer: store.writer().clone(),
+        clock: clock.shared(),
+        rng: Arc::new(TestRng::new(3)),
+        git: efr_scope::Git::new(clock.shared()).isolated(),
+    })
+    .await;
+    let engine = Engine::with_defaults(Locations::new(&home).unwrap());
+    let (_engine, engine) = tokio::sync::watch::channel(Arc::new(engine));
+    let (toolbox, sender) = toolbox_with(&home, settings);
+    let snapshots = efr_snapshot::Snapshots::new(efr_snapshot::SnapshotParts {
+        dir: data.join("snapshots"),
+        git: efr_scope::Git::new(clock.shared()).isolated(),
+        home: Home::new(&home).unwrap(),
+        clock: clock.shared(),
+        excludes_file: None,
+        timeout: efr_snapshot::DEFAULT_SNAPSHOT_TIMEOUT,
+    });
+    let call_snapshots = crate::tools::CallSnapshots::new(
+        snapshots.clone(),
+        engine.clone(),
+        sender.subscribe(),
+        Home::new(&home).unwrap(),
+    )
+    .with_state(root.join("s"));
+    let toolbox = toolbox
+        .with_sandbox(sandbox, engine)
+        .with_snapshots(call_snapshots)
+        .with_undo_trash(data.join(crate::home::UNDO_TRASH_DIR))
+        .with_efr_roots(vec![root.join("c"), data.to_path_buf(), root.join("s"), root.join("r")]);
+    Kept { toolbox, home, store: snapshots, settings: sender }
+}
+
+/// A call of the turn `turn` (call `n`) of conversation 1, in `auto`.
+pub(super) fn call_of(
+    turn: u128,
+    n: u128,
+    name: &str,
+    input: serde_json::Value,
+    cwd: &Path,
+) -> ToolCall {
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let context = CallContext::new(
+        ConversationId::from_uuid(id(1)),
+        TurnId::from_uuid(id(turn)),
+        CallId::from_uuid(id(turn * 100 + n)),
+        cwd,
+        cwd.join("scratch"),
+    )
+    .with_auto(true);
+    ToolCall::new(name, input, context)
 }
 
 /// Runs `write_file` of `content` to `path` with the approved exits `exits`.
@@ -1069,154 +1148,328 @@ async fn write_with(
     toolbox.invoke(write, &mut sink).await
 }
 
-/// The one entry of the test's turn in `store`.
-fn only_entry(store: &Path) -> PathBuf {
+/// The bytes of each home path in the home store from before the turn 2 of
+/// conversation 1, as the undo of the turn would write them.
+async fn copied(kept: &Kept) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     let id = |n: u128| uuid::Uuid::from_u128(n);
-    let turn = store
-        .join(ConversationId::from_uuid(id(1)).to_string())
-        .join(TurnId::from_uuid(id(2)).to_string());
-    let entries: Vec<_> = std::fs::read_dir(&turn).unwrap().flatten().collect();
-    assert_eq!(entries.len(), 1, "{entries:?}");
-    entries[0].path()
+    let plan = kept
+        .store
+        .plan_undo(
+            ConversationId::from_uuid(id(1)),
+            TurnId::from_uuid(id(2)),
+            &[],
+            false,
+            "u-0192f8a0-0000-7000-8000-000000000001",
+            efr_snapshot::Limits::default(),
+        )
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    for step in plan.home.steps {
+        let bytes = match &step.blob {
+            Some(blob) => Some(kept.store.home_blob(blob).await.unwrap()),
+            None => None,
+        };
+        out.push((step.path, bytes));
+    }
+    out
 }
 
 #[tokio::test]
-async fn floor_backup_taken_before_write_file() {
+async fn home_copy_before_write_file_outside_roots() {
     let (_temp, root) = canonical_temp();
-    let (toolbox, home, store) = backing_up(&root);
-    let zshrc = home.join(".zshrc");
-    std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
+    let kept = kept(&root, Settings::default()).await;
+    let notes = kept.home.join("Documents/notes.md");
+    std::fs::create_dir_all(notes.parent().unwrap()).unwrap();
+    std::fs::write(&notes, "old notes\n").unwrap();
 
     let outcome =
-        write_with(&toolbox, &home, &zshrc, "alias k=kubectl\n", vec![floor_edit(&zshrc)]).await;
+        write_with(&kept.toolbox, &kept.home, &notes, "new notes\n", vec![home_write(&notes)])
+            .await;
 
     assert!(!outcome.is_error, "{outcome:?}");
-    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias k=kubectl\n");
-    let entry = only_entry(&store);
-    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "new notes\n");
+    assert_eq!(copied(&kept).await, [(notes.clone(), Some(b"old notes\n".to_vec()))]);
     assert_eq!(
         outcome.backups,
         [efr_conversation::FileBackup {
-            path: zshrc,
-            backup: entry.join(".zshrc"),
-            floor: true,
+            path: notes,
+            backup: root.join("d/snapshots/home.git"),
+            floor: false,
             real: None,
             reason: None
         }]
     );
+    assert!(!root.join("d/file-backups").exists(), "the phase A store gets nothing");
 }
 
 #[tokio::test]
-async fn floor_backup_follows_link_target() {
+async fn home_copy_names_the_link_of_a_floor_file() {
     let (_temp, root) = canonical_temp();
-    let (toolbox, home, store) = backing_up(&root);
+    let kept = kept(&root, Settings::default()).await;
+    let home = &kept.home;
     let real = home.join("dotfiles/zsh/.zshrc");
     std::fs::create_dir_all(real.parent().unwrap()).unwrap();
     std::fs::write(&real, "old\n").unwrap();
     let zshrc = home.join(".zshrc");
     std::os::unix::fs::symlink(&real, &zshrc).unwrap();
+    let mut need = floor_edit(&real);
+    need.link = Some(zshrc.clone());
 
     // write_file refuses a path through a link, so the model writes the real file.
-    let outcome = write_with(&toolbox, &home, &real, "new\n", vec![floor_edit(&zshrc)]).await;
+    let outcome = write_with(&kept.toolbox, home, &real, "new\n", vec![need]).await;
 
     assert!(!outcome.is_error, "{outcome:?}");
-    let entry = only_entry(&store);
-    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "old\n");
-    let meta: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(entry.join("meta.json")).unwrap()).unwrap();
-    assert_eq!(meta["path"], json!(zshrc));
-    assert_eq!(meta["links"], json!([zshrc]));
-    assert_eq!(meta["real"], json!(real));
-    assert_eq!(outcome.backups.len(), 1);
+    let [backup] = outcome.backups.try_into().unwrap();
+    assert_eq!((backup.path, backup.real, backup.floor), (zshrc.clone(), Some(real.clone()), true));
+    assert_eq!(copied(&kept).await, [(real, Some(b"old\n".to_vec()))], "the link did not change");
     assert!(std::fs::symlink_metadata(&zshrc).unwrap().file_type().is_symlink());
 }
 
 #[tokio::test]
-async fn floor_backup_records_missing_target() {
+async fn home_copy_of_a_missing_file_and_an_unchanged_one() {
     let (_temp, root) = canonical_temp();
-    let (toolbox, home, store) = backing_up(&root);
-    let conf = home.join(".config/hypr/monitors.conf");
+    let kept = kept(&root, Settings::default()).await;
+    let conf = kept.home.join(".config/hypr/monitors.conf");
     std::fs::create_dir_all(conf.parent().unwrap()).unwrap();
+    let gitconfig = kept.home.join(".gitconfig");
+    std::fs::write(&gitconfig, "[user]\n").unwrap();
 
-    let outcome =
-        write_with(&toolbox, &home, &conf, "monitor=,preferred,auto,1\n", vec![floor_edit(&conf)])
+    let made =
+        write_with(&kept.toolbox, &kept.home, &conf, "monitor=\n", vec![floor_edit(&conf)]).await;
+    let same =
+        write_with(&kept.toolbox, &kept.home, &gitconfig, "[user]\n", vec![floor_edit(&gitconfig)])
             .await;
 
-    assert!(!outcome.is_error, "{outcome:?}");
-    let entry = only_entry(&store);
-    let meta: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(entry.join("meta.json")).unwrap()).unwrap();
-    assert_eq!(meta["missing"], json!(true));
-    assert_eq!(meta["mode"], json!(null));
-    assert!(!entry.join("monitors.conf").exists(), "nothing to copy");
-    assert_eq!(outcome.backups.len(), 1);
-    assert_eq!(outcome.backups[0].backup, entry.join("meta.json"));
+    assert_eq!(made.backups.len(), 1, "{made:?}");
+    assert_eq!(made.backups[0].reason, None);
+    assert_eq!(same.backups, [], "an unchanged file is no change");
+    assert_eq!(copied(&kept).await, [(conf, None)], "missing before, so undo trashes it");
 }
 
 #[tokio::test]
-async fn floor_backup_failure_stops_the_call() {
+async fn home_copy_failure_stops_the_call() {
     let (_temp, root) = canonical_temp();
-    let (broken, home, store) = backing_up(&root);
-    // Something that is not a directory stands where the store goes.
-    std::fs::write(&store, "not a dir").unwrap();
-    let zshrc = home.join(".zshrc");
+    let kept = kept(&root, Settings::default()).await;
+    let zshrc = kept.home.join(".zshrc");
     std::fs::write(&zshrc, "old\n").unwrap();
+    // Something that is not a directory stands where the store goes.
+    std::fs::create_dir_all(root.join("d")).unwrap();
+    std::fs::write(root.join("d/snapshots"), "not a dir").unwrap();
 
-    let outcome = write_with(&broken, &home, &zshrc, "new\n", vec![floor_edit(&zshrc)]).await;
+    let outcome =
+        write_with(&kept.toolbox, &kept.home, &zshrc, "new\n", vec![floor_edit(&zshrc)]).await;
+    let without = toolbox(&kept.home);
+    let no_store =
+        write_with(&without, &kept.home, &zshrc, "new\n", vec![floor_edit(&zshrc)]).await;
 
-    assert!(outcome.is_error, "{outcome:?}");
-    assert!(outcome.output.contains("did not run"), "{}", outcome.output);
+    for outcome in [outcome, no_store] {
+        assert!(outcome.is_error, "{outcome:?}");
+        assert!(outcome.output.contains("did not run"), "{}", outcome.output);
+    }
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "old\n", "the edit did not run");
-
-    let without = toolbox(&home);
-    let outcome = write_with(&without, &home, &zshrc, "new\n", vec![floor_edit(&zshrc)]).await;
-    assert!(outcome.is_error, "no store, no edit: {outcome:?}");
-    assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "old\n");
 }
 
 #[tokio::test]
-async fn floor_backup_unchanged_file_leaves_no_entry() {
+async fn home_copy_never_copies_a_masked_floor() {
     let (_temp, root) = canonical_temp();
-    let (toolbox, home, store) = backing_up(&root);
-    let gitconfig = home.join(".gitconfig");
-    std::fs::write(&gitconfig, "[user]\n\tname = u\n").unwrap();
-
-    let outcome = write_with(
-        &toolbox,
-        &home,
-        &gitconfig,
-        "[user]\n\tname = u\n",
-        vec![floor_edit(&gitconfig)],
-    )
-    .await;
-
-    assert!(!outcome.is_error, "{outcome:?}");
-    assert_eq!(outcome.backups, []);
-    assert_eq!(std::fs::read_dir(&store).unwrap().count(), 0, "no entry and no empty dirs");
-}
-
-#[tokio::test]
-async fn floor_backup_never_copies_mask_or_secret() {
-    let (_temp, root) = canonical_temp();
-    let (toolbox, home, store) = backing_up(&root);
+    let kept = kept(&root, Settings::default()).await;
+    let home = &kept.home;
     std::fs::create_dir_all(home.join(".ssh")).unwrap();
     std::fs::create_dir_all(home.join(".aws")).unwrap();
     std::fs::write(home.join(".ssh/config"), "Host *\n").unwrap();
-    std::fs::write(home.join(".aws/zshrc"), "export AWS_SECRET=1\n").unwrap();
-    // A floor file whose real file is a masked one.
-    std::os::unix::fs::symlink(home.join(".aws/zshrc"), home.join(".zshrc")).unwrap();
+    std::fs::write(home.join(".aws/config"), "[default]\n").unwrap();
 
     let secret = home.join(".ssh/config");
-    let outcome = write_with(&toolbox, &home, &secret, "x\n", vec![floor_edit(&secret)]).await;
-    let masked = home.join(".aws/zshrc");
-    let linked =
-        write_with(&toolbox, &home, &masked, "x\n", vec![floor_edit(&home.join(".zshrc"))]).await;
+    let floor = write_with(&kept.toolbox, home, &secret, "x\n", vec![floor_edit(&secret)]).await;
+    let masked = home.join(".aws/config");
+    let write = write_with(&kept.toolbox, home, &masked, "y\n", vec![home_write(&masked)]).await;
 
-    for outcome in [outcome, linked] {
-        assert!(outcome.is_error, "{outcome:?}");
-        assert!(outcome.output.contains("secret or a masked file"), "{}", outcome.output);
+    assert!(floor.is_error && floor.output.contains("secret or a masked file"), "{floor:?}");
+    assert_eq!(std::fs::read_to_string(&secret).unwrap(), "Host *\n");
+    assert!(!write.is_error, "a masked write runs with no copy: {write:?}");
+    let [backup] = write.backups.try_into().unwrap();
+    assert_eq!(backup.reason, Some(efr_protocol::UndoReason::Masked));
+}
+
+#[tokio::test]
+async fn facts_answer_cover_asks_for_root_and_home() {
+    use efr_permissions::{CoverAsk, Coverage};
+
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let home = &kept.home;
+    let work = home.join("work");
+    let scratch = work.join("scratch");
+    std::fs::create_dir_all(scratch.join("build")).unwrap();
+    std::fs::write(scratch.join("build/out.txt"), "out\n").unwrap();
+    std::fs::write(home.join("notes.md"), "notes\n").unwrap();
+    std::fs::create_dir_all(home.join(".ssh")).unwrap();
+    std::fs::write(home.join(".ssh/id"), "KEY\n").unwrap();
+    let call = call_of(2, 1, "shell", json!({"command": "rm -r build"}), &work);
+    let asks = [
+        CoverAsk::Path(scratch.join("build")),
+        CoverAsk::Path(scratch.join("never-made")),
+        CoverAsk::Path(scratch.clone()),
+        CoverAsk::Path(home.join("elsewhere")),
+        CoverAsk::Home(home.join("notes.md")),
+        CoverAsk::Home(home.join(".ssh/id")),
+        CoverAsk::Home(scratch.join("build/out.txt")),
+    ];
+
+    let mut answers = kept.toolbox.cover_facts(&call.context, &asks).await;
+    answers.sort_by_key(|(ask, _)| format!("{ask:?}"));
+
+    let mut expected = vec![
+        (asks[0].clone(), Coverage::Covered),
+        (asks[1].clone(), Coverage::Covered),
+        (asks[2].clone(), Coverage::NotAllowed),
+        (asks[3].clone(), Coverage::NotAllowed),
+        (asks[4].clone(), Coverage::Covered),
+        (asks[5].clone(), Coverage::Masked),
+    ];
+    expected.sort_by_key(|(ask, _)| format!("{ask:?}"));
+    assert_eq!(answers, expected, "a home ask inside a root gets no answer");
+}
+
+#[tokio::test]
+async fn covered_line_stops_when_coverage_changes_under_the_lock() {
+    use efr_permissions::CoverAsk;
+
+    let (_temp, root) = canonical_temp();
+    let mut settings = Settings::default();
+    settings.snapshot.max_file_mib = 1;
+    let kept = kept(&root, settings).await;
+    let work = kept.home.join("work");
+    let scratch = work.join("scratch");
+    std::fs::create_dir_all(scratch.join("build")).unwrap();
+    std::fs::write(scratch.join("build/out.txt"), "out\n").unwrap();
+    let call = call_of(2, 1, "shell", json!({"command": "rm -r build"}), &work);
+    let ask = CoverAsk::Path(scratch.join("build"));
+
+    let answers = kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask)).await;
+    assert!(answers[0].1.is_covered(), "{answers:?}");
+    std::fs::write(scratch.join("build/big.bin"), vec![1_u8; 2 * 1024 * 1024]).unwrap();
+    let stop = kept.toolbox.check_covered(&call.context, &[]).await;
+
+    assert_eq!(stop.as_deref(), Some(crate::tools::COVERAGE_CHANGED));
+    let again = kept.toolbox.check_covered(&call.context, &[]).await;
+    assert_eq!(again, None, "the answers go with the check");
+}
+
+#[tokio::test]
+async fn covered_line_stops_when_the_capture_fails() {
+    use efr_permissions::CoverAsk;
+
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let work = kept.home.join("work");
+    let scratch = work.join("scratch");
+    std::fs::create_dir_all(scratch.join("build")).unwrap();
+    std::fs::write(scratch.join("build/out.txt"), "out\n").unwrap();
+    let call = call_of(2, 1, "shell", json!({"command": "rm -r build"}), &work);
+    let ask = CoverAsk::Path(scratch.join("build"));
+
+    let answers = kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask)).await;
+    assert!(answers[0].1.is_covered(), "{answers:?}");
+    std::fs::remove_dir_all(&scratch).unwrap();
+    let stop = kept.toolbox.check_covered(&call.context, &[]).await;
+
+    assert_eq!(stop.as_deref(), Some(crate::tools::COVERAGE_CHANGED));
+}
+
+#[tokio::test]
+async fn turn_end_counts_home_files() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let notes = kept.home.join("notes.md");
+    std::fs::write(&notes, "old\n").unwrap();
+    let masked = kept.home.join(".aws/config");
+    std::fs::create_dir_all(masked.parent().unwrap()).unwrap();
+    let run = async |path: &Path, n: u128| {
+        let mut write =
+            call_of(2, n, "write_file", json!({"path": path, "content": "new\n"}), &kept.home);
+        write.context = write.context.with_exits(vec![home_write(path)]);
+        let mut sink = |_: &str, _: u64| {};
+        kept.toolbox.invoke(write, &mut sink).await
+    };
+
+    run(&notes, 1).await;
+    run(&masked, 2).await;
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let changes =
+        kept.toolbox.turn_changes(ConversationId::from_uuid(id(1)), TurnId::from_uuid(id(2))).await;
+
+    let undo = changes.undo.unwrap();
+    assert_eq!(undo.home_files, 1);
+    assert_eq!(undo.not_covered, ["~/.aws/config (masked)"]);
+    assert!(
+        changes.snapshots.iter().any(|record| record.root == "home"),
+        "{:?}",
+        changes.snapshots
+    );
+}
+
+#[tokio::test]
+async fn turn_end_not_undoable_while_a_call_runs() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let work = kept.home.join("work");
+    std::fs::create_dir_all(work.join("scratch")).unwrap();
+    let file = work.join("scratch/a.txt");
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let turn = async |turn: u128| {
+        let write = call_of(turn, 1, "write_file", json!({"path": file, "content": "x\n"}), &work);
+        let mut sink = |_: &str, _: u64| {};
+        kept.toolbox.invoke(write, &mut sink).await;
+        kept.toolbox
+            .turn_changes(ConversationId::from_uuid(id(1)), TurnId::from_uuid(id(turn)))
+            .await
+    };
+
+    let idle = turn(2).await.undo.unwrap();
+    let call_dir = root.join("r/sbx").join(ConversationId::from_uuid(id(1)).to_string()).join("c1");
+    std::fs::create_dir_all(&call_dir).unwrap();
+    std::fs::write(call_dir.join(efr_sandbox::STARTED_FILE), "").unwrap();
+    let busy = turn(3).await.undo.unwrap();
+
+    assert!(idle.undoable, "{idle:?}");
+    assert_eq!(idle.roots, [efr_protocol::RootFiles { shown: "$SCRATCH".to_owned(), files: 1 }]);
+    assert!(!busy.undoable, "{busy:?}");
+    assert_eq!(busy.not_covered, ["$SCRATCH (a call still runs)"]);
+    assert!(kept.toolbox.call_runs(ConversationId::from_uuid(id(1))));
+}
+
+#[tokio::test]
+async fn cache_delete_is_copied_under_the_limits() {
+    let (_temp, root) = canonical_temp();
+    let mut settings = Settings::default();
+    settings.snapshot.home_max_files = 3;
+    let kept = kept(&root, settings).await;
+    let cache = kept.home.join(".cache");
+    std::fs::create_dir_all(cache.join("small")).unwrap();
+    std::fs::write(cache.join("small/a"), "a\n").unwrap();
+    std::fs::create_dir_all(cache.join("big")).unwrap();
+    for n in 0..5 {
+        std::fs::write(cache.join(format!("big/{n}")), "x\n").unwrap();
     }
-    assert_eq!(std::fs::read_to_string(home.join(".ssh/config")).unwrap(), "Host *\n");
-    assert_eq!(std::fs::read_to_string(&masked).unwrap(), "export AWS_SECRET=1\n");
-    assert!(!store.exists() || std::fs::read_dir(&store).unwrap().count() == 0);
+    let call = call_of(2, 1, "shell", json!({"command": "rm -rf ~/.cache/small"}), &kept.home);
+
+    let small =
+        kept.toolbox.delete_cache_paths(&call.context, &[cache.join("small")]).await.unwrap();
+    let big = kept.toolbox.delete_cache_paths(&call.context, &[cache.join("big")]).await.unwrap();
+
+    assert_eq!(small.deleted, [cache.join("small")]);
+    assert_eq!(big.deleted, [cache.join("big")]);
+    let copies = copied(&kept).await;
+    assert!(copies.contains(&(cache.join("small/a"), Some(b"a\n".to_vec()))), "{copies:?}");
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let changes =
+        kept.toolbox.turn_changes(ConversationId::from_uuid(id(1)), TurnId::from_uuid(id(2))).await;
+    let undo = changes.undo.unwrap();
+    assert_eq!(undo.home_files, 1, "{undo:?}");
+    assert!(
+        undo.not_covered.contains(&"~/.cache/big (over the copy limits)".to_owned()),
+        "{undo:?}"
+    );
 }

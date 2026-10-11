@@ -32,6 +32,7 @@ use efr_test_support::{TestDirs, Wait};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
+use crate::home::home_copies;
 use crate::support::zsh_enabled;
 
 /// A sandbox that the probe found ready.
@@ -54,13 +55,13 @@ fn ready() -> SandboxStatus {
 const REVIEWER_ASKS: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user decides"}"#;
 
 /// The reviewer's answer that allows an exit.
-const REVIEWER_ALLOWS: &str = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"fits the request","rationale":"the user named the file"}"#;
+pub(crate) const REVIEWER_ALLOWS: &str = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"fits the request","rationale":"the user named the file"}"#;
 
 /// A model that calls a tool with each input in turn, then says `done`. A request of
 /// the reviewer (a one-shot request) gets `verdict` and does not count as a turn's
 /// call.
 #[derive(Debug)]
-struct ScriptedModel {
+pub(crate) struct ScriptedModel {
     id: ProviderId,
     calls: Vec<(String, Value)>,
     verdict: &'static str,
@@ -76,7 +77,7 @@ impl ScriptedModel {
     }
 
     /// Calls each tool with its input; the reviewer answers `verdict`.
-    fn reviewed(calls: Vec<(&str, Value)>, verdict: &'static str) -> Arc<Self> {
+    pub(crate) fn reviewed(calls: Vec<(&str, Value)>, verdict: &'static str) -> Arc<Self> {
         Arc::new(ScriptedModel {
             id: ProviderId::new("test").unwrap(),
             calls: calls.into_iter().map(|(name, input)| (name.to_owned(), input)).collect(),
@@ -126,7 +127,7 @@ impl Provider for ScriptedModel {
 }
 
 /// A turn's events, with each approval answered by `decision`.
-async fn run_turn(
+pub(crate) async fn run_turn(
     daemon: &TestDaemon,
     text: &str,
     mode: Mode,
@@ -202,7 +203,7 @@ fn started_settings(events: &[EventEnvelope]) -> efr_protocol::EffectiveSettings
         .unwrap()
 }
 
-fn kinds(events: &[EventEnvelope]) -> Vec<&str> {
+pub(crate) fn kinds(events: &[EventEnvelope]) -> Vec<&str> {
     events.iter().map(|envelope| envelope.event.kind()).collect()
 }
 
@@ -387,7 +388,7 @@ async fn sandbox_explain_answers_from_the_plan() {
     assert_eq!(
         answer.reason,
         "a shell startup file (floor); a write goes to the reviewer when a message of yours \
-         names the file, and efr keeps a backup copy; else you decide"
+         names the file, and efr copies the file first, so efr undo reverts it; else you decide"
     );
     assert_eq!((answer.read, answer.write), (true, false));
     assert_eq!(answer.write_exit, Some(efr_protocol::ExitKind::Persistence));
@@ -1140,25 +1141,6 @@ async fn shell_a_survivor_of_an_exit_closes_the_hidden_shell() {
     daemon.stop().await.unwrap();
 }
 
-/// The entries of efr's backup store of floor files, each a dir with `meta.json`.
-fn backup_entries(dirs: &TestDirs) -> Vec<PathBuf> {
-    let mut entries = Vec::new();
-    let mut todo = vec![dirs.dirs().data().join("file-backups")];
-    while let Some(dir) = todo.pop() {
-        let Ok(read) = std::fs::read_dir(&dir) else { continue };
-        if dir.join("meta.json").is_file() {
-            entries.push(dir.clone());
-        }
-        todo.extend(read.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()));
-    }
-    entries
-}
-
-/// The `meta.json` of a backup entry.
-fn backup_meta(entry: &Path) -> Value {
-    serde_json::from_slice(&std::fs::read(entry.join("meta.json")).unwrap()).unwrap()
-}
-
 #[tokio::test]
 async fn shell_floor_backup_taken_before_exit_child_line() {
     if !zsh_enabled("shell_floor_backup_taken_before_exit_child_line") {
@@ -1191,9 +1173,7 @@ async fn shell_floor_backup_taken_before_exit_child_line() {
     let [spec] = specs(&fake).try_into().unwrap();
     assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias ll='ls -l'\nalias k=kubectl\n");
-    let [entry] = backup_entries(&dirs).try_into().unwrap();
-    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
-    assert_eq!(backup_meta(&entry)["path"], json!(zshrc));
+    assert_eq!(home_copies(&dirs).await, [(zshrc, "alias ll='ls -l'\n".to_owned())]);
     daemon.stop().await.unwrap();
 }
 
@@ -1226,11 +1206,10 @@ async fn shell_a_named_floor_edit_runs_in_the_exit_child_after_the_reviewers_all
     let [spec] = specs(&fake).try_into().unwrap();
     assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias ll='ls -l'\nalias k=kubectl\n");
-    let [entry] = backup_entries(&dirs).try_into().unwrap();
-    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
+    assert_eq!(home_copies(&dirs).await, [(zshrc.clone(), "alias ll='ls -l'\n".to_owned())]);
     assert!(events.iter().any(|envelope| matches!(
         &envelope.event,
-        Event::HomeFileChanged { backup: Some(backup), .. } if *backup == entry.join(".zshrc")
+        Event::HomeFileChanged { path, floor: true, .. } if *path == zshrc
     )));
     daemon.stop().await.unwrap();
 }
@@ -1280,10 +1259,7 @@ async fn shell_floor_backup_through_linked_config_dir() {
     let [spec] = specs(&fake).try_into().unwrap();
     assert_eq!(spec.launch, efr_sandbox::SpecLaunch::Unsandboxed);
     assert_eq!(std::fs::read_to_string(&real).unwrap(), "gaps_in = 10\n", "the line ran");
-    let [entry] = backup_entries(&dirs).try_into().unwrap();
-    assert_eq!(std::fs::read_to_string(entry.join("hyprland.conf")).unwrap(), "gaps_in = 5\n");
-    let meta = backup_meta(&entry);
-    assert_eq!(meta["real"], json!(real));
+    assert_eq!(home_copies(&dirs).await, [(real.clone(), "gaps_in = 5\n".to_owned())]);
     assert!(std::fs::symlink_metadata(config.join("hypr")).unwrap().file_type().is_symlink());
     drop(client);
     daemon.stop().await.unwrap();
@@ -1351,8 +1327,12 @@ async fn shell_allowed_floor_edit_keeps_floor_bind_for_contained_code() {
         "the approved edit ran, the contained one did not"
     );
     assert!(project.join("ok.txt").is_file(), "the rest of the project stays writable");
-    let [entry] = backup_entries(&dirs).try_into().unwrap();
-    assert_eq!(std::fs::read_to_string(entry.join(".envrc")).unwrap(), "export A=1\n");
+    let envrc = std::fs::canonicalize(project.join(".envrc")).unwrap();
+    let copies = home_copies(&dirs).await;
+    assert!(
+        copies.iter().any(|(path, text)| *path == envrc && text == "export A=1\n"),
+        "{copies:?}"
+    );
     drop(client);
     daemon.stop().await.unwrap();
 }
@@ -1369,7 +1349,7 @@ fn judgements(events: &[EventEnvelope]) -> Vec<(JudgeKind, Verdict)> {
 }
 
 /// A daemon in `auto` with a ready sandbox and a fake launcher, over `model`.
-async fn reviewed_daemon(dirs: &Arc<TestDirs>, model: Arc<ScriptedModel>) -> TestDaemon {
+pub(crate) async fn reviewed_daemon(dirs: &Arc<TestDirs>, model: Arc<ScriptedModel>) -> TestDaemon {
     let (launcher, _) = fake_launcher(dirs);
     TestDaemon::builder()
         .dirs(Arc::clone(dirs))
@@ -1382,10 +1362,10 @@ async fn reviewed_daemon(dirs: &Arc<TestDirs>, model: Arc<ScriptedModel>) -> Tes
 }
 
 #[tokio::test]
-async fn a_named_floor_file_edit_runs_after_the_reviewers_allow_with_a_backup() {
-    // The whole flow of phase A: the engine routes a named floor file edit to the
-    // reviewer, efrd's judge asks the model, the turn applies the verdict, efrd copies
-    // the file before the write, and the turn records the change with its backup.
+async fn a_named_floor_file_edit_runs_after_the_reviewers_allow_with_a_copy() {
+    // The whole flow: the engine routes a named floor file edit to the reviewer, efrd's
+    // judge asks the model, the turn applies the verdict, efrd copies the file into its
+    // home store before the write, and the turn records the change.
     let dirs = Arc::new(TestDirs::new().unwrap());
     let zshrc = dirs.home().join(".zshrc");
     std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
@@ -1405,18 +1385,15 @@ async fn a_named_floor_file_edit_runs_after_the_reviewers_allow_with_a_backup() 
     assert_eq!(judgements(&events), [(JudgeKind::Classifier, Verdict::Allow)]);
     assert_eq!(model.reviews.load(Ordering::SeqCst), 1);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), content);
-    let [entry] = backup_entries(&dirs).try_into().unwrap();
-    assert_eq!(std::fs::read_to_string(entry.join(".zshrc")).unwrap(), "alias ll='ls -l'\n");
+    assert_eq!(home_copies(&dirs).await, [(zshrc.clone(), "alias ll='ls -l'\n".to_owned())]);
     let changed: Vec<_> = events
         .iter()
         .filter_map(|envelope| match &envelope.event {
-            Event::HomeFileChanged { path, floor, covered, backup, .. } => {
-                Some((path.clone(), *floor, *covered, backup.clone()))
-            }
+            Event::HomeFileChanged { path, floor, .. } => Some((path.clone(), *floor)),
             _ => None,
         })
         .collect();
-    assert_eq!(changed, [(zshrc, true, false, Some(entry.join(".zshrc")))]);
+    assert_eq!(changed, [(zshrc, true)]);
     daemon.stop().await.unwrap();
 }
 
@@ -1435,7 +1412,7 @@ async fn a_floor_file_edit_that_the_reviewer_refuses_never_runs_and_asks_nobody(
     assert!(!kinds(&events).contains(&"approval_requested"));
     assert_eq!(judgements(&events), [(JudgeKind::Classifier, Verdict::Deny)]);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), "alias ll='ls -l'\n");
-    assert!(backup_entries(&dirs).is_empty(), "efr copies nothing for a call that never runs");
+    assert!(home_copies(&dirs).await.is_empty(), "efr copies nothing for a call that never runs");
     let output = events.iter().find_map(|envelope| match &envelope.event {
         Event::ToolCallCompleted { output, is_error: true, .. } => Some(output.clone()),
         _ => None,

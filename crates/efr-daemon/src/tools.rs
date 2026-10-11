@@ -19,25 +19,35 @@
 //! may wait for input running past the model's timeout, up to
 //! `shell.interactive_timeout_minutes`, while one of them follows the conversation.
 //!
-//! Before any call runs, it copies the targets of the call's approved exits that the
-//! engine marks `backup_before_write` into the backup store (`backups.rs`); a copy that
-//! fails stops the call, and after the call each changed file comes back as a
-//! `FileBackup`. It also applies the cache deletes that the turn allowed
-//! (`tools/cache_deletes.rs`), after its own check of each path.
+//! Before any call runs, it copies the targets of the call's approved exits
+//! ([`ExitNeed::copies`](efr_permissions::ExitNeed::copies)) into the home store of
+//! `efr-snapshot` (`home.rs`); a copy that fails stops the call, and after the call
+//! each changed file comes back as a `FileBackup`. It also applies the cache deletes
+//! that the turn allowed (`tools/cache_deletes.rs`), after its own check of each path,
+//! with a copy within the same limits first.
+//!
+//! In `auto` it answers what the engine asks efr to hold before a call
+//! ([`FactRequest::covers`](efr_permissions::FactRequest)): a snapshot ask from a
+//! snapshot taken now under the plan lock, a home ask from the sizes and the masks
+//! (plan PB15). Under the call's own plan lock, after the call's snapshot, it asks again
+//! each snapshot ask that was covered, and a call whose answer changed does not start.
+//! [`Toolbox::undo`] is in `tools/undo.rs`.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_config::{Settings, SudoCache};
 use efr_conversation::{
-    CacheDeleteOutcome, CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
+    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
+    Toolbox, TurnChanges, UndoRequest,
 };
-use efr_permissions::{Engine, Requirements};
+use efr_permissions::{CoverAsk, Coverage, Engine, Requirements};
 use efr_protocol::{
-    ConversationId, ExitKind, FileChanges, InputWait, ReportedFile, SandboxSummary, SurfaceChange,
-    TurnId,
+    CallId, ConversationId, FileChanges, InputWait, ReportedFile, SandboxSummary, SnapshotPhase,
+    SurfaceChange, TurnId, TurnUndoResult, UndoRefused,
 };
 use efr_provider::{ToolDefinition, ToolGrammar as ProviderGrammar};
 use efr_scope::Home;
@@ -46,19 +56,21 @@ use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, ReadFileTool, ShellTool,
     ToolContext, ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec,
-    WriteFileTool, WriteJournal, not_ready_message,
+    WriteFileTool, WriteJournal, WrittenKind, not_ready_message,
 };
 use serde_json::Value;
 use tokio::sync::watch;
 
+use crate::DaemonError;
 use crate::connections::Connections;
+use crate::home::{self, HomeLimits};
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
-use crate::{DaemonError, backups};
 
 mod cache_deletes;
 mod jobs;
 mod settings_tool;
 mod snapshot;
+mod undo;
 
 pub(crate) use settings_tool::SettingsTool;
 pub(crate) use snapshot::CallSnapshots;
@@ -67,6 +79,22 @@ pub(crate) use snapshot::CallSnapshots;
 /// this toolbox has no sandbox; it never runs in the hidden shell instead.
 pub(crate) const SANDBOX_NOT_STARTED: &str =
     "[the sandbox could not start: this efrd does not run the sandbox. The command did not run.]";
+
+/// What the model reads for a call whose files efr's snapshot held when the call was
+/// judged, and no longer holds under the plan lock: it did not run, and the next
+/// decision sees the new facts.
+pub(crate) const COVERAGE_CHANGED: &str = "[efr: the files of this command changed after efr \
+     checked that its snapshot holds them, so efr undo could not bring them back. The command \
+     did not run; run it again.]";
+
+/// How many turns of `auto` efrd keeps in mind for `efr undo --list`; a turn id is a
+/// version 7 UUID, so the smallest is the oldest.
+const MAX_AUTO_TURNS: usize = 4096;
+
+/// What the model reads for a call whose home files efr could no longer copy.
+pub(crate) const HOME_COPY_CHANGED: &str = "[efr: a file outside the project changed after \
+     efr checked that it can copy it, so efr undo could not bring it back. The call did not \
+     run; run it again.]";
 
 /// The tools that write files in the daemon, outside the hidden shell: they take the
 /// plan lock of their projects and the turn's first snapshot before they write.
@@ -130,11 +158,44 @@ pub(crate) struct DaemonToolbox {
     /// The `auto` sandbox and the engine whose locations a call's facts and spec read;
     /// `None` refuses every call through the launcher.
     sandbox: Option<(SandboxService, watch::Receiver<Arc<Engine>>)>,
-    /// The snapshots of the calls that can write; `None` takes none.
+    /// The snapshots of the calls that can write, and the home store; `None` takes
+    /// none.
     snapshots: Option<CallSnapshots>,
-    /// The backup store of floor files, `$XDG_DATA_HOME/efr/file-backups`; `None` keeps
-    /// no backups.
-    backup_dir: Option<PathBuf>,
+    /// The undo trash, `$XDG_DATA_HOME/efr/undo-trash`; `None` keeps no trash, so undo
+    /// writes over nothing.
+    undo_trash: Option<PathBuf>,
+    /// efr's own roots, which undo never writes in the home directory.
+    efr_roots: Vec<PathBuf>,
+    /// What the facts of each call said efr covers, until the call runs: the home asks
+    /// that the copy must cover, and the snapshot asks that are asked again under the
+    /// call's plan lock (plan PB15).
+    covered: Arc<Mutex<HashMap<CallId, Answers>>>,
+    /// What the home copies of each running turn found, for its end.
+    home_turns: Arc<Mutex<HashMap<TurnId, HomeTally>>>,
+    /// The turns that ran in `auto` since efrd started.
+    auto_turns: Arc<Mutex<HashSet<TurnId>>>,
+}
+
+/// What the facts of one call said efr covers: its turn and each ask with its answer.
+type Answers = (TurnId, Vec<(CoverAsk, Coverage)>);
+
+/// What the home copies of one turn found.
+#[derive(Debug, Clone, Default)]
+struct HomeTally {
+    /// Each home file that a call changed and a copy covers.
+    changed: Vec<PathBuf>,
+    /// Each one that no copy covers, as the end of the turn names it.
+    not_covered: Vec<String>,
+    /// One record per copy.
+    records: Vec<SnapshotRecord>,
+}
+
+/// One home copy of a call, between the copy before it and the copy after it.
+struct Copying {
+    copy: efr_snapshot::HomeCopy,
+    before: home::Prepared,
+    masks: Vec<PathBuf>,
+    limits: HomeLimits,
 }
 
 impl DaemonToolbox {
@@ -158,7 +219,11 @@ impl DaemonToolbox {
             settings,
             sandbox: None,
             snapshots: None,
-            backup_dir: None,
+            undo_trash: None,
+            efr_roots: Vec::new(),
+            covered: Arc::default(),
+            home_turns: Arc::default(),
+            auto_turns: Arc::default(),
         }
     }
 
@@ -168,9 +233,15 @@ impl DaemonToolbox {
         self
     }
 
-    /// Keeps the backups of floor files in `dir`, `$XDG_DATA_HOME/efr/file-backups`.
-    pub(crate) fn with_backup_dir(mut self, dir: PathBuf) -> Self {
-        self.backup_dir = Some(dir);
+    /// Keeps the undo trash in `dir`, `$XDG_DATA_HOME/efr/undo-trash`.
+    pub(crate) fn with_undo_trash(mut self, dir: PathBuf) -> Self {
+        self.undo_trash = Some(dir);
+        self
+    }
+
+    /// Never lets undo write in efr's own roots `roots` (`$C`, `$D`, `$S`, `$R`).
+    pub(crate) fn with_efr_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.efr_roots = roots;
         self
     }
 
@@ -280,7 +351,10 @@ impl DaemonToolbox {
             // NOTE: a file tool has no line, only the paths it writes. Their kinds and
             // those of their parents tell a file and a new file from a directory, so a
             // floor file edit can go to the classifier and a directory never does.
-            let request = efr_permissions::FactRequest::default();
+            let engine = Arc::clone(&engine.borrow());
+            let requirements = permission_requirements(declared.clone());
+            let request =
+                efr_permissions::exits::tool_fact_requests(&requirements, engine.locations());
             let input = facts::FactInput {
                 request: &request,
                 writes: &writes,
@@ -294,6 +368,7 @@ impl DaemonToolbox {
             // tells the engine to give it the names of the link (`~/.zshrc`).
             facts.links =
                 declared.links.iter().filter(|(_, real)| writes.contains(real)).cloned().collect();
+            facts.covered = self.cover_facts(&call.context, &request.covers).await;
             return Some(facts);
         };
         let engine = Arc::clone(&engine.borrow());
@@ -312,7 +387,120 @@ impl DaemonToolbox {
             rebuildable: &rebuildable,
             turn_start,
         };
-        Some(facts::collect(&input, sandbox.git(), &self.home).await)
+        let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
+        facts.covered = self.cover_facts(&call.context, &request.covers).await;
+        Some(facts)
+    }
+
+    /// The answer to each ask of `asks` for the call `call`, which the call keeps until
+    /// it runs. A snapshot ask is answered from a snapshot of its root taken now, under
+    /// the root's plan lock, so no call writes in between (the turn's `pre` when the
+    /// turn has none yet); a home ask outside the roots from its sizes and the masks;
+    /// a home ask inside a root gets no answer, since the snapshot covers it.
+    async fn cover_facts(
+        &self,
+        call: &CallContext,
+        asks: &[CoverAsk],
+    ) -> Vec<(CoverAsk, Coverage)> {
+        if asks.is_empty() {
+            return Vec::new();
+        }
+        let projects = match &self.sandbox {
+            Some((sandbox, _)) => sandbox.projects().await,
+            None => Vec::new(),
+        };
+        let mut answers: Vec<(CoverAsk, Coverage)> = Vec::new();
+        match &self.snapshots {
+            Some(snapshots) => {
+                let roots = snapshots.cover_roots(call, asks, &projects);
+                let guard = match (&self.sandbox, roots.is_empty()) {
+                    (Some((sandbox, _)), false) => Some(sandbox.locks().lock(&roots).await),
+                    _ => None,
+                };
+                answers.extend(snapshots.covers(call, asks, &projects).await);
+                drop(guard);
+            }
+            None => answers.extend(
+                asks.iter()
+                    .filter(|ask| !matches!(ask, CoverAsk::Home(_) | CoverAsk::HomeDir(_)))
+                    .map(|ask| (ask.clone(), Coverage::NoSnapshot)),
+            ),
+        }
+        let mut inside: Vec<PathBuf> = projects;
+        inside.push(call.scratch.clone());
+        let home_asks: Vec<CoverAsk> = asks
+            .iter()
+            .filter(|ask| match ask {
+                CoverAsk::Home(path) | CoverAsk::HomeDir(path) => {
+                    !inside.iter().any(|root| path.starts_with(root))
+                }
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        if !home_asks.is_empty() {
+            let settings = Arc::clone(&self.settings.borrow());
+            let kept = self.snapshots.is_some() && settings.snapshot.enabled;
+            let masks = self.masks();
+            let limits = HomeLimits::of(&settings);
+            let answered = tokio::task::spawn_blocking(move || {
+                home_asks
+                    .into_iter()
+                    .map(|ask| {
+                        let coverage = if kept {
+                            home::coverage(&ask, &masks, limits)
+                        } else {
+                            Coverage::NoSnapshot
+                        };
+                        (ask, coverage)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            answers.extend(answered);
+        }
+        let mut covered = self.covered.lock().unwrap_or_else(PoisonError::into_inner);
+        covered.insert(call.call_id, (call.turn_id, answers.clone()));
+        answers
+    }
+
+    /// The snapshot asks of the call `call` that its facts said are covered, taken
+    /// from the record of [`cover_facts`](Self::cover_facts).
+    fn covered_root_asks(&self, call: &CallContext) -> Vec<CoverAsk> {
+        let mut covered = self.covered.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some((_, answers)) = covered.get_mut(&call.call_id) else { return Vec::new() };
+        let (roots, rest): (Vec<_>, Vec<_>) = std::mem::take(answers)
+            .into_iter()
+            .partition(|(ask, _)| !matches!(ask, CoverAsk::Home(_) | CoverAsk::HomeDir(_)));
+        *answers = rest;
+        roots
+            .into_iter()
+            .filter(|(_, coverage)| coverage.is_covered())
+            .map(|(ask, _)| ask)
+            .collect()
+    }
+
+    /// Asks again, under the call's plan lock and after its snapshot, each snapshot ask
+    /// that the call's facts said is covered (plan PB15). `Some` is what the model reads
+    /// when one is no longer covered: the call does not start.
+    async fn check_covered(&self, call: &CallContext, projects: &[PathBuf]) -> Option<String> {
+        let asks = self.covered_root_asks(call);
+        let snapshots = self.snapshots.as_ref()?;
+        if asks.is_empty() {
+            return None;
+        }
+        let answers = snapshots.covers(call, &asks, projects).await;
+        let lost: Vec<&CoverAsk> = answers
+            .iter()
+            .filter(|(_, coverage)| !coverage.is_covered())
+            .map(|(ask, _)| ask)
+            .collect();
+        if lost.is_empty() {
+            return None;
+        }
+        tracing::info!(call_id = %call.call_id, ?lost, "a covered line is no longer covered under the plan lock");
+        Some(COVERAGE_CHANGED.to_owned())
     }
 
     /// Takes the plan lock of the projects that a `write_file`, `apply_patch` or `edit`
@@ -394,6 +582,11 @@ impl DaemonToolbox {
         // NOTE: under the plan lock, so no other call of these projects writes while
         // the snapshot reads them.
         let snapshot = self.snapshot_before(&call.context, &prepared.projects).await;
+        if let Some(stop) = self.check_covered(&call.context, &prepared.projects).await {
+            drop(snapshot);
+            remove_call_dir(prepared.run.dir.clone()).await;
+            return ToolOutcome::error(stop);
+        }
         let watch = Stopwatch::start();
         sandbox
             .turns()
@@ -474,6 +667,13 @@ impl DaemonToolbox {
         let snapshot = if shell { self.snapshot_before(&call.context, &[]).await } else { None };
         if FILE_WRITERS.contains(&call.name.as_str()) {
             self.snapshot_before_write(&call).await;
+            let projects = match &self.sandbox {
+                Some((sandbox, _)) => sandbox.projects().await,
+                None => Vec::new(),
+            };
+            if let Some(stop) = self.check_covered(&call.context, &projects).await {
+                return ToolOutcome::error(stop);
+            }
         }
         let context = self.context(&call.context);
         let call_context = call.context.clone();
@@ -490,6 +690,16 @@ impl DaemonToolbox {
                     if let (false, Some(snapshots)) = (written.is_empty(), &self.snapshots) {
                         let (changes, diff) = snapshots.written(&call_context, &written);
                         outcome = outcome.with_changes(changes).with_diff(diff);
+                        // NOTE: what a file tool wrote is the turn's own, so undo takes
+                        // it back (plan PB38).
+                        let mut paths: Vec<PathBuf> = Vec::new();
+                        for file in &written {
+                            paths.push(file.path.clone());
+                            if let WrittenKind::Moved { from } = &file.kind {
+                                paths.push(from.clone());
+                            }
+                        }
+                        snapshots.after_write(&call_context, paths).await;
                     }
                     outcome
                 }
@@ -501,35 +711,184 @@ impl DaemonToolbox {
         outcome
     }
 
-    /// Copies the targets of the call's approved exits that efrd backs up
-    /// ([`ExitNeed::backup_before_write`](efr_permissions::ExitNeed::backup_before_write))
-    /// into the backup store; `Err` is the text that the model reads.
-    async fn back_up(&self, call: &CallContext) -> Result<Vec<backups::Taken>, String> {
-        let targets: Vec<backups::Target> = call
-            .exits
+    /// Copies the targets of the call's approved exits
+    /// ([`ExitNeed::copies`](efr_permissions::ExitNeed::copies)) into the home store
+    /// before the call; `None` when there is nothing to copy. `Err` is the text that the
+    /// model reads: the call does not run.
+    async fn copy_before(&self, call: &CallContext) -> Result<Option<Copying>, String> {
+        let targets = home::targets(&call.exits);
+        if targets.is_empty() {
+            return Ok(None);
+        }
+        let floor = targets.iter().any(|target| target.floor);
+        let snapshots = match &self.snapshots {
+            Some(snapshots) if snapshots.limits().is_some() => snapshots,
+            // NOTE: without the store a floor edit runs only with a copy; another write
+            // runs, and its exit record says that no copy covers it.
+            _ if floor => {
+                return Err("efr keeps no snapshot store here, so it did not run a call \
+                            that changes a file that runs code later"
+                    .to_owned());
+            }
+            _ => return Ok(None),
+        };
+        let masks = self.masks();
+        let limits = HomeLimits::of(&self.settings.borrow());
+        let (for_prepare, masks_for) = (targets.clone(), masks.clone());
+        let prepared =
+            tokio::task::spawn_blocking(move || home::prepare(&for_prepare, &masks_for, limits))
+                .await
+                .unwrap_or_else(|_| {
+                    Err("copying the files before the change panicked".to_owned())
+                })?;
+        let promised: Vec<CoverAsk> = {
+            let covered = self.covered.lock().unwrap_or_else(PoisonError::into_inner);
+            covered
+                .get(&call.call_id)
+                .map(|(_, answers)| {
+                    answers
+                        .iter()
+                        .filter(|(_, coverage)| coverage.is_covered())
+                        .map(|(ask, _)| ask.clone())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        if targets
             .iter()
-            .filter(|need| need.backup_before_write)
-            .filter_map(|need| {
-                let floor = need.kind == ExitKind::Persistence;
-                let link = need.link.clone();
-                need.target.clone().map(|path| backups::Target { path, floor, link })
+            .any(|target| promised.contains(&target.ask) && !prepared.covers(&target.ask))
+        {
+            return Err(HOME_COPY_CHANGED.to_owned());
+        }
+        let watch = Stopwatch::start();
+        let reader = home::Reader::new(&prepared);
+        let copy = snapshots
+            .store()
+            .home_before(call.conversation_id, call.turn_id, reader)
+            .await
+            .map_err(|error| {
+                format!(
+                    "efr could not copy the files of this call into its snapshot store before \
+                     the change, so the call did not run: {}",
+                    efr_stdx::with_causes(&error)
+                )
+            })?;
+        let record = SnapshotRecord {
+            root: "home".to_owned(),
+            phase: SnapshotPhase::Pre,
+            commit: copy.before.as_str().to_owned(),
+            files: u32::try_from(prepared.entries.len()).unwrap_or(u32::MAX),
+            skipped: u32::try_from(prepared.not_covered.len()).unwrap_or(u32::MAX),
+            ms: u64::try_from(watch.elapsed().as_millis()).unwrap_or(u64::MAX),
+        };
+        self.tally(call.turn_id, |tally| tally.records.push(record));
+        Ok(Some(Copying { copy, before: prepared, masks, limits }))
+    }
+
+    /// The copy after the call of `copying`, and each changed home file. A copy that
+    /// fails leaves its call unfinished in the store, so undo leaves its paths alone.
+    async fn copy_after(&self, call: &CallContext, copying: Copying) -> Vec<FileBackup> {
+        let Some(snapshots) = &self.snapshots else { return Vec::new() };
+        let Copying { copy, before, masks, limits } = copying;
+        let prepared = before.clone();
+        let after = tokio::task::spawn_blocking(move || home::after(&prepared, &masks, limits))
+            .await
+            .unwrap_or_default();
+        let deltas = match snapshots.store().home_after(&copy, home::Reader::new(&after)).await {
+            Ok(deltas) => deltas,
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), call_id = %call.call_id, "the copy of home files after a call failed");
+                return Vec::new();
+            }
+        };
+        let store = snapshots.store().dir().join("home.git");
+        let changed = home::changed(&deltas, &before, &after, &store);
+        let shown = |path: &Path| match path.strip_prefix(self.home.path()) {
+            Ok(below) => format!("~/{}", below.display()),
+            Err(_) => path.display().to_string(),
+        };
+        self.tally(call.turn_id, |tally| {
+            for backup in &changed {
+                match backup.reason {
+                    None => {
+                        if !tally.changed.contains(&backup.path) {
+                            tally.changed.push(backup.path.clone());
+                        }
+                    }
+                    Some(reason) => {
+                        let line = format!("{} ({})", shown(&backup.path), reason_text(reason));
+                        if !tally.not_covered.contains(&line) {
+                            tally.not_covered.push(line);
+                        }
+                    }
+                }
+            }
+        });
+        changed
+    }
+
+    /// Notes that the turn `turn` ran in `auto`; the oldest turns go past
+    /// [`MAX_AUTO_TURNS`].
+    fn mark_auto(&self, turn: TurnId) {
+        let mut auto = self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner);
+        auto.insert(turn);
+        if auto.len() > MAX_AUTO_TURNS
+            && let Some(oldest) = auto.iter().min().copied()
+        {
+            auto.remove(&oldest);
+        }
+    }
+
+    /// Drops what the facts of the call `call` said, once it ran or stopped.
+    fn forget_call(&self, call: CallId) {
+        self.covered.lock().unwrap_or_else(PoisonError::into_inner).remove(&call);
+    }
+
+    /// Changes the home tally of the turn `turn`.
+    fn tally(&self, turn: TurnId, change: impl FnOnce(&mut HomeTally)) {
+        let mut turns = self.home_turns.lock().unwrap_or_else(PoisonError::into_inner);
+        change(turns.entry(turn).or_default());
+    }
+
+    /// Copies what `paths` hold into the home store before a cache delete, within the
+    /// limits; over them the delete runs with no copy, and the end of the turn says so.
+    async fn copy_cache(&self, call: &CallContext, paths: &[PathBuf]) -> Option<Copying> {
+        let snapshots = self.snapshots.as_ref()?;
+        snapshots.limits()?;
+        let targets: Vec<home::Target> = paths
+            .iter()
+            .map(|path| home::Target {
+                ask: CoverAsk::HomeDir(path.clone()),
+                floor: false,
+                link: None,
             })
             .collect();
-        if targets.is_empty() {
-            return Ok(Vec::new());
-        }
-        let Some(dir) = self.backup_dir.clone() else {
-            return Err("efr keeps no backup store here, so it did not run a call that \
-                        changes a file that runs code later"
-                .to_owned());
+        let masks = self.masks();
+        let limits = HomeLimits::of(&self.settings.borrow());
+        let for_prepare = masks.clone();
+        let prepared =
+            tokio::task::spawn_blocking(move || home::prepare(&targets, &for_prepare, limits))
+                .await
+                .ok()?;
+        let prepared = match prepared {
+            Ok(prepared) => prepared,
+            Err(reason) => {
+                tracing::info!(call_id = %call.call_id, reason, "a cache delete runs with no copy");
+                return None;
+            }
         };
-        let refused = self.masks();
-        let (conversation, turn) = (call.conversation_id, call.turn_id);
-        let taken = tokio::task::spawn_blocking(move || {
-            backups::take(&dir, conversation, turn, &targets, &refused)
-        })
-        .await;
-        taken.unwrap_or_else(|_| Err("copying the files before the change panicked".to_owned()))
+        let copy = match snapshots
+            .store()
+            .home_before(call.conversation_id, call.turn_id, home::Reader::new(&prepared))
+            .await
+        {
+            Ok(copy) => copy,
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), "a cache delete runs with no copy");
+                return None;
+            }
+        };
+        Some(Copying { copy, before: prepared, masks, limits })
     }
 
     /// The secrets and masks that efrd never deletes or copies: the engine's secrets,
@@ -543,7 +902,12 @@ impl DaemonToolbox {
                 .unwrap_or_default(),
         };
         let settings = Arc::clone(&self.settings.borrow());
-        cache_deletes::masks(home, &settings, secrets)
+        let mut masks = cache_deletes::masks(home, &settings, secrets);
+        // NOTE: the copy's refused list equals the plan's masks (plan PB14).
+        if let Some((sandbox, _)) = &self.sandbox {
+            masks.extend(sandbox.host_masks());
+        }
+        masks
     }
 }
 
@@ -649,19 +1013,25 @@ impl Toolbox for DaemonToolbox {
         if call.name == settings_tool::NAME {
             return self.settings_tool.invoke(call).await;
         }
-        // NOTE: the one place that copies floor files before an approved edit (plan
-        // PD9), so `write_file`, `edit`, `apply_patch` and a line in the exit child
-        // share it. A copy that fails stops the call.
-        let taken = match self.back_up(&call.context).await {
-            Ok(taken) => taken,
-            Err(reason) => return ToolOutcome::error(reason),
+        // NOTE: the one place that copies home files before an approved write (plan
+        // PD9, PB13), so `write_file`, `edit`, `apply_patch` and a line in the exit
+        // child share it. A copy that fails stops the call.
+        let context = call.context.clone();
+        if context.auto {
+            self.mark_auto(context.turn_id);
+        }
+        let copying = match self.copy_before(&context).await {
+            Ok(copying) => copying,
+            Err(reason) => {
+                self.forget_call(context.call_id);
+                return ToolOutcome::error(reason);
+            }
         };
         let outcome = self.run_call(call, out).await;
-        if taken.is_empty() {
-            return outcome;
-        }
-        let backups = tokio::task::spawn_blocking(move || backups::finish(taken)).await;
-        outcome.with_backups(backups.unwrap_or_default())
+        self.forget_call(context.call_id);
+        let Some(copying) = copying else { return outcome };
+        let backups = self.copy_after(&context, copying).await;
+        outcome.with_backups(backups)
     }
 
     async fn shell_cwd(&self, conversation_id: ConversationId) -> Option<PathBuf> {
@@ -721,8 +1091,25 @@ impl Toolbox for DaemonToolbox {
                 return Err(cache_deletes::REFUSED.to_owned());
             }
         };
+        let copying = self.copy_cache(call, paths).await;
         let applied = tokio::task::spawn_blocking(move || cache_deletes::apply(&checked)).await;
-        applied.unwrap_or_else(|_| Err("deleting the cache paths panicked".to_owned()))
+        let applied =
+            applied.unwrap_or_else(|_| Err("deleting the cache paths panicked".to_owned()));
+        if let Some(copying) = copying {
+            self.copy_after(call, copying).await;
+        } else {
+            let shown: Vec<String> = paths
+                .iter()
+                .map(|path| match path.strip_prefix(self.home.path()) {
+                    Ok(below) => format!("~/{} (over the copy limits)", below.display()),
+                    Err(_) => format!("{} (over the copy limits)", path.display()),
+                })
+                .collect();
+            if self.snapshots.is_some() {
+                self.tally(call.turn_id, |tally| tally.not_covered.extend(shown));
+            }
+        }
+        applied
     }
 
     async fn turn_report(
@@ -736,9 +1123,37 @@ impl Toolbox for DaemonToolbox {
     }
 
     async fn turn_changes(&self, conversation_id: ConversationId, turn_id: TurnId) -> TurnChanges {
+        self.covered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|_, (turn, _)| *turn != turn_id);
+        let tally = self.home_turns.lock().unwrap_or_else(PoisonError::into_inner).remove(&turn_id);
+        let tally = tally.unwrap_or_default();
         let Some(snapshots) = &self.snapshots else { return TurnChanges::default() };
-        let changes = snapshots.finish_turn(conversation_id, turn_id).await;
-        TurnChanges { changes, undo: None, snapshots: Vec::new() }
+        let mut ended = snapshots.turn_end(turn_id).await;
+        if ended.auto {
+            self.mark_auto(turn_id);
+        }
+        // NOTE: a turn of `auto` whose calls wrote only home files snapshotted no root.
+        ended.auto |=
+            self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner).contains(&turn_id);
+        let enabled = self.settings.borrow().undo.enabled;
+        let home_files = u32::try_from(tally.changed.len()).unwrap_or(u32::MAX);
+        let runs = self.call_runs(conversation_id);
+        let undo = snapshot::undo_info(&ended, home_files, &tally.not_covered, enabled, runs);
+        let mut records = snapshot::records(&ended);
+        records.extend(tally.records);
+        TurnChanges { changes: ended.end.changes, undo, snapshots: records }
+    }
+
+    async fn undo(&self, request: UndoRequest) -> Result<TurnUndoResult, UndoRefused> {
+        self.undo_turn(request).await
+    }
+
+    fn call_runs(&self, conversation_id: ConversationId) -> bool {
+        // NOTE: a call dir with `started` and no `result.json`: its launcher still runs,
+        // also when its tool call answered at the timeout (plan PB39).
+        self.sandbox.as_ref().is_some_and(|(sandbox, _)| sandbox.launcher_runs(conversation_id))
     }
 
     async fn cancel(&self, call: &CallContext) {
@@ -747,6 +1162,17 @@ impl Toolbox for DaemonToolbox {
         if let Err(error) = self.shells.interrupt(call.conversation_id).await {
             tracing::debug!(error = %error, call_id = %call.call_id, "nothing to interrupt in the hidden shell");
         }
+    }
+}
+
+/// Why no copy covers a home file, in a few words for the end of a turn.
+fn reason_text(reason: efr_protocol::UndoReason) -> &'static str {
+    use efr_protocol::UndoReason;
+    match reason {
+        UndoReason::Masked => "masked",
+        UndoReason::OverLimit => "over the copy limits",
+        UndoReason::CallUnfinished => "the call did not finish",
+        _ => "no copy",
     }
 }
 

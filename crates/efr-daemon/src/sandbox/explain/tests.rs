@@ -39,6 +39,20 @@ fn every_origin_has_a_reason_and_the_write_exit_it_would_be() {
 }
 
 #[test]
+fn explain_names_undo_for_floor_file() {
+    let shell = Some(MountOrigin::Floor(FloorKind::ShellStartup));
+
+    let (kept, _) = reason(shell, true);
+    let (off, _) = reason(shell, false);
+
+    assert!(
+        kept.ends_with("efr copies the file first, so efr undo reverts it; else you decide"),
+        "{kept}"
+    );
+    assert!(!off.contains("undo"), "without the home store, no undo: {off}");
+}
+
+#[test]
 fn explain_names_reviewer_for_floor_file() {
     let shell = Some(MountOrigin::Floor(FloorKind::ShellStartup));
     let hypr = Some(MountOrigin::Floor(FloorKind::Autostart));

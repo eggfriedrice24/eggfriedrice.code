@@ -137,13 +137,14 @@ impl SandboxService {
     }
 }
 
-/// What a floor file edit adds to the reason while efrd keeps backups (the decision of
-/// 2026-10-10 on floor file edits).
+/// What a floor file edit adds to the reason while efrd keeps the home store (the
+/// decision of 2026-10-10 on floor file edits, plan PB35).
 pub(crate) const REVIEWED_FLOOR: &str = "a write goes to the reviewer when a message of \
-     yours names the file, and efr keeps a backup copy; else you decide";
+     yours names the file, and efr copies the file first, so efr undo reverts it; else you \
+     decide";
 
-/// [`why`], and for a floor whose file edit the reviewer may judge while efrd keeps
-/// backups (`floor_backup`), who decides.
+/// [`why`], and for a floor whose file edit the reviewer may judge while efrd keeps the
+/// home store (`floor_backup`), who decides.
 pub(crate) fn reason(
     origin: Option<MountOrigin>,
     floor_backup: bool,

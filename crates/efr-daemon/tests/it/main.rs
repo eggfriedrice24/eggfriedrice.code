@@ -17,6 +17,7 @@ mod classifier_eval;
 mod compact;
 mod drafts;
 mod hello;
+mod home;
 mod input_respond;
 mod interrupt;
 mod login;

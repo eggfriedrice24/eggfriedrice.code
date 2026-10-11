@@ -6,19 +6,38 @@
 //! roots). A file tool's write snapshots the roots that hold its targets before it
 //! writes, so the turn's first snapshot is there; its own changes come from its diffs,
 //! in every directory. Nothing outside these roots is snapshotted.
+//!
+//! A root's git dirs come from efrd, never from a `.git` file that the store reads
+//! (plan PB6): the worktree record when it still matches, else `<root>/.git` when it is
+//! a directory. Only then does the store mirror the project's refs.
+//!
+//! [`CallSnapshots::covers`] answers the snapshot asks of a destructive line
+//! ([`CoverAsk::Path`], `Tracked`, `Untracked`, `Refs`, `Stash`) from a snapshot taken
+//! now; the caller holds the plan lock. [`CallSnapshots::turn_end`] ends a turn and
+//! says what `efr undo` can take back of it ([`TurnUndoInfo`]).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_config::{IgnoredFiles, Settings};
-use efr_conversation::CallContext;
-use efr_permissions::Engine;
-use efr_protocol::{ChangeKind, ConversationId, FileChange, FileChanges, Scope, TurnId};
+use efr_conversation::{CallContext, SnapshotRecord};
+use efr_permissions::{CoverAsk, Coverage, Engine};
+use efr_protocol::{
+    ChangeKind, FileChange, FileChanges, MAX_NOT_COVERED, RootFiles, Scope, SnapshotPhase, TurnId,
+    TurnUndoInfo,
+};
+use efr_sandbox::WorktreeCheck;
 use efr_scope::Home;
-use efr_snapshot::{CallSnapshot, Limits, Root, Snapshots, shown_prefix};
+use efr_snapshot::{
+    CallSnapshot, CoverResult, GitDirs, LeftOutReason, Limits, NOT_COVERED_REFS, Phase, Root,
+    RootCover, Snapshots, TurnEnd, shown_prefix,
+};
 use efr_stdx::time::Stopwatch;
 use efr_tools::{WrittenFile, WrittenKind};
 use tokio::sync::watch;
+
+use crate::sandbox::projects;
 
 /// One MiB.
 const MIB: u64 = 1024 * 1024;
@@ -30,6 +49,31 @@ pub(crate) struct CallSnapshots {
     engine: watch::Receiver<Arc<Engine>>,
     settings: watch::Receiver<Arc<Settings>>,
     home: Home,
+    /// efr's state root, which holds the worktree records; `None` trusts no git dir.
+    state: Option<PathBuf>,
+    /// The roots that each running turn snapshotted, and whether it runs in `auto`.
+    turns: Arc<Mutex<HashMap<TurnId, Seen>>>,
+}
+
+/// What a running turn snapshotted.
+#[derive(Debug, Clone, Default)]
+struct Seen {
+    /// Each root with the prefix of its paths.
+    roots: Vec<(PathBuf, String)>,
+    /// True when a call of the turn ran in `auto`.
+    auto: bool,
+}
+
+/// The end of a turn as [`CallSnapshots::turn_end`] reads it.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Ended {
+    /// What the store found.
+    pub(crate) end: TurnEnd,
+    /// True when a call of the turn ran in `auto`.
+    pub(crate) auto: bool,
+    /// The kept roots of the turn: the name that a person sees, the prefix of its paths
+    /// and its canonical path.
+    pub(crate) roots: Vec<(String, String, PathBuf)>,
 }
 
 impl CallSnapshots {
@@ -39,19 +83,25 @@ impl CallSnapshots {
         settings: watch::Receiver<Arc<Settings>>,
         home: Home,
     ) -> Self {
-        CallSnapshots { snapshots, engine, settings, home }
+        CallSnapshots { snapshots, engine, settings, home, state: None, turns: Arc::default() }
+    }
+
+    /// Trusts the git dirs that the worktree records below efr's state root `state`
+    /// name, and `<root>/.git` when it is a directory.
+    pub(crate) fn with_state(mut self, state: PathBuf) -> Self {
+        self.state = Some(state);
+        self
+    }
+
+    /// The store.
+    pub(crate) fn store(&self) -> &Snapshots {
+        &self.snapshots
     }
 
     /// The limits of the latest settings, or `None` when `snapshot.enabled` is off.
-    fn limits(&self) -> Option<Limits> {
+    pub(crate) fn limits(&self) -> Option<Limits> {
         let settings = self.settings.borrow();
-        let snapshot = &settings.snapshot;
-        snapshot.enabled.then(|| Limits {
-            max_file_bytes: u64::from(snapshot.max_file_mib) * MIB,
-            ignored_small: snapshot.ignored == IgnoredFiles::Small,
-            max_files: u64::from(snapshot.max_files),
-            ..Limits::default()
-        })
+        settings.snapshot.enabled.then(|| limits_of(&settings))
     }
 
     /// The root of the turn's registered project.
@@ -64,27 +114,110 @@ impl CallSnapshots {
         }
     }
 
-    /// `paths` as roots of `call`, with the prefixes that show their files.
-    fn roots(&self, call: &CallContext, paths: Vec<PathBuf>) -> Vec<Root> {
+    /// `paths` as roots of `call`, with the prefixes that show their files, the git dirs
+    /// that efrd trusts and the turn's mode. They join the turn's roots.
+    async fn roots(&self, call: &CallContext, paths: Vec<PathBuf>) -> Vec<Root> {
         let project = self.turn_project(call);
-        let mut roots: Vec<Root> = Vec::new();
+        let mut shown: Vec<(PathBuf, String)> = Vec::new();
         for path in paths {
-            if roots.iter().any(|root| root.path() == path) {
+            if shown.iter().any(|(known, _)| *known == path) {
                 continue;
             }
-            let shown =
+            let prefix =
                 shown_prefix(&path, project.as_deref(), Some(&call.scratch), self.home.path());
-            roots.push(Root::new(path, shown));
+            shown.push((path, prefix));
+        }
+        let mut roots = self.undo_roots(shown).await;
+        if call.auto {
+            roots = roots.into_iter().map(|root| root.with_mode("auto")).collect();
+        }
+        let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
+        let seen = turns.entry(call.turn_id).or_default();
+        seen.auto |= call.auto;
+        for root in &roots {
+            if !seen.roots.iter().any(|(path, _)| path == root.path()) {
+                seen.roots.push((root.path().to_path_buf(), root.shown().to_owned()));
+            }
         }
         roots
     }
 
     /// The turn's project and `$SCRATCH`, then `named`.
-    fn call_roots(&self, call: &CallContext, named: &[PathBuf]) -> Vec<Root> {
+    async fn call_roots(&self, call: &CallContext, named: &[PathBuf]) -> Vec<Root> {
         let mut paths: Vec<PathBuf> = self.turn_project(call).into_iter().collect();
         paths.push(call.scratch.clone());
         paths.extend(named.iter().cloned());
-        self.roots(call, paths)
+        self.roots(call, paths).await
+    }
+
+    /// The roots that `asks` of `call` need, among the turn's project, `$SCRATCH` and
+    /// `projects`: the paths that the caller locks before [`covers`](Self::covers).
+    pub(crate) fn cover_roots(
+        &self,
+        call: &CallContext,
+        asks: &[CoverAsk],
+        projects: &[PathBuf],
+    ) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = self.turn_project(call).into_iter().collect();
+        paths.push(call.scratch.clone());
+        paths.extend(projects.iter().cloned());
+        let mut needed: Vec<PathBuf> = Vec::new();
+        for ask in asks {
+            if let Some((root, _)) = root_of(ask, &paths)
+                && !needed.contains(&root)
+            {
+                needed.push(root);
+            }
+        }
+        needed
+    }
+
+    /// The answer to each snapshot ask of `asks` (paths, tracked and untracked files,
+    /// refs, stash) from a snapshot of its root taken now, the turn's `pre` when the
+    /// turn has none yet. The caller holds the plan lock of the roots of
+    /// [`cover_roots`](Self::cover_roots), so no call writes in between. An ask of
+    /// another kind gets no answer; one outside every root is never covered.
+    pub(crate) async fn covers(
+        &self,
+        call: &CallContext,
+        asks: &[CoverAsk],
+        projects: &[PathBuf],
+    ) -> Vec<(CoverAsk, Coverage)> {
+        let asks: Vec<&CoverAsk> = asks.iter().filter(|ask| root_ask(ask).is_some()).collect();
+        if asks.is_empty() {
+            return Vec::new();
+        }
+        let Some(limits) = self.limits() else {
+            return asks.into_iter().map(|ask| (ask.clone(), Coverage::NoSnapshot)).collect();
+        };
+        let mut paths: Vec<PathBuf> = self.turn_project(call).into_iter().collect();
+        paths.push(call.scratch.clone());
+        paths.extend(projects.iter().cloned());
+        let mut answers: Vec<(CoverAsk, Coverage)> = Vec::new();
+        let mut by_root: Vec<(PathBuf, Vec<(CoverAsk, RootCover)>)> = Vec::new();
+        for ask in asks {
+            match root_of(ask, &paths) {
+                Some((root, cover)) => match by_root.iter_mut().find(|(known, _)| *known == root) {
+                    Some((_, list)) => list.push((ask.clone(), cover)),
+                    None => by_root.push((root, vec![(ask.clone(), cover)])),
+                },
+                None => answers.push((ask.clone(), Coverage::NotAllowed)),
+            }
+        }
+        for (path, list) in by_root {
+            let Some(root) = self.roots(call, vec![path]).await.into_iter().next() else {
+                continue;
+            };
+            let covers: Vec<RootCover> = list.iter().map(|(_, cover)| cover.clone()).collect();
+            let results = self
+                .snapshots
+                .covers(call.conversation_id, call.turn_id, &root, &covers, limits)
+                .await;
+            for ((ask, _), result) in list.into_iter().zip(results) {
+                answers.push((ask, coverage_of(result)));
+            }
+        }
+        answers
     }
 
     /// The snapshots before a `shell` call; `named` adds the projects that a line of
@@ -95,7 +228,7 @@ impl CallSnapshots {
         named: &[PathBuf],
     ) -> Option<(CallSnapshot, Limits)> {
         let limits = self.limits()?;
-        let roots = self.call_roots(call, named);
+        let roots = self.call_roots(call, named).await;
         let watch = Stopwatch::start();
         let taken =
             self.snapshots.before_call(call.conversation_id, call.turn_id, roots, limits).await;
@@ -129,6 +262,7 @@ impl CallSnapshots {
         let Some(limits) = self.limits() else { return };
         let holders: Vec<PathBuf> = self
             .call_roots(call, projects)
+            .await
             .into_iter()
             .map(|root| root.path().to_path_buf())
             .filter(|root| target.starts_with(root))
@@ -136,23 +270,78 @@ impl CallSnapshots {
         if holders.is_empty() {
             return;
         }
-        let roots = self.roots(call, holders);
+        let roots = self.roots(call, holders).await;
         self.snapshots.before_write(call.conversation_id, call.turn_id, roots, limits).await;
     }
 
-    /// The end of the turn `turn_id`: its last snapshots, its refs and its changes.
-    pub(crate) async fn finish_turn(
-        &self,
-        _conversation_id: ConversationId,
-        turn_id: TurnId,
-    ) -> Option<FileChanges> {
+    /// After a file tool of `call` wrote `written` (absolute paths): they join the
+    /// turn's paths that undo takes back.
+    pub(crate) async fn after_write(&self, call: &CallContext, written: Vec<PathBuf>) {
+        if written.is_empty() || self.limits().is_none() {
+            return;
+        }
+        self.snapshots.after_write(call.turn_id, written).await;
+    }
+
+    /// The end of the turn `turn_id`: its last snapshots, its refs and its changes, the
+    /// roots that it kept and whether it ran in `auto`.
+    pub(crate) async fn turn_end(&self, turn_id: TurnId) -> Ended {
         // NOTE: a turn whose snapshots were taken finishes even when the settings
         // switched them off since, so its refs are complete.
-        let limits = self.limits().unwrap_or_default();
+        let limits = limits_of(&self.settings.borrow());
+        let seen = self.turns.lock().unwrap_or_else(PoisonError::into_inner).remove(&turn_id);
+        let seen = seen.unwrap_or_default();
         let watch = Stopwatch::start();
-        let changes = self.snapshots.finish_turn(turn_id, limits).await;
+        let end = self.snapshots.turn_end(turn_id, limits).await;
         tracing::debug!(phase = "snapshot_turn_end", elapsed_ms = %watch, "phase=snapshot_turn_end elapsed_ms={}", watch);
-        changes
+        let kept: Vec<PathBuf> = end.snapshots.iter().map(|info| info.root.clone()).collect();
+        let named = seen.roots.clone();
+        let home = self.home.path().to_path_buf();
+        let roots = tokio::task::spawn_blocking(move || {
+            let mut roots: Vec<(String, String, PathBuf)> = Vec::new();
+            for root in kept {
+                if roots.iter().any(|(_, _, known)| *known == root) {
+                    continue;
+                }
+                let prefix = named
+                    .iter()
+                    .find(|(path, _)| std::fs::canonicalize(path).ok().as_ref() == Some(&root))
+                    .map(|(_, shown)| shown.clone())
+                    .unwrap_or_else(|| shown_prefix(&root, None, None, &home));
+                roots.push((root_name(&root, &prefix), prefix, root));
+            }
+            roots
+        })
+        .await
+        .unwrap_or_default();
+        Ended { end, auto: seen.auto, roots }
+    }
+
+    /// The end of the turn `turn_id`, with only its changes.
+    #[cfg(test)]
+    pub(crate) async fn finish_turn(
+        &self,
+        _conversation_id: efr_protocol::ConversationId,
+        turn_id: TurnId,
+    ) -> Option<FileChanges> {
+        self.turn_end(turn_id).await.end.changes
+    }
+
+    /// The roots of `paths` with the git dirs that efrd trusts and their prefixes as
+    /// `shown` gives them, for an undo.
+    pub(crate) async fn undo_roots(&self, paths: Vec<(PathBuf, String)>) -> Vec<Root> {
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            paths
+                .into_iter()
+                .map(|(path, shown)| {
+                    let dirs = state.as_deref().and_then(|state| git_dirs(state, &path));
+                    Root::new(path, shown).with_git(dirs)
+                })
+                .collect()
+        })
+        .await
+        .unwrap_or_default()
     }
 
     /// The changes and the diff of a file tool's call, with each file's path as a
@@ -229,6 +418,227 @@ impl CallSnapshots {
             _ => path.display().to_string(),
         }
     }
+}
+
+/// The limits of `settings`, also when `snapshot.enabled` is off.
+fn limits_of(settings: &Settings) -> Limits {
+    let snapshot = &settings.snapshot;
+    Limits {
+        max_file_bytes: u64::from(snapshot.max_file_mib) * MIB,
+        ignored_small: snapshot.ignored == IgnoredFiles::Small,
+        max_files: u64::from(snapshot.max_files),
+        // NOTE: 0 turns the mirror off.
+        mirror_max_bytes: u64::from(snapshot.mirror_max_mib) * MIB,
+    }
+}
+
+/// The git dirs of the project at `root` that efrd trusts (plan PB6): those of its
+/// worktree record while the `.git` file still names them, else `<root>/.git` when it
+/// is a directory and no link; `None` for a `.git` file that changed or has no record.
+/// It blocks.
+pub(crate) fn git_dirs(state: &Path, root: &Path) -> Option<GitDirs> {
+    match projects::check(state, root) {
+        WorktreeCheck::Matches(record) => {
+            Some(GitDirs { git_dir: record.git_dir, common_dir: record.common_dir })
+        }
+        WorktreeCheck::NotWorktree => {
+            let dot = root.join(".git");
+            let is_dir = std::fs::symlink_metadata(&dot).is_ok_and(|meta| meta.is_dir());
+            is_dir.then(|| GitDirs { git_dir: dot.clone(), common_dir: dot })
+        }
+        _ => None,
+    }
+}
+
+/// The repository dir or path of a snapshot ask, and what it asks of a root.
+fn root_ask(ask: &CoverAsk) -> Option<(&Path, RootCover)> {
+    match ask {
+        CoverAsk::Path(path) => Some((path, RootCover::Path(path.clone()))),
+        CoverAsk::Tracked(dir) => Some((dir, RootCover::Tracked)),
+        CoverAsk::Untracked(dir) => Some((dir, RootCover::Untracked)),
+        CoverAsk::Refs(dir) => Some((dir, RootCover::Refs)),
+        CoverAsk::Stash(dir) => Some((dir, RootCover::Stash)),
+        _ => None,
+    }
+}
+
+/// The root of `roots` that answers `ask`: for a path the deepest root that holds it,
+/// for the files and refs of a repository the root that is its work tree.
+fn root_of(ask: &CoverAsk, roots: &[PathBuf]) -> Option<(PathBuf, RootCover)> {
+    let (at, cover) = root_ask(ask)?;
+    let root = match cover {
+        RootCover::Path(_) => roots
+            .iter()
+            .filter(|root| at.starts_with(root))
+            .max_by_key(|root| root.as_os_str().len()),
+        _ => roots.iter().find(|root| root.as_path() == at),
+    }?;
+    Some((root.clone(), cover))
+}
+
+/// The engine's word for what the store found (plan 3.3.2).
+fn coverage_of(result: CoverResult) -> Coverage {
+    match result {
+        CoverResult::Covered => Coverage::Covered,
+        CoverResult::LeftOut(_) => Coverage::LeftOut,
+        CoverResult::NoSnapshot | CoverResult::Failed => Coverage::NoSnapshot,
+        CoverResult::NoMirror | CoverResult::StashEntries => Coverage::NoMirror,
+        CoverResult::OutsideRoot
+        | CoverResult::IsRoot
+        | CoverResult::GitInternal
+        | CoverResult::StagedOnly => Coverage::NotAllowed,
+        _ => Coverage::Unknown,
+    }
+}
+
+/// The name of a root that a person sees: `$SCRATCH`, else the name of its directory.
+fn root_name(root: &Path, prefix: &str) -> String {
+    if prefix.starts_with("$SCRATCH") {
+        return "$SCRATCH".to_owned();
+    }
+    root.file_name()
+        .map_or_else(|| root.display().to_string(), |name| name.to_string_lossy().into_owned())
+}
+
+/// What the end of a turn says `efr undo` can take back: the files that the turn changed
+/// in each kept root, `home_files` copies of files outside the roots, and what no copy
+/// covers. `undoable` only for an `auto` turn with a kept `pre`, while `undo.enabled`
+/// holds and no call of the conversation runs (plan PB23, PB39). `None` when the turn
+/// kept no snapshot and copied no file.
+pub(crate) fn undo_info(
+    ended: &Ended,
+    home_files: u32,
+    home_not_covered: &[String],
+    enabled: bool,
+    call_runs: bool,
+) -> Option<TurnUndoInfo> {
+    let end = &ended.end;
+    if !end.kept && home_files == 0 && home_not_covered.is_empty() && end.not_covered.is_empty() {
+        return None;
+    }
+    let mut not_covered: Vec<String> = Vec::new();
+    let shown_root = |root: &Path| {
+        ended
+            .roots
+            .iter()
+            .find(|(_, _, path)| path == root)
+            .map_or_else(|| root.display().to_string(), |(name, _, _)| name.clone())
+    };
+    let shown_path = |path: &Path| {
+        for (_, prefix, root) in &ended.roots {
+            if let Ok(below) = path.strip_prefix(root)
+                && !below.as_os_str().is_empty()
+            {
+                return format!("{prefix}{}", below.display());
+            }
+        }
+        path.display().to_string()
+    };
+    for (root, reason) in &end.not_covered {
+        let text = match reason.strip_prefix(NOT_COVERED_REFS) {
+            Some(why) => format!("refs of {} ({why})", shown_root(root)),
+            None => format!("{} ({reason})", shown_root(root)),
+        };
+        not_covered.push(text);
+    }
+    if call_runs {
+        for (name, _, _) in &ended.roots {
+            not_covered.push(format!("{name} (a call still runs)"));
+        }
+    }
+    for (path, reason) in &end.left_out {
+        let mut shown = shown_path(path);
+        if *reason == LeftOutReason::SkippedDir && !shown.ends_with('/') {
+            shown.push('/');
+        }
+        not_covered.push(format!("{shown} ({})", left_out_text(*reason)));
+    }
+    not_covered.extend(home_not_covered.iter().cloned());
+    let more = not_covered.len().saturating_sub(MAX_NOT_COVERED);
+    not_covered.truncate(MAX_NOT_COVERED);
+    let roots: Vec<RootFiles> = ended
+        .roots
+        .iter()
+        .map(|(name, prefix, _)| RootFiles {
+            shown: name.clone(),
+            files: changed_in(end.changes.as_ref(), prefix, &ended.roots),
+        })
+        .filter(|root| root.files > 0)
+        .collect();
+    let has_pre = end.snapshots.iter().any(|info| info.phase == Phase::Pre);
+    Some(TurnUndoInfo {
+        undoable: ended.auto && enabled && !call_runs && (has_pre || home_files > 0),
+        roots,
+        home_files,
+        not_covered,
+        not_covered_more: u32::try_from(more).unwrap_or(u32::MAX),
+    })
+}
+
+/// How many files of `changes` lie below the root of `prefix`: the paths with that
+/// prefix, and for the turn's project (no prefix) those of no other root.
+fn changed_in(
+    changes: Option<&FileChanges>,
+    prefix: &str,
+    roots: &[(String, String, PathBuf)],
+) -> u32 {
+    let Some(changes) = changes else { return 0 };
+    let others: Vec<&str> = roots
+        .iter()
+        .map(|(_, other, _)| other.as_str())
+        .filter(|other| !other.is_empty() && *other != prefix)
+        .collect();
+    let mine = |file: &&FileChange| {
+        if prefix.is_empty() {
+            !others.iter().any(|other| file.path.starts_with(other))
+                && !file.path.starts_with('/')
+                && !file.path.starts_with("~/")
+        } else {
+            file.path.starts_with(prefix)
+        }
+    };
+    let count = changes.files.iter().filter(mine).count();
+    u32::try_from(count).unwrap_or(u32::MAX)
+}
+
+/// Why a snapshot left a path out, in a few words for the end of a turn.
+fn left_out_text(reason: LeftOutReason) -> &'static str {
+    match reason {
+        LeftOutReason::TooLarge => "over snapshot.max_file_mib",
+        LeftOutReason::IgnoredTooLarge | LeftOutReason::SkippedDir => "ignored, large",
+        LeftOutReason::IgnoredCap => "over 2000 ignored files",
+        LeftOutReason::IgnoredOff => "ignored",
+        LeftOutReason::Unreadable => "unreadable",
+        LeftOutReason::NotUtf8 => "name is not UTF-8",
+        LeftOutReason::NestedRepo => "nested repository",
+        LeftOutReason::RootTooLarge => "over snapshot.max_files",
+        _ => "left out",
+    }
+}
+
+/// The turn's snapshots for its `snapshot_taken` events: both phases of each root,
+/// under the name that a person sees.
+pub(crate) fn records(ended: &Ended) -> Vec<SnapshotRecord> {
+    ended
+        .end
+        .snapshots
+        .iter()
+        .map(|info| SnapshotRecord {
+            root: ended
+                .roots
+                .iter()
+                .find(|(_, _, path)| *path == info.root)
+                .map_or_else(|| info.root.display().to_string(), |(name, _, _)| name.clone()),
+            phase: match info.phase {
+                Phase::Pre => SnapshotPhase::Pre,
+                _ => SnapshotPhase::Post,
+            },
+            commit: info.commit.clone(),
+            files: info.files,
+            skipped: info.skipped,
+            ms: info.ms,
+        })
+        .collect()
 }
 
 /// The diff `text` of a change with its two header lines naming the shown paths, in

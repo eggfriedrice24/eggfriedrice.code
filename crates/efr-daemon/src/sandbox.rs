@@ -351,6 +351,22 @@ impl SandboxService {
         &self.inner.home
     }
 
+    /// True while a launcher of `conversation` still runs: a call dir with `started`
+    /// and no `result.json`, also of a call that answered at its timeout. It reads one
+    /// small directory.
+    pub(crate) fn launcher_runs(&self, conversation: ConversationId) -> bool {
+        let dir = self.inner.dirs.runtime().join(plan::SHELL_DIR).join(conversation.to_string());
+        gc::launcher_running(&dir)
+    }
+
+    /// The masks of the machine that every contained call gets besides the engine's
+    /// and the user's: a `$XAUTHORITY` and `$HISTFILE` outside their usual place. efrd
+    /// never copies or writes them for undo either (plan PB14).
+    pub(crate) fn host_masks(&self) -> Vec<PathBuf> {
+        let host = &self.inner.host;
+        [&host.xauthority, &host.histfile].into_iter().flatten().cloned().collect()
+    }
+
     /// The registered project roots that may be write roots, and the user's extra
     /// roots: the probe checks that no program of the sandbox lies in one.
     async fn write_roots(&self, settings: &Settings) -> Vec<PathBuf> {

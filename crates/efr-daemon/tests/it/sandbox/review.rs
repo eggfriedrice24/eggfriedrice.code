@@ -25,10 +25,10 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    FAKE_LAUNCHER, REVIEWER_ALLOWS, ScriptedModel, backup_entries, backup_meta, completed,
-    fake_launcher, judgements, kinds, ready, real_launcher, reviewed_daemon, run_turn, skip,
-    with_zsh,
+    FAKE_LAUNCHER, REVIEWER_ALLOWS, ScriptedModel, completed, fake_launcher, judgements, kinds,
+    ready, real_launcher, reviewed_daemon, run_turn, skip, with_zsh,
 };
+use crate::home::home_copies;
 use crate::support::zsh_enabled;
 
 /// The reviewer's answer that refuses an action.
@@ -74,7 +74,7 @@ fn changed(events: &[EventEnvelope]) -> Vec<(PathBuf, bool, bool, Option<PathBuf
 /// tool, of the file `path` (the real file), and returns its one record: no question,
 /// one review before the call ran, the file's new text, a backup of the old text, and
 /// `home_file_changed` with the backup before the turn's end.
-fn assert_reviewed_edit(
+async fn assert_reviewed_edit(
     dirs: &TestDirs,
     model: &ScriptedModel,
     events: &[EventEnvelope],
@@ -89,12 +89,11 @@ fn assert_reviewed_edit(
     assert_eq!(judgements(events), [(JudgeKind::Classifier, Verdict::Allow)]);
     assert_eq!(model.reviews.load(Ordering::SeqCst), 1);
     assert_eq!(std::fs::read_to_string(path).unwrap(), NEW_RC);
-    let [entry] = backup_entries(dirs).try_into().unwrap();
-    let copy = entry.join(path.file_name().unwrap());
-    assert_eq!(std::fs::read_to_string(&copy).unwrap(), OLD_RC);
-    assert_eq!(backup_meta(&entry)["real"], json!(path));
-    let [(changed_path, floor, covered, backup)] = changed(events).try_into().unwrap();
-    assert_eq!((floor, covered, backup), (true, false, Some(copy)));
+    // NOTE: phase B copies the real file into the home store (plan PB12).
+    let copies = home_copies(dirs).await;
+    assert!(copies.contains(&(path.to_path_buf(), OLD_RC.to_owned())), "{copies:?}");
+    let [(changed_path, floor, _, _)] = changed(events).try_into().unwrap();
+    assert!(floor);
     assert!(changed_path == path || changed_path == dirs.home().join(".zshrc"));
     let [record] = records(events).try_into().unwrap();
     assert_eq!(record.action.exits, [ExitKind::Persistence]);
@@ -118,7 +117,7 @@ async fn named_floor_file_edit_end_to_end() {
 
     let (_, events) = run_turn(&daemon, NAMED, Mode::Auto, ApprovalDecision::Deny).await;
 
-    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc);
+    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc).await;
     // The reviewer reads the hunk that efr will write, never only the path.
     let edit = record.action.edit.unwrap();
     assert!(edit.contains("+alias k=kubectl"), "{edit}");
@@ -147,7 +146,7 @@ async fn unnamed_floor_file_edit_end_to_end_asks_user() {
     assert_eq!(model.reviews.load(Ordering::SeqCst), 0);
     assert_eq!(judgements(&events), [(JudgeKind::User, Verdict::Deny)]);
     assert_eq!(std::fs::read_to_string(&zshrc).unwrap(), OLD_RC);
-    assert!(backup_entries(&dirs).is_empty());
+    assert!(home_copies(&dirs).await.is_empty());
     assert!(changed(&events).is_empty());
     daemon.stop().await.unwrap();
 }
@@ -163,7 +162,7 @@ async fn named_floor_file_edit_through_write_file_goes_to_classifier() {
 
     let (_, events) = run_turn(&daemon, NAMED, Mode::Auto, ApprovalDecision::Deny).await;
 
-    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc);
+    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc).await;
     assert_eq!(record.action.edit.as_deref(), Some(NEW_RC));
     daemon.stop().await.unwrap();
 }
@@ -239,7 +238,7 @@ async fn named_floor_file_edit_through_edit_goes_to_classifier() {
 
     let (_, events) = run_turn(&daemon, NAMED, Mode::Auto, ApprovalDecision::Deny).await;
 
-    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc);
+    let record = assert_reviewed_edit(&dirs, &model, &events, &zshrc).await;
     let edit = record.action.edit.unwrap();
     assert!(edit.contains("alias k=kubectl") && edit.contains("alias ll='ls -l'"), "{edit}");
     daemon.stop().await.unwrap();
@@ -270,7 +269,7 @@ async fn named_edit_of_dotfiles_link_target_goes_to_classifier() {
 
     let (_, events) = run_turn(&daemon, NAMED, Mode::Auto, ApprovalDecision::Deny).await;
 
-    assert_reviewed_edit(&dirs, &model, &events, &real);
+    assert_reviewed_edit(&dirs, &model, &events, &real).await;
     assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
     drop(client);
     daemon.stop().await.unwrap();

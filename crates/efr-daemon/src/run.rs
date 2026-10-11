@@ -59,7 +59,7 @@ use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
 use crate::tools::{self, CallSnapshots, DaemonToolbox, SettingsTool};
-use crate::{DaemonError, backups, catalog, gc, notices, reconcile, screens, signals};
+use crate::{DaemonError, backups, catalog, gc, home, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
 const RECORDINGS_DIR: &str = "recordings";
@@ -492,7 +492,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         engine_receiver.clone(),
         settings_receiver.clone(),
         home.clone(),
-    );
+    )
+    .with_state(dirs.state().to_path_buf());
     let toolbox = DaemonToolbox::new(
         tools::registry(&shells)?,
         shells.clone(),
@@ -504,7 +505,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     )
     .with_sandbox(sandbox.clone(), engine_receiver.clone())
     .with_snapshots(call_snapshots)
-    .with_backup_dir(dirs.data().join(backups::FILE_BACKUPS_DIR));
+    .with_undo_trash(dirs.data().join(home::UNDO_TRASH_DIR))
+    .with_efr_roots(vec![
+        dirs.config().to_path_buf(),
+        dirs.data().to_path_buf(),
+        dirs.state().to_path_buf(),
+        dirs.runtime().to_path_buf(),
+    ]);
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
@@ -705,23 +712,35 @@ async fn collect_sandbox_layers(state: Arc<State>, stop: CancellationToken) {
 }
 
 /// Keeps the snapshot store small, once an hour: the refs of the newest
-/// `snapshot.keep_turns` turns of each conversation stay, and a store without a
-/// snapshot for `snapshot.max_age_days` goes.
+/// `snapshot.keep_turns` turns of each conversation stay whole across every store, the
+/// home store too, the mirrors of a store stay within four times
+/// `snapshot.mirror_max_mib`, and a store without a snapshot for
+/// `snapshot.max_age_days` goes. The undo trash and the legacy backups of phase A go by
+/// the same age (plan PB27, PB28).
 async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
     loop {
         tokio::select! {
             () = stop.cancelled() => return,
             () = state.clock.sleep(SNAPSHOT_GC_INTERVAL) => {}
         }
-        let (keep_turns, max_age) = {
+        let (keep_turns, max_age, mirror_max_bytes) = {
             let settings = state.settings.borrow();
             let days = u64::from(settings.snapshot.max_age_days);
-            (settings.snapshot.keep_turns as usize, Duration::from_secs(days * 24 * 3600))
+            let mirror = u64::from(settings.snapshot.mirror_max_mib) * 1024 * 1024;
+            (settings.snapshot.keep_turns as usize, Duration::from_secs(days * 24 * 3600), mirror)
         };
-        let report = state.snapshots.gc(keep_turns, max_age).await;
+        let report = state.snapshots.gc_capped(keep_turns, max_age, mirror_max_bytes).await;
         tracing::debug!(?report, "collected old snapshots");
-        let backups = state.dirs.data().join(backups::FILE_BACKUPS_DIR);
         let now = SystemTime::from(state.clock.now());
+        let trash = state.dirs.data().join(home::UNDO_TRASH_DIR);
+        let removed =
+            tokio::task::spawn_blocking(move || home::collect_trash(&trash, max_age, now)).await;
+        match removed {
+            Ok(0) => {}
+            Ok(removed) => tracing::debug!(removed, "collected old undo trash"),
+            Err(_) => tracing::warn!("collecting the undo trash panicked"),
+        }
+        let backups = state.dirs.data().join(backups::FILE_BACKUPS_DIR);
         backups::collect(&backups, keep_turns, max_age, now).await;
     }
 }

@@ -6,7 +6,7 @@ use efr_conversation::CallContext;
 use efr_permissions::{Engine, Locations};
 use efr_protocol::{CallId, ChangeKind, ConversationId, TurnId};
 use efr_scope::{Git, Home};
-use efr_snapshot::{DEFAULT_SNAPSHOT_TIMEOUT, SnapshotParts, Snapshots};
+use efr_snapshot::{DEFAULT_SNAPSHOT_TIMEOUT, NOT_COVERED_REFS, SnapshotParts, Snapshots};
 use efr_test_support::TestClock;
 use efr_tools::{WrittenDiff, WrittenFile, WrittenKind, written_diff};
 use pretty_assertions::assert_eq;
@@ -216,4 +216,50 @@ async fn a_shell_call_lists_what_it_changed_in_scratch() {
     assert_eq!(changes.files[0].path, "$SCRATCH/out.txt");
     let turn = snapshots.finish_turn(call.conversation_id, call.turn_id).await.unwrap();
     assert_eq!(turn, changes);
+}
+
+/// A git repository at `dir`, with one commit, with git's own config switched off.
+async fn git_init(dir: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["add", "a.txt"],
+        &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one"],
+    ] {
+        let status = efr_stdx::process::command("git", dir)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .status()
+            .await
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+}
+
+#[tokio::test]
+async fn mirror_max_mib_zero_turns_the_mirror_off() {
+    let home = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(home.path()).unwrap();
+    git_init(&home.join("scratch")).await;
+    let end_with = async |mib: u32, turn: u128| {
+        let mut settings = Settings::default();
+        settings.snapshot.mirror_max_mib = mib;
+        let snapshots = snapshots(&home, settings).with_state(home.join("state"));
+        let mut call = call(&home);
+        call.turn_id = TurnId::from_uuid(uuid::Uuid::from_u128(turn));
+        let limits = snapshots.limits().unwrap();
+        let before = snapshots.before_call(&call, &[]).await;
+        snapshots.after_call(before).await;
+        (limits, snapshots.turn_end(call.turn_id).await.end.not_covered)
+    };
+
+    let (off, refs) = end_with(0, 2).await;
+    let (on, kept) = end_with(512, 3).await;
+
+    assert_eq!((off.mirror_max_bytes, on.mirror_max_bytes), (0, 512 * 1024 * 1024));
+    let [(_, reason)] = refs.try_into().unwrap();
+    assert_eq!(reason, format!("{NOT_COVERED_REFS}snapshot.mirror_max_mib is 0"));
+    assert_eq!(kept, [], "with a budget the turn mirrors the refs");
 }
