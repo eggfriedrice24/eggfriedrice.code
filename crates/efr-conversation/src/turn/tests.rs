@@ -15,7 +15,7 @@ use efr_scope::{Basis, Derivation, Repo};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{bounded_tail, provider_failure};
+use super::{bounded_tail, provider_failure, user_denied};
 use crate::context::request_tokens;
 use crate::preamble::LiveState;
 use crate::testing::{
@@ -584,7 +584,7 @@ async fn an_asked_tool_call_that_the_user_denies_never_runs() {
         expect_request(request(vec![
             first,
             tool_message("call_1", "write_file", &input),
-            result_message("call_1", "The user denied the write_file call; it did not run.", true),
+            result_message("call_1", &user_denied("write_file"), true),
         ])),
         answer(&text_answer("Understood.")),
     ];
@@ -1232,7 +1232,7 @@ async fn the_cautious_mode_asks_for_a_writer_program() {
         expect_request(request(vec![
             first,
             tool_message("call_1", "shell", &input),
-            result_message("call_1", "The user denied the shell call; it did not run.", true),
+            result_message("call_1", &user_denied("shell"), true),
         ])),
         answer(&text_answer("Kept.")),
     ];

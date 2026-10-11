@@ -1229,10 +1229,9 @@ impl Turn {
             Waited::Answer(Some(_)) if !kinds.is_empty() => {
                 Authorization::Denied { message: exit::EXIT_DENIED.to_owned(), refusal: None }
             }
-            Waited::Answer(Some(_)) => Authorization::Denied {
-                message: format!("The user denied the {} call; it did not run.", call.name),
-                refusal: None,
-            },
+            Waited::Answer(Some(_)) => {
+                Authorization::Denied { message: user_denied(&call.name), refusal: None }
+            }
             Waited::Answer(None) => return Ok(Authorization::Expired { away: false }),
             Waited::Interrupted => {
                 self.expire(call_id, false, &kinds).await?;
@@ -1530,6 +1529,14 @@ fn tool_calls(message: &Message) -> Vec<PendingCall> {
             _ => None,
         })
         .collect()
+}
+
+/// What the model reads when the user says no to a call of `tool` that is no exit.
+pub(crate) fn user_denied(tool: &str) -> String {
+    format!(
+        "The user denied the {tool} call; it did not run. Do not run it again in another \
+         form. Tell the user what you wanted to do."
+    )
 }
 
 /// The `provider_options` of a request of the conversation `conversation_id`: those of

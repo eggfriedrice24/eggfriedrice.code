@@ -242,6 +242,32 @@ async fn a_denied_exit_never_runs_and_the_model_hears_it() {
     h.finish();
 }
 
+/// After a "no", the model must not ask again for the same thing in another form: the
+/// live run asked five questions for five dotfiles after one "no".
+#[tokio::test]
+async fn a_user_denial_tells_the_model_not_to_ask_again() {
+    let (setup, state) = auto("tidy my dotfiles");
+    let input = json!({ "command": "sudo pacman -Syu" });
+    let records =
+        one_call(&setup, &state, "tidy my dotfiles", &input, EXIT_DENIED, true, "I stopped.");
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("tidy my dotfiles").await;
+    let call_id = h.wait_approval().await;
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(sent.turn_id).await;
+
+    assert!(h.toolbox.invoked().is_empty());
+    assert!(
+        EXIT_DENIED.contains("Do not ask again for this action or a similar one in this turn"),
+        "{EXIT_DENIED}"
+    );
+    assert!(EXIT_DENIED.contains("tell the user what you wanted to do and why"), "{EXIT_DENIED}");
+    let other = crate::turn::user_denied("write_file");
+    assert!(other.contains("Do not run it again in another form"), "{other}");
+    h.finish();
+}
+
 #[tokio::test]
 async fn multi_command_unsandboxed_exit_refused_without_question() {
     let (setup, state) = auto("set up");

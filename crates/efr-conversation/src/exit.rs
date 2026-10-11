@@ -42,8 +42,12 @@ pub(crate) const DENIALS_IN_A_ROW: u8 = 3;
 /// How many classifier denials in one turn stop the classifier for the rest of it.
 pub(crate) const DENIALS_PER_TURN: u8 = 10;
 
-/// What the model reads when the user says no to an exit.
-pub(crate) const EXIT_DENIED: &str = "The user denied the exit; it did not run.";
+/// What the model reads when the user says no to an exit. It tells the model not to
+/// ask again in another form: one "no" must not become a question for each file.
+pub(crate) const EXIT_DENIED: &str = "The user said no to this action; it did not run. Do not \
+                                      ask again for this action or a similar one in this \
+                                      turn. Finish the work that stays in the sandbox, then \
+                                      tell the user what you wanted to do and why.";
 
 /// What the model reads when nobody answered a question while the user was away (efr's
 /// auto spec, section 9.5).

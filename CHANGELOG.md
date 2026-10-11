@@ -109,6 +109,10 @@ into the GitHub release notes, and it stops when the section is missing.
   When efr finds no such socket, the model reads "efr found no Hyprland session in the
   terminal of this prompt". An X server that needs an X cookie is refused for now.
 
+### Fixed
+
+- After you say no, the model does not ask again for the same action in that turn.
+
 ## [0.0.3] - 2026-10-09
 
 ### Added
