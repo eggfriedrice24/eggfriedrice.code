@@ -519,7 +519,12 @@ impl DaemonToolbox {
         let mut entries: Vec<UndoEntry> = Vec::new();
         let mut git = false;
         let mut writes = false;
-        for (n, root) in plan.roots.iter().enumerate() {
+        // The plan holds the roots in the order of their store ids, which come from a
+        // hash of the path; the report lists them by what it shows, so the project of
+        // the conversation (no prefix) comes first and the order is the same each time.
+        let mut order: Vec<(usize, &RootPlan)> = plan.roots.iter().enumerate().collect();
+        order.sort_by(|(_, a), (_, b)| a.shown.cmp(&b.shown).then_with(|| a.root.cmp(&b.root)));
+        for (n, root) in order {
             let done = applied.and_then(|applied| applied.roots.get(n));
             for (m, entry) in root.entries.iter().enumerate() {
                 let path = format!("{}{}", root.shown, entry.path);
