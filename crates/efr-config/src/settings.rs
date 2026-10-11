@@ -16,6 +16,7 @@ use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ConversationSettings,
     DEFAULT_LOG, Location, ModelSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
     RenderSettings, SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source,
+    UndoSettings,
 };
 
 /// The file name under the config root.
@@ -59,6 +60,8 @@ pub struct Settings {
     pub sandbox: SandboxSettings,
     /// The reviewer model that decides most actions that leave the `auto` sandbox.
     pub classifier: ClassifierSettings,
+    /// `efr undo`, which takes back the changes of a turn from efr's snapshots.
+    pub undo: UndoSettings,
     /// efr's own snapshots, which show what a call and a turn changed in files.
     pub snapshot: SnapshotSettings,
     /// When efr counts you away from a conversation, and how long a question waits
@@ -85,6 +88,7 @@ impl Default for Settings {
             compaction: CompactionSettings::default(),
             sandbox: SandboxSettings::default(),
             classifier: ClassifierSettings::default(),
+            undo: UndoSettings::default(),
             snapshot: SnapshotSettings::default(),
             presence: PresenceSettings::default(),
             render: RenderSettings::default(),

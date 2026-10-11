@@ -135,6 +135,7 @@ The kernel sandbox of the `auto` mode.
 | `surface_files` | `["Makefile", "build.rs", "package.json", ".envrc", "rust-toolchain.toml", "justfile", "*.mk", "CMakeLists.txt", "setup.py", "pyproject.toml", "conftest.py", ".vscode/tasks.json", ".nvim.lua", ".exrc", ".mise.toml", ".tool-versions", "flake.nix", ".pre-commit-config.yaml", ".cargo/config.toml", ".cargo/config", ".npmrc", ".yarnrc.yml", ".pnpmfile.cjs"]` | live | The files that run code later outside the sandbox: names or paths relative to a write root, with `*`. The end of an `auto` turn lists the ones it changed. |
 | `offline_hints` | `true` | live | Tell package managers to work offline while the sandbox has no network (`CARGO_NET_OFFLINE`, `npm_config_offline`, `UV_OFFLINE`, `GOPROXY=off`). |
 | `rebuildable` | `["target", "node_modules", "dist", "build", ".venv"]` | live | Directory names whose deletion is not destructive, because builds make them again. |
+| `ask_destructive` | `"unless_undoable"` | live | When a line that deletes or overwrites files asks first: `always`, or `unless_undoable` (a line whose files efr's snapshot holds runs at once, because `efr undo` can bring them back). |
 
 ## [classifier]
 
@@ -148,6 +149,14 @@ The reviewer model that decides most actions that leave the `auto` sandbox.
 | `effort` | `"low"` | live | The reasoning effort of each review, one lowercase word such as `low`, for the models that take an effort. |
 | `timeout_secs` | `20` | live | How long each model of the chain may take, in seconds, from 1 to 300. A slower answer goes to the next step. |
 
+## [undo]
+
+`efr undo`, which takes back the changes of a turn from efr's snapshots.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `true` | live | `false` turns undo off: `efr undo` refuses, the end of a turn shows no undo hint, and in `auto` a line that deletes or overwrites files goes to the reviewer or to you, as with `sandbox.ask_destructive = "always"`. |
+
 ## [snapshot]
 
 efr's own snapshots, which show what a call and a turn changed in files.
@@ -160,6 +169,9 @@ efr's own snapshots, which show what a call and a turn changed in files.
 | `max_files` | `20000` | live | A project or `$SCRATCH` with more files than this is not snapshotted, from 100 to 1000000; the debug log says so, and efr counts its files again after 10 minutes. |
 | `keep_turns` | `50` | live | The turns of each conversation whose snapshots stay, newest first, from 1 to 10000; older ones are deleted. |
 | `max_age_days` | `30` | live | Days without a snapshot after which the store of a project or `$SCRATCH` is deleted, from 1 to 3650. |
+| `mirror_max_mib` | `512` | live | The most MiB of a project's git objects that efr copies into its store once per turn, so `efr undo` can move the project's branches and tags back, from 0 to 65536; also the most that one turn's copy may add. 0 copies none: undo then restores files but no refs. A store keeps at most 4 times this in copies. |
+| `home_max_files` | `2000` | live | The most files of one directory that efr copies before a call can write all of it, outside the project and `$SCRATCH`, from 0 to 100000. A larger directory gets no copy, and the end of the turn says so. |
+| `home_max_mib` | `256` | live | The most MiB of one directory that efr copies before a call can write all of it, outside the project and `$SCRATCH`, from 0 to 16384. A larger directory gets no copy, and the end of the turn says so. |
 
 ## [presence]
 

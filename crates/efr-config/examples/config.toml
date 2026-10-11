@@ -245,6 +245,11 @@
 # Directory names whose deletion is not destructive, because builds make them again.
 # rebuildable = ["target", "node_modules", "dist", "build", ".venv"]
 
+# When a line that deletes or overwrites files asks first: always, or unless_undoable
+# (a line whose files efr's snapshot holds runs at once, because efr undo can bring
+# them back).
+# ask_destructive = "unless_undoable"
+
 [classifier]
 # true lets a reviewer model decide most actions that leave the sandbox in auto, and
 # hand the unsure ones to you. false asks you about every such action. Each review is
@@ -264,6 +269,11 @@
 
 # How long each model of the chain may take, in seconds, from 1 to 300.
 # timeout_secs = 20
+
+[undo]
+# false turns efr undo off: efr undo refuses, the end of a turn shows no undo hint,
+# and in auto a line that deletes or overwrites files goes to the reviewer or to you.
+# enabled = true
 
 [snapshot]
 # efr takes its own snapshot of the turn's registered project, $SCRATCH and, in auto,
@@ -293,6 +303,19 @@
 
 # Days without a snapshot after which the store of a project or $SCRATCH is deleted.
 # max_age_days = 30
+
+# The most MiB of a project's git objects that efr copies into its store once per
+# turn, so efr undo can move the project's branches and tags back, from 0 to 65536.
+# 0 copies none: undo then restores files but no refs.
+# mirror_max_mib = 512
+
+# The most files of one directory outside the project that efr copies before a call
+# can write all of it, from 0 to 100000. A larger directory gets no copy.
+# home_max_files = 2000
+
+# The most MiB of one directory outside the project that efr copies before a call can
+# write all of it, from 0 to 16384. A larger directory gets no copy.
+# home_max_mib = 256
 
 [presence]
 # The minutes without input in a conversation after which efr counts you away, from 1

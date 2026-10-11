@@ -96,6 +96,29 @@ impl WriteProjects {
     }
 }
 
+/// When a line of the `auto` mode that deletes or overwrites files asks first.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AskDestructive {
+    /// Every such line goes to the reviewer or to you.
+    Always,
+    /// A line whose files efr's snapshot holds, so `efr undo` can bring them back, runs
+    /// at once; the other ones go to the reviewer or to you.
+    #[default]
+    UnlessUndoable,
+}
+
+impl AskDestructive {
+    /// The name in the file, such as `unless_undoable`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AskDestructive::Always => "always",
+            AskDestructive::UnlessUndoable => "unless_undoable",
+        }
+    }
+}
+
 /// `[sandbox]`: the kernel sandbox of the `auto` mode. Every key applies from the next
 /// call or turn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -157,6 +180,10 @@ pub struct SandboxSettings {
     /// Directory names whose deletion is not destructive, because builds make them
     /// again.
     pub rebuildable: Vec<String>,
+    /// When a line that deletes or overwrites files asks first: `always`, or
+    /// `unless_undoable` (a line whose files efr's snapshot holds runs at once, because
+    /// `efr undo` can bring them back).
+    pub ask_destructive: AskDestructive,
 }
 
 impl Default for SandboxSettings {
@@ -186,6 +213,7 @@ impl Default for SandboxSettings {
             surface_files: names(DEFAULT_SURFACE_FILES),
             offline_hints: true,
             rebuildable: names(DEFAULT_REBUILDABLE),
+            ask_destructive: AskDestructive::UnlessUndoable,
         }
     }
 }

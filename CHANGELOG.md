@@ -61,6 +61,8 @@ into the GitHub release notes, and it stops when the section is missing.
   (stop: refusal)`. An answer that reached the output limit says so too.
 - The journal of efrd has a line for a failed or interrupted turn, and the request id
   of a model call that failed.
+- New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
+  `snapshot.home_max_mib` and `sandbox.ask_destructive`.
 
 ### Changed
 

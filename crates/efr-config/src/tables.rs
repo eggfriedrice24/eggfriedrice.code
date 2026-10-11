@@ -19,6 +19,7 @@ pub(crate) mod presence;
 pub(crate) mod render;
 pub(crate) mod sandbox;
 pub(crate) mod snapshot;
+pub(crate) mod undo;
 
 /// The tracing filter when nothing sets one: lifecycle lines only, as a service.
 pub const DEFAULT_LOG: &str = "info";

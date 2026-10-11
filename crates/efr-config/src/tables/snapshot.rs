@@ -1,6 +1,6 @@
 //! `[snapshot]`: efr's own snapshots of the files that the agent can change, which show
-//! what a call and a turn changed (efr's auto spec, section 10, phase 4 keys of this
-//! round; undo comes later).
+//! what a call and a turn changed and which `efr undo` restores from (efr's auto spec,
+//! section 10: the keys of phase 4, and the mirror and home store keys of phase B).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,19 @@ pub struct SnapshotSettings {
     /// Days without a snapshot after which the store of a project or `$SCRATCH` is
     /// deleted, from 1 to 3650.
     pub max_age_days: u32,
+    /// The most MiB of a project's git objects that efr copies into its store once per
+    /// turn, so `efr undo` can move the project's branches and tags back, from 0 to
+    /// 65536; also the most that one turn's copy may add. 0 copies none: undo then
+    /// restores files but no refs. A store keeps at most 4 times this in copies.
+    pub mirror_max_mib: u32,
+    /// The most files of one directory that efr copies before a call can write all of
+    /// it, outside the project and `$SCRATCH`, from 0 to 100000. A larger directory
+    /// gets no copy, and the end of the turn says so.
+    pub home_max_files: u32,
+    /// The most MiB of one directory that efr copies before a call can write all of
+    /// it, outside the project and `$SCRATCH`, from 0 to 16384. A larger directory gets
+    /// no copy, and the end of the turn says so.
+    pub home_max_mib: u32,
 }
 
 impl Default for SnapshotSettings {
@@ -66,6 +79,9 @@ impl Default for SnapshotSettings {
             max_files: 20_000,
             keep_turns: 50,
             max_age_days: 30,
+            mirror_max_mib: 512,
+            home_max_files: 2_000,
+            home_max_mib: 256,
         }
     }
 }

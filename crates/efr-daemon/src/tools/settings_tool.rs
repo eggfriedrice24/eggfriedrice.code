@@ -34,8 +34,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
-    Applies, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, Kind, SandboxSettings,
-    Settings, Source, SudoCache, WriteProjects,
+    Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, IgnoredFiles,
+    Kind, SandboxSettings, Settings, SnapshotSettings, Source, SudoCache, WriteProjects,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
@@ -620,8 +620,9 @@ fn ids(models: &[ModelInfo]) -> String {
 
 /// True when `next` lets more run without a question than `before`: a new allow rule,
 /// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, a secret
-/// path less, a `[sandbox]` key that opens the sandbox, or the classifier turned on, so
-/// a model can allow exits that asked the user (efr's auto spec, section 13.1).
+/// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
+/// a model can allow exits that asked the user, or undo turned on or covering more,
+/// so more destructive lines run without a question (efr's auto spec, section 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -639,11 +640,29 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
             .any(|path| !next.permissions.secret_paths.contains(path))
         || sandbox_loosens(&before.sandbox, &next.sandbox)
         || (next.classifier.enabled && !before.classifier.enabled)
+        || (next.undo.enabled && !before.undo.enabled)
+        || snapshot_loosens(&before.snapshot, &next.snapshot)
+}
+
+/// True when `next` makes efr's snapshots cover more than `before`, so more lines that
+/// delete or overwrite files count as undoable and run without a question: snapshots
+/// turned on, small ignored files taken, or a higher size or count limit.
+fn snapshot_loosens(before: &SnapshotSettings, next: &SnapshotSettings) -> bool {
+    (next.enabled && !before.enabled)
+        || (next.ignored == IgnoredFiles::Small && before.ignored != IgnoredFiles::Small)
+        || next.max_file_mib > before.max_file_mib
+        // NOTE: a root with more files than `max_files` has no snapshot, so a higher
+        // limit covers more roots.
+        || next.max_files > before.max_files
+        || next.mirror_max_mib > before.mirror_max_mib
+        || next.home_max_files > before.home_max_files
+        || next.home_max_mib > before.home_max_mib
 }
 
 /// True when `next` opens the sandbox more than `before`: another bwrap, all projects
-/// writable, a new write root, cache, kept or promoted variable or rebuildable dir, or
-/// a mask glob or synced folder less.
+/// writable, a new write root, cache, kept or promoted variable or rebuildable dir, a
+/// mask glob or synced folder less, or `ask_destructive` from `always` to
+/// `unless_undoable`.
 fn sandbox_loosens(before: &SandboxSettings, next: &SandboxSettings) -> bool {
     fn adds<T: PartialEq>(before: &[T], next: &[T]) -> bool {
         next.iter().any(|item| !before.contains(item))
@@ -658,6 +677,8 @@ fn sandbox_loosens(before: &SandboxSettings, next: &SandboxSettings) -> bool {
         || adds(&before.promote_env, &next.promote_env)
         || adds(&next.synced_dirs, &before.synced_dirs)
         || adds(&before.rebuildable, &next.rebuildable)
+        || (next.ask_destructive == AskDestructive::UnlessUndoable
+            && before.ask_destructive != AskDestructive::UnlessUndoable)
 }
 
 /// The rules of `rules` that `other` does not hold, each counted as often as it occurs.

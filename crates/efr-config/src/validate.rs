@@ -246,6 +246,24 @@ fn check_snapshot(snapshot: &SnapshotSettings) -> Result<(), Invalid> {
         u64::from(snapshot.max_age_days),
         1..=3_650,
         "between 1 and 3650",
+    )?;
+    within(
+        "snapshot.mirror_max_mib",
+        u64::from(snapshot.mirror_max_mib),
+        0..=65_536,
+        "between 0 and 65536",
+    )?;
+    within(
+        "snapshot.home_max_files",
+        u64::from(snapshot.home_max_files),
+        0..=100_000,
+        "between 0 and 100000",
+    )?;
+    within(
+        "snapshot.home_max_mib",
+        u64::from(snapshot.home_max_mib),
+        0..=16_384,
+        "between 0 and 16384",
     )
 }
 

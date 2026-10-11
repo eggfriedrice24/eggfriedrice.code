@@ -221,3 +221,77 @@ fn presence_keys_have_defaults_and_checks() {
     settings.presence.away_wait_secs = 86_400;
     assert_eq!(check(&settings), Ok(()));
 }
+
+#[test]
+fn undo_keys_have_defaults_and_checks() {
+    use std::path::Path;
+
+    assert!(Settings::default().undo.enabled);
+    assert_eq!(crate::kind("undo.enabled"), Some(crate::Kind::Boolean));
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    let off = Settings::parse(path, Some("[undo]\nenabled = false\n")).unwrap();
+    assert!(!off.undo.enabled);
+    assert_eq!(check(&off), Ok(()));
+    assert!(Settings::parse(path, Some("[undo]\nenabled = \"no\"\n")).is_err());
+    assert!(
+        Settings::parse(path, Some("[undo]\nforget = true\n")).is_err(),
+        "an unknown key of [undo] is an error"
+    );
+}
+
+#[test]
+fn snapshot_mirror_and_home_keys_have_checks() {
+    let defaults = Settings::default().snapshot;
+    assert_eq!(defaults.mirror_max_mib, 512);
+    assert_eq!(defaults.home_max_files, 2_000);
+    assert_eq!(defaults.home_max_mib, 256);
+
+    type Change = fn(&mut Settings);
+    let refused: [(Change, &str); 3] = [
+        (|s| s.snapshot.mirror_max_mib = 65_537, "snapshot.mirror_max_mib"),
+        (|s| s.snapshot.home_max_files = 100_001, "snapshot.home_max_files"),
+        (|s| s.snapshot.home_max_mib = 16_385, "snapshot.home_max_mib"),
+    ];
+    for (change, key) in refused {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key));
+    }
+    let accepted: [Change; 2] = [
+        |s| {
+            s.snapshot.mirror_max_mib = 0;
+            s.snapshot.home_max_files = 0;
+            s.snapshot.home_max_mib = 0;
+        },
+        |s| {
+            s.snapshot.mirror_max_mib = 65_536;
+            s.snapshot.home_max_files = 100_000;
+            s.snapshot.home_max_mib = 16_384;
+        },
+    ];
+    for change in accepted {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings), Ok(()), "0 turns a copy off, and each top is allowed");
+    }
+}
+
+#[test]
+fn ask_destructive_has_two_values() {
+    use std::path::Path;
+
+    use crate::AskDestructive;
+
+    assert_eq!(Settings::default().sandbox.ask_destructive, AskDestructive::UnlessUndoable);
+    assert_eq!(
+        crate::kind("sandbox.ask_destructive"),
+        Some(crate::Kind::Choice(vec!["always".to_owned(), "unless_undoable".to_owned()]))
+    );
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    for value in [AskDestructive::Always, AskDestructive::UnlessUndoable] {
+        let text = format!("[sandbox]\nask_destructive = \"{}\"\n", value.as_str());
+        let settings = Settings::parse(path, Some(&text)).unwrap();
+        assert_eq!(settings.sandbox.ask_destructive, value);
+    }
+    assert!(Settings::parse(path, Some("[sandbox]\nask_destructive = \"never\"\n")).is_err());
+}

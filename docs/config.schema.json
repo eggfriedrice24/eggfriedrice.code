@@ -66,6 +66,21 @@
       },
       "type": "object"
     },
+    "AskDestructive": {
+      "description": "When a line of the `auto` mode that deletes or overwrites files asks first.",
+      "oneOf": [
+        {
+          "const": "always",
+          "description": "Every such line goes to the reviewer or to you.",
+          "type": "string"
+        },
+        {
+          "const": "unless_undoable",
+          "description": "A line whose files efr's snapshot holds, so `efr undo` can bring them back, runs\nat once; the other ones go to the reviewer or to you.",
+          "type": "string"
+        }
+      ]
+    },
     "CacheMode": {
       "description": "How the sandbox treats the tool caches (`~/.cargo`, `~/.cache` and the others of\n`sandbox.caches`).",
       "oneOf": [
@@ -910,6 +925,11 @@
       "additionalProperties": false,
       "description": "`[sandbox]`: the kernel sandbox of the `auto` mode. Every key applies from the next\ncall or turn.",
       "properties": {
+        "ask_destructive": {
+          "$ref": "#/$defs/AskDestructive",
+          "default": "unless_undoable",
+          "description": "When a line that deletes or overwrites files asks first: `always`, or\n`unless_undoable` (a line whose files efr's snapshot holds runs at once, because\n`efr undo` can bring them back)."
+        },
         "bwrap": {
           "description": "The bubblewrap program, an absolute path. Unset: the first `bwrap` on the\ndaemon's `PATH`. A change runs the probe again.",
           "type": [
@@ -1180,6 +1200,20 @@
           "description": "`false` takes no snapshot: a `shell` call and the end of a turn then list no\nchanged files, and `efr diff` has nothing new. A file tool still shows its diff.",
           "type": "boolean"
         },
+        "home_max_files": {
+          "default": 2000,
+          "description": "The most files of one directory that efr copies before a call can write all of\nit, outside the project and `$SCRATCH`, from 0 to 100000. A larger directory\ngets no copy, and the end of the turn says so.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "home_max_mib": {
+          "default": 256,
+          "description": "The most MiB of one directory that efr copies before a call can write all of\nit, outside the project and `$SCRATCH`, from 0 to 16384. A larger directory gets\nno copy, and the end of the turn says so.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "ignored": {
           "$ref": "#/$defs/IgnoredFiles",
           "default": "small",
@@ -1212,6 +1246,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "mirror_max_mib": {
+          "default": 512,
+          "description": "The most MiB of a project's git objects that efr copies into its store once per\nturn, so `efr undo` can move the project's branches and tags back, from 0 to\n65536; also the most that one turn's copy may add. 0 copies none: undo then\nrestores files but no refs. A store keeps at most 4 times this in copies.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "type": "object"
@@ -1234,6 +1275,18 @@
     "Under": {
       "description": "Where a command must run for a [`CommandPattern`] to match it: below a directory,\nin the turn's registered project, or in the conversation's `$SCRATCH`.\n\nIn the configuration it is one string: `\"project\"`, `\"scratch\"`, or a directory that\nis absolute or starts with `~`.",
       "type": "string"
+    },
+    "UndoSettings": {
+      "additionalProperties": false,
+      "description": "`[undo]`: whether `efr undo` can take back a turn. The snapshots themselves are in\n`[snapshot]`. Every key applies from the next call or undo.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "`false` turns undo off: `efr undo` refuses, the end of a turn shows no undo\nhint, and in `auto` a line that deletes or overwrites files goes to the reviewer\nor to you, as with `sandbox.ask_destructive = \"always\"`.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
     },
     "WebSocketChoice": {
       "description": "Whether model calls go over the Responses WebSocket transport.",
@@ -1375,6 +1428,7 @@
     "sandbox": {
       "$ref": "#/$defs/SandboxSettings",
       "default": {
+        "ask_destructive": "unless_undoable",
         "cache_days": 14,
         "cache_max_gib": 20,
         "cache_mode": "tmp",
@@ -1478,13 +1532,23 @@
       "$ref": "#/$defs/SnapshotSettings",
       "default": {
         "enabled": true,
+        "home_max_files": 2000,
+        "home_max_mib": 256,
         "ignored": "small",
         "keep_turns": 50,
         "max_age_days": 30,
         "max_file_mib": 10,
-        "max_files": 20000
+        "max_files": 20000,
+        "mirror_max_mib": 512
       },
       "description": "efr's own snapshots, which show what a call and a turn changed in files."
+    },
+    "undo": {
+      "$ref": "#/$defs/UndoSettings",
+      "default": {
+        "enabled": true
+      },
+      "description": "`efr undo`, which takes back the changes of a turn from efr's snapshots."
     }
   },
   "title": "efr config.toml",

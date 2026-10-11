@@ -5,8 +5,8 @@
 //!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
 //!   [`CompactionSettings`],
-//!   [`SandboxSettings`], [`ClassifierSettings`], [`SnapshotSettings`] with
-//!   [`IgnoredFiles`], [`PresenceSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
+//!   [`SandboxSettings`] with [`AskDestructive`], [`ClassifierSettings`],
+//!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
@@ -74,10 +74,11 @@ pub use tables::render::{
     RoleColor,
 };
 pub use tables::sandbox::{
-    DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
+    AskDestructive, DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
     DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, SandboxSettings, WriteProjects,
 };
 pub use tables::snapshot::{IgnoredFiles, SnapshotSettings};
+pub use tables::undo::UndoSettings;
 pub use tables::{
     ConversationSettings, DEFAULT_LOG, DEFAULT_ORIGINATOR, DEFAULT_PROVIDER, DEFAULT_SYSTEM_PROMPT,
     ModelEntry, ModelLimits, ModelSettings, OpenAiSettings, PROVIDERS, PermissionSettings,

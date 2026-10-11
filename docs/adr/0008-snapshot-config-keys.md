@@ -35,6 +35,10 @@ and switches undo on or off. It does not switch the snapshots off:
 
 The spec's sections 10.2, 10.4 and 13.1 now use these names.
 
+Phase B (2026-10-11) adds `undo.enabled` and, by the same rule, the store keys
+`snapshot.mirror_max_mib`, `snapshot.home_max_files` and `snapshot.home_max_mib` in
+`[snapshot]`.
+
 ## Consequences
 
 - One table holds what the snapshot store takes, what it keeps and how long. A user

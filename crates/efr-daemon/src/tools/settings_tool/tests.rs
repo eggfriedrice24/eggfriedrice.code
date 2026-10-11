@@ -803,3 +803,63 @@ fn loosens_classifier_enabled() {
         assert!(!super::loosens(&on, next), "{row} must not loosen");
     }
 }
+
+#[test]
+fn loosens_ask_destructive_unless_undoable() {
+    use efr_config::AskDestructive;
+
+    let mut always = Settings::default();
+    always.sandbox.ask_destructive = AskDestructive::Always;
+    let unless = Settings::default();
+    assert_eq!(unless.sandbox.ask_destructive, AskDestructive::UnlessUndoable);
+    assert!(super::loosens(&always, &unless), "always to unless_undoable asks less");
+    assert!(super::sandbox_loosens(&always.sandbox, &unless.sandbox));
+    assert!(!super::loosens(&unless, &always), "unless_undoable to always asks more");
+}
+
+#[test]
+fn loosens_undo_and_snapshot_enabled() {
+    let mut off = Settings::default();
+    off.undo.enabled = false;
+    let on = Settings::default();
+    assert!(super::loosens(&off, &on), "turning undo on loosens");
+    assert!(!super::loosens(&on, &off), "turning undo off asks more");
+
+    let mut no_snapshots = Settings::default();
+    no_snapshots.snapshot.enabled = false;
+    assert!(super::loosens(&no_snapshots, &on), "turning snapshots on loosens");
+    assert!(!super::loosens(&on, &no_snapshots), "turning snapshots off asks more");
+
+    let mut no_ignored = Settings::default();
+    no_ignored.snapshot.ignored = efr_config::IgnoredFiles::None;
+    assert!(super::loosens(&no_ignored, &on), "taking small ignored files loosens");
+    assert!(!super::loosens(&on, &no_ignored), "leaving them out asks more");
+}
+
+#[test]
+fn loosens_more_coverage_limits() {
+    let base = Settings::default();
+    let changed = |change: fn(&mut Settings)| {
+        let mut next = Settings::default();
+        change(&mut next);
+        next
+    };
+    let higher: Vec<(&str, Settings)> = vec![
+        ("snapshot.max_file_mib", changed(|s| s.snapshot.max_file_mib += 1)),
+        ("snapshot.mirror_max_mib", changed(|s| s.snapshot.mirror_max_mib += 1)),
+        ("snapshot.home_max_files", changed(|s| s.snapshot.home_max_files += 1)),
+        ("snapshot.home_max_mib", changed(|s| s.snapshot.home_max_mib += 1)),
+        ("snapshot.max_files", changed(|s| s.snapshot.max_files += 1)),
+    ];
+    for (row, next) in &higher {
+        assert!(super::loosens(&base, next), "a higher {row} must loosen");
+        assert!(!super::loosens(next, &base), "a lower {row} must not loosen");
+    }
+    let others: Vec<(&str, Settings)> = vec![
+        ("snapshot.keep_turns", changed(|s| s.snapshot.keep_turns += 1)),
+        ("snapshot.max_age_days", changed(|s| s.snapshot.max_age_days += 1)),
+    ];
+    for (row, next) in &others {
+        assert!(!super::loosens(&base, next), "{row} must not loosen");
+    }
+}

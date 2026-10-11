@@ -12,7 +12,7 @@ Modules:
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
-  `SandboxSettings`, `ClassifierSettings`, `SnapshotSettings`, `PresenceSettings`,
+  `SandboxSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
   `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
   `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
@@ -49,8 +49,13 @@ Modules:
 - `tables/sandbox`: `[sandbox]`, the keys of the `auto` sandbox (phase 1): the write
   roots, caches, masks, floors, environment and export lists, synced folders and the
   surface report. The daemon turns them into an `efr_sandbox::SandboxSpec` per call;
-  this crate only reads and checks them. The proxy, bus and undo keys come with their
-  phases.
+  this crate only reads and checks them. `ask_destructive` (`AskDestructive`:
+  `always` or `unless_undoable`, the default) says whether a line that deletes or
+  overwrites files in `auto` asks first when efr's snapshot holds its files (phase B).
+  The proxy and bus keys come with their phases.
+- `tables/undo`: `[undo]` (`UndoSettings`): `enabled` (default `true`), which
+  switches `efr undo` alone (phase B). The snapshots that undo restores from are in
+  `[snapshot]`.
 - `tables/classifier`: `[classifier]` (`ClassifierSettings`), the reviewer model of
   phase A, which decides most exits of the `auto` sandbox before the user: `enabled`,
   `model` (unset: the small model of the turn's provider), `fallback_to_turn_model`,
@@ -64,8 +69,11 @@ Modules:
   files that the agent can change (the auto spec, section 10): `enabled`,
   `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:
   `none` or `small`), `max_files` (a root with more files is not snapshotted),
-  `keep_turns` and `max_age_days` (what the collector keeps). The spec named some of
-  them `undo.*`; they live here because the snapshots come before undo
+  `keep_turns` and `max_age_days` (what the collector keeps), and from phase B
+  `mirror_max_mib` (0 to 65536, default 512: the copy of a project's refs and objects),
+  `home_max_files` (0 to 100000, default 2000) and `home_max_mib` (0 to 16384, default
+  256), the limits of the copy of a directory outside the roots. The spec named some
+  of them `undo.*`; they live here because the snapshots come before undo
   (`docs/adr/0008-snapshot-config-keys.md`).
 - `settings`: `Settings`, the whole file. `Settings::parse` reads the text with unknown
   keys refused, reads `[[permissions.rules]]` one by one so an error names
