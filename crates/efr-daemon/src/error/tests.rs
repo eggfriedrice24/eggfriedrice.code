@@ -6,8 +6,8 @@ use efr_config::ModelCompany;
 use efr_conversation::ConversationError;
 use efr_oauth_openai::OAuthError;
 use efr_protocol::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName, Seq,
-    TurnId,
+    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, Origin, PtyId, ScopeName,
+    Seq, TurnId,
 };
 use efr_provider::ProviderError;
 use efr_shell::ShellError;
@@ -132,6 +132,13 @@ fn conversation_errors_map_by_what_failed() {
             ErrorCode::NotFound,
         ),
         (ConversationError::Stopped, ErrorCode::Internal),
+        (
+            ConversationError::RemotePrivilegeAnswer {
+                origin: Origin::Phone,
+                call_id: CallId::from_uuid(id(6)),
+            },
+            ErrorCode::Forbidden,
+        ),
         (
             ConversationError::Store {
                 source: StoreError::ApprovalNotPending {
