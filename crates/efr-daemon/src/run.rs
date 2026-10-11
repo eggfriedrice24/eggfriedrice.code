@@ -59,6 +59,7 @@ use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
 use crate::telemetry::LogFilter;
 use crate::tools::{self, CallSnapshots, DaemonToolbox, SettingsTool};
+use crate::trusted_programs::TrustedPrograms;
 use crate::{DaemonError, backups, catalog, gc, home, notices, reconcile, screens, signals};
 
 /// The recordings directory under the data directory.
@@ -116,6 +117,11 @@ pub struct Deps {
     /// The test seams of the sandbox; empty unless the feature `test-sandbox-fake`
     /// sets them.
     pub(crate) seams: Seams,
+    /// efrd's own `PATH`, where it finds `crontab` and `loginctl` for the state copies
+    /// of cron and linger (`trusted_programs.rs`); `None` finds none, so those copies
+    /// are off. Only [`Deps::from_process`] sets it, so a test daemon never runs a real
+    /// one.
+    pub(crate) programs_path: Option<std::ffi::OsString>,
 }
 
 impl fmt::Debug for Deps {
@@ -137,6 +143,7 @@ impl fmt::Debug for Deps {
             .field("watch_config", &self.watch_config)
             .field("reload_on_hangup", &self.reload_on_hangup)
             .field("seams", &self.seams)
+            .field("programs_path", &self.programs_path)
             .finish_non_exhaustive()
     }
 }
@@ -170,6 +177,7 @@ impl Deps {
             watch_config: false,
             reload_on_hangup: false,
             seams: Seams::default(),
+            programs_path: None,
         }
     }
 
@@ -189,7 +197,10 @@ impl Deps {
         let shell_env = std::env::vars_os()
             .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
             .collect();
-        Ok(Deps::new(dirs, home, Arc::new(SystemClock), Arc::new(rng))
+        let mut deps = Deps::new(dirs, home, Arc::new(SystemClock), Arc::new(rng));
+        // NOTE: efrd's own PATH, never the hidden shell's (plan PB20).
+        deps.programs_path = std::env::var_os("PATH");
+        Ok(deps
             .with_shell_env(shell_env)
             .with_root_sources(root_sources)
             .with_config_watch()
@@ -322,6 +333,28 @@ pub async fn run(
     daemon.serve(shutdown).await
 }
 
+/// The programs that efrd runs for the state copies of cron and linger: from
+/// `path`, efrd's own `PATH`, or from a test's own dir `test_dir`, never from a dir
+/// below the home directory or efr's roots. It blocks for one stat of each entry.
+async fn trusted_programs(
+    dirs: &Dirs,
+    home: &Path,
+    path: Option<std::ffi::OsString>,
+    test_dir: Option<&Path>,
+) -> TrustedPrograms {
+    let mut refused = vec![home.to_path_buf()];
+    refused
+        .extend([dirs.config(), dirs.data(), dirs.state(), dirs.runtime()].map(Path::to_path_buf));
+    let test_dir = test_dir.map(Path::to_path_buf);
+    let found = tokio::task::spawn_blocking(move || match (test_dir, path) {
+        (Some(dir), _) => TrustedPrograms::in_test_dir(&dir, &refused),
+        (None, Some(path)) => TrustedPrograms::resolve(&path, &refused),
+        (None, None) => TrustedPrograms::none(),
+    })
+    .await;
+    found.unwrap_or_else(|_| TrustedPrograms::none())
+}
+
 /// Runs the startup sequence up to the open socket.
 pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> {
     let Deps {
@@ -343,6 +376,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         watch_config,
         reload_on_hangup,
         seams,
+        programs_path,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -462,6 +496,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
+    let programs =
+        trusted_programs(&dirs, home.path(), programs_path, seams.trusted_programs()).await;
     let sandbox = SandboxService::new(ServiceParts {
         dirs: dirs.clone(),
         home: home.clone(),
@@ -511,7 +547,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         dirs.data().to_path_buf(),
         dirs.state().to_path_buf(),
         dirs.runtime().to_path_buf(),
-    ]);
+    ])
+    .with_programs(programs);
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,

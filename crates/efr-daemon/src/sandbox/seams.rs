@@ -30,6 +30,9 @@ pub(crate) struct Seams {
     /// The probe's result.
     #[cfg(feature = "test-sandbox-fake")]
     probe: Option<SandboxStatus>,
+    /// The dir of the fake `crontab` and `loginctl` that efrd runs for the state copies.
+    #[cfg(feature = "test-sandbox-fake")]
+    trusted_programs: Option<PathBuf>,
 }
 
 #[cfg(feature = "test-sandbox-fake")]
@@ -43,6 +46,12 @@ impl Seams {
     pub(crate) fn probe(&self) -> Option<&SandboxStatus> {
         self.probe.as_ref()
     }
+
+    /// The dir of fake programs that a test named for the state copies, in place of
+    /// the real ones on efrd's `PATH`.
+    pub(crate) fn trusted_programs(&self) -> Option<&Path> {
+        self.trusted_programs.as_deref()
+    }
 }
 
 #[cfg(not(feature = "test-sandbox-fake"))]
@@ -54,6 +63,11 @@ impl Seams {
 
     /// Without the feature the probe always runs.
     pub(crate) fn probe(&self) -> Option<&SandboxStatus> {
+        None
+    }
+
+    /// Without the feature efrd finds `crontab` and `loginctl` on its own `PATH` only.
+    pub(crate) fn trusted_programs(&self) -> Option<&Path> {
         None
     }
 }
@@ -73,6 +87,15 @@ impl Deps {
     #[must_use]
     pub fn with_probe_override(mut self, status: SandboxStatus) -> Self {
         self.seams.probe = Some(status);
+        self
+    }
+
+    /// Runs the fake `crontab` and `loginctl` of `dir` for the state copies of cron and
+    /// linger, which a test owns, instead of the root-owned ones on efrd's `PATH`. Only
+    /// with the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_trusted_program_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.seams.trusted_programs = Some(dir.into());
         self
     }
 }

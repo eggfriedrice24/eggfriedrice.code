@@ -51,6 +51,7 @@ mod telemetry;
 #[cfg(test)]
 mod testing;
 mod tools;
+mod trusted_programs;
 
 pub use config::{Flags, load_settings, resolve_settings};
 // NOTE: the settings types come with the daemon, so efr-test-daemon, whose allowlist

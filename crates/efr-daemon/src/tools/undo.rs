@@ -31,6 +31,7 @@ use efr_snapshot::{
 use sha2::{Digest as _, Sha256};
 
 use crate::home;
+use crate::home::state::{self, StateCopy};
 use crate::sandbox::fs::{Beneath, Node};
 use crate::tools::DaemonToolbox;
 
@@ -224,7 +225,12 @@ impl DaemonToolbox {
         }
         if !plan.redo && plan.home.steps.iter().any(HomeStep::acts) {
             let entries = undo_before_entries(&plan.home);
-            let prepared = home::Prepared { entries, ..home::Prepared::default() };
+            let mut prepared = home::Prepared { entries, ..home::Prepared::default() };
+            let states = plan.home.steps.iter().filter(|step| step.acts());
+            for copy in states.filter_map(|step| StateCopy::from_path(&step.path)) {
+                let (entry, bytes) = state::read(self.state_runner(), copy).await;
+                prepared.push_state(entry, bytes);
+            }
             let reader = home::Reader::new(&prepared);
             let copied = store.home_undo_before(plan.conversation, &plan.undo_id, reader).await;
             if let Err(error) = copied {
@@ -365,13 +371,29 @@ impl DaemonToolbox {
         masks.extend(self.efr_roots.iter().cloned());
         let mut done = Vec::with_capacity(plan.steps.len());
         for step in &plan.steps {
-            // NOTE: a command undo of a state (`@crontab`, `@linger`) is not efrd's yet.
-            if !step.acts() || matches!(step.write, HomeState::State) || !step.path.is_absolute() {
+            if !step.acts() {
                 done.push(Done::Applied);
                 continue;
             }
             if applied.failed.is_some() {
                 done.push(Done::NotReached);
+                continue;
+            }
+            if let Some(copy) = StateCopy::from_path(&step.path) {
+                match self.apply_state(store, step, copy, trash).await {
+                    Ok((outcome, trashed)) => {
+                        applied.trashed |= trashed;
+                        done.push(outcome);
+                    }
+                    Err(error) => {
+                        applied.failed = Some((step.path.clone(), error));
+                        done.push(Done::NotReached);
+                    }
+                }
+                continue;
+            }
+            if !step.path.is_absolute() {
+                done.push(Done::Applied);
                 continue;
             }
             if home::masked(&step.path, &masks) {
@@ -390,6 +412,35 @@ impl DaemonToolbox {
             }
         }
         done
+    }
+
+    /// Sets the state of one step back with its program (a command undo of the crontab
+    /// or of linger, plan PB20), when it is still the state after the turn; true when
+    /// the crontab of now went to the undo trash first.
+    async fn apply_state(
+        &self,
+        store: &Snapshots,
+        step: &HomeStep,
+        copy: StateCopy,
+        trash: Option<&Path>,
+    ) -> std::io::Result<(Done, bool)> {
+        let runner = self.state_runner();
+        let now = state::read(runner, copy).await;
+        let bytes = match &step.blob {
+            Some(blob) => Some(store.home_blob(blob).await.map_err(std::io::Error::other)?),
+            None => None,
+        };
+        let mut trashed = false;
+        let keep = |text: &[u8]| -> std::io::Result<()> {
+            let Some(trash) = trash else { return Ok(()) };
+            trashed = true;
+            put_trash(trash, &Path::new("state").join(copy.name()), text, 0o100_600)
+        };
+        let outcome = match state::undo(runner, step, &now, bytes, keep).await? {
+            state::Undone::Applied => Done::Applied,
+            state::Undone::Changed => Done::Changed,
+        };
+        Ok((outcome, trashed))
     }
 
     /// Checks one home step again and writes it; true when something went to the trash.
@@ -595,7 +646,7 @@ fn plan_acts(plan: &UndoPlan) -> bool {
     plan.roots.iter().any(|root| {
         root.entries.iter().any(PlanEntry::acts)
             || root.refs.iter().any(|ref_plan| ref_plan.reason.is_none())
-    }) || plan.home.steps.iter().any(|step| step.acts() && !matches!(step.write, HomeState::State))
+    }) || plan.home.steps.iter().any(HomeStep::acts)
 }
 
 /// True when `now` is what `expect` says.
@@ -696,6 +747,9 @@ fn home_entry_of(step: &HomeStep, path: String, done: Option<Done>) -> UndoEntry
         (HomeState::NotCovered(reason), _) => (UndoAction::NotCovered, Some(*reason)),
         (_, Expect::Unknown) => (UndoAction::Skip, Some(UndoReason::Unknown)),
         (HomeState::State, _) => (UndoAction::Command, None),
+        (HomeState::Missing, _) if StateCopy::from_path(&step.path).is_some() => {
+            (UndoAction::Command, None)
+        }
         (HomeState::Missing, _) => (UndoAction::Trash, None),
         _ => (UndoAction::Restore, None),
     };
@@ -708,7 +762,10 @@ fn with_done(
     path: String,
     done: Option<Done>,
 ) -> UndoEntry {
-    let acts = matches!(planned.0, UndoAction::Restore | UndoAction::Trash | UndoAction::Delete);
+    let acts = matches!(
+        planned.0,
+        UndoAction::Restore | UndoAction::Trash | UndoAction::Delete | UndoAction::Command
+    );
     let (action, reason) = match done {
         Some(Done::Changed) if acts => (UndoAction::Skip, Some(UndoReason::ChangedAfterTurn)),
         Some(Done::Masked) if acts => (UndoAction::NotCovered, Some(UndoReason::Masked)),

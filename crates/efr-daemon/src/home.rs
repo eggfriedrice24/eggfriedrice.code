@@ -20,6 +20,10 @@
 //!
 //! [`coverage`] answers the same questions before the decision, for the facts of a
 //! call ([`CallFacts::covered`](efr_permissions::CallFacts::covered)).
+//!
+//! A named change of the crontab or of the linger setting changes no file, so its copy
+//! holds the state that the program that sets it reads (`home/state.rs`): the entries
+//! `@crontab` and `@linger`, whose bytes come with the copy, not from a file.
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -39,6 +43,8 @@ use efr_snapshot::{
 use rustix::fs::{FileType, OFlags};
 
 use crate::sandbox::fs::DaemonFs;
+
+pub(crate) mod state;
 
 /// The undo trash below efr's data root: `undo-trash/<undo-id>/`, where `efr undo`
 /// puts each file that it overwrites or removes.
@@ -116,6 +122,8 @@ pub(crate) struct Prepared {
     pub(crate) shown: Vec<(PathBuf, PathBuf)>,
     /// Each target that no copy covers, with why, for the end of the turn.
     pub(crate) not_covered: Vec<(PathBuf, UndoReason)>,
+    /// The bytes of each state entry (`@crontab`, `@linger`), which no file holds.
+    pub(crate) states: Vec<(PathBuf, Vec<u8>)>,
 }
 
 impl Prepared {
@@ -128,6 +136,16 @@ impl Prepared {
         if !self.entries.iter().any(|known| known.path == entry.path) {
             self.entries.push(entry);
         }
+    }
+
+    /// Adds the state entry `entry` with its bytes, which a command read.
+    pub(crate) fn push_state(&mut self, entry: HomeEntry, bytes: Option<Vec<u8>>) {
+        if let Some(bytes) = bytes {
+            self.states.retain(|(path, _)| *path != entry.path);
+            self.states.push((entry.path.clone(), bytes));
+        }
+        self.entries.retain(|known| known.path != entry.path);
+        self.push(entry);
     }
 
     /// True when the copy covers the target `ask`: no entry for it says "not covered".
@@ -168,7 +186,9 @@ pub(crate) fn prepare(
 pub(crate) fn after(before: &Prepared, masks: &[PathBuf], limits: HomeLimits) -> Prepared {
     let mut prepared = Prepared { shown: before.shown.clone(), ..Prepared::default() };
     for entry in &before.entries {
-        if before.walked.iter().any(|dir| entry.path.starts_with(dir)) {
+        // NOTE: a state entry (`@crontab`) names no file; the caller reads it again.
+        if !entry.path.is_absolute() || before.walked.iter().any(|dir| entry.path.starts_with(dir))
+        {
             continue;
         }
         let state = match entry.state {
@@ -430,11 +450,15 @@ pub(crate) fn coverage(ask: &CoverAsk, masks: &[PathBuf], limits: HomeLimits) ->
 /// store asks for its entry, through `DaemonFs`, never through a link.
 pub(crate) struct Reader {
     entries: VecDeque<HomeEntry>,
+    states: Vec<(PathBuf, Vec<u8>)>,
 }
 
 impl Reader {
     pub(crate) fn new(prepared: &Prepared) -> Reader {
-        Reader { entries: prepared.entries.iter().cloned().collect() }
+        Reader {
+            entries: prepared.entries.iter().cloned().collect(),
+            states: prepared.states.clone(),
+        }
     }
 }
 
@@ -443,6 +467,14 @@ impl HomeReader for Reader {
         &mut self,
     ) -> Option<Result<(HomeEntry, Option<Box<dyn std::io::Read + Send>>), SnapshotError>> {
         let entry = self.entries.pop_front()?;
+        if matches!(entry.state, HomeState::State) {
+            let at = self.states.iter().position(|(path, _)| *path == entry.path);
+            let bytes = at.map(|at| self.states.swap_remove(at).1);
+            let bytes = bytes.map(|bytes| {
+                Box::new(std::io::Cursor::new(bytes)) as Box<dyn std::io::Read + Send>
+            });
+            return Some(Ok((entry, bytes)));
+        }
         if !matches!(entry.state, HomeState::File { .. }) {
             return Some(Ok((entry, None)));
         }

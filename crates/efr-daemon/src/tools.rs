@@ -52,6 +52,7 @@ use efr_protocol::{
 use efr_provider::{ToolDefinition, ToolGrammar as ProviderGrammar};
 use efr_scope::Home;
 use efr_shell::{ShellError, ShellSessions};
+use efr_snapshot::HomeState;
 use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, ReadFileTool, ShellTool,
@@ -63,8 +64,10 @@ use tokio::sync::watch;
 
 use crate::DaemonError;
 use crate::connections::Connections;
+use crate::home::state::{self, StateCopy};
 use crate::home::{self, HomeLimits};
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine};
+use crate::trusted_programs::TrustedPrograms;
 
 mod cache_deletes;
 mod jobs;
@@ -174,6 +177,9 @@ pub(crate) struct DaemonToolbox {
     home_turns: Arc<Mutex<HashMap<TurnId, HomeTally>>>,
     /// The turns that ran in `auto` since efrd started.
     auto_turns: Arc<Mutex<HashSet<TurnId>>>,
+    /// The `crontab` and `loginctl` that efrd runs for the state copies of cron and
+    /// linger (`trusted_programs.rs`).
+    programs: TrustedPrograms,
 }
 
 /// What the facts of one call said efr covers: its turn and each ask with its answer.
@@ -224,6 +230,7 @@ impl DaemonToolbox {
             covered: Arc::default(),
             home_turns: Arc::default(),
             auto_turns: Arc::default(),
+            programs: TrustedPrograms::none(),
         }
     }
 
@@ -236,6 +243,12 @@ impl DaemonToolbox {
     /// Keeps the undo trash in `dir`, `$XDG_DATA_HOME/efr/undo-trash`.
     pub(crate) fn with_undo_trash(mut self, dir: PathBuf) -> Self {
         self.undo_trash = Some(dir);
+        self
+    }
+
+    /// Runs `programs` for the state copies of cron and linger.
+    pub(crate) fn with_programs(mut self, programs: TrustedPrograms) -> Self {
+        self.programs = programs;
         self
     }
 
@@ -422,9 +435,17 @@ impl DaemonToolbox {
             }
             None => answers.extend(
                 asks.iter()
-                    .filter(|ask| !matches!(ask, CoverAsk::Home(_) | CoverAsk::HomeDir(_)))
+                    .filter(|ask| !home_side(ask))
                     .map(|ask| (ask.clone(), Coverage::NoSnapshot)),
             ),
+        }
+        // NOTE: the crontab and linger have no file; efrd copies them with the programs
+        // that set them, when it found those (plan PB20).
+        let kept = self.snapshots.is_some() && self.settings.borrow().snapshot.enabled;
+        for ask in asks.iter().filter(|ask| StateCopy::of(ask).is_some()) {
+            let coverage =
+                if kept { state::coverage(&self.programs, ask) } else { Coverage::NoSnapshot };
+            answers.push((ask.clone(), coverage));
         }
         let mut inside: Vec<PathBuf> = projects;
         inside.push(call.scratch.clone());
@@ -470,9 +491,8 @@ impl DaemonToolbox {
     fn covered_root_asks(&self, call: &CallContext) -> Vec<CoverAsk> {
         let mut covered = self.covered.lock().unwrap_or_else(PoisonError::into_inner);
         let Some((_, answers)) = covered.get_mut(&call.call_id) else { return Vec::new() };
-        let (roots, rest): (Vec<_>, Vec<_>) = std::mem::take(answers)
-            .into_iter()
-            .partition(|(ask, _)| !matches!(ask, CoverAsk::Home(_) | CoverAsk::HomeDir(_)));
+        let (roots, rest): (Vec<_>, Vec<_>) =
+            std::mem::take(answers).into_iter().partition(|(ask, _)| !home_side(ask));
         *answers = rest;
         roots
             .into_iter()
@@ -741,10 +761,16 @@ impl DaemonToolbox {
     /// model reads: the call does not run.
     async fn copy_before(&self, call: &CallContext) -> Result<Option<Copying>, String> {
         let targets = home::targets(&call.exits);
-        if targets.is_empty() {
+        let mut states: Vec<StateCopy> = Vec::new();
+        for copy in call.exits.iter().flat_map(|need| &need.copies).filter_map(StateCopy::of) {
+            if !states.contains(&copy) {
+                states.push(copy);
+            }
+        }
+        if targets.is_empty() && states.is_empty() {
             return Ok(None);
         }
-        let floor = targets.iter().any(|target| target.floor);
+        let floor = targets.iter().any(|target| target.floor) || !states.is_empty();
         let snapshots = match &self.snapshots {
             Some(snapshots) if snapshots.limits().is_some() => snapshots,
             // NOTE: without the store a floor edit runs only with a copy; another write
@@ -759,12 +785,24 @@ impl DaemonToolbox {
         let masks = self.masks();
         let limits = HomeLimits::of(&self.settings.borrow());
         let (for_prepare, masks_for) = (targets.clone(), masks.clone());
-        let prepared =
+        let mut prepared =
             tokio::task::spawn_blocking(move || home::prepare(&for_prepare, &masks_for, limits))
                 .await
                 .unwrap_or_else(|_| {
                     Err("copying the files before the change panicked".to_owned())
                 })?;
+        // NOTE: a named change of the crontab or of linger runs only with a copy of the
+        // state before it, as a floor file edit does (plan PB14, PB20).
+        for copy in states {
+            let (entry, bytes) = state::read(self.state_runner(), copy).await;
+            if matches!(entry.state, HomeState::NotCovered(_)) {
+                return Err(format!(
+                    "efr could not read {} before the change, so the call did not run",
+                    entry.path.display()
+                ));
+            }
+            prepared.push_state(entry, bytes);
+        }
         let promised: Vec<CoverAsk> = {
             let covered = self.covered.lock().unwrap_or_else(PoisonError::into_inner);
             covered
@@ -815,9 +853,13 @@ impl DaemonToolbox {
         let Some(snapshots) = &self.snapshots else { return Vec::new() };
         let Copying { copy, before, masks, limits } = copying;
         let prepared = before.clone();
-        let after = tokio::task::spawn_blocking(move || home::after(&prepared, &masks, limits))
+        let mut after = tokio::task::spawn_blocking(move || home::after(&prepared, &masks, limits))
             .await
             .unwrap_or_default();
+        for copy in before.entries.iter().filter_map(|entry| StateCopy::from_path(&entry.path)) {
+            let (entry, bytes) = state::read(self.state_runner(), copy).await;
+            after.push_state(entry, bytes);
+        }
         let deltas = match snapshots.store().home_after(&copy, home::Reader::new(&after)).await {
             Ok(deltas) => deltas,
             Err(error) => {
@@ -848,6 +890,11 @@ impl DaemonToolbox {
             }
         });
         changed
+    }
+
+    /// The programs of the state copies of cron and linger, with this toolbox's clock.
+    fn state_runner(&self) -> state::Runner<'_> {
+        state::Runner { programs: &self.programs, clock: &*self.clock }
     }
 
     /// Notes that the turn `turn` ran in `auto`; the oldest turns go past
@@ -932,6 +979,19 @@ impl DaemonToolbox {
         }
         masks
     }
+}
+
+/// True for an ask that the home store answers, not a root's snapshot: a home file or
+/// dir, the links of a unit, the crontab or linger.
+fn home_side(ask: &CoverAsk) -> bool {
+    matches!(
+        ask,
+        CoverAsk::Home(_)
+            | CoverAsk::HomeDir(_)
+            | CoverAsk::UnitLinks(_)
+            | CoverAsk::CronTable
+            | CoverAsk::Linger
+    )
 }
 
 /// What the model reads for a call of the edit tool `name` that its request did not
