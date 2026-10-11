@@ -18,9 +18,9 @@ Where things are:
 | `src/version.rs` | `PROTOCOL_VERSION` |
 | `src/ids.rs` | `ConversationId`, `TurnId`, `CommandId`, `CallId`, `PtyId`, `DeviceId`, `QuestionId`, `CompactionId`, `DaemonId` (UUID newtypes), `Seq`, `RequestId` |
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
-| `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state |
+| `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state, and `DesktopEnv`, the desktop variables of the shell |
 | `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
-| `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant`, `BusKind`, `CacheMode`, `NetworkMode`, `ModeFallback` |
+| `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant`, `BusKind`, `DesktopKind`, `CacheMode`, `NetworkMode`, `ModeFallback` |
 | `src/sandbox/exit.rs` | `ExitKind`, `ExitSource`, `Needs` (the shell tool's `needs` input and its schema), `ExitInfo` |
 | `src/sandbox/record.rs` | the classifier's `ExitRecord` and its facts, `PathClassName`, `Judgement`, `Verdict`, `Risk`, `UserAuthorization`, `JudgeKind`, `ChainStep` (the step of the classifier's chain that judged), `PauseReason` (why the classifier stops for the rest of a turn) |
 | `src/presence.rs` | `Presence` (whether a person is at a conversation to answer its questions) and `PresenceSource` (what changed it) |

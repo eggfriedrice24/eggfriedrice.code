@@ -42,6 +42,42 @@ pub struct ShellContext {
     /// The host name of the machine the shell runs on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
+    /// The variables that name the desktop of the terminal, so that a desktop grant
+    /// reaches the session of this prompt. Absent when the shell has none of them. They
+    /// never go into the model's preamble.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<DesktopEnv>,
+}
+
+/// The desktop variables of the user's shell, as the shell has them. Only these six
+/// names, never another variable. efrd checks each value before it binds a socket.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DesktopEnv {
+    /// `$WAYLAND_DISPLAY`: a socket name below `$XDG_RUNTIME_DIR`, or an absolute path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wayland_display: Option<String>,
+    /// `$DISPLAY`, such as `:0`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+    /// `$HYPRLAND_INSTANCE_SIGNATURE`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hyprland_instance_signature: Option<String>,
+    /// `$SWAYSOCK`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swaysock: Option<String>,
+    /// `$I3SOCK`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i3sock: Option<String>,
+    /// `$NIRI_SOCKET`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub niri_socket: Option<String>,
+}
+
+impl DesktopEnv {
+    /// True when the shell has none of the variables.
+    pub fn is_empty(&self) -> bool {
+        *self == DesktopEnv::default()
+    }
 }
 
 impl ShellContext {

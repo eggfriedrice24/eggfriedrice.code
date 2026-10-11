@@ -108,11 +108,11 @@ pub use sandbox::record::{
 };
 pub use sandbox::status::{CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
 pub use sandbox::summary::{BlockReason, Blocked, ReportedFile, SandboxSummary, SurfaceChange};
-pub use sandbox::{BusKind, CacheMode, Grant, Launch, ModeFallback, NetworkMode};
+pub use sandbox::{BusKind, CacheMode, DesktopKind, Grant, Launch, ModeFallback, NetworkMode};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_prompt::looks_secret;
 pub use secret_text::SecretText;
 pub use settings::{EffectiveSettings, Mode, OverriddenSettings, TurnSettings};
-pub use shell_context::ShellContext;
+pub use shell_context::{DesktopEnv, ShellContext};
 pub use version::PROTOCOL_VERSION;

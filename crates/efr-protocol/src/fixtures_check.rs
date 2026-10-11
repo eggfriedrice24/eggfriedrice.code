@@ -27,22 +27,22 @@ use crate::{
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DaemonRoots, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
-    GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond, InputRespondResult, InputWait,
-    JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult, LoginKind, Method,
-    Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, Origin,
-    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
-    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
-    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, ReportedFile, RequestId, ResentSteers,
-    Risk, RootDir, RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, Usage, UserAuthorization, Verdict, WithdrawTarget,
-    WithdrawnPrompt, WithdrawnSteer,
+    DaemonRoots, DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody,
+    ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource,
+    FileChange, FileChanges, GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond,
+    InputRespondResult, InputWait, JudgeKind, Judgement, LateSteer, Launch, LeaseReport,
+    LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
+    ModelsListResult, NetworkMode, Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor,
+    PathClassName, PauseReason, Presence, PresenceSet, PresenceSetResult, PresenceSource,
+    ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
+    PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
+    PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
+    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootSource, RowCells, SandboxCheck,
+    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
+    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange, TargetFact,
+    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
+    UserAuthorization, Verdict, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -269,6 +269,16 @@ fn shell_context() -> ShellContext {
         shlvl: Some(1),
         ssh_connection: Some("192.0.2.10 51234 192.0.2.20 22".into()),
         hostname: Some("desk".into()),
+        desktop: Some(DesktopEnv {
+            wayland_display: Some("wayland-1".into()),
+            display: Some(":0".into()),
+            hyprland_instance_signature: Some(
+                "0b4a3e5a8d1c2f6e7a9b0c1d2e3f4a5b6c7d8e9f_1760000000_1234567890".into(),
+            ),
+            swaysock: Some("/run/user/1000/sway-ipc.1000.1234.sock".into()),
+            i3sock: Some("/run/user/1000/i3/ipc-socket.1234".into()),
+            niri_socket: Some("/run/user/1000/niri.wayland-1.1234.sock".into()),
+        }),
     }
 }
 
@@ -304,9 +314,10 @@ fn fallen_back_settings() -> EffectiveSettings {
     }
 }
 
-/// One grant of every kind, so `grants.json` freezes the wire form of each.
+/// One grant of every kind, and a desktop grant of every desktop, so `grants.json`
+/// freezes the wire form of each.
 pub(crate) fn grant_samples() -> Vec<Grant> {
-    vec![
+    let mut grants = vec![
         Grant::Write { path: "/home/me/notes".into() },
         Grant::Host { host: "registry.npmjs.org".into(), port: 443 },
         Grant::OpenNetwork,
@@ -315,7 +326,9 @@ pub(crate) fn grant_samples() -> Vec<Grant> {
         Grant::Bus { bus: BusKind::System },
         Grant::Device { path: "/dev/nvme0n1".into() },
         Grant::Unmask { path: "/home/me/p/app/.env".into() },
-    ]
+    ];
+    grants.extend(DesktopKind::ALL.map(|desktop| Grant::Desktop { desktop }));
+    grants
 }
 
 /// Every launch, so `launches.json` freezes the wire form of each.

@@ -96,6 +96,13 @@ pub enum Grant {
         /// Which bus.
         bus: BusKind,
     },
+    /// A bind of the one control socket of the user's desktop, from the terminal of
+    /// the prompt, and the one variable that names it. Never another socket of that
+    /// desktop, such as Hyprland's event socket, and never its directory.
+    Desktop {
+        /// Which desktop.
+        desktop: DesktopKind,
+    },
     /// A bind of one device node with read, write and ioctl rights.
     Device {
         /// The node, below `/dev`.
@@ -116,7 +123,9 @@ impl Grant {
             | Grant::Socket { path }
             | Grant::Device { path }
             | Grant::Unmask { path } => Some(path),
-            Grant::Host { .. } | Grant::OpenNetwork | Grant::Bus { .. } => None,
+            Grant::Host { .. } | Grant::OpenNetwork | Grant::Bus { .. } | Grant::Desktop { .. } => {
+                None
+            }
         }
     }
 }
@@ -130,6 +139,52 @@ pub enum BusKind {
     System,
     /// The user's session bus, below `$XDG_RUNTIME_DIR`.
     Session,
+}
+
+/// A desktop whose control socket a [`Grant::Desktop`] binds: the compositor or the
+/// window manager that a program such as `hyprctl` or `swaymsg` talks to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DesktopKind {
+    /// A Wayland compositor, through `$WAYLAND_DISPLAY`.
+    Wayland,
+    /// An X server on this machine, through a local `$DISPLAY`.
+    X11,
+    /// Hyprland's control socket, `$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock`.
+    Hyprland,
+    /// Sway's IPC socket, `$SWAYSOCK`.
+    Sway,
+    /// i3's IPC socket, `$I3SOCK`.
+    I3,
+    /// niri's socket, `$NIRI_SOCKET`.
+    Niri,
+}
+
+impl DesktopKind {
+    /// Every desktop, in the order the docs list them.
+    pub const ALL: [DesktopKind; 6] = [
+        DesktopKind::Wayland,
+        DesktopKind::X11,
+        DesktopKind::Hyprland,
+        DesktopKind::Sway,
+        DesktopKind::I3,
+        DesktopKind::Niri,
+    ];
+
+    /// The environment variable that names the desktop's socket, such as
+    /// `HYPRLAND_INSTANCE_SIGNATURE`. A contained call gets this one variable with a
+    /// grant.
+    pub const fn variable(self) -> &'static str {
+        match self {
+            DesktopKind::Wayland => "WAYLAND_DISPLAY",
+            DesktopKind::X11 => "DISPLAY",
+            DesktopKind::Hyprland => "HYPRLAND_INSTANCE_SIGNATURE",
+            DesktopKind::Sway => "SWAYSOCK",
+            DesktopKind::I3 => "I3SOCK",
+            DesktopKind::Niri => "NIRI_SOCKET",
+        }
+    }
 }
 
 /// How the sandbox treats the tool caches (`~/.cargo`, `~/.cache` and the others of

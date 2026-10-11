@@ -30,5 +30,29 @@
   {
     "kind": "unmask",
     "path": "/home/me/p/app/.env"
+  },
+  {
+    "kind": "desktop",
+    "desktop": "wayland"
+  },
+  {
+    "kind": "desktop",
+    "desktop": "x11"
+  },
+  {
+    "kind": "desktop",
+    "desktop": "hyprland"
+  },
+  {
+    "kind": "desktop",
+    "desktop": "sway"
+  },
+  {
+    "kind": "desktop",
+    "desktop": "i3"
+  },
+  {
+    "kind": "desktop",
+    "desktop": "niri"
   }
 ]

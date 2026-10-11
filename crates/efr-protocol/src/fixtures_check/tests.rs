@@ -202,12 +202,13 @@ fn grant_index(grant: &Grant) -> usize {
         Grant::OpenNetwork => 2,
         Grant::Socket { .. } => 3,
         Grant::Bus { .. } => 4,
-        Grant::Device { .. } => 5,
-        Grant::Unmask { .. } => 6,
+        Grant::Desktop { .. } => 5,
+        Grant::Device { .. } => 6,
+        Grant::Unmask { .. } => 7,
     }
 }
 
-const GRANT_COUNT: usize = 7;
+const GRANT_COUNT: usize = 8;
 
 /// The position of a launch in the enum, for the same purpose as `method_index`.
 fn launch_index(launch: &Launch) -> usize {

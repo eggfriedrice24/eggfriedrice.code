@@ -330,3 +330,12 @@ No protocol version has shipped yet.
   has the `presence`, the `changed` conversations (absent when none changed) and the
   `seq` of the last `presence_changed` (absent when none changed). New fixtures
   `presence_set_params.json` and `presence_set_result.json`.
+- Version 1, additive: desktop grants. A `grant` can be `desktop` with a `desktop`
+  (`wayland`, `x11`, `hyprland`, `sway`, `i3` or `niri`): a bind of the one control
+  socket of the desktop of the prompt's terminal. A `shell_context` gains an optional
+  `desktop` with the optional members `wayland_display`, `display`,
+  `hyprland_instance_signature`, `swaysock`, `i3sock` and `niri_socket`, the values of
+  these variables in the user's shell; absent when the shell has none. `grants.json`
+  now holds a desktop grant of each desktop, and `prompt_send_params.json`,
+  `turn_steer_params.json`, `turn_interrupt_params.json` and
+  `events/prompt_queued.json` now set `desktop`.

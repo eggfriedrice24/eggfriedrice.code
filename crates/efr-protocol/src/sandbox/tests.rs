@@ -2,8 +2,8 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    BusKind, CacheMode, EffectiveSettings, Event, ExitKind, Grant, Launch, Mode, ModeFallback,
-    Needs, NetworkMode, ProtocolError, SandboxStatus, SandboxSummary,
+    BusKind, CacheMode, DesktopKind, EffectiveSettings, Event, ExitKind, Grant, Launch, Mode,
+    ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus, SandboxSummary,
 };
 
 #[test]
@@ -36,6 +36,35 @@ fn grants_are_tagged_by_kind() {
     );
     assert_eq!(Grant::Unmask { path: "/p/.env".into() }.path(), Some("/p/.env".as_ref()));
     assert_eq!(Grant::OpenNetwork.path(), None);
+}
+
+#[test]
+fn desktop_grant_wire_shape() {
+    assert_eq!(
+        serde_json::to_value(Grant::Desktop { desktop: DesktopKind::Hyprland }).unwrap(),
+        json!({ "kind": "desktop", "desktop": "hyprland" })
+    );
+    let names: Vec<_> =
+        DesktopKind::ALL.iter().map(|kind| serde_json::to_value(kind).unwrap()).collect();
+    assert_eq!(
+        names,
+        [
+            json!("wayland"),
+            json!("x11"),
+            json!("hyprland"),
+            json!("sway"),
+            json!("i3"),
+            json!("niri")
+        ]
+    );
+    for desktop in DesktopKind::ALL {
+        let grant = Grant::Desktop { desktop };
+        let back: Grant = serde_json::from_value(serde_json::to_value(&grant).unwrap()).unwrap();
+        assert_eq!(back, grant);
+        assert_eq!(grant.path(), None);
+    }
+    assert_eq!(DesktopKind::Hyprland.variable(), "HYPRLAND_INSTANCE_SIGNATURE");
+    assert_eq!(DesktopKind::X11.variable(), "DISPLAY");
 }
 
 #[test]

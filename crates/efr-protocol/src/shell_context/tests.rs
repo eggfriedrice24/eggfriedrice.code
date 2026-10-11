@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::ShellContext;
+use crate::{DesktopEnv, ShellContext};
 
 fn full() -> ShellContext {
     ShellContext {
@@ -13,7 +13,25 @@ fn full() -> ShellContext {
         shlvl: Some(1),
         ssh_connection: None,
         hostname: Some("desk".into()),
+        desktop: Some(DesktopEnv {
+            wayland_display: Some("wayland-1".into()),
+            hyprland_instance_signature: Some("abc_1760000000_123".into()),
+            ..DesktopEnv::default()
+        }),
     }
+}
+
+#[test]
+fn a_desktop_holds_only_the_names_it_has() {
+    let context = full();
+    assert_eq!(
+        serde_json::to_value(context.desktop.unwrap()).unwrap(),
+        json!({ "wayland_display": "wayland-1", "hyprland_instance_signature": "abc_1760000000_123" })
+    );
+    assert!(DesktopEnv::default().is_empty());
+    let back: ShellContext =
+        serde_json::from_value(json!({ "pwd": "/etc", "desktop": {} })).unwrap();
+    assert_eq!(back.desktop, Some(DesktopEnv::default()));
 }
 
 #[test]
