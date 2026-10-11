@@ -319,7 +319,7 @@ impl Snapshots {
 }
 
 /// The reason that `left_out` gives for `path` or a directory above it.
-fn recorded(left_out: &[LeftOut], path: &str) -> Option<LeftOutReason> {
+pub(crate) fn recorded(left_out: &[LeftOut], path: &str) -> Option<LeftOutReason> {
     left_out
         .iter()
         .find(|left| {

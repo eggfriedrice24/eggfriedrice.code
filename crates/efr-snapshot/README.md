@@ -3,8 +3,8 @@
 ## Purpose
 
 efr's own snapshot store. It shows what the agent changed in files, in every directory
-that a call can write, git repository or not (efr's auto spec, section 10; phase 4
-without undo).
+that a call can write, git repository or not, and it plans the undo of a turn (efr's
+auto spec, section 10).
 
 - One bare git repository per root in efr's data root: `$D/snapshots/<root-id>.git`,
   where `root-id` is the first 16 hex characters of the SHA-256 of the canonical root
@@ -78,6 +78,31 @@ without undo).
   packing run with them pinned under `refs/efr-live/<tree>`. Only a `<16 hex>.git` is
   a root store: another repository in the directory, such as the home store, is never
   listed, trimmed or deleted as one.
+- Undo (`undo.rs`): `Snapshots::plan_undo` plans the undo of one turn in each root
+  whose store holds its `pre`. It acts only on the paths that the turn's calls changed
+  (`touched` of `post`, or of `last` when efrd stopped in the turn). For each path it
+  compares three states: in `pre` (the target), after the turn (`post`, the source)
+  and on disk now (read with `lstat`, never through a link). A path as the turn left
+  it goes back to `pre`; a path that already has its `pre` state is `AlreadyDone`; a
+  path that changed after the turn, that a later turn that is not undone changed, of a
+  turn with no `post`, or in a root with another `(dev, ino)` waits for `force`. A path
+  that no call changed is `OutsideTurnCalls` (also with `force`, unless the record of
+  the turn's paths is cut or a snapshot failed). A path that `pre` or `post` left out,
+  or that the cut record may have left out, is not covered: undo never writes or
+  removes it. A path that is now a directory, a special file or below a link is
+  `Unknown`: never written, also with `force`. Each write over an existing path and
+  each removal names the blob of what is there now, for the undo trash. A file that
+  undo makes again gets the mode that a snapshot recorded, else 0600 when it is
+  ignored, else git's mode. The plan writes nothing. `Snapshots::capture_before_undo`
+  takes the "before" snapshot (`refs/efr-undo/<conversation>/<undo>/before`), puts the
+  trash bytes into the store and writes the journal ref `started`;
+  `Snapshots::finish_undo` takes the "after" snapshot and the marker
+  `refs/efr/<conversation>/<turn>/undone`. An undo with `started` and no end resumes
+  at the next plan of its turn, under its own id. `Snapshots::plan_redo` takes back
+  the newest undo: the paths that it wrote go from the state after it (or `pre`, for
+  an undo that stopped half way) to the state before it. `turns_with_refs` lists the
+  turns, newest first; `stack_blocker` names the newer turn that is not undone, since
+  undo is a stack.
 
 What a snapshot takes (`Limits`): tracked files; new untracked files up to
 `max_file_bytes` (a link as a link, never followed); at the first and last snapshot of

@@ -1,6 +1,6 @@
 //! efr's own snapshot store: what the agent changed in files, in every directory that a
-//! call can write, git repository or not (efr's auto spec, section 10; phase 4 without
-//! undo).
+//! call can write, git repository or not, and the plan of an undo of a turn (efr's auto
+//! spec, section 10).
 //!
 //! - [`Snapshots`] ([`SnapshotParts`]): one bare repository per root in efr's data root,
 //!   `$D/snapshots/<root-id>.git`, with a persistent index next to it, which keeps
@@ -18,6 +18,12 @@
 //!   cover. A root with trusted [`GitDirs`] gets a mirror of its project's refs.
 //! - [`Snapshots::turn_diff`] ([`TurnDiff`]): a finished turn's changes and unified
 //!   diff, for `conversation.diff`.
+//! - [`Snapshots::plan_undo`] and [`Snapshots::plan_redo`] ([`UndoPlan`], [`RootPlan`],
+//!   [`PlanEntry`], [`Expect`]): what an undo or a redo of a turn writes, on the paths
+//!   that the turn's calls changed; [`Snapshots::turns_with_refs`] ([`TurnRefs`]) and
+//!   [`stack_blocker`]: the turns that undo can take, newest first;
+//!   [`Snapshots::capture_before_undo`], [`Snapshots::blob`] and
+//!   [`Snapshots::finish_undo`] around the daemon's apply.
 //! - [`Snapshots::gc`] ([`GcReport`]): the newest turns of each conversation stay, and
 //!   a store unused for too long goes.
 //! - [`Limits`], [`SKIPPED_DIRS`], [`MAX_IGNORED_BYTES`]: what a snapshot takes;
@@ -32,7 +38,7 @@
 //! Allowed dependencies: `efr-scope` (the hardened git command), `efr-protocol` (the
 //! wire types of the changes) and `efr-stdx` (the clock, atomic writes). What does not
 //! belong here: deciding which roots a call can write (the daemon does), permissions,
-//! and undo, which comes later.
+//! and the writes of an undo, which the daemon makes without following links.
 
 mod capture;
 mod changes;
@@ -40,6 +46,7 @@ mod cover;
 mod error;
 mod gc;
 mod history;
+mod home;
 mod meta;
 mod mirror;
 mod object;
@@ -48,6 +55,7 @@ mod runner;
 mod snapshots;
 mod store;
 mod turn;
+mod undo;
 
 pub use capture::{LeftOut, LeftOutReason, Limits, MAX_IGNORED_BYTES, SKIPPED_DIRS};
 pub use changes::shown_prefix;
@@ -55,6 +63,7 @@ pub use cover::{CoverResult, RootCover};
 pub use error::SnapshotError;
 pub use gc::GcReport;
 pub use history::TurnDiff;
+pub use home::{HomePlan, HomeState, HomeStep};
 pub use object::{ObjectId, blob_id, link_id};
 pub use project_git::GitDirs;
 pub use snapshots::{
@@ -62,4 +71,7 @@ pub use snapshots::{
 };
 pub use turn::{
     NOT_COVERED_FAILED, NOT_COVERED_REFS, NOT_COVERED_STORE_CHANGED, Phase, SnapshotInfo, TurnEnd,
+};
+pub use undo::{
+    Expect, PlanAction, PlanEntry, RefPlan, RootPlan, TurnRefs, UndoPlan, stack_blocker,
 };

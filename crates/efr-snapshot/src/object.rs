@@ -3,6 +3,7 @@
 //! snapshot without running git.
 
 use std::fmt;
+use std::io::{self, Read};
 
 use sha1::{Digest as _, Sha1};
 
@@ -43,6 +44,31 @@ pub fn blob_id(bytes: &[u8]) -> ObjectId {
 /// The id that git gives a symbolic link to `target`: the blob of the target's bytes.
 pub fn link_id(target: &[u8]) -> ObjectId {
     blob_id(target)
+}
+
+/// The blob id of the `len` bytes that `reader` gives, read in parts, so a large file
+/// never sits in memory whole. `None` when the reader gives more or fewer bytes.
+pub(crate) fn blob_id_of(len: u64, reader: &mut impl Read) -> io::Result<Option<ObjectId>> {
+    let mut hasher = Sha1::new();
+    hasher.update(format!("blob {len}\0").as_bytes());
+    let mut chunk = vec![0_u8; 64 * 1024];
+    let mut seen = 0_u64;
+    loop {
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        seen = seen.saturating_add(read as u64);
+        if seen > len {
+            return Ok(None);
+        }
+        hasher.update(&chunk[..read]);
+    }
+    if seen != len {
+        return Ok(None);
+    }
+    let digest = hasher.finalize();
+    Ok(Some(ObjectId(digest.iter().map(|byte| format!("{byte:02x}")).collect())))
 }
 
 #[cfg(test)]

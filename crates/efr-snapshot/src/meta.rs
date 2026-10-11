@@ -1,6 +1,7 @@
-//! The `efr-meta:` line of a turn's commits (`pre`, `last` and `post`): one JSON object
-//! that says which root, conversation and turn the commit belongs to, and what the
-//! snapshot left out, the modes it saw, the paths that the turn's calls changed and the
+//! The `efr-meta:` line of a turn's commits (`pre`, `last` and `post`) and of an undo's
+//! commits (`before`, `after` and the markers): one JSON object that says which root,
+//! conversation, turn and undo the commit belongs to, and what the snapshot left out,
+//! the modes it saw, the paths that the turn's calls (or the undo) changed and the
 //! project's refs. A field that an older commit lacks reads as its default.
 
 use std::collections::BTreeMap;
@@ -54,6 +55,9 @@ pub(crate) struct Meta {
     pub(crate) mirror: Option<String>,
     /// The number of files in the tree.
     pub(crate) files: u32,
+    /// The undo that wrote this commit (`before`, `after`, `started`, `undone`,
+    /// `redone`, `home`); `None` in a commit of a turn.
+    pub(crate) undo: Option<String>,
 }
 
 /// The project's git dirs as a turn's first commit records them.

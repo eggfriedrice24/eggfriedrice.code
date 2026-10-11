@@ -58,4 +58,19 @@ pub enum SnapshotError {
     /// A task on the blocking pool panicked or was cancelled.
     #[error("a snapshot task on the blocking pool did not finish")]
     TaskFailed,
+    /// An undo id that cannot name a ref or a directory.
+    #[error("{id:?} is no valid undo id")]
+    InvalidUndoId {
+        /// The id.
+        id: String,
+    },
+    /// The conversation has no undo that a redo can take back.
+    #[error("no undo of the conversation can be taken back")]
+    NoRedo,
+    /// The home store got an entry that it cannot hold, such as a relative path.
+    #[error("the home store cannot hold the entry {}", path.display())]
+    BadHomeEntry {
+        /// The path of the entry.
+        path: PathBuf,
+    },
 }
