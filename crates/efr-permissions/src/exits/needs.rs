@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
+use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
 use super::programs::is_host_device;
@@ -89,7 +89,9 @@ pub(super) fn exits(
 }
 
 /// The exit of a socket that the model names: a container engine's socket gives root,
-/// a bus socket is the bus, a display socket the desktop. A socket inside an engine
+/// a bus socket is the bus, a display socket the desktop: its grant binds the one
+/// control socket that efrd finds for the prompt's terminal, never the named path, and
+/// only the user approves it. A socket inside an engine
 /// secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one of efr's own
 /// roots, such as efrd's socket, a `config` floor. Only the user approves a socket
 /// under a mask or one of a credential agent ([`is_credential_agent`]), because a key
@@ -125,13 +127,11 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNee
         need.grants = vec![Grant::Bus { bus: BusKind::Session }];
         need.target = Some(path);
         return need;
-    } else if text.starts_with("/tmp/.X11-unix/")
-        || name.starts_with("wayland-")
-        || name.starts_with("sway-ipc")
-        || text.contains("/hypr/")
-        || name.starts_with("niri")
-    {
-        ExitKind::DesktopIpc
+    } else if let Some(desktop) = named_desktop(&path, name) {
+        let mut need = ExitNeed::new(ExitKind::DesktopIpc, part, source);
+        need.grants = vec![Grant::Desktop { desktop }];
+        need.target = Some(path);
+        return need;
     } else {
         ExitKind::Socket
     };
@@ -144,6 +144,28 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNee
     }
     need.target = Some(path);
     need
+}
+
+/// The desktop of a socket path that the model names: an X11 socket in
+/// `/tmp/.X11-unix`, a Wayland socket (`wayland-*`), sway's (`sway-ipc*`), i3's
+/// (`i3/ipc-socket*`), one of Hyprland's (below a `hypr` dir) or niri's (`niri*`).
+fn named_desktop(path: &Path, name: &str) -> Option<DesktopKind> {
+    let text = path.to_string_lossy();
+    Some(if text.starts_with("/tmp/.X11-unix/") {
+        DesktopKind::X11
+    } else if name.starts_with("wayland-") {
+        DesktopKind::Wayland
+    } else if name.starts_with("sway-ipc") {
+        DesktopKind::Sway
+    } else if name.starts_with("ipc-socket") && text.contains("/i3/") {
+        DesktopKind::I3
+    } else if text.contains("/hypr/") {
+        DesktopKind::Hyprland
+    } else if name.starts_with("niri") {
+        DesktopKind::Niri
+    } else {
+        return None;
+    })
 }
 
 /// The words in a socket's path that mark a credential agent: gpg-agent, ssh-agent,

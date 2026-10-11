@@ -103,9 +103,10 @@ pub struct ExitNeed {
     /// The kind.
     pub kind: ExitKind,
     /// Exactly what a "yes" opens for one call. Empty for a kind that runs in the exit
-    /// child, for `destructive` (the same sandbox runs it), for a floor kind, for
-    /// `desktop_ipc`, whose socket the daemon finds, and for a file tool, which efrd
-    /// runs itself.
+    /// child, for `destructive` (the same sandbox runs it), for a floor kind, for a
+    /// desktop program that talks to no desktop socket (`ydotool`), and for a file tool,
+    /// which efrd runs itself. A `desktop_ipc` grant names the desktop; efrd finds its
+    /// one control socket for the terminal of the prompt.
     pub grants: Vec<Grant>,
     /// The simple command that needs it, its words joined by spaces, or the whole line
     /// when no one command does.
@@ -210,6 +211,7 @@ impl fmt::Display for ExitNeed {
         match self.grants.first() {
             Some(Grant::Host { host, port }) => write!(f, " {host}:{port}"),
             Some(Grant::Bus { bus }) => write!(f, " ({bus:?} bus)"),
+            Some(Grant::Desktop { desktop }) => write!(f, " ({} socket)", desktop.name()),
             _ => Ok(()),
         }
     }

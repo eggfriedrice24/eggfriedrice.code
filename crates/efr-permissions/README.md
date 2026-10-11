@@ -133,7 +133,13 @@ Modules:
   `NAME_PHRASES` match whole words, a stem of `GENERIC_STEMS` names nothing alone, and
   the bare stem of a program, a unit, a desktop entry or an agent config names nothing
   (only its name with the suffix). `DESKTOP_IPC_READ` holds the read
-  and reload forms of the desktop programs that the classifier may judge.
+  and reload forms of the desktop programs that the classifier may judge. A
+  `desktop_ipc` exit grants the one desktop that its program talks to
+  (`Grant::Desktop`: `hyprctl` Hyprland, `swaymsg` sway, `i3-msg` i3, `niri msg` niri,
+  `wlr-randr`, `wtype` and `wl-copy` Wayland, `xrandr`, `xdotool` and the other X
+  tools X11); efrd finds the socket. `ydotool` talks to its own daemon and gets no
+  grant. A desktop socket that the model names in `needs.sockets` gets the grant of
+  its desktop, never its path, and only the user approves it.
   `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
   runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`

@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{BusKind, ExitKind, Grant};
+use efr_protocol::{BusKind, DesktopKind, ExitKind, Grant};
 
 use super::needs::host_and_port;
 use super::scan::{OPAQUE, is_assignment};
@@ -42,11 +42,14 @@ impl Found {
     }
 
     /// A `desktop_ipc` exit of `program` with `args`: the classifier judges a read or
-    /// reload form of [`DESKTOP_IPC_READ`], the user every other form.
+    /// reload form of [`DESKTOP_IPC_READ`], the user every other form. Its grant is the
+    /// socket of the desktop that the program talks to ([`desktop_kind`]).
     fn desktop(program: &str, args: &[String]) -> Self {
         let approver =
             if is_desktop_read(program, args) { Approver::Classifier } else { Approver::User };
-        Found { approver, ..Found::of(ExitKind::DesktopIpc) }
+        let grants =
+            desktop_kind(program).map(|desktop| Grant::Desktop { desktop }).into_iter().collect();
+        Found { approver, grants, ..Found::of(ExitKind::DesktopIpc) }
     }
 }
 
@@ -615,6 +618,7 @@ const HOST_VIEW: &[&str] = &["ss", "ip", "nmcli", "iw", "netstat", "ifconfig", "
 const DESKTOP_IPC: &[&str] = &[
     "xrandr",
     "swaymsg",
+    "i3-msg",
     "hyprctl",
     "wlr-randr",
     "xdotool",
@@ -643,6 +647,7 @@ pub const DESKTOP_IPC_READ: &[(&str, &[&str])] = &[
     ("hyprctl", &["version"]),
     ("hyprctl", &["reload"]),
     ("swaymsg", &["-t", "get_*"]),
+    ("i3-msg", &["-t", "get_*"]),
     ("xrandr", &[]),
     ("xrandr", &["--verbose"]),
     ("xrandr", &["--query"]),
@@ -652,6 +657,23 @@ pub const DESKTOP_IPC_READ: &[(&str, &[&str])] = &[
     ("niri", &["msg", "workspaces"]),
     ("niri", &["msg", "windows"]),
 ];
+
+/// The desktop whose socket `program` talks to, or `None` for a program that talks to
+/// no desktop socket: `ydotool` talks to its own daemon, `ydotoold`, which only the
+/// user may start, so its exit opens nothing.
+fn desktop_kind(program: &str) -> Option<DesktopKind> {
+    Some(match program {
+        "hyprctl" => DesktopKind::Hyprland,
+        "swaymsg" => DesktopKind::Sway,
+        "i3-msg" => DesktopKind::I3,
+        "niri" => DesktopKind::Niri,
+        "wlr-randr" | "wtype" | "wl-copy" | "wl-paste" => DesktopKind::Wayland,
+        "xrandr" | "xdotool" | "wmctrl" | "xprop" | "xdpyinfo" | "xclip" | "xsel" => {
+            DesktopKind::X11
+        }
+        _ => return None,
+    })
+}
 
 /// The options that a form of [`DESKTOP_IPC_READ`] may carry besides its words: they
 /// only change the format of the answer. Any other option, such as `hyprctl --batch`,

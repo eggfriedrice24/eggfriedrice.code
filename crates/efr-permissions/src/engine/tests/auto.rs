@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Mode, Needs, Origin, Scope};
+use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Mode, Needs, Origin, Scope};
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
@@ -13,8 +13,8 @@ use crate::command::PRIVILEGED;
 use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, names_match, unsandboxed_line_problem};
 use crate::{
     Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput,
-    Effect, Egress, Engine, Layer, Locations, PathClass, PathFacts, Policy, Rebuild, Requirements,
-    Resource, Rule, Subject, TargetKind, WriteBind,
+    Effect, Egress, Engine, ExitNeed, Layer, Locations, PathClass, PathFacts, Policy, Rebuild,
+    Requirements, Resource, Rule, Subject, TargetKind, WriteBind,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -770,6 +770,98 @@ fn exits_desktop_read_forms_are_classifier(#[case] line: &str) {
 #[case::niri_action("niri msg action spawn -- kitty")]
 fn exits_desktop_exec_and_unknown_forms_are_user(#[case] line: &str) {
     assert_eq!(approver_of(shell(line)), Approver::User, "{line:?}");
+}
+
+#[test]
+fn exits_hyprctl_monitors_grants_hyprland_desktop() {
+    let decision = decide(shell("hyprctl monitors"));
+    assert_eq!(kinds(&decision), [ExitKind::DesktopIpc]);
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Desktop { desktop: DesktopKind::Hyprland }]);
+    assert_eq!(need.approver, Approver::Classifier);
+    assert!(!need.runs_unsandboxed());
+    assert_eq!(need.to_string(), "desktop_ipc (Hyprland socket)");
+}
+
+#[test]
+fn exits_i3_msg_get_tree_is_desktop_read() {
+    let decision = decide(shell("i3-msg -t get_tree"));
+    assert_eq!(kinds(&decision), [ExitKind::DesktopIpc]);
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Desktop { desktop: DesktopKind::I3 }]);
+    assert_eq!(need.approver, Approver::Classifier);
+    assert_eq!(approver_of(shell("i3-msg -t get_workspaces")), Approver::Classifier);
+    // A command form runs programs on the desktop.
+    assert_eq!(approver_of(shell("i3-msg exec kitty")), Approver::User);
+}
+
+/// Each desktop program gets the grant of the one desktop socket that it talks to;
+/// `ydotool` talks to its own daemon and gets none.
+#[rstest]
+#[case::hyprctl("hyprctl dispatch exec kitty", Some(DesktopKind::Hyprland))]
+#[case::swaymsg("swaymsg -t get_tree", Some(DesktopKind::Sway))]
+#[case::i3_msg("i3-msg -t get_outputs", Some(DesktopKind::I3))]
+#[case::niri("niri msg outputs", Some(DesktopKind::Niri))]
+#[case::wlr_randr("wlr-randr", Some(DesktopKind::Wayland))]
+#[case::wtype("wtype hello", Some(DesktopKind::Wayland))]
+#[case::wl_copy("wl-copy x", Some(DesktopKind::Wayland))]
+#[case::wl_paste("wl-paste", Some(DesktopKind::Wayland))]
+#[case::xrandr("xrandr --query", Some(DesktopKind::X11))]
+#[case::xdotool("xdotool type x", Some(DesktopKind::X11))]
+#[case::wmctrl("wmctrl -l", Some(DesktopKind::X11))]
+#[case::xprop("xprop -root", Some(DesktopKind::X11))]
+#[case::xdpyinfo("xdpyinfo", Some(DesktopKind::X11))]
+#[case::xclip("xclip -o", Some(DesktopKind::X11))]
+#[case::xsel("xsel -b", Some(DesktopKind::X11))]
+#[case::ydotool("ydotool type x", None)]
+fn exits_desktop_program_grants_its_desktop(
+    #[case] line: &str,
+    #[case] desktop: Option<DesktopKind>,
+) {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::DesktopIpc], "{line:?}");
+    let grants: Vec<Grant> =
+        desktop.map(|desktop| Grant::Desktop { desktop }).into_iter().collect();
+    assert_eq!(decision.exits().next().unwrap().grants, grants, "{line:?}");
+}
+
+#[test]
+fn exits_named_wayland_socket_grants_wayland_desktop() {
+    let needs = Needs { sockets: vec!["/run/user/1000/wayland-1".to_owned()], ..Needs::default() };
+    let decision = decide(shell("wlr-randr").with_needs(needs));
+    let named: Vec<&ExitNeed> =
+        decision.exits().filter(|need| need.source == ExitSource::Needs).collect();
+    assert_eq!(named.len(), 1, "{decision:?}");
+    assert_eq!(named[0].kind, ExitKind::DesktopIpc);
+    assert_eq!(named[0].grants, [Grant::Desktop { desktop: DesktopKind::Wayland }]);
+    assert_eq!(named[0].target, Some(PathBuf::from("/run/user/1000/wayland-1")));
+    // The model named the socket: only the user approves, also next to a read form.
+    assert_eq!(named[0].approver, Approver::User);
+    assert_eq!(decision.exits().map(|need| need.approver).max(), Some(Approver::User));
+}
+
+#[rstest]
+#[case::x11("/tmp/.X11-unix/X0", DesktopKind::X11)]
+#[case::hyprland("/run/user/1000/hypr/abc_1760000000_1/.socket.sock", DesktopKind::Hyprland)]
+#[case::hyprland_events(
+    "/run/user/1000/hypr/abc_1760000000_1/.socket2.sock",
+    DesktopKind::Hyprland
+)]
+#[case::sway("/run/user/1000/sway-ipc.1000.1234.sock", DesktopKind::Sway)]
+#[case::i3("/run/user/1000/i3/ipc-socket.1234", DesktopKind::I3)]
+#[case::niri("/run/user/1000/niri.wayland-1.1234.sock", DesktopKind::Niri)]
+fn exits_named_desktop_sockets_grant_their_desktop_for_the_user(
+    #[case] socket: &str,
+    #[case] desktop: DesktopKind,
+) {
+    let needs = Needs { sockets: vec![socket.to_owned()], ..Needs::default() };
+    let decision = decide(shell("x").with_needs(needs));
+    assert_eq!(kinds(&decision), [ExitKind::DesktopIpc], "{socket}");
+    let need = decision.exits().next().unwrap();
+    // NOTE: the grant names the desktop, never the path: efrd binds only the one
+    // control socket, so a named event socket opens nothing more.
+    assert_eq!(need.grants, [Grant::Desktop { desktop }], "{socket}");
+    assert_eq!(need.approver, Approver::User, "{socket}");
 }
 
 #[rstest]
