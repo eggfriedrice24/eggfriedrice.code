@@ -1358,6 +1358,28 @@ async fn covered_line_stops_when_coverage_changes_under_the_lock() {
 }
 
 #[tokio::test]
+async fn covered_line_names_the_root_of_its_target_and_keeps_its_answers() {
+    use efr_permissions::CoverAsk;
+
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let work = kept.home.join("work");
+    let scratch = work.join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(scratch.join("db.sqlite"), "data\n").unwrap();
+    let call = call_of(2, 1, "shell", json!({"command": "dd of=scratch/db.sqlite"}), &work);
+    let asks = [CoverAsk::Path(scratch.join("db.sqlite")), CoverAsk::Home(work.join("x"))];
+
+    let answers = kept.toolbox.cover_facts(&call.context, &asks).await;
+    assert!(answers[0].1.is_covered(), "{answers:?}");
+
+    // The plan names the root of a covered target, so it locks and writes it.
+    assert_eq!(kept.toolbox.covered_root_paths(&call.context), [scratch.join("db.sqlite")]);
+    let stop = kept.toolbox.check_covered(&call.context, &[]).await;
+    assert_eq!(stop, None, "the answers stay for the check under the lock");
+}
+
+#[tokio::test]
 async fn covered_line_stops_when_the_capture_fails() {
     use efr_permissions::CoverAsk;
 

@@ -481,6 +481,26 @@ impl DaemonToolbox {
             .collect()
     }
 
+    /// The paths of the snapshot asks of the call `call` that its facts said are
+    /// covered, without taking them from the record of
+    /// [`cover_facts`](Self::cover_facts).
+    fn covered_root_paths(&self, call: &CallContext) -> Vec<PathBuf> {
+        let covered = self.covered.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some((_, answers)) = covered.get(&call.call_id) else { return Vec::new() };
+        answers
+            .iter()
+            .filter(|(_, coverage)| coverage.is_covered())
+            .filter_map(|(ask, _)| match ask {
+                CoverAsk::Path(path)
+                | CoverAsk::Tracked(path)
+                | CoverAsk::Untracked(path)
+                | CoverAsk::Refs(path)
+                | CoverAsk::Stash(path) => Some(path.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Asks again, under the call's plan lock and after its snapshot, each snapshot ask
     /// that the call's facts said is covered (plan PB15). `Some` is what the model reads
     /// when one is no longer covered: the call does not start.
@@ -540,6 +560,10 @@ impl DaemonToolbox {
             named_paths.extend(declared.command_dir);
             timeout = declared.timeout;
         }
+        // NOTE: a covered target names its root too, such as the other project of
+        // `dd of=~/p/app/db.sqlite`: the plan locks it, takes its snapshot and lets the
+        // line write there, and the check under the lock finds the root again.
+        named_paths.extend(self.covered_root_paths(&call.context));
         // NOTE: the plan lock blocks every write and every plan in the call's projects,
         // also those of other conversations. A call that queues behind a command still
         // running in this shell (a dev server left at its timeout) waits here, before it
