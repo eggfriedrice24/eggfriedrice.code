@@ -28,18 +28,13 @@ into the GitHub release notes, and it stops when the section is missing.
   file, a write to a synced folder, a desktop command that types or starts programs,
   and a change of the settings. An upload, such as `git push`, and a delete above the
   project go to the reviewer only when a message of yours names them.
-- Before efr writes a file that runs code later, such as `~/.zshrc`, a Hyprland
-  config or a unit file, it copies the file to `~/.local/share/efr/file-backups/`. Copy
-  the backup back to undo the change. When efr cannot make the copy, it does not change
-  the file. efr keeps the backups of the last `snapshot.keep_turns` turns and for at
-  most `snapshot.max_age_days` days.
 - In `auto`, efr can change a file that runs code later, such as `~/.zshrc` or a
   Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
   gap in my hyprland config". The reviewer decides, and it sees the change that efr
   will write. Enabling a unit, `crontab`, linger and a whole directory still ask you.
-  At the end of the turn, each such file that the turn changed gets one line that
-  names its backup: `changed ~/.zshrc; backup at <path>`. The line comes also when the
-  turn failed or you interrupted it.
+  efr copies the file first, and at the end of the turn each such file gets one line:
+  `changed ~/.zshrc; efr undo reverts it`. The line comes also when the turn failed or
+  you interrupted it.
 - `efr away` and `,away` tell efr that you are away from the conversation of this
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a
@@ -60,8 +55,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
   rest of the turn, and efr asks you instead. When you are away, the turn stops.
 - `efr history` shows the lines of the reviewer, its pause, the expiry of a question
-  while you were away, the space that a cache delete freed and the backup of each
-  changed file. `efr history --verbose` adds the model of each review, the step of its
+  while you were away, the space that a cache delete freed and each changed file that
+  runs code later. `efr history --verbose` adds the model of each review, the step of its
   chain, its time and the models that it skipped.
 - A turn that ends with no answer says why, such as `the model stopped with no answer
   (stop: refusal)`. An answer that reached the output limit says so too.
