@@ -162,6 +162,20 @@ pub(crate) enum CliError {
     #[error("there is no conversation yet, so there is no context to compact")]
     NothingToCompact,
 
+    /// `efr undo` found no conversation, so there is no turn to undo.
+    #[error("there is no conversation yet, so there is no turn to undo")]
+    NothingToUndo,
+
+    /// `efr undo` cannot ask its question: stdin is no terminal, and `--yes` is not
+    /// given. It changed nothing.
+    #[error("efr undo needs a terminal or --yes; nothing changed")]
+    UndoNeedsYes,
+
+    /// The daemon refused the undo, or it must wait: the turn's undo needs `--force`, a
+    /// turn runs, or nothing is left to undo. Nothing changed.
+    #[error("efr undo changed nothing: {}", .body.message)]
+    UndoRefused { body: ErrorBody },
+
     /// `efr away` found no conversation, so there is none to be away from.
     #[error("there is no conversation yet, so there is none to be away from")]
     NobodyToBeAwayFrom,
@@ -296,6 +310,7 @@ impl CliError {
             | CliError::KeyVariableUnset { .. }
             | CliError::NoKey { .. }
             | CliError::KeyTooLong { .. }
+            | CliError::UndoNeedsYes
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
@@ -352,6 +367,15 @@ impl CliError {
             {
                 Some(MODEL_HINT)
             }
+            CliError::UndoRefused { body } => match crate::commands::undo::refused_kind(body) {
+                Some("later_turns_not_undone") => {
+                    Some("undo the newer turn first, or add --force to undo this one anyway")
+                }
+                Some("needs_force") => Some("add --force to undo it anyway"),
+                Some("nothing_to_undo") => Some("efr undo --list shows the turns and their state"),
+                Some("no_redo") => Some("efr undo --list shows which turns are undone"),
+                _ => None,
+            },
             CliError::NewWithoutPrompt => {
                 Some("in zsh, a bare ,new makes the next , line start a new conversation")
             }

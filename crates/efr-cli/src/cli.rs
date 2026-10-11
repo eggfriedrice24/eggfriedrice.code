@@ -54,6 +54,11 @@ pub(crate) enum Command {
     History(HistoryArgs),
     /// Show what the last turn changed in the files of its project and $SCRATCH.
     Diff(DiffArgs),
+    /// Take back what the last turn changed in files and branches.
+    ///
+    /// It shows what it will do (restore, trash, delete, ref) and asks first. Every
+    /// file that it overwrites or removes goes to efr's undo trash.
+    Undo(UndoArgs),
     /// Make room in the model's context of this terminal's conversation now.
     ///
     /// efrd writes a summary of the earlier turns and keeps the newest ones word for
@@ -264,6 +269,40 @@ pub(crate) struct DiffArgs {
     /// List the files that changed, with their counts of lines, instead of the diff.
     #[arg(long)]
     pub(crate) stat: bool,
+}
+
+/// The arguments of `efr undo`.
+#[derive(Debug, Args)]
+pub(crate) struct UndoArgs {
+    /// Undo this turn instead of the newest one that is not undone.
+    #[arg(long, value_name = "ID")]
+    pub(crate) turn: Option<TurnId>,
+
+    /// The conversation whose turn to undo: its id, or the start of it. Without it,
+    /// this terminal's conversation, else the newest of all.
+    #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
+
+    /// List the turns that can be undone, and which are undone, and change nothing.
+    #[arg(long, conflicts_with_all = ["dry_run", "yes", "force", "redo"])]
+    pub(crate) list: bool,
+
+    /// Show what the undo does, and change nothing.
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+
+    /// Undo without the question.
+    #[arg(long, short = 'y')]
+    pub(crate) yes: bool,
+
+    /// Also overwrite a file that changed after the turn, and undo a turn while a
+    /// newer turn is not undone.
+    #[arg(long)]
+    pub(crate) force: bool,
+
+    /// Take back the newest undo of the conversation.
+    #[arg(long)]
+    pub(crate) redo: bool,
 }
 
 /// The arguments of `efr compact`.

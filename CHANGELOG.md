@@ -67,6 +67,15 @@ into the GitHub release notes, and it stops when the section is missing.
   (stop: refusal)`. An answer that reached the output limit says so too.
 - The journal of efrd has a line for a failed or interrupted turn, and the request id
   of a model call that failed.
+- `efr undo` takes back the newest turn of this terminal's conversation. It shows
+  what it will do (restore, trash, delete, ref) and asks `undo? y = yes, n = no`. It
+  restores the files that the turn's commands changed in the project, in `$SCRATCH` and
+  in the other projects that the turn wrote, and the branches that the turn moved. A
+  file that changed after the turn stays, and the preview lists it; `--force`
+  overwrites it. A change that you made during the turn between two commands stays.
+  `--redo` takes back the undo. `--list`, `--turn` and `--dry-run` help you pick. Your
+  git index stays as it is. Every file that undo overwrites or removes goes to
+  `~/.local/share/efr/undo-trash/` first. Without a terminal, `efr undo` needs `--yes`.
 - New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
   `snapshot.home_max_mib` and `sandbox.ask_destructive`.
 

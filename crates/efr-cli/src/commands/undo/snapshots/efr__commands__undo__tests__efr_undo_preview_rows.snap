@@ -1,0 +1,14 @@
+---
+source: crates/efr-cli/src/commands/undo/tests.rs
+expression: readable(&painted)
+---
+\e[1mredo the undo of turn 019a9b1c-3d00-7a10-8b20-000000000002: change a.txt\e[0m
+restore     a.txt
+trash       notes.md
+delete      ~/.config/systemd/user/default.target.wants/x.service
+command     @crontab
+\e[2mskip        b.txt (changed after the turn; --force overwrites it)\e[0m
+\e[2mnot covered .env.large (the snapshot left it out)\e[0m
+\e[2m… 2 more\e[0m
+ref         main 1a2b3c4 -> 5d6e7f8
+\e[2myour git index is unchanged; git status can show staged changes\e[0m
