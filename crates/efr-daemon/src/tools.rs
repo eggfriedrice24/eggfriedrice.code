@@ -39,7 +39,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_config::{Settings, SudoCache};
+use efr_config::{Settings, SudoCache, WriteProjects};
 use efr_conversation::{
     CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
     Toolbox, TurnChanges, UndoRequest,
@@ -383,7 +383,10 @@ impl DaemonToolbox {
             // tells the engine to give it the names of the link (`~/.zshrc`).
             facts.links =
                 declared.links.iter().filter(|(_, real)| writes.contains(real)).cloned().collect();
-            facts.covered = self.cover_facts(&call.context, &request.covers).await;
+            // NOTE: a file tool writes in every registered project, as its check under
+            // the lock does.
+            let projects = sandbox.projects().await;
+            facts.covered = self.cover_facts(&call.context, &request.covers, projects).await;
             return Some(facts);
         };
         let engine = Arc::clone(&engine.borrow());
@@ -405,7 +408,12 @@ impl DaemonToolbox {
             masks: &masks,
         };
         let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
-        facts.covered = self.cover_facts(&call.context, &request.covers).await;
+        let projects = cover_projects(
+            sandbox.projects().await,
+            self.settings.borrow().sandbox.write_projects,
+            self.home.path(),
+        );
+        facts.covered = self.cover_facts(&call.context, &request.covers, projects).await;
         Some(facts)
     }
 
@@ -413,19 +421,18 @@ impl DaemonToolbox {
     /// it runs. A snapshot ask is answered from a snapshot of its root taken now, under
     /// the root's plan lock, so no call writes in between (the turn's `pre` when the
     /// turn has none yet); a home ask outside the roots from its sizes and the masks;
-    /// a home ask inside a root gets no answer, since the snapshot covers it.
+    /// a home ask inside a root gets no answer, since the snapshot covers it. `projects`
+    /// are the registered projects besides the turn's own that the call may write: the
+    /// same that its check under the lock reads.
     async fn cover_facts(
         &self,
         call: &CallContext,
         asks: &[CoverAsk],
+        projects: Vec<PathBuf>,
     ) -> Vec<(CoverAsk, Coverage)> {
         if asks.is_empty() {
             return Vec::new();
         }
-        let projects = match &self.sandbox {
-            Some((sandbox, _)) => sandbox.projects().await,
-            None => Vec::new(),
-        };
         let mut answers: Vec<(CoverAsk, Coverage)> = Vec::new();
         match &self.snapshots {
             Some(snapshots) => {
@@ -1066,6 +1073,17 @@ impl DaemonToolbox {
         }
         masks
     }
+}
+
+/// The registered projects `all` that a shell call may write as `write_projects` says,
+/// besides the turn's own: none with `turn`, else each one below the home directory.
+/// Its covered target names one, so the plan of the call writes it, and the check under
+/// the lock finds it again (plan PB15).
+fn cover_projects(all: Vec<PathBuf>, write_projects: WriteProjects, home: &Path) -> Vec<PathBuf> {
+    if write_projects == WriteProjects::Turn {
+        return Vec::new();
+    }
+    all.into_iter().filter(|project| !efr_sandbox::too_wide(project, home)).collect()
 }
 
 /// True for an ask that the home store answers, not a root's snapshot: a home file or

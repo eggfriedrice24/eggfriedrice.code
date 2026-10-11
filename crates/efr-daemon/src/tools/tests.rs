@@ -1359,7 +1359,7 @@ async fn facts_answer_cover_asks_for_root_and_home() {
         CoverAsk::Home(scratch.join("build/out.txt")),
     ];
 
-    let mut answers = kept.toolbox.cover_facts(&call.context, &asks).await;
+    let mut answers = kept.toolbox.cover_facts(&call.context, &asks, Vec::new()).await;
     answers.sort_by_key(|(ask, _)| format!("{ask:?}"));
 
     let mut expected = vec![
@@ -1389,7 +1389,8 @@ async fn covered_line_stops_when_coverage_changes_under_the_lock() {
     let call = call_of(2, 1, "shell", json!({"command": "rm -r build"}), &work);
     let ask = CoverAsk::Path(scratch.join("build"));
 
-    let answers = kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask)).await;
+    let answers =
+        kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask), Vec::new()).await;
     assert!(answers[0].1.is_covered(), "{answers:?}");
     std::fs::write(scratch.join("build/big.bin"), vec![1_u8; 2 * 1024 * 1024]).unwrap();
     let stop = kept.toolbox.check_covered(&call.context, &[]).await;
@@ -1412,7 +1413,7 @@ async fn covered_line_names_the_root_of_its_target_and_keeps_its_answers() {
     let call = call_of(2, 1, "shell", json!({"command": "dd of=scratch/db.sqlite"}), &work);
     let asks = [CoverAsk::Path(scratch.join("db.sqlite")), CoverAsk::Home(work.join("x"))];
 
-    let answers = kept.toolbox.cover_facts(&call.context, &asks).await;
+    let answers = kept.toolbox.cover_facts(&call.context, &asks, Vec::new()).await;
     assert!(answers[0].1.is_covered(), "{answers:?}");
 
     // The plan names the root of a covered target, so it locks and writes it.
@@ -1434,7 +1435,8 @@ async fn covered_line_stops_when_the_capture_fails() {
     let call = call_of(2, 1, "shell", json!({"command": "rm -r build"}), &work);
     let ask = CoverAsk::Path(scratch.join("build"));
 
-    let answers = kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask)).await;
+    let answers =
+        kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask), Vec::new()).await;
     assert!(answers[0].1.is_covered(), "{answers:?}");
     std::fs::remove_dir_all(&scratch).unwrap();
     let stop = kept.toolbox.check_covered(&call.context, &[]).await;
@@ -1536,4 +1538,24 @@ async fn cache_delete_is_copied_under_the_limits() {
         undo.not_covered.contains(&"~/.cache/big (over the copy limits)".to_owned()),
         "{undo:?}"
     );
+}
+
+#[test]
+fn cover_facts_read_the_projects_that_the_plan_writes() {
+    use efr_config::WriteProjects;
+
+    let home = Path::new("/home/u");
+    let app = PathBuf::from("/home/u/p/app");
+    let all = vec![app.clone(), PathBuf::from("/home/u")];
+    // NOTE: with `turn` no other project is a write root, so a target there is never
+    // covered: its line goes to the reviewer at once, not into a refusal loop.
+    let turn = crate::tools::cover_projects(all.clone(), WriteProjects::Turn, home);
+    assert_eq!(turn, Vec::<PathBuf>::new());
+    let named = crate::tools::cover_projects(all.clone(), WriteProjects::Named, home);
+    assert_eq!(
+        named,
+        std::slice::from_ref(&app),
+        "a project at the home directory is never a root"
+    );
+    assert_eq!(crate::tools::cover_projects(all, WriteProjects::All, home), [app]);
 }
