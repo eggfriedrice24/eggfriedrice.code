@@ -77,9 +77,9 @@ pub use seccomp::{
     SeccompAction, SeccompArch, SeccompProfile, SyscallRule, TIOCLINUX, TIOCSTI,
 };
 pub use spec::{
-    CacheOverlay, EnvPlan, Floor, FloorKind, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan,
-    RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
-    layer_name,
+    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, MAX_SPEC_BYTES, Mask, MaskKind,
+    NetworkPlan, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot,
+    WriteRootKind, layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

@@ -296,6 +296,7 @@ impl Fixture {
                 bwrap: ready.bwrap.clone(),
                 session_bus: None,
                 system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
+                desktops: Vec::new(),
             },
         };
         let mut env = BTreeMap::new();

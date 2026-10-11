@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{CacheMode, CallId, ConversationId, Grant};
+use efr_protocol::{CacheMode, CallId, ConversationId, DesktopKind, Grant};
 use serde::{Deserialize, Serialize};
 
 use crate::SandboxError;
@@ -314,6 +314,24 @@ pub struct RuntimePaths {
     pub session_bus: Option<PathBuf>,
     /// The system bus socket.
     pub system_bus: PathBuf,
+    /// The desktop sockets that efrd found for the terminal of the prompt, at most one
+    /// per desktop. Only a `desktop` grant binds one; none without that grant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub desktops: Vec<DesktopSocket>,
+}
+
+/// The control socket of one desktop, and the value of the variable that names it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopSocket {
+    /// Which desktop.
+    pub desktop: DesktopKind,
+    /// The socket, absolute, such as
+    /// `/run/user/1000/hypr/<signature>/.socket.sock`.
+    pub path: PathBuf,
+    /// The value of [`DesktopKind::variable`] for the call, such as the Hyprland
+    /// instance signature or `:0`.
+    pub value: String,
 }
 
 impl RuntimePaths {
@@ -393,6 +411,9 @@ impl SandboxSpec {
         if let Some(bus) = &runtime.session_bus {
             paths.push(("runtime.session_bus", bus));
         }
+        paths.extend(
+            runtime.desktops.iter().map(|desktop| ("runtime.desktops", desktop.path.as_path())),
+        );
         paths.extend(self.write_roots.iter().map(|root| ("write_roots", root.path.as_path())));
         for cache in &self.caches {
             paths.extend([

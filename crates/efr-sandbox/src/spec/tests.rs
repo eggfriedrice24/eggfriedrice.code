@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
+use efr_protocol::DesktopKind;
 use pretty_assertions::assert_eq;
 
 use crate::SandboxError;
-use crate::spec::{CacheOverlay, SandboxSpec, WriteRoot, WriteRootKind, layer_name};
+use crate::spec::{CacheOverlay, DesktopSocket, SandboxSpec, WriteRoot, WriteRootKind, layer_name};
 use crate::testing::spec;
 
 #[test]
@@ -23,6 +24,31 @@ fn a_spec_with_a_relative_or_unnormal_path_is_refused() {
             "{path}"
         );
     }
+}
+
+#[test]
+fn a_spec_without_desktops_leaves_them_out_and_reads_back() {
+    let text = String::from_utf8(spec().to_json().unwrap()).unwrap();
+    assert!(!text.contains("desktops"), "{text}");
+    let mut with = spec();
+    with.runtime.desktops = vec![DesktopSocket {
+        desktop: DesktopKind::Hyprland,
+        path: "/run/user/1000/hypr/abc_1760000000_123/.socket.sock".into(),
+        value: "abc_1760000000_123".into(),
+    }];
+    let back = SandboxSpec::from_json(&with.to_json().unwrap()).unwrap();
+    assert_eq!(back, with);
+}
+
+#[test]
+fn a_desktop_socket_with_a_relative_path_is_refused() {
+    let mut spec = spec();
+    spec.runtime.desktops = vec![DesktopSocket {
+        desktop: DesktopKind::Wayland,
+        path: "wayland-1".into(),
+        value: "wayland-1".into(),
+    }];
+    assert!(matches!(spec.check(), Err(SandboxError::SpecPath { field: "runtime.desktops", .. })));
 }
 
 #[test]

@@ -88,6 +88,7 @@ impl TestCall {
                 bwrap: PathBuf::from("/usr/bin/bwrap"),
                 session_bus: None,
                 system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
+                desktops: Vec::new(),
             },
         };
         private_dir(&runtime.join("bin"));

@@ -273,6 +273,7 @@ pub(crate) fn runtime_paths(input: &PlanInput<'_>) -> RuntimePaths {
         bwrap: input.bwrap.to_path_buf(),
         session_bus: input.host.session_bus.clone(),
         system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
+        desktops: Vec::new(),
     }
 }
 

@@ -168,6 +168,7 @@ pub(crate) fn runtime() -> crate::RuntimePaths {
         bwrap: "/usr/bin/bwrap".into(),
         session_bus: Some("/run/user/1000/bus".into()),
         system_bus: "/run/dbus/system_bus_socket".into(),
+        desktops: Vec::new(),
     }
 }
 
