@@ -818,9 +818,12 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
         .map(|need: &ExitNeed| need.part.clone())
         .collect();
     // NOTE: the command that leaves, not the first of the line: `uname; df -h` runs
-    // `df -h` outside, and a label of `uname` would name the wrong program.
+    // `df -h` outside, and a label of `uname` would name the wrong program. Only a
+    // predicted need names a command: the part of `needs.outside` is the model's field.
     let mut outside_commands: Vec<String> = Vec::new();
-    for need in action.decision.exits().filter(|need| need.kind == ExitKind::Outside) {
+    let leaving =
+        |need: &&ExitNeed| need.kind == ExitKind::Outside && need.source == ExitSource::Predicted;
+    for need in action.decision.exits().filter(leaving) {
         if !outside_commands.contains(&need.part) {
             outside_commands.push(need.part.clone());
         }

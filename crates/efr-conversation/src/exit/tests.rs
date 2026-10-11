@@ -440,6 +440,34 @@ fn outside_commands_names_the_command_that_leaves() {
     assert!(record(action, &[], &TurnExits::default()).facts.outside_commands.is_empty());
 }
 
+/// The review of fix batch A: an outside exit that the model asked for with
+/// `needs.outside` named the field, so the line said `reviewer allowed: needs.outside`.
+#[test]
+fn outside_commands_leave_out_the_needs_outside_field() {
+    let engine = engine();
+    let needs = Needs { outside: true, ..Needs::default() };
+    let requirements = shell("uname -a").with_needs(needs);
+    let decision = decide(&engine, requirements.clone());
+    assert!(
+        decision.exits().any(|need| need.kind == ExitKind::Outside && need.part == "needs.outside"),
+        "{decision:?}"
+    );
+    let launch = grant(&decision);
+    let action = Action {
+        tool: "shell",
+        decision: &decision,
+        requirements: &requirements,
+        launch: &launch,
+        cwd: Path::new(APP),
+        scope: &Scope::Project(app()),
+        scratch: Path::new(SCRATCH),
+        engine: &engine,
+        payload: None,
+    };
+    let asked = record(action, &[], &TurnExits::default());
+    assert!(asked.facts.outside_commands.is_empty(), "{:?}", asked.facts.outside_commands);
+}
+
 #[test]
 fn three_refusals_without_a_person_stop_and_an_answer_resets() {
     let mut turn = TurnExits::default();
