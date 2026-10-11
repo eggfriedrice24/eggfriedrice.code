@@ -22,12 +22,16 @@
 //! [`Toolbox::invoke`] without passing it.
 //!
 //! In `auto` a shell call runs in the kernel sandbox. `Contain` runs it at once with
-//! [`Launch::Contained`]. An exit asks the user, with its record in `exit_requested`
-//! first, and a "yes" runs the call with the narrowest launch ([`exit::grant`]). An
-//! exit that would run outside the sandbox must be one command, or the call is refused
-//! with no question. A floor refuses an exit before any question, and three refusals in
-//! a row without a person stop the turn. A call that changed git settings that run
-//! programs asks the user whether to keep them before the next call.
+//! [`Launch::Contained`]. An exit goes to the classifier first when it may judge it
+//! (`review.rs`), and else, or when it is unsure, to the user, with its record in
+//! `exit_requested` first; an allow runs the call with the narrowest launch
+//! ([`exit::grant`]). An exit that would run outside the sandbox must be one command, or
+//! the call is refused with no question. A floor refuses an exit before any question,
+//! and three refusals in a row without a person stop the turn; classifier denials pause
+//! the classifier for the turn. A question waits less while the user is away. A call
+//! that changed git settings that run programs asks the user whether to keep them
+//! before the next call, and its deletes in a private cache layer may reach the real
+//! caches (`cache.rs`).
 
 mod cache;
 mod coalesce;

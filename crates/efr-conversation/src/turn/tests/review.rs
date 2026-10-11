@@ -611,8 +611,9 @@ async fn file_tool_contain_without_launcher_asks() {
     assert_eq!(script.results(), vec![(EXIT_DENIED.to_owned(), true)]);
 }
 
-#[tokio::test]
-async fn classifier_record_has_no_tool_output_model_reason_or_project_files() {
+/// The record that the judge read about a push after a turn that read the project's
+/// `AGENTS.md` and ran the tests, where the model gave a reason for the push.
+async fn record_after_work() -> String {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
     let agents = setup.cwd.join("AGENTS.md");
@@ -625,13 +626,29 @@ async fn classifier_record_has_no_tool_output_model_reason_or_project_files() {
     );
     let calls = vec![("read_file", json!({ "path": agents })), shell("cargo test"), push];
     let (h, _) = run(setup, calls, "test it, then push").await;
-
     assert_eq!(judge.calls(), 1);
-    let json = serde_json::to_string(&judge.seen()[0].record).unwrap();
-    for absent in ["contents of", "SECRET-REASON", "partial", "AGENTS.md", "\"done\""] {
+    assert_eq!(h.toolbox.invoked().len(), 3);
+    serde_json::to_string(&judge.seen()[0].record).unwrap()
+}
+
+#[tokio::test]
+async fn classifier_record_has_no_tool_output() {
+    let json = record_after_work().await;
+    for absent in ["contents of", "partial", "\"done\""] {
         assert!(!json.contains(absent), "{absent:?} in {json}");
     }
-    assert_eq!(h.toolbox.invoked().len(), 3);
+}
+
+#[tokio::test]
+async fn classifier_record_has_no_model_reason() {
+    let json = record_after_work().await;
+    assert!(!json.contains("SECRET-REASON"), "{json}");
+}
+
+#[tokio::test]
+async fn classifier_record_has_no_project_files() {
+    let json = record_after_work().await;
+    assert!(!json.contains("AGENTS.md"), "{json}");
 }
 
 #[tokio::test]

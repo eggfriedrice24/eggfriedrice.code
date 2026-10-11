@@ -86,26 +86,82 @@ turns.
   another character outside letters, digits and `._/:@%+,-`, and with the value of
   `--option=value` left out, so a token on the line is not repeated there. Every other
   line break of the summary is escaped, so a path cannot pass for that line.
-- The `auto` mode (`exit.rs`, `questions.rs`, `judge.rs`). The check point runs a shell
-  call that the engine contains (`Effect::Contain`) at once with `Launch::Contained`
-  in `CallContext::launch`, and `tool_call_started` names the launch. An exit asks the
-  user: `exit_requested` with its `ExitRecord` (user messages, the action and efr's own
-  facts, never tool output or the model's reason) comes in the same batch before
-  `approval_requested`, whose `exit` shows the kinds, the launch, what a "yes" opens,
-  efr's facts, the model's reason and whether only the user may approve it. A "yes"
-  runs the call with the narrowest launch (`exit::grant`): the plain sandbox for a
-  question of a user's `ask` rule or a `destructive` exit, the sandbox plus the union of
-  the exits' grants (a write bind, the open network, a socket, a bus, a device, an
-  unmask), or `Launch::Unsandboxed` (the exit child) when an exit cannot run in the
-  sandbox. `CallContext::exits` carries the approved exits, so the toolbox can make a
-  write target first. The answer is recorded as `exit_judged` (judge `user`). Before it
-  asks about a launch in the exit child, the check point applies the one-command rule
+- The `auto` mode (`exit.rs`, `questions.rs`, `judge.rs`, `turn/review.rs`). The check
+  point runs a shell call that the engine contains (`Effect::Contain`) at once with
+  `Launch::Contained` in `CallContext::launch`, and `tool_call_started` names the
+  launch. An exit goes to the classifier or to the user. The engine gives each exit an
+  approver; `exit::route` finishes one that the classifier judges only when a user
+  message names it, with `efr_permissions::exits::names_match` on every prompt and
+  steer of the conversation (`efr_store::user_messages`, never the page of newest
+  events or the cut list of the record), and the same check fills
+  `named_in_user_messages` in the record. A file tool's edit of a floor file puts its
+  payload in the record (`ActionFacts::edit`, `exit::Payload`): the new content, the old
+  and the new text, or the parts of a patch for that file; a payload over 8 KiB, or one
+  that efr cannot read whole, goes to the user. The record (`exit::record`) holds user
+  messages, the action and efr's own facts, never tool output or the model's reason;
+  a target's class says when a cache, the build output of a project or efr's trash can
+  make it again, and whether efrd copies it into its backup store first.
+- The classifier (`turn/review.rs`) judges first when the turn runs in `auto`,
+  `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on, the
+  classifier has not stopped for the turn, every reason that asks is an exit, and every
+  exit goes to it. `exit_requested` and `exit_review_started` come in one batch, the
+  judge runs while the user can still interrupt, and `exit_judged` (judge
+  `classifier`, with the model, the latency, the step of the chain, the skipped models,
+  the record's hash and `cached`) records the answer. A verdict from the judge's cache
+  of the turn comes at once and records no `exit_review_started`. efr applies the allow
+  rule and the naming rule of the auto spec, section 9.4 (`exit::effective`): an allow
+  stands at a low or medium risk, or at a high risk that a user message authorizes; a
+  write, a floor file edit or an `above_root` exit needs a user message that names
+  each target outside a cache, build output, efr's trash and the write roots; a host
+  needs one that names it, except the registries of a package manager's fetch when a
+  message asks to build, install, update or fetch (`exit::REGISTRY_EXCEPTION`). An
+  allow runs the call with its launch, never as `approved_interactive`. A deny gives
+  the model the reviewer's text ("The auto reviewer refused this action ..."). Any
+  other answer, and a judge that gave none (every step of its chain failed), asks the
+  user with one `exit_requested` for the call, and the question shows the classifier's
+  answer in `ExitInfo::judged`.
+- The user's question: `approval_requested`, whose `exit` shows the kinds, the launch,
+  what a "yes" opens, efr's facts, the model's reason and whether only the user may
+  approve it. A "yes" runs the call with the narrowest launch (`exit::grant`): the
+  plain sandbox for a question of a user's `ask` rule or a `destructive` exit, the
+  sandbox plus the union of the exits' grants (a write bind, the open network, a
+  socket, a bus, a device, an unmask), or `Launch::Unsandboxed` (the exit child) when
+  an exit cannot run in the sandbox. `CallContext::exits` carries the approved exits,
+  so the toolbox can make a write target first and copy a floor file first. The answer
+  is recorded as `exit_judged` (judge `user`). Before it asks about a launch in the
+  exit child, the check point applies the one-command rule
   (`efr_permissions::exits::unsandboxed_line_problem`): a line that carries more than
-  one command gets that text as a tool error with no question, and it is no refusal. A
-  floor (`secret`, `config`) refuses the exit before any question and records
-  `exit_judged` (judge `floor`); three such refusals in a row without a person's answer
-  end the turn with `turn_failed` (`forbidden`, "auto stopped this turn: 3 actions
-  were refused in a row. Read the answers, then send a new prompt."). The count lives in the turn, so the model cannot reset it.
+  one command gets that text as a tool error with no question, and it is no refusal.
+- Refusals and denials. A floor (`secret`, `config`) refuses the exit before any
+  question and records `exit_judged` (judge `floor`); three such refusals in a row
+  without a person's answer end the turn with `turn_failed` (`forbidden`, "auto stopped
+  this turn: 3 actions were refused in a row. Read the answers, then send a new
+  prompt."). A classifier allow does not reset that count. Classifier denials count
+  apart: at 3 in a row or 10 in the turn the classifier stops for the rest of the turn
+  (`classifier_paused`), each later exit that it would judge asks the user, and the
+  turn stops while the user is away ("auto stopped this turn: the reviewer refused 3
+  actions in a row and nobody could decide. ..."). A classifier allow or any answer of
+  the user resets the denials in a row; an error, a step of the chain and an expired
+  question count as none. The counts live in the turn, so the model cannot reset them.
+- Presence (`PresenceReader`, `ConversationDeps::presence`). A question reads it once,
+  when it parks. While the user is away it pushes the question once
+  (`PresenceReader::push`) and waits `ConversationConfig::away_wait`; with no answer it
+  records `approval_expired` with `away`, and `exit_judged` (judge `presence_expired`)
+  for an exit, and the model reads "Nobody could approve this now; it did not run.
+  Continue without it, and name it in your final answer." The turn goes on. An answer
+  always wins during the wait. A phone never answers a privilege exit
+  (`RemotePrivilegeAnswer`), because the password needs the terminal.
+- Cache deletes (`turn/cache.rs`). A contained call that deleted files in its private
+  cache layer reports them in `SandboxSummary::cache_deletes`. After the call,
+  `Engine::decide_cache_delete` makes one `write` exit of each path below a cache, and
+  the classifier, or the user, decides them with a call id of its own, since the call
+  may have had a question already. An allow hands them to
+  `Toolbox::delete_cache_paths` and records `cache_delete_applied` with the call's id;
+  the model reads the freed size, or that the deletes stayed private. A denied path
+  stays private for the rest of the conversation and is not raised again.
+- Floor files that a call changed (`ToolOutcome::backups`) are recorded as
+  `home_file_changed` with their backup path, after the call's `tool_call_completed`,
+  for the line at the end of the turn.
 - After a call whose `ToolOutcome::sandbox` reports changes to git settings that run
   programs, the turn records them in `sandbox_surface_changed` with the call's
   `tool_call_completed`, and, for the changes that the launcher moved to quarantine,
@@ -122,8 +178,9 @@ turns.
   it, the turn runs as `cautious` and records `EffectiveSettings::fallback` with the
   reason, and the preamble says so. A prompt does not know its project yet, so only the
   turn applies the home rule.
-- `ExitJudge` (`ConversationDeps::judge`) is the seam of the classifier of phase 3. In
-  phase 1 it is `None` and the user answers every exit.
+- `ExitJudge` (`ConversationDeps::judge`) is the seam of the classifier: the daemon
+  implements it with the chain of models, the cache of verdicts of a turn and the hash
+  of the record. `None` asks the user about every exit.
 - `respond_approval` records `approval_resolved` and hands the decision to the parked
   turn. The store refuses an answer to a call that is not pending, so of two racing
   answers only one commits. A parked call that can no longer be answered (the turn was
@@ -781,7 +838,8 @@ does not name `efr-tools`; see above for why. `xtask/src/deps.rs` forbids
 `efr-conversation -> efr-shell` and `efr-conversation -> efr-transport`.
 
 Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blocking`),
-`futures` (the provider's stream), `async-trait` (`Toolbox`, `ScopeResolver`),
+`futures` (the provider's stream, the first poll of the judge), `async-trait`
+(`Toolbox`, `ScopeResolver`, `ExitJudge`),
 `serde` and `serde_json` (receipts, tool inputs), `jiff` (the date in a scratch name),
 `thiserror` and `tracing`.
 
@@ -794,10 +852,14 @@ Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blockin
   the conversation's policy, and the turn enforces: `Allow` runs, `Contain` runs in
   the sandbox, `Deny` gives the model an error that names each refused path with its
   class, `Ask` parks the turn on a `oneshot` until the user answers.
-- In `auto` nothing runs outside the sandbox without a person: a contained call has
-  `Launch::Contained`, and only a "yes" gives `Launch::Unsandboxed`, to a line of one
-  command. A turn without a working sandbox runs as `cautious`, never as `auto` with
-  less.
+- In `auto` nothing runs outside the sandbox without a person's or the classifier's
+  allow: a contained call has `Launch::Contained`, and only an allow gives
+  `Launch::Unsandboxed`, to a line of one command. The classifier never judges a floor,
+  a kind that only the user approves, a settings change or an exit that no user message
+  names where a name is needed, and its errors ask the user, never allow. A delete in a
+  real cache passes the engine (`Engine::decide_cache_delete`) and the same question
+  before the toolbox deletes anything. A turn without a working sandbox runs as
+  `cautious`, never as `auto` with less.
 - The scope is derived again on every turn; it is never cached.
 - The last command of a prompt never enters an event or a log field; `Debug` of the
   types that hold it leaves it out. It reaches the saved messages only inside the
@@ -861,8 +923,16 @@ rule, the cut) and the summary prompt's sections have unit tests. The `auto` tes
 network, write and privilege exit with their launches, a denied exit, the one-command
 rule, a user's `ask` rule, the floor refusals that stop a turn at three, the fallback to
 `cautious` (no sandbox, a project at home) and the quarantine question (answered,
-expired, refused for a phone, interrupted). `exit/tests.rs` checks `grant`, the question
-facts and the record against the real engine. The calls of tools that a request does
+expired, refused for a phone, interrupted). The classifier tests run a model that
+follows a script of calls (`testing::Script`), a judge that answers from a queue and
+keeps each record (`testing::FakeJudge`) and a presence that a test sets
+(`testing::FakePresence`): which exits the classifier judges and which ask the user
+(`turn/tests/review.rs`), the pause after denials and the floor count
+(`turn/tests/denials.rs`), the away wait and the phone (`turn/tests/away.rs`), cache
+deletes (`turn/tests/cache.rs`), and the routine lines of the command corpus of
+`efr-permissions`, which make no judge call (`turn/tests/corpus.rs`). `exit/tests.rs`
+checks `grant`, the question facts and the record against the real engine, and
+`exit/tests/review.rs` the route, the payload, the allow rule and the naming rule. The calls of tools that a request does
 not offer are covered by table tests (`unoffered/tests.rs`) and by turns that move an
 `edit` call from a Claude model to an OpenAI model and an `apply_patch` call the other
 way and back (`turn/tests/tools.rs`), each request a byte prefix of the next. The
