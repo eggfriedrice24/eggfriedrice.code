@@ -176,7 +176,9 @@ In `auto`, a reviewer model decides most actions that leave the sandbox
 3. You.
 
 efr goes to the next step when a model is not in your model list, refuses, takes more
-than `classifier.timeout_secs` (default 20) or gives an answer that does not fit. A
+than `classifier.timeout_secs` (default 20) or gives an answer that does not fit. An
+answer with an empty reason or a placeholder reason, such as `x`, does not fit. The
+first model then gets the same request once more before efr goes to the next step. A
 model that is missing or refuses is skipped for the rest of the conversation. A
 provider that refuses the login fails for every model, so the question then goes to
 you at once. `efr history --verbose` shows the model, the step and the skipped models

@@ -91,6 +91,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr sandbox explain` says that the reviewer decides a named floor file. It adds
   `user only` only for a kind that only you approve, such as a synced write.
 
+### Fixed
+
+- The reviewer writes its reason before its verdict, and efr asks again once when the
+  reason is empty.
+
 ## [0.0.3] - 2026-10-09
 
 ### Added

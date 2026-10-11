@@ -238,3 +238,77 @@ async fn a_claude_model_without_a_cap_is_missing_and_the_turn_model_reviews() {
     assert_eq!(outcome.skipped, ["claude-haiku-5-5: missing"]);
     assert_eq!(bodies(&server, "/v1/messages").await.len(), 1);
 }
+
+/// The raw bodies that the server got on `at`, as text.
+async fn raw_bodies(server: &MockServer, at: &str) -> Vec<String> {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| request.url.path() == at)
+        .map(|request| String::from_utf8(request.body).unwrap())
+        .collect()
+}
+
+/// The byte offsets of the `rationale` and the `verdict` members of the schema in
+/// `body`, and the `required` list of the schema as it is on the wire.
+fn schema_order(body: &str) -> (usize, usize, Value) {
+    let properties = body.find(r#""properties":{"#).unwrap();
+    let rationale = body[properties..].find(r#""rationale":{"#).unwrap();
+    let verdict = body[properties..].find(r#""verdict":{"#).unwrap();
+    let value: Value = serde_json::from_str(body).unwrap();
+    let schema = value
+        .pointer("/text/format/schema")
+        .or_else(|| value.pointer("/output_config/format/schema"))
+        .unwrap();
+    (rationale, verdict, schema["required"].clone())
+}
+
+#[tokio::test]
+async fn the_wire_schema_puts_the_rationale_before_the_verdict() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(streaming(responses_text(ALLOW)))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(streaming(messages_text(ALLOW)))
+        .mount(&server)
+        .await;
+    let clock = TestClock::new();
+    let base = format!("{}/v1", server.uri());
+    let openai = OpenAiProvider::new(
+        ProviderId::new("openai-api").unwrap(),
+        OpenAiConfig::api().with_base_url(&base).unwrap(),
+        http(&clock),
+        key(),
+        clock.shared(),
+        Arc::new(TestRng::new(8)),
+    );
+    let haiku = ModelInfo::new("claude-haiku-5-5")
+        .with_max_output_tokens(64_000)
+        .with_efforts(["low", "medium", "high"], Some("medium"));
+    let anthropic = AnthropicProvider::new(
+        ProviderId::new("anthropic-api").unwrap(),
+        AnthropicConfig::new().with_base_url(&base).unwrap().with_models(vec![haiku]),
+        http(&clock),
+        key(),
+        clock.shared(),
+        Arc::new(TestRng::new(8)),
+    );
+    let record = record();
+    judge(Arc::new(openai), Vendor::OpenAi, &clock).judge(input(&ids(1), &record)).await;
+    judge(Arc::new(anthropic), Vendor::Anthropic, &clock).judge(input(&ids(2), &record)).await;
+
+    let required = json!(["rationale", "category", "risk", "user_authorization", "verdict"]);
+    for at in ["/v1/responses", "/v1/messages"] {
+        let bodies = raw_bodies(&server, at).await;
+        assert_eq!(bodies.len(), 1, "{at}");
+        let (rationale, verdict, listed) = schema_order(&bodies[0]);
+        assert!(rationale < verdict, "{at}: {}", bodies[0]);
+        assert_eq!(listed, required, "{at}");
+    }
+}

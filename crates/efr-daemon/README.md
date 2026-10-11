@@ -515,7 +515,11 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   small model of the provider's company), then the turn's model, then the user. A step
   that is missing, refuses, times out on the daemon's clock or answers outside the
   schema goes to the next step; refused credentials or a used-up quota go to the user
-  at once. A step that refuses the output form goes once more without it. The judge
+  at once. A step that refuses the output form goes once more without it. The schema
+  and the prompt put `rationale` first, so the model writes its reason before its
+  verdict. A rationale that is shorter than 12 characters or a placeholder (`x`, `n/a`,
+  `tbd`) makes the answer unreadable: the classifier model gets the same request once
+  more, and a second such answer goes to the next step. The judge
   returns the model's judgement as it is, with the SHA-256 of the record that the model
   read. What it keeps between exits (`judge/memory.rs`): the allow and deny verdicts of
   each conversation's current turn, the models that a conversation skips, and the
@@ -704,7 +708,8 @@ before a list, a fetch against `wiremock` that goes to the cache, a failed fetch
 prompt that waits for one fetch while there is no list and never with one), the
 providers that efrd builds for each id with their settings, the tool adapter and its answer to who can answer hidden input,
 the judge (its request with no output limit and no cache key, each step of the chain
-and why it goes on, the check of the answer, the resend without the output form, and
+and why it goes on, the check of the answer, the second request after a placeholder
+rationale, the order of the schema on the wire, the resend without the output form, and
 what it keeps: the verdicts of a turn and the skipped models of a conversation),
 presence, the backup store of floor files (links, masks, a missing file, a failed
 copy, an unchanged file and the collector) and the check of cache deletes. The tests

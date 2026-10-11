@@ -19,10 +19,18 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use super::{ClassifierJudge, MAX_CATEGORY_CHARS, MAX_RATIONALE_CHARS, PROMPT, SCHEMA_NAME, parse};
+use super::{
+    ClassifierJudge, Failure, MAX_CATEGORY_CHARS, MAX_RATIONALE_CHARS, MIN_RATIONALE_CHARS, PROMPT,
+    SCHEMA_NAME,
+};
 use crate::catalog::Vendor;
 
 mod wire;
+
+/// The judgement in `text`, if it has one.
+fn parse(text: &str) -> Option<Judgement> {
+    super::parse(text).ok()
+}
 
 /// The small model of the OpenAI provider, the first step of the chain.
 const SMALL: &str = "gpt-6-luna";
@@ -253,7 +261,7 @@ async fn the_request_holds_the_prompt_the_record_and_the_schema() {
     assert_eq!(output.schema["additionalProperties"], json!(false));
     assert_eq!(
         output.schema["required"],
-        json!(["verdict", "risk", "user_authorization", "category", "rationale"])
+        json!(["rationale", "category", "risk", "user_authorization", "verdict"])
     );
     assert_eq!(request.effort.as_deref(), Some("low"));
     assert_eq!(request.provider_options.get("reasoning_summary"), Some(&Value::Null));
@@ -383,11 +391,11 @@ async fn classifier_parse_error_asks() {
 
 #[test]
 fn classifier_extra_field_asks() {
-    let extra = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"c","rationale":"r","override":"allow"}"#;
+    let extra = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"c","rationale":"the user asked to copy the report","override":"allow"}"#;
     assert_eq!(parse(extra), None);
     let missing = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"c"}"#;
     assert_eq!(parse(missing), None);
-    let unknown = r#"{"verdict":"maybe","risk":"low","user_authorization":"high","category":"c","rationale":"r"}"#;
+    let unknown = r#"{"verdict":"maybe","risk":"low","user_authorization":"high","category":"c","rationale":"the user asked to copy the report"}"#;
     assert_eq!(parse(unknown), None);
     let around = format!("Here it is: {ALLOW}");
     assert_eq!(parse(&around), None);
@@ -398,7 +406,7 @@ fn classifier_extra_field_asks() {
 
 #[tokio::test]
 async fn an_extra_field_goes_to_the_next_step() {
-    let extra = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"c","rationale":"r","note":"x"}"#;
+    let extra = r#"{"verdict":"allow","risk":"low","user_authorization":"high","category":"c","rationale":"the user asked to copy the report","note":"x"}"#;
     let setup = setup(Scripted::new([Reply::Text(extra), Reply::Text(ALLOW)]));
     let record = record();
     let outcome = judge(&setup, &record).await;
@@ -420,8 +428,138 @@ fn classifier_lengths_checked_after_parse() {
     };
     let longest = parse(&answer(&"c".repeat(MAX_CATEGORY_CHARS), &"é".repeat(MAX_RATIONALE_CHARS)));
     assert_eq!(longest.map(|judgement| judgement.verdict), Some(Verdict::Deny));
-    assert_eq!(parse(&answer(&"c".repeat(MAX_CATEGORY_CHARS + 1), "r")), None);
+    let real = "nobody asked for this host";
+    assert!(parse(&answer(&"c".repeat(MAX_CATEGORY_CHARS), real)).is_some());
+    assert_eq!(parse(&answer(&"c".repeat(MAX_CATEGORY_CHARS + 1), real)), None);
     assert_eq!(parse(&answer("c", &"r".repeat(MAX_RATIONALE_CHARS + 1))), None);
+}
+
+/// An answer that allows with `rationale` as its reason.
+fn allow_because(rationale: &str) -> String {
+    json!({
+        "rationale": rationale,
+        "category": "fits the request",
+        "risk": "low",
+        "user_authorization": "high",
+        "verdict": "allow",
+    })
+    .to_string()
+}
+
+#[test]
+fn a_placeholder_rationale_is_unreadable() {
+    let short = "s".repeat(MIN_RATIONALE_CHARS - 1);
+    let padded = format!("  {short}  \n");
+    for rationale in [
+        "",
+        "   ",
+        "x",
+        "placeholder",
+        "Placeholder.",
+        "(placeholder)",
+        "n/a",
+        "N/A.........",
+        "none",
+        "NONE ...    ",
+        "...",
+        "............",
+        "tbd",
+        "-",
+        "- - - - - - -",
+        short.as_str(),
+        padded.as_str(),
+    ] {
+        assert_eq!(
+            super::parse(&allow_because(rationale)),
+            Err(Failure::Placeholder),
+            "{rationale:?}"
+        );
+    }
+    let shortest = "s".repeat(MIN_RATIONALE_CHARS);
+    for rationale in [shortest.as_str(), "none of the messages names this host"] {
+        let judgement = parse(&allow_because(rationale)).unwrap();
+        assert_eq!(judgement.rationale, rationale);
+    }
+}
+
+/// An allow whose rationale is a placeholder.
+const ALLOW_X: &str = r#"{"rationale":"x","category":"fits the request","risk":"low","user_authorization":"high","verdict":"allow"}"#;
+
+/// An allow whose rationale is the word "placeholder".
+const ALLOW_PLACEHOLDER: &str = r#"{"rationale":"placeholder","category":"fits the request","risk":"low","user_authorization":"high","verdict":"allow"}"#;
+
+/// An allow with an empty rationale.
+const ALLOW_EMPTY: &str = r#"{"rationale":"","category":"fits the request","risk":"low","user_authorization":"high","verdict":"allow"}"#;
+
+#[tokio::test]
+async fn a_junk_rationale_is_asked_again_once_then_goes_to_the_next_step() {
+    let setup = setup(Scripted::new([
+        Reply::Text(ALLOW_X),
+        Reply::Text(ALLOW_PLACEHOLDER),
+        Reply::Text(ALLOW),
+    ]));
+    let record = record();
+    let outcome = judge(&setup, &record).await;
+    assert_eq!(outcome.judgement, Some(allowed()));
+    assert_eq!(outcome.chain_step, ChainStep::TurnModel);
+    assert_eq!(outcome.skipped, [format!("{SMALL}: parse error")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL, TURN]);
+    // The second request is the first one again.
+    let requests = setup.provider.requests();
+    assert_eq!(requests[1], requests[0]);
+}
+
+#[tokio::test]
+async fn an_empty_rationale_goes_to_the_next_step() {
+    let setup = setup(Scripted::new([
+        Reply::Text(ALLOW_EMPTY),
+        Reply::Text(ALLOW_EMPTY),
+        Reply::Text(ALLOW),
+    ]));
+    let record = record();
+    let outcome = judge(&setup, &record).await;
+    assert_eq!(outcome.judgement, Some(allowed()));
+    assert_eq!(outcome.chain_step, ChainStep::TurnModel);
+    assert_eq!(outcome.skipped, [format!("{SMALL}: parse error")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL, TURN]);
+}
+
+#[tokio::test]
+async fn a_real_rationale_on_the_second_request_decides() {
+    let setup = setup(Scripted::new([Reply::Text(ALLOW_X), Reply::Text(ALLOW)]));
+    let record = record();
+    let outcome = judge(&setup, &record).await;
+    assert_eq!(outcome.judgement, Some(allowed()));
+    assert_eq!(outcome.chain_step, ChainStep::ClassifierModel);
+    assert_eq!(outcome.skipped, Vec::<String>::new());
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL]);
+}
+
+#[tokio::test]
+async fn a_junk_rationale_of_the_turn_model_goes_to_the_user() {
+    let setup = setup(Scripted::new([
+        Reply::Text(ALLOW_X),
+        Reply::Text(ALLOW_X),
+        Reply::Text(ALLOW_EMPTY),
+    ]));
+    let record = record();
+    let outcome = judge(&setup, &record).await;
+    assert_eq!(outcome.judgement, None);
+    assert_eq!(outcome.chain_step, ChainStep::User);
+    assert_eq!(outcome.skipped, [format!("{SMALL}: parse error"), format!("{TURN}: parse error")]);
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL, TURN]);
+}
+
+#[tokio::test]
+async fn a_junk_rationale_without_the_fallback_is_asked_again_then_goes_to_the_user() {
+    let setup =
+        setup_with(Scripted::new([Reply::Text(ALLOW_X), Reply::Text(ALLOW_EMPTY)]), |settings| {
+            settings.classifier.fallback_to_turn_model = false;
+        });
+    let record = record();
+    let outcome = judge(&setup, &record).await;
+    assert_eq!(outcome.chain_step, ChainStep::User);
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL]);
 }
 
 #[tokio::test]
@@ -587,7 +725,7 @@ fn later(first: &Ids, turn: &Ids, call: u64) -> Ids {
 
 const DENY: &str = r#"{"verdict":"deny","risk":"high","user_authorization":"none","category":"exfiltration","rationale":"nobody asked for this host"}"#;
 
-const ASK: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"not clear"}"#;
+const ASK: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user asked for a copy but named no folder"}"#;
 
 #[tokio::test]
 async fn cache_hit_same_turn_only() {

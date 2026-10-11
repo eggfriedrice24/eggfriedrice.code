@@ -19,9 +19,13 @@
 //!
 //! The answer must be exactly one JSON object with the five members of the schema and
 //! no other; efrd checks the lengths after the parse, because the providers take no
-//! length keyword. When a step answers that it does not take the output form, the judge
-//! sends the step once more without it, and leaves the form out for that model for the
-//! daemon's life; the prompt still asks for the JSON.
+//! length keyword. The schema lists `rationale` first, so the model writes its reason
+//! before its verdict. A `rationale` that is shorter than [`MIN_RATIONALE_CHARS`] or a
+//! placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier model
+//! gets the same request once more, and a second such answer goes to the next step. When
+//! a step answers that it does not take the output form, the judge sends the step once
+//! more without it, and leaves the form out for that model for the daemon's life; the
+//! prompt still asks for the JSON.
 //!
 //! What the judge keeps (`memory`): a model that is missing or refuses is skipped for
 //! the rest of the conversation; a timeout or another error is tried again at the next
@@ -74,6 +78,17 @@ pub(crate) const MAX_CATEGORY_CHARS: usize = 40;
 
 /// The most characters of the verdict's `rationale`.
 pub(crate) const MAX_RATIONALE_CHARS: usize = 300;
+
+/// The fewest characters of the verdict's `rationale`, without the spaces around it: a
+/// shorter one names no user message and is a placeholder.
+pub(crate) const MIN_RATIONALE_CHARS: usize = 12;
+
+/// Rationales that say nothing, which a model writes only to fill the member. They are
+/// compared without case and without the spaces and punctuation around them.
+const PLACEHOLDERS: &[&str] = &["x", "placeholder", "n/a", "none", "...", "tbd", "-"];
+
+/// What the schema says of `rationale`, the same words as the prompt.
+const RATIONALE_RULE: &str = "Write the rationale first, then decide. In one or two sentences, name the user message that relates to the action, or say that none does. Never leave it empty and never write a placeholder. At most 300 characters.";
 
 /// The judge of the daemon: one value serves every conversation.
 pub(crate) struct ClassifierJudge {
@@ -129,7 +144,8 @@ impl ClassifierJudge {
     }
 
     /// Runs one step: the request, then once more without the output form when the
-    /// model does not take it.
+    /// model does not take it, and once more when the classifier model wrote a
+    /// placeholder as its rationale.
     async fn run_step(
         &self,
         step: &Step,
@@ -143,6 +159,8 @@ impl ClassifierJudge {
         }
         let effort = effort(settings, info);
         let mut with_format = self.memory.takes_format(&step.model);
+        // NOTE: only the classifier model is asked again, once, before the turn's model.
+        let mut ask_again = step.chain_step == ChainStep::ClassifierModel;
         loop {
             let request = request(&step.model, effort.clone(), record, with_format);
             match self.send(request, settings).await {
@@ -152,6 +170,10 @@ impl ClassifierJudge {
                     with_format = false;
                 }
                 Err(Failure::FormatRefused) => return Err(Failure::Refused),
+                Err(Failure::Placeholder) if ask_again => {
+                    tracing::debug!(model = %step.model, "the classifier model wrote no real rationale; efrd asks it once more");
+                    ask_again = false;
+                }
                 done => return done,
             }
         }
@@ -305,6 +327,10 @@ enum Failure {
     Failed,
     /// The answer was not one JSON object of the schema, or a member was too long.
     Unreadable,
+    /// The answer fits the schema, but its `rationale` is empty, too short or a
+    /// placeholder. It is unreadable too; the classifier model gets one more request
+    /// first.
+    Placeholder,
     /// The provider stopped the answer for its content.
     Filtered,
     /// The provider refused the credentials, or has none: every model fails the same.
@@ -340,7 +366,7 @@ impl Failure {
             Failure::Refused | Failure::FormatRefused => "refused",
             Failure::Timeout => "timeout",
             Failure::Failed => "error",
-            Failure::Unreadable => "parse error",
+            Failure::Unreadable | Failure::Placeholder => "parse error",
             Failure::Filtered => "content filter",
             Failure::Credentials => "credentials refused",
             Failure::Quota => "quota",
@@ -405,23 +431,27 @@ fn request(model: &str, effort: Option<String>, record: &str, with_format: bool)
 
 /// The JSON schema of the verdict (9.4): enums, every member required and no other
 /// member, and no length keyword, which the Messages API does not take.
+///
+/// A model writes the members in the order of the schema, so `rationale` comes first
+/// and the verdict follows from it. serde_json keeps the members of an object in the
+/// order of their names, which also puts `rationale` before `verdict` on the wire.
 pub(crate) fn schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "verdict": {"type": "string", "enum": ["allow", "deny", "ask_user"]},
+            "rationale": {"type": "string", "description": RATIONALE_RULE},
+            "category": {
+                "type": "string",
+                "description": "The category of the risk, at most 40 characters.",
+            },
             "risk": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
             "user_authorization": {
                 "type": "string",
                 "enum": ["none", "low", "medium", "high"],
             },
-            "category": {
-                "type": "string",
-                "description": "The category of the risk, at most 40 characters.",
-            },
-            "rationale": {"type": "string", "description": "Why, in at most 300 characters."},
+            "verdict": {"type": "string", "enum": ["allow", "deny", "ask_user"]},
         },
-        "required": ["verdict", "risk", "user_authorization", "category", "rationale"],
+        "required": ["rationale", "category", "risk", "user_authorization", "verdict"],
         "additionalProperties": false,
     })
 }
@@ -430,11 +460,11 @@ pub(crate) fn schema() -> Value {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Answer {
-    verdict: Verdict,
+    rationale: String,
+    category: String,
     risk: Risk,
     user_authorization: UserAuthorization,
-    category: String,
-    rationale: String,
+    verdict: Verdict,
 }
 
 /// The judgement in a completed answer.
@@ -442,25 +472,42 @@ fn read(completion: &Completion) -> Result<Judgement, Failure> {
     if matches!(completion.stop_reason, StopReason::ContentFilter | StopReason::Refusal) {
         return Err(Failure::Filtered);
     }
-    parse(&completion.message.text()).ok_or(Failure::Unreadable)
+    parse(&completion.message.text())
 }
 
 /// The judgement in `text`, which must be one JSON object of the schema and nothing
-/// else, with a `category` and a `rationale` within their lengths.
-pub(crate) fn parse(text: &str) -> Option<Judgement> {
-    let answer: Answer = serde_json::from_str(text.trim()).ok()?;
+/// else, with a `category` and a `rationale` within their lengths and a `rationale`
+/// that is not a placeholder; else why it has none, [`Failure::Placeholder`] when the
+/// `rationale` is the only fault of the answer.
+fn parse(text: &str) -> Result<Judgement, Failure> {
+    let answer: Answer = serde_json::from_str(text.trim()).map_err(|_| Failure::Unreadable)?;
     if answer.category.chars().count() > MAX_CATEGORY_CHARS
         || answer.rationale.chars().count() > MAX_RATIONALE_CHARS
     {
-        return None;
+        return Err(Failure::Unreadable);
     }
-    Some(Judgement {
+    if is_placeholder(&answer.rationale) {
+        return Err(Failure::Placeholder);
+    }
+    Ok(Judgement {
         verdict: answer.verdict,
         risk: answer.risk,
         user_authorization: answer.user_authorization,
         category: answer.category,
         rationale: answer.rationale,
     })
+}
+
+/// True when `rationale` says nothing: shorter than [`MIN_RATIONALE_CHARS`] without the
+/// spaces around it, only punctuation, or one of [`PLACEHOLDERS`].
+fn is_placeholder(rationale: &str) -> bool {
+    let text = rationale.trim();
+    if text.chars().count() < MIN_RATIONALE_CHARS {
+        return true;
+    }
+    let word =
+        text.trim_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation()).to_lowercase();
+    word.is_empty() || PLACEHOLDERS.contains(&word.as_str())
 }
 
 /// The SHA-256 of `bytes` in lowercase hex.
