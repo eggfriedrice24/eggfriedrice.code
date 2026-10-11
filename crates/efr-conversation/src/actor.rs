@@ -22,7 +22,9 @@
 //!
 //! A manual compaction (`conversation.compact`) runs only while no turn runs, in a task
 //! of its own; a prompt that arrives meanwhile queues behind it, and the compaction
-//! never starts a turn itself.
+//! never starts a turn itself. An undo (`turn.undo`) does the same: it runs only while
+//! no turn, compaction or other undo runs and no call of the conversation still runs
+//! after its tool answered, and it never starts a turn itself.
 //!
 //! Every request that changes the conversation records its event and the command's
 //! receipt in one batch, so a retried command id returns the stored result and nothing
@@ -35,6 +37,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod compact;
+mod undo;
 
 use efr_protocol::{
     ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationCompact,
@@ -64,7 +67,10 @@ use crate::scratch::Scratch;
 use crate::settings;
 use crate::steer::Reservation;
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
-use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart, UndoCandidate};
+use crate::{
+    ConfigSource, ConversationDeps, ConversationError, ConversationStart, UndoBusyReason,
+    UndoCandidate,
+};
 
 /// Requests waiting for the actor; senders wait when it is full.
 const MAILBOX: usize = 64;
@@ -96,6 +102,19 @@ pub struct ConversationActor {
     fresh: Option<Fresh>,
     /// The manual compaction that runs, with the caller that waits for it.
     compacting: Option<Compacting>,
+    /// The undo that runs, with the caller that waits for it.
+    undoing: Option<Undoing>,
+}
+
+/// An undo in its task, and the callers that wait for its answer.
+#[derive(Debug)]
+struct Undoing {
+    task: JoinHandle<Result<TurnUndoResult, ConversationError>>,
+    reply: Reply<TurnUndoResult>,
+    /// The command that started it.
+    command_id: CommandId,
+    /// The retries of the same command that came while it ran.
+    retries: Vec<Reply<TurnUndoResult>>,
 }
 
 /// A manual compaction in its task, and the callers that wait for its answer.
@@ -131,6 +150,8 @@ pub struct ConversationState {
     pub pending_questions: Vec<QuestionId>,
     /// True while a manual compaction runs.
     pub compacting: bool,
+    /// True while an undo runs.
+    pub undoing: bool,
 }
 
 #[derive(Debug)]
@@ -305,6 +326,7 @@ impl ConversationActor {
             cache: HashMap::new(),
             fresh: None,
             compacting: None,
+            undoing: None,
         };
         let span = tracing::info_span!("conversation", conversation_id = %conversation_id);
         tokio::spawn(actor.run().instrument(span));
@@ -314,7 +336,7 @@ impl ConversationActor {
     async fn run(mut self) {
         let mut open = true;
         let mut stopped_reply = None;
-        while open || self.running.is_some() || self.compacting.is_some() {
+        while open || self.busy() {
             tokio::select! {
                 message = self.mailbox.recv(), if open => match message {
                     Some(Message::Request(request)) => self.handle(*request).await,
@@ -326,7 +348,13 @@ impl ConversationActor {
                 },
                 ended = turn_end(&mut self.running) => self.turn_ended(ended).await,
                 ended = compaction_end(&mut self.compacting) => self.compaction_ended(ended),
+                ended = undo_end(&mut self.undoing) => self.undo_ended(ended),
             }
+        }
+        if let Some(undoing) = self.undoing.take() {
+            // NOTE: the toolbox keeps a journal of an apply, so the next undo of the
+            // conversation resumes one that stops here; its caller gets `Stopped`.
+            undoing.task.abort();
         }
         if let Some(compacting) = self.compacting.take() {
             // NOTE: nothing is recorded until the summary is back, so a compaction that
@@ -371,7 +399,7 @@ impl ConversationActor {
             }
             Request::Compact { params, reply } => self.compact(params, reply),
             Request::Undo { params, candidates, origin, reply } => {
-                let _ = reply.send(self.undo(params, candidates, origin));
+                self.undo(params, candidates, origin, reply);
             }
             Request::State { reply } => {
                 let _ = reply.send(self.state());
@@ -391,7 +419,7 @@ impl ConversationActor {
         self.check_conversation(params.conversation_id)?;
         let effective = self.admit(&params.settings, origin)?;
         let turn_id = self.new_turn_id();
-        let queued = self.running.is_some() || self.compacting.is_some() || !self.queue.is_empty();
+        let queued = self.busy() || !self.queue.is_empty();
         let prompt = NewPrompt {
             command_id: params.command_id,
             text: params.text,
@@ -821,24 +849,111 @@ impl ConversationActor {
         Ok(SandboxSurfaceRespondResult { seq: committed.last_seq() })
     }
 
-    /// Starts a manual compaction in a task of its own, or refuses it while a turn or
-    /// another compaction runs. The answer goes to `reply` when the task ends.
-    /// `turn.undo`. This build has no undo yet, so it refuses and records nothing.
+    /// Starts an undo in a task of its own, or refuses it: while a turn, a compaction or
+    /// another undo runs, or a call of the conversation still runs after its tool
+    /// answered (`UndoBusy`), and from a phone. A list only reads, so it runs at any
+    /// time and takes no place. The answer goes to `reply` when the task ends.
     fn undo(
         &mut self,
         params: TurnUndo,
         candidates: Vec<UndoCandidate>,
         origin: Origin,
-    ) -> Result<TurnUndoResult, ConversationError> {
-        tracing::debug!(
-            command_id = %params.command_id,
-            candidates = candidates.len(),
-            ?origin,
-            "turn.undo refused: this build has no undo"
+        reply: Reply<TurnUndoResult>,
+    ) {
+        if let Err(error) = self.check_conversation(params.conversation_id) {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        // NOTE: the daemon refuses a phone before it asks; this is the second lock.
+        if origin == Origin::Phone {
+            let _ = reply.send(Err(ConversationError::UndoRefused(UndoRefused::PhoneOrigin)));
+            return;
+        }
+        if params.list {
+            let job = undo::run(Arc::clone(&self.shared), params, candidates, origin);
+            tokio::spawn(
+                async move {
+                    let _ = reply.send(job.await);
+                }
+                .in_current_span(),
+            );
+            return;
+        }
+        // NOTE: a retry of the running command, as after a dropped connection, waits
+        // for its answer, so the undo applies once.
+        if let Some(undoing) =
+            self.undoing.as_mut().filter(|undoing| undoing.command_id == params.command_id)
+        {
+            undoing.retries.push(reply);
+            return;
+        }
+        if let Some(reason) = self.undo_busy() {
+            let conversation_id = self.conversation_id();
+            let _ = reply.send(Err(ConversationError::UndoBusy { conversation_id, reason }));
+            return;
+        }
+        tracing::info!(
+            dry_run = params.dry_run,
+            redo = params.redo,
+            force = params.force,
+            turn_id = ?params.turn_id,
+            "undo"
         );
-        Err(ConversationError::UndoRefused(UndoRefused::Off))
+        let command_id = params.command_id;
+        let job = undo::run(Arc::clone(&self.shared), params, candidates, origin);
+        let task = tokio::spawn(job.in_current_span());
+        self.undoing = Some(Undoing { task, reply, command_id, retries: Vec::new() });
     }
 
+    /// What keeps an undo from running now, if anything.
+    fn undo_busy(&self) -> Option<UndoBusyReason> {
+        if self.running.is_some() {
+            Some(UndoBusyReason::Turn)
+        } else if self.compacting.is_some() {
+            Some(UndoBusyReason::Compaction)
+        } else if self.undoing.is_some() {
+            Some(UndoBusyReason::Undo)
+        } else if self.shared.deps.toolbox.call_runs(self.conversation_id()) {
+            Some(UndoBusyReason::CallRuns)
+        } else {
+            None
+        }
+    }
+
+    /// Answers the callers of the undo that ended, and starts the prompt that waited
+    /// for it.
+    fn undo_ended(&mut self, ended: Result<Result<TurnUndoResult, ConversationError>, JoinError>) {
+        let Some(undoing) = self.undoing.take() else {
+            return;
+        };
+        let answer = match ended {
+            Ok(answer) => answer,
+            Err(error) => {
+                tracing::error!(error = %error, "the undo's task stopped unexpectedly");
+                Err(ConversationError::TaskPanicked { task: "undo" })
+            }
+        };
+        match &answer {
+            Ok(result) => tracing::info!(applied = result.applied, "the undo ended"),
+            Err(error) => tracing::info!(error = %error, "the undo changed nothing"),
+        }
+        for retry in undoing.retries {
+            let _ = retry.send(match &answer {
+                Ok(result) => Ok(result.clone()),
+                Err(error) => Err(error.again()),
+            });
+        }
+        let _ = undoing.reply.send(answer);
+        self.start_next();
+    }
+
+    /// True while a turn, a manual compaction or an undo runs: a prompt waits.
+    fn busy(&self) -> bool {
+        self.running.is_some() || self.compacting.is_some() || self.undoing.is_some()
+    }
+
+    /// Starts a manual compaction in a task of its own, or refuses it while a turn, an
+    /// undo or another compaction runs. The answer goes to `reply` when the task ends.
     fn compact(&mut self, params: ConversationCompact, reply: Reply<ConversationCompactResult>) {
         if let Err(error) = self.check_conversation(Some(params.conversation_id)) {
             let _ = reply.send(Err(error));
@@ -853,8 +968,8 @@ impl ConversationActor {
             return;
         }
         // NOTE: the actor starts a queued prompt at once when nothing runs, so a queue
-        // that is not empty means a turn or a compaction runs.
-        if self.running.is_some() || self.compacting.is_some() {
+        // that is not empty means a turn, an undo or a compaction runs.
+        if self.busy() {
             let conversation_id = self.conversation_id();
             let _ = reply.send(Err(ConversationError::CompactionBusy { conversation_id }));
             return;
@@ -908,6 +1023,7 @@ impl ConversationActor {
             pending_approvals: self.shared.approvals.parked(),
             pending_questions: self.shared.questions.parked(),
             compacting: self.compacting.is_some(),
+            undoing: self.undoing.is_some(),
         }
     }
 
@@ -943,7 +1059,7 @@ impl ConversationActor {
 
     /// Starts the oldest queued turn when none runs.
     fn start_next(&mut self) {
-        if self.running.is_some() || self.compacting.is_some() {
+        if self.busy() {
             return;
         }
         let Some(spec) = self.queue.pop_front() else {
@@ -1059,6 +1175,16 @@ async fn compaction_end(
     }
 }
 
+/// The end of the running undo; never, when none runs.
+async fn undo_end(
+    undoing: &mut Option<Undoing>,
+) -> Result<Result<TurnUndoResult, ConversationError>, JoinError> {
+    match undoing {
+        Some(undoing) => (&mut undoing.task).await,
+        None => std::future::pending().await,
+    }
+}
+
 /// The end of the running turn; never, when none runs.
 async fn turn_end(running: &mut Option<Running>) -> Result<TurnEnd, JoinError> {
     match running {
@@ -1120,6 +1246,10 @@ pub fn completed_result(method: &str, mut result: Value, seq: Seq) -> Value {
         return result;
     };
     let number = |offset: usize| Value::from(seq.get().saturating_add(offset as u64));
+    // NOTE: a `turn.undo` result reports no sequence number.
+    if method == undo::TURN_UNDO {
+        return result;
+    }
     if method == PROMPT_WITHDRAW {
         if let Some(Value::Object(withdrawn)) = members.get_mut(WITHDRAWN) {
             withdrawn.insert("seq".to_owned(), number(0));
@@ -1252,8 +1382,9 @@ impl ConversationHandle {
     /// Takes back the file and ref changes of one turn of `candidates` (the ended turns
     /// of the conversation, newest first), or with `dry_run` only says what it would do.
     /// While a turn, a compaction, another undo or a call that outlived its turn runs,
-    /// it is refused with `UndoBusy`; when nothing can change, with `UndoRefused`. This
-    /// build has no undo yet, so it always refuses with [`UndoRefused::Off`].
+    /// it is refused with `UndoBusy`; when nothing can change, with `UndoRefused`. An
+    /// applied undo records `undo_applied` with the command's receipt; a dry run and a
+    /// list record nothing. A prompt that arrives meanwhile queues behind it.
     pub async fn undo(
         &self,
         params: TurnUndo,

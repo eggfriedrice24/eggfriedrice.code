@@ -21,6 +21,7 @@ use crate::{ConversationError, ConversationStart};
 
 mod compact;
 mod turn_input;
+mod undo;
 
 #[tokio::test]
 async fn a_second_prompt_queues_behind_the_running_turn() {

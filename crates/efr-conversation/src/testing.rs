@@ -120,9 +120,17 @@ pub(crate) struct FakeToolbox {
     /// Every list of paths that `delete_cache_paths` deleted, in order. Each path frees
     /// 1000 bytes.
     pub(crate) deleted: Mutex<Vec<Vec<PathBuf>>>,
-    /// Every request that `undo` got, in order. It refuses each one with `off`, as the
-    /// default does.
+    /// Every request that `undo` got, in order.
     pub(crate) undos: Mutex<Vec<UndoRequest>>,
+    /// What `undo` answers: this result with the request's conversation and undo id,
+    /// `applied` only for a request that is no dry run and no list. `None` refuses
+    /// each request with `off`, as the default does.
+    pub(crate) undo_result: Mutex<Option<TurnUndoResult>>,
+    /// When set, `undo` signals [`undo_reached`](Self::undo_reached) and waits for
+    /// [`undo_released`](Self::undo_released).
+    pub(crate) hold_undo: AtomicBool,
+    pub(crate) undo_reached: Notify,
+    pub(crate) undo_released: Notify,
     /// What `call_runs` answers.
     pub(crate) call_runs: AtomicBool,
 }
@@ -457,8 +465,18 @@ impl Toolbox for FakeToolbox {
     }
 
     async fn undo(&self, request: UndoRequest) -> Result<TurnUndoResult, UndoRefused> {
-        self.undos.lock().unwrap_or_else(PoisonError::into_inner).push(request);
-        Err(UndoRefused::Off)
+        self.undos.lock().unwrap_or_else(PoisonError::into_inner).push(request.clone());
+        if self.hold_undo.load(Ordering::SeqCst) {
+            self.undo_reached.notify_one();
+            self.undo_released.notified().await;
+        }
+        let answer = self.undo_result.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let mut result = answer.ok_or(UndoRefused::Off)?;
+        let applies = !request.params.dry_run && !request.params.list;
+        result.conversation_id = request.conversation_id;
+        result.applied = applies;
+        result.undo_id = applies.then_some(request.undo_id);
+        Ok(result)
     }
 
     fn call_runs(&self, _conversation_id: ConversationId) -> bool {
