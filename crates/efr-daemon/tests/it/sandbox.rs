@@ -47,20 +47,36 @@ fn ready() -> SandboxStatus {
     }
 }
 
-/// A model that calls `shell` with each input in turn, then says `done`.
+/// The reviewer's answer that hands every exit to the user.
+const REVIEWER_ASKS: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user decides"}"#;
+
+/// A model that calls a tool with each input in turn, then says `done`. A request of
+/// the reviewer (a one-shot request) gets `verdict` and does not count as a turn's
+/// call.
 #[derive(Debug)]
 struct ScriptedModel {
     id: ProviderId,
-    calls: Vec<Value>,
+    calls: Vec<(String, Value)>,
+    verdict: &'static str,
     asked: AtomicUsize,
+    reviews: AtomicUsize,
 }
 
 impl ScriptedModel {
+    /// Calls `shell` with each input; the reviewer hands each exit to the user.
     fn new(calls: Vec<Value>) -> Arc<Self> {
+        let calls = calls.into_iter().map(|input| ("shell", input)).collect();
+        Self::reviewed(calls, REVIEWER_ASKS)
+    }
+
+    /// Calls each tool with its input; the reviewer answers `verdict`.
+    fn reviewed(calls: Vec<(&str, Value)>, verdict: &'static str) -> Arc<Self> {
         Arc::new(ScriptedModel {
             id: ProviderId::new("test").unwrap(),
-            calls,
+            calls: calls.into_iter().map(|(name, input)| (name.to_owned(), input)).collect(),
+            verdict,
             asked: AtomicUsize::new(0),
+            reviews: AtomicUsize::new(0),
         })
     }
 }
@@ -71,15 +87,23 @@ impl Provider for ScriptedModel {
         &self.id
     }
 
-    async fn stream(&self, _request: Request) -> Result<ProviderStream, ProviderError> {
+    async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        if request.one_shot {
+            self.reviews.fetch_add(1, Ordering::SeqCst);
+            let events = vec![
+                ProviderEvent::TextDelta { text: self.verdict.to_owned() },
+                ProviderEvent::Done { stop_reason: StopReason::EndTurn, provider_raw: None },
+            ];
+            return Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))));
+        }
         let n = self.asked.fetch_add(1, Ordering::SeqCst);
         let events = match self.calls.get(n) {
-            Some(input) => {
+            Some((name, input)) => {
                 let call_id = format!("call_{n}");
                 vec![
                     ProviderEvent::ToolCallStart {
                         call_id: call_id.clone(),
-                        name: "shell".to_owned(),
+                        name: name.clone(),
                         freeform: false,
                     },
                     ProviderEvent::ToolCallEnd { call_id, arguments: input.to_string() },
@@ -505,7 +529,11 @@ async fn shell_a_predicted_exit_asks_and_a_yes_runs_with_its_grant() {
     let (_, events) = run_turn(&daemon, "write it", Mode::Auto, ApprovalDecision::Allow).await;
     let kinds = kinds(&events);
     let asked = kinds.iter().position(|kind| *kind == "approval_requested").unwrap();
-    assert_eq!(kinds[asked - 1], "exit_requested", "{kinds:?}");
+    let requested = kinds.iter().position(|kind| *kind == "exit_requested").unwrap();
+    // The reviewer judged the write first and handed it to the user.
+    assert!(requested < asked, "{kinds:?}");
+    assert_eq!(kinds[asked - 1], "exit_judged", "{kinds:?}");
+    assert_eq!(kinds.iter().filter(|kind| **kind == "exit_requested").count(), 1, "{kinds:?}");
     let notes = dirs.home().join("notes.txt");
     let [spec] = specs(&fake).try_into().unwrap();
     assert_eq!(spec.grants, [Grant::Write { path: notes.clone() }]);
