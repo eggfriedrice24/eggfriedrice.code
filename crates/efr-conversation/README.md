@@ -461,7 +461,11 @@ The design:
    after the results of the calls that it closed, and counts it in the context; a
    rebuild adds it from the turn's status. The text depends only on the status, so
    each later request sends the same bytes. A turn saved before the marker keeps its
-   bytes. A steer that an interrupt sends again as a prompt follows the marker.
+   bytes. A turn that only a rebuild serves, such as one that ran when efr stopped,
+   gets the marker also when it ended before the marker existed. So the first request
+   of such a conversation after the update misses the prompt cache once; we accept
+   this, because without the marker the model can answer that turn's prompt. A steer
+   that an interrupt sends again as a prompt follows the marker.
 
 ## Context
 

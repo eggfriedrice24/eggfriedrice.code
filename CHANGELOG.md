@@ -119,7 +119,9 @@ into the GitHub release notes, and it stops when the section is missing.
   in the terminal of this prompt". An X server that needs an X cookie is refused for
   now, also when only your terminal has `$XAUTHORITY`.
 - After you say no, the model does not ask again for the same action in that turn.
-- The model no longer answers a prompt that you cancelled.
+- The model no longer answers a prompt that you cancelled. This also holds for a turn
+  that efr stopped before this version. The first request of such a conversation
+  then misses the prompt cache once.
 
 ## [0.0.3] - 2026-10-09
 
