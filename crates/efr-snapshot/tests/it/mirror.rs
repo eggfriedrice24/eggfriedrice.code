@@ -88,7 +88,11 @@ async fn snapshot_mirror_skipped_above_mirror_max_mib() {
     let home = world.home();
     let dir = project(&world, "big").await;
     let small = Limits { mirror_max_bytes: 1, ..limits() };
-    world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], small).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![git_root(&dir)], small)
+        .await
+        .discard();
     let end = world.snapshots.turn_end(turn(1), small).await;
     let store = world.only_store();
     assert_eq!(mirrored(&store, &home, 1).await, Vec::<String>::new());
@@ -96,7 +100,11 @@ async fn snapshot_mirror_skipped_above_mirror_max_mib() {
     assert!(end.kept, "the files are still covered");
 
     let off = Limits { mirror_max_bytes: 0, ..limits() };
-    world.snapshots.before_call(conversation(1), turn(2), vec![git_root(&dir)], off).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(2), vec![git_root(&dir)], off)
+        .await
+        .discard();
     let end = world.snapshots.turn_end(turn(2), off).await;
     assert_eq!(end.not_covered, not_covered(&dir, "snapshot.mirror_max_mib is 0"));
 }
@@ -117,7 +125,11 @@ async fn mirror_over_turn_budget_is_dropped() {
     std::os::unix::fs::symlink(&elsewhere, dir.join(".git/objects")).unwrap();
 
     let budget = Limits { mirror_max_bytes: 4096, max_file_bytes: 1024 * 1024, ..limits() };
-    world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], budget).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![git_root(&dir)], budget)
+        .await
+        .discard();
     let end = world.snapshots.turn_end(turn(1), budget).await;
     assert_eq!(mirrored(&world.only_store(), &home, 1).await, Vec::<String>::new());
     assert_eq!(end.not_covered, not_covered(&dir, "mirror over budget"));
@@ -136,7 +148,7 @@ async fn snapshot_mirror_of_a_linked_work_tree() {
         GitDirs { git_dir: main.join(".git/worktrees/linked"), common_dir: main.join(".git") };
     let root = Root::new(&linked, "").with_git(Some(dirs));
 
-    world.snapshots.before_call(conversation(1), turn(1), vec![root], limits()).await;
+    world.snapshots.before_call(conversation(1), turn(1), vec![root], limits()).await.discard();
     let end = world.snapshots.turn_end(turn(1), limits()).await;
     assert_eq!(end.not_covered, Vec::new());
     let store = world.only_store();
@@ -161,7 +173,8 @@ async fn mirror_refuses_a_planted_git_file() {
     world
         .snapshots
         .before_call(conversation(1), turn(1), vec![Root::new(&dir, "")], limits())
-        .await;
+        .await
+        .discard();
     let end = world.snapshots.turn_end(turn(1), limits()).await;
     assert_eq!(end.not_covered, not_covered(&dir, "the git dir is not trusted"));
     let store = world.only_store();
@@ -182,7 +195,11 @@ async fn mirror_refuses_alternates() {
     let shared = fs::canonicalize(shared).unwrap();
     assert!(shared.join(".git/objects/info/alternates").exists());
 
-    world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&shared)], limits()).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![git_root(&shared)], limits())
+        .await
+        .discard();
     let end = world.snapshots.turn_end(turn(1), limits()).await;
     assert_eq!(end.not_covered, not_covered(&shared, "alternates"));
     assert_eq!(mirrored(&world.only_store(), &home, 1).await, Vec::<String>::new());
@@ -201,7 +218,11 @@ async fn snapshot_mirror_skipped_for_a_shallow_clone() {
         .await;
     let shallow = fs::canonicalize(shallow).unwrap();
 
-    world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&shallow)], limits()).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![git_root(&shallow)], limits())
+        .await
+        .discard();
     let end = world.snapshots.turn_end(turn(1), limits()).await;
     assert_eq!(end.not_covered, not_covered(&shallow, "shallow"));
 }

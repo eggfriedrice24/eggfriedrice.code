@@ -45,7 +45,11 @@ async fn a_store_without_a_snapshot_for_too_long_is_deleted() {
     let world = World::new();
     let dir = world.dir("p");
     write(&dir.join("a.txt"), "0\n");
-    world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![root(&dir)], limits())
+        .await
+        .discard();
     world.snapshots.finish_turn(turn(1), limits()).await;
     assert_eq!(stores(&world.store_dir()).len(), 1);
 
@@ -162,7 +166,11 @@ async fn gc_never_deletes_home_store_without_root_file() {
     let dir = world.dir("p");
     write(&dir.join("a.txt"), "0\n");
     let home_git = home_store(&world).await;
-    world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![root(&dir)], limits())
+        .await
+        .discard();
     world.snapshots.finish_turn(turn(1), limits()).await;
     world.clock.advance(KEEP_LONG + Duration::from_secs(1));
     let report = world.snapshots.gc(50, KEEP_LONG).await;
@@ -214,7 +222,7 @@ async fn gc_drops_the_mirror_with_its_turn() {
     let dir = project(&world, "p").await;
     for n in 1..=2 {
         let roots = vec![git_root(&dir)];
-        world.snapshots.before_call(conversation(1), turn(n), roots, limits()).await;
+        world.snapshots.before_call(conversation(1), turn(n), roots, limits()).await.discard();
         world.snapshots.finish_turn(turn(n), limits()).await;
     }
     let report = world.snapshots.gc(1, KEEP_LONG).await;
@@ -354,7 +362,11 @@ async fn gc_caps_mirror_refs_of_a_store() {
     git(&dir, &home, &[], &["branch", "-q", "-D", "old"]).await;
     world.snapshots.after_call(call, limits()).await;
     world.snapshots.finish_turn(turn(1), limits()).await;
-    world.snapshots.before_call(conversation(1), turn(2), vec![git_root(&dir)], limits()).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(2), vec![git_root(&dir)], limits())
+        .await
+        .discard();
     world.snapshots.finish_turn(turn(2), limits()).await;
     let store = world.only_store();
     let mirrors = |all: Vec<String>, n: u128| -> usize {
@@ -421,7 +433,11 @@ async fn gc_keeps_the_home_copy_of_an_undo_with_its_turn() {
 
     let dir = world.dir("p");
     write(&dir.join("a.txt"), "a\n");
-    world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
+    world
+        .snapshots
+        .before_call(conversation(1), turn(2), vec![root(&dir)], limits())
+        .await
+        .discard();
     world.snapshots.finish_turn(turn(2), limits()).await;
     world.snapshots.gc(2, KEEP_LONG).await;
     assert!(refs(&home_git, &home).await.contains(&copy_ref), "the turn stays, so its undo does");

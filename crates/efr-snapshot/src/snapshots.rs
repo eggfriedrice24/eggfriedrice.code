@@ -102,16 +102,61 @@ impl Root {
 
 /// The snapshots before one call, which [`Snapshots::after_call`] compares with the
 /// snapshots after it.
-#[derive(Debug, Clone, Default)]
+///
+/// A call snapshot that is dropped without [`Snapshots::after_call`], such as the one
+/// of a call that the user interrupted, marks each of its roots as not complete for the
+/// turn: the call may have changed paths that the turn's record lacks, so undo acts on
+/// them only with `force`, and the end of the turn names the root.
+#[derive(Debug, Default)]
 pub struct CallSnapshot {
     turn: Option<TurnId>,
     before: Vec<(Root, String, Pin)>,
+    /// The store that the drop marks; `None` once the snapshot after the call ran.
+    owner: Option<Snapshots>,
+    /// True when the call's command may still write after the snapshot after it.
+    runs_on: bool,
 }
 
 impl CallSnapshot {
     /// True when no root was snapshotted.
     pub fn is_empty(&self) -> bool {
         self.before.is_empty()
+    }
+
+    /// Says that the call's command can still run after its tool answered, such as one
+    /// that ran past its timeout: [`Snapshots::after_call`] then marks the roots as not
+    /// complete for the turn, since a later write would be missing from the record.
+    #[must_use]
+    pub fn runs_on(mut self, runs_on: bool) -> Self {
+        self.runs_on |= runs_on;
+        self
+    }
+
+    /// Drops the snapshot of a call that did not run: its roots stay complete.
+    pub fn discard(mut self) {
+        self.owner = None;
+    }
+
+    /// Marks each root of the snapshot as not complete for its turn.
+    fn mark_unfinished(&self, owner: &Snapshots) {
+        let Some(turn) = self.turn else { return };
+        for (root, _, _) in &self.before {
+            owner.mark_failed(turn, root.path());
+        }
+    }
+}
+
+impl Drop for CallSnapshot {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.take()
+            && !self.before.is_empty()
+        {
+            tracing::info!(
+                roots = self.before.len(),
+                "a call ended without its snapshot after it; its roots need --force to undo"
+            );
+            self.mark_unfinished(&owner);
+        }
     }
 }
 
@@ -215,7 +260,12 @@ impl Snapshots {
             Some((root, snap.tree, pin))
         }))
         .await;
-        CallSnapshot { turn: Some(turn), before: taken.into_iter().flatten().collect() }
+        CallSnapshot {
+            turn: Some(turn),
+            before: taken.into_iter().flatten().collect(),
+            owner: Some(self.clone()),
+            runs_on: false,
+        }
     }
 
     /// Snapshots the roots of `call` again after the call and lists what changed.
@@ -223,9 +273,16 @@ impl Snapshots {
     /// changed join the turn's `touched` paths of the root, and
     /// `refs/efr/<conversation>/<turn>/last` moves to the new tree.
     pub async fn after_call(&self, call: CallSnapshot, limits: Limits) -> Option<FileChanges> {
+        let mut call = call;
+        call.owner = None;
+        // NOTE: marked first, so the `last` ref that this snapshot moves says so too.
+        if call.runs_on {
+            call.mark_unfinished(self);
+        }
         let turn = call.turn;
-        let compared = futures::future::join_all(call.before.into_iter().map(
-            |(root, before, pin)| async move {
+        let before = std::mem::take(&mut call.before);
+        let compared =
+            futures::future::join_all(before.into_iter().map(|(root, before, pin)| async move {
                 let kept = turn.is_some_and(|turn| self.keeps(turn, root.path()));
                 let compared = self.changes_since(root.path(), &before, &limits, kept).await;
                 drop(pin);
@@ -239,9 +296,8 @@ impl Snapshots {
                     self.touch(turn, root.path(), &changes, &tree).await;
                 }
                 Some(Shown { root: root.path().to_path_buf(), shown: root.shown, changes })
-            },
-        ))
-        .await;
+            }))
+            .await;
         changes::merge(compared.into_iter().flatten().collect())
     }
 

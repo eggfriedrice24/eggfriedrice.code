@@ -80,7 +80,7 @@ async fn a_scratch_turn_diff_shows_the_scratch_prefix() {
     let world = World::new();
     let scratch = world.dir("scratch");
     let roots = vec![efr_snapshot::Root::new(&scratch, "$SCRATCH/")];
-    world.snapshots.before_call(conversation(1), turn(1), roots, limits()).await;
+    world.snapshots.before_call(conversation(1), turn(1), roots, limits()).await.discard();
     write(&scratch.join("plot.py"), "print(1)\n");
     world.snapshots.finish_turn(turn(1), limits()).await.unwrap();
     let diff = world.snapshots.turn_diff(conversation(1), None, true, 100).await.unwrap().unwrap();

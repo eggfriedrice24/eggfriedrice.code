@@ -9,8 +9,8 @@ use std::path::Path;
 
 use efr_protocol::UndoReason;
 use efr_snapshot::{
-    Expect, LeftOutReason, PlanAction, PlanEntry, RootPlan, Snapshots, UndoPlan, blob_id,
-    stack_blocker,
+    Expect, LeftOutReason, NOT_COVERED_FAILED, PlanAction, PlanEntry, RootPlan, Snapshots,
+    UndoPlan, blob_id, stack_blocker,
 };
 use pretty_assertions::assert_eq;
 
@@ -417,6 +417,59 @@ async fn undo_without_post_acts_on_touched_paths_only() {
     restarted.finish_undo(&plan, limits()).await.unwrap();
     assert_eq!(read(&dir.join("a.txt")), "a\n");
     assert_eq!(read(&dir.join("mine.txt")), "the user's, after the call\n");
+}
+
+#[tokio::test]
+async fn interrupted_call_marks_its_root_and_force_undoes_it() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "old\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "by the call\n");
+    // The user interrupts the call: the toolbox drops it before its snapshot after.
+    drop(call);
+    let end = world.snapshots.turn_end(turn(1), limits()).await;
+    assert!(end.not_covered.iter().any(|(_, reason)| reason == NOT_COVERED_FAILED), "{end:?}");
+
+    let plain = plan(&world, 1, false, 1).await;
+    assert_eq!(entry(&plain, "a.txt").action, PlanAction::Skip(UndoReason::SnapshotFailed));
+    let forced = plan(&world, 1, true, 1).await;
+    assert_eq!(entry(&forced, "a.txt").forced, Some(UndoReason::SnapshotFailed));
+    apply(&world, &forced).await;
+    assert_eq!(read(&dir.join("a.txt")), "old\n");
+}
+
+#[tokio::test]
+async fn call_that_runs_on_marks_its_root_and_keeps_its_own_paths() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "old\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "by the call\n");
+    world.snapshots.after_call(call.runs_on(true), limits()).await;
+    // The command goes on after its tool answered at the timeout.
+    write(&dir.join("late.txt"), "late\n");
+    world.snapshots.turn_end(turn(1), limits()).await;
+
+    let plain = plan(&world, 1, false, 1).await;
+    assert!(entry(&plain, "a.txt").acts(), "{plain:#?}");
+    assert_eq!(entry(&plain, "late.txt").action, PlanAction::Skip(UndoReason::SnapshotFailed));
+    let forced = plan(&world, 1, true, 1).await;
+    assert_eq!(entry(&forced, "late.txt").action, PlanAction::Delete);
+}
+
+#[tokio::test]
+async fn discarded_call_snapshot_keeps_its_root_complete() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "old\n");
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    call.discard();
+    let end = world.snapshots.turn_end(turn(1), limits()).await;
+    assert!(end.not_covered.is_empty() && end.kept, "{end:?}");
 }
 
 #[tokio::test]

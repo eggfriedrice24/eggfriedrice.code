@@ -659,7 +659,9 @@ impl DaemonToolbox {
         // the snapshot reads them.
         let snapshot = self.snapshot_before(&call.context, &prepared.projects).await;
         if let Some(stop) = self.check_covered(&call.context, &prepared.projects).await {
-            drop(snapshot);
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
             remove_call_dir(prepared.run.dir.clone()).await;
             return ToolOutcome::error(stop);
         }
@@ -688,6 +690,11 @@ impl DaemonToolbox {
         let watch = Stopwatch::start();
         let result = lock::run_holding(prepared.guard, &started, &*self.clock, invoke).await;
         tracing::debug!(phase = "sandboxed_run", elapsed_ms = %watch, "phase=sandboxed_run elapsed_ms={}", watch);
+        // NOTE: a launcher that wrote no result still runs (a call that answered at its
+        // timeout) or was lost, so its command can write after the snapshot below; the
+        // turn's record of its roots is then not complete (plan PB39).
+        let ended =
+            matches!(&result, Ok(result) if result.sandbox.is_some() || result.sandbox_failed);
         let mut outcome = match result {
             Ok(result) => {
                 if result.sandbox_failed {
@@ -720,6 +727,7 @@ impl DaemonToolbox {
             }
             Err(error) => ToolOutcome::error(for_model(&error)),
         };
+        let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(!ended), limits));
         outcome.changes = self.snapshot_after(snapshot).await;
         if !notes.is_empty() {
             outcome.output = format!("{}\n{}", outcome.output, notes.join("\n"));
@@ -782,6 +790,17 @@ impl DaemonToolbox {
                 Err(error) => ToolOutcome::error(for_model(&error)),
             };
         if shell {
+            // NOTE: a command still running in the hidden shell past its timeout can
+            // write after the snapshot below.
+            let busy = match snapshot {
+                Some(_) => self
+                    .shells
+                    .state(call_context.conversation_id)
+                    .await
+                    .is_ok_and(|state| state.is_busy()),
+                None => false,
+            };
+            let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(busy), limits));
             outcome.changes = self.snapshot_after(snapshot).await;
         }
         outcome
