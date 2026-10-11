@@ -63,9 +63,7 @@ Modules:
   for the `auto` mode, with each declared link and the real path it reaches, whose
   write takes the names of the link, and from phase B the answer to each `CoverAsk`
   of `FactRequest::covers` in `covered`: a `Coverage`, which `CallFacts::coverage`
-  reads as `Unknown`, never covered, when no fact says; `ExitNeed` gains `copies`,
-  what efrd copies into its home store before the call, and `covered`. The types
-  come first; the engine reads none of them yet) and `ConversationPolicy` (the
+  reads as `Unknown`, never covered, when no fact says) and `ConversationPolicy` (the
   conversation's `$SCRATCH` and its own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
   crates apart, so the daemon's toolbox copies one into the other.
 - `command`: `analyze` splits a command line into simple commands on `;`, `&&`, `||`,
@@ -115,8 +113,11 @@ Modules:
   lists in `deciding` the words of each simple command that got the line's effect, in
   the order of the line, so an approval can name them.
 - `engine`: `Engine::decide` and `effective_mode`; `Engine::with_support` sets what the
-  machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo, the
-  backup store of floor files, the mount view).
+  machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo with
+  `sandbox.ask_destructive = "unless_undoable"`, the home store that copies each home
+  write, the mount view). With `undo`, a delete or a move of a file tool in `auto`
+  asks no question when each path that it writes is covered: by the turn's snapshot
+  in the turn's project and `$SCRATCH`, by the home store elsewhere.
   `Engine::path_facts` tells where a path stands for a call in `auto` (`PathFacts`: its
   class, whether it lies in a write root, on a floor or in a synced folder, and what
   can make it again, `Rebuild`: a cache, the build output of a registered project or
@@ -129,10 +130,22 @@ Modules:
   need, the model's `needs` and the daemon's `CallFacts`; each `ExitNeed` has a kind,
   the grants a "yes" opens, the bind of a write (`WriteBind`), its `Approver` (the
   classifier, the classifier when a user message names the exit, or only the user),
-  the `names` that name it, whether efrd copies its target first
-  (`backup_before_write`), the same file below a dotfile link for a floor edit of the
-  real file behind it (`link`, which names the backup) and the `Ecosystem` of a package manager's fetch
-  (`REGISTRY_HOSTS`). The engine never reads user text: `names_match` is the one
+  the `names` that name it, what efrd copies into its home store first (`copies`: a
+  `Home` file, or a `HomeDir` with what it holds for a dir target, an `above_root`
+  write and the parent that a `Parent` bind opens; `backup_before_write` when it
+  copies anything, and `covered` when the facts say that every copy is covered), the
+  same file below a dotfile link for a floor edit of the real file behind it (`link`,
+  which names the copy) and the `Ecosystem` of a package manager's fetch
+  (`REGISTRY_HOSTS`). A destructive part of a line has no exit when the machine has
+  undo and every `CoverAsk` of the part is covered (the module `exits/cover.rs`): each
+  path at or below a target for `rm -r`, `dd of=`, `truncate`, `: >` and
+  `find -delete`, strictly below the turn's project, `$SCRATCH` or a registered
+  project and never in a git dir or on a floor; the tracked files and the refs of the
+  repository for `git reset --hard`, `checkout`, `switch`; the tracked files for
+  `restore`; the untracked files for `clean -f`; the refs for `branch -D`; the one
+  stash entry for `stash drop` and `clear`. `shred`, `git clean -x` and `-X`,
+  `git reflog` and `git gc --prune` ask nothing, so they are never covered. Every other
+  exit of the line keeps its route. The engine never reads user text: `names_match` is the one
   check of the user's messages, for the turn's route and the exit record alike. Path
   forms match as text, only as whole path components; word forms and the phrases of
   `NAME_PHRASES` match whole words, a stem of `GENERIC_STEMS` names nothing alone, and
@@ -149,7 +162,10 @@ Modules:
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
   runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`
   directories and program words of a line its `CallFacts` must describe, from the same
-  lenient split. Its `builtins` are the program words that the shell runs itself in
+  lenient split, and which coverage asks it must answer (`covers`): the asks of each
+  destructive part and the home store asks of each path that the line writes
+  (`FactRequest::with_writes` adds the declared write paths). `tool_fact_requests`
+  does the same for a file tool, from its declared paths. Its `builtins` are the program words that the shell runs itself in
   every place of the line, a zsh builtin or reserved word such as `:`, `cd` or
   `printf` (a fixed list, `exits/programs.rs`); behind `env`, `sudo`, `command`,
   `exec` or `find -exec` only a file runs.
@@ -183,11 +199,12 @@ proptest property:
   remote origin runs with at most `cautious` and asks outside `$SCRATCH`, secrets stay
   denied unless a user rule names them, a conversation's rules only tighten, and no
   tool writes a write-sealed root.
-- A delete or a move of a file (`Requirements::destructive`) asks in every mode,
-  also in `auto`, from every origin and also when every rule allows everything, on
-  its own reason (`Subject::Destructive`, `Cause::Destructive`), until undo can bring
-  the file back. Its paths are judged as writes on their own reasons, so a denied path
-  stays denied (`src/engine/tests/destructive.rs`).
+- A delete or a move of a file (`Requirements::destructive`) asks in every mode, from
+  every origin and also when every rule allows everything, on its own reason
+  (`Subject::Destructive`, `Cause::Destructive`). The one exception is a turn in `auto`
+  on a machine with undo, when the facts say that `efr undo` can bring back every path
+  that the call writes. Its paths are judged as writes on their own reasons, so a
+  denied path stays denied (`src/engine/tests/destructive.rs`).
 - A change of efr's settings (the settings tool) asks in every mode, also in `auto`
   and also when every rule allows everything; no rule is read for it. A turn from a
   remote origin is denied it. `Engine::names_secrets` says whether a rule's resource
@@ -205,14 +222,20 @@ proptest property:
   the turn's project and `$SCRATCH` (its path reason is then `Contain` with
   `Cause::ExitDecides`, so a lost exit still asks). `tests/it/corpus.rs` runs the 110
   lines of the command corpus (`tests/fixtures/auto-corpus.toml`) and checks the phase
-  A result of each (`pa`); the `p1` column keeps the phase 1 result.
+  A result of each (`pa`) and, on a machine with undo and the daemon's coverage
+  answers of the row, the phase B result (`pb`); the `p1` column keeps the phase 1
+  result. A phase B result differs only where the snapshot covers a destructive line,
+  which becomes routine.
 - Every exit starts with the approver of its kind (`ExitKind::user_only`), and only
   the places of spec 9.1 relax it: every `write` goes to the classifier, also one that
   runs in the exit child; an `upload`, an `above_root` path that holds no second
   project, floor, efr path or secret, and a floor file edit go to it only when a user
   message names them; a floor file edit only while `AutoSupport::floor_backup` holds, a
   fact says that the target is a file or a new file in an existing dir, and the line
-  makes no link and touches no `*.wants` dir. An `outside` exit asks the user when a
+  makes no link and touches no `*.wants` dir. On a machine with undo, a `destructive`
+  exit goes away when the snapshot covers every target of its part (spec 10.7,
+  `src/engine/tests/coverage.rs`), never for `shred`, a target at or above a root, in a
+  git dir, on a floor or in a `sandbox.write_roots` entry. An `outside` exit asks the user when a
   fact about a program word is missing, a program word changed in the turn or lies
   in a real write root (not the private tmp or a cache), or the line runs an
   interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script). A `destructive` exit goes to
