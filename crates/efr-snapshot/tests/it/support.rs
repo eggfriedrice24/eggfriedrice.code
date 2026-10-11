@@ -209,6 +209,33 @@ pub(crate) async fn index_blobs(git_dir: &Path, home: &Path) -> BTreeMap<String,
         .collect()
 }
 
+/// The `efr-meta:` line of the commit `rev` in the store at `git_dir`.
+pub(crate) async fn meta_of(git_dir: &Path, home: &Path, rev: &str) -> serde_json::Value {
+    let text = git(home, home, &[("GIT_DIR", git_dir)], &["cat-file", "commit", rev]).await;
+    let line = text.lines().find_map(|line| line.strip_prefix("efr-meta: ")).unwrap();
+    serde_json::from_str(line).unwrap()
+}
+
+/// The `(path, reason)` pairs of the `left_out` record of `meta`.
+pub(crate) fn left_out(meta: &serde_json::Value) -> Vec<(String, String)> {
+    meta["left_out"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().unwrap().to_owned(),
+                entry["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// The ref `refs/efr/<conversation 1>/<turn n>/<name>`.
+pub(crate) fn turn_ref(n: u128, name: &str) -> String {
+    format!("refs/efr/{}/{}/{name}", conversation(1), turn(n))
+}
+
 /// Every file below `dir` with its bytes, for a comparison before and after.
 pub(crate) fn all_bytes(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut found = BTreeMap::new();

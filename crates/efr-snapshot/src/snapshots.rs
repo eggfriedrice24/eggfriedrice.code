@@ -1,9 +1,8 @@
 //! [`Snapshots`]: the store of every root, the snapshots of each call and turn, and the
 //! refs of each turn.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -12,19 +11,19 @@ use efr_scope::{Git, Home};
 use efr_stdx::time::{Clock, Stopwatch};
 
 use crate::SnapshotError;
-use crate::capture::{self, Limits, Reported, Staged};
+use crate::capture::{self, LeftOut, Limits, Reported, Staged};
 use crate::changes::{self, RootChange, Shown};
+use crate::meta::Meta;
 use crate::runner::{Run, Runner};
 use crate::store::{self, Store};
+
+mod slot;
+
+pub(crate) use slot::{Pin, Slot};
 
 /// How long one git run of a snapshot may take. The first snapshot of a large root
 /// hashes every file.
 pub const DEFAULT_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// How long a root that a snapshot skipped (too many files) stays skipped before the
-/// next snapshot counts its files again. Counting walks the whole root, the cost that
-/// the skip saves.
-const SKIP_FOR: Duration = Duration::from_secs(10 * 60);
 
 /// The directory below efr's data root that holds every store.
 pub const SNAPSHOTS_DIR: &str = "snapshots";
@@ -92,16 +91,28 @@ impl CallSnapshot {
 struct Kept<'a> {
     conversation: ConversationId,
     turn: TurnId,
-    pre: &'a str,
-    post: &'a str,
+    pre: &'a Snap,
+    post: &'a Snap,
     hidden: &'a [String],
 }
 
-/// One root of a running turn and its first tree.
+/// One snapshot of a root: its tree and what it left out.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Snap {
+    pub(crate) tree: String,
+    /// The files in the tree.
+    pub(crate) files: u32,
+    /// What the snapshots of the root left out by now.
+    pub(crate) left_out: Vec<LeftOut>,
+    /// The modes other than 0644 and 0755 that they saw.
+    pub(crate) modes: BTreeMap<String, u32>,
+}
+
+/// One root of a running turn and its first snapshot.
 #[derive(Debug, Clone)]
 struct TurnRoot {
     root: Root,
-    pre: String,
+    pre: Snap,
     _pin: Pin,
 }
 
@@ -110,113 +121,6 @@ struct TurnRoot {
 struct TurnRecord {
     conversation: ConversationId,
     roots: Vec<TurnRoot>,
-}
-
-/// One store in this process: the gate that lets one snapshot, commit or collection of
-/// the store run at a time, the tree of its index at its last snapshot, the trees
-/// that running turns and calls still need ([`Pin`]), and until when the root stays
-/// skipped.
-#[derive(Debug)]
-pub(crate) struct Slot {
-    gate: tokio::sync::Semaphore,
-    tree: Mutex<Option<String>>,
-    live: Mutex<Vec<String>>,
-    skipped_until: Mutex<Option<jiff::Timestamp>>,
-    /// True once this process checked the store's format (`capture::prepare`).
-    ready: AtomicBool,
-}
-
-impl Default for Slot {
-    fn default() -> Self {
-        Slot {
-            gate: tokio::sync::Semaphore::new(1),
-            tree: Mutex::new(None),
-            live: Mutex::new(Vec::new()),
-            skipped_until: Mutex::new(None),
-            ready: AtomicBool::new(false),
-        }
-    }
-}
-
-/// A tree of a store that a running turn (its first tree) or a running call (its tree
-/// before) still needs. No ref names such a tree, and once the index moves on, the
-/// index no longer reaches it either, so the collector's prune could remove its
-/// objects; the collector pins every live tree under a ref first. Dropping the pin
-/// ends the need.
-#[derive(Debug)]
-pub(crate) struct Pin {
-    slot: Arc<Slot>,
-    tree: String,
-}
-
-impl Pin {
-    fn new(slot: Arc<Slot>, tree: &str) -> Pin {
-        slot.lock_live().push(tree.to_owned());
-        Pin { slot, tree: tree.to_owned() }
-    }
-}
-
-impl Clone for Pin {
-    fn clone(&self) -> Pin {
-        Pin::new(Arc::clone(&self.slot), &self.tree)
-    }
-}
-
-impl Drop for Pin {
-    fn drop(&mut self) {
-        let mut live = self.slot.lock_live();
-        if let Some(at) = live.iter().position(|tree| tree == &self.tree) {
-            live.swap_remove(at);
-        }
-    }
-}
-
-impl Slot {
-    /// Waits for the store's turn. The gate is never closed, so the wait cannot fail;
-    /// `None` would only mean that the store runs unguarded once.
-    pub(crate) async fn enter(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
-        self.gate.acquire().await.ok()
-    }
-
-    pub(crate) fn tree(&self) -> Option<String> {
-        self.tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
-    }
-
-    pub(crate) fn set_tree(&self, tree: Option<String>) {
-        *self.tree.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tree;
-    }
-
-    /// Forgets the format check, for a store that the collector deleted.
-    pub(crate) fn forget_store(&self) {
-        self.set_tree(None);
-        self.ready.store(false, std::sync::atomic::Ordering::Release);
-    }
-
-    /// The trees that running turns and calls still need, each once, sorted.
-    pub(crate) fn live_trees(&self) -> Vec<String> {
-        let mut trees = self.lock_live().clone();
-        trees.sort();
-        trees.dedup();
-        trees
-    }
-
-    /// True while the root stays skipped at `now`.
-    fn skipped(&self, now: jiff::Timestamp) -> bool {
-        self.lock_skipped().is_some_and(|until| now < until)
-    }
-
-    /// Skips the root from `now` for [`SKIP_FOR`].
-    fn skip(&self, now: jiff::Timestamp) {
-        *self.lock_skipped() = now.checked_add(SKIP_FOR).ok();
-    }
-
-    fn lock_skipped(&self) -> MutexGuard<'_, Option<jiff::Timestamp>> {
-        self.skipped_until.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    fn lock_live(&self) -> MutexGuard<'_, Vec<String>> {
-        self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
 }
 
 /// efr's own snapshot store: one bare repository per root below [`SnapshotParts::dir`]
@@ -278,12 +182,12 @@ impl Snapshots {
         let roots = self.canonical(roots).await;
         let taken = futures::future::join_all(roots.into_iter().map(|root| async move {
             let first = !self.in_turn(turn, root.path());
-            let tree = self.snap(root.path(), &limits, first).await?;
+            let snap = self.snap(root.path(), &limits, first).await?;
             if first {
-                self.add_to_turn(conversation, turn, &root, &tree);
+                self.add_to_turn(conversation, turn, &root, &snap);
             }
-            let pin = Pin::new(self.slot(root.path()), &tree);
-            Some((root, tree, pin))
+            let pin = Pin::new(self.slot(root.path()), &snap.tree);
+            Some((root, snap.tree, pin))
         }))
         .await;
         CallSnapshot { before: taken.into_iter().flatten().collect() }
@@ -317,8 +221,8 @@ impl Snapshots {
         let missing: Vec<Root> =
             roots.into_iter().filter(|root| !self.in_turn(turn, root.path())).collect();
         futures::future::join_all(missing.into_iter().map(|root| async move {
-            if let Some(tree) = self.snap(root.path(), &limits, true).await {
-                self.add_to_turn(conversation, turn, &root, &tree);
+            if let Some(snap) = self.snap(root.path(), &limits, true).await {
+                self.add_to_turn(conversation, turn, &root, &snap);
             }
         }))
         .await;
@@ -334,10 +238,10 @@ impl Snapshots {
             async move {
                 let root = turn_root.root;
                 let post = self.snap(root.path(), &limits, true).await?;
-                let changes = if post == turn_root.pre {
+                let changes = if post.tree == turn_root.pre.tree {
                     Some(Vec::new())
                 } else {
-                    self.compare(root.path(), &turn_root.pre, &post).await
+                    self.compare(root.path(), &turn_root.pre.tree, &post.tree).await
                 };
                 let hidden = match &changes {
                     Some(changes) if !changes.is_empty() => self.ignored(root.path(), changes).await,
@@ -365,13 +269,13 @@ impl Snapshots {
             .is_some_and(|record| record.roots.iter().any(|known| known.root.path() == root))
     }
 
-    fn add_to_turn(&self, conversation: ConversationId, turn: TurnId, root: &Root, tree: &str) {
+    fn add_to_turn(&self, conversation: ConversationId, turn: TurnId, root: &Root, snap: &Snap) {
         let mut turns = self.lock_turns();
         let record =
             turns.entry(turn).or_insert_with(|| TurnRecord { conversation, roots: Vec::new() });
         if !record.roots.iter().any(|known| known.root.path() == root.path()) {
-            let pin = Pin::new(self.slot(root.path()), tree);
-            record.roots.push(TurnRoot { root: root.clone(), pre: tree.to_owned(), _pin: pin });
+            let pin = Pin::new(self.slot(root.path()), &snap.tree);
+            record.roots.push(TurnRoot { root: root.clone(), pre: snap.clone(), _pin: pin });
         }
     }
 
@@ -412,7 +316,7 @@ impl Snapshots {
     }
 
     /// One snapshot of the canonical `root`, or `None` with a line in the log.
-    async fn snap(&self, root: &Path, limits: &Limits, ignored: bool) -> Option<String> {
+    async fn snap(&self, root: &Path, limits: &Limits, ignored: bool) -> Option<Snap> {
         let slot = self.slot(root);
         let _turn = slot.enter().await;
         let now = self.runner().clock().now();
@@ -424,7 +328,7 @@ impl Snapshots {
         let watch = Stopwatch::start();
         let cached = slot.tree();
         let taken: Result<Result<String, &str>, SnapshotError> = async {
-            match capture::stage(
+            let captured = capture::stage(
                 self.runner(),
                 &self.inner.reported,
                 &store,
@@ -433,8 +337,9 @@ impl Snapshots {
                 cached.is_none(),
                 &slot.ready,
             )
-            .await?
-            {
+            .await?;
+            slot.note(&captured);
+            match captured.staged {
                 Staged::Skipped(reason) => Ok(Err(reason)),
                 Staged::Unchanged if cached.is_some() => Ok(Ok(cached.clone().unwrap_or_default())),
                 Staged::Unchanged | Staged::Changed => {
@@ -447,7 +352,13 @@ impl Snapshots {
         match taken {
             Ok(Ok(tree)) => {
                 slot.set_tree(Some(tree.clone()));
-                Some(tree)
+                let files = store.index_entries().unwrap_or(0);
+                Some(Snap {
+                    tree,
+                    files: u32::try_from(files).unwrap_or(u32::MAX),
+                    left_out: slot.left_out(),
+                    modes: slot.modes(),
+                })
             }
             Ok(Err(reason)) => {
                 slot.skip(now);
@@ -483,7 +394,7 @@ impl Snapshots {
         let watch = Stopwatch::start();
         let cached = slot.tree();
         let compared: Result<Result<Vec<RootChange>, &str>, SnapshotError> = async {
-            let staged = capture::stage(
+            let captured = capture::stage(
                 self.runner(),
                 &self.inner.reported,
                 &store,
@@ -493,6 +404,8 @@ impl Snapshots {
                 &slot.ready,
             )
             .await?;
+            slot.note(&captured);
+            let staged = captured.staged;
             match staged {
                 Staged::Skipped(reason) => Ok(Err(reason)),
                 Staged::Unchanged if cached.as_deref() == Some(before) => Ok(Ok(Vec::new())),
@@ -609,19 +522,27 @@ impl Snapshots {
             let root = root.to_path_buf();
             self.runner().blocking(&root.clone(), move || store::project_head(&root)).await?
         };
-        let meta = serde_json::json!({
-            "conversation": conversation.to_string(),
-            "turn": turn.to_string(),
-            "root": root.to_string_lossy(),
-            "shown": shown,
-            "head": head,
-            "at": now.to_string(),
-            "hidden": hidden,
-        });
-        let pre_message = format!("efr turn {turn} pre\n\nefr-meta: {meta}\n");
-        let pre_commit = self.commit(&store, pre, None, pre_message, &time).await?;
-        let post_message = format!("efr turn {turn} post\n\nefr-meta: {meta}\n");
-        let post_commit = self.commit(&store, post, Some(&pre_commit), post_message, &time).await?;
+        let mut meta = Meta {
+            conversation: conversation.to_string(),
+            turn: turn.to_string(),
+            phase: "pre".to_owned(),
+            root: root.to_string_lossy().into_owned(),
+            shown: shown.to_owned(),
+            head,
+            at: now.to_string(),
+            hidden: hidden.to_vec(),
+            files: pre.files,
+            ..Meta::default()
+        };
+        meta.set_left_out(&pre.left_out);
+        meta.set_modes(&pre.modes);
+        let pre_commit = self.commit(&store, &pre.tree, None, meta.message(), &time).await?;
+        meta.phase = "post".to_owned();
+        meta.files = post.files;
+        meta.set_left_out(&post.left_out);
+        meta.set_modes(&post.modes);
+        let post_commit =
+            self.commit(&store, &post.tree, Some(&pre_commit), meta.message(), &time).await?;
         let base = format!("refs/efr/{conversation}/{turn}");
         let updates = format!("update {base}/pre {pre_commit}\nupdate {base}/post {post_commit}\n");
         self.runner()

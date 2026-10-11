@@ -4,8 +4,13 @@ use std::os::unix::fs::symlink;
 use pretty_assertions::assert_eq;
 
 use super::{
-    MAX_IGNORED_BYTES, Unreadable, by_size, keep_others, parse_listing, small_ignored, unreadable,
+    LeftOut, LeftOutReason, MAX_IGNORED_BYTES, Unreadable, by_size, keep_others, parse_listing,
+    small_ignored, unreadable,
 };
+
+fn left(path: &str, reason: LeftOutReason) -> LeftOut {
+    LeftOut { path: path.to_owned(), reason }
+}
 
 #[test]
 fn unreadable_file_errors_are_counted_with_the_first_path() {
@@ -17,7 +22,11 @@ fn unreadable_file_errors_are_counted_with_the_first_path() {
         error: open(\"cut-off";
     assert_eq!(
         unreadable(stderr),
-        Unreadable { count: 3, first: Some("research/a/secret".to_owned()) }
+        Unreadable {
+            count: 3,
+            first: Some("research/a/secret".to_owned()),
+            paths: ["research/a/secret", "b \\\"q\\\").txt", "c.txt"].map(str::to_owned).into(),
+        }
     );
     assert_eq!(unreadable(b"fatal: adding files failed\n"), Unreadable::default());
     assert_eq!(unreadable(b""), Unreadable::default());
@@ -47,7 +56,12 @@ fn new_files_above_the_limit_and_nested_repositories_are_left_out() {
         "nested/".to_owned(),
         "vanished.txt".to_owned(),
     ];
-    assert_eq!(keep_others(root.path(), others, 1024), ["small.txt", "link", "vanished.txt"]);
+    let (kept, record) = keep_others(root.path(), others, 1024);
+    assert_eq!(kept, ["small.txt", "link", "vanished.txt"]);
+    assert_eq!(
+        record.left_out,
+        [left("large.bin", LeftOutReason::TooLarge), left("nested", LeftOutReason::NestedRepo)]
+    );
 }
 
 #[test]
@@ -64,7 +78,17 @@ fn small_ignored_files_outside_build_dirs_are_taken() {
     fs::create_dir_all(dir.join("secret/repo/.git")).unwrap();
     fs::write(dir.join("secret/repo/file"), "x").unwrap();
     let entries: Vec<String> = [".env", "big.log", "target/", "secret/"].map(str::to_owned).into();
-    assert_eq!(small_ignored(dir, &entries), [".env", "secret/key"]);
+    let (kept, record) = small_ignored(dir, &entries);
+    assert_eq!(kept, [".env", "secret/key"]);
+    assert_eq!(
+        record.left_out,
+        [
+            left("big.log", LeftOutReason::IgnoredTooLarge),
+            left("target", LeftOutReason::SkippedDir),
+            left("secret/node_modules", LeftOutReason::SkippedDir),
+            left("secret/repo", LeftOutReason::NestedRepo),
+        ]
+    );
 }
 
 #[test]
@@ -100,5 +124,5 @@ fn ignored_files_that_git_lists_in_a_nested_repository_are_left_out() {
         ["notes.md", "vendor/lib/src/a.txt", "vendor/wt/sub/f", "vendor/repo/", "vendor/key"]
             .map(str::to_owned)
             .into();
-    assert_eq!(small_ignored(dir, &entries), ["notes.md", "vendor/key"]);
+    assert_eq!(small_ignored(dir, &entries).0, ["notes.md", "vendor/key"]);
 }

@@ -34,15 +34,18 @@ mod changes;
 mod error;
 mod gc;
 mod history;
+mod meta;
+mod object;
 mod runner;
 mod snapshots;
 mod store;
 
-pub use capture::{Limits, MAX_IGNORED_BYTES, SKIPPED_DIRS};
+pub use capture::{LeftOut, LeftOutReason, Limits, MAX_IGNORED_BYTES, SKIPPED_DIRS};
 pub use changes::shown_prefix;
 pub use error::SnapshotError;
 pub use gc::GcReport;
 pub use history::TurnDiff;
+pub use object::{ObjectId, blob_id, link_id};
 pub use snapshots::{
     CallSnapshot, DEFAULT_SNAPSHOT_TIMEOUT, Root, SNAPSHOTS_DIR, SnapshotParts, Snapshots,
 };

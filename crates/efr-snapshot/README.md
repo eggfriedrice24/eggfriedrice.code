@@ -52,6 +52,17 @@ for an ignored file) leaves the index, so no later call hashes it again, and it 
 as changed with no line counts, not as deleted. A call's own list does not show a new
 ignored file; the turn's does.
 
+Each snapshot keeps a record of what it left out, with a reason (`LeftOutReason`): a
+file above the size limit, an ignored file above 1 MiB, past the 2000 ignored files, in
+a build directory or while `snapshot.ignored` is not `small`, a file that git could
+not read, a name that is not UTF-8, a nested repository, or the whole root. It also
+keeps the mode of each file that it looked at when the mode is not 0644 or 0755, such
+as a `.env` with 0600. The `efr-meta:` line of the turn's commits holds both (at most
+1000 entries each, `left_out_more` counts the rest). The record is for the report
+only: whether a snapshot holds a file is a check against its tree, never a look at
+this list. `blob_id` and `link_id` give the id that git gives a file's bytes or a
+link's target, so a caller can compare a file with a snapshot without git.
+
 A file that git cannot read, such as a file that only root may read, stays out of the
 tree. `git add --ignore-errors` adds the rest. The debug log names the count of these
 files and the first path, once per root for the life of the process, from the first
@@ -80,8 +91,8 @@ Tier 2.
 this one.
 
 Third-party crates: `tokio` (the git processes, the blocking pool and the store's
-gate), `futures` (the roots of a call run together), `sha2` (the root id),
-`serde_json` (the `efr-meta:` line), `jiff`, `thiserror` and `tracing`.
+gate), `futures` (the roots of a call run together), `sha2` (the root id), `sha1` (the
+blob ids), `serde` and `serde_json` (the `efr-meta:` line), `jiff`, `thiserror` and `tracing`.
 
 ## Invariant
 

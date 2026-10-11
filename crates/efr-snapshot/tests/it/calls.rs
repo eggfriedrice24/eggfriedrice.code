@@ -1,13 +1,16 @@
 //! The changes of one call, in a plain directory and in a git project.
 
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt as _, symlink};
 
 use efr_protocol::{ChangeKind, FileChange, FileChanges};
 use efr_snapshot::{Limits, Root};
 use pretty_assertions::assert_eq;
 
-use crate::support::{World, all_bytes, conversation, git, limits, root, tree_of, turn, write};
+use crate::support::{
+    World, all_bytes, conversation, git, left_out, limits, meta_of, root, tree_of, turn, turn_ref,
+    write,
+};
 
 fn file(path: &str, kind: ChangeKind, added: u32, removed: u32) -> FileChange {
     FileChange { path: path.to_owned(), kind, from: None, added, removed, binary: false }
@@ -67,7 +70,7 @@ async fn a_call_that_changes_nothing_lists_nothing() {
 }
 
 #[tokio::test]
-async fn a_shell_call_in_a_git_project_leaves_its_git_dir_and_index_as_they_were() {
+async fn snapshot_leaves_user_index_untouched() {
     let world = World::new();
     let home = world.home();
     let dir = world.dir("project");
@@ -104,7 +107,7 @@ fn edit_back(dir: &std::path::Path) {
 }
 
 #[tokio::test]
-async fn ignored_large_and_build_files_stay_out_and_small_ignored_ones_come_in() {
+async fn snapshot_captures_untracked_not_large_ignored() {
     let world = World::new();
     let home = world.home();
     let dir = world.dir("ignored");
@@ -135,6 +138,100 @@ async fn ignored_large_and_build_files_stay_out_and_small_ignored_ones_come_in()
     );
     assert_eq!(tree["passwd-link"], "120000", "a link is kept as a link");
     assert!(!dir.join(".git").exists(), "a plain directory gets no .git");
+    let meta = meta_of(&store, &home, &pre).await;
+    assert_eq!(
+        left_out(&meta),
+        [
+            ("big.log".to_owned(), "ignored_too_large".to_owned()),
+            ("huge.bin".to_owned(), "too_large".to_owned()),
+            ("target".to_owned(), "skipped_dir".to_owned()),
+        ],
+        "the record names what the snapshot left out, and why"
+    );
+}
+
+#[tokio::test]
+async fn snapshot_captures_small_ignored_env_file() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("env");
+    write(&dir.join(".gitignore"), ".env\n.env.*\n");
+    write(&dir.join(".env"), "TOKEN=1\n");
+    write(&dir.join(".env.local"), "TOKEN=2\n");
+    write(&dir.join("app.rs"), "fn main() {}\n");
+    let call = world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![root(&dir)], Limits::default())
+        .await;
+    world.snapshots.after_call(call, Limits::default()).await;
+    world.snapshots.finish_turn(turn(1), Limits::default()).await;
+    let tree = tree_of(&world.only_store(), &home, &turn_ref(1, "pre")).await;
+    let names: Vec<&str> = tree.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [".env", ".env.local", ".gitignore", "app.rs"],
+        "the default limits take .env"
+    );
+}
+
+#[tokio::test]
+async fn snapshot_skips_large_files_and_says_so() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("large");
+    write(&dir.join("small.txt"), "s\n");
+    fs::write(dir.join("dump.sql"), vec![b'd'; 4096]).unwrap();
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await;
+    let store = world.only_store();
+    let tree = tree_of(&store, &home, &turn_ref(1, "pre")).await;
+    assert!(!tree.contains_key("dump.sql"), "above the 1 KiB limit of the test");
+    for phase in ["pre", "post"] {
+        let meta = meta_of(&store, &home, &turn_ref(1, phase)).await;
+        assert_eq!(left_out(&meta), [("dump.sql".to_owned(), "too_large".to_owned())], "{phase}");
+    }
+}
+
+#[tokio::test]
+async fn snapshot_reads_project_info_exclude() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("excluded");
+    git(&dir, &home, &[], &["init", "-q"]).await;
+    write(&dir.join(".git/info/exclude"), "notes/\n");
+    write(&dir.join("notes/todo.md"), "t\n");
+    write(&dir.join("src.rs"), "s\n");
+    let off = Limits { ignored_small: false, ..limits() };
+    let call = world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], off).await;
+    world.snapshots.after_call(call, off).await;
+    world.snapshots.finish_turn(turn(1), off).await;
+    let store = world.only_store();
+    let tree = tree_of(&store, &home, &turn_ref(1, "pre")).await;
+    assert_eq!(tree.keys().collect::<Vec<_>>(), ["src.rs"], "notes/ is ignored by info/exclude");
+    let meta = meta_of(&store, &home, &turn_ref(1, "pre")).await;
+    assert_eq!(left_out(&meta), [("notes".to_owned(), "ignored_off".to_owned())]);
+}
+
+#[tokio::test]
+async fn snapshot_records_modes_of_private_files() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("modes");
+    write(&dir.join(".gitignore"), ".env\n");
+    write(&dir.join(".env"), "TOKEN=1\n");
+    write(&dir.join("run.sh"), "#!/bin/sh\n");
+    write(&dir.join("plain.txt"), "p\n");
+    fs::set_permissions(dir.join(".env"), fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(dir.join("run.sh"), fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(dir.join("plain.txt"), fs::Permissions::from_mode(0o644)).unwrap();
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await;
+    let meta = meta_of(&world.only_store(), &home, &turn_ref(1, "pre")).await;
+    assert_eq!(meta["modes"], serde_json::json!({ ".env": 0o600, "run.sh": 0o700 }));
 }
 
 #[tokio::test]

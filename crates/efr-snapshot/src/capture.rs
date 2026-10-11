@@ -27,6 +27,11 @@ use crate::SnapshotError;
 use crate::runner::{MAX_STDERR_BYTES, Output, Run, Runner};
 use crate::store::{FORMAT, Store};
 
+mod record;
+
+pub(crate) use record::Record;
+pub use record::{LeftOut, LeftOutReason};
+
 /// The largest ignored file a snapshot takes.
 pub const MAX_IGNORED_BYTES: u64 = 1024 * 1024;
 
@@ -75,6 +80,26 @@ pub(crate) struct Listing {
     pub(crate) changed: BTreeSet<String>,
     /// Untracked files that are not ignored; a nested repository ends with `/`.
     pub(crate) others: Vec<String>,
+    /// Names that are not UTF-8, lossy.
+    pub(crate) not_utf8: Vec<String>,
+}
+
+/// What one [`stage`] did and found.
+#[derive(Debug)]
+pub(crate) struct Captured {
+    pub(crate) staged: Staged,
+    /// What it left out and the modes it saw.
+    pub(crate) record: Record,
+    /// True when it looked at the ignored files, so its record holds them.
+    pub(crate) scanned_ignored: bool,
+}
+
+impl Captured {
+    fn skipped(reason: &'static str) -> Captured {
+        let mut record = Record::default();
+        record.leave("", LeftOutReason::RootTooLarge);
+        Captured { staged: Staged::Skipped(reason), record, scanned_ignored: false }
+    }
 }
 
 /// Reads `ls-files -z -t` output: a tag, a space and a path per record.
@@ -84,6 +109,7 @@ pub(crate) fn parse_listing(out: &[u8]) -> Listing {
         let Ok(text) = std::str::from_utf8(record) else {
             // NOTE: a name that is not UTF-8 cannot be passed back as a pathspec
             // through this crate's text, so it waits for a full snapshot.
+            listing.not_utf8.push(String::from_utf8_lossy(&record[2..]).into_owned());
             continue;
         };
         let (tag, path) = text.split_at(2);
@@ -110,7 +136,7 @@ pub(crate) async fn stage(
     ignored: bool,
     fresh: bool,
     ready: &AtomicBool,
-) -> Result<Staged, SnapshotError> {
+) -> Result<Captured, SnapshotError> {
     let root = store.root().to_path_buf();
     if !store.exists() {
         let prepared = store.clone();
@@ -136,10 +162,12 @@ pub(crate) async fn stage(
     let now = SystemTime::from(runner.clock().now());
     runner.blocking(&root, move || stamped.stamp(now)).await?;
 
-    let scan_ignored = ignored && limits.ignored_small;
+    // NOTE: with `snapshot.ignored` off, the ignored files are still listed at the
+    // first and last snapshot of a turn, only to name them in the record.
+    let scan_ignored = ignored;
     let entries = store.index_entries().unwrap_or(0);
     if entries > limits.max_files {
-        return Ok(Staged::Skipped(TOO_MANY_FILES));
+        return Ok(Captured::skipped(TOO_MANY_FILES));
     }
     // NOTE: both listings only read the root and the index. A root whose index holds
     // files had a snapshot, so it was below max_files: its two listings run together,
@@ -154,21 +182,32 @@ pub(crate) async fn stage(
     let listing = parse_listing(&listed?);
     let early = early?;
     if entries + listing.others.len() as u64 > limits.max_files {
-        return Ok(Staged::Skipped(TOO_MANY_FILES));
+        return Ok(Captured::skipped(TOO_MANY_FILES));
     }
     let ignored_listed = match early {
         Some(listed) => listed,
         None if scan_ignored => ignored_listing(runner, store, &root).await?,
         None => Vec::new(),
     };
+    let mut record = Record::default();
+    for path in &listing.not_utf8 {
+        record.leave(path, LeftOutReason::NotUtf8);
+    }
     let max_file_bytes = limits.max_file_bytes;
     let changed: Vec<String> = listing.changed.into_iter().collect();
     let base = root.clone();
     let sized = runner.blocking(&root, move || by_size(&base, changed, max_file_bytes)).await?;
+    record.extend(sized.record);
     let mut paths = sized.small;
+    for path in &sized.large {
+        record.leave(path, LeftOutReason::TooLarge);
+    }
     let mut large = sized.large;
     if !sized.mid.is_empty() {
         let (ignored, kept) = split_ignored(runner, store, &root, sized.mid).await?;
+        for path in &ignored {
+            record.leave(path, LeftOutReason::IgnoredTooLarge);
+        }
         large.extend(ignored);
         paths.extend(kept);
     }
@@ -178,23 +217,37 @@ pub(crate) async fn stage(
     }
     let others = listing.others;
     let base = root.clone();
-    let others = runner.blocking(&root, move || keep_others(&base, others, max_file_bytes)).await?;
+    let (others, kept_record) =
+        runner.blocking(&root, move || keep_others(&base, others, max_file_bytes)).await?;
+    record.extend(kept_record);
     paths.extend(others);
 
     let mut forced = Vec::new();
     if scan_ignored {
-        let entries: Vec<String> = ignored_listed
-            .split(|byte| *byte == 0)
-            .filter_map(|entry| std::str::from_utf8(entry).ok())
-            .filter(|entry| !entry.is_empty())
-            .map(str::to_owned)
-            .collect();
-        let base = root.clone();
-        forced = runner.blocking(&root, move || small_ignored(&base, &entries)).await?;
+        let mut entries: Vec<String> = Vec::new();
+        for entry in ignored_listed.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
+            match std::str::from_utf8(entry) {
+                Ok(entry) => entries.push(entry.to_owned()),
+                Err(_) => record.leave(&String::from_utf8_lossy(entry), LeftOutReason::NotUtf8),
+            }
+        }
+        if limits.ignored_small {
+            let base = root.clone();
+            let (taken, ignored_record) =
+                runner.blocking(&root, move || small_ignored(&base, &entries)).await?;
+            record.extend(ignored_record);
+            forced = taken;
+        } else {
+            for entry in &entries {
+                record.leave(entry, LeftOutReason::IgnoredOff);
+            }
+        }
     }
+    let captured =
+        |staged: Staged, record: Record| Captured { staged, record, scanned_ignored: scan_ignored };
 
     if paths.is_empty() && forced.is_empty() {
-        return Ok(if left { Staged::Changed } else { Staged::Unchanged });
+        return Ok(captured(if left { Staged::Changed } else { Staged::Unchanged }, record));
     }
     if !paths.is_empty() {
         let output = runner
@@ -215,6 +268,9 @@ pub(crate) async fn stage(
             // NOTE: with --ignore-errors git adds what it can read and fails for the
             // rest, such as a file that only root may read; the tree holds the rest.
             log_failed_add(reported, &root, Added::Files, &output);
+            for path in unreadable(&output.stderr).paths {
+                record.leave(&path, LeftOutReason::Unreadable);
+            }
         }
     }
     if !forced.is_empty() {
@@ -234,9 +290,12 @@ pub(crate) async fn stage(
         if !output.success {
             locked(store, "add")?;
             log_failed_add(reported, &root, Added::Ignored, &output);
+            for path in unreadable(&output.stderr).paths {
+                record.leave(&path, LeftOutReason::Unreadable);
+            }
         }
     }
-    Ok(Staged::Changed)
+    Ok(captured(Staged::Changed, record))
 }
 
 /// Makes sure that `store` takes exact bytes: its `info/attributes` holds
@@ -296,6 +355,8 @@ impl Reported {
 pub(crate) struct Unreadable {
     pub(crate) count: usize,
     pub(crate) first: Option<String>,
+    /// Every path named, in order.
+    pub(crate) paths: Vec<String>,
 }
 
 /// Reads the `error: open("<path>"): <reason>` lines of a `git add --ignore-errors`.
@@ -311,6 +372,7 @@ pub(crate) fn unreadable(stderr: &[u8]) -> Unreadable {
         if found.first.is_none() {
             found.first = Some(path.to_owned());
         }
+        found.paths.push(path.to_owned());
     }
     found
 }
@@ -403,6 +465,8 @@ pub(crate) struct Sized {
     pub(crate) mid: Vec<String>,
     /// Above the limit of untracked files: left out.
     pub(crate) large: Vec<String>,
+    /// The modes that `lstat` saw.
+    pub(crate) record: Record,
 }
 
 /// Sorts `changed`, paths of the index that `ls-files` named, by the size of their
@@ -412,8 +476,10 @@ pub(crate) struct Sized {
 pub(crate) fn by_size(root: &Path, changed: Vec<String>, max_file_bytes: u64) -> Sized {
     let mut sized = Sized::default();
     for path in changed {
-        let bytes = match fs::symlink_metadata(root.join(&path)) {
-            Ok(metadata) if metadata.is_file() => metadata.len(),
+        let metadata = fs::symlink_metadata(root.join(&path)).ok();
+        sized.record.look(&path, metadata.as_ref());
+        let bytes = match metadata {
+            Some(metadata) if metadata.is_file() => metadata.len(),
             _ => 0,
         };
         if bytes > max_file_bytes {
@@ -485,43 +551,59 @@ fn nul_list(list: &[String]) -> Vec<u8> {
 /// The new untracked files of `others` that a snapshot takes: no nested repository
 /// (an entry that ends with `/`) and no regular file above `max_file_bytes`. A link
 /// is taken as a link.
-pub(crate) fn keep_others(root: &Path, others: Vec<String>, max_file_bytes: u64) -> Vec<String> {
-    others
-        .into_iter()
-        .filter(|path| {
-            if path.ends_with('/') {
-                return false;
-            }
-            match fs::symlink_metadata(root.join(path)) {
-                Ok(metadata) if metadata.is_file() => {
-                    let keep = metadata.len() <= max_file_bytes;
-                    if !keep {
-                        tracing::debug!(path = %path, bytes = metadata.len(), "a large untracked file is left out of the snapshot");
-                    }
-                    keep
+pub(crate) fn keep_others(
+    root: &Path,
+    others: Vec<String>,
+    max_file_bytes: u64,
+) -> (Vec<String>, Record) {
+    let mut record = Record::default();
+    let mut kept = Vec::new();
+    for path in others {
+        if path.ends_with('/') {
+            record.leave(&path, LeftOutReason::NestedRepo);
+            continue;
+        }
+        let metadata = fs::symlink_metadata(root.join(&path));
+        record.look(&path, metadata.as_ref().ok());
+        let keep = match metadata {
+            Ok(metadata) if metadata.is_file() => {
+                let keep = metadata.len() <= max_file_bytes;
+                if !keep {
+                    tracing::debug!(path = %path, bytes = metadata.len(), "a large untracked file is left out of the snapshot");
+                    record.leave(&path, LeftOutReason::TooLarge);
                 }
-                Ok(metadata) => !metadata.is_dir(),
-                // NOTE: gone since git listed it; git add drops it again.
-                Err(_) => true,
+                keep
             }
-        })
-        .collect()
+            Ok(metadata) => !metadata.is_dir(),
+            // NOTE: gone since git listed it; git add drops it again.
+            Err(_) => true,
+        };
+        if keep {
+            kept.push(path);
+        }
+    }
+    (kept, record)
 }
 
 /// The ignored files that a snapshot takes from `entries` of `ls-files -o -i
 /// --directory`: files up to [`MAX_IGNORED_BYTES`] and links, outside
 /// [`SKIPPED_DIRS`] and outside nested repositories; an ignored directory (an entry
 /// that ends with `/`) is walked without following links, up to [`MAX_IGNORED_FILES`]
-/// files in all.
-pub(crate) fn small_ignored(root: &Path, entries: &[String]) -> Vec<String> {
-    let mut kept = Vec::new();
+/// files in all. The record names what it left out and the modes it saw.
+pub(crate) fn small_ignored(root: &Path, entries: &[String]) -> (Vec<String>, Record) {
+    let mut found = Found::default();
     let mut repos = NestedRepos::default();
     for entry in entries {
-        if kept.len() >= MAX_IGNORED_FILES {
-            break;
-        }
         let relative = entry.trim_end_matches('/');
-        if relative.is_empty() || in_skipped_dir(relative) {
+        if relative.is_empty() {
+            continue;
+        }
+        if found.full() {
+            found.record.leave(relative, LeftOutReason::IgnoredCap);
+            continue;
+        }
+        if in_skipped_dir(relative) {
+            found.record.leave(relative, LeftOutReason::SkippedDir);
             continue;
         }
         // NOTE: git lists the ignored files in a nested repository one by one, but
@@ -531,13 +613,39 @@ pub(crate) fn small_ignored(root: &Path, entries: &[String]) -> Vec<String> {
             continue;
         }
         if entry.ends_with('/') {
-            walk(root, PathBuf::from(relative), &mut kept, 0);
-        } else if let Some(path) = take(root, relative) {
-            kept.push(path);
+            walk(root, PathBuf::from(relative), &mut found, 0);
+        } else {
+            found.take(root, relative);
         }
     }
-    kept.truncate(MAX_IGNORED_FILES);
-    kept
+    found.kept.truncate(MAX_IGNORED_FILES);
+    (found.kept, found.record)
+}
+
+/// The ignored files that [`small_ignored`] takes, and its record.
+#[derive(Debug, Default)]
+struct Found {
+    kept: Vec<String>,
+    record: Record,
+}
+
+impl Found {
+    fn full(&self) -> bool {
+        self.kept.len() >= MAX_IGNORED_FILES
+    }
+
+    /// Takes `relative` when it is a small file or a link, else names it.
+    fn take(&mut self, root: &Path, relative: &str) {
+        let Ok(metadata) = fs::symlink_metadata(root.join(relative)) else { return };
+        self.record.look(relative, Some(&metadata));
+        if metadata.file_type().is_symlink()
+            || (metadata.is_file() && metadata.len() <= MAX_IGNORED_BYTES)
+        {
+            self.kept.push(relative.to_owned());
+        } else if metadata.is_file() {
+            self.record.leave(relative, LeftOutReason::IgnoredTooLarge);
+        }
+    }
 }
 
 /// The directories of a root that are nested repositories (that hold a `.git`). Each
@@ -569,19 +677,12 @@ impl NestedRepos {
 }
 
 /// True when a part of `relative` is a skipped directory or a `.git`.
-fn in_skipped_dir(relative: &str) -> bool {
+pub(crate) fn in_skipped_dir(relative: &str) -> bool {
     relative.split('/').any(|part| part == ".git" || SKIPPED_DIRS.contains(&part))
 }
 
-/// `relative` when it is a small file or a link.
-fn take(root: &Path, relative: &str) -> Option<String> {
-    let metadata = fs::symlink_metadata(root.join(relative)).ok()?;
-    let small = metadata.is_file() && metadata.len() <= MAX_IGNORED_BYTES;
-    (small || metadata.file_type().is_symlink()).then(|| relative.to_owned())
-}
-
-/// Adds the small files below the ignored directory `relative` to `kept`.
-fn walk(root: &Path, relative: PathBuf, kept: &mut Vec<String>, depth: usize) {
+/// Adds the small files below the ignored directory `relative` to `found`.
+fn walk(root: &Path, relative: PathBuf, found: &mut Found, depth: usize) {
     const MAX_DEPTH: usize = 16;
     if depth > MAX_DEPTH {
         return;
@@ -590,27 +691,29 @@ fn walk(root: &Path, relative: PathBuf, kept: &mut Vec<String>, depth: usize) {
     let mut names: Vec<_> = entries.filter_map(Result::ok).map(|entry| entry.file_name()).collect();
     names.sort();
     for name in names {
-        if kept.len() >= MAX_IGNORED_FILES {
+        let child = relative.join(&name);
+        let Some(child_text) = child.to_str() else {
+            found.record.leave(&child.to_string_lossy(), LeftOutReason::NotUtf8);
+            continue;
+        };
+        if found.full() {
+            found.record.leave(child_text, LeftOutReason::IgnoredCap);
             return;
         }
-        let Some(text) = name.to_str() else { continue };
-        let child = relative.join(text);
-        let Some(child_text) = child.to_str() else { continue };
         if in_skipped_dir(child_text) {
+            found.record.leave(child_text, LeftOutReason::SkippedDir);
             continue;
         }
         match fs::symlink_metadata(root.join(&child)) {
             Ok(metadata) if metadata.is_dir() => {
                 // NOTE: a nested repository is not captured (efr's auto spec, 10.2).
-                if !root.join(&child).join(".git").exists() {
-                    walk(root, child, kept, depth + 1);
+                if root.join(&child).join(".git").exists() {
+                    found.record.leave(child_text, LeftOutReason::NestedRepo);
+                } else {
+                    walk(root, child, found, depth + 1);
                 }
             }
-            Ok(_) => {
-                if let Some(path) = take(root, child_text) {
-                    kept.push(path);
-                }
-            }
+            Ok(_) => found.take(root, child_text),
             Err(_) => {}
         }
     }

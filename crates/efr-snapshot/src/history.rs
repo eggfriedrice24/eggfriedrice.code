@@ -151,18 +151,10 @@ impl Snapshots {
             .runner()
             .checked(store, "cat-file", &["cat-file", "commit", pre], Run::default())
             .await?;
-        let text = String::from_utf8_lossy(&out);
-        let meta = text
-            .lines()
-            .find_map(|line| line.strip_prefix("efr-meta: "))
-            .and_then(|meta| serde_json::from_str::<serde_json::Value>(meta).ok())
-            .unwrap_or_default();
-        let shown = meta.get("shown").and_then(|shown| shown.as_str()).map(str::to_owned);
-        let hidden = meta
-            .get("hidden")
-            .and_then(|hidden| hidden.as_array())
-            .map(|paths| paths.iter().filter_map(|path| path.as_str()).map(str::to_owned).collect())
-            .unwrap_or_default();
+        let meta = crate::meta::Meta::of_commit(&String::from_utf8_lossy(&out));
+        // NOTE: a commit without the line names no prefix; the root's path stands in.
+        let shown = (!meta.root.is_empty()).then_some(meta.shown);
+        let hidden = meta.hidden;
         Ok(Meta { shown: shown.unwrap_or_else(|| format!("{}/", store.root().display())), hidden })
     }
 
