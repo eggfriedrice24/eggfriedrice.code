@@ -12,6 +12,7 @@
 //! sandbox must be one command plus read-only helpers, or a `sudo -k` that only forgets
 //! the cached password.
 
+mod cover;
 mod envelope;
 mod names;
 mod needs;
@@ -29,12 +30,13 @@ use self::envelope::{WriteExit, read_exit, resolve};
 pub(crate) use self::names::floor_names;
 pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
 pub use self::programs::DESKTOP_IPC_READ;
-use self::scan::{OPAQUE, Segment};
+use self::scan::{OPAQUE, Segment, is_assignment};
 use crate::command;
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
 use crate::{
-    Access, AutoSupport, CallFacts, CoverAsk, Egress, Locations, PathAccess, PathClass, TargetKind,
+    Access, AutoSupport, CallFacts, CoverAsk, Egress, Locations, PathAccess, PathClass,
+    Requirements, TargetKind,
 };
 
 /// Programs that only the `auto` mode treats as a `privilege` exit, besides the ones
@@ -345,6 +347,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
         let part = part_text(segment);
+        let assigned = segment.words.iter().any(|word| is_assignment(word));
         for redirect in &segment.redirects {
             let Some(path) = at(&redirect.target) else { continue };
             // NOTE: a redirection to a node of the sandbox's own `/dev`, such as
@@ -363,7 +366,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 _ => false,
             };
             if bare && !redirect.append && exists(input.facts, &path) {
-                found.push(destructive(&envelope, &part, &[Some(path.clone())]));
+                let targets = [Some(path.clone())];
+                let asks = cover::path_asks(&targets);
+                found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
             }
             made.push((path.clone(), false));
             writes.push((path, part.clone()));
@@ -387,7 +392,8 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                         Some(words) => words.into_iter().map(at).collect(),
                         None => vec![git_dir(command, dir, input.locations)],
                     };
-                    found.push(destructive(&envelope, &part, &targets));
+                    let asks = cover::program_asks(command, assigned, dir, input.locations, &at);
+                    found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
                     continue;
                 }
                 found.push(predicted(exit, &part));
@@ -412,7 +418,8 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             });
             if tracked {
                 let targets: Vec<Option<PathBuf>> = operands.into_iter().map(at).collect();
-                found.push(destructive(&envelope, &part, &targets));
+                let asks = cover::path_asks(&targets);
+                found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
             }
         }
     }
@@ -522,14 +529,28 @@ fn outside_approver(input: &ExitInput<'_>, envelope: &Envelope<'_>) -> Approver 
 /// The `destructive` exit of the simple command `part`, whose paths are `targets` (spec
 /// 9.1): the classifier judges it only when efr knows every path and each lies in a
 /// real write root; else only the user approves it.
-fn destructive(envelope: &Envelope<'_>, part: &str, targets: &[Option<PathBuf>]) -> ExitNeed {
+///
+/// `None` when the turn's snapshot covers every ask of `asks` and the machine has undo
+/// with `sandbox.ask_destructive = "unless_undoable"` ([`AutoSupport::undo`]): `efr undo`
+/// brings back what the part destroys, so it runs with no review (spec 10.7). Only this
+/// exit goes; every other exit of the line keeps its route.
+fn destructive(
+    envelope: &Envelope<'_>,
+    part: &str,
+    targets: &[Option<PathBuf>],
+    asks: &[CoverAsk],
+    input: &ExitInput<'_>,
+) -> Option<ExitNeed> {
+    if cover::covers_all(asks, envelope, input.facts, input.support) {
+        return None;
+    }
     let mut need = ExitNeed::new(ExitKind::Destructive, part, ExitSource::Predicted);
     let known = !targets.is_empty()
         && targets
             .iter()
             .all(|target| target.as_ref().is_some_and(|path| envelope.in_real_root(path)));
     need.approver = if known { Approver::Classifier } else { Approver::User };
-    need
+    Some(need)
 }
 
 /// The repository that a `git` command of `words` works on: the directory of `-C`, or
@@ -613,8 +634,15 @@ pub struct FactRequest {
     /// file runs, so a word there is not here.
     pub builtins: Vec<String>,
     /// What the daemon must say efr holds before the call, so that `efr undo` can
-    /// bring it back: the targets of a destructive part of the line (phase B). The
-    /// answers go to [`CallFacts::covered`].
+    /// bring it back (phase B, efr's auto spec 10.7 and 10.8). The answers go to
+    /// [`CallFacts::covered`]; an ask with no answer is never covered.
+    ///
+    /// For a destructive part of the line: a [`CoverAsk::Path`] for each target
+    /// (`rm -r`, `dd of=`, `truncate`, `: >`, `find -delete`), or the tracked files,
+    /// untracked files, refs or stash of the repository of a `git` command, whose
+    /// directory the ask names; the daemon finds the root of its work tree. A form that
+    /// undo never brings back (`shred`, `git clean -x`, `git reflog expire`,
+    /// `git gc --prune`) asks nothing.
     pub covers: Vec<CoverAsk>,
 }
 
@@ -630,6 +658,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             list.push(path);
         }
     };
+    let mut covers: Vec<CoverAsk> = Vec::new();
     for segment in scan::scan(line) {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, locations);
@@ -640,12 +669,27 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 !programs::is_sandbox_device(path) && !programs::through_open_file(path)
             })
         };
+        let assigned = segment.words.iter().any(|word| is_assignment(word));
+        let bare = match segment.words.as_slice() {
+            [] => true,
+            [only] => only == ":" || only == "true",
+            _ => false,
+        };
         for redirect in &segment.redirects {
             if let Some(path) = written_at(&redirect.target) {
+                if bare && !redirect.append {
+                    covers.extend(cover::path_asks(&[Some(path.clone())]));
+                }
                 add(&mut request.targets, path);
             }
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
+            let destroys = programs::classify(command, &AutoSupport::default())
+                .iter()
+                .any(|found| found.kind == ExitKind::Destructive);
+            if destroys {
+                covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
+            }
             if let Some(program) = command.first()
                 && !program.contains([OPAQUE, '$'])
             {
@@ -670,12 +714,18 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                     add(&mut request.targets, path);
                 }
             }
-            for word in programs::recursive_rm_operands(command) {
-                if let Some(path) = at(word) {
-                    add(&mut request.targets, path.clone());
-                    add(&mut request.tracked, path);
-                }
+            let operands = programs::recursive_rm_operands(command);
+            let removed: Vec<Option<PathBuf>> = operands.iter().map(|word| at(word)).collect();
+            covers.extend(cover::path_asks(&removed));
+            for path in removed.into_iter().flatten() {
+                add(&mut request.targets, path.clone());
+                add(&mut request.tracked, path);
             }
+        }
+    }
+    for ask in covers {
+        if !request.covers.contains(&ask) {
+            request.covers.push(ask);
         }
     }
     // NOTE: a word that runs as a file in one place of the line resolves as a file, so
@@ -706,6 +756,39 @@ impl FactRequest {
         }
         self
     }
+
+    fn add_covers(&mut self, asks: Vec<CoverAsk>) {
+        for ask in asks {
+            if !self.covers.contains(&ask) {
+                self.covers.push(ask);
+            }
+        }
+    }
+}
+
+/// The facts that the engine reads for a file tool call (`write_file`, `edit`,
+/// `apply_patch`), which has no line, only its declared paths (phase B): for each path
+/// that it writes, the [`CoverAsk::Home`] ask of the home store, and when it deletes or
+/// moves a file ([`Requirements::destructive`](crate::Requirements)) also the
+/// [`CoverAsk::Path`] ask of the snapshot. The engine reads the one that fits the place
+/// of the path: the snapshot inside the turn's project and `$SCRATCH`, else the home
+/// store. The daemon still adds the kinds of the paths and their parents to `targets`.
+pub fn tool_fact_requests(requirements: &Requirements, locations: &Locations) -> FactRequest {
+    let mut request = FactRequest::default();
+    for PathAccess { path, access } in &requirements.paths {
+        if *access != Access::Write {
+            continue;
+        }
+        let Some(path) = normalize(path).map(|path| locations.rehome(&path).into_owned()) else {
+            continue;
+        };
+        let mut asks = vec![CoverAsk::Home(path.clone())];
+        if requirements.destructive {
+            asks.push(CoverAsk::Path(path));
+        }
+        request.add_covers(asks);
+    }
+    request
 }
 
 /// The exits found so far, each kind, grant set and target once.
@@ -713,6 +796,13 @@ impl FactRequest {
 struct Found(Vec<ExitNeed>);
 
 impl Found {
+    /// Adds `need` as [`Found::push`] does, when there is one.
+    fn extend_from(&mut self, need: Option<ExitNeed>) {
+        if let Some(need) = need {
+            self.push(need);
+        }
+    }
+
     /// Adds `need`, or merges it into a known exit of the same kind, grants and target:
     /// the stricter approver of the two wins, and the names and hosts of both stay.
     fn push(&mut self, need: ExitNeed) {

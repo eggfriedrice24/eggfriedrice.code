@@ -12,9 +12,11 @@ pub struct AutoSupport {
     /// True when the filtered bus proxy runs (phase E): a read-only bus query is then
     /// routine, not a `bus` exit.
     pub bus_proxy: bool,
-    /// True when snapshots and undo work (phase B).
-    // NOTE: phase B reads it to make a destructive line routine when the snapshot
-    // covers its targets. Phase A keeps every destructive line an exit.
+    /// True when snapshots and undo work and `sandbox.ask_destructive` is
+    /// `unless_undoable` (phase B, efr's auto spec 10.7): a destructive part of a line,
+    /// or a delete or move of a file tool, whose every target the snapshot or the home
+    /// store covers ([`CallFacts::covered`](crate::CallFacts)) then runs with no
+    /// review and no question. Without it every destructive part is an exit.
     pub undo: bool,
     /// True when efrd copies a floor file into its backup store before it writes it
     /// (phase A). Only then may a floor file edit that a user message names go to the

@@ -571,6 +571,14 @@ impl Locations {
             .collect()
     }
 
+    /// True when `root`, in normal form, is the root of a registered project that may
+    /// widen what a turn does, so efrd keeps a snapshot of it.
+    pub(crate) fn is_project_root(&self, root: &Path) -> bool {
+        let root = self.rehome(root);
+        self.projects.values().any(|known| known == root.as_ref())
+            && !self.is_at_or_above_home(&root)
+    }
+
     /// The write-sealed roots: efr's config and the files behind its links.
     pub(crate) fn write_sealed_roots(&self) -> &[PathBuf] {
         &self.write_sealed_roots

@@ -37,9 +37,10 @@ use crate::{
 /// rules say, and is denied for a remote origin.
 ///
 /// A delete or a move of a file ([`Requirements::destructive`](crate::Requirements))
-/// needs approval in every mode, `auto` too, and from every origin, whatever the rules
-/// say, until undo can bring the file back. Its paths are judged as writes as well, so
-/// a denied path stays denied.
+/// needs approval in every mode and from every origin, whatever the rules say. In
+/// `auto` on a machine with undo ([`AutoSupport::undo`]) it runs with no question when
+/// efr holds every file that the call writes, so `efr undo` can bring it back (phase
+/// B). Its paths are judged as writes as well, so a denied path stays denied.
 ///
 /// A command line is judged one simple command at a time, and its effect is the
 /// strictest of theirs, so a line is allowed only when every simple command in it is.
@@ -285,11 +286,14 @@ impl Engine {
                 Subject::Settings { summary: change.summary.clone(), loosens: change.loosens };
             reasons.push(Reason { subject, effect, cause });
         }
-        if requirements.destructive {
-            // NOTE: no rule is read and no mode lets it run freely: undo cannot bring a
-            // deleted or a moved file back yet (phase 4 of the auto spec), so a person
-            // approves each one. The paths are judged as writes on their own reasons,
-            // so a path that is denied stays denied.
+        let undoable = tool_envelope
+            .as_ref()
+            .is_some_and(|envelope| self.undoable_tool_call(envelope, requirements));
+        if requirements.destructive && !undoable {
+            // NOTE: no rule is read: a person approves each delete and move, unless the
+            // turn runs in `auto` and `efr undo` can bring back every file that the
+            // call writes (phase B). The paths are judged as writes on their own
+            // reasons, so a path that is denied stays denied.
             reasons.push(Reason {
                 subject: Subject::Destructive,
                 effect: Effect::Ask,
@@ -323,6 +327,34 @@ impl Engine {
             reasons.push(Reason { subject: Subject::Nothing, effect, cause });
         }
         Decision::from_reasons(reasons)
+    }
+
+    /// True when `efr undo` can bring back every file that a file tool call of
+    /// `requirements` writes, deletes or moves, so its delete or move needs no question
+    /// in `auto` (phase B, plan PB21): the machine has undo
+    /// ([`AutoSupport::undo`]), and each path it writes is covered, the destination of
+    /// a move too: by the turn's snapshot inside the turn's project and `$SCRATCH`, by
+    /// the home store elsewhere ([`exits::tool_fact_requests`]).
+    fn undoable_tool_call(
+        &self,
+        envelope: &Envelope<'_>,
+        requirements: &crate::Requirements,
+    ) -> bool {
+        let Some(facts) = requirements.facts.as_ref().filter(|_| self.support.undo) else {
+            return false;
+        };
+        let mut writes =
+            requirements.paths.iter().filter(|access| access.access == Access::Write).peekable();
+        writes.peek().is_some()
+            && writes.all(|access| {
+                let Some(path) = normalize(&access.path) else { return false };
+                let ask = envelope.tool_cover_ask(&path);
+                let allowed = match &ask {
+                    crate::CoverAsk::Path(_) => envelope.may_cover(&ask),
+                    _ => true,
+                };
+                allowed && facts.coverage(&ask).is_covered()
+            })
     }
 
     /// The decision about deleting `paths` in the real tool caches, after a contained

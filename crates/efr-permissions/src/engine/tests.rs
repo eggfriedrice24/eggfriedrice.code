@@ -2,6 +2,7 @@
 
 mod auto;
 mod commands;
+mod coverage;
 mod destructive;
 mod modes;
 mod protection;

@@ -13,7 +13,7 @@ use crate::path_class::normalize;
 use crate::tables::{
     GIT_SURFACE, PROTECTED_NAMES, floor_group, is_env_file, persistence_floors, sandbox_masks,
 };
-use crate::{Access, AutoSupport, CallFacts, FloorGroup, Locations, TargetKind};
+use crate::{Access, AutoSupport, CallFacts, CoverAsk, FloorGroup, Locations, TargetKind};
 
 /// The write roots of one call and the locations that classify the rest.
 #[derive(Debug)]
@@ -25,6 +25,12 @@ pub(crate) struct Envelope<'a> {
     /// The roots of [`roots`](Self::roots) whose writes reach the real files: all but the
     /// private tmp and the cache overlays.
     real_roots: Vec<PathBuf>,
+    /// The roots of [`real_roots`](Self::real_roots) that efrd keeps a snapshot of: the
+    /// turn's project, `$SCRATCH` and the registered projects, never a
+    /// `sandbox.write_roots` entry (phase B).
+    snapshot_roots: Vec<PathBuf>,
+    /// The turn's project and `$SCRATCH`, where a file tool writes with no exit.
+    turn_roots: Vec<PathBuf>,
     /// The built-in floors and masks under the home directory.
     floors: Vec<PathBuf>,
     masks: Vec<PathBuf>,
@@ -78,9 +84,18 @@ impl<'a> Envelope<'a> {
         let home = locations.home();
         let mut roots: Vec<PathBuf> = Vec::new();
         let mut real_roots: Vec<PathBuf> = Vec::new();
+        let mut snapshot_roots: Vec<PathBuf> = Vec::new();
+        let turn_roots: Vec<PathBuf> = project_root
+            .into_iter()
+            .chain(scratch)
+            .map(|root| locations.rehome(root).into_owned())
+            .collect();
         for root in project_root.into_iter().chain(scratch).chain(locations.envelope_roots()) {
             let root = locations.rehome(root).into_owned();
             if !locations.is_private_root(&root) && !real_roots.contains(&root) {
+                if turn_roots.contains(&root) || locations.is_project_root(&root) {
+                    snapshot_roots.push(root.clone());
+                }
                 real_roots.push(root.clone());
             }
             if !roots.contains(&root) {
@@ -91,6 +106,8 @@ impl<'a> Envelope<'a> {
             locations,
             roots,
             real_roots,
+            snapshot_roots,
+            turn_roots,
             floors: persistence_floors(home),
             masks: sandbox_masks(home),
         }
@@ -133,6 +150,40 @@ impl<'a> Envelope<'a> {
     pub(crate) fn in_real_root(&self, path: &Path) -> bool {
         let path = self.locations.rehome(path);
         self.real_roots.iter().any(|root| path.starts_with(root))
+    }
+
+    /// True when an answer of [`Coverage::Covered`](crate::Coverage) to `ask` may make a
+    /// destructive part routine: the part of the rule of efr's auto spec 10.7 that the
+    /// engine can check by name alone (phase B). The daemon checks the files.
+    ///
+    /// A path must lie strictly below a root that efrd keeps a snapshot of (the turn's
+    /// project, `$SCRATCH`, a registered project), never at or above a write root, in a
+    /// git dir or on a floor. The directory of a git command must be such a root or lie
+    /// below one, and not in a git dir. Any other ask never counts here.
+    pub(crate) fn may_cover(&self, ask: &CoverAsk) -> bool {
+        match ask {
+            CoverAsk::Path(path) => {
+                let path = self.locations.rehome(path);
+                let below = self
+                    .snapshot_roots
+                    .iter()
+                    .any(|root| path.starts_with(root) && path.as_ref() != root.as_path());
+                below
+                    && !self.at_or_above_root(&path)
+                    && !in_git_dir(&path)
+                    && !self.is_floor(&path)
+                    && !self.locations.is_efr_own(&path)
+                    && !self.is_secret(&path)
+            }
+            CoverAsk::Tracked(dir)
+            | CoverAsk::Untracked(dir)
+            | CoverAsk::Refs(dir)
+            | CoverAsk::Stash(dir) => {
+                let dir = self.locations.rehome(dir);
+                self.snapshot_roots.iter().any(|root| dir.starts_with(root)) && !in_git_dir(&dir)
+            }
+            _ => false,
+        }
     }
 
     /// Who approves an `above_root` write of `path` (spec 9.1): the user for `~`, `/`, a
@@ -303,12 +354,7 @@ impl<'a> Envelope<'a> {
     /// True for a directory that many programs keep config in, or one at or above a
     /// write root: a bind of it would open too much.
     fn is_shared(&self, dir: &Path) -> bool {
-        let home = self.locations.home();
-        dir == home
-            || [".config", ".local", ".local/share", ".local/state"]
-                .iter()
-                .any(|shared| dir == home.join(shared))
-            || self.at_or_above_root(dir)
+        shared_home_dir(dir, self.locations.home()) || self.at_or_above_root(dir)
     }
 
     /// The exit of a write of `path`, a path in normal form under the home directory,
@@ -440,6 +486,16 @@ impl<'a> Envelope<'a> {
         need
     }
 
+    /// The ask that covers a file tool's write of `path` when the call deletes or moves
+    /// a file (phase B): the snapshot of the turn's project or `$SCRATCH` for a path
+    /// strictly below one, else the copy in the home store, which the write exit of
+    /// such a path copies.
+    pub(crate) fn tool_cover_ask(&self, path: &Path) -> CoverAsk {
+        let path = self.locations.rehome(path).into_owned();
+        let below = self.turn_roots.iter().any(|root| path.starts_with(root) && path != *root);
+        if below { CoverAsk::Path(path) } else { CoverAsk::Home(path) }
+    }
+
     /// The `masked_read` exit of a read of `path`, when a mask hides it.
     pub(super) fn masked_read(&self, path: &Path, source: ExitSource) -> Option<ExitNeed> {
         let mask = self.mask_of(path)?;
@@ -470,6 +526,20 @@ pub(super) fn read_exit(
         return Some(need);
     }
     envelope.masked_read(path, source)
+}
+
+/// True for the home directory and the dirs below it that many programs keep config
+/// in (`~/.config`, `~/.local`, `~/.local/share`, `~/.local/state`).
+pub(super) fn shared_home_dir(dir: &Path, home: &Path) -> bool {
+    dir == home
+        || [".config", ".local", ".local/share", ".local/state"]
+            .iter()
+            .any(|shared| dir == home.join(shared))
+}
+
+/// True when `path` has a `.git` component: it is a git dir or lies in one.
+fn in_git_dir(path: &Path) -> bool {
+    path.components().any(|component| component == Component::Normal(".git".as_ref()))
 }
 
 /// The nearest parent of `path` that exists, or that no fact says is missing.

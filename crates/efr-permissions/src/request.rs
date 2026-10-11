@@ -53,9 +53,9 @@ pub struct Requirements {
     /// the rules say.
     pub settings: Option<SettingsChange>,
     /// True when the call deletes or moves a file, as a delete or a move of
-    /// `apply_patch` does. Undo cannot bring such a file back yet, so the call asks in
-    /// every mode, `auto` too, whatever the rules say. Its paths are judged as writes
-    /// as well.
+    /// `apply_patch` does. The call asks in every mode, whatever the rules say, except
+    /// in `auto` when `efr undo` can bring back each file that it writes
+    /// ([`CallFacts::covered`], phase B). Its paths are judged as writes as well.
     pub destructive: bool,
     /// What the model asks for beyond the `auto` sandbox (the shell tool's `needs`).
     /// Each entry is an exit that asks; outside `auto` it is ignored.

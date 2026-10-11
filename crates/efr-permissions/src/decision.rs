@@ -137,7 +137,8 @@ pub enum Subject {
         /// True when the change loosens permissions.
         loosens: bool,
     },
-    /// The call deletes or moves a file, which undo cannot bring back yet.
+    /// The call deletes or moves a file, and `efr undo` cannot bring every file back
+    /// for this turn.
     Destructive,
     /// An action of the call that leaves the `auto` sandbox: an exit.
     Exit {
@@ -227,8 +228,9 @@ pub enum Cause {
         /// The origin.
         origin: Origin,
     },
-    /// The call deletes or moves a file. Undo cannot bring the file back yet, so the
-    /// user approves it, in every mode and whatever the rules say.
+    /// The call deletes or moves a file, so the user approves it, in every mode and
+    /// whatever the rules say. Only in `auto`, and only when `efr undo` can bring back
+    /// every file that the call writes, does it run with no question (phase B).
     Destructive,
     /// The call declared nothing that needs a decision.
     NoRequirements,
@@ -347,8 +349,8 @@ impl Reason {
                 origin_name(*origin)
             ),
             Cause::Destructive => f.write_str(
-                ", because undo cannot bring the file back yet, so the user approves each \
-                 delete and move",
+                ", because the user approves each delete and move that efr undo cannot \
+                 bring back in the auto mode",
             ),
             Cause::NoRequirements => Ok(()),
             Cause::Contained => f.write_str(", because the auto sandbox holds it"),

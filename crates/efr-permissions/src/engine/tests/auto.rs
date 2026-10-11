@@ -22,7 +22,7 @@ const APP: &str = "/home/u/p/app";
 /// The machine of `super::locations`, with efr's config sealed for writing, the
 /// sandbox's envelope roots (the private tmp, two cache overlays and a registered
 /// project that a line names) and a synced folder.
-fn auto_locations() -> Locations {
+pub(super) fn auto_locations() -> Locations {
     let mut locations = locations()
         .with_write_sealed_root("/home/u/.config/efr")
         .unwrap()
@@ -1258,6 +1258,19 @@ fn write_to_efr_data_root_is_config_deny() {
         .decide(&in_auto(shell("rm -rf ~/.local/state").with_write("/home/u/.local/state")));
     let need = decision.exits().find(|need| need.kind == ExitKind::AboveRoot).unwrap();
     assert_eq!(need.approver, Approver::User);
+}
+
+#[test]
+fn undo_trash_is_a_config_floor() {
+    // Plan PB8: the undo trash holds what undo moved aside, so no tool writes it, unlike
+    // `$D/trash`, which a call may write.
+    assert_efr_own_is_refused(&format!("{DATA}/undo-trash/u-0193/root/a/src/main.rs"));
+    assert_efr_own_is_refused(&format!("{DATA}/undo-trash/u-0193"));
+    // A delete of the undo trash is refused too: efr itself drops it after
+    // `snapshot.max_age_days`.
+    let line =
+        shell("rm -rf ~/.local/share/efr/undo-trash").with_write(format!("{DATA}/undo-trash"));
+    assert_eq!(efr_engine().decide(&in_auto(line)).effect(), Effect::Deny);
 }
 
 #[test]

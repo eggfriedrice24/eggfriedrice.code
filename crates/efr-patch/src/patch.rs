@@ -98,8 +98,9 @@ impl Operation {
         }
     }
 
-    /// True for a delete and a move: they remove a file that undo cannot bring back
-    /// yet, so the permission check asks for them in every mode.
+    /// True for a delete and a move: they remove a file, so the permission check asks
+    /// for them, except in the `auto` mode when `efr undo` can bring back each file
+    /// that the patch writes.
     pub fn is_destructive(&self) -> bool {
         matches!(self, Operation::Delete { .. } | Operation::Update { move_to: Some(_), .. })
     }
