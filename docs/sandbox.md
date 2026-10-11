@@ -16,17 +16,19 @@ decision.
   allowed. A command that tries such an effect fails, usually with `Read-only file
   system`, `Permission denied` or `Network is unreachable`.
 - efr reads the command line before it runs. When the line names an action outside
-  the sandbox, such as `sudo`, `git push` or a write to `~/.zshrc`, efr asks you first.
-  This is an exit.
-- After a failure, the model can call the shell again with `needs`, for example a
-  path to write or the network. That call is an exit too, and it asks you. efr tells
-  the model to ask for the narrowest need: a write grant for one file, the bus for
-  `systemctl`, and `outside` only when nothing narrower fits.
+  the sandbox, such as `sudo`, `git push` or a write to `~/.zshrc`, that action is an
+  exit. A reviewer model decides most exits from your messages; the others, such as
+  `sudo`, ask you (see "Exits").
+- The model tries what you asked first. After a failure, it can call the shell again
+  with `needs`, for example a path to write or the network. That call is an exit too.
+  efr tells the model to ask for the narrowest need: a write grant for one file, the
+  bus for `systemctl`, and `outside` only when nothing narrower fits.
 - Reads work as they do for you, except for secrets. So `journalctl` shows in the
   sandbox the journal that you can read, with no grant.
-- `read_file`, `write_file` and `edit` run in efrd, not in the sandbox. In `auto` they
-  follow the rules of `cautious`, plus two: a read of a sandbox mask asks, and a write
-  to a floor path asks.
+- `read_file`, `write_file`, `edit` and `apply_patch` run in efrd, not in the sandbox.
+  In `auto` they follow the rules of `cautious`, plus exits: a read of a sandbox mask,
+  a write outside the project and `$SCRATCH`, and a write to a floor path are exits,
+  as for a shell command.
 - The lines that you type in your own shell never run in the sandbox.
 - A turn from the phone runs as `cautious`, as before.
 - `nested_shell` is not available in `auto`, because no shell outlives a contained
@@ -119,6 +121,21 @@ conversation waits for the lock. When the lock stays held for 5 seconds, the cal
 not run, and the model gets the reason. The `tmp` mode needs no lock: each call has
 its own layers.
 
+**Deletes that reach the real cache.** A delete in a cache overlay deletes only in the
+private layer, so `go clean -cache` or "free some disk space" would free nothing. So
+after a contained call, the launcher lists the files and dirs that the call deleted
+in each cache layer (the whiteouts of the layer, at most 4096 paths and 256 KiB of
+names). Each list is an exit (`write`, from the source `cache_delete`) that the
+reviewer decides; it needs no message that names the paths, because the tool can fill
+its cache again. After an allow, efrd checks each path again against its own caches,
+the pins, the masks and the secrets, and deletes the paths in your real cache. One bad
+path refuses the whole list. The call then shows the freed space, such as `freed 1.2
+GB in ~/.cache/go-build (12 paths)`. efr never deletes below a pin (`~/.cargo/bin`,
+the cargo config, `~/.rustup/settings.toml`), a mask or a secret. A refused list stays
+private, the model reads so, and efr does not raise the same paths again in the
+conversation. A dir that the call deleted and made again, a name that is not UTF-8
+and the paths over the limits only count; efr does not delete them.
+
 ## Read masks
 
 A masked directory reads as empty, and a masked file reads as an empty file that a
@@ -151,13 +168,40 @@ over a floor at the same path.
 | programs on `PATH` | each directory of the hidden shell's `PATH` that lies in a write root |
 | tool configs that run code | `~/.gitconfig`, `~/.config/git`, `~/.cargo/config.toml`, `~/.cargo/bin`, `~/.local/bin`, `~/.config/nvim`, `~/.vimrc`, `~/.config/direnv` |
 | dotfile link targets | the target of each link in `~`, `~/.config` and `~/.local/bin` that lies in a write root |
-| efr itself | `efrd`, `efr`, `efr-sbx` |
+| efr itself | `efrd`, `efr`, `efr-sbx` and its copy in `$XDG_RUNTIME_DIR/efr/bin`; efr's own dirs `$XDG_RUNTIME_DIR/efr`, `~/.local/state/efr` and `~/.local/share/efr` except `$SCRATCH` and efr's trash. A write there is a `config` exit: denied in every mode |
 | the git surface | below |
 | agent and editor configs in each write root | `.mcp.json`, `.claude/`, `.codex/`, `.agents/`, `.cursor/`, `.opencode/`, `opencode.json`, `opencode.jsonc`, `.vscode/`, `.envrc`, `.direnv/`, `.efr/` |
 | your additions | `sandbox.protect` |
 
-A write to a floor path is a `persistence` exit. Only you can approve it, and it runs
-outside the sandbox.
+A write to a floor path is a `persistence` exit, and it runs outside the sandbox (in
+efrd for a file tool). For a floor FILE of the built-in groups above (shell startup,
+autostart and services, programs on `PATH`, tool configs, dotfile link targets, agent
+and editor configs), the reviewer decides when a message of yours names the file,
+such as "add an alias to my zshrc" or "change the gap in my hyprland config". A link
+target takes the group and the names of its link. Before the write, efr copies the
+file into its backup store (below). Only you approve a dir, a link into a `*.wants`
+dir, `crontab`, `systemctl --user enable`, linger, the git surface and
+`sandbox.protect`, and a floor file that no message of yours names.
+
+**Backups of floor files.** Before efrd runs an approved edit of a floor file, by
+`write_file`, `edit`, `apply_patch` or a shell line outside the sandbox, it copies the
+file to `~/.local/share/efr/file-backups/<conversation>/<turn>/<n>/<file name>`, with
+a `meta.json` that names the path, the links to the real file, the real file, its mode
+and whether it was missing. This happens for every approver: the reviewer or you.
+
+- efrd resolves the real path first and opens the real parent dir with
+  `RESOLVE_NO_SYMLINKS`, then reads the file with `O_NOFOLLOW`. It never copies a mask
+  or a secret, at the path or at the real path.
+- The dirs are 0700 and the files 0600. A copy holds at most 16 MiB. The sandbox masks
+  the store with the rest of efr's data dir.
+- When efrd cannot make the copy, the call does not run, and the model gets the
+  reason. A file that the call did not change drops its copy.
+- The turn ends with one dim line for each changed file, such as `changed ~/.zshrc;
+  backup at ~/.local/share/efr/file-backups/<conversation>/<turn>/1/.zshrc`. To undo
+  the change, copy the backup back. A file that did not exist before has only its
+  `meta.json`.
+- efr keeps the backups of the newest `snapshot.keep_turns` turns of each conversation,
+  for at most `snapshot.max_age_days` days. There is no restore command yet.
 
 ## Git settings
 
@@ -219,25 +263,80 @@ across calls. An exit that runs outside the sandbox does not see them.
 
 | Kind | Example | After a yes | Who can approve |
 |---|---|---|---|
-| `write` | `cp report.pdf ~/Documents/` | the sandbox, with that one path writable | you |
-| `host` | `curl -LO https://example.com/x.tar.gz`, `npm ci` | the sandbox, with full network for this call | you |
-| `host_view` | `ss -tlnp`, `ip addr` | the sandbox, with the host's network | you |
-| `socket` | a tool's own Unix socket | the sandbox, with that one socket | you |
-| `desktop_ipc` | `xrandr`, `swaymsg`, `hyprctl` | the sandbox, with that one socket | only you |
-| `bus` | `hostnamectl`, `systemctl --failed` | the sandbox, with the bus socket | you |
-| `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | you |
+| `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
+| `host` | `curl -LO https://example.com/x.tar.gz`, `npm ci` | the sandbox, with full network for this call | the reviewer, else you |
+| `host_view` | `ss -tlnp`, `ip addr` | the sandbox, with the host's network | the reviewer, else you |
+| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you |
+| `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with that one socket | the reviewer for a read or reload form; only you for the rest |
+| `bus` | `hostnamectl`, `systemctl --failed` | the sandbox, with the bus socket | the reviewer, else you |
+| `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
-| `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | you |
-| `outside` | the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | you |
+| `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | the reviewer when every target lies in a write root; else only you |
+| `outside` | `df`, `findmnt`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
-| `persistence` | `~/.zshrc`, `crontab`, `systemctl --user enable`, a floor path | outside the sandbox | only you |
-| `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | only you |
+| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file that a message of yours names, after a backup copy; else only you |
+| `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | only you |
-| `above_root` | `rm -rf ..`, `rm -rf ~/.config` | outside the sandbox | only you |
+| `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor; else only you |
 | `secret` | a read or write of a secret | never: denied | nobody |
-| `config` | a write of efr's config | never: denied | nobody |
+| `config` | a write of efr's config, of efr's own programs or of efr's own dirs | never: denied | nobody |
+
+"Else you" means that the reviewer handed the question to you, or that it is off
+(`classifier.enabled = false`), paused, or failed at each step of its chain.
 
 A grant lives for one call. The next call asks again.
+
+**The reviewer.** In `auto`, the user's request is the permission. A reviewer model
+decides most exits before any question: it allows an action that fits what you asked,
+refuses an action that nothing you said relates to, and hands an unsure case to you.
+It reads your messages and efr's facts about the exit (the line, the targets with
+their class, the hosts, the programs, the counts, and for a file tool edit of a floor
+file the new text, at most 8 KiB), and never the output of a command, a project file
+or the model's reason. A longer edit asks you, so the reviewer never allows what it
+saw only in part. efr applies its own rules to each allow: a `critical` risk never
+allows, a `high` risk needs a message of yours that clearly authorizes it, a write
+needs a message that names each target unless the target is a tool cache, build
+output below a registered project or efr's trash, and a host that is not on the allow
+list needs a message that names it, except a package fetch of a request to build,
+install or update. The text of the line never changes this.
+
+The reviewer is the small model of your provider (`classifier.model` picks another),
+then the turn's model at a low effort (`classifier.fallback_to_turn_model`), then you.
+A model that is missing or refuses is skipped for the rest of the conversation; a
+timeout (`classifier.timeout_secs`, 20 s for each step) is tried again at the next
+exit. An error never allows and never counts as a refusal. Within a turn, the same
+exit gets the same verdict without a second request.
+
+```
+reviewing: ./scripts/gen.sh                                (status row)
+reviewer allowed: write ~/.local/share/app for this call (low risk; you asked to run the generator)
+· $ ./scripts/gen.sh
+  ✓ 1.4s
+```
+
+- While it works, the status row shows `reviewing: <command>`.
+- An allow or a refusal is one dim line before the call. A refused call does not run,
+  and the model reads that the reviewer refused it and must not work around it.
+- An unsure verdict asks you. The question then has the dim row `reviewer: unsure;
+  <reason>`.
+- The reason is the reviewer model's text. efr shows it safely, as it shows every text
+  of a model.
+- After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
+  rest of the turn: `reviewer paused for this turn: it refused 3 actions in a row; efr
+  asks you for the rest`. Each later exit asks you. An allow or your answer starts
+  the count in a row again. When you are away, the turn stops instead: `auto stopped
+  this turn: the reviewer refused 3 actions in a row and nobody could decide`.
+- `efr history` shows each verdict, and `efr history --verbose` adds the model, the
+  step of the chain, the time and the models that the chain skipped.
+
+**When you are away.** efr counts you away from a conversation after
+`presence.away_after_minutes` (10) without input, or after `efr away` or `,away`. Input
+is a prompt, a steer, an answer or keys for the hidden shell; keys in the input row
+count only when you send them. The status row of a running turn shows `away`. Your
+next input ends it. While you are away, a question waits only `presence.away_wait_secs`
+(300): `approval expired: nobody answered while you were away; the call did not run`.
+The model goes on without the call and names it in its answer. An expired question is
+no refusal.
 
 An exit that runs outside the sandbox runs with your full rights: your files, your
 secrets and the network. So efr accepts only a narrow line for it. One simple command
@@ -296,10 +395,11 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   there. A turn in which a call ran in the sandbox ends with one dim line that says
   where the sandbox can write, such as `sandbox: writes in the project, $SCRATCH,
   private /tmp; no network`.
-- Three refusals in a row without a person (by a floor) stop the turn.
+- Three refusals in a row without a person (by a floor) stop the turn. A refusal of
+  the reviewer does not count here; it has its own pause (above).
 
 `efr history --verbose` shows the record of each exit: the line, its targets, hosts and
-programs, and how it was judged. Without a conversation id, it shows the newest
+programs, and how it was judged (by you, a floor or the reviewer). Without a conversation id, it shows the newest
 conversation of this terminal, else the newest of all, and says which.
 
 ## When the sandbox cannot run
@@ -383,8 +483,11 @@ the current directory:
 $ efr sandbox explain ~/.zshrc
 ~/.zshrc, from ~/p/eggfriedrice.code in auto:
   read   yes
-  write  no: a shell startup file (floor); a write is a persistence exit, user only
+  write  no: a shell startup file (floor); a write goes to the reviewer when a message of yours names the file, and efr keeps a backup copy; else you decide; a write is a persistence exit
 ```
+
+`, user only` follows the exit for a kind that only you approve, such as a synced
+write.
 
 `efr paths` shows the launcher (`$XDG_RUNTIME_DIR/efr/bin/efr-sbx`, copied from the
 installed `efr-sbx` and checked by SHA-256), bubblewrap, and the sandbox's state and
@@ -485,6 +588,12 @@ The `[sandbox]` table of `config.toml` holds every key; [`docs/config.md`](confi
 lists them with their defaults. Each key applies from the next call or turn. A change
 of efr's settings through the settings tool still asks, in every mode.
 
+`[classifier]` controls the reviewer: `enabled` (`false` asks you about every exit),
+`model`, `fallback_to_turn_model`, `effort` and `timeout_secs`. `[presence]` controls
+when efr counts you away: `away_after_minutes`, `away_wait_secs` and `push` (no phone
+client exists yet, so it does nothing today). Each key applies from the next
+question, and none needs a restart.
+
 ## Known limits
 
 | Limit | What can happen | What efr does |
@@ -499,8 +608,14 @@ of efr's settings through the settings tool still asks, in every mode.
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |
 | a `bus` or `host` grant opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so |
-| `df`, `findmnt`, `tty` and `$$` show the sandbox's view | confusing output for system work | the prompt text says so; `host_view` exits for `ss` and `ip` |
+| `tty` and `$$` show the sandbox's view | confusing output for system work | the prompt text says so; `df` and `findmnt` run outside the sandbox after a review; `host_view` exits for `ss` and `ip` |
 | an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege, upload and persistence are yours only |
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
 | no network | a build that must download fails | the network is an exit; `sandbox.offline_hints` tells package managers to use the cache |
 | MCP servers | they run outside the sandbox | none yet |
+| the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone; wide targets ask you |
+| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a backup | a script that the model did not write in this turn can change `~/.zshrc` with no name and no backup | the one-command rule; a program written in this turn or in a write root asks you; the reviewer sees the line |
+| the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
+| older system prompts of a conversation keep the old auto rule | the model can still read the old, longer rule in its history | the newest rule says that only the newest block counts |
+| a cache whose path holds a link | efrd refuses to apply its deletes | the deletes stay private; nothing is lost |
+| `sandbox.cache_mode = "overlay"` | a refused delete stays in the layer of the conversation and comes back after each call | efr does not raise the same paths again in the conversation |

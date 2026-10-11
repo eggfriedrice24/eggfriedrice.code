@@ -163,6 +163,36 @@ systemctl --user restart efrd
 
 The workspace id is not a secret, so it can be in a dotfiles repository.
 
+## The reviewer
+
+In `auto`, a reviewer model decides most actions that leave the sandbox
+([`docs/sandbox.md`](sandbox.md), "Exits"). efr asks the models in this order:
+
+1. `classifier.model` when it is set, else the small model of the turn's provider:
+   `gpt-6-luna` for `openai-subscription` and `openai-api`, `claude-haiku-5-5` for
+   `anthropic-api`.
+2. The turn's model at the effort `classifier.effort` (default `low`), unless
+   `classifier.fallback_to_turn_model = false`.
+3. You.
+
+efr goes to the next step when a model is not in your model list, refuses, takes more
+than `classifier.timeout_secs` (default 20) or gives an answer that does not fit. A
+model that is missing or refuses is skipped for the rest of the conversation. A
+provider that refuses the login fails for every model, so the question then goes to
+you at once. `efr history --verbose` shows the model, the step and the skipped models
+of each review.
+
+Each review is one more request to your provider. With an API key, you pay for it per
+token; with a subscription, it counts against the limits of your plan. A review sends
+only the facts of one action and your messages, with no tools and no history, so it is
+small. Within a turn, the same action gets the same verdict without a second request.
+`classifier.enabled = false` sends no review and asks you about every action that
+leaves the sandbox.
+
+A review sends no prompt cache key, so an OpenAI review goes over HTTP and never
+touches the WebSocket of the turn. A Claude review marks only its fixed prompt for the
+cache, for five minutes.
+
 ## The prompt cache
 
 The provider keeps the start of each request in a cache. The next request that starts

@@ -264,19 +264,26 @@ fallback and the limits. This section tells how the engine decides in `auto`.
   sandbox mask, a destructive git or file command, `sudo` and the other programs that
   give more rights, `git push` and other uploads, rc files, services and cron. Each one
   is an exit with the effect `ask`, and the reason names its kind, such as `exit:
-  write`. After a "yes", the call runs in the sandbox with exactly that path, socket,
-  device or the network opened for this one call, or, for privilege, persistence,
-  upload and some writes, outside the sandbox. The model can also ask for an exit
-  with the shell tool's `needs`.
+  write`. The reviewer (below) decides most exits; the others ask you. After an allow,
+  the call runs in the sandbox with exactly that path, socket, device or the network
+  opened for this one call, or, for privilege, persistence, upload and some writes,
+  outside the sandbox. The model can also ask for an exit with the shell tool's
+  `needs`.
 - A line that the engine cannot read gets only the exits that it can find. It runs in
   the sandbox, which holds it.
 - The floors hold, as in every mode: a privileged program asks, and only you can
-  approve it; a secret is denied unless a rule of yours names it; efr's config is
-  denied; a change of the settings asks.
+  approve it; a secret is denied unless a rule of yours names it; efr's config, efr's
+  own programs (`efrd`, `efr`, `efr-sbx` and its copy) and efr's own dirs
+  (`$XDG_RUNTIME_DIR/efr`, `~/.local/state/efr`, and `~/.local/share/efr` except
+  `$SCRATCH` and efr's trash) are denied; a change of the settings asks you.
 - `nested_shell` is denied in `auto`.
-- `read_file`, `write_file` and `edit` run in efrd, outside the sandbox. They follow
-  the rules of `cautious`, plus two: a read of a sandbox mask, such as a project `.env`,
-  asks, and a write to a floor path, such as `~/.zshrc` or `.git/hooks`, asks.
+- `read_file`, `write_file`, `edit` and `apply_patch` run in efrd, outside the
+  sandbox. They follow the rules of `cautious`, plus these: a read of a sandbox mask,
+  such as a project `.env`, is a `masked_read` exit; a write outside the turn's project
+  and `$SCRATCH` that a built-in rule asks about is an exit of its kind (`write`,
+  `synced_write`, `above_root` or `persistence`), as a shell write there is; and a
+  write to a floor path inside a write root, such as `.git/hooks`, is a `persistence`
+  exit. A rule of yours keeps its effect and makes no exit.
 
 The `auto` mode has its own table. It is not the `cautious` table: the private `/tmp`
 and the cache overlays are write roots of the sandbox, so a write there must not ask.
@@ -294,30 +301,32 @@ and the cache overlays are write roots of the sandbox, so a write there must not
 For a shell call, a path or a network need that rule 0 makes `ask` becomes `contain`:
 the sandbox holds it, and an exit asks when the action leaves the sandbox. For
 `read_file`, `write_file` and `edit`, rule 4 does not match, because efrd would write
-the host's real `/tmp` and caches, so rule 0 asks.
+the host's real `/tmp` and caches. So rule 0 makes such a write an exit, which the
+reviewer decides or you decide, as for the same write of a shell call.
 
 **Exits.** An action that leaves the sandbox is an exit. The engine reads the line,
 the paths that the tool declares and the facts that the daemon collects, and gives
-each exit its own reason. An exit asks; `secret` and `config` are denied. Each exit
-has a kind:
+each exit its own reason and the one who may approve it: the reviewer, the reviewer
+when a message of yours names the target, or only you. `secret` and `config` are
+denied. Each exit has a kind:
 
 | Kind | Examples |
 |---|---|
 | `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit. A path below such a node, such as `/dev/fd/3/x`, goes through an open file to a place that efr cannot see, so it is a write that only you approve |
 | `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
 | `host_view` | `ss`, `ip`, `nmcli`, `netstat` |
+| `outside` | `df`, `findmnt` (they show your real disks and mounts outside the sandbox); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root) |
 | `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions` |
-| `desktop_ipc` | `xrandr`, `swaymsg`, `hyprctl`, `xdotool` (only you approve) |
+| `desktop_ipc` | the read and reload forms `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_*`, `xrandr` without a change, `wlr-randr`, `niri msg` (the reviewer); a form that types or starts programs, such as `hyprctl dispatch exec` or `xdotool type`, and an unknown form (only you approve) |
 | `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
 | `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |
-| `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files |
+| `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files (the reviewer when every target lies in the project, `$SCRATCH` or `sandbox.write_roots`; else only you) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `run0`, `yay`, `paru`, `docker`, `podman`, a changing `systemctl`, `busctl call` (only you approve) |
-| `persistence` | `~/.zshrc`, `crontab`, `systemctl --user enable`, `loginctl enable-linger`, autostart, `.envrc` or `.git/hooks` in a project (only you approve) |
-| `upload` | `git push`, `npm publish`, `scp`, `rsync host:`, `curl -d`, `-F`, `-T` or `-X POST` (only you approve) |
+| `persistence` | an edit of a floor file, such as `~/.zshrc` or `~/.config/hypr/hyprland.conf` (the reviewer when a message of yours names the file, and efr keeps a backup copy; else only you); `crontab`, `systemctl --user enable`, `loginctl enable-linger`, a link into a `*.wants` dir, a dir, `.git/hooks` and `.git/config`, and `sandbox.protect` (only you approve) |
+| `upload` | `git push`, `npm publish`, `scp`, `rsync host:`, `curl -d`, `-F`, `-T` or `-X POST` (the reviewer when a message of yours names it, such as "push this branch"; else only you) |
 | `synced_write` | a write to `~/Dropbox` and the other `sandbox.synced_dirs` (only you approve) |
-| `above_root` | a write at or above a write root or efr's config: `rm -rf ..`, `rm -rf ~/.config` (only you approve) |
-| `outside` | the model asks to run outside the sandbox |
-| `secret`, `config` | a read or write of a secret, a write of efr's config: denied |
+| `above_root` | a write at or above a write root or efr's config: `rm -rf ..`, `rm -rf ~/p/old-app` (the reviewer for one path that a message of yours names and that holds no floor; a project's own `.git` and protected names do not count; else only you, also for `~`, `/`, a system dir and a dir that holds more than one project) |
+| `secret`, `config` | a read or write of a secret, a write of efr's config, of efr's own programs or of efr's own dirs: denied |
 
 The engine reads every line, also one with a substitution or a group, and finds the
 exits that it can see. Text can only add a question; the sandbox holds what the text
@@ -326,7 +335,40 @@ exists, and a directory holds tracked files.
 
 After a command fails in the sandbox, the model can call `shell` again with `needs`:
 paths to write, hosts, sockets, a bus, a device, masked paths to read, or `outside`.
-Each entry is an exit that asks. Other modes ignore `needs`.
+Each entry is an exit, which the reviewer decides or which asks you. Other modes
+ignore `needs`.
+
+**The reviewer.** In `auto`, the user's request is the permission. A reviewer model
+decides most exits, so you see far fewer questions. It reads your messages and the
+facts that efr collects (the line, the targets, the hosts, the programs and counts),
+and never the output of a command, a file of the project or the model's reason. It
+allows an action that fits what you asked, refuses an action that nothing you said
+relates to, and hands an unsure case to you. efr then applies two rules of its own:
+
+- A `critical` risk never allows, and a `high` risk allows only when a message of
+  yours clearly authorizes it.
+- An allow of a write needs a message of yours that names each target, unless the
+  target is in a tool cache, in build output below a registered project or in efr's
+  trash, which a tool or efr can make again. An allow of a host that is not on the
+  allow list needs a message that names the host, except a package fetch of a request
+  to build, install or update. Without the name, the allow goes to you.
+
+The reviewer is the small model of your provider, then the turn's model, then you:
+[`docs/providers.md`](providers.md) tells which models and what they cost. A missing
+model, an error, a timeout or an answer that does not fit goes to the next step, and
+never allows. The `[classifier]` keys turn the reviewer off, choose the model, the
+effort and the timeout. While it works, the status row shows `reviewing: <command>`,
+and its answer shows as one line, `reviewer allowed: ...` or `reviewer refused: ...`.
+
+After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
+rest of the turn, and each later exit asks you. An error or an expired question is no
+refusal; an allow or your answer starts the count in a row again. When you are away,
+the turn stops instead.
+
+**Away.** efr counts you away from a conversation after `presence.away_after_minutes`
+(10) without input, or after `efr away` or `,away`. Your next input there ends it.
+While you are away, a question waits `presence.away_wait_secs` (300); then the call
+does not run, and the model goes on without it and names it in its answer.
 
 An exit of the kinds `privilege`, `persistence`, `upload`, `outside`, `synced_write`,
 `above_root`, or a write that no bind can serve, runs outside the sandbox. Such a line
