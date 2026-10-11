@@ -13,8 +13,12 @@
 //! Each run has fixed arguments, a clean environment and no word of the model.
 
 use std::ffi::OsStr;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use rustix::fs::{Mode, OFlags};
 
 /// The dirs where a call can write, besides the home directory and efr's roots.
 const WRITABLE_DIRS: [&str; 3] = ["/tmp", "/var/tmp", "/dev/shm"];
@@ -41,13 +45,28 @@ impl Program {
 }
 
 /// One program that efrd found, with the device and inode that it had then.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `pin` keeps the file open (`O_PATH`) while efrd runs. So its inode stays in use, and
+/// a file that someone puts in its place always gets another inode number: a file
+/// system that gives a freed inode number to the next new file (tmpfs does) cannot
+/// fool the check before a run.
+#[derive(Debug, Clone)]
 struct Found {
     program: Program,
     path: PathBuf,
     dev: u64,
     ino: u64,
+    pin: Arc<OwnedFd>,
 }
+
+impl PartialEq for Found {
+    fn eq(&self, other: &Self) -> bool {
+        (self.program, &self.path, self.dev, self.ino)
+            == (other.program, &other.path, other.dev, other.ino)
+    }
+}
+
+impl Eq for Found {}
 
 /// The programs that efrd may run for the state copies.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -87,8 +106,8 @@ impl TrustedPrograms {
                 .filter(|dir| trusted_dir(dir, &refused, root_only))
                 .map(|dir| dir.join(program.name()))
                 .find_map(|candidate| trusted_file(&candidate, root_only));
-            if let Some((path, dev, ino)) = hit {
-                found.push(Found { program, path, dev, ino });
+            if let Some((path, dev, ino, pin)) = hit {
+                found.push(Found { program, path, dev, ino, pin: Arc::new(pin) });
             }
         }
         TrustedPrograms { found }
@@ -105,7 +124,10 @@ impl TrustedPrograms {
     pub(crate) fn command(&self, program: Program) -> Option<tokio::process::Command> {
         let found = self.found.iter().find(|found| found.program == program)?;
         let meta = std::fs::symlink_metadata(&found.path).ok()?;
-        if meta.dev() != found.dev || meta.ino() != found.ino || !meta.is_file() {
+        let pinned = rustix::fs::fstat(&*found.pin).ok()?;
+        let same = (meta.dev(), meta.ino()) == (found.dev, found.ino)
+            && (pinned.st_dev, pinned.st_ino) == (found.dev, found.ino);
+        if !same || !meta.is_file() {
             tracing::warn!(program = program.name(), path = %found.path.display(), "a trusted program changed since efrd started; it does not run");
             return None;
         }
@@ -140,12 +162,19 @@ fn trusted_dir(dir: &Path, refused: &[PathBuf], root_only: bool) -> bool {
 }
 
 /// The path, device and inode of `candidate` when it is a program that may run: a
-/// regular file, not a link, writable only by its owner, root when `root_only`.
-fn trusted_file(candidate: &Path, root_only: bool) -> Option<(PathBuf, u64, u64)> {
+/// regular file, not a link, writable only by its owner, root when `root_only`. With
+/// them comes the open file that keeps the inode in use.
+fn trusted_file(candidate: &Path, root_only: bool) -> Option<(PathBuf, u64, u64, OwnedFd)> {
     let meta = std::fs::symlink_metadata(candidate).ok()?;
     let runs = meta.mode() & 0o111 != 0;
-    (meta.is_file() && runs && owned(&meta, root_only) && meta.mode() & 0o022 == 0)
-        .then(|| (candidate.to_path_buf(), meta.dev(), meta.ino()))
+    if !(meta.is_file() && runs && owned(&meta, root_only) && meta.mode() & 0o022 == 0) {
+        return None;
+    }
+    let flags = OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let pin = rustix::fs::open(candidate, flags, Mode::empty()).ok()?;
+    let held = rustix::fs::fstat(&pin).ok()?;
+    (held.st_dev == meta.dev() && held.st_ino == meta.ino())
+        .then(|| (candidate.to_path_buf(), meta.dev(), meta.ino(), pin))
 }
 
 /// True when root owns `meta`, or with `root_only` false also efrd's own user.
