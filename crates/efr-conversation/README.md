@@ -94,13 +94,17 @@ turns.
   message names it, with `efr_permissions::exits::names_match` on every prompt and
   steer of the conversation (`efr_store::user_messages`, never the page of newest
   events or the cut list of the record), and the same check fills
-  `named_in_user_messages` in the record. A file tool's edit of a floor file puts its
-  payload in the record (`ActionFacts::edit`, `exit::Payload`): the new content, the old
-  and the new text, or the parts of a patch for that file; a payload over 8 KiB, or one
-  that efr cannot read whole, goes to the user. The record (`exit::record`) holds user
-  messages, the action and efr's own facts, never tool output or the model's reason;
-  a target's class says when a cache, the build output of a project or efr's trash can
-  make it again, and whether efrd copies it into its backup store first.
+  `named_in_user_messages` in the record. A file tool's edit of a file that runs code
+  later (an exit of the kind `persistence`) puts its payload in the record
+  (`ActionFacts::edit`, `exit::Payload`): the new content, the old and the new text, or
+  the parts of a patch for that file; a payload over 8 KiB, or one that efr cannot read
+  whole, goes to the user. A plain write outside the roots has no payload, also when
+  efrd copies it first. The record (`exit::record`) holds user messages, the action and
+  efr's own facts, never tool output or the model's reason; a target's class says when
+  a cache, the build output of a project or efr's trash can make it again, and whether
+  efrd copies it into its home store first. `snapshot_covers` is false when one exit's
+  copy is not covered (a masked file, a directory over the limits) and absent when no
+  exit has a file to copy.
 - The classifier (`turn/review.rs`) judges first when the turn runs in `auto`,
   `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on, the
   classifier has not stopped for the turn, every reason that asks is an exit, and every
@@ -162,9 +166,12 @@ turns.
   `Toolbox::delete_cache_paths` and records `cache_delete_applied` with the call's id;
   the model reads the freed size, or that the deletes stayed private. A denied path
   stays private for the rest of the conversation and is not raised again.
-- Floor files that a call changed (`ToolOutcome::backups`) are recorded as
-  `home_file_changed` with their backup path, after the call's `tool_call_completed`,
-  for the line at the end of the turn.
+- Files outside the roots that a call changed (`ToolOutcome::backups`) are recorded
+  as `home_file_changed` after the call's `tool_call_completed`, for the line at the
+  end of the turn. A `FileBackup` with an empty `backup` path is a copy in efrd's home
+  store (phase B): `covered` is true unless its `reason` says why efr has no copy, and
+  the event names no backup. A `FileBackup` with a path is a copy in the phase A backup
+  store: the event names that path and says `covered: false`.
 - After a call whose `ToolOutcome::sandbox` reports changes to git settings that run
   programs, the turn records them in `sandbox_surface_changed` with the call's
   `tool_call_completed`, and, for the changes that the launcher moved to quarantine,
@@ -314,9 +321,16 @@ by field:
 - `turn_report`: the files that the turn changed through the launcher and that run
   code later outside the sandbox; the turn records them as `turn_surface_report` right
   before its terminal event; the default reports none;
-- `turn_changes`: the files that the turn changed, from the toolbox's snapshots; the
-  turn asks once before its terminal event, whatever the ending, and records the
-  answer in `turn_completed`; the default takes no snapshot. A call's own changes and
+- `turn_changes`: the files that the turn changed, from the toolbox's snapshots, what
+  `efr undo` can take back (`TurnUndoInfo`) and the snapshots that the turn took; the
+  turn asks once before its terminal event, whatever the ending, records one
+  `snapshot_taken` per snapshot right before it, and puts the files and the undo info
+  in `turn_completed`, `turn_failed` or `turn_interrupted`; the default takes no
+  snapshot.
+- `undo`: takes back the file and ref changes of one turn (`turn.undo`), or with
+  `dry_run` only says what it would do; the default has no undo and refuses with
+  `off`. `call_runs`: true while a call of the conversation still runs after its tool
+  answered, so an undo must wait; the default runs no such call. A call's own changes and
   a file tool's diff come back in `ToolOutcome::changes` and `ToolOutcome::diff`, which
   the turn records in `tool_call_completed`;
 - `cancel`: `ShellSessions::interrupt(conversation_id)` for the shell tool, so an
@@ -781,6 +795,27 @@ history as before, with the stub in each pruned result.
   the same command id returns the first result.
 - It never starts a turn.
 
+### Undo
+
+`turn.undo` reaches the actor as `ConversationHandle::undo` with the turns that the
+daemon found in the log (`UndoCandidate`, newest first). The actor runs it like a
+manual compaction (`actor/undo.rs`):
+
+- While a turn, a compaction or another undo of the conversation runs, or
+  `Toolbox::call_runs` says that a call still runs after its tool answered, it is
+  refused with `ConversationError::UndoBusy` and its reason (`UndoBusyReason`). A
+  retry with the command id of the undo that runs waits for the same answer. A phone
+  gets `UndoRefused(PhoneOrigin)`; the daemon refuses it before that too.
+- Otherwise the actor calls `Toolbox::undo` in a task of its own, with an `UndoId` from
+  its clock and generator, and `ConversationState::undoing` is true. A prompt that
+  arrives meanwhile waits in the queue and starts when the undo ends.
+- A refusal of the toolbox is `UndoRefused` with its reason. A dry run and a list
+  record nothing; a list runs at any time and takes no place. An applied undo records
+  `undo_applied` (a conversation event, no turn) with the command's receipt in one
+  batch; its counts come from the entries of the result. The stored result has no
+  sequence number, so `completed_result` returns it as it is.
+- It never starts a turn.
+
 ### Failures
 
 A turn that fails for its context records `turn_failed` with code `internal`, data
@@ -948,10 +983,12 @@ keeps each record (`testing::FakeJudge`) and a presence that a test sets
 (`testing::FakePresence`): which exits the classifier judges and which ask the user
 (`turn/tests/review.rs`), the pause after denials and the floor count
 (`turn/tests/denials.rs`), the away wait and the phone (`turn/tests/away.rs`), cache
-deletes (`turn/tests/cache.rs`), and the routine lines of the command corpus of
+deletes (`turn/tests/cache.rs`), the snapshots and the undo info at the end of a turn
+(`turn/tests/sandbox.rs`), and the routine lines of the command corpus of
 `efr-permissions`, which make no judge call (`turn/tests/corpus.rs`). `exit/tests.rs`
 checks `grant`, the question facts and the record against the real engine, and
-`exit/tests/review.rs` the route, the payload, the allow rule and the naming rule. The calls of tools that a request does
+`exit/tests/review.rs` the route, the payload, the allow rule and the naming rule. The undo of the actor (busy, a call that
+runs on, the queue, one record per apply, a phone) is in `actor/tests/undo.rs`. The calls of tools that a request does
 not offer are covered by table tests (`unoffered/tests.rs`) and by turns that move an
 `edit` call from a Claude model to an OpenAI model and an `apply_patch` call the other
 way and back (`turn/tests/tools.rs`), each request a byte prefix of the next. The

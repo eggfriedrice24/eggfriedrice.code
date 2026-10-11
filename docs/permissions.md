@@ -74,8 +74,9 @@ Some floors hold in every mode, whatever the rules say:
 - no tool writes efr's config; see "Config protection";
 - a change of efr's settings through the settings tool asks, and a turn from the
   phone cannot make one; see "The settings tool";
-- a delete or a move of a file through `apply_patch` asks, also in `auto`, because
-  undo cannot bring the file back yet; see "Edits with apply_patch".
+- a delete or a move of a file through `apply_patch` asks in `manual` and `cautious`;
+  in `auto` it runs when efr's snapshot holds each file, so `efr undo` brings it back;
+  see "Edits with apply_patch".
 
 ## Path classes
 
@@ -320,9 +321,9 @@ denied. Each exit has a kind:
 | `desktop_ipc` | the read and reload forms `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_*`, `i3-msg -t get_*`, `xrandr` without a change, `wlr-randr`, `niri msg` (the reviewer); a form that types or starts programs, such as `hyprctl dispatch exec` or `xdotool type`, an unknown form and a desktop socket that the model names (only you approve). The call gets the one control socket of the program's desktop and its variable (docs/sandbox.md, "Desktop sockets") |
 | `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
 | `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |
-| `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files (the reviewer when every target lies in the project, `$SCRATCH` or `sandbox.write_roots`; else only you) |
+| `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files (no question and no review when efr's snapshot holds every file that the part can change and `sandbox.ask_destructive = "unless_undoable"`, the default, so `efr undo` brings it back; `shred`, `git clean -x` and `-X`, `git reflog expire` and `git gc --prune` are never covered; else the reviewer when every target lies in the project, `$SCRATCH` or `sandbox.write_roots`; else only you; docs/sandbox.md, "Undo") |
 | `privilege` | `sudo`, `doas`, `pkexec`, `run0`, `yay`, `paru`, `docker`, `podman`, a changing `systemctl`, `busctl call` (only you approve) |
-| `persistence` | an edit of a floor file, such as `~/.zshrc` or `~/.config/hypr/hyprland.conf` (the reviewer when a message of yours names the file, and efr keeps a backup copy; else only you); `crontab`, `systemctl --user enable`, `loginctl enable-linger`, a link into a `*.wants` dir, a dir, `.git/hooks` and `.git/config`, and `sandbox.protect` (only you approve) |
+| `persistence` | an edit of a floor file, such as `~/.zshrc` or `~/.config/hypr/hyprland.conf` (the reviewer when a message of yours names the file, and efr copies it first, so `efr undo` reverts it; with `snapshot.enabled = false` only you); a file tool edit of such a file sends its text to the reviewer, and a text over 8 KiB asks you; `crontab`, `systemctl --user enable`, `loginctl enable-linger`, a link into a `*.wants` dir, a dir, `.git/hooks` and `.git/config`, and `sandbox.protect` (only you approve) |
 | `upload` | `git push`, `npm publish`, `scp`, `rsync host:`, `curl -d`, `-F`, `-T` or `-X POST` (the reviewer when a message of yours names it, such as "push this branch"; else only you) |
 | `synced_write` | a write to `~/Dropbox` and the other `sandbox.synced_dirs` (only you approve) |
 | `above_root` | a write at or above a write root or efr's config: `rm -rf ..`, `rm -rf ~/p/old-app` (the reviewer for one path that a message of yours names and that holds no floor; a project's own `.git` and protected names do not count; else only you, also for `~`, `/`, a system dir and a dir that holds more than one project) |
@@ -564,10 +565,12 @@ no file stays changed.
   decide them as they decide a `write_file`: a change or a new file in `$SCRATCH` or
   in the turn's registered project runs without a question in `cautious` and in
   `auto`, and a change elsewhere asks. A secret or efr's config is denied.
-- A delete or a move asks in every mode, also in `auto`, from every surface, and also
+- A delete or a move asks in `manual` and `cautious`, from every surface, and also
   when a rule of yours allows the write. No rule can turn the question into an allow.
-  The question says `delete or move files`. Undo cannot bring the file back yet; when
-  it can, this question goes.
+  The question says `delete or move files`. In `auto`, a delete or a move runs with no
+  question when efr's snapshot holds each deleted or moved path and the destination of
+  a move that exists (outside the roots, the home store copy), so `efr undo` brings it
+  back. Else it asks, as in the other modes.
 - The question shows the unified diff of every file of the patch. A line
   `delete <path>` or `move <from> -> <to>` comes before the diff of a delete or a move.
 - `apply_patch` runs in the daemon, outside the `auto` sandbox, as `read_file` and

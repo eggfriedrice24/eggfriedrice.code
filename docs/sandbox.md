@@ -186,31 +186,42 @@ path names a file only as whole parts of the path: `bin/git` does not name
 `write_file`, `edit` or `apply_patch` of `~/.zshrc` that links into a dotfiles dir also
 writes the real file there; it takes the names of the link too, so "my zshrc" names
 both, also when the dotfiles dir is no registered project. Before the write, efr copies the
-file into its backup store (below). Only you approve a dir, a link into a `*.wants`
+file into its home store (below). Only you approve a dir, a link into a `*.wants`
 dir, `crontab`, `systemctl --user enable`, linger, the git surface and
 `sandbox.protect`, and a floor file that no message of yours names.
 
-**Backups of floor files.** Before efrd runs an approved edit of a floor file, by
-`write_file`, `edit`, `apply_patch` or a shell line outside the sandbox, it copies the
-file to `~/.local/share/efr/file-backups/<conversation>/<turn>/<n>/<file name>`, with
-a `meta.json` that names the path, the links to the real file, the real file, its mode
-and whether it was missing. This happens for every approver: the reviewer or you.
+**Copies before a write outside the roots.** In `auto`, before efrd runs an approved
+write outside the project and `$SCRATCH`, it copies each file that the call can change
+into its home store, `~/.local/share/efr/snapshots/home.git`. This is so for a write
+grant, `write_file`, `edit` and `apply_patch`, a floor file edit, an `above_root` or a
+directory delete, an `outside` line that declares its write paths, and a delete in a
+real tool cache. It happens for every approver: the reviewer or you. After the call,
+efrd records the state after the call too, so `efr undo` can tell a later change of
+yours from the call's change.
 
-- efrd resolves the real path first and opens the real parent dir with
-  `RESOLVE_NO_SYMLINKS`, then reads the file with `O_NOFOLLOW`. It never copies a mask
-  or a secret, at the path or at the real path.
-- The dirs are 0700 and the files 0600. A copy holds at most 16 MiB. The sandbox masks
-  the store with the rest of efr's data dir.
-- When efrd cannot make the copy, the call does not run, and the model gets the
-  reason. A file that the call did not change drops its copy.
-- The turn ends with one dim line for each changed file, such as `changed ~/.zshrc;
-  backup at ~/.local/share/efr/file-backups/<conversation>/<turn>/1/.zshrc`. To undo
-  the change, copy the backup back. A file that did not exist before has only its
-  `meta.json`. A file behind a dotfile link keeps the path through the link and names
-  its real file too, such as `changed ~/.config/hypr/x.conf (real file
-  ~/dotfiles/hypr/x.conf); ...`.
-- efr keeps the backups of the newest `snapshot.keep_turns` turns of each conversation,
-  for at most `snapshot.max_age_days` days. There is no restore command yet.
+- efrd reads each file through its own file access, with `RESOLVE_NO_SYMLINKS` and
+  `O_NOFOLLOW`, and streams the bytes into the store. git never reads a home path. A
+  link stays a link, and the real file behind it gets its own copy.
+- A write grant that opens the whole parent dir of a file (the normal case for a file
+  that exists) can change any file there. efrd copies the dir too, while it holds at
+  most `snapshot.home_max_files` files (2000) and `snapshot.home_max_mib` MiB (256).
+  After the call it lists the dir again, and a new file in it is "missing" before.
+  Over the limits it copies the target only, and the turn says `not covered: the call
+  can write all of <dir>`.
+- A copy holds at most 16 MiB per file. efrd never copies a mask or a secret. A masked
+  file that a message of yours names, such as `~/.aws/config`, runs with no copy, and
+  the turn says `changed ~/.aws/config; efr undo cannot revert it (masked)`.
+- When efrd cannot read a file, or cannot copy a floor or persistence target, the call
+  does not run, and the model gets the reason.
+- In `manual` and `cautious`, a file tool write outside the roots gets no copy.
+- The turn ends with one dim line for each changed floor file, such as `changed
+  ~/.zshrc; efr undo reverts it`, and the line of the turn counts the other files,
+  such as `changed 1 file in ~; efr undo reverts this turn`. A file behind a dotfile
+  link keeps the path through the link and names its real file too.
+- The collector keeps the copies of the newest `snapshot.keep_turns` turns of each
+  conversation, for at most `snapshot.max_age_days` days. efr writes nothing new to
+  `~/.local/share/efr/file-backups/` (phase A), and deletes the old copies there after
+  `snapshot.max_age_days` days.
 
 ## Git settings
 
@@ -280,10 +291,10 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `bus` | `hostnamectl`, `systemctl --failed` | the sandbox, with the bus socket | the reviewer, else you |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
-| `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | the reviewer when every target lies in a write root; else only you |
+| `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
 | `outside` | `df`, `findmnt`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
-| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file that a message of yours names, after a backup copy; else only you |
+| `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file that a message of yours names, after a copy into the home store; else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | only you |
 | `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor; else only you |
@@ -442,6 +453,75 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 programs, and how it was judged (by you, a floor or the reviewer). Without a conversation id, it shows the newest
 conversation of this terminal, else the newest of all, and says which.
 
+## Undo
+
+`efr undo` takes back the newest turn of this terminal's conversation that is not
+undone. It shows a preview and asks `undo? y = yes, n = no`:
+
+```
+$ efr undo
+undo turn 0193...: change a.txt and add notes.md
+restore     a.txt
+trash       notes.md
+skip        b.txt (changed after the turn; --force overwrites it)
+not covered .env.large (the snapshot left it out)
+ref         main 1a2b3c4 -> 5d6e7f8
+your git index is unchanged; git status can show staged changes
+undo? y = yes, n = no
+undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193.../, 1 ref moved
+```
+
+- Undo acts only on the paths that the turn's own calls changed. A change that you
+  made between two calls stays. A change that another conversation or you made while
+  a call ran counts as the call's change, so its old bytes go to the undo trash.
+- A path that changed after the turn stays, and the preview says `skip`. `--force`
+  overwrites it. A path that a snapshot left out, such as a large ignored file, is
+  `not covered`: undo never writes, deletes or trashes it.
+- Every file that undo overwrites or removes, also outside the project, goes to
+  `~/.local/share/efr/undo-trash/<undo-id>/` first. A file that undo makes again gets
+  its mode from the snapshot, without set-id bits; a `.env` with mode 0600 stays 0600.
+- Undo restores the branches, tags, `refs/stash` and `HEAD` that the turn moved, from
+  the mirror that efr took at the turn's first snapshot, by compare and swap. Your git
+  index stays as it is.
+- Undo is a stack: a turn cannot be undone while a newer turn of the conversation is
+  not undone, unless `--force`. `--redo` takes back the newest undo. `--list` shows the
+  turns and which are undone or stopped. `--turn` picks one, `--dry-run` only shows
+  the preview, and `--yes` needs no question. Without a terminal, `efr undo` needs
+  `--yes`.
+- Undo refuses while a turn, a compaction or another undo of the conversation runs, and
+  while a command of the conversation still runs after its timeout. A prompt that you
+  send during an undo waits for it.
+- An undo that stopped half way, such as after a stop of efrd, goes on at the next
+  `efr undo`. Undo holds the plan lock of each project that it writes.
+- Undo works for a turn of every mode with a snapshot. The hint `efr undo reverts this
+  turn` shows only after an `auto` turn. In `manual` and `cautious`, a line runs in
+  your own shell, and writes outside the project are not covered.
+- A phone cannot undo. The model has no undo tool, and `undo.*` and `snapshot.*` are
+  settings that only you change.
+
+**Routine destructive lines.** In `auto`, with `sandbox.ask_destructive =
+"unless_undoable"` (the default) and `undo.enabled = true`, a destructive part of a
+line runs with no review and no question when efr's snapshot holds every file that it
+can change. efr checks this before the decision and again under the plan lock, after
+the call's own snapshot. When the check fails then, the call does not run, and the
+model runs the line again.
+
+| Form | Covered when |
+|---|---|
+| `rm -r <p>`, `dd of=<p>`, `truncate <p>`, `: > <p>`, `find <p> -delete`, an `apply_patch` delete or move | `<p>` lies below a project or `$SCRATCH` that has a snapshot of this turn, not in a git dir or a floor, and each file at or below it is in the snapshot |
+| `git reset --hard`, `git checkout` that discards, `git restore`, `git switch --discard-changes` | every tracked file is in the snapshot, the index equals `HEAD`, and for `reset` and `switch` the mirror holds the refs |
+| `git branch -D` | the mirror holds the refs |
+| `git stash drop`, `git stash clear` | the mirror holds `refs/stash`, and the stash has one entry |
+| `git clean -f` without `-x` and `-X` | every untracked file is in the snapshot |
+| `shred`, `git clean -x` and `-X`, `git reflog expire`, `git gc --prune` | never |
+
+Only the `destructive` exit of that part goes; every other exit of the line keeps its
+route. In `manual` and `cautious`, efr still asks you for each delete.
+`sandbox.ask_destructive = "always"` keeps the review. `undo.enabled = false` or
+`snapshot.enabled = false` turns undo and the routine destructive lines off. With
+`snapshot.enabled = false`, a named floor file edit asks you again, because efr cannot
+copy it first.
+
 ## When the sandbox cannot run
 
 At start, efrd runs a probe: one real launch with a self-test inside. It runs the probe
@@ -523,7 +603,7 @@ the current directory:
 $ efr sandbox explain ~/.zshrc
 ~/.zshrc, from ~/p/eggfriedrice.code in auto:
   read   yes
-  write  no: a shell startup file (floor); a write goes to the reviewer when a message of yours names the file, and efr keeps a backup copy; else you decide; a write is a persistence exit
+  write  no: a shell startup file (floor); a write goes to the reviewer when a message of yours names the file, and efr undo reverts it; else you decide; a write is a persistence exit
 ```
 
 `, user only` follows the exit for a kind that only you approve, such as a synced
@@ -655,8 +735,17 @@ question, and none needs a restart.
 | MCP servers | they run outside the sandbox | none yet |
 | the host naming rule sees only the hosts of the line | a host behind a git remote name or a script reaches the reviewer's allow with no name; the `host` exit opens the whole network for the call | the reviewer reads the line and your messages; the masks and the environment filter stay; the proxy of a later phase grants one host |
 | the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
-| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a backup | a program that the model did not write in this turn can change `~/.zshrc` with no name and no backup | the one-command rule; a program written in this turn or in a write root asks you, and so does an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script); the reviewer sees the line |
+| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a copy | a program that the model did not write in this turn can change `~/.zshrc` with no name and no copy; the turn-end line names only what the copies cover | the one-command rule; a program written in this turn or in a write root asks you, and so does an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script); the reviewer sees the line |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
 | older system prompts of a conversation keep the old auto rule | the model can still read the old, longer rule in its history | the newest rule says that only the newest block counts |
 | a cache whose path holds a link | efrd refuses to apply its deletes | the deletes stay private; nothing is lost |
 | `sandbox.cache_mode = "overlay"` | a refused delete stays in the layer of the conversation and comes back after each call | efr does not raise the same paths again in the conversation |
+| a snapshot leaves out large files, ignored files above 1 MiB, more than 2000 ignored files, names that are not UTF-8 and nested repositories | undo cannot bring them back | the preview and the turn-end line say `not covered`; a delete of such a path is not routine |
+| a directory over `snapshot.home_max_files` or `snapshot.home_max_mib` | undo cannot bring back the other files of that dir | the turn-end line says `not covered: the call can write all of <dir>` |
+| an approved exit outside the sandbox can change efr's snapshot store | undo can lose its record of a turn | at the turn's end efr checks each `pre` ref; a missing one says `not covered: <root> (the snapshot store changed)` |
+| a command that runs on after its timeout | it can change files after the turn's last snapshot | the turn-end line says `not covered: <root> (a call still runs)`, undo refuses while it runs, and undo checks each path again |
+| another conversation writes the same project while a call runs | that write counts as the call's change | undo moves its bytes to the undo trash; the plan lock orders the calls |
+| content that is only staged, in neither the work tree nor `HEAD` | `git reset --hard` loses it | such a reset is not covered, so it goes to the reviewer |
+| older stash entries live only in the reflog | `git stash clear` loses them | stash drop and clear are covered only with one entry |
+| a snapshot holds no empty dirs, fifos, sockets, devices, extended attributes, ACLs, owners or hard links | a covered `rm -r` loses them, and undo makes hard-linked files separate | the preview notes `empty directories and special files do not come back` |
+| `at`, `batch` and `systemd-run --user` | they run later with no copy | they stay with you; a started unit runs on after an undo |

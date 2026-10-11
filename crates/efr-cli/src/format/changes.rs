@@ -1,10 +1,14 @@
 //! What a call or a turn changed in the files of its roots, as the daemon's snapshots
 //! see them: the muted row under a call, the line at the end of a turn and the list of
-//! `efr diff --stat`.
+//! `efr diff --stat`. After an `auto` turn that `efr undo` can take back, the line of
+//! the turn names the roots, the files outside them and the hint, then what no
+//! snapshot covers; `efr history` names each undo and, with `--verbose`, each snapshot.
 //!
 //! ```text
 //! changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)
 //! 3 files changed, +24 −7
+//! changed 3 files (+24 −7) in app and 2 in ~; efr undo reverts this turn
+//! not covered: target/ (ignored, large), refs of app (shallow)
 //! ```
 //!
 //! Every path comes from the daemon and passes through [`one_line`]. Added lines are in
