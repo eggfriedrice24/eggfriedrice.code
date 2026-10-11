@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{
     ActionFacts, AdminSandboxCheckResult, BlockReason, Blocked, CacheMode, ChainStep, CheckOutcome,
-    ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCounts, Grant, HostFact, JudgeKind,
-    Judgement, Launch, Mode, ModeFallback, NetworkMode, PathClassName, PauseReason, Presence,
-    PresenceSource, ProgramFact, ReportedFile, Risk, SandboxCheck, SandboxExplainResult,
+    DesktopKind, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCounts, Grant, HostFact,
+    JudgeKind, Judgement, Launch, Mode, ModeFallback, NetworkMode, PathClassName, PauseReason,
+    Presence, PresenceSource, ProgramFact, ReportedFile, Risk, SandboxCheck, SandboxExplainResult,
     SandboxPathRole, SandboxStatus, Scope, SurfaceChange, TargetFact, UserAuthorization, Verdict,
 };
 use pretty_assertions::assert_eq;
@@ -615,6 +615,51 @@ fn the_reviewer_lines_say_what_a_yes_opens_and_why() {
     assert_eq!(
         reviewing(None, &[ExitKind::Host, ExitKind::Upload], home()),
         "reviewing: host, upload"
+    );
+}
+
+#[test]
+fn reviewer_allowed_desktop_read_form_label() {
+    let hyprland = Grant::Desktop { desktop: DesktopKind::Hyprland };
+    let mut monitors =
+        requested("hyprctl monitors", &[ExitKind::DesktopIpc], vec![hyprland.clone()], &[]);
+    monitors.record.facts.desktop_read = true;
+    assert_eq!(
+        reviewed(Verdict::Allow, Some(Risk::Low), None, Some(&monitors), home()).unwrap(),
+        "reviewer allowed: the Hyprland socket, to read its state or reload it for this call \
+         (low risk)"
+    );
+    // A form that types or runs commands says so.
+    let exec =
+        requested("hyprctl dispatch exec kitty", &[ExitKind::DesktopIpc], vec![hyprland], &[]);
+    assert_eq!(
+        reviewed(Verdict::Allow, None, None, Some(&exec), home()).unwrap(),
+        "reviewer allowed: the Hyprland socket (it can type and run commands) for this call"
+    );
+    // An exit recorded before efr named the desktop keeps its words.
+    let old = requested("xdotool type x", &[ExitKind::DesktopIpc], vec![], &[]);
+    assert_eq!(
+        reviewed(Verdict::Allow, None, None, Some(&old), home()).unwrap(),
+        "reviewer allowed: the desktop (it can type and run commands) for this call"
+    );
+}
+
+#[test]
+fn desktop_exec_question_label() {
+    let grants = vec![Grant::Desktop { desktop: DesktopKind::Wayland }];
+    let info = info(&[ExitKind::DesktopIpc], Launch::Contained { grants });
+    let record = record("wtype hello");
+    let lines: Vec<String> =
+        exit_lines(&info, Some(&record), home()).iter().map(|line| plain(line)).collect();
+    assert!(
+        lines.iter().any(|line| line.contains("the Wayland socket (it can type and run commands)")),
+        "{lines:#?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("runs in the sandbox with the Wayland socket for this call")),
+        "{lines:#?}"
     );
 }
 

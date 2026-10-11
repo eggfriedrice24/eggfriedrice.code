@@ -11,10 +11,10 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    AdminSandboxCheckResult, BlockReason, Blocked, BusKind, ChainStep, CheckOutcome, ExitInfo,
-    ExitKind, ExitRecord, ExitSource, Grant, JudgeKind, Launch, Mode, ModeFallback, PathClassName,
-    PauseReason, Presence, PresenceSource, ProgramFact, ReportedFile, Risk, SandboxExplainResult,
-    SandboxStatus, SurfaceChange, TargetFact, Verdict,
+    AdminSandboxCheckResult, BlockReason, Blocked, BusKind, ChainStep, CheckOutcome, DesktopKind,
+    ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, JudgeKind, Launch, Mode, ModeFallback,
+    PathClassName, PauseReason, Presence, PresenceSource, ProgramFact, ReportedFile, Risk,
+    SandboxExplainResult, SandboxStatus, SurfaceChange, TargetFact, Verdict,
 };
 
 use super::card::{self, Card, Row};
@@ -205,9 +205,34 @@ fn grant_words(grant: &Grant, home: Option<&Path>) -> String {
         Grant::OpenNetwork => "full network".to_owned(),
         Grant::Socket { path } => format!("the socket {}", tilde(path, home)),
         Grant::Bus { bus } => bus_words(*bus).to_owned(),
+        Grant::Desktop { desktop } => desktop_words(*desktop),
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
         _ => "more access".to_owned(),
+    }
+}
+
+/// The socket of a desktop grant, such as `the Hyprland socket`.
+fn desktop_words(desktop: DesktopKind) -> String {
+    format!("the {} socket", desktop.name())
+}
+
+/// A `desktop_ipc` exit in words: the socket of its grant, else `the desktop` (an exit
+/// recorded before efr named the desktop, or a program with no socket), and what the
+/// line does with it. A read or reload form, such as `hyprctl monitors`, says so; any
+/// other form can type and run commands.
+fn desktop_part(grants: &[Grant], record: Option<&ExitRecord>) -> String {
+    let socket = grants
+        .iter()
+        .find_map(|grant| match grant {
+            Grant::Desktop { desktop } => Some(desktop_words(*desktop)),
+            _ => None,
+        })
+        .unwrap_or_else(|| "the desktop".to_owned());
+    if record.is_some_and(|record| record.facts.desktop_read) {
+        format!("{socket}, to read its state or reload it")
+    } else {
+        format!("{socket} (it can type and run commands)")
     }
 }
 
@@ -329,7 +354,7 @@ fn kind_part(
         ExitKind::Socket => {
             with_paths("the socket", &paths(grants, record, home, socket_path), "a socket")
         }
-        ExitKind::DesktopIpc => "the desktop (it can type and run commands)".to_owned(),
+        ExitKind::DesktopIpc => desktop_part(grants, record),
         ExitKind::Bus => grants
             .iter()
             .find_map(|grant| match grant {
