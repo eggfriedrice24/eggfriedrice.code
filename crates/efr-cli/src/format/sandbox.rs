@@ -314,6 +314,24 @@ fn first_program(record: Option<&ExitRecord>) -> Option<String> {
     record.and_then(|record| record.facts.programs.first()).map(|program| one_line(&program.word))
 }
 
+/// The program of the first command that runs outside the sandbox, such as `df` for
+/// `uname -a; df -h`: the command that leaves, not the first of the line. A record from
+/// an efr before `outside_commands` names the first program of the line.
+fn outside_program(record: Option<&ExitRecord>) -> Option<String> {
+    let Some(command) = record.and_then(|record| record.facts.outside_commands.first()) else {
+        return first_program(record);
+    };
+    command.split_whitespace().find(|word| !is_assignment(word)).map(one_line)
+}
+
+/// True for a word that sets a variable for its command, such as `LC_ALL=C`.
+fn is_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
 /// One exit kind in words, such as `write ~/.zshrc` or `network`, with what the
 /// grants open.
 fn kind_part(
@@ -365,7 +383,7 @@ fn kind_part(
         ExitKind::Device => {
             with_paths("the device", &paths(grants, record, home, device_path), "a device")
         }
-        ExitKind::Outside => first_program(record).unwrap_or_else(|| "the whole line".to_owned()),
+        ExitKind::Outside => outside_program(record).unwrap_or_else(|| "the whole line".to_owned()),
         ExitKind::Privilege => format!(
             "{} (you may need to type your password)",
             first_program(record).unwrap_or_else(|| "more rights".to_owned())

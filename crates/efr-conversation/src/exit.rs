@@ -817,6 +817,14 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
         .filter(|need| need.kind == ExitKind::Upload)
         .map(|need: &ExitNeed| need.part.clone())
         .collect();
+    // NOTE: the command that leaves, not the first of the line: `uname; df -h` runs
+    // `df -h` outside, and a label of `uname` would name the wrong program.
+    let mut outside_commands: Vec<String> = Vec::new();
+    for need in action.decision.exits().filter(|need| need.kind == ExitKind::Outside) {
+        if !outside_commands.contains(&need.part) {
+            outside_commands.push(need.part.clone());
+        }
+    }
     ExitRecord {
         version: ExitRecord::VERSION,
         user_messages: bounded(messages),
@@ -835,7 +843,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             hosts,
             programs,
             upload_patterns,
-            outside_commands: Vec::new(),
+            outside_commands,
             desktop_read,
             repo_surface_changed_this_turn: turn.surface_changed,
             git_status: None,

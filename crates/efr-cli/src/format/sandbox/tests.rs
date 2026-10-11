@@ -568,6 +568,26 @@ fn requested(line: &str, kinds: &[ExitKind], grants: Vec<Grant>, targets: &[&str
     Requested { kinds: kinds.to_vec(), grants, source: ExitSource::Needs, record }
 }
 
+/// The live run: `reviewer allowed: uname for this call` for a line whose exit was
+/// `df`. The label names the command that leaves the sandbox.
+#[test]
+fn reviewer_allowed_names_the_outside_command() {
+    let mut exit = requested("uname -a; df -h", &[ExitKind::Outside], Vec::new(), &[]);
+    exit.record.facts.programs =
+        vec![program("uname", "/usr/bin/uname"), program("df", "/usr/bin/df")];
+    exit.record.facts.outside_commands = vec!["LC_ALL=C df -h".to_owned()];
+    assert_eq!(
+        reviewed(Verdict::Allow, Some(Risk::Low), None, Some(&exit), home()).unwrap(),
+        "reviewer allowed: df for this call (low risk)"
+    );
+    // A record from before the field names the first program of the line.
+    exit.record.facts.outside_commands.clear();
+    assert_eq!(
+        reviewed(Verdict::Allow, None, None, Some(&exit), home()).unwrap(),
+        "reviewer allowed: uname for this call"
+    );
+}
+
 #[test]
 fn the_reviewer_lines_say_what_a_yes_opens_and_why() {
     let write = Grant::Write { path: PathBuf::from("/home/u/.local/share/app") };

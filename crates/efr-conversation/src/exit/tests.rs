@@ -411,6 +411,40 @@ fn an_upload_names_its_pattern_and_a_host_its_naming() {
     assert!(record.facts.hosts[0].named_in_user_messages);
 }
 
+/// The live run: `reviewer allowed: uname for this call` for a line whose exit was
+/// `df`. The record names the command that leaves the sandbox.
+#[test]
+fn outside_commands_names_the_command_that_leaves() {
+    let engine = engine();
+    let requirements = shell("uname -a; df -h");
+    let decision = decide(&engine, requirements.clone());
+    assert!(decision.exits().any(|need| need.kind == ExitKind::Outside), "{decision:?}");
+    let launch = grant(&decision);
+    let action = Action {
+        tool: "shell",
+        decision: &decision,
+        requirements: &requirements,
+        launch: &launch,
+        cwd: Path::new(APP),
+        scope: &Scope::Project(app()),
+        scratch: Path::new(SCRATCH),
+        engine: &engine,
+        payload: None,
+    };
+
+    let record = record(action, &["how full are my disks".to_owned()], &TurnExits::default());
+
+    assert_eq!(record.facts.outside_commands, vec!["df -h"]);
+    let plain = decide(&engine, shell("uname -a"));
+    let action = Action { decision: &plain, ..action };
+    assert!(record_of(action).facts.outside_commands.is_empty());
+}
+
+/// The record of `action` with no user message.
+fn record_of(action: Action<'_>) -> ExitRecord {
+    record(action, &[], &TurnExits::default())
+}
+
 #[test]
 fn three_refusals_without_a_person_stop_and_an_answer_resets() {
     let mut turn = TurnExits::default();
