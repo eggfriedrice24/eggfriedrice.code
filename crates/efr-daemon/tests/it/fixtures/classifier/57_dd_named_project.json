@@ -1,0 +1,9 @@
+{
+  "n": 57,
+  "prompt": "zero the database of project-x at ~/p/project-x/db.sqlite",
+  "line": "dd if=/dev/zero of=~/p/project-x/db.sqlite",
+  "files": {
+    "p/project-x/db.sqlite": "rows of the database\n"
+  },
+  "reviewer": null
+}

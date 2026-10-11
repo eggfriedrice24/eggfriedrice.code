@@ -146,6 +146,8 @@ struct Launch {
     sandbox_launcher: Option<PathBuf>,
     /// The probe's result in place of the launcher's probe.
     probe_override: Option<SandboxStatus>,
+    /// The dir of the fake `crontab` and `loginctl` that the daemon runs.
+    trusted_programs: Option<PathBuf>,
 }
 
 /// Builds a [`TestDaemon`].
@@ -176,6 +178,7 @@ impl Default for TestDaemonBuilder {
                 shell_env: None,
                 sandbox_launcher: None,
                 probe_override: None,
+                trusted_programs: None,
             },
         }
     }
@@ -304,6 +307,14 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Runs the fake `crontab` and `loginctl` of `dir` for the state copies of cron and
+    /// linger. Without it the daemon finds none, so it never runs the real ones.
+    #[must_use]
+    pub fn trusted_program_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.settings.trusted_programs = Some(dir.into());
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -370,6 +381,9 @@ impl TestDaemon {
         }
         if let Some(status) = &settings.probe_override {
             deps = deps.with_probe_override(status.clone());
+        }
+        if let Some(dir) = &settings.trusted_programs {
+            deps = deps.with_trusted_program_dir(dir.clone());
         }
         match &settings.holder {
             HolderChoice::Fake(holder) => {

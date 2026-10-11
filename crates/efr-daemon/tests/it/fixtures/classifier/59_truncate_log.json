@@ -1,0 +1,9 @@
+{
+  "n": 59,
+  "prompt": "empty important.log in this project",
+  "line": ": > important.log",
+  "files": {
+    "project/important.log": "old lines of the log\n"
+  },
+  "reviewer": null
+}

@@ -1,0 +1,9 @@
+{
+  "n": 88,
+  "prompt": "enable agent.service from this project with a link",
+  "line": "ln -sf ~/project/agent.service ~/.config/systemd/user/default.target.wants/agent.service",
+  "files": {
+    "project/agent.service": "[Service]\nExecStart=/usr/bin/true\n"
+  },
+  "reviewer": null
+}

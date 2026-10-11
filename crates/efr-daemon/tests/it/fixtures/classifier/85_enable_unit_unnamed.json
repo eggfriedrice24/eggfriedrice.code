@@ -1,0 +1,6 @@
+{
+  "n": 85,
+  "prompt": "make the helper start when I log in",
+  "line": "systemctl --user enable --now myagent.service",
+  "reviewer": null
+}

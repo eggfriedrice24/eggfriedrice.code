@@ -1,0 +1,6 @@
+{
+  "n": 84,
+  "prompt": "set up the job runner of this machine",
+  "line": "echo '*/5 * * * * x' | crontab -",
+  "reviewer": null
+}
