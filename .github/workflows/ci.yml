@@ -211,6 +211,15 @@ jobs:
       - run: >-
           cargo-nextest nextest run --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
           --workspace-remap . --extract-to . --profile ci
+      # The gate of the first snapshot of a turn (efr's auto spec, 16.4): the cost test
+      # of efr-snapshot again, alone, so no other test takes its CPU. It writes its
+      # numbers to the step summary. As in `just test`.
+      - run: >-
+          cargo-nextest nextest run --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
+          --workspace-remap . --extract-to . --extract-overwrite --profile ci
+          --success-output immediate -E 'binary_id(efr-snapshot::it) & test(/^cost::/)'
+        env:
+          EFR_TEST_SNAPSHOT_GATE: "1"
 
   shell:
     needs: build
@@ -228,8 +237,9 @@ jobs:
           name: nextest-archive
           path: ${{ runner.temp }}
       # The tests of the four packages that `-p efr-shell -p efr-cli -p efr-daemon
-      # -p efr-test-daemon` selected before the archive. They are now built with the
-      # features of the whole workspace, as in `test-full`, not only the ones the four
+      # -p efr-test-daemon` selected before the archive, and efr-snapshot, whose store
+      # depends on the git of the runner's image. They are now built with the
+      # features of the whole workspace, as in `test-full`, not only the ones the
       # packages turn on; `hack` still checks each package's own feature sets. efr-daemon
       # is built with local-pty, which the shell_ tests over a TestDaemon need for a real
       # zsh. As in `just test-shell`; `just test-shell-ubuntu` runs this job in a
@@ -237,7 +247,7 @@ jobs:
       - run: >-
           cargo-nextest nextest run --archive-file "$RUNNER_TEMP/nextest-archive.tar.zst"
           --workspace-remap . --extract-to . --profile ci
-          -E 'package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)'
+          -E 'package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon) | package(efr-snapshot)'
         env:
           EFR_TEST_ZSH: "1"
 

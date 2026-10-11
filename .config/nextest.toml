@@ -18,6 +18,13 @@ final-status-level = "slow"
 filter = 'binary_id(efr-sbx::it) & test(/^(cost|corpus)::/)'
 slow-timeout = { period = "60s", terminate-after = 5 }
 
+# The cost test of efr-snapshot builds a fixture of this repository's size with a
+# history of 1000 commits, then takes about 70 snapshots; in a busy full run or a slow
+# runner that needs more than the default minute.
+[[profile.default.overrides]]
+filter = 'binary_id(efr-snapshot::it) & test(/^cost::/)'
+slow-timeout = { period = "60s", terminate-after = 5 }
+
 [test-groups]
 shell = { max-threads = 1 }
 

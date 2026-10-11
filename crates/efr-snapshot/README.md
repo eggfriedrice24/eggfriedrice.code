@@ -174,12 +174,25 @@ cargo nextest run -p efr-snapshot
 The tests need a `git` binary. They run in temporary directories with git's system and
 global config switched off. `tests/it/calls.rs` covers a plain directory and a git
 project (whose `.git` and index must keep their bytes), every kind of change, binary
-files, links, ignored, large and build files and the file limit; `turns.rs` the turn's
-refs and its diff with and without the patch; `gc.rs` both bounds of the collector;
-`logs.rs` the log lines of an add that fails (a file that git cannot read, skipped
-when the tests run as root, and a git wrapper that stops with exit code 128).
-`cost.rs` measures one call on a copy of this repository and prints the numbers:
+files, links, ignored, large and build files and the file limit, the left-out record,
+the modes, and a project whose config would run code at every git key it can;
+`bytes.rs` exact bytes under any `.gitattributes`; `turns.rs` the turn's refs, `last`,
+`touched`, a failed snapshot, a lost `pre`, and its diff with and without the patch;
+`mirror.rs` the mirror and each reason for none; `cover.rs` the coverage check;
+`gc.rs` both bounds of the collector, the packing and the home store; `logs.rs` the
+log lines of an add that fails (a file that git cannot read, skipped when the tests
+run as root, and a git wrapper that stops with exit code 128). The tests run on the
+developer's git and, in CI's shell job and `just test-shell-ubuntu`, on Ubuntu's.
+
+`cost.rs` is the gate of 16.4: on a fixture the size of this repository (its sources,
+a synthetic history of 1000 commits, the ignored files of 10.2), the median CPU time
+(the process and its children) of 20 first snapshots of a new turn, with the mirror
+and the ignored walk, must stay at most 200 ms, and the median wall time at most a
+bound that grows with the fixture's fastest `git status` on the machine. It fails only
+with `EFR_TEST_SNAPSHOT_GATE=1`, which `just test` and CI set in a serial step of its
+own; otherwise it reports. It also reports a call, a coverage check and a walk of 2000
+files. The numbers go to stderr and to the CI step summary:
 
 ```sh
-cargo nextest run -p efr-snapshot --success-output immediate -E 'test(/^cost::/)'
+EFR_TEST_SNAPSHOT_GATE=1 cargo nextest run -p efr-snapshot --success-output immediate -E 'test(/^cost::/)'
 ```

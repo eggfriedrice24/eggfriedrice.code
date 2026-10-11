@@ -27,6 +27,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 efr-test-support.workspace = true
+nix = { workspace = true, features = ["resource"] }
 pretty_assertions.workspace = true
 tempfile.workspace = true
 tracing-subscriber.workspace = true

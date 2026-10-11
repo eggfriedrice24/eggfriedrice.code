@@ -7,10 +7,16 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # The leaf gate: crates that never pull a daemon edge, so their features stay light.
 leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-screen-vt100 efr-patch"
 
-# The tests of CI's shell job: these four packages, out of the test binaries that
-# test-full builds (CI's build job archives them), so the two share one build. They
-# build with the features of the whole workspace, not only those the four turn on.
-shell_tests := "package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon)"
+# The tests of CI's shell job: these packages, out of the test binaries that test-full
+# builds (CI's build job archives them), so the two share one build. They build with
+# the features of the whole workspace, not only those the packages turn on.
+# efr-snapshot is here for its git: the Ubuntu container has an older one than a
+# developer machine, and the store's exact bytes and its mirror depend on git.
+shell_tests := "package(efr-shell) | package(efr-cli) | package(efr-daemon) | package(efr-test-daemon) | package(efr-snapshot)"
+
+# The gate of the first snapshot of a turn (efr's auto spec, 16.4): the cost test of
+# efr-snapshot, alone, so no other test takes its CPU.
+snapshot_gate := "binary_id(efr-snapshot::it) & test(/^cost::/)"
 
 # The host cache of the Docker gates (test-shell-ubuntu, test-sandbox-ubuntu and
 # test-sandbox-vm). Every checkout shares the cargo registry and git dirs below
@@ -75,9 +81,11 @@ test-leaf:
     fi
     cargo nextest run "${args[@]}" --lib --tests
 
-# The full gate: every member except the ghostty screen.
+# The full gate: every member except the ghostty screen, then the snapshot gate on its
+# own, as in CI.
 test-full:
     cargo nextest run --workspace --exclude efr-screen-ghostty --profile ci
+    EFR_TEST_SNAPSHOT_GATE=1 cargo nextest run -p efr-snapshot --profile ci --success-output immediate -E '{{ snapshot_gate }}'
 
 # The ghostty conformance suite and daemon tests on the real backend (needs Zig 0.16.0).
 test-ghostty:

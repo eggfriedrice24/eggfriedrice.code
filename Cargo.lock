@@ -1203,6 +1203,7 @@ dependencies = [
  "efr-test-support",
  "futures",
  "jiff",
+ "nix",
  "pretty_assertions",
  "serde",
  "serde_json",
