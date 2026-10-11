@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{BusKind, CacheMode, Grant, SandboxPathRole};
+use efr_protocol::{BusKind, CacheMode, DesktopKind, Grant, SandboxPathRole};
 use pretty_assertions::assert_eq;
 
 use crate::paths::depth;
 use crate::plan::{MountOp, MountOrigin, MountPlan, OpKind, PlanNote, StartDir};
-use crate::spec::{Floor, FloorKind, Mask, MaskKind, WriteRoot, WriteRootKind};
+use crate::spec::{DesktopSocket, Floor, FloorKind, Mask, MaskKind, WriteRoot, WriteRootKind};
 use crate::state::SandboxCwd;
 use crate::testing::{FakeFs, PROJECT, spec, world};
 use crate::{SandboxError, SandboxSpec};
@@ -502,6 +502,151 @@ fn plan_refuses_a_socket_below_a_secret_or_in_efrs_roots() {
     let mut spec = base;
     spec.grants = vec![Grant::Socket { path: "/run/user/1000/app.sock".into() }];
     assert!(has_mount(&plan(&spec, &fs), &rw("/run/user/1000/app.sock")));
+}
+
+const SIGNATURE: &str = "0b4a3e5a_1760000000_1234";
+const HYPR_SOCKET: &str = "/run/user/1000/hypr/0b4a3e5a_1760000000_1234/.socket.sock";
+
+fn hyprland() -> DesktopSocket {
+    DesktopSocket {
+        desktop: DesktopKind::Hyprland,
+        path: HYPR_SOCKET.into(),
+        value: SIGNATURE.to_owned(),
+    }
+}
+
+#[test]
+fn plan_desktop_grant_binds_socket_and_sets_env() {
+    let mut fs = world();
+    fs.socket(HYPR_SOCKET)
+        .socket("/run/user/1000/hypr/0b4a3e5a_1760000000_1234/.socket2.sock")
+        .file("/run/user/1000/hypr/0b4a3e5a_1760000000_1234/hyprland.log", "titles")
+        .socket("/tmp/.X11-unix/X0");
+    let mut spec = spec();
+    let x11 = DesktopSocket {
+        desktop: DesktopKind::X11,
+        path: "/tmp/.X11-unix/X0".into(),
+        value: ":0".into(),
+    };
+    spec.runtime.desktops = vec![hyprland(), x11];
+    // Without a grant, a socket of the spec binds nothing.
+    let plain = plan(&spec, &fs);
+    assert!(!plain.mounts().iter().any(|mount| mount.origin == MountOrigin::Socket));
+    assert!(plain.env_overrides().is_empty());
+
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Hyprland }];
+    let plan = plan(&spec, &fs);
+    let sockets: Vec<&MountOp> = plan
+        .mounts()
+        .iter()
+        .filter(|mount| mount.origin == MountOrigin::Socket)
+        .map(|mount| &mount.op)
+        .collect();
+    assert_eq!(sockets, [&rw(HYPR_SOCKET)], "only the control socket, never the dir");
+    assert_eq!(plan.resolve_unix, [PathBuf::from(HYPR_SOCKET)]);
+    assert_eq!(
+        plan.env_overrides(),
+        [("HYPRLAND_INSTANCE_SIGNATURE".to_owned(), SIGNATURE.to_owned())]
+    );
+    // The bind lands inside the masked runtime dir, after its tmpfs.
+    let at = |target: &str| {
+        plan.mounts().iter().position(|mount| mount.op.target() == Path::new(target)).unwrap()
+    };
+    assert!(at("/run/user/1000") < at(HYPR_SOCKET));
+
+    let mut spec = spec;
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::X11 }];
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    assert!(has_mount(&plan, &rw("/tmp/.X11-unix/X0")));
+    assert_eq!(plan.env_overrides(), [("DISPLAY".to_owned(), ":0".to_owned())]);
+}
+
+#[test]
+fn plan_refuses_desktop_socket_outside_runtime_or_x11_dir() {
+    let mut fs = world();
+    fs.socket(HYPR_SOCKET)
+        .socket("/run/user/1000/hypr/0b4a3e5a_1760000000_1234/.socket2.sock")
+        .socket("/home/u/p/app/fake.sock")
+        .dir("/home/u/p/app/hypr")
+        .link("/run/user/1000/hypr/linked", "/home/u/p/app/hypr")
+        .socket("/home/u/p/app/hypr/.socket.sock")
+        .file("/run/user/1000/wayland-9", "")
+        .socket("/run/user/1000/sway-ipc.sock");
+    let refused = [
+        // The event socket, though the spec names it.
+        DesktopSocket {
+            desktop: DesktopKind::Hyprland,
+            path: "/run/user/1000/hypr/0b4a3e5a_1760000000_1234/.socket2.sock".into(),
+            value: SIGNATURE.to_owned(),
+        },
+        // A path that its value does not name.
+        DesktopSocket {
+            desktop: DesktopKind::Wayland,
+            path: "/home/u/p/app/fake.sock".into(),
+            value: "wayland-0".to_owned(),
+        },
+        // A value that names a path outside the runtime dir.
+        DesktopSocket {
+            desktop: DesktopKind::Sway,
+            path: "/home/u/p/app/fake.sock".into(),
+            value: "/home/u/p/app/fake.sock".to_owned(),
+        },
+        // A link in the runtime dir to a socket in a write root.
+        DesktopSocket {
+            desktop: DesktopKind::Hyprland,
+            path: "/run/user/1000/hypr/linked/.socket.sock".into(),
+            value: "linked".to_owned(),
+        },
+        // Not a socket.
+        DesktopSocket {
+            desktop: DesktopKind::Wayland,
+            path: "/run/user/1000/wayland-9".into(),
+            value: "wayland-9".to_owned(),
+        },
+        // A display on another host.
+        DesktopSocket {
+            desktop: DesktopKind::X11,
+            path: "/tmp/.X11-unix/X0".into(),
+            value: "host:0".to_owned(),
+        },
+    ];
+    for socket in refused {
+        let mut spec = spec();
+        spec.grants = vec![Grant::Desktop { desktop: socket.desktop }];
+        spec.runtime.desktops = vec![socket.clone()];
+        assert!(
+            matches!(MountPlan::build(&spec, &fs), Err(SandboxError::GrantTarget { .. })),
+            "{socket:?}"
+        );
+    }
+    let mut spec = spec();
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Sway }];
+    spec.runtime.desktops = vec![DesktopSocket {
+        desktop: DesktopKind::Sway,
+        path: "/run/user/1000/sway-ipc.sock".into(),
+        value: "/run/user/1000/sway-ipc.sock".to_owned(),
+    }];
+    assert!(has_mount(&plan(&spec, &fs), &rw("/run/user/1000/sway-ipc.sock")));
+}
+
+#[test]
+fn plan_desktop_without_socket_is_no_desktop() {
+    let mut fs = world();
+    fs.socket(HYPR_SOCKET);
+    let mut spec = spec();
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Wayland }];
+    spec.runtime.desktops = vec![hyprland()];
+    let error = MountPlan::build(&spec, &fs).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            SandboxError::NoDesktop { desktop: DesktopKind::Wayland, needs_cookie: false }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), "efr found no Wayland session in the terminal of this prompt");
+    let cookie = SandboxError::NoDesktop { desktop: DesktopKind::X11, needs_cookie: true };
+    assert!(cookie.to_string().contains("needs an X cookie"), "{cookie}");
 }
 
 #[test]

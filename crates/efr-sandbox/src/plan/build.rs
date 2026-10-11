@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, CacheMode, Grant};
 
 use crate::SandboxError;
+use crate::desktop::{X11_SOCKET_DIR, desktop_socket_path};
 use crate::fs_view::{FileKind, FsView, Memo, Resolved, resolve};
 use crate::git_config::parse_config;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
 use crate::plan::{Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote};
-use crate::spec::{FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
+use crate::spec::{DesktopSocket, FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
 
 /// The most bytes of a git config that the plan reads for its include paths.
 const MAX_GIT_CONFIG: usize = 1024 * 1024;
@@ -532,13 +533,22 @@ impl Builder<'_> {
         Ok(())
     }
 
-    /// Socket, bus and device grants, and the network.
+    /// Socket, bus, desktop and device grants, and the network.
     fn sockets_and_devices(&mut self) -> Result<(), SandboxError> {
-        let runtime = &self.spec.runtime;
+        let spec = self.spec;
+        let runtime = &spec.runtime;
         let mut sockets: Vec<PathBuf> = Vec::new();
-        for grant in &self.spec.grants {
+        let mut desktops: Vec<&DesktopSocket> = Vec::new();
+        for grant in &spec.grants {
             match grant {
                 Grant::Socket { path } => sockets.push(path.clone()),
+                Grant::Desktop { desktop } => {
+                    let socket =
+                        runtime.desktops.iter().find(|socket| socket.desktop == *desktop).ok_or(
+                            SandboxError::NoDesktop { desktop: *desktop, needs_cookie: false },
+                        )?;
+                    desktops.push(socket);
+                }
                 Grant::Bus { bus: BusKind::System } => {
                     sockets.push(runtime.system_bus.clone());
                     self.env.push((
@@ -584,6 +594,39 @@ impl Builder<'_> {
             self.push(op, OpKind::Widening, MountOrigin::Socket);
             self.resolve_unix.push(resolved.path);
         }
+        for socket in desktops {
+            self.desktop(socket)?;
+        }
+        Ok(())
+    }
+
+    /// The one control socket of a desktop grant, bound writable at the path that its
+    /// variable names, and that variable. The socket must be the one that
+    /// [`desktop_socket_path`] computes from the value, a socket in the user's runtime
+    /// dir or the X11 dir after every link, and no hidden one, so the grant never
+    /// reaches another socket of the desktop, such as Hyprland's event socket.
+    fn desktop(&mut self, socket: &DesktopSocket) -> Result<(), SandboxError> {
+        let refused = || SandboxError::GrantTarget { path: socket.path.clone() };
+        let runtime = &self.spec.runtime;
+        let expected = desktop_socket_path(socket.desktop, &socket.value, &runtime.user_runtime);
+        if expected.as_deref() != Some(socket.path.as_path()) {
+            return Err(refused());
+        }
+        let user_runtime = self.resolve(&runtime.user_runtime)?.path;
+        let resolved = self.resolve(&socket.path)?;
+        let placed = is_within(&resolved.path, &user_runtime)
+            || is_within(&resolved.path, Path::new(X11_SOCKET_DIR));
+        if resolved.kind != Some(FileKind::Other)
+            || !placed
+            || self.hidden_socket(&resolved.path)?
+        {
+            return Err(refused());
+        }
+        let op =
+            MountOp::Bind { source: resolved.path, target: socket.path.clone(), writable: true };
+        self.push(op, OpKind::Widening, MountOrigin::Socket);
+        self.resolve_unix.push(socket.path.clone());
+        self.env.push((socket.desktop.variable().to_owned(), socket.value.clone()));
         Ok(())
     }
 

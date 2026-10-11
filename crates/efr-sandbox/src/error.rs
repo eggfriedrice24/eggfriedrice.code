@@ -3,6 +3,8 @@
 use std::io;
 use std::path::PathBuf;
 
+use efr_protocol::DesktopKind;
+
 /// Every way a sandbox spec, plan, record stream or result file can fail.
 ///
 /// A plan error refuses the call: the model reads "the sandbox cannot run here" and
@@ -161,6 +163,17 @@ pub enum SandboxError {
     #[error("a session bus grant, but the user has no session bus")]
     NoSessionBus,
 
+    /// A desktop grant, but efrd found no socket of that desktop that a call may use for
+    /// the terminal of the prompt.
+    #[error("{}", no_desktop(*desktop, *needs_cookie))]
+    NoDesktop {
+        /// Which desktop.
+        desktop: DesktopKind,
+        /// True when an X server was found, but it needs an X cookie, which a call in
+        /// the sandbox cannot get yet.
+        needs_cookie: bool,
+    },
+
     /// The records stream does not start with the header.
     #[error("the records do not start with the efr-records v1 header")]
     RecordsHeader,
@@ -186,4 +199,15 @@ pub enum SandboxError {
     /// A `cwd` record is not an absolute path without control characters.
     #[error("the cwd record is not an absolute path without control characters")]
     RecordCwd,
+}
+
+/// The text of [`SandboxError::NoDesktop`], which the model reads.
+fn no_desktop(desktop: DesktopKind, needs_cookie: bool) -> String {
+    if needs_cookie {
+        "the X server of the terminal of this prompt needs an X cookie, which a call in the \
+         sandbox cannot get yet"
+            .to_owned()
+    } else {
+        format!("efr found no {} session in the terminal of this prompt", desktop.name())
+    }
 }

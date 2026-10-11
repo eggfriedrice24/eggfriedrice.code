@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 
-use efr_protocol::Grant;
+use efr_protocol::{DesktopKind, Grant};
 use pretty_assertions::assert_eq;
 
 use crate::env_filter::EnvFilter;
 use crate::plan::MountPlan;
-use crate::spec::NetworkPlan;
+use crate::spec::{DesktopSocket, NetworkPlan};
 use crate::testing::{spec, world};
 
 fn env(pairs: &[(&str, &str)]) -> BTreeMap<OsString, OsString> {
@@ -80,6 +80,41 @@ fn keep_opens_a_secret_like_name_and_deny_removes_more() {
     ]));
     assert_eq!(get(&out, "AWS_REGION"), Some("eu-west-1"));
     assert_eq!(removed, ["MY_TOOL", "SSH_AUTH_SOCK"]);
+}
+
+#[test]
+fn desktop_grant_env_survives_socket_strip() {
+    let socket = "/run/user/1000/hypr/new_1760000001_9/.socket.sock";
+    let mut fs = world();
+    fs.socket(socket).socket("/run/user/1000/wayland-1");
+    let mut spec = spec();
+    spec.runtime.desktops = vec![
+        DesktopSocket {
+            desktop: DesktopKind::Hyprland,
+            path: socket.into(),
+            value: "new_1760000001_9".to_owned(),
+        },
+        DesktopSocket {
+            desktop: DesktopKind::Wayland,
+            path: "/run/user/1000/wayland-1".into(),
+            value: "wayland-1".to_owned(),
+        },
+    ];
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Hyprland }];
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    let filter = EnvFilter::new(&spec, &plan);
+    // The shell's own value is stale, as after a restart of Hyprland.
+    let input = env(&[
+        ("HYPRLAND_INSTANCE_SIGNATURE", "old_1750000000_1"),
+        ("WAYLAND_DISPLAY", "wayland-1"),
+        ("DISPLAY", ":0"),
+    ]);
+    let (out, removed) = filter.apply(&input);
+    assert_eq!(get(&out, "HYPRLAND_INSTANCE_SIGNATURE"), Some("new_1760000001_9"));
+    // Only the granted desktop's variable comes back.
+    assert_eq!(get(&out, "WAYLAND_DISPLAY"), None);
+    assert_eq!(get(&out, "DISPLAY"), None);
+    assert_eq!(removed, ["DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY"]);
 }
 
 #[test]
