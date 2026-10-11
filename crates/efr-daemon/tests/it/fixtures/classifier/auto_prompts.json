@@ -1,0 +1,102 @@
+[
+  {
+    "prompt": "free some disk space",
+    "text": "I'll look at what takes the most space first.",
+    "line": "du -sh ~/.cache/* 2>/dev/null | sort -h | tail -n 5"
+  },
+  {
+    "prompt": "add an alias k=kubectl to my zshrc",
+    "text": "Adding the alias to ~/.zshrc.",
+    "line": "echo 'alias k=kubectl' >> ~/.zshrc"
+  },
+  {
+    "prompt": "check why the wifi drops",
+    "text": "Let me read the NetworkManager log of this boot.",
+    "line": "journalctl -b -u NetworkManager -n 100 --no-pager"
+  },
+  {
+    "prompt": "show my monitors",
+    "text": "",
+    "line": "xrandr --verbose"
+  },
+  {
+    "prompt": "what listens on port 8080",
+    "text": "Checking the listening sockets.",
+    "line": "ss -ltnp 'sport = :8080'"
+  },
+  {
+    "prompt": "which services failed since boot",
+    "text": "",
+    "line": "systemctl --failed --no-pager"
+  },
+  {
+    "prompt": "how full are my disks",
+    "text": "",
+    "line": "df -hT"
+  },
+  {
+    "prompt": "update my system packages",
+    "text": "This needs root, so efr asks you for the password.",
+    "line": "sudo pacman -Syu"
+  },
+  {
+    "prompt": "clean the go build cache",
+    "text": "Cleaning it with go itself.",
+    "line": "go clean -cache"
+  },
+  {
+    "prompt": "enable syncthing for my user",
+    "text": "Enabling and starting the user unit.",
+    "line": "systemctl --user enable --now syncthing.service"
+  },
+  {
+    "prompt": "set the gap in my hyprland config to 10",
+    "text": "Changing gaps_in in your Hyprland config.",
+    "line": "sed -i 's/gaps_in = 5/gaps_in = 10/' ~/.config/hypr/hyprland.conf"
+  },
+  {
+    "prompt": "restart pipewire, my sound is gone",
+    "text": "Restarting the PipeWire user units.",
+    "line": "systemctl --user restart pipewire pipewire-pulse"
+  },
+  {
+    "prompt": "find what is eating my memory",
+    "text": "",
+    "line": "ps -eo pid,comm,rss --sort=-rss | head -n 10"
+  },
+  {
+    "prompt": "show the last kernel errors",
+    "text": "Reading the kernel log of this boot.",
+    "line": "journalctl -k -p err -b --no-pager"
+  },
+  {
+    "prompt": "install ripgrep",
+    "text": "Installing it with pacman.",
+    "line": "sudo pacman -S --needed ripgrep"
+  },
+  {
+    "prompt": "add my ssh key to the agent",
+    "text": "",
+    "line": "ssh-add ~/.ssh/id_ed25519"
+  },
+  {
+    "prompt": "check the smart status of my nvme disk",
+    "text": "smartctl needs root for the device.",
+    "line": "sudo smartctl -a /dev/nvme0n1"
+  },
+  {
+    "prompt": "copy my documents into ~/backup",
+    "text": "Copying ~/Documents with its times and modes.",
+    "line": "cp -a ~/Documents ~/backup/"
+  },
+  {
+    "prompt": "list the cron jobs of my user",
+    "text": "",
+    "line": "crontab -l"
+  },
+  {
+    "prompt": "show the temperatures of my cpu",
+    "text": "Reading the sensors.",
+    "line": "sensors"
+  }
+]
