@@ -61,7 +61,11 @@ Modules:
   `nested_shell`; and
   `CallFacts`, the facts about the line's files and programs that the daemon collects
   for the `auto` mode, with each declared link and the real path it reaches, whose
-  write takes the names of the link) and `ConversationPolicy` (the
+  write takes the names of the link, and from phase B the answer to each `CoverAsk`
+  of `FactRequest::covers` in `covered`: a `Coverage`, which `CallFacts::coverage`
+  reads as `Unknown`, never covered, when no fact says; `ExitNeed` gains `copies`,
+  what efrd copies into its home store before the call, and `covered`. The types
+  come first; the engine reads none of them yet) and `ConversationPolicy` (the
   conversation's `$SCRATCH` and its own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
   crates apart, so the daemon's toolbox copies one into the other.
 - `command`: `analyze` splits a command line into simple commands on `;`, `&&`, `||`,

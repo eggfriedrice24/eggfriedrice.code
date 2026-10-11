@@ -1041,6 +1041,8 @@ fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
         target: Some(target.to_path_buf()),
         bind: None,
         link: None,
+        copies: Vec::new(),
+        covered: None,
     }
 }
 

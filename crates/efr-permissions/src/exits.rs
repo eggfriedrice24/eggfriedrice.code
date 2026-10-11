@@ -33,7 +33,9 @@ use self::scan::{OPAQUE, Segment};
 use crate::command;
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
-use crate::{Access, AutoSupport, CallFacts, Egress, Locations, PathAccess, PathClass, TargetKind};
+use crate::{
+    Access, AutoSupport, CallFacts, CoverAsk, Egress, Locations, PathAccess, PathClass, TargetKind,
+};
 
 /// Programs that only the `auto` mode treats as a `privilege` exit, besides the ones
 /// that always run as another user (`sudo`, `doas` and the rest of the engine's
@@ -150,6 +152,12 @@ pub struct ExitNeed {
     /// `~/dotfiles/hypr/x.conf`: the path that the user knows. efrd names the backup
     /// by it. `None` when no link of a floor leads to the target.
     pub link: Option<PathBuf>,
+    /// What efrd copies into its home store before the call, so that `efr undo` can
+    /// bring it back (phase B). Empty when it copies nothing.
+    pub copies: Vec<CoverAsk>,
+    /// Whether every ask of [`copies`](Self::copies) is covered, for the exit record.
+    /// `None` when the exit has nothing to copy.
+    pub covered: Option<bool>,
 }
 
 impl ExitNeed {
@@ -169,6 +177,8 @@ impl ExitNeed {
             target: None,
             bind: None,
             link: None,
+            copies: Vec::new(),
+            covered: None,
         }
     }
 
@@ -203,6 +213,8 @@ impl fmt::Debug for ExitNeed {
             .field("target", &self.target)
             .field("bind", &self.bind)
             .field("link", &self.link)
+            .field("copies", &self.copies)
+            .field("covered", &self.covered)
             .finish()
     }
 }
@@ -600,6 +612,10 @@ pub struct FactRequest {
     /// when the `PATH` has one of its name. Behind `env`, `sudo` or `find -exec` only a
     /// file runs, so a word there is not here.
     pub builtins: Vec<String>,
+    /// What the daemon must say efr holds before the call, so that `efr undo` can
+    /// bring it back: the targets of a destructive part of the line (phase B). The
+    /// answers go to [`CallFacts::covered`].
+    pub covers: Vec<CoverAsk>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the

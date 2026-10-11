@@ -181,9 +181,22 @@ pub struct CallFacts {
     /// with that path: `(~/.zshrc, ~/dotfiles/zsh/.zshrc)`. A write of the real file
     /// takes the names of its link, so "my zshrc" names both.
     pub links: Vec<(PathBuf, PathBuf)>,
+    /// The answer to each [`CoverAsk`] of [`FactRequest::covers`](crate::FactRequest):
+    /// whether efr's snapshot or its home store holds what the line can destroy (phase
+    /// B). An ask with no answer here is [`Coverage::Unknown`], never covered.
+    pub covered: Vec<(CoverAsk, Coverage)>,
 }
 
 impl CallFacts {
+    /// Whether efr's snapshot or its home store covers `ask`, or
+    /// [`Coverage::Unknown`] when no fact says.
+    pub fn coverage(&self, ask: &CoverAsk) -> Coverage {
+        self.covered
+            .iter()
+            .find(|(known, _)| known == ask)
+            .map_or(Coverage::Unknown, |(_, coverage)| *coverage)
+    }
+
     /// What `path` is, `Some(None)` when it does not exist, or `None` when no fact
     /// says.
     pub fn target(&self, path: &std::path::Path) -> Option<Option<TargetKind>> {
@@ -193,6 +206,66 @@ impl CallFacts {
     /// How many tracked files lie below `dir`, when a fact says.
     pub fn tracked(&self, dir: &std::path::Path) -> Option<u32> {
         self.tracked_counts.iter().find(|(known, _)| known == dir).map(|(_, count)| *count)
+    }
+}
+
+/// What a destructive line or file tool can destroy, which efr must hold before the
+/// call so that `efr undo` can bring it back (efr's auto spec, section 10.7, phase B).
+/// The engine asks; the daemon answers each ask in [`CallFacts::covered`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CoverAsk {
+    /// Each file at or below the path, inside a snapshot root.
+    Path(PathBuf),
+    /// Every tracked file of the git work tree at this root, and its index equal to
+    /// `HEAD`: `git reset --hard`, `git checkout` or `git restore` that discards.
+    Tracked(PathBuf),
+    /// Every untracked file of the work tree at this root: `git clean -f`.
+    Untracked(PathBuf),
+    /// The branches, tags and `HEAD` of the repository at this root: `git branch -D`,
+    /// or a `reset` or `switch` that moves a ref.
+    Refs(PathBuf),
+    /// The one stash entry of the repository at this root: `git stash drop` or
+    /// `git stash clear`.
+    Stash(PathBuf),
+    /// One file outside the snapshot roots, which the home store copies.
+    Home(PathBuf),
+    /// A directory outside the snapshot roots that the call can change as a whole,
+    /// within `snapshot.home_max_files` and `snapshot.home_max_mib`.
+    HomeDir(PathBuf),
+    /// The links that enabling this unit makes in the user's unit directories.
+    UnitLinks(String),
+    /// The user's crontab.
+    CronTable,
+    /// The linger setting of the user.
+    Linger,
+}
+
+/// The daemon's answer to one [`CoverAsk`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Coverage {
+    /// efr holds all of it, so `efr undo` can bring it back.
+    Covered,
+    /// The snapshot left a file out, such as a large or an ignored file.
+    LeftOut,
+    /// More files or bytes than the limits of the copy.
+    OverLimit,
+    /// The sandbox hides the path, so efr never copies it.
+    Masked,
+    /// The root has no snapshot from before the turn, or a snapshot of it failed.
+    NoSnapshot,
+    /// The store has no copy of the project's refs.
+    NoMirror,
+    /// The ask names a path that no copy may cover, such as a root itself, a git
+    /// directory or content that is only staged.
+    NotAllowed,
+    /// No fact says. Never covered.
+    Unknown,
+}
+
+impl Coverage {
+    /// True only for [`Coverage::Covered`].
+    pub fn is_covered(self) -> bool {
+        self == Coverage::Covered
     }
 }
 
@@ -285,3 +358,6 @@ impl ConversationPolicy {
         self
     }
 }
+
+#[cfg(test)]
+mod tests;

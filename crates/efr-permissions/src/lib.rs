@@ -59,8 +59,8 @@ pub use exits::{Approver, ExitNeed, FactRequest, PathFacts, Rebuild, WriteBind};
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{
-    Access, CallFacts, ConversationPolicy, DecisionInput, PathAccess, Requirements, SettingsChange,
-    TargetKind,
+    Access, CallFacts, ConversationPolicy, CoverAsk, Coverage, DecisionInput, PathAccess,
+    Requirements, SettingsChange, TargetKind,
 };
 pub use support::{AutoSupport, Egress};
 pub use tables::{

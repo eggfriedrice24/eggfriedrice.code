@@ -140,7 +140,13 @@ fn requirements(line: &Line, text: &str) -> Requirements {
             (word.clone(), resolved, false)
         })
         .collect();
-    requirements.with_facts(CallFacts { targets, tracked_counts, programs, links: Vec::new() })
+    requirements.with_facts(CallFacts {
+        targets,
+        tracked_counts,
+        programs,
+        links: Vec::new(),
+        covered: Vec::new(),
+    })
 }
 
 #[tokio::test]

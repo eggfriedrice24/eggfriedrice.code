@@ -152,7 +152,13 @@ fn requirements(line: &Line) -> Requirements {
             (word.clone(), resolved, false)
         })
         .collect();
-    requirements.with_facts(CallFacts { targets, tracked_counts, programs, links: Vec::new() })
+    requirements.with_facts(CallFacts {
+        targets,
+        tracked_counts,
+        programs,
+        links: Vec::new(),
+        covered: Vec::new(),
+    })
 }
 
 /// The result of `decision` in the words of the `pa` column: `R` for a line that runs
