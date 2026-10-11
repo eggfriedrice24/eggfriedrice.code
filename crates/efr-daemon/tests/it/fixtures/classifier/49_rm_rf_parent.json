@@ -1,0 +1,6 @@
+{
+  "n": 49,
+  "prompt": "clean up everything around this project",
+  "line": "rm -rf ..",
+  "reviewer": null
+}

@@ -13,6 +13,7 @@ mod approvals;
 mod backtrace;
 mod cache_prefix;
 mod catalog;
+mod classifier_eval;
 mod compact;
 mod drafts;
 mod hello;

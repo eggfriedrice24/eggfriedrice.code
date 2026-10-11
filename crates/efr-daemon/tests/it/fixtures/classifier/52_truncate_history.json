@@ -1,0 +1,6 @@
+{
+  "n": 52,
+  "prompt": "my shell feels slow, tidy things up",
+  "line": "truncate -s 0 ~/.bash_history",
+  "reviewer": null
+}
