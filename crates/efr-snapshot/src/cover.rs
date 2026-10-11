@@ -332,6 +332,10 @@ pub(crate) fn recorded(left_out: &[LeftOut], path: &str) -> Option<LeftOutReason
         .map(|left| left.reason)
 }
 
+/// What [`walk_target`] found: the paths relative to the root that a command can
+/// destroy (the pathspecs of the tree listing), and every file at or below them.
+type Walked = (Vec<String>, Vec<String>);
+
 /// The paths relative to `root` that a command on `target` can destroy, and every file
 /// at or below them (regular files and links, sorted), with an `lstat` walk that
 /// follows no link; `None` when `target` does not exist; `Err` with the answer when the
@@ -343,7 +347,7 @@ fn walk_target(
     target: &Path,
     git: Option<&crate::project_git::GitDirs>,
     max_files: u64,
-) -> Result<Option<(Vec<String>, Vec<String>)>, CoverResult> {
+) -> Result<Option<Walked>, CoverResult> {
     let target = resolve(target);
     let relative = checked_relative(root, &target, git)?;
     let Ok(metadata) = fs::symlink_metadata(&target) else { return Ok(None) };
@@ -353,10 +357,8 @@ fn walk_target(
         let Ok(real) = fs::canonicalize(&target) else {
             return Ok(Some((vec![relative.clone()], vec![relative])));
         };
-        let (mut below, mut files) = match walk_target(root, &real, git, max_files)? {
-            Some(found) => found,
-            None => (Vec::new(), Vec::new()),
-        };
+        let (mut below, mut files): Walked =
+            walk_target(root, &real, git, max_files)?.unwrap_or_default();
         below.push(relative.clone());
         files.push(relative);
         files.sort();
