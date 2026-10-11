@@ -69,7 +69,7 @@ struct Seen {
     /// The turns with refs of their own (`refs/efr/` or `refs/efr-mirror/`).
     turns: BTreeSet<TurnKey>,
     /// The turn of each undo, by conversation and undo id; `None` when no commit of
-    /// the undo names it.
+    /// the store names it.
     undos: BTreeMap<TurnKey, Option<String>>,
 }
 
@@ -127,9 +127,16 @@ impl Snapshots {
             }
         }
         let doomed = doomed_turns(seen.iter().flat_map(|found| &found.turns), keep_turns);
-        for ((store, is_home), found) in kept.iter().zip(&seen) {
+        let mut undos: BTreeMap<TurnKey, Option<String>> = BTreeMap::new();
+        for (key, turn) in seen.iter().flat_map(|found| &found.undos) {
+            let known = undos.entry(key.clone()).or_default();
+            if known.is_none() {
+                known.clone_from(turn);
+            }
+        }
+        for (store, is_home) in &kept {
             let cap = (!is_home).then(|| mirror_max_bytes.saturating_mul(MIRROR_CAP_FACTOR));
-            match self.trim_refs(store, &doomed, found, cap).await {
+            match self.trim_refs(store, &doomed, &undos, cap).await {
                 Ok(deleted) => report.refs_deleted += deleted,
                 Err(error) => {
                     tracing::warn!(error = %efr_stdx::with_causes(&error), root = %store.root().display(), "old snapshots could not be deleted");
@@ -187,25 +194,38 @@ impl Snapshots {
     async fn seen_in(&self, store: &Store) -> Result<Seen, SnapshotError> {
         let names = self.ref_names(store).await?;
         let mut seen = Seen::default();
-        let mut undo_commits: BTreeMap<TurnKey, Option<String>> = BTreeMap::new();
+        let mut undo_commits: BTreeMap<TurnKey, Vec<&str>> = BTreeMap::new();
         for (name, id) in &names {
             if let Some(key) = turn_key(name) {
+                // NOTE: the marker `undone` of a turn names the undo that undid it, also
+                // for an undo whose own commits in this store name no turn.
+                if name.ends_with("/undone")
+                    && let Ok(info) = self.commit_info(store, id).await
+                    && let Some(undo) = info.meta.undo
+                {
+                    seen.undos.insert((key.0.clone(), undo), Some(key.1.clone()));
+                }
                 seen.turns.insert(key);
             } else if let Some((key, kind)) = undo_key(name) {
-                let commit = undo_commits.entry(key).or_default();
-                if commit.is_none() && !kind.starts_with("mirror/") {
-                    *commit = Some(id.clone());
+                let commits = undo_commits.entry(key).or_default();
+                if !kind.starts_with("mirror/") {
+                    commits.push(id);
                 }
             }
         }
-        for (key, commit) in undo_commits {
-            let turn = match commit {
-                Some(commit) => {
-                    self.commit_info(store, &commit).await.ok().map(|info| info.meta.turn)
+        for (key, commits) in undo_commits {
+            let mut turn = None;
+            for commit in commits {
+                let named = self.commit_info(store, commit).await.ok().map(|info| info.meta.turn);
+                if let Some(named) = named.filter(|named| !named.is_empty()) {
+                    turn = Some(named);
+                    break;
                 }
-                None => None,
-            };
-            seen.undos.insert(key, turn.filter(|turn| !turn.is_empty()));
+            }
+            let known = seen.undos.entry(key).or_default();
+            if known.is_none() {
+                *known = turn;
+            }
         }
         Ok(seen)
     }
@@ -236,13 +256,14 @@ impl Snapshots {
     }
 
     /// Deletes the refs of the `doomed` turns in `store` and of the undos of those
-    /// turns, keeps its mirrors under `cap`, and then the objects that nothing reaches
-    /// any more except the trees of running turns and calls.
+    /// turns (`undos` names the turn of each undo that any store knows), keeps its
+    /// mirrors under `cap`, and then the objects that nothing reaches any more except
+    /// the trees of running turns and calls.
     async fn trim_refs(
         &self,
         store: &Store,
         doomed: &BTreeSet<TurnKey>,
-        seen: &Seen,
+        undos: &BTreeMap<TurnKey, Option<String>>,
         cap: Option<u64>,
     ) -> Result<usize, SnapshotError> {
         let slot = self.slot(store.root());
@@ -268,7 +289,7 @@ impl Snapshots {
             } else if let Some(key) = turn_key(name) {
                 doomed.contains(&key)
             } else if let Some((key, _)) = undo_key(name) {
-                match seen.undos.get(&key) {
+                match undos.get(&key) {
                     Some(Some(turn)) => doomed.contains(&(key.0.clone(), turn.clone())),
                     // NOTE: an undo that no commit names a turn for has no use.
                     Some(None) => true,

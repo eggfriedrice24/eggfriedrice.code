@@ -390,3 +390,41 @@ fn noise(len: usize) -> Vec<u8> {
         })
         .collect()
 }
+
+#[tokio::test]
+async fn gc_keeps_the_home_copy_of_an_undo_with_its_turn() {
+    let world = World::new();
+    let home = world.home();
+    let file = home.join(".zshrc");
+    write(&file, "v1\n");
+    let read = |text: &str| {
+        efr_snapshot::HomeEntries::new(vec![(
+            efr_snapshot::HomeEntry {
+                path: file.clone(),
+                state: efr_snapshot::HomeState::File { mode: 0o644 },
+                floor: true,
+                chain: Vec::new(),
+            },
+            Some(text.as_bytes().to_vec()),
+        )])
+    };
+    let copy = world.snapshots.home_before(conversation(1), turn(1), read("v1\n")).await.unwrap();
+    world.snapshots.home_after(&copy, read("v2\n")).await.unwrap();
+    write(&file, "v2\n");
+    let plan = crate::undo::plan(&world, 1, false, 1).await;
+    world.snapshots.capture_before_undo(&plan, limits()).await.unwrap();
+    world.snapshots.home_undo_before(conversation(1), &plan.undo_id, read("v2\n")).await.unwrap();
+    world.snapshots.finish_undo(&plan, limits()).await.unwrap();
+    let home_git = world.store_dir().join("home.git");
+    let copy_ref = format!("refs/efr-undo/{}/{}/home", conversation(1), plan.undo_id);
+    assert!(refs(&home_git, &home).await.contains(&copy_ref));
+
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "a\n");
+    world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
+    world.snapshots.finish_turn(turn(2), limits()).await;
+    world.snapshots.gc(2, KEEP_LONG).await;
+    assert!(refs(&home_git, &home).await.contains(&copy_ref), "the turn stays, so its undo does");
+    world.snapshots.gc(1, KEEP_LONG).await;
+    assert_eq!(refs(&home_git, &home).await, Vec::<String>::new(), "the turn went whole");
+}

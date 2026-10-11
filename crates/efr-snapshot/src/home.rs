@@ -224,7 +224,14 @@ impl Snapshots {
         if let Some(kept) = self.ref_value(&store, &name).await {
             return Ok(kept);
         }
-        let meta = self.home_meta(conversation, None, Some(undo_id), "undo-before");
+        // NOTE: the journal ref of the undo names its turn, which the collector needs to
+        // keep this copy as long as the turn.
+        let started = undo_ref(conversation, undo_id, "started");
+        let turn = match self.ref_value(&store, &started).await {
+            Some(commit) => self.turn_of(&store, commit.as_str()).await,
+            None => None,
+        };
+        let meta = self.home_meta(conversation, turn, Some(undo_id), "undo-before");
         let (commit, _) = self.import(&store, &name, None, meta, "undo-before", entries).await?;
         Ok(commit)
     }
