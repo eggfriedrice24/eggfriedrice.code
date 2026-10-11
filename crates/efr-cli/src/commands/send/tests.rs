@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use efr_protocol::{
     ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
-    EffectiveSettings, ErrorBody, ErrorCode, Event, Method, Mode, Origin, OverriddenSettings,
-    PageCursor, PromptSendResult, Seq, TurnSettings, TurnSteerResult,
+    DesktopEnv, EffectiveSettings, ErrorBody, ErrorCode, Event, Method, Mode, Origin,
+    OverriddenSettings, PageCursor, PromptSendResult, Seq, TurnSettings, TurnSteerResult,
 };
 use efr_stdx::env::{Env, Var};
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 
 use super::overrides;
-use crate::context::Context;
+use crate::context::{Context, desktop_env};
 use crate::error::Exit;
 use crate::run;
 use crate::terminal::Size;
@@ -107,6 +107,54 @@ async fn send_relays_the_plugins_context_and_last_command_and_writes_the_raw_rep
     assert_eq!(context.hostname.as_deref(), Some("box"));
     assert_eq!(captured.stdout(), "A **typo** on line 3.\n");
     assert_eq!(captured.stderr(), "");
+}
+
+#[tokio::test]
+async fn shell_context_carries_desktop_names_only() {
+    // The shell's environment, with sockets and a cookie that must never leave it.
+    let shell: std::collections::HashMap<&str, &str> = [
+        ("HYPRLAND_INSTANCE_SIGNATURE", "abc_1760000000_1"),
+        ("WAYLAND_DISPLAY", "wayland-1"),
+        ("DISPLAY", ""),
+        ("XAUTHORITY", "/run/user/1000/xauth_x"),
+        ("SSH_AUTH_SOCK", "/run/user/1000/ssh"),
+        ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
+        ("HYPRLAND_CMD", "Hyprland"),
+    ]
+    .into_iter()
+    .collect();
+    let desktop = desktop_env(|name| shell.get(name).map(|value| (*value).to_owned()));
+    let want = DesktopEnv {
+        hyprland_instance_signature: Some("abc_1760000000_1".to_owned()),
+        wayland_display: Some("wayland-1".to_owned()),
+        ..DesktopEnv::default()
+    };
+    assert_eq!(desktop.as_deref(), Some(&want));
+    assert_eq!(desktop_env(|_| None), None, "a console has none");
+
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = Context { desktop, ..env.context() };
+    let (mut out, _captured) = capture();
+    // A context that claims other desktop variables gets the shell's.
+    let forged = CONTEXT.replace('}', r#","desktop":{"swaysock":"/home/u/evil.sock"}}"#);
+    let line = command(&["send", "--context-json", &forged, "--", "show", "my", "monitors"]);
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "Two monitors.").await
+    };
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    let context = params.context.unwrap();
+    assert_eq!(context.desktop.as_deref(), Some(&want));
+    let wire = serde_json::to_value(&context).unwrap();
+    assert_eq!(
+        wire["desktop"],
+        serde_json::json!({
+            "wayland_display": "wayland-1",
+            "hyprland_instance_signature": "abc_1760000000_1",
+        })
+    );
 }
 
 /// A context whose environment holds what the zsh plugin hands over.

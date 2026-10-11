@@ -884,6 +884,7 @@ impl TestEnv {
             cwd: Some(PathBuf::from("/home/user/project")),
             tty: None,
             home: Some(PathBuf::from("/home/user")),
+            desktop: None,
         }
     }
 }

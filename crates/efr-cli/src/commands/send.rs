@@ -292,21 +292,24 @@ pub(crate) async fn active_conversation(
 
 /// The shell context to send: the plugin's, given as JSON with the name of the
 /// argument or variable it came from, or, typed by hand, the working directory and the
-/// terminal on stdin.
+/// terminal on stdin. Either way its desktop variables are the six names of this
+/// process's environment ([`Context::desktop`]), which the shell passed on, never
+/// what the JSON says.
 fn shell_context(
     ctx: &Context,
     json: Option<(&'static str, String)>,
 ) -> Result<ShellContext, CliError> {
-    match json {
-        Some((input, json)) => {
-            serde_json::from_str(&json).map_err(|source| CliError::InvalidContext { input, source })
-        }
+    let mut context = match json {
+        Some((input, json)) => serde_json::from_str(&json)
+            .map_err(|source| CliError::InvalidContext { input, source })?,
         None => {
             let mut context = ShellContext::new(ctx.cwd.clone().unwrap_or_default());
             context.tty.clone_from(&ctx.tty);
-            Ok(context)
+            context
         }
-    }
+    };
+    context.desktop.clone_from(&ctx.desktop);
+    Ok(context)
 }
 
 /// The origin a connection announces: the shell when the plugin sent its context,

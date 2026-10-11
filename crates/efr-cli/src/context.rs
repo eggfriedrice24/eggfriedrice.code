@@ -15,7 +15,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use efr_client::{Client, ConnectOptions, Discovered};
-use efr_protocol::{CommandId, Origin};
+use efr_protocol::{CommandId, DesktopEnv, Origin};
 use efr_render::RenderOptions;
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSources};
@@ -213,6 +213,21 @@ impl KeyInput for ProcessKeyInput {
     }
 }
 
+/// The desktop variables that `var` gives: only the six names of [`DesktopEnv`], never
+/// another variable, an empty one counts as unset; `None` when none is set.
+pub(crate) fn desktop_env(var: impl Fn(&str) -> Option<String>) -> Option<Box<DesktopEnv>> {
+    let get = |name: &str| var(name).filter(|value| !value.is_empty());
+    let env = DesktopEnv {
+        wayland_display: get("WAYLAND_DISPLAY"),
+        display: get("DISPLAY"),
+        hyprland_instance_signature: get("HYPRLAND_INSTANCE_SIGNATURE"),
+        swaysock: get("SWAYSOCK"),
+        i3sock: get("I3SOCK"),
+        niri_socket: get("NIRI_SOCKET"),
+    };
+    (!env.is_empty()).then(|| Box::new(env))
+}
+
 /// The directory that a leading `~` stands for: `home`, or without one `~` itself, so
 /// such a path stays as it is written and its error names it.
 fn tilde(home: &Option<PathBuf>) -> &Path {
@@ -254,6 +269,9 @@ pub(crate) struct Context {
     pub(crate) tty: Option<String>,
     /// The home directory, which the sandbox's lines print as `~`.
     pub(crate) home: Option<PathBuf>,
+    /// The desktop variables of the shell that runs `efr`, which a prompt sends so that
+    /// a desktop grant reaches the session of this terminal; `None` without any.
+    pub(crate) desktop: Option<Box<DesktopEnv>>,
 }
 
 impl Context {
@@ -301,6 +319,9 @@ impl Context {
             cwd: std::env::current_dir().ok(),
             tty: if term.stdin_tty { terminal::stdin_tty_name() } else { None },
             home,
+            // NOTE: WAYLAND_DISPLAY and the others are the desktops' conventions, not
+            // efr settings, so they are read here and not through efr_stdx::env::Var.
+            desktop: desktop_env(|name| std::env::var(name).ok()),
             term,
         })
     }
