@@ -55,10 +55,10 @@ shipped binary.
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
-| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the quarantine question and the fallback to `cautious`; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
+| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers | every library crate above except `efr-client` and the test crates |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the backup store of floor files and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
 | `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
@@ -203,6 +203,42 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - What a call or a turn changed in files: the snapshot store in `crates/efr-snapshot/`,
   which roots a call snapshots in `crates/efr-daemon/src/tools/snapshot.rs`, and the
   diff of a turn in `crates/efr-daemon/src/methods/conversation_diff.rs`.
+- The reviewer of the `auto` exits (the classifier): the approver of each exit
+  (`Approver`) in `crates/efr-permissions/src/exits.rs`, and the words that name an
+  exit and the one check of them (`names_match`) in
+  `crates/efr-permissions/src/exits/names.rs`; the seam `ExitJudge` in
+  `crates/efr-conversation/src/judge.rs`; who decides an exit (`exit::route`) and the
+  allow rule and the naming rule (`exit::effective`) in
+  `crates/efr-conversation/src/exit.rs`; the review and the denial pause in
+  `crates/efr-conversation/src/turn/review.rs`. efrd's judge, with the request, the
+  chain of models and the check of the answer, is in `crates/efr-daemon/src/judge.rs`.
+  What it keeps between exits is in `judge/memory.rs`, and its prompt is in
+  `judge/prompt.md`. The small model of each company is `Vendor::classifier_model` in
+  `crates/efr-daemon/src/catalog/list.rs`, from the `CLASSIFIER_MODEL` constant of each
+  provider crate. `[classifier]` is in `crates/efr-config/src/tables/classifier.rs`. The
+  eval of the corpus lines and of the auto prompt is in
+  `crates/efr-daemon/tests/it/classifier_eval.rs`.
+- Presence and the away wait: the seam `PresenceReader` in
+  `crates/efr-conversation/src/presence.rs`; the wait of a question while the user is
+  away in `crates/efr-conversation/src/turn.rs`; the state of each conversation in
+  `crates/efr-daemon/src/presence.rs`; `presence.set` in
+  `crates/efr-daemon/src/methods/presence_set.rs`; `efr away` in
+  `crates/efr-cli/src/commands/away.rs`; `[presence]` in
+  `crates/efr-config/src/tables/presence.rs`.
+- The backups of floor files: which exits get one (`ExitNeed::backup_before_write`) in
+  `crates/efr-permissions/src/exits.rs`; the one hook before a call runs
+  (`DaemonToolbox::invoke`) in `crates/efr-daemon/src/tools.rs`; the store, the copy
+  through dotfile links and the collector in `crates/efr-daemon/src/backups.rs`;
+  `home_file_changed` in `crates/efr-conversation/src/turn.rs`; the line at the end of
+  a turn in `crates/efr-cli/src/format/sandbox.rs`.
+- Deletes that reach the real tool caches: the walk of the whiteouts in an upper layer
+  (`CacheDeletes`) and the read path of a layer (`LayerView`) in
+  `crates/efr-sandbox/src/layers/deletes.rs`; the launcher's reads of the uppers that
+  the layer helper passed in `crates/efr-sbx/src/deletes.rs`; the engine's decision
+  (`Engine::decide_cache_delete`) in `crates/efr-permissions/src/engine.rs`; the
+  question in `crates/efr-conversation/src/turn/cache.rs`; efrd's check and delete in
+  `crates/efr-daemon/src/tools/cache_deletes.rs`, through `DaemonFs::remove_beneath` in
+  `crates/efr-daemon/src/sandbox/fs.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in

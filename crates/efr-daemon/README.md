@@ -497,6 +497,53 @@ spec; `docs/sandbox.md` for the user's view):
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
   only (`methods.rs`, `granted(surface, peer)`).
 
+### The reviewer, presence and floor file backups
+
+Phase A of efr's auto spec. The turn in `efr-conversation` decides who answers an exit
+and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
+`ConversationDeps`):
+
+- The judge (`judge.rs`): `ClassifierJudge` implements `efr_conversation::ExitJudge`.
+  One judge serves every conversation, over the provider of the conversations. Each
+  step of the chain is one request: the prompt of `judge/prompt.md` as the system
+  prompt, the record as the one user message, no tools, no output limit, the verdict
+  schema as the output form, `one_shot`, and no cache key. The chain is the classifier
+  model (`classifier.model`, else `Vendor::classifier_model` in `catalog/list.rs`, the
+  small model of the provider's company), then the turn's model, then the user. A step
+  that is missing, refuses, times out on the daemon's clock or answers outside the
+  schema goes to the next step; refused credentials or a used-up quota go to the user
+  at once. A step that refuses the output form goes once more without it. The judge
+  returns the model's judgement as it is, with the SHA-256 of the record that the model
+  read. What it keeps between exits (`judge/memory.rs`): the allow and deny verdicts of
+  each conversation's current turn, the models that a conversation skips, and the
+  models that refused the output form, for at most 256 conversations.
+- Presence (`presence.rs`): `PresenceTable` implements
+  `efr_conversation::PresenceReader`. `methods.rs` marks each input of a person (a
+  prompt, a steer, an interrupt, an answer, keys for the hidden shell).
+  `presence.set` (`methods/presence_set.rs`, the method of `efr away`) sets a
+  conversation away, or each one that is present. No timer runs: the idle state is
+  found when a turn parks a question or the next input comes, and only then is
+  `presence_changed` recorded. The push to a phone does nothing yet.
+- The backup store of floor files (`backups.rs`): before efrd runs a call, the top of
+  `DaemonToolbox::invoke` (`tools.rs`) copies the target of each approved exit with
+  `backup_before_write` to `$XDG_DATA_HOME/efr/file-backups/<conversation>/<turn>/<n>/`
+  (`docs/storage.md`). So `write_file`, `edit`, `apply_patch` and a line in the exit
+  child share one hook. The copy follows the links of a dotfiles layout to the real
+  file, opens the real parent with no link on its path and reads the file with
+  `O_NOFOLLOW`. It never copies a secret or a mask. A copy that fails stops the call,
+  and a file that the call did not change drops its entry. The outcome's backups go
+  to the turn, which records `home_file_changed`. `backups::collect` runs with the
+  snapshot collector in `run.rs`, with `snapshot.keep_turns` and
+  `snapshot.max_age_days` and the daemon's clock.
+- Deletes in the real tool caches (`tools/cache_deletes.rs`): the launcher lists the
+  whiteouts of a contained call's private cache layers in `SandboxSummary`, and the
+  turn asks the engine, then the reviewer or the user. After an allow,
+  `DaemonToolbox::delete_cache_paths` checks each path again against the caches, pins
+  and masks of the latest settings, and one path that fails refuses the whole list.
+  Each delete goes through `DaemonFs::remove_beneath` (`sandbox/fs.rs`): the cache
+  opens with no link on its path, and every path below it with `RESOLVE_BENEATH` and
+  `RESOLVE_NO_SYMLINKS`, so a link never leads the delete out of the cache.
+
 ### What a call changed
 
 `tools/snapshot.rs` (`CallSnapshots`) uses `efr-snapshot`, efr's own snapshot store in
@@ -594,7 +641,7 @@ challenge), `clap` (the flags), `sd-notify` 0.5.0 (`READY=1`, `STOPPING=1`), `ru
 (inotify, for the config file watcher), `toml_edit` (the values that the settings tool
 sets and the one-line text of a rule), `tracing`, `tracing-subscriber` (with its reload
 layer for the log filter), `tracing-journald`, `thiserror`, `sha2` (the check of the
-sandbox launcher's copy), and `anyhow` in `main.rs` only.
+sandbox launcher's copy and the hash of the record that the reviewer read), and `anyhow` in `main.rs` only.
 
 `HOME`, `JOURNAL_STREAM` and the shells' environment are read with `std::env` here, the
 one crate besides `efr-stdx` that may read the environment: they are POSIX and systemd
@@ -621,6 +668,10 @@ conventions that `efr_stdx::env::Var` does not name.
   status, the `logout_completed` event or a log line.
 - efrd names itself to the backend as efr, with efr's own version.
 - A daemon with an injected provider never fetches the model catalog.
+- The judge never allows by failing: a chain of models that gives no verdict ends at
+  the user.
+- efrd never runs an approved floor file edit whose backup it could not take, and it
+  never copies a secret or a mask into the backup store.
 
 ## Tests
 
@@ -648,7 +699,12 @@ start, after a login and hourly, and a fetch that hangs while a reader goes on; 
 Anthropic, the cache file of its own name, no list at a start without one, the default
 before a list, a fetch against `wiremock` that goes to the cache, a failed fetch, and a
 prompt that waits for one fetch while there is no list and never with one), the
-providers that efrd builds for each id with their settings, the tool adapter and its answer to who can answer hidden input. The tests
+providers that efrd builds for each id with their settings, the tool adapter and its answer to who can answer hidden input,
+the judge (its request with no output limit and no cache key, each step of the chain
+and why it goes on, the check of the answer, the resend without the output form, and
+what it keeps: the verdicts of a turn and the skipped models of a conversation),
+presence, the backup store of floor files (links, masks, a missing file, a failed
+copy, an unchanged file and the collector) and the check of cache deletes. The tests
 in `run/tests.rs` start the real daemon
 in-process on temporary directories with a manual clock, a seeded generator, vt100
 screens, an in-memory database and a scripted model, and talk to it over its socket in
@@ -670,7 +726,8 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-daemon e2e_
 The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
-`input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`, `presence`,
+`classifier_eval`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -736,9 +793,34 @@ runs contained without a question, an exit that asks and runs with its grant, an
 failed start that runs the probe again; and a double-forked process of an approved
 command, which python3 plays, that reaches the socket and may only read. With
 `EFR_TEST_SBX_BIN` (`just test-sandbox`) one call runs in the real sandbox. A finished
-call's dir is removed. The unit tests of `sandbox/` cover the plan, the
+call's dir is removed. The same module runs the reviewer with efrd's judge: a named
+floor file edit that runs after the reviewer's allow with its backup and
+`home_file_changed`, one that the reviewer refuses, and an unnamed one that asks the
+user. Its child module `sandbox::review` follows a floor file edit through
+`apply_patch`, `write_file`, `edit` and a dotfiles link, with the record that the
+reviewer reads (the target's facts from efrd's own look, the payload of the edit), and,
+with a real zsh, deletes in a private cache layer that reach the real cache after the
+reviewer allows them and stay private after it refuses; under `just test-sandbox` one
+such delete runs in the real sandbox. The unit tests of `sandbox/` cover the plan, the
 probe with a fake launcher, the lock, the worktree record, the facts, the report, the
 quarantine and the peer check on real process trees.
+
+The `presence` module checks that a conversation goes away after the idle minutes and
+comes back with the next input, and `presence.set` for one conversation and for each
+one that is present.
+
+The `classifier_eval` module is the recorded-fixture eval of phase A. Each fixture of
+`tests/it/fixtures/classifier/` is one line of the command corpus (8 to 11, 44 to 55,
+66, 99, 106 and 107) with the user's prompt and the reviewer's recorded answer. Each runs
+as a turn in `auto` through the engine, the facts, the judge and the turn, with fake
+shells that run nothing. The eval checks which lines the reviewer judges and which only
+the user decides, the verdict after the allow rule and the naming rule, one review per
+judged line, and that no record holds the text of a tool result. A second eval replays
+20 recorded answers to prompts for system work and checks that each request holds the
+auto rule and that no answer says that the model lacks permission before its first
+call. The answers are written for the verdicts of the spec, not taken from a live
+model, so the evals prove the replay and efr's rules; the real models are a manual
+check.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.
