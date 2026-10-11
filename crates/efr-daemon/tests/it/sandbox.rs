@@ -6,6 +6,7 @@
 //! section 16.1) or, under `just test-sandbox`, the real `efr-sbx`.
 
 mod review;
+mod undo;
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};

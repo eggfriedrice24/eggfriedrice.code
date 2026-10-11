@@ -233,7 +233,7 @@ fn ended(event: &Event, turn_id: TurnId) -> bool {
 }
 
 /// `turn.undo` from [`TTY`] as `efr undo` sends it, command `n`, changed by `change`.
-async fn undo(
+pub(crate) async fn undo(
     daemon: &TestDaemon,
     n: u128,
     change: impl FnOnce(&mut TurnUndo),
@@ -257,13 +257,13 @@ async fn undo(
 }
 
 /// The refusal in the data of a `conflict` answer.
-fn refusal(body: &ErrorBody) -> UndoRefused {
+pub(crate) fn refusal(body: &ErrorBody) -> UndoRefused {
     assert_eq!(body.code, ErrorCode::Conflict, "{body:?}");
     let data = body.data.clone().unwrap();
     serde_json::from_value(data["refused"].clone()).unwrap()
 }
 
-fn entry(action: UndoAction, path: &str) -> UndoEntry {
+pub(crate) fn entry(action: UndoAction, path: &str) -> UndoEntry {
     UndoEntry { action, path: path.to_owned(), reason: None }
 }
 
@@ -271,7 +271,7 @@ fn skip(path: &str, reason: UndoReason) -> UndoEntry {
     UndoEntry { action: UndoAction::Skip, path: path.to_owned(), reason: Some(reason) }
 }
 
-fn read(path: &Path) -> String {
+pub(crate) fn read(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
@@ -289,7 +289,7 @@ async fn applied(daemon: &TestDaemon, sent: &PromptSendResult) -> Vec<(TurnId, b
 }
 
 /// Each file below `dir`, relative to it, with its text, sorted.
-fn files_below(dir: &Path) -> Vec<(PathBuf, String)> {
+pub(crate) fn files_below(dir: &Path) -> Vec<(PathBuf, String)> {
     let mut found = Vec::new();
     let mut dirs = vec![dir.to_path_buf()];
     while let Some(at) = dirs.pop() {
