@@ -319,7 +319,9 @@ from the body as text, else from the status, clipped to 1000 characters. A body 
 quotes the key, as a proxy at `[anthropic] base_url` can, shows `<the key>` in place
 of it, for a model call, a fetch of the list and a key check alike. Each failed
 attempt writes one debug line with the status (and, for a model call, the
-`request-id`, which is also a field of the request's span).
+`request-id`, which is also a field of the request's span). An answer that ends in an
+error after the 200 writes one `info` line, `the model call failed`, with the error
+and the `request_id`, so the journal names the request of a failed turn.
 The conversation fails a turn with `unauthorized` for `Unauthorized`, `busy` for
 `RateLimited` and `Overloaded`, and `invalid` for `UnknownModel`.
 

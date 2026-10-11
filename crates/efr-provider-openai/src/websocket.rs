@@ -415,8 +415,11 @@ impl Answer {
     async fn next(&mut self) -> Option<Result<ProviderEvent, ProviderError>> {
         loop {
             if let Some(item) = self.pending.pop_front() {
-                if item.is_ok() {
-                    self.timing.first_event();
+                match &item {
+                    Ok(_) => self.timing.first_event(),
+                    // NOTE: an error ends the answer, so this line comes once per call. A
+                    // call on the websocket has no request id of its own.
+                    Err(error) => tracing::info!(error = %error, "the model call failed"),
                 }
                 return Some(item);
             }

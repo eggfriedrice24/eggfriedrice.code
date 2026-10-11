@@ -252,7 +252,8 @@ text and no tool call or stopped for another reason than `end_turn`, such as
 to `unauthorized`, rate limits to `busy` with
 `retry_after_ms`, an overloaded provider to `busy` without it, an unknown model to `invalid` with the `model`, the rest to
 `internal`) or
-`turn_interrupted`. The turn builds that batch and hands it to the actor. The actor
+`turn_interrupted`. A failed turn writes one `info` line, `the turn failed`, with its code
+and message, and an interrupted one `the user interrupted the turn`. The turn builds that batch and hands it to the actor. The actor
 clears the running turn first and records the batch after. It answers one request at
 a time, so a client that sees the end and at once steers or interrupts gets
 `NoRunningTurn`, and a prompt that it sends then starts at once.

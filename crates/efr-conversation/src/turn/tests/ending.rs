@@ -1,23 +1,25 @@
 //! How a turn ends: the marker after a turn that did not complete, so the next turn
 //! does not answer a cancelled prompt, and why the model stopped when it gave no answer.
 
-use efr_protocol::{Event, Origin, StopReason as WireStop, TurnStop};
+use std::sync::{Arc, Mutex};
+
+use efr_protocol::{Event, Origin, StopReason as WireStop, TurnId, TurnStop};
 use efr_provider::{Message, ProviderEvent, StopReason};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::history::INTERRUPTED_MARKER;
 use crate::testing::{
-    Harness, Setup, answer, done, expect_request, request, result_message, text_answer,
+    Harness, Setup, answer, done, expect_request, failure, request, result_message, text_answer,
     tool_answer, tool_message,
 };
 use crate::turn::STOPPED;
 
 /// Interrupts the running turn `turn_id` while its `hang` call runs, and waits for its
-/// end. `resend` names the steers that go again as a prompt.
-async fn interrupt(h: &mut Harness, turn_id: efr_protocol::TurnId, resend: Vec<efr_protocol::Seq>) {
+/// end.
+async fn interrupt(h: &mut Harness, turn_id: TurnId) {
     h.toolbox.hang_started.notified().await;
-    let params = h.interrupt_params(Some(turn_id), resend, Vec::new());
+    let params = h.interrupt_params(Some(turn_id), Vec::new(), Vec::new());
     h.handle.interrupt(params, Origin::Shell).await.expect("interrupt accepted");
     let end = h.wait_end(turn_id).await;
     assert!(matches!(end, Event::TurnInterrupted { .. }), "{end:?}");
@@ -34,7 +36,7 @@ async fn an_interrupted_turn_saves_its_messages_with_the_marker_last() {
     let mut h = setup.start(records).await;
 
     let sent = h.prompt("wait").await;
-    interrupt(&mut h, sent.turn_id, Vec::new()).await;
+    interrupt(&mut h, sent.turn_id).await;
 
     let conversation_id = h.conversation_id;
     let saved = h
@@ -83,7 +85,7 @@ async fn the_request_after_an_interrupted_turn_starts_with_the_bytes_of_the_inte
     let mut h = setup.start(records).await;
 
     let sent = h.prompt("first").await;
-    interrupt(&mut h, sent.turn_id, Vec::new()).await;
+    interrupt(&mut h, sent.turn_id).await;
     let next = h.prompt("something else").await;
     let end = h.wait_end(next.turn_id).await;
 
@@ -165,4 +167,65 @@ async fn a_final_answer_cut_at_max_tokens_records_the_stop() {
 #[tokio::test]
 async fn an_end_turn_answer_with_text_records_no_stop() {
     assert_eq!(stop_of(&text_answer("Done.")).await, None);
+}
+
+/// The lines of the log of a test, as plain text.
+#[derive(Debug, Clone, Default)]
+struct LogText(Arc<Mutex<Vec<u8>>>);
+
+impl LogText {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+impl std::io::Write for LogText {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogText {
+    type Writer = LogText;
+
+    fn make_writer(&'a self) -> LogText {
+        self.clone()
+    }
+}
+
+/// The live run: a turn failed, and the journal had no line for it.
+#[tokio::test]
+async fn a_failed_turn_logs_one_info_line_with_its_code() {
+    let log = LogText::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(log.clone())
+        .with_ansi(false)
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    // NOTE: the test's runtime has one thread, so the actor's task logs here too.
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "hello");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "hello")])),
+        failure(json!({ "kind": "unauthorized" })),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("hello").await;
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(matches!(end, Event::TurnFailed { .. }), "{end:?}");
+    let text = log.text();
+    let lines: Vec<&str> = text.lines().filter(|line| line.contains("the turn failed")).collect();
+    assert_eq!(lines.len(), 1, "{text}");
+    assert!(lines[0].contains("INFO"), "{text}");
+    assert!(lines[0].contains("code=unauthorized"), "{text}");
+    assert!(lines[0].contains("turn_id="), "the turn's span names it: {text}");
+    h.finish();
 }

@@ -245,11 +245,17 @@ pub(crate) fn sign(
 /// The events of a streaming response, until the answer is done or fails. Nothing here
 /// sends the request again: the stream has started.
 fn events(response: HttpResponse, span: tracing::Span, timing: Timing) -> ProviderStream {
+    let request_id = response
+        .headers()
+        .get(REQUEST_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let state = EventState {
         sse: Some(response.into_sse()),
         mapper: EventMapper::new(),
         pending: VecDeque::new(),
         timing,
+        request_id,
     };
     Box::pin(stream::unfold(state, move |mut state| {
         let span = span.clone();
@@ -264,14 +270,23 @@ struct EventState {
     mapper: EventMapper,
     pending: VecDeque<Result<ProviderEvent, ProviderError>>,
     timing: Timing,
+    /// The API's id of the request, for the line of a failed answer.
+    request_id: Option<String>,
 }
 
 impl EventState {
     async fn next(&mut self) -> Option<Result<ProviderEvent, ProviderError>> {
         loop {
             if let Some(item) = self.pending.pop_front() {
-                if item.is_ok() {
-                    self.timing.first_event();
+                match &item {
+                    Ok(_) => self.timing.first_event(),
+                    // NOTE: an error ends the answer, so this line comes once per call;
+                    // the request id is what the API's support asks for.
+                    Err(error) => tracing::info!(
+                        request_id = self.request_id.as_deref().unwrap_or("none"),
+                        error = %error,
+                        "the model call failed"
+                    ),
                 }
                 return Some(item);
             }

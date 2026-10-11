@@ -272,7 +272,9 @@ The debug lines: each call writes `phase=provider_accepted` when the server's fi
 event arrives and `phase=provider_first_event` when the first canonical event is
 ready, with `transport=http|websocket`, `connection=new|reused` (`pool` for HTTP) and
 `input=full|incremental`. A new connection also writes `phase=provider_connect`.
-`docs/sandbox.md` tells how to read them.
+`docs/sandbox.md` tells how to read them. An answer that ends in an error writes one
+`info` line, `the model call failed`, with the error, and over HTTP with the
+`x-request-id` as `request_id`.
 
 What efr copies from Codex (`codex-rs/codex-api/src/endpoint/responses_websocket.rs`
 and `codex-rs/core/src/client.rs`, read on 2026-10-08):

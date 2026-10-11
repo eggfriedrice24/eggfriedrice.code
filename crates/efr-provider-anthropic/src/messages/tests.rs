@@ -424,6 +424,34 @@ async fn an_error_event_after_the_answer_started_is_never_sent_again() {
     assert!(setup.clock.sleeps().is_empty());
 }
 
+/// The journal must name the request of a failed answer: the request id was only in
+/// the span of the provider, at debug.
+#[tokio::test]
+async fn an_answer_that_fails_logs_one_info_line_with_its_request_id() {
+    let server = MockServer::start().await;
+    let stream = sse(&[
+        ("message_start", json!({"message": {"usage": {"input_tokens": 3}}})),
+        ("error", json!({"error": {"type": "api_error", "message": "Internal error"}})),
+    ]);
+    let template = ResponseTemplate::new(200)
+        .insert_header("request-id", "req_011CVyqRZ")
+        .set_body_raw(stream, "text/event-stream");
+    mount(&server, template).await;
+    let log = LogText::default();
+    let _guard = tracing::subscriber::set_default(log.subscriber());
+    let setup = setup(&server, AnthropicConfig::new(), FakeTokens::key());
+
+    let events: Vec<_> = setup.provider.stream(request("Hi")).await.unwrap().collect().await;
+
+    assert!(events.last().is_some_and(Result::is_err), "{events:?}");
+    let text = log.text();
+    let lines: Vec<&str> =
+        text.lines().filter(|line| line.contains("the model call failed")).collect();
+    assert_eq!(lines.len(), 1, "{text}");
+    assert!(lines[0].contains("INFO"), "{text}");
+    assert!(lines[0].contains("request_id=\"req_011CVyqRZ\""), "{text}");
+}
+
 #[tokio::test]
 async fn a_stream_that_ends_before_message_stop_is_incomplete() {
     let server = MockServer::start().await;

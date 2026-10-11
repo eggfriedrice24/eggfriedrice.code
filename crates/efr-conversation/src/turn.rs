@@ -625,6 +625,15 @@ impl Turn {
         let conversation_id = self.shared.conversation_id;
         // NOTE: no model call reads steering from here on, so a steer is late.
         self.control.steering.close();
+        // NOTE: one line for a turn that did not complete, so the journal says why a
+        // turn shows nothing; the provider's line before it names the request.
+        match &ending {
+            Ending::Failed(error) => {
+                tracing::info!(code = %error.code, message = %error.message, "the turn failed");
+            }
+            Ending::Interrupted => tracing::info!("the user interrupted the turn"),
+            Ending::Completed => {}
+        }
         self.shared.misses.store(self.misses, Ordering::Release);
         // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
         // interrupted or failed turn too; only a completed turn reports the changes.

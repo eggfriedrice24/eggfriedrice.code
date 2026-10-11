@@ -59,6 +59,8 @@ into the GitHub release notes, and it stops when the section is missing.
   chain, its time and the models that it skipped.
 - A turn that ends with no answer says why, such as `the model stopped with no answer
   (stop: refusal)`. An answer that reached the output limit says so too.
+- The journal of efrd has a line for a failed or interrupted turn, and the request id
+  of a model call that failed.
 
 ### Changed
 
