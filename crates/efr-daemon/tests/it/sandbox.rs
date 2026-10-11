@@ -1178,8 +1178,8 @@ async fn shell_floor_backup_taken_before_exit_child_line() {
 }
 
 #[tokio::test]
-async fn shell_a_named_floor_edit_runs_in_the_exit_child_after_the_reviewers_allow() {
-    if !zsh_enabled("shell_a_named_floor_edit_runs_in_the_exit_child_after_the_reviewers_allow") {
+async fn shell_allowed_floor_edit_runs_in_exit_child_or_efrd() {
+    if !zsh_enabled("shell_allowed_floor_edit_runs_in_exit_child_or_efrd") {
         return;
     }
     let dirs = Arc::new(TestDirs::new().unwrap());
