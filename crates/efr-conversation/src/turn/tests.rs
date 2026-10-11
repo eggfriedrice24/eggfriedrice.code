@@ -31,6 +31,7 @@ mod away;
 mod cache;
 mod compaction;
 mod context;
+mod corpus;
 mod denials;
 mod drafts;
 mod review;
