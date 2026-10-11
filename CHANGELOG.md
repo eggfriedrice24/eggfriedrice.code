@@ -97,6 +97,7 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, `i3-msg` is a desktop command. `i3-msg -t get_*` goes to the reviewer.
 - The line of a desktop command names its socket and what it does, such as
   `reviewer allowed: the Hyprland socket, to read its state or reload it`.
+- Labels show no rule numbers.
 
 ### Fixed
 
@@ -108,9 +109,6 @@ into the GitHub release notes, and it stops when the section is missing.
   `HYPRLAND_INSTANCE_SIGNATURE`. It never gets Hyprland's event socket or its log.
   When efr finds no such socket, the model reads "efr found no Hyprland session in the
   terminal of this prompt". An X server that needs an X cookie is refused for now.
-
-### Fixed
-
 - After you say no, the model does not ask again for the same action in that turn.
 
 ## [0.0.3] - 2026-10-09

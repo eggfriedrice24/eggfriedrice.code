@@ -256,9 +256,11 @@ pub(crate) fn brief(message: &str) -> String {
 }
 
 /// What the model reads when the engine refuses a call: every reason that refused it,
-/// each naming the path and its class.
+/// each naming the path and its class, without the number of a rule
+/// ([`Reason::for_model`]).
 pub(crate) fn denial(tool: &str, decision: &Decision) -> String {
-    let reasons: Vec<String> = decision.deciding().map(ToString::to_string).collect();
+    let reasons: Vec<String> =
+        decision.deciding().map(|reason| reason.for_model().to_string()).collect();
     format!(
         "Permission denied for the {tool} call: {}. Do not try to reach the same target \
          another way; tell the user what you needed instead.",

@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use efr_permissions::{
-    ConversationPolicy, Decision, DecisionInput, Engine, Locations, Requirements,
+    Action, CommandPattern, ConversationPolicy, Decision, DecisionInput, Effect, Engine, Locations,
+    Policy, Requirements, Resource, Rule,
 };
 use efr_protocol::{ApprovalDecision, CallId, Mode, Origin, Scope, TurnId};
 use efr_stdx::id::uuid_v7;
@@ -150,6 +151,36 @@ fn a_denial_names_each_refused_path_with_its_class() {
         ),
         "{text}"
     );
+}
+
+/// The live run: after a refusal the model told the user that "rule 5 blocks any
+/// access". The number stays in the log line, not in what the model reads.
+#[test]
+fn a_denial_text_has_no_rule_number() {
+    let rule =
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("make")), Effect::Deny);
+    let engine = Engine::with_defaults(Locations::new("/home/u").expect("home"));
+    let decision = engine.decide(&DecisionInput {
+        requirements: Requirements::none().with_command("make install"),
+        scope: Scope::Machine,
+        origin: Origin::Shell,
+        mode: Mode::Cautious,
+        conversation_policy: ConversationPolicy::new("/home/u/.local/share/efr/scratch/s")
+            .with_rules(Policy::new(vec![rule]).expect("policy")),
+    });
+    let logged: Vec<String> = decision.deciding().map(ToString::to_string).collect();
+    assert!(
+        logged.iter().any(|line| line.contains("by rule 0 of the conversation policy")),
+        "the log keeps the number: {logged:?}"
+    );
+
+    let text = denial("shell", &decision);
+
+    assert!(text.contains("by a rule of this conversation"), "{text}");
+    assert!(!text.contains("rule 0"), "{text}");
+    let secret = decide(Requirements::none().with_read(Path::new("/home/u/.ssh/id_ed25519")));
+    let text = denial("read_file", &secret);
+    assert!(!text.contains("by rule"), "{text}");
 }
 
 #[test]

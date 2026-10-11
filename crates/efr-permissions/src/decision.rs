@@ -276,20 +276,34 @@ impl fmt::Display for Layer {
     }
 }
 
-/// One line for a log, an approval summary or the error that the model sees, such as
-/// `write /home/u/.zshrc (user config): ask, by rule 4 of the machine policy`.
-impl fmt::Display for Reason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Reason {
+    /// The line that the model reads, such as `write /home/u/.zshrc (user config): ask,
+    /// by efr's policy for this mode`: the [`Display`](fmt::Display) line without the
+    /// number of a rule. The number is an index into efr's tables. It tells the model
+    /// nothing, and a model that repeats "rule 5" tells the user nothing. Logs keep
+    /// the number.
+    pub fn for_model(&self) -> impl fmt::Display + '_ {
+        ForModel(self)
+    }
+
+    fn write(&self, f: &mut fmt::Formatter<'_>, numbered: bool) -> fmt::Result {
         write!(f, "{}: {}", self.subject, self.effect)?;
+        let rule = |layer: Layer, index: usize| -> String {
+            match (numbered, layer) {
+                (true, layer) => format!("by rule {index} of the {layer} policy"),
+                (false, Layer::Machine) => "by efr's policy for this mode".to_owned(),
+                (false, Layer::Conversation) => "by a rule of this conversation".to_owned(),
+            }
+        };
         match &self.cause {
-            Cause::Rule { layer, index } => write!(f, ", by rule {index} of the {layer} policy"),
+            Cause::Rule { layer, index } => write!(f, ", {}", rule(*layer, *index)),
             Cause::Part { layer, index, part } => {
-                write!(f, ", by rule {index} of the {layer} policy for {part:?}")
+                write!(f, ", {} for {part:?}", rule(*layer, *index))
             }
             Cause::Opaque { construct, layer, index } => write!(
                 f,
-                ", by rule {index} of the {layer} policy, because the line holds {construct}, \
-                 which no command rule can judge"
+                ", {}, because the line holds {construct}, which no command rule can judge",
+                rule(*layer, *index)
             ),
             Cause::Privileged { program } => {
                 write!(f, ", because {program} runs commands as another user")
@@ -354,6 +368,24 @@ impl fmt::Display for Reason {
                  contained call. For sudo or ssh, call shell without it; the command is an exit",
             ),
         }
+    }
+}
+
+/// One line for a log or an approval summary, such as `write /home/u/.zshrc (user
+/// config): ask, by rule 4 of the machine policy`. The model reads
+/// [`Reason::for_model`].
+impl fmt::Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.write(f, true)
+    }
+}
+
+/// The line of [`Reason::for_model`].
+struct ForModel<'a>(&'a Reason);
+
+impl fmt::Display for ForModel<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.write(f, false)
     }
 }
 
