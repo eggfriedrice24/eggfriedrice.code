@@ -194,6 +194,10 @@ struct HomeTally {
     not_covered: Vec<String>,
     /// One record per copy.
     records: Vec<SnapshotRecord>,
+    /// The targets of each copy whose "after" is not written yet, by call: a copy that
+    /// still waits at the end of the turn did not finish (its call was interrupted or
+    /// its "after" failed), so undo leaves its paths alone (plan PB12).
+    pending: Vec<(CallId, Vec<String>)>,
 }
 
 /// One home copy of a call, between the copy before it and the copy after it.
@@ -937,8 +941,35 @@ impl DaemonToolbox {
             skipped: u32::try_from(prepared.not_covered.len()).unwrap_or(u32::MAX),
             ms: u64::try_from(watch.elapsed().as_millis()).unwrap_or(u64::MAX),
         };
-        self.tally(call.turn_id, |tally| tally.records.push(record));
+        let mut names: Vec<String> = targets
+            .iter()
+            .filter_map(|target| match &target.ask {
+                CoverAsk::Home(path) | CoverAsk::HomeDir(path) => {
+                    Some(self.shown_home(target.link.as_deref().unwrap_or(path)))
+                }
+                _ => None,
+            })
+            .collect();
+        names.extend(
+            prepared
+                .entries
+                .iter()
+                .filter(|entry| StateCopy::from_path(&entry.path).is_some())
+                .map(|entry| entry.path.display().to_string()),
+        );
+        self.tally(call.turn_id, |tally| {
+            tally.records.push(record);
+            tally.pending.push((call.call_id, names));
+        });
         Ok(Some(Copying { copy, before: prepared, masks, limits }))
+    }
+
+    /// `path` as the end of a turn names a home file: below `~/`, else absolute.
+    fn shown_home(&self, path: &Path) -> String {
+        match path.strip_prefix(self.home.path()) {
+            Ok(below) => format!("~/{}", below.display()),
+            Err(_) => path.display().to_string(),
+        }
     }
 
     /// The copy after the call of `copying`, and each changed home file. A copy that
@@ -957,16 +988,15 @@ impl DaemonToolbox {
         let deltas = match snapshots.store().home_after(&copy, home::Reader::new(&after)).await {
             Ok(deltas) => deltas,
             Err(error) => {
+                // NOTE: the copy stays pending, so the end of the turn names its targets.
                 tracing::warn!(error = %efr_stdx::with_causes(&error), call_id = %call.call_id, "the copy of home files after a call failed");
                 return Vec::new();
             }
         };
         let changed = home::changed(&deltas, &before, &after);
-        let shown = |path: &Path| match path.strip_prefix(self.home.path()) {
-            Ok(below) => format!("~/{}", below.display()),
-            Err(_) => path.display().to_string(),
-        };
+        let shown = |path: &Path| self.shown_home(path);
         self.tally(call.turn_id, |tally| {
+            tally.pending.retain(|(pending, _)| *pending != call.call_id);
             for backup in &changed {
                 match backup.reason {
                     None => {
@@ -1052,6 +1082,8 @@ impl DaemonToolbox {
                 return None;
             }
         };
+        let names: Vec<String> = paths.iter().map(|path| self.shown_home(path)).collect();
+        self.tally(call.turn_id, |tally| tally.pending.push((call.call_id, names)));
         Some(Copying { copy, before: prepared, masks, limits })
     }
 
@@ -1286,13 +1318,9 @@ impl Toolbox for DaemonToolbox {
         if let Some(copying) = copying {
             self.copy_after(call, copying).await;
         } else {
-            let shown: Vec<String> = paths
-                .iter()
-                .map(|path| match path.strip_prefix(self.home.path()) {
-                    Ok(below) => format!("~/{} (over the copy limits)", below.display()),
-                    Err(_) => format!("{} (over the copy limits)", path.display()),
-                })
-                .collect();
+            let over = reason_text(efr_protocol::UndoReason::OverLimit);
+            let shown: Vec<String> =
+                paths.iter().map(|path| format!("{} ({over})", self.shown_home(path))).collect();
             if self.snapshots.is_some() {
                 self.tally(call.turn_id, |tally| tally.not_covered.extend(shown));
             }
@@ -1316,7 +1344,14 @@ impl Toolbox for DaemonToolbox {
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|_, (turn, _)| *turn != turn_id);
         let tally = self.home_turns.lock().unwrap_or_else(PoisonError::into_inner).remove(&turn_id);
-        let tally = tally.unwrap_or_default();
+        let mut tally = tally.unwrap_or_default();
+        let unfinished = reason_text(efr_protocol::UndoReason::CallUnfinished);
+        for name in std::mem::take(&mut tally.pending).into_iter().flat_map(|(_, names)| names) {
+            let line = format!("{name} ({unfinished})");
+            if !tally.not_covered.contains(&line) {
+                tally.not_covered.push(line);
+            }
+        }
         let Some(snapshots) = &self.snapshots else { return TurnChanges::default() };
         let mut ended = snapshots.turn_end(turn_id).await;
         if ended.auto {

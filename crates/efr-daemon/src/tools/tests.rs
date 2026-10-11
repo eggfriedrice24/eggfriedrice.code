@@ -1559,3 +1559,26 @@ fn cover_facts_read_the_projects_that_the_plan_writes() {
     );
     assert_eq!(crate::tools::cover_projects(all, WriteProjects::All, home), [app]);
 }
+
+#[tokio::test]
+async fn turn_end_names_a_home_copy_whose_call_did_not_finish() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let notes = kept.home.join("notes.md");
+    std::fs::write(&notes, "old\n").unwrap();
+    let mut write =
+        call_of(2, 1, "write_file", json!({"path": notes, "content": "new\n"}), &kept.home);
+    write.context = write.context.with_exits(vec![home_write(&notes)]);
+
+    // NOTE: the copy before the call, then an interrupt drops the call before its copy
+    // after.
+    let copying = kept.toolbox.copy_before(&write.context).await.unwrap();
+    assert!(copying.is_some());
+    drop(copying);
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let changes =
+        kept.toolbox.turn_changes(ConversationId::from_uuid(id(1)), TurnId::from_uuid(id(2))).await;
+
+    let undo = changes.undo.unwrap();
+    assert_eq!(undo.not_covered, ["~/notes.md (the call did not finish)"]);
+}
