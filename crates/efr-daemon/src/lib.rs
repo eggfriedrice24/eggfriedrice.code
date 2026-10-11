@@ -27,6 +27,7 @@ mod discovery;
 mod engine;
 mod error;
 mod gc;
+mod home;
 mod judge;
 mod lock;
 mod methods;
