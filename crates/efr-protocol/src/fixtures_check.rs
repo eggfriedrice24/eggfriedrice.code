@@ -141,8 +141,8 @@ fn turn_undo_info() -> TurnUndoInfo {
     TurnUndoInfo {
         undoable: true,
         roots: vec![
-            RootFiles { shown: "eggfriedrice.code".into(), files: 4 },
-            RootFiles { shown: "$SCRATCH".into(), files: 1 },
+            RootFiles { shown: "eggfriedrice.code".into(), files: 4, refs: 1 },
+            RootFiles { shown: "$SCRATCH".into(), files: 1, refs: 0 },
         ],
         home_files: 2,
         not_covered: vec!["target/ (ignored, large)".into(), "refs of app (shallow)".into()],

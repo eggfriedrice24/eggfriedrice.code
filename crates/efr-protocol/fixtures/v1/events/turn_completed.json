@@ -63,7 +63,8 @@
     "roots": [
       {
         "shown": "eggfriedrice.code",
-        "files": 4
+        "files": 4,
+        "refs": 1
       },
       {
         "shown": "$SCRATCH",

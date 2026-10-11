@@ -371,7 +371,8 @@ No protocol version has shipped yet.
   `conflicts`, `not_covered`, optional `refs` and `trash`, and `stopped`, false when
   absent; it belongs to no turn).
   `turn_completed`, `turn_failed` and `turn_interrupted` gain an optional `undo` (the
-  optional `undoable`, `roots` with `shown` and `files`, `home_files`, `not_covered`
+  optional `undoable`, `roots` with `shown`, `files` and `refs` (0 when absent),
+  `home_files`, `not_covered`
   and `not_covered_more`), and `turn_failed` and `turn_interrupted` gain an optional
   `changes`. From phase B, `home_file_changed` has `covered` and no `backup`. New
   fixtures `turn_undo_params.json`, `turn_undo_result.json`,

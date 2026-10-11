@@ -17,7 +17,7 @@
 use std::fmt::Write as _;
 
 use efr_protocol::{
-    ChangeKind, FileChange, FileChanges, RefChange, SnapshotPhase, TurnId, TurnUndoInfo,
+    ChangeKind, FileChange, FileChanges, RefChange, RootFiles, SnapshotPhase, TurnId, TurnUndoInfo,
 };
 use efr_render::{RenderOptions, WidthMethod, text_width};
 
@@ -165,8 +165,9 @@ fn files(count: usize) -> String {
 /// The line at the end of an `auto` turn that `efr undo` can take back, such as
 /// `changed 4 files (+12 −3) in eggfriedrice.code and 2 in ~; efr undo reverts this
 /// turn`: the files in the roots, named by the roots, and the files outside the roots
-/// that efr copied first. `None` when the turn changed no file that undo covers, or
-/// undo cannot take the turn back now.
+/// that efr copied first; for a turn that only moved refs, `moved 1 ref in
+/// eggfriedrice.code; efr undo reverts this turn`. `None` when the turn changed no file
+/// or ref that undo covers, or undo cannot take the turn back now.
 pub(crate) fn undo_line(changes: Option<&FileChanges>, undo: &TurnUndoInfo) -> Option<String> {
     if !undo.undoable {
         return None;
@@ -176,7 +177,17 @@ pub(crate) fn undo_line(changes: Option<&FileChanges>, undo: &TurnUndoInfo) -> O
     let roots: Vec<String> =
         undo.roots.iter().filter(|root| root.files > 0).map(|root| one_line(&root.shown)).collect();
     let mut line = match (count, home) {
-        (0, 0) => return None,
+        (0, 0) => {
+            // NOTE: a turn that only moved refs, such as `git reset --soft HEAD~1`.
+            let moved: Vec<&RootFiles> = undo.roots.iter().filter(|root| root.refs > 0).collect();
+            let refs: u32 = moved.iter().map(|root| root.refs).sum();
+            if refs == 0 {
+                return None;
+            }
+            let names: Vec<String> = moved.iter().map(|root| one_line(&root.shown)).collect();
+            let unit = if refs == 1 { "ref" } else { "refs" };
+            format!("moved {refs} {unit} in {}", joined(&names))
+        }
         (0, home) => format!("changed {} in ~", files(home)),
         (count, home) => {
             let mut line = format!("changed {}", files(count));

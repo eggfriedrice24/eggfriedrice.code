@@ -815,3 +815,19 @@ async fn turns_with_refs_read_the_mode_of_the_first_snapshot() {
         turns.iter().map(|refs| (refs.turn, refs.auto)).collect();
     assert_eq!(modes, [(turn(2), false), (turn(1), true)]);
 }
+
+#[tokio::test]
+async fn turn_end_counts_the_refs_that_the_turn_moved() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    write(&dir.join("a.txt"), "b\n");
+    git(&dir, &home, &[], &["commit", "-q", "-am", "two"]).await;
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits()).await;
+    git(&dir, &home, &[], &["reset", "-q", "--soft", "HEAD~1"]).await;
+    git(&dir, &home, &[], &["tag", "kept"]).await;
+    world.snapshots.after_call(call, limits()).await;
+    let end = world.snapshots.turn_end(turn(1), limits()).await;
+    assert_eq!(end.refs_moved, [(dir.clone(), 2)], "main moved and the tag is new: {end:?}");
+}

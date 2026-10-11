@@ -43,6 +43,10 @@ pub struct RootFiles {
     pub shown: String,
     /// The files of the root that undo can bring back.
     pub files: u32,
+    /// The refs of the root's project that the turn moved (branches, tags, the stash and
+    /// `HEAD`) and that undo can move back. 0 when absent.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub refs: u32,
 }
 
 /// What `efr undo` can take back of a turn, at the turn's end: the roots with the

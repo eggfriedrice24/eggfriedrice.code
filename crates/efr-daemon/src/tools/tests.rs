@@ -1500,7 +1500,10 @@ async fn turn_end_not_undoable_while_a_call_runs() {
     let busy = turn(3).await.undo.unwrap();
 
     assert!(idle.undoable, "{idle:?}");
-    assert_eq!(idle.roots, [efr_protocol::RootFiles { shown: "$SCRATCH".to_owned(), files: 1 }]);
+    assert_eq!(
+        idle.roots,
+        [efr_protocol::RootFiles { shown: "$SCRATCH".to_owned(), files: 1, refs: 0 }]
+    );
     assert!(!busy.undoable, "{busy:?}");
     assert_eq!(busy.not_covered, ["$SCRATCH (a call still runs)"]);
     assert!(kept.toolbox.call_runs(ConversationId::from_uuid(id(1))));

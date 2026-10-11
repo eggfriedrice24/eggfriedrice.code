@@ -561,11 +561,16 @@ pub(crate) fn undo_info(
     let roots: Vec<RootFiles> = ended
         .roots
         .iter()
-        .map(|(name, prefix, _)| RootFiles {
+        .map(|(name, prefix, path)| RootFiles {
             shown: name.clone(),
             files: changed_in(end.changes.as_ref(), prefix, &ended.roots),
+            refs: end
+                .refs_moved
+                .iter()
+                .find(|(root, _)| root == path)
+                .map_or(0, |(_, moved)| *moved),
         })
-        .filter(|root| root.files > 0)
+        .filter(|root| root.files > 0 || root.refs > 0)
         .collect();
     let has_pre = end.snapshots.iter().any(|info| info.phase == Phase::Pre);
     Some(TurnUndoInfo {

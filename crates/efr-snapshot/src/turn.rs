@@ -62,6 +62,9 @@ pub struct TurnEnd {
     pub not_covered: Vec<(PathBuf, String)>,
     /// True when at least one root kept a complete record of the turn.
     pub kept: bool,
+    /// The roots whose project's refs the turn moved, and how many, when the turn's
+    /// mirror holds them, so undo can move them back.
+    pub refs_moved: Vec<(PathBuf, u32)>,
 }
 
 /// The reason in [`TurnEnd::not_covered`] for a root whose snapshot failed in the turn.
@@ -322,6 +325,7 @@ impl Snapshots {
             }
             end.not_covered.extend(root.not_covered);
             end.kept |= root.kept;
+            end.refs_moved.extend(root.refs_moved);
             shown.extend(root.changes);
         }
         end.changes = changes::merge(shown);
@@ -415,6 +419,12 @@ impl Snapshots {
                 Ok(refs) => {
                     meta.head = refs.head_ref.clone().or_else(|| refs.head_commit.clone());
                     meta.refs = refs_with_head(&refs);
+                    let mirrored =
+                        kept.mirror.as_ref().is_some_and(|mirror| mirror.missing.is_none());
+                    let moved = moved_refs(&kept.meta, &meta);
+                    if mirrored && moved > 0 {
+                        end.refs_moved.push((path.clone(), moved));
+                    }
                 }
                 Err(reason) => {
                     meta.head = None;
@@ -623,6 +633,19 @@ struct RootEnd {
     left_out: Vec<(PathBuf, LeftOutReason)>,
     not_covered: Vec<(PathBuf, String)>,
     kept: bool,
+    refs_moved: Vec<(PathBuf, u32)>,
+}
+
+/// How many refs differ between the `pre` line `pre` and the `post` line `post`: a
+/// branch, tag or stash that moved, is new or is gone, and `HEAD` when it names another
+/// branch or another detached commit. `HEAD` that follows its branch is no move of its
+/// own.
+fn moved_refs(pre: &Meta, post: &Meta) -> u32 {
+    let names: BTreeSet<&String> =
+        pre.refs.keys().chain(post.refs.keys()).filter(|name| *name != "HEAD").collect();
+    let moved = names.into_iter().filter(|name| pre.refs.get(*name) != post.refs.get(*name));
+    let head = u32::from(pre.head != post.head);
+    u32::try_from(moved.count()).unwrap_or(u32::MAX).saturating_add(head)
 }
 
 impl RootEnd {

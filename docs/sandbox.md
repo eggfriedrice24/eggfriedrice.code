@@ -508,7 +508,10 @@ undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193...
   mode of a directory.
 - Undo restores the branches, tags, `refs/stash` and `HEAD` that the turn moved, from
   the mirror that efr took at the turn's first snapshot, by compare and swap. Your git
-  index stays as it is.
+  index stays as it is. A turn that only moved refs, such as `git reset --soft`, ends
+  with `moved 1 ref in <project>; efr undo reverts this turn`. When efr cannot keep
+  the refs that an undo moves away from, the undo leaves those refs as they are, so a
+  redo can always give them back.
 - Undo is a stack: a turn cannot be undone while a newer turn of the conversation is
   not undone, unless `--force`. `--redo` takes back the newest undo. `--list` shows the
   turns and which are undone or stopped. `--turn` picks one, `--dry-run` only shows

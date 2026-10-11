@@ -798,7 +798,7 @@ async fn the_turn_report_comes_before_the_end_of_the_turn() {
 fn undo_info() -> efr_protocol::TurnUndoInfo {
     efr_protocol::TurnUndoInfo {
         undoable: true,
-        roots: vec![efr_protocol::RootFiles { shown: "app".to_owned(), files: 1 }],
+        roots: vec![efr_protocol::RootFiles { shown: "app".to_owned(), files: 1, refs: 0 }],
         home_files: 2,
         not_covered: vec!["target/ (ignored, large)".to_owned()],
         not_covered_more: 0,

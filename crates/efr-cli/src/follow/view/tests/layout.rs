@@ -1275,7 +1275,7 @@ fn undo_info(roots: &[(&str, u32)], home: u32, not_covered: &[&str], more: u32) 
         undoable: true,
         roots: roots
             .iter()
-            .map(|(shown, files)| RootFiles { shown: (*shown).to_owned(), files: *files })
+            .map(|(shown, files)| RootFiles { shown: (*shown).to_owned(), files: *files, refs: 0 })
             .collect(),
         home_files: home,
         not_covered: not_covered.iter().map(|name| (*name).to_owned()).collect(),

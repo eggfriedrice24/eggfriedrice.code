@@ -162,6 +162,7 @@ fn undo(roots: &[(&str, u32)], home_files: u32) -> efr_protocol::TurnUndoInfo {
             .map(|(shown, files)| efr_protocol::RootFiles {
                 shown: (*shown).to_owned(),
                 files: *files,
+                refs: 0,
             })
             .collect(),
         home_files,
@@ -198,4 +199,16 @@ fn the_not_covered_line_counts_what_it_leaves_out() {
         super::not_covered_line(&hostile, 0).as_deref(),
         Some("not covered: a\u{241b}[2J (big)")
     );
+}
+
+#[test]
+fn the_undo_line_of_a_turn_that_only_moved_refs_names_them() {
+    let mut info = undo(&[], 0);
+    info.roots = vec![efr_protocol::RootFiles { shown: "app".to_owned(), files: 0, refs: 1 }];
+    assert_eq!(
+        super::undo_line(None, &info).as_deref(),
+        Some("moved 1 ref in app; efr undo reverts this turn")
+    );
+    info.roots[0].refs = 0;
+    assert_eq!(super::undo_line(None, &info), None, "nothing to take back");
 }
