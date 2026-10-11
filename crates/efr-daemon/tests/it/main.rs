@@ -32,4 +32,5 @@ mod snapshots;
 mod subscribe;
 mod support;
 mod turn_input;
+mod undo;
 mod undo_method;
