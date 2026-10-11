@@ -280,13 +280,13 @@ impl<'a> Envelope<'a> {
         need.names = super::names::dedup(names);
     }
 
-    /// The mask that hides `path`: a built-in or added mask at or above it, or the
-    /// path itself for a project `.env` file in a write root.
     /// True when a mask hides `path` in a contained call.
     pub(crate) fn is_masked(&self, path: &Path) -> bool {
         self.mask_of(path).is_some()
     }
 
+    /// The mask that hides `path`: a built-in or added mask at or above it, or the
+    /// path itself for a project `.env` file in a write root.
     fn mask_of(&self, path: &Path) -> Option<PathBuf> {
         if let Some(mask) =
             self.masks.iter().chain(self.locations.mask_roots()).find(|mask| path.starts_with(mask))
