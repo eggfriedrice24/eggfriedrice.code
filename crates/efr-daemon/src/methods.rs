@@ -393,7 +393,9 @@ impl Dispatcher for Methods {
                 Method::PresenceSet(params) => {
                     presence_set::handle(state, params, &responder).await
                 }
-                Method::TurnUndo(params) => turn_undo::handle(state, params, &responder).await,
+                Method::TurnUndo(params) => {
+                    turn_undo::handle(state, &context, params, &responder).await
+                }
             };
             state.presence.record(touched).await;
             if handled.is_ok() {
