@@ -410,6 +410,8 @@ async fn undo_previews_lists_applies_and_redoes_a_turn() {
         "{}",
         text(&applied.stdout)
     );
+    let note = "empty directories and special files do not come back";
+    assert_eq!(text(&applied.stdout).matches(note).count(), 1, "the preview's notes show once");
     assert_eq!(read(), "one\n");
     let listed = run(undo(&["--list"])).await;
     assert!(text(&listed.stdout).contains("  undone  "), "{}", text(&listed.stdout));
