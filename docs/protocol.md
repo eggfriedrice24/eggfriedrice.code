@@ -362,8 +362,9 @@ No protocol version has shipped yet.
   and an optional `reason`), `entries_more`, `refs` (each with `root`, `name` and the
   optional `from`, `to`, `applied` and `reason`), `notes` and `turns` (with `list`: each
   with `turn_id` and the optional `title`, `auto`, `undone`, `stopped` and `ended`),
-  each absent when empty. A refusal is a `conflict` error; `undo_refusals.json` freezes
-  its forms. New event kinds `snapshot_taken` (`turn_id`, `root`, `phase`: `pre` or
+  each absent when empty. A refusal is a `conflict` error whose `data` holds the
+  refusal as `refused` (`{"kind": "off"}` until undo comes); `undo_refusals.json`
+  freezes its forms. New event kinds `snapshot_taken` (`turn_id`, `root`, `phase`: `pre` or
   `post`, `commit`, `files`, `skipped`, `ms`) and `undo_applied` (`conversation_id`,
   `undone_turn_id`, `undo_id`, `redo`, `origin`, `restored`, `trashed`, `deleted`,
   `conflicts`, `not_covered`, optional `refs` and `trash`; it belongs to no turn).
