@@ -11,6 +11,14 @@ fn code_keys_are_found_in_both_listing_forms() {
 }
 
 #[test]
+fn code_keys_include_alternate_refs_command() {
+    // NOTE: git runs it on a repository with alternates, and efr's snapshot mirror
+    // turns it off with `-c core.alternateRefsCommand=`.
+    assert!(is_code_key("core.alternateRefsCommand", "./x"));
+    assert_eq!(code_keys("core.alternaterefscommand=./x\n"), ["core.alternaterefscommand"]);
+}
+
+#[test]
 fn every_key_of_the_rule_list_is_a_code_key() {
     for key in [
         "core.fsmonitor",

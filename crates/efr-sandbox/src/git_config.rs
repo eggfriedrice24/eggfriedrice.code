@@ -20,6 +20,7 @@ const CODE_KEYS: &[&str] = &[
     "gpg.program",
     "include.path",
     "uploadpack.packobjectshook",
+    "core.alternaterefscommand",
 ];
 
 /// `(section, name)` of keys with any subsection that run a program, such as
