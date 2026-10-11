@@ -554,7 +554,6 @@ fn plan_desktop_grant_binds_socket_and_sets_env() {
     };
     assert!(at("/run/user/1000") < at(HYPR_SOCKET));
 
-    let mut spec = spec;
     spec.grants = vec![Grant::Desktop { desktop: DesktopKind::X11 }];
     let plan = MountPlan::build(&spec, &fs).unwrap();
     assert!(has_mount(&plan, &rw("/tmp/.X11-unix/X0")));

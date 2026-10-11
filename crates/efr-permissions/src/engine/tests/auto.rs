@@ -360,7 +360,7 @@ fn kinds_of(targets: &[(&str, Option<TargetKind>)]) -> CallFacts {
 }
 
 /// The persistence exit of `requirements` on the machine of `engine`.
-fn persistence(engine: &Engine, requirements: Requirements) -> crate::ExitNeed {
+fn persistence(engine: &Engine, requirements: Requirements) -> ExitNeed {
     let decision = engine.decide(&in_auto(requirements));
     let need = decision.exits().find(|need| need.kind == ExitKind::Persistence);
     need.unwrap_or_else(|| panic!("no persistence exit: {:?}", kinds(&decision))).clone()

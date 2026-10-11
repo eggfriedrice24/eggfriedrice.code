@@ -321,7 +321,7 @@ impl Context {
             home,
             // NOTE: WAYLAND_DISPLAY and the others are the desktops' conventions, not
             // efr settings, so they are read here and not through efr_stdx::env::Var.
-            desktop: desktop_env(|name| std::env::var(name).ok()),
+            desktop: desktop_env(|name| std::env::var_os(name)?.into_string().ok()),
             term,
         })
     }
