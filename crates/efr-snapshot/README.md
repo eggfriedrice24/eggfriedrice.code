@@ -14,15 +14,28 @@ without undo).
   cannot read, change or delete a snapshot.
 - `Snapshots::before_call` and `after_call`: a tree of each `Root` before and after a
   call that can write, and the `FileChanges` of the call. The first snapshot of a root
-  in a turn is the turn's `pre`. After a call, the index takes the root's changes and
-  is compared with the tree before (`git diff-index --cached`); the new tree is written
-  only when a later snapshot needs it.
+  in a turn is the turn's `pre`: its commit and the ref
+  `refs/efr/<conversation>/<turn>/pre` are written at once, so a stop of efrd in the
+  turn keeps it. The commit's `efr-meta:` line holds the root, the prefix of its
+  paths, the project's `HEAD`, the turn's mode (`Root::with_mode`), the root's
+  `(dev, ino)`, the left-out record and the modes. After a call, the index takes the
+  root's changes and is compared with the tree before (`git diff-index --cached`). A
+  call that changed files writes its tree, adds its paths to the turn's `touched`
+  paths of the root, and moves `refs/efr/<conversation>/<turn>/last` there (`touched`
+  in its line, at most 5000 paths, then `touched_more`). A change between two calls,
+  such as an edit of the user, is in no call's list, so it never joins `touched`.
 - `Snapshots::before_write`: the turn's first snapshot of a root before a file tool
-  writes into it. The tool's own diff lists its change.
-- `Snapshots::finish_turn`: the turn's last tree of each root, the refs
-  `refs/efr/<conversation>/<turn>/pre` and `/post` (commits with the root, the prefix
-  of its paths and the project's `HEAD` in an `efr-meta:` line), and the turn's
-  changes.
+  writes into it. The tool's own diff lists its change; `Snapshots::after_write` adds
+  the files it wrote to `touched`.
+- A snapshot that fails marks the root for the turn. When the first one fails, no
+  later snapshot becomes `pre`, because a call of the turn may have written in
+  between.
+- `Snapshots::turn_end` (`TurnEnd`): the turn's last tree of each root as `post`, a
+  child of `pre` (`last` goes, `post` holds `touched`), and the turn's changes, the
+  `pre` and `post` of each root (`SnapshotInfo`), what they left out, and the roots
+  whose record is not complete: a snapshot that failed, or a `pre` ref that is gone,
+  as when an approved command outside the sandbox changed the store.
+  `Snapshots::finish_turn` returns only the changes.
 - `Snapshots::turn_diff`: a finished turn's changes and unified diff, for
   `conversation.diff`, with every root's paths under its prefix. When one root lies
   inside another, the files below the inner root come from the inner root alone, in
@@ -30,8 +43,9 @@ without undo).
   rules name (a small ignored file that a snapshot took, such as `.env`) stays in the
   list, but the patch holds only a line `<path>: ignored file, content not shown`: it
   may hold secrets that nobody read in this turn, and every read-scope client and the
-  scrollback get the patch. `finish_turn` records these paths in the `efr-meta:` line
-  (`hidden`).
+  scrollback get the patch. `turn_end` records these paths in the `efr-meta:` line of
+  `post` (`hidden`). A turn with only `pre`, which efrd stopped before its end, has no
+  record after the turn and shows no changes.
 - `Snapshots::gc`: the refs of the newest `keep_turns` turns of each conversation stay
   in each store (then `git prune` of loose objects older than an hour, and `git gc
   --auto`), and a store without a snapshot for `max_age` goes whole. The first tree of

@@ -11,6 +11,7 @@ use crate::capture::LeftOut;
 /// only counts.
 pub(crate) const MAX_LEFT_OUT: usize = 1000;
 pub(crate) const MAX_MODES: usize = 1000;
+pub(crate) const MAX_TOUCHED: usize = 5000;
 
 /// The `efr-meta:` line of one commit.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -38,9 +39,9 @@ pub(crate) struct Meta {
     /// Modes other than 0644 and 0755 of the files that the snapshots saw, at most
     /// [`MAX_MODES`].
     pub(crate) modes: BTreeMap<String, u32>,
-    /// The paths that the turn's calls changed so far.
+    /// The paths that the turn's calls changed so far, at most [`MAX_TOUCHED`].
     pub(crate) touched: Vec<String>,
-    /// True when the turn's calls changed more paths than the line names.
+    /// True when the turn's calls changed more paths than [`MAX_TOUCHED`].
     pub(crate) touched_more: bool,
     /// True when a snapshot of the root failed in the turn, so the record of what the
     /// turn changed is not complete.

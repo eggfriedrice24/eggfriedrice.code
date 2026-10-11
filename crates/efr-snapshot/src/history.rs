@@ -76,7 +76,7 @@ impl Snapshots {
             let base = format!("refs/efr/{conversation}/{name}");
             let pre = format!("{base}/pre");
             let post = format!("{base}/post");
-            let Meta { shown: prefix, hidden } = self.meta_of(&holder.store, &pre).await?;
+            let Meta { shown: prefix, hidden } = self.meta_of(&holder.store, &post).await?;
             let changes = self.diff_trees(&holder.store, &pre, &post).await?;
             if with_diff && !changes.is_empty() {
                 let src = format!("--src-prefix=a/{prefix}");
@@ -144,12 +144,12 @@ impl Snapshots {
         Ok(Some(TurnDiff { turn_id: wanted, changes, diff }))
     }
 
-    /// What the turn's first commit in `store` recorded: the prefix of its paths and
+    /// What the turn's last commit in `store` recorded: the prefix of its paths and
     /// its ignored changed paths.
-    async fn meta_of(&self, store: &Store, pre: &str) -> Result<Meta, SnapshotError> {
+    async fn meta_of(&self, store: &Store, commit: &str) -> Result<Meta, SnapshotError> {
         let out = self
             .runner()
-            .checked(store, "cat-file", &["cat-file", "commit", pre], Run::default())
+            .checked(store, "cat-file", &["cat-file", "commit", commit], Run::default())
             .await?;
         let meta = crate::meta::Meta::of_commit(&String::from_utf8_lossy(&out));
         // NOTE: a commit without the line names no prefix; the root's path stands in.
@@ -158,7 +158,9 @@ impl Snapshots {
         Ok(Meta { shown: shown.unwrap_or_else(|| format!("{}/", store.root().display())), hidden })
     }
 
-    /// The stores with refs of `conversation`, with the turns of each.
+    /// The stores with refs of `conversation`, with the turns of each that have a
+    /// `post`: a turn that efrd stopped before its end has only `pre`, and no record
+    /// of what it changed.
     async fn holders(&self, conversation: ConversationId) -> Result<Vec<Holder>, SnapshotError> {
         let dir = self.dir().to_path_buf();
         let name = conversation.to_string();
@@ -179,7 +181,7 @@ impl Snapshots {
             let mut turns: Vec<String> = String::from_utf8_lossy(&out)
                 .lines()
                 .filter_map(|line| line.strip_prefix(prefix.as_str()))
-                .filter_map(|rest| rest.strip_suffix("/pre"))
+                .filter_map(|rest| rest.strip_suffix("/post"))
                 .map(str::to_owned)
                 .collect();
             turns.sort();

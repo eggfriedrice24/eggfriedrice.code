@@ -39,6 +39,7 @@ mod object;
 mod runner;
 mod snapshots;
 mod store;
+mod turn;
 
 pub use capture::{LeftOut, LeftOutReason, Limits, MAX_IGNORED_BYTES, SKIPPED_DIRS};
 pub use changes::shown_prefix;
@@ -49,3 +50,4 @@ pub use object::{ObjectId, blob_id, link_id};
 pub use snapshots::{
     CallSnapshot, DEFAULT_SNAPSHOT_TIMEOUT, Root, SNAPSHOTS_DIR, SnapshotParts, Snapshots,
 };
+pub use turn::{NOT_COVERED_FAILED, NOT_COVERED_STORE_CHANGED, Phase, SnapshotInfo, TurnEnd};

@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt as _, symlink};
 
 use efr_protocol::{ChangeKind, FileChange, FileChanges};
-use efr_snapshot::{Limits, Root};
+use efr_snapshot::{LeftOutReason, Limits, Phase, Root};
 use pretty_assertions::assert_eq;
 
 use crate::support::{
@@ -184,7 +184,7 @@ async fn snapshot_skips_large_files_and_says_so() {
     let call =
         world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
     world.snapshots.after_call(call, limits()).await;
-    world.snapshots.finish_turn(turn(1), limits()).await;
+    let end = world.snapshots.turn_end(turn(1), limits()).await;
     let store = world.only_store();
     let tree = tree_of(&store, &home, &turn_ref(1, "pre")).await;
     assert!(!tree.contains_key("dump.sql"), "above the 1 KiB limit of the test");
@@ -192,6 +192,11 @@ async fn snapshot_skips_large_files_and_says_so() {
         let meta = meta_of(&store, &home, &turn_ref(1, phase)).await;
         assert_eq!(left_out(&meta), [("dump.sql".to_owned(), "too_large".to_owned())], "{phase}");
     }
+    assert_eq!(end.left_out, [(dir.join("dump.sql"), LeftOutReason::TooLarge)]);
+    let skipped: Vec<(Phase, u32, u32)> =
+        end.snapshots.iter().map(|info| (info.phase, info.files, info.skipped)).collect();
+    assert_eq!(skipped, [(Phase::Pre, 1, 1), (Phase::Post, 1, 1)], "one file, one left out");
+    assert!(end.kept && end.not_covered.is_empty());
 }
 
 #[tokio::test]

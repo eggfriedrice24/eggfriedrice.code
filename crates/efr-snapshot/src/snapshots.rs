@@ -1,5 +1,5 @@
-//! [`Snapshots`]: the store of every root, the snapshots of each call and turn, and the
-//! refs of each turn.
+//! [`Snapshots`]: the store of every root and the snapshots of each call. The turn's
+//! refs are in `turn.rs`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -13,9 +13,9 @@ use efr_stdx::time::{Clock, Stopwatch};
 use crate::SnapshotError;
 use crate::capture::{self, LeftOut, Limits, Reported, Staged};
 use crate::changes::{self, RootChange, Shown};
-use crate::meta::Meta;
 use crate::runner::{Run, Runner};
-use crate::store::{self, Store};
+use crate::store::Store;
+use crate::turn::TurnRecord;
 
 mod slot;
 
@@ -52,13 +52,21 @@ pub struct SnapshotParts {
 pub struct Root {
     path: PathBuf,
     shown: String,
+    mode: Option<String>,
 }
 
 impl Root {
     /// The root at `path`, whose changed files show as `shown` and their path, such as
     /// `""`, `"$SCRATCH/"` or `"~/p/app/"` ([`shown_prefix`](crate::shown_prefix)).
     pub fn new(path: impl Into<PathBuf>, shown: impl Into<String>) -> Self {
-        Root { path: path.into(), shown: shown.into() }
+        Root { path: path.into(), shown: shown.into(), mode: None }
+    }
+
+    /// The root with the mode of the turn (`auto`, `cautious`, `manual`), which the
+    /// turn's first commit of the root records.
+    pub fn with_mode(mut self, mode: impl Into<String>) -> Self {
+        self.mode = Some(mode.into());
+        self
     }
 
     /// The root's path.
@@ -70,12 +78,18 @@ impl Root {
     pub fn shown(&self) -> &str {
         &self.shown
     }
+
+    /// The mode of the turn, when the caller named it.
+    pub fn mode(&self) -> Option<&str> {
+        self.mode.as_deref()
+    }
 }
 
 /// The snapshots before one call, which [`Snapshots::after_call`] compares with the
 /// snapshots after it.
 #[derive(Debug, Clone, Default)]
 pub struct CallSnapshot {
+    turn: Option<TurnId>,
     before: Vec<(Root, String, Pin)>,
 }
 
@@ -86,41 +100,27 @@ impl CallSnapshot {
     }
 }
 
-/// What [`Snapshots::keep_turn`] keeps of a turn in one store.
-#[derive(Debug, Clone, Copy)]
-struct Kept<'a> {
-    conversation: ConversationId,
-    turn: TurnId,
-    pre: &'a Snap,
-    post: &'a Snap,
-    hidden: &'a [String],
-}
-
 /// One snapshot of a root: its tree and what it left out.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Snap {
     pub(crate) tree: String,
     /// The files in the tree.
     pub(crate) files: u32,
+    /// How long the snapshot took.
+    pub(crate) ms: u64,
     /// What the snapshots of the root left out by now.
     pub(crate) left_out: Vec<LeftOut>,
     /// The modes other than 0644 and 0755 that they saw.
     pub(crate) modes: BTreeMap<String, u32>,
 }
 
-/// One root of a running turn and its first snapshot.
-#[derive(Debug, Clone)]
-struct TurnRoot {
-    root: Root,
-    pre: Snap,
-    _pin: Pin,
-}
-
-/// The roots of a running turn.
-#[derive(Debug, Clone)]
-struct TurnRecord {
-    conversation: ConversationId,
-    roots: Vec<TurnRoot>,
+/// Why a snapshot has no tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Missed {
+    /// The root has more files than `snapshot.max_files`, now or a short time ago.
+    TooLarge,
+    /// git or the file system failed.
+    Failed,
 }
 
 /// efr's own snapshot store: one bare repository per root below [`SnapshotParts::dir`]
@@ -169,9 +169,11 @@ impl Snapshots {
     }
 
     /// Snapshots `roots` before a call of the turn `turn` that can write them. The
-    /// first snapshot of a root in a turn is the turn's `pre` and takes the small
-    /// ignored files too. A root that cannot be snapshotted is left out, with a line in
-    /// the log.
+    /// first snapshot of a root in a turn is the turn's `pre`: it takes the small
+    /// ignored files too, and its commit and ref are written at once. A root that
+    /// cannot be snapshotted is left out, with a line in the log; when that happens in
+    /// the turn, the turn's record of the root is not complete, and the end of the
+    /// turn says so.
     pub async fn before_call(
         &self,
         conversation: ConversationId,
@@ -182,25 +184,45 @@ impl Snapshots {
         let roots = self.canonical(roots).await;
         let taken = futures::future::join_all(roots.into_iter().map(|root| async move {
             let first = !self.in_turn(turn, root.path());
-            let snap = self.snap(root.path(), &limits, first).await?;
-            if first {
-                self.add_to_turn(conversation, turn, &root, &snap);
-            }
+            let snap = self.snap(root.path(), &limits, first).await;
+            let snap = if first {
+                self.start_root(conversation, turn, &root, snap).await?
+            } else {
+                match snap {
+                    Ok(snap) => snap,
+                    Err(_) => {
+                        self.mark_failed(turn, root.path());
+                        return None;
+                    }
+                }
+            };
             let pin = Pin::new(self.slot(root.path()), &snap.tree);
             Some((root, snap.tree, pin))
         }))
         .await;
-        CallSnapshot { before: taken.into_iter().flatten().collect() }
+        CallSnapshot { turn: Some(turn), before: taken.into_iter().flatten().collect() }
     }
 
     /// Snapshots the roots of `call` again after the call and lists what changed.
-    /// `None` when nothing changed or nothing could be compared.
+    /// `None` when nothing changed or nothing could be compared. The paths that
+    /// changed join the turn's `touched` paths of the root, and
+    /// `refs/efr/<conversation>/<turn>/last` moves to the new tree.
     pub async fn after_call(&self, call: CallSnapshot, limits: Limits) -> Option<FileChanges> {
+        let turn = call.turn;
         let compared = futures::future::join_all(call.before.into_iter().map(
             |(root, before, pin)| async move {
-                let changes = self.changes_since(root.path(), &before, &limits).await;
+                let kept = turn.is_some_and(|turn| self.keeps(turn, root.path()));
+                let compared = self.changes_since(root.path(), &before, &limits, kept).await;
                 drop(pin);
-                let changes = changes?;
+                let Some((changes, tree)) = compared else {
+                    if let Some(turn) = turn {
+                        self.mark_failed(turn, root.path());
+                    }
+                    return None;
+                };
+                if let (Some(turn), Some(tree)) = (turn, tree) {
+                    self.touch(turn, root.path(), &changes, &tree).await;
+                }
                 Some(Shown { root: root.path().to_path_buf(), shown: root.shown, changes })
             },
         ))
@@ -221,65 +243,32 @@ impl Snapshots {
         let missing: Vec<Root> =
             roots.into_iter().filter(|root| !self.in_turn(turn, root.path())).collect();
         futures::future::join_all(missing.into_iter().map(|root| async move {
-            if let Some(snap) = self.snap(root.path(), &limits, true).await {
-                self.add_to_turn(conversation, turn, &root, &snap);
-            }
+            let snap = self.snap(root.path(), &limits, true).await;
+            self.start_root(conversation, turn, &root, snap).await;
         }))
         .await;
     }
 
-    /// Ends the turn `turn`: snapshots each of its roots a last time (`post`), keeps
-    /// both trees as `refs/efr/<conversation>/<turn>/pre` and `/post`, and lists what
-    /// the turn changed. `None` when the turn took no snapshot or changed nothing.
-    pub async fn finish_turn(&self, turn: TurnId, limits: Limits) -> Option<FileChanges> {
-        let record = self.lock_turns().remove(&turn)?;
-        let conversation = record.conversation;
-        let compared = futures::future::join_all(record.roots.into_iter().map(|turn_root| {
-            async move {
-                let root = turn_root.root;
-                let post = self.snap(root.path(), &limits, true).await?;
-                let changes = if post.tree == turn_root.pre.tree {
-                    Some(Vec::new())
-                } else {
-                    self.compare(root.path(), &turn_root.pre.tree, &post.tree).await
-                };
-                let hidden = match &changes {
-                    Some(changes) if !changes.is_empty() => self.ignored(root.path(), changes).await,
-                    _ => Vec::new(),
-                };
-                let kept = Kept { conversation, turn, pre: &turn_root.pre, post: &post, hidden: &hidden };
-                if let Err(error) = self.keep_turn(root.path(), root.shown(), kept).await {
-                    tracing::warn!(error = %efr_stdx::with_causes(&error), root = %root.path().display(), "the snapshots of a turn could not be kept");
-                }
-                let changes = changes?;
-                if changes.is_empty() {
-                    return None;
-                }
-                Some(Shown { root: root.path().to_path_buf(), shown: root.shown, changes })
+    /// Adds the files that a file tool of the turn `turn` wrote (absolute paths) to the
+    /// turn's `touched` paths of the roots that hold them. The next snapshot's
+    /// `last` and the turn's `post` carry them.
+    pub async fn after_write(&self, turn: TurnId, written: Vec<PathBuf>) {
+        let first = written.first().cloned().unwrap_or_default();
+        let resolved = self
+            .runner()
+            .blocking(&first, move || written.iter().map(|path| resolve_parent(path)).collect())
+            .await;
+        let resolved: Vec<PathBuf> = match resolved {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), "the paths of a file tool's write could not be read");
+                return;
             }
-        }))
-        .await;
-        changes::merge(compared.into_iter().flatten().collect())
+        };
+        self.touch_paths(turn, &resolved);
     }
 
-    /// True when the running turn `turn` has a snapshot of `root`.
-    fn in_turn(&self, turn: TurnId, root: &Path) -> bool {
-        self.lock_turns()
-            .get(&turn)
-            .is_some_and(|record| record.roots.iter().any(|known| known.root.path() == root))
-    }
-
-    fn add_to_turn(&self, conversation: ConversationId, turn: TurnId, root: &Root, snap: &Snap) {
-        let mut turns = self.lock_turns();
-        let record =
-            turns.entry(turn).or_insert_with(|| TurnRecord { conversation, roots: Vec::new() });
-        if !record.roots.iter().any(|known| known.root.path() == root.path()) {
-            let pin = Pin::new(self.slot(root.path()), &snap.tree);
-            record.roots.push(TurnRoot { root: root.clone(), pre: snap.clone(), _pin: pin });
-        }
-    }
-
-    fn lock_turns(&self) -> MutexGuard<'_, HashMap<TurnId, TurnRecord>> {
+    pub(crate) fn lock_turns(&self) -> MutexGuard<'_, HashMap<TurnId, TurnRecord>> {
         self.inner.turns.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
@@ -291,7 +280,7 @@ impl Snapshots {
 
     /// `roots` with their canonical paths, without duplicates and without a root that
     /// is not a directory.
-    async fn canonical(&self, roots: Vec<Root>) -> Vec<Root> {
+    pub(crate) async fn canonical(&self, roots: Vec<Root>) -> Vec<Root> {
         let first = roots.first().map(|root| root.path().to_path_buf()).unwrap_or_default();
         let resolved = self
             .runner()
@@ -300,7 +289,7 @@ impl Snapshots {
                 for root in roots {
                     let Ok(path) = std::fs::canonicalize(root.path()) else { continue };
                     if path.is_dir() && !out.iter().any(|known| known.path == path) {
-                        out.push(Root { path, shown: root.shown });
+                        out.push(Root { path, ..root });
                     }
                 }
                 out
@@ -315,14 +304,20 @@ impl Snapshots {
         }
     }
 
-    /// One snapshot of the canonical `root`, or `None` with a line in the log.
-    async fn snap(&self, root: &Path, limits: &Limits, ignored: bool) -> Option<Snap> {
+    /// One snapshot of the canonical `root`, or why there is none, with a line in the
+    /// log.
+    pub(crate) async fn snap(
+        &self,
+        root: &Path,
+        limits: &Limits,
+        ignored: bool,
+    ) -> Result<Snap, Missed> {
         let slot = self.slot(root);
         let _turn = slot.enter().await;
         let now = self.runner().clock().now();
         if slot.skipped(now) {
             tracing::debug!(root = %root.display(), "no snapshot of this root: it was skipped a short time ago");
-            return None;
+            return Err(Missed::TooLarge);
         }
         let store = Store::new(self.dir(), root);
         let watch = Stopwatch::start();
@@ -353,9 +348,10 @@ impl Snapshots {
             Ok(Ok(tree)) => {
                 slot.set_tree(Some(tree.clone()));
                 let files = store.index_entries().unwrap_or(0);
-                Some(Snap {
+                Ok(Snap {
                     tree,
                     files: u32::try_from(files).unwrap_or(u32::MAX),
+                    ms: u64::try_from(watch.elapsed().as_millis()).unwrap_or(u64::MAX),
                     left_out: slot.left_out(),
                     modes: slot.modes(),
                 })
@@ -363,26 +359,28 @@ impl Snapshots {
             Ok(Err(reason)) => {
                 slot.skip(now);
                 tracing::debug!(root = %root.display(), reason, "no snapshot of this root");
-                None
+                Err(Missed::TooLarge)
             }
             Err(error) => {
                 tracing::warn!(error = %efr_stdx::with_causes(&error), root = %root.display(), "a snapshot failed");
-                None
+                Err(Missed::Failed)
             }
         }
     }
 
     /// The changes of the canonical `root` since the tree `before`: the index takes
-    /// the root's changes and is compared with `before` directly. The new tree is
-    /// written only when a later snapshot needs it, which saves a git run in each call
-    /// that changes files. `None` with a line in the log when nothing could be
-    /// compared.
+    /// the root's changes and is compared with `before` directly. Without `tree`, the
+    /// new tree is written only when a later snapshot needs it, which saves a git run
+    /// in each call that changes files; with it, a call that changed files writes its
+    /// tree at once and returns it. `None` with a line in the log when nothing could
+    /// be compared.
     async fn changes_since(
         &self,
         root: &Path,
         before: &str,
         limits: &Limits,
-    ) -> Option<Vec<RootChange>> {
+        tree: bool,
+    ) -> Option<(Vec<RootChange>, Option<String>)> {
         let slot = self.slot(root);
         let _turn = slot.enter().await;
         let now = self.runner().clock().now();
@@ -393,7 +391,7 @@ impl Snapshots {
         let store = Store::new(self.dir(), root);
         let watch = Stopwatch::start();
         let cached = slot.tree();
-        let compared: Result<Result<Vec<RootChange>, &str>, SnapshotError> = async {
+        let compared: Result<Result<_, &str>, SnapshotError> = async {
             let captured = capture::stage(
                 self.runner(),
                 &self.inner.reported,
@@ -408,7 +406,9 @@ impl Snapshots {
             let staged = captured.staged;
             match staged {
                 Staged::Skipped(reason) => Ok(Err(reason)),
-                Staged::Unchanged if cached.as_deref() == Some(before) => Ok(Ok(Vec::new())),
+                Staged::Unchanged if cached.as_deref() == Some(before) => {
+                    Ok(Ok((Vec::new(), None)))
+                }
                 Staged::Unchanged | Staged::Changed => {
                     if staged == Staged::Changed {
                         slot.set_tree(None);
@@ -417,7 +417,15 @@ impl Snapshots {
                     args.push(before);
                     let out =
                         self.runner().checked(&store, "diff-index", &args, Run::default()).await?;
-                    self.read_changes(&store, &out).await.map(Ok)
+                    let changes = self.read_changes(&store, &out).await?;
+                    let written = if tree && !changes.is_empty() {
+                        let written = capture::write_tree(self.runner(), &store).await?;
+                        slot.set_tree(Some(written.clone()));
+                        Some(written)
+                    } else {
+                        None
+                    };
+                    Ok(Ok((changes, written)))
                 }
             }
         }
@@ -439,7 +447,12 @@ impl Snapshots {
 
     /// The changes from tree `from` to tree `to` in the store of `root`, or `None` with
     /// a line in the log.
-    async fn compare(&self, root: &Path, from: &str, to: &str) -> Option<Vec<RootChange>> {
+    pub(crate) async fn compare(
+        &self,
+        root: &Path,
+        from: &str,
+        to: &str,
+    ) -> Option<Vec<RootChange>> {
         let store = Store::new(self.dir(), root);
         match self.diff_trees(&store, from, to).await {
             Ok(changes) => Some(changes),
@@ -487,7 +500,7 @@ impl Snapshots {
     /// `root` name now: a snapshot took them as small ignored files, such as `.env`,
     /// and `turn_diff` shows them without their content. Empty, with a line in the
     /// log, when git cannot tell.
-    async fn ignored(&self, root: &Path, changes: &[RootChange]) -> Vec<String> {
+    pub(crate) async fn ignored(&self, root: &Path, changes: &[RootChange]) -> Vec<String> {
         let store = Store::new(self.dir(), root);
         let paths: Vec<String> = changes
             .iter()
@@ -502,61 +515,8 @@ impl Snapshots {
         }
     }
 
-    /// Writes the commits of the turn's first and last trees of `root` and points
-    /// `refs/efr/<conversation>/<turn>/pre` and `/post` at them. The `efr-meta:` line
-    /// of both holds the root, the prefix of its paths, the project's `HEAD` and the
-    /// changed paths that are ignored (`hidden`).
-    async fn keep_turn(
-        &self,
-        root: &Path,
-        shown: &str,
-        kept: Kept<'_>,
-    ) -> Result<(), SnapshotError> {
-        let Kept { conversation, turn, pre, post, hidden } = kept;
-        let store = Store::new(self.dir(), root);
-        let slot = self.slot(root);
-        let _turn = slot.enter().await;
-        let now = self.runner().clock().now();
-        let time = format!("{} +0000", now.as_second());
-        let head = {
-            let root = root.to_path_buf();
-            self.runner().blocking(&root.clone(), move || store::project_head(&root)).await?
-        };
-        let mut meta = Meta {
-            conversation: conversation.to_string(),
-            turn: turn.to_string(),
-            phase: "pre".to_owned(),
-            root: root.to_string_lossy().into_owned(),
-            shown: shown.to_owned(),
-            head,
-            at: now.to_string(),
-            hidden: hidden.to_vec(),
-            files: pre.files,
-            ..Meta::default()
-        };
-        meta.set_left_out(&pre.left_out);
-        meta.set_modes(&pre.modes);
-        let pre_commit = self.commit(&store, &pre.tree, None, meta.message(), &time).await?;
-        meta.phase = "post".to_owned();
-        meta.files = post.files;
-        meta.set_left_out(&post.left_out);
-        meta.set_modes(&post.modes);
-        let post_commit =
-            self.commit(&store, &post.tree, Some(&pre_commit), meta.message(), &time).await?;
-        let base = format!("refs/efr/{conversation}/{turn}");
-        let updates = format!("update {base}/pre {pre_commit}\nupdate {base}/post {post_commit}\n");
-        self.runner()
-            .checked(
-                &store,
-                "update-ref",
-                &["update-ref", "--stdin"],
-                Run { stdin: Some(updates.into_bytes()), ..Run::default() },
-            )
-            .await?;
-        Ok(())
-    }
-
-    async fn commit(
+    /// Writes a commit of `tree` with `message`, at `time` (`<seconds> +0000`).
+    pub(crate) async fn commit(
         &self,
         store: &Store,
         tree: &str,
@@ -588,5 +548,16 @@ impl Snapshots {
             return Err(SnapshotError::BadOutput { command: "commit-tree" });
         }
         Ok(commit)
+    }
+}
+
+/// `path` with its parent directory resolved, so it compares with the canonical roots;
+/// `path` itself when the parent is gone.
+fn resolve_parent(path: &Path) -> PathBuf {
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => {
+            std::fs::canonicalize(parent).map_or_else(|_| path.to_path_buf(), |dir| dir.join(name))
+        }
+        _ => path.to_path_buf(),
     }
 }

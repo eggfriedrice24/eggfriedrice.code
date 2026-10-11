@@ -231,6 +231,13 @@ pub(crate) fn left_out(meta: &serde_json::Value) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Every ref of the store at `git_dir`, sorted.
+pub(crate) async fn refs(git_dir: &Path, home: &Path) -> Vec<String> {
+    let out =
+        git(home, home, &[("GIT_DIR", git_dir)], &["for-each-ref", "--format=%(refname)"]).await;
+    out.lines().map(str::to_owned).collect()
+}
+
 /// The ref `refs/efr/<conversation 1>/<turn n>/<name>`.
 pub(crate) fn turn_ref(n: u128, name: &str) -> String {
     format!("refs/efr/{}/{}/{name}", conversation(1), turn(n))
