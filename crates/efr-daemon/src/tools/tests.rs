@@ -1582,3 +1582,24 @@ async fn turn_end_names_a_home_copy_whose_call_did_not_finish() {
     let undo = changes.undo.unwrap();
     assert_eq!(undo.not_covered, ["~/notes.md (the call did not finish)"]);
 }
+
+#[test]
+fn home_copy_masks_the_env_files_of_a_project_it_reaches() {
+    let (_temp, root) = canonical_temp();
+    let app = root.join("p/app");
+    let other = root.join("p/other");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(app.join(".env"), "TOKEN=1\n").unwrap();
+    std::fs::write(other.join(".env"), "TOKEN=2\n").unwrap();
+    let globs = Settings::default().sandbox.mask_globs;
+    let projects = [app.clone(), other.clone()];
+
+    // A write exit into the other project, as with `sandbox.write_projects = "turn"`.
+    let into = crate::tools::env_masks(&projects, &[app.join("notes.md")], &globs);
+    assert_eq!(into, [app.join(".env")]);
+    // A walk of a dir above both projects reaches both.
+    let above = crate::tools::env_masks(&projects, &[root.join("p")], &globs);
+    assert_eq!(above, [app.join(".env"), other.join(".env")]);
+    assert!(crate::tools::env_masks(&projects, &[root.join("elsewhere")], &globs).is_empty());
+}

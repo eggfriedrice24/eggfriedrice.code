@@ -503,9 +503,16 @@ impl DaemonToolbox {
             .cloned()
             .collect();
         if !home_asks.is_empty() {
+            let asked: Vec<PathBuf> = home_asks
+                .iter()
+                .filter_map(|ask| match ask {
+                    CoverAsk::Home(path) | CoverAsk::HomeDir(path) => Some(path.clone()),
+                    _ => None,
+                })
+                .collect();
+            let masks = self.copy_masks(&asked).await;
             let settings = Arc::clone(&self.settings.borrow());
             let kept = self.snapshots.is_some() && settings.snapshot.enabled;
-            let masks = self.masks();
             let limits = HomeLimits::of(&settings);
             let answered = tokio::task::spawn_blocking(move || {
                 home_asks
@@ -874,7 +881,14 @@ impl DaemonToolbox {
             }
             _ => return Ok(None),
         };
-        let masks = self.masks();
+        let target_paths: Vec<PathBuf> = targets
+            .iter()
+            .filter_map(|target| match &target.ask {
+                CoverAsk::Home(path) | CoverAsk::HomeDir(path) => Some(path.clone()),
+                _ => None,
+            })
+            .collect();
+        let masks = self.copy_masks(&target_paths).await;
         let limits = HomeLimits::of(&self.settings.borrow());
         let (for_prepare, masks_for) = (targets.clone(), masks.clone());
         let mut prepared =
@@ -1057,7 +1071,7 @@ impl DaemonToolbox {
                 link: None,
             })
             .collect();
-        let masks = self.masks();
+        let masks = self.copy_masks(paths).await;
         let limits = HomeLimits::of(&self.settings.borrow());
         let for_prepare = masks.clone();
         let prepared =
@@ -1085,6 +1099,21 @@ impl DaemonToolbox {
         let names: Vec<String> = paths.iter().map(|path| self.shown_home(path)).collect();
         self.tally(call.turn_id, |tally| tally.pending.push((call.call_id, names)));
         Some(Copying { copy, before: prepared, masks, limits })
+    }
+
+    /// The masks of a home copy of `paths`, or of an undo that writes them:
+    /// [`masks`](Self::masks), and the project `.env` files that the plan of a call
+    /// masks in each registered project that holds one of `paths` or lies below one
+    /// (plan PB14).
+    async fn copy_masks(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
+        let mut masks = self.masks();
+        let Some((sandbox, _)) = &self.sandbox else { return masks };
+        let projects = sandbox.projects().await;
+        let globs = self.settings.borrow().sandbox.mask_globs.clone();
+        let paths = paths.to_vec();
+        let found = tokio::task::spawn_blocking(move || env_masks(&projects, &paths, &globs)).await;
+        masks.extend(found.unwrap_or_default());
+        masks
     }
 
     /// The secrets and masks that efrd never deletes or copies: the engine's secrets,
@@ -1116,6 +1145,18 @@ fn cover_projects(all: Vec<PathBuf>, write_projects: WriteProjects, home: &Path)
         return Vec::new();
     }
     all.into_iter().filter(|project| !efr_sandbox::too_wide(project, home)).collect()
+}
+
+/// The project `.env` files of `globs` in each project of `projects` that holds one of
+/// `paths` or lies below one, as the plan of a call masks them (plan PB14). It blocks.
+fn env_masks(projects: &[PathBuf], paths: &[PathBuf], globs: &[String]) -> Vec<PathBuf> {
+    projects
+        .iter()
+        .filter(|project| {
+            paths.iter().any(|path| path.starts_with(project) || project.starts_with(path))
+        })
+        .flat_map(|project| crate::sandbox::plan::env_files(project, globs))
+        .collect()
 }
 
 /// True for an ask that the home store answers, not a root's snapshot: a home file or

@@ -420,8 +420,18 @@ impl DaemonToolbox {
         trash: Option<&Path>,
         applied: &mut Applied,
     ) -> Vec<Done> {
-        let mut masks = self.masks();
+        // NOTE: the masks of a copy, efr's own roots and its programs (plan PB14).
+        let paths: Vec<PathBuf> = plan
+            .steps
+            .iter()
+            .filter(|step| step.acts() && step.path.is_absolute())
+            .map(|step| step.path.clone())
+            .collect();
+        let mut masks = self.copy_masks(&paths).await;
         masks.extend(self.efr_roots.iter().cloned());
+        if let Some((sandbox, _)) = &self.sandbox {
+            masks.extend(sandbox.host_binaries());
+        }
         let mut done = Vec::with_capacity(plan.steps.len());
         for step in &plan.steps {
             if !step.acts() {

@@ -360,6 +360,12 @@ impl SandboxService {
         gc::launcher_running(&dir)
     }
 
+    /// efr's own programs that the probe found: efrd, efr and the launcher. Undo never
+    /// writes them (plan PB14).
+    pub(crate) fn host_binaries(&self) -> Vec<PathBuf> {
+        self.inner.host.binaries.clone()
+    }
+
     /// The masks of the machine that every contained call gets besides the engine's
     /// and the user's: a `$XAUTHORITY` and `$HISTFILE` outside their usual place. efrd
     /// never copies or writes them for undo either (plan PB14).
