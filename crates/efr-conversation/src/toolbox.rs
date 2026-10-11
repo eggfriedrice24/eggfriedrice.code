@@ -16,7 +16,8 @@ use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
     CallId, ConversationId, FileChanges, InputWait, Launch, Origin, ReportedFile, SandboxSummary,
-    Scope, SurfaceChange, TurnId,
+    Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoId,
+    UndoReason, UndoRefused,
 };
 use efr_provider::{EditTool, ToolDefinition};
 use serde_json::Value;
@@ -122,16 +123,33 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         Vec::new()
     }
 
-    /// The files that the turn `turn_id` changed, from the toolbox's snapshots before its
-    /// first call that can write and at its end, for `turn_completed`. The turn asks
+    /// What the turn `turn_id` changed, from the toolbox's snapshots before its first
+    /// call that can write and at its end: the files for `turn_completed`, what
+    /// `efr undo` can take back, and the snapshots for `snapshot_taken`. The turn asks
     /// once, before its terminal event, whatever the ending, so the toolbox can keep
     /// the turn's last snapshot. The default takes no snapshot.
     async fn turn_changes(
         &self,
         _conversation_id: ConversationId,
         _turn_id: TurnId,
-    ) -> Option<FileChanges> {
-        None
+    ) -> TurnChanges {
+        TurnChanges::default()
+    }
+
+    /// Takes back the file and ref changes of one turn of `request.candidates`, or with
+    /// `dry_run` only says what it would do (`turn.undo`, phase B). The actor calls it
+    /// only while no turn, compaction or other undo of the conversation runs. `Err`
+    /// says why nothing changed. The default has no undo, so it refuses with
+    /// [`UndoRefused::Off`].
+    async fn undo(&self, _request: UndoRequest) -> Result<TurnUndoResult, UndoRefused> {
+        Err(UndoRefused::Off)
+    }
+
+    /// True while a call of the conversation still runs after its tool answered, such
+    /// as a command that went on past its timeout, so an undo must wait (phase B). The
+    /// default runs no such call.
+    fn call_runs(&self, _conversation_id: ConversationId) -> bool {
+        false
     }
 }
 
@@ -391,7 +409,8 @@ impl ToolOutcome {
 }
 
 /// A floor file that a call changed, and the copy of it from before the call in efr's
-/// backup store (efr's auto spec, section 10.9).
+/// backup store (efr's auto spec, section 10.9). From phase B the copy is in efr's home
+/// store (section 10.8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileBackup {
     /// The file that the call changed, as the call named it, absolute.
@@ -404,6 +423,68 @@ pub struct FileBackup {
     /// `~/dotfiles/hypr/x.conf` for `~/.config/hypr/x.conf`; `None` when `path` is the
     /// real file.
     pub real: Option<PathBuf>,
+    /// Why efr has no copy of the file, so `efr undo` cannot bring it back, such as a
+    /// masked file (phase B). `None` when efr copied it.
+    pub reason: Option<UndoReason>,
+}
+
+/// One snapshot that efr took for a turn, for the turn's `snapshot_taken` events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotRecord {
+    /// The root as a client shows it, or `home` for a copy of files outside the roots.
+    pub root: String,
+    /// Before or after.
+    pub phase: SnapshotPhase,
+    /// The snapshot's commit, in hex.
+    pub commit: String,
+    /// The files in the snapshot.
+    pub files: u32,
+    /// The files that the snapshot left out.
+    pub skipped: u32,
+    /// How long the snapshot took, in milliseconds.
+    pub ms: u64,
+}
+
+/// What [`Toolbox::turn_changes`] says about a turn at its end.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TurnChanges {
+    /// The files that the turn changed; `None` when nothing changed or efr took no
+    /// snapshot.
+    pub changes: Option<FileChanges>,
+    /// What `efr undo` can take back of the turn; `None` when the turn has no snapshot.
+    pub undo: Option<TurnUndoInfo>,
+    /// The snapshots of the turn: both phases of each root, and the copies of files
+    /// outside the roots.
+    pub snapshots: Vec<SnapshotRecord>,
+}
+
+/// A turn that an undo may take back, from the log of the conversation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoCandidate {
+    /// The turn.
+    pub turn_id: TurnId,
+    /// The first line of the turn's prompt.
+    pub title: Option<String>,
+    /// When the turn ended; `None` for a turn that efrd stopped.
+    pub ended: Option<jiff::Timestamp>,
+    /// True when efrd stopped while the turn ran.
+    pub stopped: bool,
+}
+
+/// What [`Toolbox::undo`] gets: the request of `turn.undo` with the turns of the
+/// conversation and the id of the new undo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoRequest {
+    /// The conversation.
+    pub conversation_id: ConversationId,
+    /// The ended turns of the conversation, newest first.
+    pub candidates: Vec<UndoCandidate>,
+    /// The params of `turn.undo`.
+    pub params: TurnUndo,
+    /// The id of the undo, from the actor's clock and generator.
+    pub undo_id: UndoId,
+    /// The surface that asked.
+    pub origin: Origin,
 }
 
 /// What [`Toolbox::delete_cache_paths`] deleted in the real tool caches.

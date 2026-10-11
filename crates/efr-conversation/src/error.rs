@@ -4,7 +4,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use efr_protocol::{CallId, ConversationId, Origin, QuestionId, TurnId};
+use efr_protocol::{CallId, ConversationId, Origin, QuestionId, TurnId, UndoRefused};
 use efr_provider::ProviderError;
 use efr_stdx::StdxError;
 use efr_store::StoreError;
@@ -232,6 +232,20 @@ pub enum ConversationError {
     #[error("the summary was cut off before its end")]
     IncompleteSummary,
 
+    /// A turn, a compaction, another undo or a call that outlived its turn runs in the
+    /// conversation, so an undo cannot run now.
+    #[error("the conversation {conversation_id} is busy, so the undo cannot run now")]
+    UndoBusy {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// What runs.
+        reason: UndoBusyReason,
+    },
+
+    /// The undo changed nothing, for the reason it names.
+    #[error("the undo changed nothing: {0}")]
+    UndoRefused(UndoRefused),
+
     /// The conversation's actor has stopped, so it takes no more requests.
     #[error("the conversation actor has stopped")]
     Stopped,
@@ -242,6 +256,20 @@ pub enum ConversationError {
         /// The task, such as `"scratch"`.
         task: &'static str,
     },
+}
+
+/// What runs in a conversation, so that an undo must wait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum UndoBusyReason {
+    /// A turn runs.
+    Turn,
+    /// A compaction runs.
+    Compaction,
+    /// Another undo runs.
+    Undo,
+    /// A call of the conversation still runs after its tool answered.
+    CallRuns,
 }
 
 /// The message of [`ConversationError::InvalidSetting`]: what does not fit, and the

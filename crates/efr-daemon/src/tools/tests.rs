@@ -1100,7 +1100,8 @@ async fn floor_backup_taken_before_write_file() {
             path: zshrc,
             backup: entry.join(".zshrc"),
             floor: true,
-            real: None
+            real: None,
+            reason: None
         }]
     );
 }

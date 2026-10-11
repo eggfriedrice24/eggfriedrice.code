@@ -42,7 +42,8 @@ use efr_protocol::{
     LateSteer, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
     QuestionId, ResentSteers, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq,
     ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    TurnSteerResult, TurnUndo, TurnUndoResult, UndoRefused, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -63,7 +64,7 @@ use crate::scratch::Scratch;
 use crate::settings;
 use crate::steer::Reservation;
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
-use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart};
+use crate::{ConfigSource, ConversationDeps, ConversationError, ConversationStart, UndoCandidate};
 
 /// Requests waiting for the actor; senders wait when it is full.
 const MAILBOX: usize = 64;
@@ -256,6 +257,12 @@ enum Request {
         params: ConversationCompact,
         reply: Reply<ConversationCompactResult>,
     },
+    Undo {
+        params: TurnUndo,
+        candidates: Vec<UndoCandidate>,
+        origin: Origin,
+        reply: Reply<TurnUndoResult>,
+    },
     State {
         reply: oneshot::Sender<ConversationState>,
     },
@@ -363,6 +370,9 @@ impl ConversationActor {
                 let _ = reply.send(self.respond_surface(params, origin).await);
             }
             Request::Compact { params, reply } => self.compact(params, reply),
+            Request::Undo { params, candidates, origin, reply } => {
+                let _ = reply.send(self.undo(params, candidates, origin));
+            }
             Request::State { reply } => {
                 let _ = reply.send(self.state());
             }
@@ -813,6 +823,22 @@ impl ConversationActor {
 
     /// Starts a manual compaction in a task of its own, or refuses it while a turn or
     /// another compaction runs. The answer goes to `reply` when the task ends.
+    /// `turn.undo`. This build has no undo yet, so it refuses and records nothing.
+    fn undo(
+        &mut self,
+        params: TurnUndo,
+        candidates: Vec<UndoCandidate>,
+        origin: Origin,
+    ) -> Result<TurnUndoResult, ConversationError> {
+        tracing::debug!(
+            command_id = %params.command_id,
+            candidates = candidates.len(),
+            ?origin,
+            "turn.undo refused: this build has no undo"
+        );
+        Err(ConversationError::UndoRefused(UndoRefused::Off))
+    }
+
     fn compact(&mut self, params: ConversationCompact, reply: Reply<ConversationCompactResult>) {
         if let Err(error) = self.check_conversation(Some(params.conversation_id)) {
             let _ = reply.send(Err(error));
@@ -1221,6 +1247,20 @@ impl ConversationHandle {
         params: ConversationCompact,
     ) -> Result<ConversationCompactResult, ConversationError> {
         self.request(|reply| Request::Compact { params, reply }).await
+    }
+
+    /// Takes back the file and ref changes of one turn of `candidates` (the ended turns
+    /// of the conversation, newest first), or with `dry_run` only says what it would do.
+    /// While a turn, a compaction, another undo or a call that outlived its turn runs,
+    /// it is refused with `UndoBusy`; when nothing can change, with `UndoRefused`. This
+    /// build has no undo yet, so it always refuses with [`UndoRefused::Off`].
+    pub async fn undo(
+        &self,
+        params: TurnUndo,
+        candidates: Vec<UndoCandidate>,
+        origin: Origin,
+    ) -> Result<TurnUndoResult, ConversationError> {
+        self.request(|reply| Request::Undo { params, candidates, origin, reply }).await
     }
 
     /// What the conversation is doing.

@@ -32,7 +32,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_config::{Settings, SudoCache};
 use efr_conversation::{
-    CacheDeleteOutcome, CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox,
+    CacheDeleteOutcome, CallContext, OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
 };
 use efr_permissions::{Engine, Requirements};
 use efr_protocol::{
@@ -735,12 +735,10 @@ impl Toolbox for DaemonToolbox {
         sandbox.turns().finish(turn_id, &patterns, sandbox.git(), sandbox.home()).await
     }
 
-    async fn turn_changes(
-        &self,
-        conversation_id: ConversationId,
-        turn_id: TurnId,
-    ) -> Option<FileChanges> {
-        self.snapshots.as_ref()?.finish_turn(conversation_id, turn_id).await
+    async fn turn_changes(&self, conversation_id: ConversationId, turn_id: TurnId) -> TurnChanges {
+        let Some(snapshots) = &self.snapshots else { return TurnChanges::default() };
+        let changes = snapshots.finish_turn(conversation_id, turn_id).await;
+        TurnChanges { changes, undo: None, snapshots: Vec::new() }
     }
 
     async fn cancel(&self, call: &CallContext) {

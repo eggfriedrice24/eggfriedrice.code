@@ -262,7 +262,13 @@ pub(crate) fn finish(taken: Vec<Taken>) -> Vec<FileBackup> {
             continue;
         }
         let real = (one.real != one.path).then_some(one.real);
-        backups.push(FileBackup { path: one.path, backup: one.backup, floor: one.floor, real });
+        backups.push(FileBackup {
+            path: one.path,
+            backup: one.backup,
+            floor: one.floor,
+            real,
+            reason: None,
+        });
     }
     backups
 }

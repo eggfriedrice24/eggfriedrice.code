@@ -82,11 +82,12 @@ pub use context::{
     estimate_tokens,
 };
 pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
-pub use error::ConversationError;
+pub use error::{ConversationError, UndoBusyReason};
 pub use history::HistoryLimits;
 pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use toolbox::{
-    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, ToolCall, ToolOutcome, Toolbox,
+    CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
+    Toolbox, TurnChanges, UndoCandidate, UndoRequest,
 };

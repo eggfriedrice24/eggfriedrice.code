@@ -23,7 +23,7 @@ use efr_protocol::{
     LateSteer, Mode, ModelInfo, ModelSource, Needs, NetworkMode, Origin, OverriddenSettings,
     ProjectId, PromptSend, PromptSendResult, PromptWithdraw, QuestionId, ReportedFile,
     SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId,
-    TurnInterrupt, TurnSettings, TurnSteer, WithdrawTarget,
+    TurnInterrupt, TurnSettings, TurnSteer, TurnUndoResult, UndoRefused, WithdrawTarget,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, ProviderEvent, ProviderId,
@@ -50,7 +50,7 @@ use crate::scratch;
 use crate::{
     CacheDeleteOutcome, CallContext, ConversationActor, ConversationConfig, ConversationDeps,
     ConversationDraft, ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink,
-    ScopeResolver, ToolCall, ToolOutcome, Toolbox, draft_channel,
+    ScopeResolver, ToolCall, ToolOutcome, Toolbox, TurnChanges, UndoRequest, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -120,6 +120,11 @@ pub(crate) struct FakeToolbox {
     /// Every list of paths that `delete_cache_paths` deleted, in order. Each path frees
     /// 1000 bytes.
     pub(crate) deleted: Mutex<Vec<Vec<PathBuf>>>,
+    /// Every request that `undo` got, in order. It refuses each one with `off`, as the
+    /// default does.
+    pub(crate) undos: Mutex<Vec<UndoRequest>>,
+    /// What `call_runs` answers.
+    pub(crate) call_runs: AtomicBool,
 }
 
 /// The changes that the command `edit-files` reports: one modified file.
@@ -441,14 +446,23 @@ impl Toolbox for FakeToolbox {
         &self,
         _conversation_id: ConversationId,
         _turn_id: TurnId,
-    ) -> Option<FileChanges> {
+    ) -> TurnChanges {
         if self.hold_end.load(Ordering::SeqCst) {
             self.end_reached.notify_one();
             self.end_released.notified().await;
         }
         let mut answer = self.turn_changes.lock().unwrap_or_else(PoisonError::into_inner);
         answer.1 += 1;
-        answer.0.clone()
+        TurnChanges { changes: answer.0.clone(), ..TurnChanges::default() }
+    }
+
+    async fn undo(&self, request: UndoRequest) -> Result<TurnUndoResult, UndoRefused> {
+        self.undos.lock().unwrap_or_else(PoisonError::into_inner).push(request);
+        Err(UndoRefused::Off)
+    }
+
+    fn call_runs(&self, _conversation_id: ConversationId) -> bool {
+        self.call_runs.load(Ordering::SeqCst)
     }
 }
 

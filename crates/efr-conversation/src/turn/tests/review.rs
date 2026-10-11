@@ -676,8 +676,13 @@ async fn home_file_changed_recorded_after_call() {
     let copy = setup.dirs.dirs().data().join("file-backups/c/t/1/.zshrc");
     let requirements = Requirements::none().with_write(&zshrc).with_facts(a_file(&zshrc));
     let key = zshrc.to_str().unwrap().to_owned();
-    let backup =
-        crate::FileBackup { path: zshrc.clone(), backup: copy.clone(), floor: true, real: None };
+    let backup = crate::FileBackup {
+        path: zshrc.clone(),
+        backup: copy.clone(),
+        floor: true,
+        real: None,
+        reason: None,
+    };
     let outcome = crate::ToolOutcome::ok("written").with_backups(vec![backup]);
     let script = Script::new(vec![("write_file", json!({ "path": zshrc, "content": "x" }))]);
     let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;

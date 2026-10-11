@@ -638,7 +638,7 @@ impl Turn {
         // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
         // interrupted or failed turn too; only a completed turn reports the changes.
         let watch = Stopwatch::start();
-        let changes = self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await;
+        let changes = self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await.changes;
         tracing::debug!(phase = "turn_changes", elapsed_ms = %watch, "phase=turn_changes elapsed_ms={}", watch);
         let usage = self.usage.map(|sum| {
             let mut usage = efr_protocol::Usage::from(sum);
