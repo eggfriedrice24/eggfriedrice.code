@@ -738,3 +738,61 @@ async fn undo_gives_head_its_branch_back() {
     let branches = git(&dir, &home, &[], &["branch", "--format=%(refname)"]).await;
     assert_eq!(branches.trim(), "refs/heads/main", "the turn's branch went");
 }
+
+#[tokio::test]
+async fn resumed_undo_takes_before_of_a_root_it_did_not_reach() {
+    let world = World::new();
+    let (a, b) = (world.dir("a"), world.dir("b"));
+    write(&a.join("x.txt"), "a0\n");
+    write(&b.join("y.txt"), "b0\n");
+    let call = world
+        .snapshots
+        .before_call(conversation(1), turn(1), vec![root(&a), root(&b)], limits())
+        .await;
+    write(&a.join("x.txt"), "a1\n");
+    write(&b.join("y.txt"), "b1\n");
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.turn_end(turn(1), limits()).await;
+    let first = plan(&world, 1, false, 1).await;
+    assert_eq!(first.roots.len(), 2, "{first:#?}");
+
+    // The first attempt stopped after the snapshot of one root.
+    let mut reached = first.clone();
+    reached.roots.truncate(1);
+    world.snapshots.capture_before_undo(&reached, limits()).await.unwrap();
+    let resumed = plan(&world, 1, false, 2).await;
+    assert!(resumed.resumed, "{resumed:#?}");
+    assert_eq!(resumed.undo_id, undo_id(1));
+    apply(&world, &resumed).await;
+    assert_eq!((read(&a.join("x.txt")), read(&b.join("y.txt"))), ("a0\n".into(), "b0\n".into()));
+
+    let redo = world.snapshots.plan_redo(conversation(1), &[], false, limits()).await.unwrap();
+    assert_eq!(redo.roots.len(), 2, "each root has its before: {redo:#?}");
+    apply(&world, &redo).await;
+    assert_eq!((read(&a.join("x.txt")), read(&b.join("y.txt"))), ("a1\n".into(), "b1\n".into()));
+}
+
+#[tokio::test]
+async fn undo_keeps_refs_when_their_copy_fails() {
+    let world = World::new();
+    let flag = world.base.path().join("no-fetch");
+    let script = world.base.path().join("git-no-fetch");
+    let text = format!(
+        "#!/bin/sh\n\
+         if [ -e '{}' ]; then for arg; do [ \"$arg\" = fetch ] && exit 1; done; fi\n\
+         exec git \"$@\"\n",
+        flag.display()
+    );
+    let world = world.with_git_script(&script, &text);
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    write(&dir.join("a.txt"), "b\n");
+    git(&dir, &home, &[], &["commit", "-q", "-am", "two"]).await;
+    git_turn(&world, 1, &dir, &[&["reset", "-q", "--hard", "HEAD~1"]]).await;
+    let plan = plan_in_git(&world, &dir, 1, 1).await;
+    assert_eq!(plan.roots[0].refs[0].reason, None, "{plan:#?}");
+
+    fs::write(&flag, "").unwrap();
+    let captured = world.snapshots.capture_before_undo(&plan, limits()).await.unwrap();
+    assert_eq!(captured.unmirrored, [plan.roots[0].root.clone()]);
+}

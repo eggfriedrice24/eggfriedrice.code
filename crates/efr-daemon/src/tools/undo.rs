@@ -222,12 +222,15 @@ impl DaemonToolbox {
             Some((sandbox, _)) => Some(sandbox.locks().lock(&locked).await),
             None => None,
         };
-        if let Err(error) = store.capture_before_undo(plan, limits).await {
-            tracing::warn!(error = %efr_stdx::with_causes(&error), "the snapshot before an undo failed");
-            let at = plan.roots.first().map(|root| root.root.clone()).unwrap_or_default();
-            applied.failed = Some((at, std::io::Error::other(error.to_string())));
-            return applied;
-        }
+        let captured = match store.capture_before_undo(plan, limits).await {
+            Ok(captured) => captured,
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), "the snapshot before an undo failed");
+                let at = plan.roots.first().map(|root| root.root.clone()).unwrap_or_default();
+                applied.failed = Some((at, std::io::Error::other(error.to_string())));
+                return applied;
+            }
+        };
         if !plan.redo && plan.home.steps.iter().any(HomeStep::acts) {
             let entries = undo_before_entries(&plan.home);
             let mut prepared = home::Prepared { entries, ..home::Prepared::default() };
@@ -259,6 +262,15 @@ impl DaemonToolbox {
             let moving = root.refs.iter().any(|ref_plan| ref_plan.reason.is_none());
             if applied.failed.is_some() || !moving {
                 applied.refs.push(Vec::new());
+                continue;
+            }
+            // NOTE: a ref moves only while the store keeps the value it moves away from,
+            // so a redo can give it back (plan PB7, S19).
+            if captured.unmirrored.contains(&root.root) {
+                let kept = root.refs.iter().map(|ref_plan| {
+                    (ref_plan.name.clone(), Err(ref_plan.reason.unwrap_or(UndoReason::NoMirror)))
+                });
+                applied.refs.push(kept.collect());
                 continue;
             }
             applied.refs.push(store.restore_refs(named, &root.refs).await);

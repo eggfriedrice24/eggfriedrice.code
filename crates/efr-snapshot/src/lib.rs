@@ -84,5 +84,5 @@ pub use turn::{
     NOT_COVERED_FAILED, NOT_COVERED_REFS, NOT_COVERED_STORE_CHANGED, Phase, SnapshotInfo, TurnEnd,
 };
 pub use undo::{
-    Expect, PlanAction, PlanEntry, RefPlan, RootPlan, TurnRefs, UndoPlan, stack_blocker,
+    BeforeUndo, Expect, PlanAction, PlanEntry, RefPlan, RootPlan, TurnRefs, UndoPlan, stack_blocker,
 };

@@ -206,6 +206,15 @@ pub struct UndoPlan {
     pub home: HomePlan,
 }
 
+/// What [`Snapshots::capture_before_undo`] found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BeforeUndo {
+    /// The roots whose refs the plan moves and whose store could not keep their values
+    /// now: the applier leaves those refs as they are ([`UndoReason::NoMirror`]).
+    pub unmirrored: Vec<PathBuf>,
+}
+
 /// The newest turn after `turn` with a kept snapshot that no undo undid: undo of
 /// `turn` waits for it (undo is a stack), unless `force`. `turns` comes from
 /// [`Snapshots::turns_with_refs`].
@@ -330,13 +339,22 @@ impl Snapshots {
     /// Prepares the apply of `plan`. For an undo: the "before" snapshot of each root
     /// that it writes (`refs/efr-undo/<conversation>/<undo>/before`), the project's refs
     /// that it moves, then the journal ref `started`. For every plan: the bytes of each
-    /// path that goes to the undo trash, into the store. A resumed undo keeps its first
-    /// "before".
+    /// path that goes to the undo trash, into the store. A resumed undo keeps the
+    /// "before" of each root that its first attempt reached, and takes one of each root
+    /// that it did not reach. The result names the roots whose moved refs the store
+    /// could not keep: their refs must stay as they are, or a redo could not give them
+    /// back.
     pub async fn capture_before_undo(
         &self,
         plan: &UndoPlan,
         limits: Limits,
-    ) -> Result<(), SnapshotError> {
+    ) -> Result<BeforeUndo, SnapshotError> {
+        let mut captured = BeforeUndo::default();
+        let open = if plan.resumed && !plan.redo {
+            self.held_roots(plan.conversation).await?
+        } else {
+            Vec::new()
+        };
         for root in &plan.roots {
             let store = Store::new(self.dir(), &root.root);
             let acting: Vec<String> =
@@ -346,17 +364,47 @@ impl Snapshots {
                 continue;
             }
             self.keep_trash(&store, &root.root, &root.entries).await?;
-            if plan.redo || plan.resumed {
+            if plan.redo {
                 continue;
             }
-            let before = self.undo_before(plan, root, &store, &acting, &limits).await?;
+            let reached = open
+                .iter()
+                .find(|(known, _)| known.root() == store.root())
+                .and_then(|(_, held)| held.undos.get(&plan.undo_id));
             let started = undo_ref(plan.conversation, &plan.undo_id, "started");
-            self.update_refs(&store, format!("create {started} {before}\n")).await?;
+            let mirrored = match reached.and_then(|undo| undo.before.clone()) {
+                Some(before) => {
+                    if reached.is_some_and(|undo| undo.started.is_none()) {
+                        self.update_refs(&store, format!("create {started} {before}\n")).await?;
+                    }
+                    let info = self.commit_info(&store, &before).await?;
+                    info.meta.mirror.as_deref() == Some(MIRROR_TAKEN)
+                }
+                None => {
+                    let (before, missing) =
+                        self.undo_before(plan, root, &store, &acting, &limits).await?;
+                    self.update_refs(&store, format!("create {started} {before}\n")).await?;
+                    missing.is_none()
+                }
+            };
+            if moving && !mirrored {
+                captured.unmirrored.push(root.root.clone());
+            }
         }
-        if !plan.redo && !plan.resumed && plan.home.steps.iter().any(|step| step.acts()) {
-            self.home_started(plan).await?;
+        if !plan.redo && plan.home.steps.iter().any(|step| step.acts()) {
+            let home = self.home_store();
+            let begun = plan.resumed
+                && self
+                    .held_in(&home, plan.conversation)
+                    .await?
+                    .undos
+                    .get(&plan.undo_id)
+                    .is_some_and(|undo| undo.started.is_some());
+            if !begun {
+                self.home_started(plan).await?;
+            }
         }
-        Ok(())
+        Ok(captured)
     }
 
     /// Ends the apply of `plan`. For an undo: the "after" snapshot of each root that it
@@ -807,7 +855,8 @@ impl Snapshots {
             .collect())
     }
 
-    /// The "before" snapshot of `root` for `plan`, its commit and its ref.
+    /// The "before" snapshot of `root` for `plan`, its commit and its ref, and why the
+    /// store could not keep the refs that the plan moves, if it could not.
     async fn undo_before(
         &self,
         plan: &UndoPlan,
@@ -815,7 +864,7 @@ impl Snapshots {
         store: &Store,
         acting: &[String],
         limits: &Limits,
-    ) -> Result<String, SnapshotError> {
+    ) -> Result<(String, Option<&'static str>), SnapshotError> {
         let snap = self
             .snap(&root.root, limits, true)
             .await
@@ -826,15 +875,16 @@ impl Snapshots {
         meta.set_modes(&snap.modes);
         meta.touched = acting.iter().take(MAX_TOUCHED).cloned().collect();
         self.set_project_refs(&mut meta, root).await;
+        let mut missing = None;
         if !root.refs.is_empty() {
-            let missing = self.mirror_moved_refs(plan, root, store).await;
+            missing = self.mirror_moved_refs(plan, root, store).await;
             meta.mirror = Some(missing.unwrap_or(MIRROR_TAKEN).to_owned());
         }
         let time = self.commit_time();
         let commit = self.commit_locked(store, &snap.tree, None, meta, &time).await?;
         let name = undo_ref(plan.conversation, &plan.undo_id, "before");
         self.update_refs(store, format!("create {name} {commit}\n")).await?;
-        Ok(commit)
+        Ok((commit, missing))
     }
 
     async fn end_undo(
