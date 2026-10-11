@@ -206,8 +206,9 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - The reviewer of the `auto` exits (the classifier): the approver of each exit
   (`Approver`) in `crates/efr-permissions/src/exits.rs`, and the words that name an
   exit and the one check of them (`names_match`) in
-  `crates/efr-permissions/src/exits/names.rs`; the seam `ExitJudge` in
-  `crates/efr-conversation/src/judge.rs`; who decides an exit (`exit::route`) and the
+  `crates/efr-permissions/src/exits/names.rs`; every user message of a conversation,
+  which that check reads, in `crates/efr-store/src/user_messages.rs`; the seam
+  `ExitJudge` in `crates/efr-conversation/src/judge.rs`; who decides an exit (`exit::route`) and the
   allow rule and the naming rule (`exit::effective`) in
   `crates/efr-conversation/src/exit.rs`; the review and the denial pause in
   `crates/efr-conversation/src/turn/review.rs`. efrd's judge, with the request, the
