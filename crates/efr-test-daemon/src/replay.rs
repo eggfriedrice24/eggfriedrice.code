@@ -11,8 +11,10 @@
 //!   frame `id` started.
 //! - `event`: the next event of that subscription must equal the body. Events of the
 //!   kinds `assistant_message_updated` and `tool_call_output_updated` depend on how
-//!   bytes are chunked, so they are skipped unless the record expects that kind. A
-//!   record is a barrier: the driver goes on only once the event is in the log.
+//!   bytes are chunked, so they are skipped unless the record expects that kind. The
+//!   commit and the time of a `snapshot_taken` depend on the clock and the machine, so
+//!   they are the placeholders `<COMMIT>` and `<MS>`. A record is a barrier: the driver
+//!   goes on only once the event is in the log.
 //! - `pty_bytes`: `emit_inbound` prints the bytes on the fake PTY named `pty` (the
 //!   n-th name is the n-th PTY the daemon spawns); `expect_outbound` reads what the
 //!   session typed, which must be exactly the bytes.
@@ -62,6 +64,10 @@ use crate::{FakeTerminal, TestDaemon, TestDaemonError};
 
 /// Event kinds whose number depends on how a stream is chunked.
 const INCIDENTAL: &[&str] = &["assistant_message_updated", "tool_call_output_updated"];
+
+/// The placeholders of a snapshot's commit and of the time it took, which depend on the
+/// clock and the machine.
+const SNAPSHOT_STEADY: &[(&str, &str)] = &[("commit", "<COMMIT>"), ("ms", "<MS>")];
 
 /// The access token the token endpoint of a subscription scenario hands out for the
 /// refresh grant.
@@ -651,7 +657,14 @@ impl Replay {
             let kind = envelope.event.kind().to_owned();
             let event = serde_json::to_value(&envelope.event)
                 .map_err(|source| TestDaemonError::Json { what: "encoding an event", source })?;
-            let actual = self.redactor.redact_json(&self.bindings.normalize(&event));
+            let mut actual = self.redactor.redact_json(&self.bindings.normalize(&event));
+            if kind == "snapshot_taken" {
+                for (field, placeholder) in SNAPSHOT_STEADY {
+                    if let Some(value) = actual.get_mut(*field) {
+                        *value = Value::from(*placeholder);
+                    }
+                }
+            }
             if INCIDENTAL.contains(&kind.as_str()) && kind != expected_kind {
                 continue;
             }

@@ -70,7 +70,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   the end that it got every request of the transcript and no other. Minted ids are
   placeholders (`<conversation:1>`, `<turn:2>`, `<call:1>`, `<pty:1>`, numbered in the
   order the replay sees them, `Bindings`); paths and timestamps are the redactor's
-  (`<TMP>`, `<CWD>`, `<HOME>`, `<TIMESTAMP>`). A scenario in the Responses mode queues
+  (`<TMP>`, `<CWD>`, `<HOME>`, `<TIMESTAMP>`). The commit and the time of a
+  `snapshot_taken` are `<COMMIT>` and `<MS>`, because they change from run to run. A scenario in the Responses mode queues
   each exchange's `provider_sse` bodies as the answer, with a first line `: status <code>`
   (an SSE comment) setting the HTTP status, and compares the requests at the end.
   `Replay::bless(name)` rewrites a fixture's outbound records with what the daemon
