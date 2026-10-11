@@ -76,6 +76,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `--redo` takes back the undo. `--list`, `--turn` and `--dry-run` help you pick. Your
   git index stays as it is. Every file that undo overwrites or removes goes to
   `~/.local/share/efr/undo-trash/` first. Without a terminal, `efr undo` needs `--yes`.
+- At the end of an `auto` turn, one line says what changed and that you can take it
+  back: `changed 4 files (+12 -3) in <project> and 2 in ~; efr undo reverts this
+  turn`. A file that runs code later gets its own line, `changed ~/.zshrc; efr undo
+  reverts it`. Files that undo cannot bring back, such as a large ignored file, show
+  on a line `not covered: ...`. The lines come also when the turn failed or you
+  interrupted it. `efr history` shows each undo as one line, and `--verbose` adds each
+  snapshot.
 - New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
   `snapshot.home_max_mib` and `sandbox.ask_destructive`.
 

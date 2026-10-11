@@ -16,15 +16,15 @@ use std::path::Path;
 use efr_client::Client;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
-    ConversationsListResult, Event, EventEnvelope, JudgeKind, Launch, Method, Origin, PageCursor,
-    Seq, TurnId,
+    ConversationsListResult, Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin,
+    PageCursor, Seq, TurnId, TurnUndoInfo,
 };
 use efr_render::{RenderOptions, render, render_trace};
 
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::format::{self, Block, Spacing, Tone, context, sandbox};
+use crate::format::{self, Block, Spacing, Tone, changes, context, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -471,11 +471,49 @@ impl<'a> Transcript<'a> {
             Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
                 self.note(&sandbox::cache_freed(paths, *freed_bytes, self.home));
             }
-            Event::HomeFileChanged { path, real, backup, .. } => {
+            Event::HomeFileChanged { path, real, backup: Some(backup), .. } => {
                 // NOTE: whole, not cut to the screen: the line names where the copy is.
-                let line =
-                    sandbox::home_changed(path, real.as_deref(), backup.as_deref(), self.home);
+                let line = sandbox::home_changed(path, real.as_deref(), Some(backup), self.home);
                 self.dim_lines(&[line]);
+            }
+            Event::HomeFileChanged { path, real, floor, covered, .. } => {
+                let line = sandbox::home_undo_line(
+                    path,
+                    real.as_deref(),
+                    *floor,
+                    *covered,
+                    None,
+                    self.home,
+                );
+                if let Some(line) = line {
+                    self.dim_lines(&[line]);
+                }
+            }
+            Event::SnapshotTaken { root, phase, commit, files, skipped, ms, .. } => {
+                if self.verbose {
+                    self.note(&changes::snapshot_line(root, *phase, commit, *files, *skipped, *ms));
+                }
+            }
+            Event::UndoApplied {
+                undone_turn_id,
+                redo,
+                restored,
+                trashed,
+                deleted,
+                conflicts,
+                not_covered,
+                refs,
+                ..
+            } => {
+                let size = |count: &u32| usize::try_from(*count).unwrap_or(usize::MAX);
+                let counts = changes::UndoCounts {
+                    restored: size(restored),
+                    trashed: size(trashed),
+                    deleted: size(deleted),
+                    conflicts: size(conflicts),
+                    not_covered: size(not_covered),
+                };
+                self.note(&changes::undo_applied_line(*undone_turn_id, *redo, counts, refs));
             }
             Event::PresenceChanged { presence, source, .. } => {
                 self.note(&sandbox::presence_changed(*presence, *source));
@@ -490,12 +528,19 @@ impl<'a> Transcript<'a> {
                     self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
                 }
             }
-            Event::TurnCompleted { stop: Some(stop), .. } => {
-                self.note(&format::turn_stop(stop));
+            Event::TurnCompleted { stop, changes, undo, .. } => {
+                if let Some(stop) = stop {
+                    self.note(&format::turn_stop(stop));
+                }
+                self.undo_lines(changes.as_ref(), undo.as_ref());
             }
-            Event::TurnInterrupted { .. } => self.note("interrupted"),
-            Event::TurnFailed { error, .. } => {
+            Event::TurnInterrupted { changes, undo, .. } => {
+                self.note("interrupted");
+                self.undo_lines(changes.as_ref(), undo.as_ref());
+            }
+            Event::TurnFailed { error, changes, undo, .. } => {
                 self.note(&format!("failed: {}", format::one_line(&error.message)));
+                self.undo_lines(changes.as_ref(), undo.as_ref());
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
             Event::PromptWithdrawn { .. } => self.note("withdrawn before it ran"),
@@ -504,6 +549,19 @@ impl<'a> Transcript<'a> {
                 self.note(&format!("took back {what} that the model did not read"));
             }
             _ => {}
+        }
+    }
+
+    /// The lines of a turn's end that `efr undo` could take back: what it changed, and
+    /// what no snapshot covers. Nothing for a turn that undo could not take back.
+    fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
+        let Some(undo) = undo.filter(|undo| undo.undoable) else { return };
+        let lines: Vec<String> = changes::undo_line(changes, undo)
+            .into_iter()
+            .chain(changes::not_covered_line(&undo.not_covered, undo.not_covered_more))
+            .collect();
+        if !lines.is_empty() {
+            self.dim_lines(&lines);
         }
     }
 

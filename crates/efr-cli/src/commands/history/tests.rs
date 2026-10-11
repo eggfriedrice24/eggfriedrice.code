@@ -1063,3 +1063,90 @@ fn history_shows_reviewer_and_backup_lines() {
         transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
+
+/// A turn of `auto` in phase B: efr copies a floor file into its home store, takes a
+/// snapshot before and after, and a later `efr undo` takes the turn back.
+fn undo_events() -> Vec<EventEnvelope> {
+    let undo_id = "019a9b1c-3d00-7a10-8b20-0000000000c1".parse().unwrap();
+    let snapshot = |phase, commit: &str| Event::SnapshotTaken {
+        turn_id: turn(),
+        root: "project".to_owned(),
+        phase,
+        commit: commit.to_owned(),
+        files: 120,
+        skipped: 3,
+        ms: 45,
+    };
+    let events = vec![
+        Event::HomeFileChanged {
+            turn_id: turn(),
+            call_id: call(),
+            path: PathBuf::from("/home/user/.zshrc"),
+            floor: true,
+            covered: true,
+            backup: None,
+            real: None,
+        },
+        snapshot(efr_protocol::SnapshotPhase::Pre, "1a2b3c4d5e6f"),
+        snapshot(efr_protocol::SnapshotPhase::Post, "5d6e7f8a9b0c"),
+        Event::TurnCompleted {
+            turn_id: turn(),
+            usage: None,
+            context: None,
+            changes: None,
+            stop: None,
+            undo: Some(efr_protocol::TurnUndoInfo {
+                undoable: true,
+                roots: Vec::new(),
+                home_files: 1,
+                not_covered: vec!["target/ (ignored, large)".to_owned()],
+                not_covered_more: 0,
+            }),
+        },
+        Event::UndoApplied {
+            conversation_id: conversation(),
+            undone_turn_id: turn(),
+            undo_id,
+            redo: false,
+            origin: Origin::Cli,
+            restored: 2,
+            trashed: 1,
+            deleted: 0,
+            conflicts: 1,
+            not_covered: 0,
+            refs: Vec::new(),
+            trash: None,
+        },
+    ];
+    events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+}
+
+#[test]
+fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
+    let page = ConversationHistoryResult { events: undo_events(), next_cursor: None };
+    let options = RenderOptions::new(80).with_terminal(false);
+    let home = Some(Path::new("/home/user"));
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    for line in [
+        "changed ~/.zshrc; efr undo reverts it\n",
+        "changed 1 file in ~; efr undo reverts this turn\nnot covered: target/ (ignored, large)\n",
+        &format!(
+            "undid turn {}: 2 files restored, 1 moved to the undo trash, 1 skipped (changed \
+             after the turn)\n",
+            turn()
+        ),
+    ] {
+        assert!(plain.contains(line), "{line:?} in {plain}");
+    }
+    assert!(!plain.contains("snapshot"), "{plain}");
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    assert!(
+        verbose.contains(
+            "snapshot before the turn of project: 120 files, 3 left out, 45 ms (1a2b3c4)\n"
+        ),
+        "{verbose}"
+    );
+    assert!(verbose.contains("snapshot after the turn of project: "), "{verbose}");
+}

@@ -92,7 +92,12 @@
 //! that changed files ends with one muted line that counts them, right before the line
 //! of its time and tokens. Before both, however the turn ended, comes one muted line for
 //! each file outside the project that runs code later and that the turn changed, such
-//! as `changed ~/.zshrc; backup at <path>`, shown whole.
+//! as `changed ~/.zshrc; efr undo reverts it` (or, in an event from before the home
+//! store, `changed ~/.zshrc; backup at <path>`), and for each file outside the roots
+//! that efr could not copy, shown whole. An `auto` turn that `efr undo` can take back
+//! says so in its line instead, also when it failed or was interrupted: `changed 4
+//! files (+12 −3) in <project> and 2 in ~; efr undo reverts this turn`, then a line
+//! `not covered: ...` for what no snapshot holds.
 //!
 //! In `auto`, a turn with a call that ran in the sandbox ends with one muted line that
 //! says where the sandbox can write; the result of a failed call names no sandbox.
@@ -118,7 +123,7 @@ use std::time::Duration;
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
     ExitInfo, FileChanges, InputWait, JudgeKind, Launch, Origin, Presence, QuestionId, Risk, Scope,
-    Seq, SurfaceChange, TurnId, TurnInterruptResult, Verdict, looks_secret,
+    Seq, SurfaceChange, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -497,9 +502,13 @@ pub(crate) struct TurnView {
     /// efr counts the user away from the conversation (`presence_changed`): the status
     /// row says so, and so does the card of a question, which waits only a short time.
     away: bool,
-    /// The lines of the files outside the project that run code later and that the
-    /// turn changed, with their backups, for its end (`home_file_changed`).
-    home_changes: Vec<String>,
+    /// The files outside the project that the turn changed, for its end
+    /// (`home_file_changed`).
+    home_changes: Vec<HomeChange>,
+    /// What the turn changed and what `efr undo` can take back of it, from its end
+    /// event, for the lines before the end.
+    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
+    ended_undo: Option<Box<(Option<FileChanges>, TurnUndoInfo)>>,
     /// The quarantine question waiting for a key.
     surface: Option<QuestionId>,
     /// The quarantine question that this client answered, whose answer needs no second
@@ -577,6 +586,7 @@ impl TurnView {
             commands: HashMap::new(),
             away: false,
             home_changes: Vec::new(),
+            ended_undo: None,
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
@@ -1461,14 +1471,14 @@ impl TurnView {
                 self.answer_came(*call_id);
                 self.expired(*call_id, *away, size)
             }
-            Event::HomeFileChanged { path, real, backup, .. } => {
-                let line = sandbox::home_changed(
-                    path,
-                    real.as_deref(),
-                    backup.as_deref(),
-                    self.home.as_deref(),
-                );
-                self.home_changes.push(line);
+            Event::HomeFileChanged { path, real, backup, floor, covered, .. } => {
+                self.home_changes.push(HomeChange {
+                    path: path.clone(),
+                    real: real.clone(),
+                    backup: backup.clone(),
+                    floor: *floor,
+                    covered: *covered,
+                });
                 Step::default()
             }
             Event::ClassifierPaused { reason, denials, .. } => {
@@ -1513,13 +1523,16 @@ impl TurnView {
                 let rows = |options: &RenderOptions| gauge::compacted_rows(compaction, options);
                 self.rendered_after(before, rows, size)
             }
-            Event::TurnCompleted { usage, changes, context, stop, .. } => {
+            Event::TurnCompleted { usage, changes, context, stop, undo, .. } => {
                 // NOTE: why the model stopped shows also without the end's line: a turn
                 // with no answer must not end in silence.
                 let stopped = stop.as_ref().map(format::turn_stop).map(GaugedLine::from);
                 // NOTE: the files that the turn changed stand right before its end, also
-                // without the end's line: they say what the turn left behind.
-                let changed = changes.as_ref().and_then(format::changes::turn_line);
+                // without the end's line: they say what the turn left behind. A turn
+                // that undo can take back says so in the lines before the end.
+                let undoable = self.ended_with(changes.as_ref(), undo.as_ref());
+                let changed =
+                    changes.as_ref().filter(|_| !undoable).and_then(format::changes::turn_line);
                 let line = self
                     .summary()
                     .then(|| format::turn_done(self.took(), usage.as_ref(), context.as_ref()));
@@ -1527,8 +1540,12 @@ impl TurnView {
                     stopped.into_iter().chain(changed.map(GaugedLine::from)).chain(line).collect();
                 self.end(TurnEnd::Completed, &lines, size)
             }
-            Event::TurnFailed { error, .. } => self.end(TurnEnd::Failed(error.clone()), &[], size),
-            Event::TurnInterrupted { context, .. } => {
+            Event::TurnFailed { error, changes, undo, .. } => {
+                self.ended_with(changes.as_ref(), undo.as_ref());
+                self.end(TurnEnd::Failed(error.clone()), &[], size)
+            }
+            Event::TurnInterrupted { context, changes, undo, .. } => {
+                self.ended_with(changes.as_ref(), undo.as_ref());
                 let line = if self.summary() {
                     format::turn_interrupted(self.took(), context.as_ref())
                 } else {
@@ -2471,6 +2488,51 @@ impl TurnView {
         settled
     }
 
+    /// Keeps what the turn's end event says it changed and what `efr undo` can take
+    /// back, for the lines before the end; true when undo can take the turn back now.
+    fn ended_with(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) -> bool {
+        self.ended_undo = undo.map(|undo| Box::new((changes.cloned(), undo.clone())));
+        undo.is_some_and(|undo| undo.undoable)
+    }
+
+    /// The whole lines before the end of the turn: one per file outside the roots that
+    /// the turn changed and that has a line of its own, then, for a turn that `efr
+    /// undo` can take back, its line and what no snapshot covers. A file that efr could
+    /// not copy takes its reason from the names of what no snapshot covers, so the
+    /// reason shows once.
+    fn end_lines(&mut self) -> Vec<String> {
+        let home = self.home.as_deref();
+        let ended = self.ended_undo.take();
+        let mut not_covered =
+            ended.as_ref().map(|ended| ended.1.not_covered.clone()).unwrap_or_default();
+        let mut lines = Vec::new();
+        for change in std::mem::take(&mut self.home_changes) {
+            let real = change.real.as_deref();
+            if let Some(backup) = change.backup.as_deref() {
+                lines.push(sandbox::home_changed(&change.path, real, Some(backup), home));
+                continue;
+            }
+            let why = if change.covered {
+                None
+            } else {
+                take_reason(&mut not_covered, &sandbox::tilde(&change.path, home))
+            };
+            lines.extend(sandbox::home_undo_line(
+                &change.path,
+                real,
+                change.floor,
+                change.covered,
+                why.as_deref(),
+                home,
+            ));
+        }
+        if let Some((changes, undo)) = ended.map(|ended| *ended).filter(|(_, undo)| undo.undoable) {
+            lines.extend(format::changes::undo_line(changes.as_ref(), &undo));
+            lines.extend(format::changes::not_covered_line(&not_covered, undo.not_covered_more));
+        }
+        lines
+    }
+
     fn end(&mut self, end: TurnEnd, notes: &[GaugedLine], size: Size) -> Step {
         let input = self.running.as_ref().is_some_and(Running::reads_keys);
         let settled = self.asking.take().is_some()
@@ -2487,8 +2549,8 @@ impl TurnView {
             self.close()
         };
         // NOTE: the files outside the project that the turn changed stand before its end
-        // however it ended, also after a failure: the line names the backup of each.
-        for line in std::mem::take(&mut self.home_changes) {
+        // however it ended, also after a failure, and so does what undo can take back.
+        for line in self.end_lines() {
             let noted = self.whole_note(&line, size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
@@ -2787,6 +2849,29 @@ struct Request<'a> {
 
 /// The note for a turn that ended as `end` while a prompt of this view waits after it:
 /// the command goes on, so a failure is not its error.
+/// A file outside the roots that a call of the turn changed (`home_file_changed`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HomeChange {
+    path: PathBuf,
+    real: Option<PathBuf>,
+    /// The copy in efr's phase A backup store, in an event from before the home store.
+    backup: Option<PathBuf>,
+    floor: bool,
+    covered: bool,
+}
+
+/// The reason that `names` (what no snapshot of the turn covers, such as
+/// `~/.aws/config (masked)`) gives for `shown`, taken out of `names`; `None` when it
+/// names `shown` with no reason, or not at all.
+fn take_reason(names: &mut Vec<String>, shown: &str) -> Option<String> {
+    let at = names.iter().position(|name| {
+        name.strip_prefix(shown).is_some_and(|rest| rest.starts_with(" (") && rest.ends_with(')'))
+    })?;
+    let name = names.remove(at);
+    let rest = &name[shown.len() + 2..name.len() - 1];
+    Some(rest.to_owned())
+}
+
 fn ended_note(end: &TurnEnd) -> Option<String> {
     match end {
         TurnEnd::Failed(body) => {

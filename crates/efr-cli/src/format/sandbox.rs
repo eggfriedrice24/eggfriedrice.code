@@ -856,6 +856,33 @@ pub(crate) fn home_changed(
     format!("changed {shown}; backup at {}", tilde(backup, home))
 }
 
+/// The line at the end of a turn of a file outside the roots that efr's home store
+/// holds or could not copy (phase B): `changed ~/.zshrc; efr undo reverts it` for a
+/// file that runs code later, `changed ~/.aws/config; efr undo cannot revert it
+/// (masked)` for one that efr could not copy, with `why` when the turn's undo names it.
+/// `None` for a covered file that runs no code: the line of the turn counts it.
+pub(crate) fn home_undo_line(
+    path: &Path,
+    real: Option<&Path>,
+    floor: bool,
+    covered: bool,
+    why: Option<&str>,
+    home: Option<&Path>,
+) -> Option<String> {
+    let mut shown = tilde(path, home);
+    if let Some(real) = real.filter(|real| *real != path) {
+        let _ = write!(shown, " (real file {})", tilde(real, home));
+    }
+    match (covered, why) {
+        (true, _) if floor => Some(format!("changed {shown}; efr undo reverts it")),
+        (true, _) => None,
+        (false, Some(why)) => {
+            Some(format!("changed {shown}; efr undo cannot revert it ({})", one_line(why)))
+        }
+        (false, None) => Some(format!("changed {shown}; efr undo cannot revert it")),
+    }
+}
+
 /// A change of the user's presence, for `efr history`, such as `away (efr away)`.
 pub(crate) fn presence_changed(presence: Presence, source: PresenceSource) -> String {
     let state = match presence {

@@ -10,7 +10,8 @@ use efr_protocol::{
     ApprovalDecision, CallId, ChainStep, ChangeKind, CompactionTrigger, ContextUse, Draft,
     DraftPart, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, FileChange,
     FileChanges, Grant, JudgeKind, Launch, Origin, PathClassName, PauseReason, Presence,
-    PresenceSource, ProgramFact, Risk, Scope, Seq, TargetFact, Usage, Verdict,
+    PresenceSource, ProgramFact, Risk, RootFiles, Scope, Seq, TargetFact, TurnUndoInfo, Usage,
+    Verdict,
 };
 use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
 use serde_json::{Value, json};
@@ -1204,8 +1205,10 @@ fn home_changed(n: u8, path: &str, backup: &str) -> Event {
     }
 }
 
+/// An event from before the home store names the copy in the phase A backup store, and
+/// keeps that line.
 #[test]
-fn floor_edit_turn_end_line_names_backup() {
+fn old_backup_event_keeps_its_line() {
     let line = "echo 'alias k=kubectl' >> ~/.zshrc";
     let info = exit_info(&[ExitKind::Persistence], Launch::Unsandboxed);
     let backup = "/home/user/.local/share/efr/file-backups/c1/t1/1/.zshrc";
@@ -1249,4 +1252,183 @@ fn floor_edit_turn_end_line_names_backup() {
         every_way(&completed),
         every_way(&failed)
     ));
+}
+
+/// Call `n` changed `path` outside the roots; from phase B efr's home store holds the
+/// copy, so the event names no backup.
+fn home_copied(n: u8, path: &str, floor: bool, covered: bool) -> Event {
+    Event::HomeFileChanged {
+        turn_id: turn(),
+        call_id: id(n),
+        path: PathBuf::from(path),
+        floor,
+        covered,
+        backup: None,
+        real: None,
+    }
+}
+
+/// What `efr undo` can take back of the turn: `files` in `roots` and `home` files
+/// outside them, and `not_covered`.
+fn undo_info(roots: &[(&str, u32)], home: u32, not_covered: &[&str], more: u32) -> TurnUndoInfo {
+    TurnUndoInfo {
+        undoable: true,
+        roots: roots
+            .iter()
+            .map(|(shown, files)| RootFiles { shown: (*shown).to_owned(), files: *files })
+            .collect(),
+        home_files: home,
+        not_covered: not_covered.iter().map(|name| (*name).to_owned()).collect(),
+        not_covered_more: more,
+    }
+}
+
+fn turn_undone(changes: Option<FileChanges>, undo: TurnUndoInfo) -> Event {
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: Some(Usage::new(18_200, 1_100)),
+        changes,
+        context: None,
+        stop: None,
+        undo: Some(undo),
+    }
+}
+
+fn three_files() -> FileChanges {
+    file_changes(
+        vec![
+            file("src/a.rs", ChangeKind::Modified, 20, 7),
+            file("notes.md", ChangeKind::Added, 4, 0),
+            file("old.rs", ChangeKind::Deleted, 0, 0),
+        ],
+        0,
+    )
+}
+
+/// What a pipe's stderr got of `acts`: the muted lines of the turn.
+fn piped(acts: &[Act]) -> String {
+    let shown = play(RenderOptions::new(80).with_terminal(false), Size::default(), acts);
+    shown.split_once("stderr:\n").map(|(_, err)| err.to_owned()).unwrap_or_default()
+}
+
+#[test]
+fn floor_edit_turn_end_line_names_path() {
+    let line = "echo 'alias k=kubectl' >> ~/.zshrc";
+    let info = exit_info(&[ExitKind::Persistence], Launch::Unsandboxed);
+    let edit = [
+        Sent(0, turn_started()),
+        Sent(10, shell(1, line)),
+        Sent(20, exit_requested(1, line, ExitFacts::default(), &info)),
+        Sent(20, review_started(1, &info.kinds)),
+        Sent(900, reviewed(1, Verdict::Allow, Some(Risk::Low), "you named your zshrc")),
+        Sent(1_000, ended(1, Some(0), None)),
+        Sent(1_010, home_copied(1, "/home/user/.zshrc", true, true)),
+        Sent(1_020, home_copied(1, "/home/user/.aws/config", false, false)),
+        Sent(1_030, home_copied(1, "/home/user/Documents/notes.md", false, true)),
+    ];
+    let undo = undo_info(&[], 2, &["~/.aws/config (masked)"], 0);
+    let mut completed = edit.to_vec();
+    completed.push(Sent(1_500, message(0, "I added the alias.")));
+    completed.push(Sent(1_500, turn_undone(None, undo.clone())));
+    let mut failed = edit.to_vec();
+    failed.push(Sent(
+        1_500,
+        Event::TurnFailed {
+            turn_id: turn(),
+            error: efr_protocol::ErrorBody {
+                code: efr_protocol::ErrorCode::Internal,
+                message: "the provider is down".to_owned(),
+                data: None,
+            },
+            usage: None,
+            context: None,
+            changes: None,
+            undo: Some(undo),
+        },
+    ));
+    insta::assert_snapshot!(format!(
+        "### completed\n{}\n### failed\n{}",
+        every_way(&completed),
+        every_way(&failed)
+    ));
+}
+
+#[test]
+fn turn_line_counts_home_files_and_names_undo() {
+    let undo = undo_info(&[("eggfriedrice.code", 3)], 2, &[], 0);
+    let err = piped(&[
+        Sent(0, turn_started()),
+        Sent(900, message(0, "Done.")),
+        Sent(1_000, turn_undone(Some(three_files()), undo)),
+    ]);
+    assert_eq!(
+        err,
+        "changed 3 files (+24 \u{2212}7) in eggfriedrice.code and 2 in ~; efr undo reverts this \
+         turn\n"
+    );
+    let undo = undo_info(&[("app", 2), ("$SCRATCH", 1), ("lib", 1)], 0, &[], 0);
+    let err =
+        piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
+    assert!(
+        err.starts_with(
+            "changed 3 files (+24 \u{2212}7) in app, $SCRATCH and lib; efr undo reverts this turn\n"
+        ),
+        "{err}"
+    );
+    let undo = undo_info(&[], 1, &[], 0);
+    let err = piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(None, undo))]);
+    assert!(err.starts_with("changed 1 file in ~; efr undo reverts this turn\n"), "{err}");
+}
+
+#[test]
+fn turn_line_lists_not_covered_paths() {
+    let names = ["target/ (ignored, large)", ".env.large (over 10 MiB)", "a", "b", "c", "d", "e"];
+    let undo = undo_info(&[("app", 3)], 0, &names, 4);
+    let err =
+        piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
+    assert!(
+        err.starts_with(
+            "changed 3 files (+24 \u{2212}7) in app; efr undo reverts this turn\nnot covered: \
+             target/ (ignored, large), .env.large (over 10 MiB), a, b, c and 6 more\n"
+        ),
+        "{err}"
+    );
+}
+
+#[test]
+fn turn_line_names_refs_not_covered() {
+    let names = ["refs of app (shallow)", "~/big (over 2000 files)"];
+    let undo = undo_info(&[("app", 3)], 0, &names, 0);
+    let err =
+        piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
+    assert!(
+        err.contains("\nnot covered: refs of app (shallow), ~/big (over 2000 files)\n"),
+        "{err}"
+    );
+}
+
+#[test]
+fn turn_line_of_manual_turn_has_no_undo_hint() {
+    let undo = TurnUndoInfo { undoable: false, ..undo_info(&[("app", 3)], 0, &["x (big)"], 0) };
+    let err =
+        piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
+    assert_eq!(err, "3 files changed, +24 \u{2212}7\n");
+}
+
+#[test]
+fn interrupted_turn_shows_its_undo_line() {
+    let undo = undo_info(&[("app", 3)], 0, &[], 0);
+    let interrupted = Event::TurnInterrupted {
+        turn_id: turn(),
+        usage: None,
+        context: None,
+        changes: Some(three_files()),
+        undo: Some(undo),
+    };
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, shell(1, "cargo fmt")),
+        Sent(900, ended(1, Some(0), None)),
+        Sent(1_000, interrupted),
+    ]));
 }

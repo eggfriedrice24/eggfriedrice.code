@@ -12,7 +12,9 @@
 
 use std::fmt::Write as _;
 
-use efr_protocol::{ChangeKind, FileChange, FileChanges};
+use efr_protocol::{
+    ChangeKind, FileChange, FileChanges, RefChange, SnapshotPhase, TurnId, TurnUndoInfo,
+};
 use efr_render::{RenderOptions, WidthMethod, text_width};
 
 use super::{Tone, one_line, paint};
@@ -143,6 +145,163 @@ pub(crate) fn turn_line(changes: &FileChanges) -> Option<String> {
         let _ = write!(line, ", {counts}");
     }
     Some(line)
+}
+
+/// The hint at the end of the line of an `auto` turn that `efr undo` can take back.
+pub(crate) const UNDO_HINT: &str = "efr undo reverts this turn";
+
+/// The most names of the `not covered:` line; the rest are counted.
+const NOT_COVERED_NAMES: usize = 5;
+
+/// `1 file` or `3 files`.
+fn files(count: usize) -> String {
+    if count == 1 { "1 file".to_owned() } else { format!("{count} files") }
+}
+
+/// The line at the end of an `auto` turn that `efr undo` can take back, such as
+/// `changed 4 files (+12 −3) in eggfriedrice.code and 2 in ~; efr undo reverts this
+/// turn`: the files in the roots, named by the roots, and the files outside the roots
+/// that efr copied first. `None` when the turn changed no file that undo covers, or
+/// undo cannot take the turn back now.
+pub(crate) fn undo_line(changes: Option<&FileChanges>, undo: &TurnUndoInfo) -> Option<String> {
+    if !undo.undoable {
+        return None;
+    }
+    let count = changes.map_or(0, file_count);
+    let home = usize::try_from(undo.home_files).unwrap_or(usize::MAX);
+    let roots: Vec<String> =
+        undo.roots.iter().filter(|root| root.files > 0).map(|root| one_line(&root.shown)).collect();
+    let mut line = match (count, home) {
+        (0, 0) => return None,
+        (0, home) => format!("changed {} in ~", files(home)),
+        (count, home) => {
+            let mut line = format!("changed {}", files(count));
+            let counts: String = changes
+                .map(|changes| counts(changes.added, changes.removed))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(text, _)| text)
+                .collect();
+            if !counts.is_empty() {
+                let _ = write!(line, " ({counts})");
+            }
+            match (roots.as_slice(), home) {
+                ([], 0) => {}
+                ([], home) => {
+                    let _ = write!(line, " and {home} in ~");
+                }
+                (roots, 0) => {
+                    let _ = write!(line, " in {}", joined(roots));
+                }
+                (roots, home) => {
+                    let _ = write!(line, " in {} and {home} in ~", roots.join(", "));
+                }
+            }
+            line
+        }
+    };
+    let _ = write!(line, "; {UNDO_HINT}");
+    Some(line)
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn joined(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The line of what `efr undo` cannot bring back, such as `not covered: target/
+/// (ignored, large), refs of app (shallow)`: at most five names, then how many more.
+/// `None` when nothing is left out.
+pub(crate) fn not_covered_line(names: &[String], more: u32) -> Option<String> {
+    if names.is_empty() && more == 0 {
+        return None;
+    }
+    let shown: Vec<String> =
+        names.iter().take(NOT_COVERED_NAMES).map(|name| one_line(name)).collect();
+    let rest = names.len().saturating_sub(shown.len()) + usize::try_from(more).unwrap_or(0);
+    let mut line = format!("not covered: {}", shown.join(", "));
+    if rest > 0 {
+        let _ = write!(line, "{}and {rest} more", if shown.is_empty() { "" } else { " " });
+    }
+    Some(line)
+}
+
+/// The line of an undo in `efr history`, such as `undid turn <id>: 2 files restored,
+/// 1 moved to the undo trash`.
+pub(crate) fn undo_applied_line(
+    turn_id: TurnId,
+    redo: bool,
+    counts: UndoCounts,
+    refs: &[RefChange],
+) -> String {
+    let mut parts = Vec::new();
+    if counts.restored > 0 {
+        parts.push(format!("{} restored", files(counts.restored)));
+    }
+    if counts.trashed > 0 {
+        parts.push(format!("{} moved to the undo trash", counts.trashed));
+    }
+    if counts.deleted > 0 {
+        let unit = if counts.deleted == 1 { "link" } else { "links" };
+        parts.push(format!("{} {unit} removed", counts.deleted));
+    }
+    let moved = refs.iter().filter(|change| change.applied == Some(true)).count();
+    if moved > 0 {
+        let unit = if moved == 1 { "ref" } else { "refs" };
+        parts.push(format!("{moved} {unit} moved"));
+    }
+    if counts.conflicts > 0 {
+        parts.push(format!("{} skipped (changed after the turn)", counts.conflicts));
+    }
+    if counts.not_covered > 0 {
+        parts.push(format!("{} not covered", counts.not_covered));
+    }
+    let verb = if redo { "redid the undo of turn" } else { "undid turn" };
+    if parts.is_empty() {
+        return format!("{verb} {turn_id}: nothing changed");
+    }
+    format!("{verb} {turn_id}: {}", parts.join(", "))
+}
+
+/// The counts of an `undo_applied` event.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct UndoCounts {
+    pub(crate) restored: usize,
+    pub(crate) trashed: usize,
+    pub(crate) deleted: usize,
+    pub(crate) conflicts: usize,
+    pub(crate) not_covered: usize,
+}
+
+/// The line of a snapshot in `efr history --verbose`, such as `snapshot before the
+/// turn of app: 120 files, 3 left out, 45 ms (1a2b3c4)`.
+pub(crate) fn snapshot_line(
+    root: &str,
+    phase: SnapshotPhase,
+    commit: &str,
+    files_in: u32,
+    skipped: u32,
+    ms: u64,
+) -> String {
+    let when = match phase {
+        SnapshotPhase::Pre => "before",
+        _ => "after",
+    };
+    let short: String = one_line(commit).chars().take(7).collect();
+    let mut line = format!(
+        "snapshot {when} the turn of {}: {}",
+        one_line(root),
+        files(usize::try_from(files_in).unwrap_or(usize::MAX))
+    );
+    if skipped > 0 {
+        let _ = write!(line, ", {skipped} left out");
+    }
+    let _ = write!(line, ", {ms} ms ({short})");
+    line
 }
 
 /// `efr diff --stat`: one line per file (its kind, its path and its counts, or

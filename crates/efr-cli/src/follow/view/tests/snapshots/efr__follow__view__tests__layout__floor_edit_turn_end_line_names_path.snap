@@ -1,0 +1,134 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "format!(\"### completed\\n{}\\n### failed\\n{}\", every_way(&completed),\nevery_way(&failed))"
+---
+### completed
+=== 40 columns, colour
+[end]
+\e[2mreviewer allowed: persistence for this\e[0m
+  \e[2mcall (low risk; you named your zshrc)\e[0m
+\e[33m·\e[0m \e[36m$ echo 'alias k=kubectl' >> ~/.zshrc\e[0m
+  \e[32m✓\e[0m
+
+I added the alias.
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot\e[0m
+  \e[2mrevert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+  \e[2mthis turn\e[0m
+\e[2mdone in 1.5s, 18.2k tokens in, 1.1k out…\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[2mreviewer allowed: persistence for this\e[0m
+  \e[2mcall (low risk; you named your zshrc)\e[0m
+\e[1m·\e[0m $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+I added the alias.
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot\e[0m
+  \e[2mrevert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+  \e[2mthis turn\e[0m
+\e[2mdone in 1.5s, 18.2k tokens in, 1.1k out…\e[0m
+
+=== 80 columns, colour
+[end]
+\e[2mreviewer allowed: persistence for this call (low risk; you named your zshrc)\e[0m
+\e[33m·\e[0m \e[36m$ echo 'alias k=kubectl' >> ~/.zshrc\e[0m
+  \e[32m✓\e[0m
+
+I added the alias.
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+\e[2mdone in 1.5s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[2mreviewer allowed: persistence for this call (low risk; you named your zshrc)\e[0m
+\e[1m·\e[0m $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+I added the alias.
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+\e[2mdone in 1.5s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
+
+=== not a terminal
+[end]
+stdout:
+I added the alias.
+stderr:
+reviewer allowed: persistence for this call (low risk; you named your zshrc)
+· $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+changed ~/.zshrc; efr undo reverts it
+changed ~/.aws/config; efr undo cannot revert it (masked)
+changed 2 files in ~; efr undo reverts this turn
+
+### failed
+=== 40 columns, colour
+[end]
+\e[2mreviewer allowed: persistence for this\e[0m
+  \e[2mcall (low risk; you named your zshrc)\e[0m
+\e[33m·\e[0m \e[36m$ echo 'alias k=kubectl' >> ~/.zshrc\e[0m
+  \e[32m✓\e[0m
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot\e[0m
+  \e[2mrevert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+  \e[2mthis turn\e[0m
+
+=== 40 columns, NO_COLOR
+[end]
+\e[2mreviewer allowed: persistence for this\e[0m
+  \e[2mcall (low risk; you named your zshrc)\e[0m
+\e[1m·\e[0m $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot\e[0m
+  \e[2mrevert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+  \e[2mthis turn\e[0m
+
+=== 80 columns, colour
+[end]
+\e[2mreviewer allowed: persistence for this call (low risk; you named your zshrc)\e[0m
+\e[33m·\e[0m \e[36m$ echo 'alias k=kubectl' >> ~/.zshrc\e[0m
+  \e[32m✓\e[0m
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+
+=== 80 columns, NO_COLOR
+[end]
+\e[2mreviewer allowed: persistence for this call (low risk; you named your zshrc)\e[0m
+\e[1m·\e[0m $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+\e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
+\e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
+\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+
+=== not a terminal
+[end]
+stdout:
+stderr:
+reviewer allowed: persistence for this call (low risk; you named your zshrc)
+· $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+changed ~/.zshrc; efr undo reverts it
+changed ~/.aws/config; efr undo cannot revert it (masked)
+changed 2 files in ~; efr undo reverts this turn

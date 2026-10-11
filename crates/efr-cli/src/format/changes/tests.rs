@@ -153,3 +153,49 @@ fn the_stat_lists_each_file_with_its_counts() {
     }
     insta::assert_snapshot!(shown.join("\n"));
 }
+
+fn undo(roots: &[(&str, u32)], home_files: u32) -> efr_protocol::TurnUndoInfo {
+    efr_protocol::TurnUndoInfo {
+        undoable: true,
+        roots: roots
+            .iter()
+            .map(|(shown, files)| efr_protocol::RootFiles {
+                shown: (*shown).to_owned(),
+                files: *files,
+            })
+            .collect(),
+        home_files,
+        not_covered: Vec::new(),
+        not_covered_more: 0,
+    }
+}
+
+#[test]
+fn the_undo_line_names_the_roots_and_the_home_files() {
+    let two = changes(
+        vec![file("a.rs", ChangeKind::Modified, 1, 0), file("b.rs", ChangeKind::Added, 0, 0)],
+        0,
+    );
+    assert_eq!(
+        super::undo_line(Some(&two), &undo(&[("a", 1), ("b", 1)], 3)).as_deref(),
+        Some("changed 2 files (+1) in a, b and 3 in ~; efr undo reverts this turn")
+    );
+    assert_eq!(
+        super::undo_line(Some(&two), &undo(&[("a", 1), ("empty", 0)], 0)).as_deref(),
+        Some("changed 2 files (+1) in a; efr undo reverts this turn")
+    );
+    assert_eq!(super::undo_line(None, &undo(&[], 0)), None, "nothing changed");
+    let off = efr_protocol::TurnUndoInfo { undoable: false, ..undo(&[("a", 1)], 1) };
+    assert_eq!(super::undo_line(Some(&two), &off), None, "undo cannot take it back now");
+}
+
+#[test]
+fn the_not_covered_line_counts_what_it_leaves_out() {
+    assert_eq!(super::not_covered_line(&[], 0), None);
+    assert_eq!(super::not_covered_line(&[], 3).as_deref(), Some("not covered: and 3 more"));
+    let hostile = ["a\u{1b}[2J (big)".to_owned()];
+    assert_eq!(
+        super::not_covered_line(&hostile, 0).as_deref(),
+        Some("not covered: a\u{241b}[2J (big)")
+    );
+}
