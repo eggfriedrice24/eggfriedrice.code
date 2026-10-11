@@ -52,13 +52,19 @@ pub struct TurnUndoResult {
     /// The first line of the turn's prompt. Absent when the log has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// The undo. Absent in a dry run and with `list`.
+    /// The undo: in a dry run, the id that the apply will take when it resumes an undo
+    /// that stopped half way. Absent with `list`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo_id: Option<UndoId>,
-    /// True when the undo changed files or refs; false in a dry run, with `list`, and
-    /// when nothing was to do.
+    /// True when the undo changed files or refs and ended; false in a dry run, with
+    /// `list`, when nothing was to do, when it wrote nothing, and when it stopped.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub applied: bool,
+    /// True when a write failed and the undo stopped half way after it changed files
+    /// or refs; the next `efr undo` finishes it, and `efr undo --redo` takes back what
+    /// it did. False when absent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
     /// True when the undo went on with an earlier undo that stopped half way. False
     /// when absent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

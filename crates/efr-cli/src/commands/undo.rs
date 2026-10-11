@@ -93,7 +93,10 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &UndoArgs) -> Res
     // the apply takes back.
     let turn_id = if args.redo { args.turn } else { preview.turn_id.or(args.turn) };
     let apply = TurnUndo { turn_id, ..params(ctx, false) };
-    let result = call(&client, apply).await?;
+    let mut result = call(&client, apply).await?;
+    // NOTE: the preview showed its notes already; the report adds only new ones, such
+    // as a write that failed.
+    result.notes.retain(|note| !preview.notes.contains(note));
     out.out(&report(&result, args.redo, ctx.home.as_deref(), &options))
 }
 
@@ -241,7 +244,8 @@ pub(crate) fn reason_words(reason: UndoReason) -> &'static str {
 }
 
 /// The lines after an applied undo: `undone: 2 files restored, 1 file moved to <trash>`,
-/// the refs that it moved, then its notes.
+/// or `undo stopped: ...` after a write that failed, the refs that it moved, then its
+/// notes.
 pub(crate) fn report(
     result: &TurnUndoResult,
     redo: bool,
@@ -280,13 +284,19 @@ pub(crate) fn report(
     if skipped > 0 {
         parts.push(format!("{skipped} left as they are"));
     }
-    let verb = if redo { "redone" } else { "undone" };
-    let line = match (result.applied, parts.is_empty()) {
+    let verb = match (redo, result.stopped) {
+        (false, false) => "undone",
+        (true, false) => "redone",
+        (false, true) => "undo stopped",
+        (true, true) => "redo stopped",
+    };
+    let line = match (result.applied || result.stopped, parts.is_empty()) {
         (false, _) => format!("{verb}: nothing changed"),
         (true, true) => verb.to_owned(),
         (true, false) => format!("{verb}: {}", parts.join(", ")),
     };
-    let mut out = format!("{}\n", format::paint(&line, Tone::Success, options));
+    let tone = if result.stopped { Tone::Attention } else { Tone::Success };
+    let mut out = format!("{}\n", format::paint(&line, tone, options));
     if result.resumed {
         let _ = writeln!(
             out,

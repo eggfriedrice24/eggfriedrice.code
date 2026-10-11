@@ -265,6 +265,9 @@ pub(crate) fn undo_applied_line(
         parts.push(format!("{} not covered", counts.not_covered));
     }
     let verb = if redo { "redid the undo of turn" } else { "undid turn" };
+    if counts.stopped {
+        parts.push("stopped at a write that failed; efr undo finishes it".to_owned());
+    }
     if parts.is_empty() {
         return format!("{verb} {turn_id}: nothing changed");
     }
@@ -279,6 +282,8 @@ pub(crate) struct UndoCounts {
     pub(crate) deleted: usize,
     pub(crate) conflicts: usize,
     pub(crate) not_covered: usize,
+    /// True when the undo stopped at a write that failed.
+    pub(crate) stopped: bool,
 }
 
 /// The line of a snapshot in `efr history --verbose`, such as `snapshot before the

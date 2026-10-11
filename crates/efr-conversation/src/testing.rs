@@ -484,7 +484,8 @@ impl Toolbox for FakeToolbox {
         let mut result = answer.ok_or(UndoRefused::Off)?;
         let applies = !request.params.dry_run && !request.params.list;
         result.conversation_id = request.conversation_id;
-        result.applied = applies;
+        result.stopped &= applies;
+        result.applied = applies && !result.stopped;
         result.undo_id = applies.then_some(request.undo_id);
         Ok(result)
     }

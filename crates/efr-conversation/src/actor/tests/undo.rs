@@ -39,6 +39,7 @@ fn undone(h: &Harness, turn_id: TurnId) -> TurnUndoResult {
         title: Some("first".to_owned()),
         undo_id: None,
         applied: false,
+        stopped: false,
         resumed: false,
         entries: vec![
             entry(UndoAction::Restore, "src/a.rs", None),
@@ -215,6 +216,7 @@ async fn undo_applied_recorded_once_per_apply() {
             not_covered: 1,
             refs: Vec::new(),
             trash: Some(PathBuf::from("/data/efr/undo-trash/u-1")),
+            stopped: false,
         }]
     );
     let command_id = apply.command_id;
@@ -231,6 +233,31 @@ async fn undo_applied_recorded_once_per_apply() {
     };
     let stored = crate::completed_result("turn.undo", stored, receipt.seq.expect("seq"));
     assert_eq!(serde_json::from_value::<TurnUndoResult>(stored).expect("result"), result);
+    h.finish();
+}
+
+#[tokio::test]
+async fn stopped_undo_is_recorded() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&text_answer("One.")),
+    ];
+    let mut h = setup.start(records).await;
+    let first = first_turn(&mut h).await;
+    let stopped = TurnUndoResult { stopped: true, ..undone(&h, first) };
+    *h.toolbox.undo_result.lock().unwrap_or_else(PoisonError::into_inner) = Some(stopped);
+
+    let apply = params(&mut h);
+    let result = h.handle.undo(apply, Vec::new(), Origin::Cli).await.expect("ran");
+
+    assert!(result.stopped && !result.applied, "{result:?}");
+    let recorded = applied(&h.events().await);
+    assert!(
+        matches!(recorded.as_slice(), [Event::UndoApplied { stopped: true, restored: 1, .. }]),
+        "a write error after some changes still leaves a trace: {recorded:?}"
+    );
     h.finish();
 }
 

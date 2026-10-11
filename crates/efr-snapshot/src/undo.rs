@@ -440,6 +440,37 @@ impl Snapshots {
         Ok(())
     }
 
+    /// Drops the journal of the undo of `plan` that wrote nothing: its `before`,
+    /// `started`, home copy and kept refs in every store, so no later undo resumes it.
+    pub async fn drop_undo(&self, plan: &UndoPlan) -> Result<(), SnapshotError> {
+        let scan = self.scan(plan.conversation).await?;
+        for (store, held) in scan.all() {
+            let Some(undo) = held.undos.get(&plan.undo_id) else { continue };
+            let named = [
+                ("before", &undo.before),
+                ("started", &undo.started),
+                ("after", &undo.after),
+                ("redone", &undo.redone),
+                ("home", &undo.home),
+            ];
+            let mut refs: Vec<(String, &String)> = named
+                .into_iter()
+                .filter_map(|(name, id)| id.as_ref().map(|id| (name.to_owned(), id)))
+                .collect();
+            refs.extend(undo.mirror.iter().map(|(below, id)| (format!("mirror/{below}"), id)));
+            let commands: String = refs
+                .iter()
+                .map(|(name, id)| {
+                    format!("delete {} {id}\n", undo_ref(plan.conversation, &plan.undo_id, name))
+                })
+                .collect();
+            if !commands.is_empty() {
+                self.update_refs(store, commands).await?;
+            }
+        }
+        Ok(())
+    }
+
     /// The bytes of the blob `id` in the store of the canonical `root`.
     pub async fn blob(&self, root: &Path, id: &ObjectId) -> Result<Vec<u8>, SnapshotError> {
         let store = Store::new(self.dir(), root);

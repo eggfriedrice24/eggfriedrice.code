@@ -723,6 +723,10 @@ pub enum Event {
         /// The directory of the undo trash. Absent when the undo put nothing there.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trash: Option<PathBuf>,
+        /// True when the undo stopped at a write that failed, after it changed some
+        /// paths; the next `efr undo` finishes it. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        stopped: bool,
     },
 
     /// An event of a kind that this build does not know. It encodes back to the same JSON

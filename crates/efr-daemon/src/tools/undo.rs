@@ -63,8 +63,11 @@ pub(crate) const NOTE_STOPPED: &str = "efr undo stopped at a write that failed; 
 /// What one path of the plan came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Done {
-    /// The plan's action ran, or there was nothing to do.
+    /// The plan's action ran: undo wrote or removed the path, or ran the command.
     Applied,
+    /// There was nothing to do: the path has no action, or it already is what the plan
+    /// wants.
+    Unneeded,
     /// The path is not what the plan expects any more.
     Changed,
     /// A mask covers the path now.
@@ -81,6 +84,8 @@ struct Applied {
     home: Vec<Done>,
     /// True when something went to the undo trash.
     trashed: bool,
+    /// True when undo wrote or removed a path, moved a ref or ran a command.
+    wrote: bool,
     /// The path and error of the write that stopped the undo.
     failed: Option<(PathBuf, std::io::Error)>,
 }
@@ -109,6 +114,7 @@ impl DaemonToolbox {
             title: None,
             undo_id: None,
             applied: false,
+            stopped: false,
             resumed: false,
             entries: Vec::new(),
             entries_more: 0,
@@ -156,18 +162,42 @@ impl DaemonToolbox {
         }
         if !plan_acts(&plan) {
             // NOTE: nothing to write, such as only paths that changed after the turn:
-            // the rows say why, and `--force` takes them.
+            // the rows say why, and `--force` takes them. An undo that stopped half way
+            // and has nothing left ends here, so its journal does not stay open.
+            if plan.resumed {
+                result.applied = self.finish(store, &plan, limits).await;
+            }
             self.describe(&mut result, &plan, None);
             return Ok(result);
         }
         let applied = self.apply(&plan, limits).await;
-        let finished = applied.failed.is_none();
-        if finished && let Err(error) = store.finish_undo(&plan, limits).await {
-            tracing::warn!(error = %efr_stdx::with_causes(&error), undo = %plan.undo_id, "the end of an undo could not be recorded");
+        // NOTE: an earlier attempt of a resumed undo wrote, so it ends like one that
+        // wrote now. An undo that wrote nothing is no undo: the turn stays as it is and
+        // its journal goes, so the next `efr undo` plans it again.
+        let wrote = applied.wrote || plan.resumed;
+        let stopped = applied.failed.is_some();
+        if !stopped && wrote {
+            result.applied = self.finish(store, &plan, limits).await;
+        } else if !wrote && !plan.redo {
+            if let Err(error) = store.drop_undo(&plan).await {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), undo = %plan.undo_id, "the journal of an undo that wrote nothing could not be removed");
+            }
         }
-        result.applied = finished;
+        result.stopped = stopped && wrote;
         self.describe(&mut result, &plan, Some(&applied));
         Ok(result)
+    }
+
+    /// Records the end of the undo or redo `plan`; false, with a line in the log, when
+    /// the store could not.
+    async fn finish(&self, store: &Snapshots, plan: &UndoPlan, limits: Limits) -> bool {
+        match store.finish_undo(plan, limits).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), undo = %plan.undo_id, "the end of an undo could not be recorded");
+                false
+            }
+        }
     }
 
     /// The ended turns of `candidates` that a store holds, newest first.
@@ -273,7 +303,9 @@ impl DaemonToolbox {
                 applied.refs.push(kept.collect());
                 continue;
             }
-            applied.refs.push(store.restore_refs(named, &root.refs).await);
+            let moved = store.restore_refs(named, &root.refs).await;
+            applied.wrote |= moved.iter().any(|(_, result)| result.is_ok());
+            applied.refs.push(moved);
         }
         applied.home = self.apply_home(store, &plan.home, trash.as_deref(), &mut applied).await;
         applied
@@ -297,7 +329,7 @@ impl DaemonToolbox {
         };
         for entry in &root.entries {
             if !entry.acts() {
-                done.push(Done::Applied);
+                done.push(Done::Unneeded);
                 continue;
             }
             if applied.failed.is_some() {
@@ -314,6 +346,7 @@ impl DaemonToolbox {
             match self.apply_entry(store, root, dir, entry, trash).await {
                 Ok((step, trashed)) => {
                     applied.trashed |= trashed;
+                    applied.wrote |= step == Done::Applied;
                     done.push(step);
                 }
                 Err(error) => {
@@ -342,7 +375,7 @@ impl DaemonToolbox {
         };
         let Some((parent, name)) = parent else {
             // NOTE: no parent means no file: only a plan that expects none goes on.
-            let done = if entry.expect == Expect::Missing { Done::Applied } else { Done::Changed };
+            let done = if entry.expect == Expect::Missing { Done::Unneeded } else { Done::Changed };
             return Ok((done, false));
         };
         let now = parent.node(&name, MAX_READ_BYTES).unwrap_or(Node::Other);
@@ -389,7 +422,7 @@ impl DaemonToolbox {
         let mut done = Vec::with_capacity(plan.steps.len());
         for step in &plan.steps {
             if !step.acts() {
-                done.push(Done::Applied);
+                done.push(Done::Unneeded);
                 continue;
             }
             if applied.failed.is_some() {
@@ -400,6 +433,7 @@ impl DaemonToolbox {
                 match self.apply_state(store, step, copy, trash).await {
                     Ok((outcome, trashed)) => {
                         applied.trashed |= trashed;
+                        applied.wrote |= outcome == Done::Applied;
                         done.push(outcome);
                     }
                     Err(error) => {
@@ -410,7 +444,7 @@ impl DaemonToolbox {
                 continue;
             }
             if !step.path.is_absolute() {
-                done.push(Done::Applied);
+                done.push(Done::Unneeded);
                 continue;
             }
             if home::masked(&step.path, &masks) {
@@ -420,6 +454,7 @@ impl DaemonToolbox {
             match self.apply_step(store, step, trash).await {
                 Ok((outcome, trashed)) => {
                     applied.trashed |= trashed;
+                    applied.wrote |= outcome == Done::Applied;
                     done.push(outcome);
                 }
                 Err(error) => {
@@ -478,7 +513,7 @@ impl DaemonToolbox {
             parent => parent?,
         };
         let Some((parent, name)) = parent else {
-            let done = if step.expect == Expect::Missing { Done::Applied } else { Done::Changed };
+            let done = if step.expect == Expect::Missing { Done::Unneeded } else { Done::Changed };
             return Ok((done, false));
         };
         let now = parent.node(&name, MAX_READ_BYTES).unwrap_or(Node::Other);

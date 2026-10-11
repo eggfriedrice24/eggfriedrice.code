@@ -394,7 +394,7 @@ async fn undo_write_error_stops_and_reports() {
     std::fs::set_permissions(scratch.join("sub"), std::fs::Permissions::from_mode(0o755)).unwrap();
     let resumed = undo(&kept, &[2], 2, |_| {}).await.unwrap();
 
-    assert!(!stopped.applied, "{stopped:?}");
+    assert!(!stopped.applied && stopped.stopped, "{stopped:?}");
     assert_eq!(
         stopped.entries,
         [
@@ -567,6 +567,15 @@ async fn undo_rechecks_masks_for_home_paths() {
         [entry(UndoAction::NotCovered, "~/private/notes.md", Some(UndoReason::Masked))]
     );
     assert_eq!(read(&notes), "new\n", "a path that a mask covers now stays");
+    // NOTE: the undo wrote nothing, so the turn is not undone and no undo stays open.
+    assert!(!done.applied && !done.stopped, "{done:?}");
+    let turns =
+        kept.toolbox.snapshots.as_ref().unwrap().store().turns_with_refs(conversation()).await;
+    assert!(turns.iter().all(|refs| !refs.undone && refs.started_undo.is_none()), "{turns:?}");
+    kept.settings.send_replace(Arc::new(Settings::default()));
+    let again = undo(&kept, &[2], 2, |_| {}).await.unwrap();
+    assert!(again.applied && !again.resumed, "{again:?}");
+    assert_eq!(read(&notes), "old\n");
 }
 
 #[tokio::test]

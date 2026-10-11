@@ -1116,6 +1116,7 @@ fn undo_events() -> Vec<EventEnvelope> {
             not_covered: 0,
             refs: Vec::new(),
             trash: None,
+            stopped: false,
         },
     ];
     events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()

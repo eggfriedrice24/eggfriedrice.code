@@ -20,5 +20,6 @@
       "reason": "changed_after_turn"
     }
   ],
-  "trash": "/home/me/.local/share/efr/undo-trash/u-019a9b1c-3d00-7a10-8b20-00000000000f"
+  "trash": "/home/me/.local/share/efr/undo-trash/u-019a9b1c-3d00-7a10-8b20-00000000000f",
+  "stopped": true
 }

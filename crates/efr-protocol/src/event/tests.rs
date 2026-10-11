@@ -311,6 +311,7 @@ fn undo_applied_has_no_turn_id() {
         not_covered: 0,
         refs: Vec::new(),
         trash: None,
+        stopped: false,
     };
     assert_eq!(undo.turn_id(), None);
     let snapshot = Event::SnapshotTaken {

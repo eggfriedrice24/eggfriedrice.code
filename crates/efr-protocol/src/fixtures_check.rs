@@ -1124,6 +1124,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                 title: Some("clean up the journal".into()),
                 undo_id: Some(undo_id()),
                 applied: true,
+                stopped: false,
                 resumed: true,
                 entries: vec![
                     UndoEntry { action: UndoAction::Restore, path: "src/a.rs".into(), reason: None },
@@ -1521,6 +1522,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 "/home/me/.local/share/efr/undo-trash/u-019a9b1c-3d00-7a10-8b20-00000000000f"
                     .into(),
             ),
+            stopped: true,
         },
         Event::Unknown { kind: "device_enrolled".into(), payload: future },
     ]

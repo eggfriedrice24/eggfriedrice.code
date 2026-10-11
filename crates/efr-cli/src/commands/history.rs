@@ -503,6 +503,7 @@ impl<'a> Transcript<'a> {
                 conflicts,
                 not_covered,
                 refs,
+                stopped,
                 ..
             } => {
                 let size = |count: &u32| usize::try_from(*count).unwrap_or(usize::MAX);
@@ -512,6 +513,7 @@ impl<'a> Transcript<'a> {
                     deleted: size(deleted),
                     conflicts: size(conflicts),
                     not_covered: size(not_covered),
+                    stopped: *stopped,
                 };
                 self.note(&changes::undo_applied_line(*undone_turn_id, *redo, counts, refs));
             }

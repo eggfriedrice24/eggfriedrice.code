@@ -357,7 +357,8 @@ No protocol version has shipped yet.
   `operate`, unary, with a command id) with an optional `conversation_id` and
   `turn_id` and the flags `dry_run`, `force`, `redo` and `list` (false when absent).
   Its result has the `conversation_id`, the optional `turn_id`, `title`, `undo_id` and
-  `trash`, the flags `applied` and `resumed`, and the lists `entries` (each with an
+  `trash`, the flags `applied`, `stopped` (a write failed after the undo changed
+  files) and `resumed`, and the lists `entries` (each with an
   `action`: `restore`, `trash`, `delete`, `skip`, `not_covered` or `command`, a `path`
   and an optional `reason`), `entries_more`, `refs` (each with `root`, `name` and the
   optional `from`, `to`, `applied` and `reason`), `notes` and `turns` (with `list`: each
@@ -367,7 +368,8 @@ No protocol version has shipped yet.
   freezes its forms. New event kinds `snapshot_taken` (`turn_id`, `root`, `phase`: `pre` or
   `post`, `commit`, `files`, `skipped`, `ms`) and `undo_applied` (`conversation_id`,
   `undone_turn_id`, `undo_id`, `redo`, `origin`, `restored`, `trashed`, `deleted`,
-  `conflicts`, `not_covered`, optional `refs` and `trash`; it belongs to no turn).
+  `conflicts`, `not_covered`, optional `refs` and `trash`, and `stopped`, false when
+  absent; it belongs to no turn).
   `turn_completed`, `turn_failed` and `turn_interrupted` gain an optional `undo` (the
   optional `undoable`, `roots` with `shown` and `files`, `home_files`, `not_covered`
   and `not_covered_more`), and `turn_failed` and `turn_interrupted` gain an optional

@@ -28,6 +28,7 @@ fn preview() -> TurnUndoResult {
         title: Some("change a.txt\nand add notes".to_owned()),
         undo_id: None,
         applied: false,
+        stopped: false,
         resumed: false,
         entries: vec![
             entry(UndoAction::Restore, "a.txt", None),

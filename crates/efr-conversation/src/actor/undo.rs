@@ -5,9 +5,9 @@
 //! call of the conversation still runs after its tool answered; else it refuses with
 //! `UndoBusy`. It runs in a task of its own, so the actor keeps answering; a prompt that
 //! arrives meanwhile waits in the queue and starts after it. The toolbox does the work
-//! ([`Toolbox::undo`](crate::Toolbox::undo)). Only an applied undo is recorded:
-//! `undo_applied` with the command's receipt, in one batch. A dry run and a list record
-//! nothing.
+//! ([`Toolbox::undo`](crate::Toolbox::undo)). Only an undo that changed files or refs
+//! is recorded, also one that stopped half way at a write that failed: `undo_applied`
+//! with the command's receipt, in one batch. A dry run and a list record nothing.
 
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ pub(super) const TURN_UNDO: &str = "turn.undo";
 
 /// Runs the undo `params` of the conversation of `shared` over `candidates`: asks the
 /// toolbox, and records `undo_applied` with the receipt when the undo changed files or
-/// refs.
+/// refs, also when it stopped half way.
 pub(super) async fn run(
     shared: Arc<Shared>,
     params: TurnUndo,
@@ -40,7 +40,7 @@ pub(super) async fn run(
     let redo = params.redo;
     let request = UndoRequest { conversation_id, candidates, params, undo_id, origin };
     let result = shared.deps.toolbox.undo(request).await.map_err(ConversationError::UndoRefused)?;
-    if dry_run || !result.applied {
+    if dry_run || !(result.applied || result.stopped) {
         return Ok(result);
     }
     let Some(event) = applied(&result, redo, origin) else {
@@ -53,7 +53,8 @@ pub(super) async fn run(
     Ok(result)
 }
 
-/// The `undo_applied` event of an applied undo; `None` when the result names no turn.
+/// The `undo_applied` event of an undo that changed files or refs; `None` when the
+/// result names no turn.
 fn applied(result: &TurnUndoResult, redo: bool, origin: Origin) -> Option<Event> {
     let undone_turn_id = result.turn_id?;
     let undo_id = result.undo_id?;
@@ -76,5 +77,6 @@ fn applied(result: &TurnUndoResult, redo: bool, origin: Origin) -> Option<Event>
         not_covered: count(|entry| entry.action == UndoAction::NotCovered),
         refs: result.refs.clone(),
         trash: result.trash.clone(),
+        stopped: result.stopped,
     })
 }
