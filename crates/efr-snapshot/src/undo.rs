@@ -536,8 +536,18 @@ impl Snapshots {
         let entries = self.plan_paths(&frame).await?;
         let mut plan = self.root_plan(store, &pre, root, entries);
         plan.touched_more = source.meta.touched_more;
-        let sides =
-            RefSides { target: &pre.meta, source: &source.meta, has_post: has.post.is_some() };
+        // NOTE: the collector drops the mirrors of old turns to keep a store within its
+        // limit; the record still says that the turn took one.
+        let mirror_gone = pre.meta.mirror.as_deref() == Some(MIRROR_TAKEN) && {
+            let prefix = format!("refs/efr-mirror/{}/{turn}/", pre.meta.conversation);
+            self.mirror_refs(store, &prefix).await.is_empty()
+        };
+        let sides = RefSides {
+            target: &pre.meta,
+            source: &source.meta,
+            has_post: has.post.is_some(),
+            mirror_gone,
+        };
         plan.refs = self.plan_refs(store, &plan, sides, trusted(root, &plan), force).await;
         Ok(plan)
     }
@@ -565,7 +575,12 @@ impl Snapshots {
         };
         let entries = self.plan_paths(&frame).await?;
         let mut plan = self.root_plan(store, &before, root, entries);
-        let sides = RefSides { target: &before.meta, source: &expected.meta, has_post: true };
+        let sides = RefSides {
+            target: &before.meta,
+            source: &expected.meta,
+            has_post: true,
+            mirror_gone: false,
+        };
         plan.refs = self.plan_refs(store, &plan, sides, trusted(root, &plan), force).await;
         Ok(plan)
     }

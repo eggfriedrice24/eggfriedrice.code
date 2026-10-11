@@ -29,8 +29,9 @@
 //!   `$D/snapshots/home.git`, copies of the paths outside the roots before and after a
 //!   call, which the daemon reads; [`HomePlan`] and [`HomeStep`]: their part of an
 //!   undo; [`Snapshots::home_undo_before`] and [`Snapshots::home_blob`].
-//! - [`Snapshots::gc`] ([`GcReport`]): the newest turns of each conversation stay, and
-//!   a store unused for too long goes.
+//! - [`Snapshots::gc`] and [`Snapshots::gc_capped`] ([`GcReport`]): the newest turns of
+//!   each conversation stay whole across every store, the mirrors of a store stay
+//!   within their limit, and a store unused for too long goes.
 //! - [`Limits`], [`SKIPPED_DIRS`], [`MAX_IGNORED_BYTES`]: what a snapshot takes;
 //!   [`shown_prefix`]: how a root's paths show; [`blob_id`]: git's id of a file.
 //!

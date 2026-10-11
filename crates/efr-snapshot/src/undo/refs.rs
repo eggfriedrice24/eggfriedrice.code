@@ -28,6 +28,8 @@ pub(crate) struct RefSides<'a> {
     pub(crate) source: &'a Meta,
     /// False when the turn has no record from its end.
     pub(crate) has_post: bool,
+    /// True when the collector dropped the mirror that `target` took.
+    pub(crate) mirror_gone: bool,
 }
 
 /// What `HEAD` names in a record or now.
@@ -68,7 +70,7 @@ impl Snapshots {
         trusted: bool,
         force: bool,
     ) -> Vec<RefPlan> {
-        let RefSides { target, source, has_post } = sides;
+        let RefSides { target, source, has_post, mirror_gone } = sides;
         let names: BTreeSet<&String> = target
             .refs
             .keys()
@@ -87,6 +89,8 @@ impl Snapshots {
         let pins = plan.git.as_ref().map(|(_, pins)| *pins);
         let blocked = if !trusted || target.mirror.as_deref() != Some(MIRROR_TAKEN) {
             Some(UndoReason::NoMirror)
+        } else if mirror_gone {
+            Some(UndoReason::StoreFull)
         } else {
             None
         };

@@ -69,15 +69,20 @@ auto spec, section 10).
   scrollback get the patch. `turn_end` records these paths in the `efr-meta:` line of
   `post` (`hidden`). A turn with only `pre`, which efrd stopped before its end, has no
   record after the turn and shows no changes.
-- `Snapshots::gc`: the refs of the newest `keep_turns` turns of each conversation stay
-  in each store, each with its mirror (then `git prune` of loose objects older than an
-  hour, and `git gc --auto` with `gc.auto=6700`, which packs the loose objects once
-  there are about that many; the store's `gc.auto=0` holds for every other command),
-  and a store without a snapshot for `max_age` goes whole. The first tree of a running
-  turn and the tree before a running call reach no ref yet, so the prune and the
-  packing run with them pinned under `refs/efr-live/<tree>`. Only a `<16 hex>.git` is
-  a root store: another repository in the directory, such as the home store, is never
-  listed, trimmed or deleted as one.
+- `Snapshots::gc` (and `gc_capped`, with `snapshot.mirror_max_mib`): the newest
+  `keep_turns` turns of each conversation stay, counted across every store, the home
+  store with them, so a turn stays or goes whole: its refs in each root store, its
+  mirror, its home copies and the refs of its undos (then `git prune` of loose
+  objects older than an hour, and `git gc --auto` with `gc.auto=6700`, which packs the
+  loose objects once there are about that many; the store's `gc.auto=0` holds for
+  every other command). The objects that only the mirrors of a root store reach stay
+  under four times `mirror_max_bytes`; above it, the mirrors of the oldest turns go
+  first, and an undo of such a turn says `StoreFull` for its refs. A store without a
+  snapshot for `max_age` goes whole; the home store counts from its last copy
+  (`home.root`). The first tree of a running turn and the tree before a running call
+  reach no ref yet, so the prune and the packing run with them pinned under
+  `refs/efr-live/<tree>`. Only a `<16 hex>.git` is a root store and `home.git` the
+  home store: another repository in the directory is never listed, trimmed or deleted.
 - Undo (`undo.rs`): `Snapshots::plan_undo` plans the undo of one turn in each root
   whose store holds its `pre`. It acts only on the paths that the turn's calls changed
   (`touched` of `post`, or of `last` when efrd stopped in the turn). For each path it
@@ -232,7 +237,11 @@ the modes, and a project whose config would run code at every git key it can;
 `bytes.rs` exact bytes under any `.gitattributes`; `turns.rs` the turn's refs, `last`,
 `touched`, a failed snapshot, a lost `pre`, and its diff with and without the patch;
 `mirror.rs` the mirror and each reason for none; `cover.rs` the coverage check;
-`gc.rs` both bounds of the collector, the packing and the home store; `logs.rs` the
+`undo.rs` undo, redo and the stack with an applier of the test that does what the
+daemon's does, the refs by compare and swap and with objects that the project lost,
+and an undo that stopped half way; `home.rs` the home store's copies and its part of
+an undo; `gc.rs` the bounds of the collector across stores, the mirror cap, the undo
+refs, the packing and the home store; `logs.rs` the
 log lines of an add that fails (a file that git cannot read, skipped when the tests
 run as root, and a git wrapper that stops with exit code 128). The tests run on the
 developer's git and, in CI's shell job and `just test-shell-ubuntu`, on Ubuntu's.

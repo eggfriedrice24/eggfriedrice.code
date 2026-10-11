@@ -150,7 +150,8 @@ async fn stores_skip_the_home_store() {
 
     let newest = world.snapshots.turn_diff(conversation(1), None, false, 100).await.unwrap();
     assert_eq!(newest.unwrap().turn_id, turn(1), "the home store is no root store");
-    let report = world.snapshots.gc(0, KEEP_LONG).await;
+    // NOTE: the home store's turn is the newest of the conversation, so it stays.
+    let report = world.snapshots.gc(1, KEEP_LONG).await;
     assert_eq!(report.refs_deleted, 2, "only the root store's pre and post");
     assert_eq!(refs(&home_git, &home).await.len(), 2, "the home store keeps its refs");
 }
@@ -220,4 +221,172 @@ async fn gc_drops_the_mirror_with_its_turn() {
     let left = refs(&world.only_store(), &home).await;
     assert_eq!(report.refs_deleted, 3, "pre, post and the mirror of turn 1: {left:?}");
     assert!(left.iter().all(|name| name.contains(&turn(2).to_string())), "{left:?}");
+}
+
+/// Every ref of the store at `git_dir` that names turn `n` of conversation 1.
+async fn refs_of_turn(git_dir: &std::path::Path, home: &std::path::Path, n: u128) -> Vec<String> {
+    let name = turn(n).to_string();
+    refs(git_dir, home).await.into_iter().filter(|refname| refname.contains(&name)).collect()
+}
+
+#[tokio::test]
+async fn gc_keeps_a_turn_whole_across_stores() {
+    let world = World::new();
+    let home = world.home();
+    let first = world.dir("a");
+    let second = world.dir("b");
+    for dir in [&first, &second] {
+        write(&dir.join("x.txt"), "0\n");
+    }
+    for (n, dirs) in [(1, vec![&first, &second]), (2, vec![&first]), (3, vec![&second])] {
+        let roots = dirs.iter().map(|dir| root(dir)).collect();
+        let call = world.snapshots.before_call(conversation(1), turn(n), roots, limits()).await;
+        for dir in dirs {
+            write(&dir.join("x.txt"), &format!("{n}\n"));
+        }
+        world.snapshots.after_call(call, limits()).await;
+        world.snapshots.finish_turn(turn(n), limits()).await;
+    }
+    let all = stores(&world.store_dir());
+    assert_eq!(all.len(), 2);
+
+    // Each store alone holds two turns, so a count per store would keep turn 1.
+    let report = world.snapshots.gc(2, KEEP_LONG).await;
+    assert_eq!(report.refs_deleted, 4, "pre and post of turn 1 in both stores");
+    for store in &all {
+        assert_eq!(refs_of_turn(store, &home, 1).await, Vec::<String>::new());
+    }
+    let turns = world.snapshots.turns_with_refs(conversation(1)).await;
+    let left: Vec<_> = turns.iter().map(|refs| refs.turn).collect();
+    assert_eq!(left, [turn(3), turn(2)]);
+}
+
+#[tokio::test]
+async fn gc_keeps_the_home_store() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "0\n");
+    let file = home.join("outside.txt");
+    write(&file, "before\n");
+    let entry = |text: &str| {
+        efr_snapshot::HomeEntries::new(vec![(
+            efr_snapshot::HomeEntry {
+                path: file.clone(),
+                state: efr_snapshot::HomeState::File { mode: 0o644 },
+                floor: false,
+                chain: Vec::new(),
+            },
+            Some(text.as_bytes().to_vec()),
+        )])
+    };
+    for n in 1..=2 {
+        let copy = world.snapshots.home_before(conversation(1), turn(n), entry("x")).await;
+        world.snapshots.home_after(&copy.unwrap(), entry("y")).await.unwrap();
+    }
+    let call =
+        world.snapshots.before_call(conversation(1), turn(3), vec![root(&dir)], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(3), limits()).await;
+    let home_git = world.store_dir().join("home.git");
+
+    let report = world.snapshots.gc(2, KEEP_LONG).await;
+    assert_eq!((report.refs_deleted, report.stores_deleted), (1, 0), "turn 1's copy");
+    assert_eq!(
+        refs(&home_git, &home).await,
+        [format!("refs/efr/{}/{}/home/1", conversation(1), turn(2))]
+    );
+
+    // The home store counts its own idle days from its last copy.
+    world.clock.advance(KEEP_LONG / 2);
+    let copy = world.snapshots.home_before(conversation(1), turn(4), entry("z")).await.unwrap();
+    world.snapshots.home_after(&copy, entry("z")).await.unwrap();
+    world.clock.advance(KEEP_LONG / 2 + Duration::from_secs(1));
+    let report = world.snapshots.gc(50, KEEP_LONG).await;
+    assert_eq!(report.stores_deleted, 1, "only the idle root store");
+    assert!(home_git.join("HEAD").is_file());
+    world.clock.advance(KEEP_LONG);
+    assert_eq!(world.snapshots.gc(50, KEEP_LONG).await.stores_deleted, 1);
+    assert!(!home_git.exists(), "an idle home store goes too");
+}
+
+#[tokio::test]
+async fn gc_trims_undo_refs_with_their_turn() {
+    let world = World::new();
+    let home = world.home();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "0\n");
+    for n in 1..=3 {
+        let call =
+            world.snapshots.before_call(conversation(1), turn(n), vec![root(&dir)], limits()).await;
+        write(&dir.join("a.txt"), &format!("{n}\n"));
+        world.snapshots.after_call(call, limits()).await;
+        world.snapshots.finish_turn(turn(n), limits()).await;
+        if n == 1 {
+            let plan = crate::undo::plan(&world, 1, false, 1).await;
+            crate::undo::apply(&world, &plan).await;
+        }
+    }
+    let store = world.only_store();
+    let undo_refs = |all: Vec<String>| -> Vec<String> {
+        all.into_iter().filter(|name| name.starts_with("refs/efr-undo/")).collect()
+    };
+    assert_eq!(undo_refs(refs(&store, &home).await).len(), 2, "before and after");
+
+    let report = world.snapshots.gc(2, KEEP_LONG).await;
+    assert_eq!(report.refs_deleted, 5, "pre, post, undone, before and after");
+    assert_eq!(undo_refs(refs(&store, &home).await), Vec::<String>::new());
+    assert_eq!(refs_of_turn(&store, &home, 1).await, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn gc_caps_mirror_refs_of_a_store() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    git(&dir, &home, &[], &["checkout", "-q", "-b", "old"]).await;
+    std::fs::write(dir.join("noise.bin"), noise(200 * 1024)).unwrap();
+    git(&dir, &home, &[], &["add", "noise.bin"]).await;
+    git(&dir, &home, &[], &["commit", "-q", "-m", "noise"]).await;
+    git(&dir, &home, &[], &["checkout", "-q", "main"]).await;
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits()).await;
+    git(&dir, &home, &[], &["branch", "-q", "-D", "old"]).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(1), limits()).await;
+    world.snapshots.before_call(conversation(1), turn(2), vec![git_root(&dir)], limits()).await;
+    world.snapshots.finish_turn(turn(2), limits()).await;
+    let store = world.only_store();
+    let mirrors = |all: Vec<String>, n: u128| -> usize {
+        let prefix = format!("refs/efr-mirror/{}/{}/", conversation(1), turn(n));
+        all.into_iter().filter(|name| name.starts_with(&prefix)).count()
+    };
+    assert_eq!(mirrors(refs(&store, &home).await, 1), 2, "main and old");
+
+    // Four times 25 KB: the old turn's mirror alone reaches 200 KiB that no snapshot
+    // holds.
+    let report = world.snapshots.gc_capped(50, KEEP_LONG, 25_000).await;
+    assert_eq!(report.refs_deleted, 2);
+    let left = refs(&store, &home).await;
+    assert_eq!((mirrors(left.clone(), 1), mirrors(left, 2)), (0, 1), "the newest mirror stays");
+    let plan = world
+        .snapshots
+        .plan_undo(conversation(1), turn(1), &[git_root(&dir)], false, "u-1", limits())
+        .await
+        .unwrap();
+    let old = plan.roots[0].refs.iter().find(|ref_plan| ref_plan.name == "refs/heads/old");
+    assert_eq!(old.unwrap().reason, Some(efr_protocol::UndoReason::StoreFull));
+}
+
+/// Bytes that do not compress.
+fn noise(len: usize) -> Vec<u8> {
+    let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state.to_le_bytes()[0]
+        })
+        .collect()
 }
