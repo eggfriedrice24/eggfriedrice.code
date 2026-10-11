@@ -173,8 +173,16 @@ async fn snapshot_never_runs_repo_config() {
         "the capture, the mirror and the coverage check ran no code"
     );
 
-    // NOTE: the keys act for plain git, so the test proves something.
-    git(&dir, &home, &[], &["add", "-A"]).await;
+    // NOTE: the keys act for plain git, so the test proves something. Older git fails
+    // the add after the fake fsmonitor ran, so only the markers count.
+    let _ = efr_stdx::process::command("git", &dir)
+        .args(["add", "-A"])
+        .env("HOME", &home)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .await
+        .unwrap();
     assert!(!names(&markers).is_empty());
 }
 
