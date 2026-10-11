@@ -5,7 +5,9 @@ use pretty_assertions::assert_eq;
 use rstest::rstest;
 
 use super::needs::host_and_port;
-use super::programs::{commands, made_paths, recursive_rm_operands, sed_in_place_targets};
+use super::programs::{
+    commands, line_hosts, made_paths, recursive_rm_operands, sed_in_place_targets,
+};
 use super::scan::{OPAQUE, Redirect, scan};
 
 fn words(segment: &[&str]) -> Vec<String> {
@@ -174,4 +176,26 @@ fn fact_requests_name_the_write_paths_of_needs() {
     assert_eq!(request.targets, paths(&["/p/out", "/home/u/gen.txt"]));
     let unchanged = super::fact_requests("ls", None, &locations).with_needs(None, None, &locations);
     assert!(unchanged.targets.is_empty());
+}
+
+#[rstest]
+#[case::url("curl -LO https://Example.com:8443/x.tar.gz", &["example.com"])]
+#[case::two_urls("wget https://a.example/x http://b.example/y", &["a.example", "b.example"])]
+#[case::ssh_user("ssh me@Box.example uptime", &["box.example"])]
+#[case::ssh_options("ssh -i ~/.ssh/k -p 2222 -tt box.example", &["box.example"])]
+#[case::ssh_joined_value("ssh -p2222 box.example", &["box.example"])]
+#[case::ssh_url("ssh ssh://me@box.example:2222", &["box.example"])]
+#[case::scp("scp notes.txt me@files.example:/srv", &["files.example"])]
+#[case::rsync("rsync -a src/ backup.example:/b", &["backup.example"])]
+#[case::git_remote_name("git push origin main", &[])]
+#[case::shell_variable("curl https://$HOST/x", &[])]
+#[case::no_host("cargo fetch", &[])]
+fn the_hosts_of_a_command_come_from_its_urls_and_remotes(
+    #[case] line: &str,
+    #[case] expected: &[&str],
+) {
+    let segments = scan(line);
+    let found: Vec<String> =
+        segments.iter().flat_map(|segment| commands(&segment.words)).flat_map(line_hosts).collect();
+    assert_eq!(found, words(expected), "{line}");
 }

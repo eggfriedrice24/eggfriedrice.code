@@ -351,7 +351,11 @@ relates to, and hands an unsure case to you. efr then applies two rules of its o
   target is in a tool cache, in build output below a registered project or in efr's
   trash, which a tool or efr can make again. An allow of a host that is not on the
   allow list needs a message that names the host, except a package fetch of a request
-  to build, install or update. Without the name, the allow goes to you.
+  to build, install or update. Without the name, the allow goes to you. Until the
+  proxy comes, efr knows a host only from the line: the host of a URL, of a remote
+  operand of `scp`, `sftp` or `rsync`, and the destination of `ssh`. A host that the
+  line does not show, such as the server behind a git remote name or a script that
+  connects, has nothing to check, and the allow of the reviewer stands.
 
 The reviewer is the small model of your provider, then the turn's model, then you:
 [`docs/providers.md`](providers.md) tells which models and what they cost. A missing

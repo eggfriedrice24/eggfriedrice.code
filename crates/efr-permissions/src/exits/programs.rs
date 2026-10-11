@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, ExitKind, Grant};
 
 use super::needs::host_and_port;
-use super::scan::is_assignment;
+use super::scan::{OPAQUE, is_assignment};
 use super::{Approver, Ecosystem, PRIVILEGE_EXITS};
 use crate::command::PRIVILEGED;
 use crate::{AutoSupport, Egress};
@@ -1139,6 +1139,64 @@ fn gh(args: &[String], network: &Network<'_>) -> Option<Found> {
         names.push("pull request".to_owned());
     }
     Some(Found::upload(names))
+}
+
+/// The options of `ssh` that take a value as the next word.
+const SSH_VALUE_LETTERS: &str = "BbcDEeFIiJLlmOopQRSWw";
+
+/// The hosts that the command `words` names: the host of each URL, of each remote
+/// operand of `scp`, `sftp` and `rsync`, and the destination of `ssh`, `mosh` and
+/// `autossh`, each once, in lower case.
+pub(super) fn line_hosts(words: &[String]) -> Vec<String> {
+    let Some((first, args)) = words.split_first() else {
+        return Vec::new();
+    };
+    let program = base_name(first);
+    let mut hosts: Vec<String> =
+        args.iter().filter(|arg| arg.contains("://")).filter_map(|arg| host_of(arg)).collect();
+    match program {
+        "scp" | "sftp" | "rsync" => {
+            hosts.extend(
+                args.iter().filter(|arg| !arg.contains("://")).filter_map(|arg| host_of(arg)),
+            );
+        }
+        "ssh" | "mosh" | "autossh" => hosts.extend(ssh_destination(args)),
+        _ => {}
+    }
+    // NOTE: a host that only the shell knows, such as `$HOST`, names nothing efr can
+    // check.
+    hosts.retain(|host| !host.contains([OPAQUE, '$']));
+    super::names::dedup(hosts)
+}
+
+/// The host of the destination of `ssh` with `args`: the first word after the options,
+/// without a user or a port.
+fn ssh_destination(args: &[String]) -> Option<String> {
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            return words.next().and_then(|word| destination_host(word));
+        }
+        if let Some(letters) = word.strip_prefix('-').filter(|letters| !letters.is_empty()) {
+            let takes = letters.char_indices().find(|(_, c)| SSH_VALUE_LETTERS.contains(*c));
+            if takes.is_some_and(|(at, c)| at + c.len_utf8() == letters.len()) {
+                words.next();
+            }
+            continue;
+        }
+        return destination_host(word);
+    }
+    None
+}
+
+/// The host of an `ssh` destination: `user@host`, `host`, or `ssh://user@host:port`.
+fn destination_host(word: &str) -> Option<String> {
+    if word.contains("://") {
+        return host_of(word);
+    }
+    let host = word.rsplit_once('@').map_or(word, |(_, host)| host);
+    let host = host.trim().trim_end_matches('.').to_lowercase();
+    (!host.is_empty() && !host.contains(['/', OPAQUE, '$'])).then_some(host)
 }
 
 /// The names of an upload with `scp`, `sftp` or `rsync`: the program and the host of

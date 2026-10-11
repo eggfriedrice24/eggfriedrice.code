@@ -773,6 +773,11 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
                 add_host(host.to_lowercase());
             }
         }
+        // NOTE: before the proxy a host exit opens the whole network, so its grant
+        // names no host; the hosts that the line names still need a name (spec 9.4).
+        for host in &need.hosts {
+            add_host(host.clone());
+        }
     }
     for host in action.requirements.needs.iter().flat_map(|needs| &needs.hosts) {
         add_host(host.trim().to_lowercase());

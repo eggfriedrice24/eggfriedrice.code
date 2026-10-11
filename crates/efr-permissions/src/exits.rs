@@ -124,6 +124,13 @@ pub struct ExitNeed {
     /// `persistence` write of a file, or of a new file, while
     /// [`AutoSupport::floor_backup`] is true, whoever approves it.
     pub backup_before_write: bool,
+    /// The hosts that the line names for a `host` or `upload` exit: the host of each URL
+    /// of its command, of each remote operand of `scp`, `sftp` or `rsync`, and the
+    /// destination of `ssh`, in lower case. The grant can open more than these, such as
+    /// the whole network before the proxy, and a host that the line hides (a git remote
+    /// name, a package manager's registry) is not here. The naming rule of the
+    /// classifier's allow checks each one (spec 9.4).
+    pub hosts: Vec<String>,
     /// The package ecosystem whose registry a `host` exit fetches from, when the line
     /// is a package manager's fetch such as `cargo fetch` or `npm ci`. The classifier's
     /// naming rule may then pass the hosts of [`REGISTRY_HOSTS`] without a name (spec
@@ -149,6 +156,7 @@ impl ExitNeed {
             part: part.into(),
             approver: if kind.user_only() { Approver::User } else { Approver::Classifier },
             names: Vec::new(),
+            hosts: Vec::new(),
             backup_before_write: false,
             package_fetch: None,
             source,
@@ -181,6 +189,7 @@ impl fmt::Debug for ExitNeed {
             .field("part", &format_args!("<{} bytes>", self.part.len()))
             .field("approver", &self.approver)
             .field("names", &format_args!("<{} names>", self.names.len()))
+            .field("hosts", &self.hosts)
             .field("backup_before_write", &self.backup_before_write)
             .field("package_fetch", &self.package_fetch)
             .field("source", &self.source)
@@ -342,6 +351,12 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
                     continue;
                 }
+                if matches!(exit.kind, ExitKind::Host | ExitKind::Upload) {
+                    let mut need = predicted(exit, &part);
+                    need.hosts = programs::line_hosts(command);
+                    found.push(need);
+                    continue;
+                }
                 if exit.kind == ExitKind::Destructive {
                     let targets: Vec<Option<PathBuf>> = match programs::destructive_targets(command)
                     {
@@ -420,6 +435,15 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     if input.network && !networked && input.support.egress == Egress::None {
         let mut need = ExitNeed::new(ExitKind::Host, input.line, ExitSource::Predicted);
         need.grants = vec![Grant::OpenNetwork];
+        for segment in &segments {
+            for command in programs::commands(&segment.words) {
+                for host in programs::line_hosts(command) {
+                    if !need.hosts.contains(&host) {
+                        need.hosts.push(host);
+                    }
+                }
+            }
+        }
         found.push(need);
     }
     if let Some(asked) = input.needs {
@@ -631,7 +655,7 @@ struct Found(Vec<ExitNeed>);
 
 impl Found {
     /// Adds `need`, or merges it into a known exit of the same kind, grants and target:
-    /// the stricter approver of the two wins, and the names of both stay.
+    /// the stricter approver of the two wins, and the names and hosts of both stay.
     fn push(&mut self, need: ExitNeed) {
         let known = self.0.iter_mut().find(|known| {
             known.kind == need.kind && known.grants == need.grants && known.target == need.target
@@ -642,6 +666,11 @@ impl Found {
                 for name in need.names {
                     if !known.names.contains(&name) {
                         known.names.push(name);
+                    }
+                }
+                for host in need.hosts {
+                    if !known.hosts.contains(&host) {
+                        known.hosts.push(host);
                     }
                 }
             }

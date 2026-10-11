@@ -302,7 +302,10 @@ allows, a `high` risk needs a message of yours that clearly authorizes it, a wri
 needs a message that names each target unless the target is a tool cache, build
 output below a registered project or efr's trash, and a host that is not on the allow
 list needs a message that names it, except a package fetch of a request to build,
-install or update. The text of the line never changes this.
+install or update. The text of the line never changes this. Before the proxy, efr
+knows a host only from the line (a URL, a remote operand, the destination of `ssh`);
+for a host that the line does not show, such as a git remote name, there is no name
+to check.
 
 The reviewer is the small model of your provider (`classifier.model` picks another),
 then the turn's model at a low effort (`classifier.fallback_to_turn_model`), then you.
@@ -619,6 +622,7 @@ question, and none needs a restart.
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
 | no network | a build that must download fails | the network is an exit; `sandbox.offline_hints` tells package managers to use the cache |
 | MCP servers | they run outside the sandbox | none yet |
+| the host naming rule sees only the hosts of the line | a host behind a git remote name or a script reaches the reviewer's allow with no name; the `host` exit opens the whole network for the call | the reviewer reads the line and your messages; the masks and the environment filter stay; the proxy of a later phase grants one host |
 | the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
 | an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a backup | a program that the model did not write in this turn can change `~/.zshrc` with no name and no backup | the one-command rule; a program written in this turn or in a write root asks you, and so does an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script); the reviewer sees the line |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |

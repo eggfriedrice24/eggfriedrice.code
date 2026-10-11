@@ -1025,6 +1025,7 @@ fn floor_edit(target: &Path) -> efr_permissions::ExitNeed {
         part: format!("write_file {}", target.display()),
         approver: efr_permissions::Approver::ClassifierWhenNamed,
         names: Vec::new(),
+        hosts: Vec::new(),
         backup_before_write: true,
         package_fetch: None,
         source: efr_protocol::ExitSource::Predicted,

@@ -185,6 +185,7 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
         part: "echo hi > ~/notes.txt".to_owned(),
         approver: Approver::Classifier,
         names: Vec::new(),
+        hosts: Vec::new(),
         backup_before_write: false,
         package_fetch: None,
         source: ExitSource::Predicted,
