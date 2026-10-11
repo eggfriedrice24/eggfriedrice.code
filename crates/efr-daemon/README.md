@@ -817,7 +817,10 @@ presence, the home store (`home/tests.rs` and `tools/tests.rs`: links, masks, a
 missing file, the dir limits, a failed copy, an unchanged file, a cache delete, the
 coverage facts and the check under the lock, the counts at the end of a turn), the
 undo applier (`tools/undo/tests.rs`: modes, the undo trash, links, the plan lock, a
-replaced root, a write error and its resume, home files and the masks), the collectors
+replaced root, a write error and its resume, home files and the masks), the named
+persistence (`sandbox/units/tests.rs`: the links that a unit change makes;
+`home/state/tests.rs`: the crontab and linger copies and their undo;
+`trusted_programs/tests.rs`: the programs that efrd runs itself), the collectors
 of the phase A backups and the undo trash, and the check of cache deletes. The tests
 in `run/tests.rs` start the real daemon
 in-process on temporary directories with a manual clock, a seeded generator, vt100
@@ -841,7 +844,8 @@ The integration tests are one test binary, `tests/it/main.rs`, so the daemon is
 linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
 `input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`, `presence`,
-`classifier_eval`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`classifier_eval`, `apply_patch`, `backtrace`, `cache_prefix`, `compact`, `home`,
+`snapshots`, `undo_method`, `undo`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless

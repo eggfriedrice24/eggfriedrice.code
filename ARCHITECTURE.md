@@ -265,6 +265,11 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-conversation/src/turn.rs`; `efr undo` in
   `crates/efr-cli/src/commands/undo.rs`; the lines at the end of a turn in
   `crates/efr-cli/src/format/changes.rs` and `crates/efr-cli/src/format/sandbox.rs`.
+  Named persistence that is no file edit: the routes of a named unit, cron or linger
+  change in `crates/efr-permissions/src/exits/persist.rs`; the links that a unit
+  change makes in `crates/efr-daemon/src/sandbox/units.rs`; the copies of the crontab
+  and the linger setting in `crates/efr-daemon/src/home/state.rs`; the `crontab` and
+  `loginctl` that efrd runs itself in `crates/efr-daemon/src/trusted_programs.rs`.
   The collector of the phase A backups, which efrd no longer writes, is in
   `crates/efr-daemon/src/backups.rs`. The tests from the prompt to the files are in
   `crates/efr-daemon/tests/it/undo.rs` and `crates/efr-daemon/tests/it/sandbox/undo.rs`.
