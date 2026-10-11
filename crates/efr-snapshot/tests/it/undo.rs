@@ -796,3 +796,22 @@ async fn undo_keeps_refs_when_their_copy_fails() {
     let captured = world.snapshots.capture_before_undo(&plan, limits()).await.unwrap();
     assert_eq!(captured.unmirrored, [plan.roots[0].root.clone()]);
 }
+
+#[tokio::test]
+async fn turns_with_refs_read_the_mode_of_the_first_snapshot() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "a\n");
+    let auto = root(&dir).with_mode("auto");
+    let call = world.snapshots.before_call(conversation(1), turn(1), vec![auto], limits()).await;
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.turn_end(turn(1), limits()).await;
+    one_call_turn(&world, 1, 2, &dir, || write(&dir.join("a.txt"), "b\n")).await;
+
+    // efrd restarts: only the store knows the mode.
+    let restarted = store(world.base.path(), &world.clock);
+    let turns = restarted.turns_with_refs(conversation(1)).await;
+    let modes: Vec<(efr_protocol::TurnId, bool)> =
+        turns.iter().map(|refs| (refs.turn, refs.auto)).collect();
+    assert_eq!(modes, [(turn(2), false), (turn(1), true)]);
+}

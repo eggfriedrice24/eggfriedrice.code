@@ -58,6 +58,9 @@ pub(crate) const NOTE_SPECIAL: &str = "empty directories and special files do no
 pub(crate) const NOTE_UNITS: &str =
     "run systemctl --user daemon-reload so that systemd reads the units again";
 
+/// What the result says before the undo of a turn that did not run in `auto`.
+pub(crate) const NOTE_MANUAL: &str = "writes outside the project are not covered in a manual turn";
+
 /// What the result says after a write error.
 pub(crate) const NOTE_STOPPED: &str = "efr undo stopped at a write that failed; run efr undo \
      again to finish it, or efr undo --redo to take back what it did";
@@ -154,6 +157,13 @@ impl DaemonToolbox {
             .map_err(|error| failed(&error))?
         };
         let candidate = request.candidates.iter().find(|candidate| candidate.turn_id == plan.turn);
+        // NOTE: in `manual` and `cautious` a line runs in the user's shell, and no home
+        // copy covers what it writes outside the roots (plan PB10, PB33).
+        let auto = turns.iter().any(|refs| refs.turn == plan.turn && refs.auto)
+            || self.auto_turns().contains(&plan.turn);
+        if !plan.redo && !auto {
+            result.notes.push(NOTE_MANUAL.to_owned());
+        }
         result.turn_id = Some(plan.turn);
         result.title = candidate.and_then(|candidate| candidate.title.clone());
         result.undo_id = parse_undo_id(&plan.undo_id);
@@ -213,7 +223,7 @@ impl DaemonToolbox {
                 Some(UndoableTurn {
                     turn_id: candidate.turn_id,
                     title: candidate.title.clone(),
-                    auto: auto.contains(&candidate.turn_id),
+                    auto: refs.auto || auto.contains(&candidate.turn_id),
                     undone: refs.undone,
                     stopped: candidate.stopped || (!refs.has_post && !refs.roots.is_empty()),
                     ended: candidate.ended,

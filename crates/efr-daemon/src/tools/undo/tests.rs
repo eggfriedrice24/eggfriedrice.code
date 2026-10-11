@@ -17,7 +17,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::tools::tests::{Kept, call_of, canonical_temp, home_write, kept, kept_in};
-use crate::tools::undo::{NOTE_SPECIAL, NOTE_STOPPED};
+use crate::tools::undo::{NOTE_MANUAL, NOTE_SPECIAL, NOTE_STOPPED};
 
 fn id(n: u128) -> uuid::Uuid {
     uuid::Uuid::from_u128(n)
@@ -618,4 +618,28 @@ async fn undo_trashes_new_home_file_instead_of_deleting() {
     assert_eq!(read(&app.join("app.conf")), "a=1\n");
     let [(_, text, _)] = files_below(&done.trash.unwrap()).try_into().unwrap();
     assert_eq!(text, "b=2\n");
+}
+
+#[tokio::test]
+async fn undo_of_a_manual_turn_says_that_outside_writes_are_not_covered() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = scratch(&kept);
+    std::fs::write(scratch.join("a.txt"), "old\n").unwrap();
+    let input = json!({"path": scratch.join("a.txt"), "content": "new\n"});
+    let mut call = call_of(2, 1, "write_file", input, &work(&kept));
+    call.context = call.context.with_auto(false);
+    let mut sink = |_: &str, _: u64| {};
+    assert!(!kept.toolbox.invoke(call, &mut sink).await.is_error);
+    end(&kept, 2).await;
+
+    let manual = undo(&kept, &[2], 1, |params| params.dry_run = true).await.unwrap();
+    assert!(manual.notes.contains(&NOTE_MANUAL.to_owned()), "{:?}", manual.notes);
+    let listed = undo(&kept, &[2], 1, |params| params.list = true).await.unwrap();
+    assert!(!listed.turns[0].auto, "{listed:?}");
+
+    write_turn(&kept, 3, &[(&scratch.join("a.txt"), "auto\n")]).await;
+    let auto = undo(&kept, &[2, 3], 2, |params| params.dry_run = true).await.unwrap();
+    assert_eq!(auto.turn_id, Some(TurnId::from_uuid(id(3))));
+    assert!(!auto.notes.contains(&NOTE_MANUAL.to_owned()), "{:?}", auto.notes);
 }
