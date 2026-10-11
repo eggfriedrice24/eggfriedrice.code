@@ -9,10 +9,13 @@
 //! everything in the project's config that could run code: hooks (also the
 //! `reference-transaction` hook), fsmonitor, the alternate refs command, automatic gc
 //! and maintenance, with bounded packing. Only these commands run: `for-each-ref`,
-//! `symbolic-ref` (read), `update-ref` (compare and swap), `cat-file -e`,
+//! `symbolic-ref -q HEAD` (read), `update-ref --stdin` (compare and swap),
+//! `symbolic-ref HEAD <branch>` (an undo gives `HEAD` its branch back), `cat-file -e`,
 //! `index-pack --stdin --fix-thin`, `diff-index --cached --quiet HEAD`,
 //! `rev-list --walk-reflogs --count refs/stash`, and `upload-pack` as the
-//! `--upload-pack` of a fetch into the store ([`ProjectGit::upload_pack`]).
+//! `--upload-pack` of a fetch into the store ([`ProjectGit::upload_pack`]). A snapshot
+//! only reads; only an applied undo writes refs and objects, under the plan lock of the
+//! daemon.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -248,14 +251,12 @@ impl ProjectGit {
     }
 
     /// True when the project holds the object `id`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "undo moves the refs (phase B, P4)"))]
     pub(crate) async fn has_object(&self, id: &str) -> Result<bool, SnapshotError> {
         Ok(self.run(&["cat-file", "-e", id], None).await?.success)
     }
 
     /// Moves the ref `name` from `from` to `to` (`None`: absent) when it still has
     /// `from`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "undo moves the refs (phase B, P4)"))]
     pub(crate) async fn update_ref(
         &self,
         name: &str,
@@ -271,10 +272,23 @@ impl ProjectGit {
     }
 
     /// Takes the pack `pack` into the project's objects.
-    #[cfg_attr(not(test), expect(dead_code, reason = "undo moves the objects (phase B, P4)"))]
     pub(crate) async fn index_pack(&self, pack: Vec<u8>) -> Result<(), SnapshotError> {
         self.checked_input("index-pack", &["index-pack", "--stdin", "--fix-thin"], pack).await?;
         Ok(())
+    }
+
+    /// Makes `HEAD` name the branch `branch` (`refs/heads/<name>`).
+    pub(crate) async fn set_head(&self, branch: &str) -> Result<bool, SnapshotError> {
+        if !branch.starts_with("refs/heads/") {
+            return Ok(false);
+        }
+        Ok(self.run(&["symbolic-ref", "HEAD", branch], None).await?.success)
+    }
+
+    /// Makes `HEAD` name the commit `commit` itself, not a branch.
+    pub(crate) async fn detach_head(&self, commit: &str) -> Result<bool, SnapshotError> {
+        let line = format!("option no-deref\nupdate HEAD {commit}\n");
+        Ok(self.run(&["update-ref", "--stdin"], Some(line.into_bytes())).await?.success)
     }
 
     async fn checked(

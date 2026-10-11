@@ -103,6 +103,13 @@ auto spec, section 10).
   an undo that stopped half way) to the state before it. `turns_with_refs` lists the
   turns, newest first; `stack_blocker` names the newer turn that is not undone, since
   undo is a stack.
+- The refs of an undo (`undo/refs.rs`): each ref that differs between the mirror's
+  record at `pre` and the record at `post` moves back by compare and swap; a ref that
+  moved after the turn waits for `force`, and a root without the turn's mirror, or
+  whose git dirs the daemon does not name as the recorded ones, moves no ref.
+  `capture_before_undo` fetches the values that the undo moves away from into
+  `refs/efr-undo/<conversation>/<undo>/mirror/`, so a redo can give them back after
+  the project lost their objects.
 
 What a snapshot takes (`Limits`): tracked files; new untracked files up to
 `max_file_bytes` (a link as a link, never followed); at the first and last snapshot of
@@ -173,8 +180,12 @@ automatic gc, no line-end conversion, literal pathspecs, and `--no-ext-diff
 attribute file outside the root (`core.attributesFile=/dev/null`,
 `GIT_ATTR_NOSYSTEM=1`), so each blob holds the exact bytes of its file. A store from
 before this rule has no `efr.format=2` in its config: it drops its index once and
-takes a full snapshot. The project's `.git`, its config, its hooks
-and its index are never written by a snapshot. A snapshot reads its `info/exclude` (at
+takes a full snapshot. A snapshot never writes the project's `.git`. Only an applied
+undo writes it, and only its refs and objects (`Snapshots::restore_refs`): `update-ref`
+by compare and swap, `symbolic-ref HEAD` while `HEAD` still names what the plan
+expects, and the objects that the project lost, from the store's `pack-objects` into
+the project's `index-pack`, while the daemon holds the plan lock of the root. Its
+config, its hooks and its index are never written. A snapshot reads its `info/exclude` (at
 most 64 KiB, never through a link) and its `HEAD`; with the git dirs that the daemon
 trusts (`GitDirs`), also its refs and objects, through `ProjectGit` (`project_git.rs`):
 a second hardened mode with the project's git dir as `GIT_DIR`, no system or global
@@ -182,8 +193,8 @@ config, `-c core.hooksPath=/dev/null -c core.fsmonitor=false -c
 core.alternateRefsCommand=`, no automatic gc or maintenance, bounded packing, and only
 the commands that the module names. The same `-c` list is in the `--upload-pack` of
 the mirror's fetch, because the `-c` of a fetch does not reach a local `upload-pack`.
-Objects are written by `git add`, `commit-tree` and the mirror's fetch in the store,
-never hardlinked. One snapshot, commit or collection of a store runs at a time. Under that
+Objects are written by `git add`, `commit-tree`, `hash-object` (the bytes for the undo
+trash) and the fetches in the store, never hardlinked. One snapshot, commit or collection of a store runs at a time. Under that
 gate, a lock that a killed git left (the index's or `packed-refs`'s) is removed, so a
 timeout or a stop of efrd cannot block a store for good; a `git add` that a lock still
 stops fails the snapshot instead of listing no changes.

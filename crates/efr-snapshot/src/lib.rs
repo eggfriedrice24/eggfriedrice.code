@@ -33,7 +33,9 @@
 //! `GIT_DIR` and `GIT_INDEX_FILE`, no system or global config, no fsmonitor, no hooks,
 //! no untracked cache, no attribute that changes bytes. A snapshot never writes the
 //! project's `.git`; it reads the project's `info/exclude`, and with trusted git dirs
-//! its refs and objects through a second hardened mode (`project_git.rs`).
+//! its refs and objects through a second hardened mode (`project_git.rs`). Only an
+//! applied undo writes the project's refs and objects ([`Snapshots::restore_refs`]),
+//! by compare and swap, never its config, hooks or index.
 //!
 //! Allowed dependencies: `efr-scope` (the hardened git command), `efr-protocol` (the
 //! wire types of the changes) and `efr-stdx` (the clock, atomic writes). What does not

@@ -10,8 +10,10 @@
 //! `.gitattributes` in a root cannot run anything. The store's own `info/attributes`
 //! turns off every attribute that changes bytes, and no other attribute file outside
 //! the root is read (`core.attributesFile=/dev/null`, `GIT_ATTR_NOSYSTEM=1`), so each
-//! blob holds the exact bytes of its file. The project's own `.git`, its config and its
-//! index are never read or written.
+//! blob holds the exact bytes of its file. This runner never reads or writes the
+//! project's own `.git`; the project's refs and objects go through the second hardened
+//! mode of `project_git.rs`, which a snapshot uses to read them and only an applied
+//! undo uses to write them.
 
 use std::ffi::{OsStr, OsString};
 use std::io;

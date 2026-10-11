@@ -14,7 +14,9 @@ use efr_snapshot::{
 };
 use pretty_assertions::assert_eq;
 
-use crate::support::{World, conversation, limits, refs, root, store, turn, write};
+use crate::support::{
+    World, conversation, git, git_root, limits, project, refs, root, store, turn, write,
+};
 
 /// The undo id of the `n`th undo of a test.
 pub(crate) fn undo_id(n: u32) -> String {
@@ -508,4 +510,151 @@ async fn undo_gives_a_new_ignored_file_a_private_mode() {
         entry(&plan, "plain.txt").action,
         PlanAction::Write { blob: blob_id(b"plain\n"), mode: 0o644 }
     );
+}
+
+/// One turn `n` of conversation 1 in the git project `dir` whose one call runs `git`
+/// with each of `lines`.
+async fn git_turn(world: &World, n: u128, dir: &Path, lines: &[&[&str]]) {
+    let home = world.home();
+    let call =
+        world.snapshots.before_call(conversation(1), turn(n), vec![git_root(dir)], limits()).await;
+    for args in lines {
+        git(dir, &home, &[], args).await;
+    }
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.turn_end(turn(n), limits()).await;
+}
+
+async fn rev(world: &World, dir: &Path, name: &str) -> String {
+    git(dir, &world.home(), &[], &["rev-parse", name]).await.trim().to_owned()
+}
+
+/// Captures and applies `plan` with the refs of its one root, then finishes it.
+async fn apply_with_refs(
+    world: &World,
+    plan: &UndoPlan,
+    dir: &Path,
+) -> Vec<(String, Result<(), UndoReason>)> {
+    world.snapshots.capture_before_undo(plan, limits()).await.unwrap();
+    apply_root(&world.snapshots, &plan.roots[0]).await;
+    let moved = world.snapshots.restore_refs(&git_root(dir), &plan.roots[0].refs).await;
+    world.snapshots.finish_undo(plan, limits()).await.unwrap();
+    moved
+}
+
+async fn plan_in_git(world: &World, dir: &Path, n: u128, undo: u32) -> UndoPlan {
+    world
+        .snapshots
+        .plan_undo(conversation(1), turn(n), &[git_root(dir)], false, &undo_id(undo), limits())
+        .await
+        .unwrap()
+}
+
+fn ok(name: &str) -> (String, Result<(), UndoReason>) {
+    (name.to_owned(), Ok(()))
+}
+
+#[tokio::test]
+async fn undo_restores_refs_cas() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    write(&dir.join("a.txt"), "b\n");
+    git(&dir, &home, &[], &["commit", "-q", "-am", "two"]).await;
+    let two = rev(&world, &dir, "main").await;
+    git_turn(&world, 1, &dir, &[&["reset", "-q", "--hard", "HEAD~1"]]).await;
+    let one = rev(&world, &dir, "main").await;
+
+    let first = plan_in_git(&world, &dir, 1, 1).await;
+    let main = &first.roots[0].refs[0];
+    assert_eq!(main.name, "refs/heads/main");
+    assert_eq!((main.to.as_ref().unwrap().as_str(), main.reason), (two.as_str(), None));
+    assert_eq!(main.expect.as_ref().unwrap().as_str(), one);
+    assert_eq!(first.roots[0].refs.len(), 1, "HEAD names main before and after");
+    let moved = apply_with_refs(&world, &first, &dir).await;
+    assert_eq!(moved, [ok("refs/heads/main")]);
+    assert_eq!(rev(&world, &dir, "main").await, two);
+    assert_eq!(read(&dir.join("a.txt")), "b\n");
+
+    // A ref that moved after the plan stays where the user put it.
+    git_turn(&world, 2, &dir, &[&["reset", "-q", "--hard", "HEAD~1"]]).await;
+    let second = plan_in_git(&world, &dir, 2, 2).await;
+    assert_eq!(second.roots[0].refs[0].reason, None);
+    git(&dir, &home, &[], &["commit", "-q", "--allow-empty", "-m", "mine"]).await;
+    let mine = rev(&world, &dir, "main").await;
+    let moved = world.snapshots.restore_refs(&git_root(&dir), &second.roots[0].refs).await;
+    assert_eq!(moved, [("refs/heads/main".to_owned(), Err(UndoReason::ChangedAfterTurn))]);
+    assert_eq!(rev(&world, &dir, "main").await, mine);
+    let again = plan_in_git(&world, &dir, 2, 2).await;
+    assert_eq!(again.roots[0].refs[0].reason, Some(UndoReason::ChangedAfterTurn));
+    let untrusted = plan(&world, 2, false, 2).await;
+    assert_eq!(untrusted.roots[0].refs[0].reason, Some(UndoReason::NoMirror));
+}
+
+#[tokio::test]
+async fn undo_restores_missing_objects_from_mirror() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    write(&dir.join("a.txt"), "b\n");
+    git(&dir, &home, &[], &["commit", "-q", "-am", "two"]).await;
+    let two = rev(&world, &dir, "main").await;
+    git_turn(&world, 1, &dir, &[&["reset", "-q", "--hard", "HEAD~1"]]).await;
+    git(&dir, &home, &[], &["reflog", "expire", "--expire=now", "--all"]).await;
+    git(&dir, &home, &[], &["gc", "-q", "--prune=now"]).await;
+    let objects =
+        git(&dir, &home, &[], &["cat-file", "--batch-check", "--batch-all-objects"]).await;
+    assert!(!objects.contains(&two), "the project lost the commit");
+
+    let plan = plan_in_git(&world, &dir, 1, 1).await;
+    assert!(!plan.roots[0].refs[0].objects_missing, "the store holds them");
+    let moved = apply_with_refs(&world, &plan, &dir).await;
+    assert_eq!(moved, [ok("refs/heads/main")]);
+    assert_eq!(rev(&world, &dir, "main").await, two);
+    git(&dir, &home, &[], &["fsck", "--no-progress"]).await;
+}
+
+#[tokio::test]
+async fn redo_brings_back_refs_after_user_gc() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    let one = rev(&world, &dir, "main").await;
+    git_turn(&world, 1, &dir, &[&["commit", "-q", "--allow-empty", "-m", "by the turn"]]).await;
+    let made = rev(&world, &dir, "main").await;
+    let plan = plan_in_git(&world, &dir, 1, 1).await;
+    assert_eq!(apply_with_refs(&world, &plan, &dir).await, [ok("refs/heads/main")]);
+    assert_eq!(rev(&world, &dir, "main").await, one);
+    git(&dir, &home, &[], &["reflog", "expire", "--expire=now", "--all"]).await;
+    git(&dir, &home, &[], &["gc", "-q", "--prune=now"]).await;
+
+    let redo = world.snapshots.plan_redo(conversation(1), &[git_root(&dir)], false, limits()).await;
+    let redo = redo.unwrap();
+    let main = &redo.roots[0].refs[0];
+    assert_eq!((main.to.as_ref().unwrap().as_str(), main.reason), (made.as_str(), None));
+    assert_eq!(apply_with_refs(&world, &redo, &dir).await, [ok("refs/heads/main")]);
+    assert_eq!(rev(&world, &dir, "main").await, made, "the undo's own copy held the commit");
+}
+
+#[tokio::test]
+async fn undo_gives_head_its_branch_back() {
+    let world = World::new();
+    let home = world.home();
+    let dir = project(&world, "app").await;
+    let one = rev(&world, &dir, "main").await;
+    git_turn(&world, 1, &dir, &[&["checkout", "-q", "-b", "feature"]]).await;
+    let plan = plan_in_git(&world, &dir, 1, 1).await;
+    let names: Vec<&str> =
+        plan.roots[0].refs.iter().map(|ref_plan| ref_plan.name.as_str()).collect();
+    assert_eq!(names, ["refs/heads/feature", "HEAD"]);
+    let head = &plan.roots[0].refs[1];
+    assert_eq!(head.symbolic.as_deref(), Some("refs/heads/main"));
+    assert_eq!(head.expect_symbolic.as_deref(), Some("refs/heads/feature"));
+    let moved = apply_with_refs(&world, &plan, &dir).await;
+    assert_eq!(moved, [ok("refs/heads/feature"), ok("HEAD")]);
+    let head = git(&dir, &home, &[], &["symbolic-ref", "HEAD"]).await;
+    assert_eq!(head.trim(), "refs/heads/main");
+    assert_eq!(rev(&world, &dir, "HEAD").await, one);
+    let branches = git(&dir, &home, &[], &["branch", "--format=%(refname)"]).await;
+    assert_eq!(branches.trim(), "refs/heads/main", "the turn's branch went");
 }

@@ -34,18 +34,20 @@ use crate::SnapshotError;
 use crate::capture::{self, LeftOutReason, Limits};
 use crate::cover::recorded;
 use crate::home::HomePlan;
-use crate::meta::{MAX_TOUCHED, Meta};
+use crate::meta::{GitMeta, MAX_TOUCHED, Meta};
 use crate::object::ObjectId;
 use crate::project_git::{GitDirs, Pins};
 use crate::runner::Run;
 use crate::snapshots::{Root, Snapshots};
 use crate::store::Store;
-use crate::turn::turn_ref;
+use crate::turn::{MIRROR_TAKEN, turn_ref};
 
 mod current;
 mod decide;
 mod held;
 mod refs;
+
+use refs::RefSides;
 
 pub(crate) use current::Current;
 pub(crate) use held::{CommitInfo, Held, TurnHas, UndoHas, undo_ref, valid_undo_id};
@@ -68,7 +70,7 @@ pub enum Expect {
     Unknown,
     /// Only for a home path with `force`, whose call did not finish: no copy says what
     /// it was after the turn, so the applier takes what it finds. Its bytes come from
-    /// the copy that [`Snapshots::home_undo_before`] takes.
+    /// the copy that `home_undo_before` takes.
     Any,
 }
 
@@ -348,7 +350,6 @@ impl Snapshots {
                 continue;
             }
             let before = self.undo_before(plan, root, &store, &acting, &limits).await?;
-            self.mirror_moved_refs(plan, root, &store).await?;
             let started = undo_ref(plan.conversation, &plan.undo_id, "started");
             self.update_refs(&store, format!("create {started} {before}\n")).await?;
         }
@@ -535,7 +536,9 @@ impl Snapshots {
         let entries = self.plan_paths(&frame).await?;
         let mut plan = self.root_plan(store, &pre, root, entries);
         plan.touched_more = source.meta.touched_more;
-        plan.refs = self.plan_refs(&plan, &pre.meta, &source.meta, has.post.is_some(), force).await;
+        let sides =
+            RefSides { target: &pre.meta, source: &source.meta, has_post: has.post.is_some() };
+        plan.refs = self.plan_refs(store, &plan, sides, trusted(root, &plan), force).await;
         Ok(plan)
     }
 
@@ -562,7 +565,8 @@ impl Snapshots {
         };
         let entries = self.plan_paths(&frame).await?;
         let mut plan = self.root_plan(store, &before, root, entries);
-        plan.refs = self.plan_refs(&plan, &before.meta, &expected.meta, true, force).await;
+        let sides = RefSides { target: &before.meta, source: &expected.meta, has_post: true };
+        plan.refs = self.plan_refs(store, &plan, sides, trusted(root, &plan), force).await;
         Ok(plan)
     }
 
@@ -806,7 +810,11 @@ impl Snapshots {
         meta.set_left_out(&snap.left_out);
         meta.set_modes(&snap.modes);
         meta.touched = acting.iter().take(MAX_TOUCHED).cloned().collect();
-        meta.refs = self.project_refs_now(root).await;
+        self.set_project_refs(&mut meta, root).await;
+        if !root.refs.is_empty() {
+            let missing = self.mirror_moved_refs(plan, root, store).await;
+            meta.mirror = Some(missing.unwrap_or(MIRROR_TAKEN).to_owned());
+        }
         let time = self.commit_time();
         let commit = self.commit_locked(store, &snap.tree, None, meta, &time).await?;
         let name = undo_ref(plan.conversation, &plan.undo_id, "before");
@@ -835,7 +843,7 @@ impl Snapshots {
             meta.set_left_out(&snap.left_out);
             meta.set_modes(&snap.modes);
             meta.touched = info.meta.touched;
-            meta.refs = self.project_refs_now(root).await;
+            self.set_project_refs(&mut meta, root).await;
             let time = self.commit_time();
             let after = self.commit_locked(store, &snap.tree, Some(before), meta, &time).await?;
             let name = undo_ref(plan.conversation, &plan.undo_id, "after");
@@ -891,6 +899,12 @@ impl Snapshots {
             at: self.runner().clock().now().to_string(),
             dev_ino: current::dev_ino(&root.root),
             undo: Some(plan.undo_id.clone()),
+            git: root.git.as_ref().map(|(dirs, pins)| GitMeta {
+                git_dir: dirs.git_dir.to_string_lossy().into_owned(),
+                common_dir: dirs.common_dir.to_string_lossy().into_owned(),
+                git_dir_dev_ino: pins.git_dir,
+                common_dir_dev_ino: pins.common_dir,
+            }),
             ..Meta::default()
         }
     }
@@ -982,6 +996,14 @@ struct Frame<'a> {
     maybe: Option<UndoReason>,
     later: BTreeSet<String>,
     force: bool,
+}
+
+/// True when the daemon names the git dirs that the turn's snapshot recorded for `plan`.
+fn trusted(root: Option<&Root>, plan: &RootPlan) -> bool {
+    match (root.and_then(Root::git), &plan.git) {
+        (Some(named), Some((recorded, _))) => named == recorded,
+        _ => false,
+    }
 }
 
 /// The entry of `turn` in `turns`, made when it is not there yet.

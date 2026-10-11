@@ -76,7 +76,7 @@ pub const NOT_COVERED_STORE_CHANGED: &str = "the snapshot store changed";
 pub const NOT_COVERED_REFS: &str = "refs: ";
 
 /// What the `mirror` field of a `pre` line says when the store holds the mirror.
-const MIRROR_TAKEN: &str = "taken";
+pub(crate) const MIRROR_TAKEN: &str = "taken";
 
 /// One root of a running turn.
 #[derive(Debug, Clone)]
@@ -634,7 +634,7 @@ impl RootEnd {
 }
 
 /// The refs of `refs`, with `HEAD` and the commit it names.
-fn refs_with_head(refs: &ProjectRefs) -> BTreeMap<String, String> {
+pub(crate) fn refs_with_head(refs: &ProjectRefs) -> BTreeMap<String, String> {
     let mut all = refs.refs.clone();
     let head = refs
         .head_commit
