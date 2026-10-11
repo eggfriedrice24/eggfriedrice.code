@@ -32,16 +32,18 @@ into the GitHub release notes, and it stops when the section is missing.
   Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
   gap in my hyprland config". The reviewer decides, and it sees the change that efr
   will write. A whole directory still asks you, and so do the unit, cron and linger
-  changes that the next entry does not name. efr copies the file first, and at the end of the turn each such file gets one line:
-  `changed ~/.zshrc; efr undo reverts it`. The line comes also when the turn failed or
-  you interrupted it.
+  changes that the next entry does not name. efr copies the file first, and at the end
+  of the turn each such file gets one line: `changed ~/.zshrc; efr undo reverts it`.
+  The line comes also when the turn failed or you interrupted it.
 - In `auto`, the reviewer can now allow a change that you name to a unit
   (`systemctl --user enable`, `mask`), a link into a `*.wants` directory, the autostart
   directory, your crontab and linger, when it can read what the change installs. efr
   copies the links, the crontab or the linger setting first, so `efr undo` brings them
-  back. `systemctl --user link`, `edit`, `revert`, `at` and `systemd-run --user` still
-  ask you. efr runs `crontab` and `loginctl` itself only when root owns them and their
-  directory; else these forms ask you.
+  back. The reviewer also reads each unit that the unit's `Also=` names. A unit file
+  or a link to it that changed in the turn asks you. `systemctl --user link`, `edit`,
+  `revert`, `at` and `systemd-run --user` still ask you. efr runs `crontab` and
+  `loginctl` itself only when root owns them and their directory; else these forms
+  ask you.
 - `efr away` and `,away` tell efr that you are away from the conversation of this
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a
@@ -63,8 +65,8 @@ into the GitHub release notes, and it stops when the section is missing.
   rest of the turn, and efr asks you instead. When you are away, the turn stops.
 - `efr history` shows the lines of the reviewer, its pause, the expiry of a question
   while you were away, the space that a cache delete freed and each changed file that
-  runs code later. `efr history --verbose` adds the model of each review, the step of its
-  chain, its time and the models that it skipped.
+  runs code later. `efr history --verbose` adds the model of each review, the step of
+  its chain, its time and the models that it skipped.
 - A turn that ends with no answer says why, such as `the model stopped with no answer
   (stop: refusal)`. An answer that reached the output limit says so too.
 - The journal of efrd has a line for a failed or interrupted turn, and the request id
@@ -77,14 +79,23 @@ into the GitHub release notes, and it stops when the section is missing.
   overwrites it. A change that you made during the turn between two commands stays.
   `--redo` takes back the undo. `--list`, `--turn` and `--dry-run` help you pick. Your
   git index stays as it is. Every file that undo overwrites or removes goes to
-  `~/.local/share/efr/undo-trash/` first. Without a terminal, `efr undo` needs `--yes`.
+  `~/.local/share/efr/undo-trash/` first, and a directory that undo makes again gets
+  mode 0700. Without a terminal, `efr undo` needs `--yes`. The preview of a `manual` or
+  `cautious` turn says that writes outside the project are not covered. An undo that
+  stops at a write that fails says `undo stopped: ...`, and the next `efr undo`
+  finishes it. An undo that can write nothing leaves the turn as it is.
+- After a stop of efrd, or for a call that you interrupted or that ran past its
+  timeout, `efr undo --force` takes back the changes of the turn's calls, also those
+  of `write_file`, `edit` and `apply_patch`. Such a turn says `not covered: <project>
+  (a snapshot failed)` or `<path> (the call did not finish)`.
 - At the end of an `auto` turn, one line says what changed and that you can take it
   back: `changed 4 files (+12 -3) in <project> and 2 in ~; efr undo reverts this
   turn`. A file that runs code later gets its own line, `changed ~/.zshrc; efr undo
   reverts it`. Files that undo cannot bring back, such as a large ignored file, show
-  on a line `not covered: ...`. The lines come also when the turn failed or you
-  interrupted it. `efr history` shows each undo as one line, and `--verbose` adds each
-  snapshot.
+  on a line `not covered: ...`. A turn that only moved refs says `moved 1 ref in
+  <project>; efr undo reverts this turn`. The lines come also when the turn failed or
+  you interrupted it. `efr history` shows each undo as one line, and `--verbose` adds
+  each snapshot.
 - New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
   `snapshot.home_max_mib` and `sandbox.ask_destructive`.
 
@@ -137,8 +148,10 @@ into the GitHub release notes, and it stops when the section is missing.
   when efr's snapshot holds every file that it can touch, such as `git reset --hard` or
   `: > file`. A delete or a move through `apply_patch` does the same. `shred`,
   `git clean -x`, `git reflog expire`, a file that the snapshot left out, content that
-  is only staged, and a delete above the project still go to the reviewer or to you.
-  `sandbox.ask_destructive = "always"` keeps the old behaviour. In `cautious` and
+  is only staged, and a delete above the project still go to the reviewer or to you. A
+  command that writes through a link, such as `: > link`, needs the file that the
+  link names in the snapshot too. `sandbox.ask_destructive = "always"` keeps the old
+  behaviour. In `cautious` and
   `manual`, efr still asks you for each delete.
 - efr no longer writes `~/.local/share/efr/file-backups/`. The snapshot store
   replaces it. efr deletes the old backups after `snapshot.max_age_days` days.
