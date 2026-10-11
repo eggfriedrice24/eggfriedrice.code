@@ -727,7 +727,10 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
         }
     };
     let home = locations.home();
-    let envelope = Envelope::new(locations, None, None);
+    // NOTE: the turn's project is not known here; the dir of the line stands in for
+    // it, so a copy into an agent config there asks for its source too. A source too
+    // many costs one small read.
+    let envelope = Envelope::new(locations, start.as_deref(), None);
     let mut covers: Vec<CoverAsk> = Vec::new();
     for segment in scan::scan(line) {
         let dir = if segment.after_cd { None } else { start.as_deref() };

@@ -72,6 +72,9 @@ fn fact_requests_ask_for_the_copies_and_the_sources_of_named_persistence() {
     assert!(request("loginctl enable-linger").covers.contains(&CoverAsk::Linger));
     let link = request("ln -sf ~/evil ~/.config/systemd/user/default.target.wants/x.service");
     assert_eq!(link.sources, [Source::File(PathBuf::from("/home/u/evil"))]);
+    // An agent config in the dir of the line is a floor too.
+    let agent = request("cp ~/mcp.json .mcp.json");
+    assert_eq!(agent.sources, [Source::File(PathBuf::from("/home/u/mcp.json"))]);
     // A copy outside every floor reads no source, and a secret is never one.
     assert_eq!(request("cp ~/a ~/Documents/b").sources, []);
     assert_eq!(request("cp ~/.ssh/id_ed25519 ~/.config/autostart/").sources, []);
