@@ -1128,9 +1128,7 @@ impl Turn {
                 Reviewed::Decided(authorization) => return Ok(authorization),
                 Reviewed::Ask { recorded, judgement } => (recorded, judgement),
             };
-            if let Some(stopped) = self.paused_and_away(call, ruling) {
-                return Ok(stopped);
-            }
+            let stopped = self.paused_and_away(call, ruling);
             if !recorded {
                 events.push(Event::ExitRequested {
                     turn_id,
@@ -1140,6 +1138,12 @@ impl Turn {
                     source: exit::source(decision),
                     record: Box::new(record),
                 });
+            }
+            // NOTE: the exit that stops the turn keeps its record, so the history shows
+            // what nobody could decide.
+            if let Some(stopped) = stopped {
+                self.record(events).await?;
+                return Ok(stopped);
             }
             let home = ruling.engine.locations().home();
             let approver = ruling.approver.unwrap_or(Approver::User);

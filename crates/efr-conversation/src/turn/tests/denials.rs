@@ -142,6 +142,8 @@ async fn paused_classifier_stops_turn_when_away() {
          decide. Read the answers, then send a new prompt."
     );
     assert_eq!(h.kinds().await.iter().filter(|kind| *kind == "approval_requested").count(), 0);
+    // The fourth exit, which stopped the turn, keeps its record too.
+    assert_eq!(h.kinds().await.iter().filter(|kind| *kind == "exit_requested").count(), 4);
     // The turn ends after the fourth call, so no model call reads its result.
     assert_eq!(script.results().len(), 3);
     assert!(h.toolbox.invoked().is_empty());
