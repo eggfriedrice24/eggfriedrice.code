@@ -44,7 +44,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 | Writes | only in the write roots (below). Everything else is read-only. |
 | Secrets | the paths of the read masks read as empty. Secret-like environment variables are removed. |
 | Network | none. Only loopback works, so a test can start a server and talk to it. |
-| Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. |
+| Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. An approved exit opens one socket for one call (see "Desktop sockets"). |
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
 | Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. |
@@ -274,7 +274,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `host` | `curl -LO https://example.com/x.tar.gz`, `npm ci` | the sandbox, with full network for this call | the reviewer, else you |
 | `host_view` | `ss -tlnp`, `ip addr` | the sandbox, with the host's network | the reviewer, else you |
 | `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs |
-| `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with that one socket | the reviewer for a read or reload form; only you for the rest |
+| `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
 | `bus` | `hostnamectl`, `systemctl --failed` | the sandbox, with the bus socket | the reviewer, else you |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
@@ -292,6 +292,29 @@ across calls. An exit that runs outside the sandbox does not see them.
 (`classifier.enabled = false`), paused, or failed at each step of its chain.
 
 A grant lives for one call. The next call asks again.
+
+**Desktop sockets.** A `desktop_ipc` exit opens the one control socket of the desktop
+that its program talks to, and sets the one variable that names it:
+
+| Program | Desktop | Socket | Variable |
+|---|---|---|---|
+| `hyprctl` | Hyprland | `$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock` | `HYPRLAND_INSTANCE_SIGNATURE` |
+| `swaymsg` | sway | `$SWAYSOCK` | `SWAYSOCK` |
+| `i3-msg` | i3 | `$I3SOCK` | `I3SOCK` |
+| `niri msg` | niri | `$NIRI_SOCKET` | `NIRI_SOCKET` |
+| `wlr-randr`, `wtype`, `wl-copy`, `wl-paste` | Wayland | `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` | `WAYLAND_DISPLAY` |
+| `xrandr`, `xdotool`, `wmctrl`, `xprop`, `xdpyinfo`, `xclip`, `xsel` | X11 | `/tmp/.X11-unix/X<n>` for a local `:<n>` | `DISPLAY` |
+
+efr reads these variables from the terminal of your prompt, because efrd's own
+environment goes stale when the compositor restarts. Only when the prompt sends none
+does efrd use its own environment. efrd checks the socket at each call: it must be a
+socket of yours in `$XDG_RUNTIME_DIR` (an X server's socket in `/tmp/.X11-unix` can
+also be root's), with no link on the way. The call never gets another socket of the
+desktop, such as Hyprland's event socket `.socket2.sock`, and never its dir or its
+log. When efr finds no such socket, the call does not run, and the model reads "efr
+found no Hyprland session in the terminal of this prompt". An X server that needs an
+X cookie (`$XAUTHORITY` or `~/.Xauthority`) is refused for now: the cookie file stays
+masked. `ydotool` talks to its own daemon, so its exit opens nothing.
 
 **The reviewer.** In `auto`, the user's request is the permission. A reviewer model
 decides most exits before any question: it allows an action that fits what you asked,

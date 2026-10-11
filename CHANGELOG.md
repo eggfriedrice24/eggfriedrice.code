@@ -94,11 +94,20 @@ into the GitHub release notes, and it stops when the section is missing.
   write to a client that closed its connection logs at `trace`. Files that git cannot
   read give one line for each project, with their count and the first path. A git
   that stops with a fatal error during a snapshot is now a warning.
+- In `auto`, `i3-msg` is a desktop command. `i3-msg -t get_*` goes to the reviewer.
+- The line of a desktop command names its socket and what it does, such as
+  `reviewer allowed: the Hyprland socket, to read its state or reload it`.
 
 ### Fixed
 
 - The reviewer writes its reason before its verdict, and efr asks again once when the
   reason is empty.
+- In `auto`, an allowed desktop command (`hyprctl`, `swaymsg`, `wlr-randr`, `xrandr`,
+  `niri msg`, `i3-msg`) now reaches the compositor socket of your terminal's session.
+  The call gets that one socket and the one variable that names it, such as
+  `HYPRLAND_INSTANCE_SIGNATURE`. It never gets Hyprland's event socket or its log.
+  When efr finds no such socket, the model reads "efr found no Hyprland session in the
+  terminal of this prompt". An X server that needs an X cookie is refused for now.
 
 ## [0.0.3] - 2026-10-09
 
