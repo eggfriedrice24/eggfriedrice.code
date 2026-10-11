@@ -13,7 +13,7 @@ tested without a kernel.
 |---|---|
 | `src/spec.rs` | `SandboxSpec` and its parts: `WriteRoot`, `CacheOverlay`, `Mask`, `Floor`, `NetworkPlan`, `EnvPlan`, `RecordLimits`, `RuntimePaths` |
 | `src/fs_view.rs` | `FsView`, the only way this crate reads the file system (with the kinds of a listing, so a scan needs no `lstat` per entry), `resolve`, which follows every link, and `Memo`, which a plan uses so it looks up each path once |
-| `src/plan.rs`, `src/plan/` | `MountPlan`: the ordered mounts, the plan rules, `explain` for `sandbox.explain` and the start dir of a call |
+| `src/plan.rs`, `src/plan/` | `MountPlan`: the ordered mounts, the plan rules (a socket grant below an engine secret or a mask, or in efr's own roots, is refused), `explain` for `sandbox.explain` and the start dir of a call |
 | `src/args.rs` | the bwrap argument list, `FdTable` (one descriptor per bind, never reused) and `LaunchFds` |
 | `src/layers.rs` | `CacheLayers`: the cache overlays that `efr-sbx layers` mounts after bwrap's setup, and the mounts inside each cache that move onto it |
 | `src/layers/deletes.rs` | `CacheDeletes`: the paths that a call deleted in its private cache layers (the whiteouts of each upper layer, read through `LayerView`), for `SandboxSummary::cache_deletes`, with the limits that keep `result.json` small |

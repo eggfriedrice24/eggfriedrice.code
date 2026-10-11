@@ -129,6 +129,41 @@ async fn no_tool_writes_efrs_own_programs_and_roots_but_scratch_and_trash_stay_o
 }
 
 #[tokio::test]
+async fn only_the_user_approves_the_socket_of_the_environments_ssh_agent() {
+    let (_root, home) = home();
+    let mut parts = parts(&home, home.path().join("secrets"));
+    let env = [
+        ("SSH_AUTH_SOCK".to_owned(), "/run/user/1000/vault.sock".to_owned()),
+        ("GPG_AGENT_INFO".to_owned(), "/run/user/1000/pgp.sock:0:1".to_owned()),
+    ];
+    parts.host = crate::sandbox::HostFacts::from_env(&env.into_iter().collect(), None);
+    let engine = parts.engine(&Settings::default()).await.unwrap();
+    for (socket, user_only) in [
+        ("/run/user/1000/vault.sock", true),
+        ("/run/user/1000/pgp.sock", true),
+        ("/run/user/1000/app.sock", false),
+    ] {
+        let needs = efr_protocol::Needs { sockets: vec![socket.to_owned()], ..Default::default() };
+        let input = DecisionInput {
+            requirements: Requirements::none()
+                .with_command("ssh host x")
+                .with_command_dir(home.path())
+                .with_needs(needs),
+            scope: Scope::Machine,
+            origin: Origin::Shell,
+            mode: Mode::Auto,
+            conversation_policy: ConversationPolicy::new(home.path().join("scratch")),
+        };
+        let decision = engine.decide(&input);
+        let need = decision
+            .exits()
+            .find(|need| need.kind == efr_protocol::ExitKind::Socket)
+            .unwrap_or_else(|| panic!("{socket}: no socket exit"));
+        assert_eq!(need.user_only(), user_only, "{socket}");
+    }
+}
+
+#[tokio::test]
 async fn the_engine_marks_caches_and_efrs_trash_as_rebuildable() {
     let (_root, home) = home();
     let engine =

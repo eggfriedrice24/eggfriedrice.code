@@ -270,7 +270,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
 | `host` | `curl -LO https://example.com/x.tar.gz`, `npm ci` | the sandbox, with full network for this call | the reviewer, else you |
 | `host_view` | `ss -tlnp`, `ip addr` | the sandbox, with the host's network | the reviewer, else you |
-| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you |
+| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with that one socket | the reviewer for a read or reload form; only you for the rest |
 | `bus` | `hostnamectl`, `systemctl --failed` | the sandbox, with the bus socket | the reviewer, else you |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |

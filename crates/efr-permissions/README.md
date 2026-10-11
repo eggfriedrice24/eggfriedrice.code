@@ -41,7 +41,9 @@ Modules:
   cache overlays), `with_rebuildable_names` and `with_trash_root` (what a build or efr
   can make again), `with_floor_root`, `with_floor_group_root` and
   `with_link_floor_root` (floors with no group, with a `FloorGroup`, or with the group
-  and the names of a dotfile link), `with_synced_root` and `with_sandbox_mask`.
+  and the names of a dotfile link), `with_synced_root`, `with_sandbox_mask` and
+  `with_credential_socket` (the socket of a credential agent, such as
+  `$SSH_AUTH_SOCK`).
   Classification
   is lexical: `.` and `..` are resolved by name,
   nothing is read from the disk, and a relative path has no class. Symbolic links may
@@ -203,8 +205,9 @@ proptest property:
   in a real write root (not the private tmp or a cache). A `destructive` exit goes to
   the classifier only when efr knows every target and each lies in a real write root.
   Persistence that is no file edit (`crontab`, `systemctl --user enable`, linger), the
-  git surface, `sandbox.protect`, a privilege, a masked read and a synced write stay
-  with the user (`src/engine/tests/auto.rs`).
+  git surface, `sandbox.protect`, a privilege, a masked read, a synced write and a
+  socket of a credential agent or under a mask stay with the user; a socket inside a
+  secret or efr's own roots is a floor (`src/engine/tests/auto.rs`).
 - A write of efr's own programs, or of its runtime, data or state roots outside
   `$SCRATCH` and efr's trash, is denied in every mode (`Cause::EfrOwn`), and in `auto`
   a shell write there is a `config` exit.

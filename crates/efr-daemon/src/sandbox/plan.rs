@@ -57,6 +57,9 @@ pub(crate) struct HostFacts {
     pub(crate) zdotdir: Option<PathBuf>,
     /// efr's own programs: efrd, efr and the launcher's source.
     pub(crate) binaries: Vec<PathBuf>,
+    /// The sockets of the user's credential agents: `$SSH_AUTH_SOCK` and the socket of
+    /// `$GPG_AGENT_INFO`. In `auto` only the user approves one of them.
+    pub(crate) agent_sockets: Vec<PathBuf>,
 }
 
 impl HostFacts {
@@ -82,8 +85,17 @@ impl HostFacts {
             histfile: absolute("HISTFILE"),
             zdotdir: absolute("ZDOTDIR"),
             binaries: Vec::new(),
+            agent_sockets: agent_sockets(env),
         }
     }
+}
+
+/// The credential agent sockets that `env` names: `$SSH_AUTH_SOCK`, and the socket
+/// before the first `:` of `$GPG_AGENT_INFO`.
+fn agent_sockets(env: &BTreeMap<String, String>) -> Vec<PathBuf> {
+    let ssh = env.get("SSH_AUTH_SOCK").map(PathBuf::from);
+    let gpg = env.get("GPG_AGENT_INFO").and_then(|info| info.split(':').next()).map(PathBuf::from);
+    ssh.into_iter().chain(gpg).filter(|path| path.is_absolute()).collect()
 }
 
 /// Everything one call's spec is built from.

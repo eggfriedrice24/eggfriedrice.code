@@ -1481,6 +1481,46 @@ fn auto_network_need_is_a_host_exit_in_phase1_and_none_with_the_proxy() {
     assert_eq!(kinds(&proxy), [ExitKind::Outside]);
 }
 
+/// A socket that the model names in `needs.sockets`: one inside an engine secret or
+/// efr's own roots is a floor, and only the user approves a credential agent's socket,
+/// whose keys sign and log in as the user.
+#[rstest]
+#[case::in_gnupg("~/.gnupg/S.gpg-agent", ExitKind::Secret, Approver::User)]
+#[case::in_ssh_dir("~/.ssh/agent.sock", ExitKind::Secret, Approver::User)]
+#[case::efrd("/run/user/1000/efr/daemon.sock", ExitKind::Config, Approver::User)]
+#[case::gpg_agent("/run/user/1000/gnupg/S.gpg-agent", ExitKind::Socket, Approver::User)]
+#[case::gpg_agent_ssh("/run/user/1000/gnupg/S.gpg-agent.ssh", ExitKind::Socket, Approver::User)]
+#[case::ssh_agent("/tmp/ssh-XXXXk3j2/agent.4242", ExitKind::Socket, Approver::User)]
+#[case::ssh_agent_unit("/run/user/1000/ssh-agent.socket", ExitKind::Socket, Approver::User)]
+#[case::keyring("/run/user/1000/keyring/ssh", ExitKind::Socket, Approver::User)]
+#[case::gcr("/run/user/1000/gcr/ssh", ExitKind::Socket, Approver::User)]
+#[case::password_manager("~/.1password/agent.sock", ExitKind::Socket, Approver::User)]
+#[case::from_the_environment("/run/user/1000/vault.sock", ExitKind::Socket, Approver::User)]
+#[case::masked("~/.zsh_history", ExitKind::Socket, Approver::User)]
+#[case::other_app("/run/user/1000/app.sock", ExitKind::Socket, Approver::Classifier)]
+fn auto_credential_agent_sockets_are_floors_or_user(
+    #[case] socket: &str,
+    #[case] kind: ExitKind,
+    #[case] approver: Approver,
+) {
+    let locations = auto_locations()
+        .with_efr_root("/run/user/1000/efr", [])
+        .unwrap()
+        .with_credential_socket("/run/user/1000/vault.sock")
+        .unwrap();
+    let needs = Needs { sockets: vec![socket.to_owned()], ..Needs::default() };
+    let decision =
+        Engine::with_defaults(locations).decide(&in_auto(shell("ssh host x").with_needs(needs)));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!(need.kind, kind, "{socket}");
+    if kind.is_floor() {
+        // NOTE: a floor is refused before anyone approves it.
+        assert_eq!(decision.effect(), Effect::Deny, "{socket}");
+    } else {
+        assert_eq!(need.approver, approver, "{socket}");
+    }
+}
+
 #[test]
 fn auto_needs_become_exits() {
     let needs = Needs {

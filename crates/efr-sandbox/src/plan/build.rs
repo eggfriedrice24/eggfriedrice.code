@@ -573,7 +573,7 @@ impl Builder<'_> {
         }
         for socket in sockets {
             let resolved = self.resolve(&socket)?;
-            if resolved.kind != Some(FileKind::Other) {
+            if resolved.kind != Some(FileKind::Other) || self.hidden_socket(&resolved.path)? {
                 return Err(SandboxError::GrantTarget { path: socket });
             }
             let op = MountOp::Bind {
@@ -585,6 +585,21 @@ impl Builder<'_> {
             self.resolve_unix.push(resolved.path);
         }
         Ok(())
+    }
+
+    /// True when a socket at `path`, resolved, lies where no grant may reach: below a
+    /// mask other than the user's runtime dir, such as an engine secret
+    /// (`~/.gnupg/S.gpg-agent`), or in efr's own runtime, data or state root, such as
+    /// efrd's socket. The engine refuses these before any question; this check keeps a
+    /// spec that names one from binding it all the same.
+    fn hidden_socket(&self, path: &Path) -> Result<bool, SandboxError> {
+        let runtime = &self.spec.runtime;
+        for root in [&runtime.runtime, &runtime.data, &runtime.state] {
+            if is_within(path, &self.resolve(root)?.path) {
+                return Ok(true);
+            }
+        }
+        Ok(self.masked_by(path).is_some_and(|mask| mask.kind != MaskKind::EfrState))
     }
 
     fn finish(self) -> MountPlan {

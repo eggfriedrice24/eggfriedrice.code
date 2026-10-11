@@ -316,7 +316,7 @@ denied. Each exit has a kind:
 | `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
 | `host_view` | `ss`, `ip`, `nmcli`, `netstat` |
 | `outside` | `df`, `findmnt` (they show your real disks and mounts outside the sandbox); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root) |
-| `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions` |
+| `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions`. A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's agent) and a socket under a mask |
 | `desktop_ipc` | the read and reload forms `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_*`, `xrandr` without a change, `wlr-randr`, `niri msg` (the reviewer); a form that types or starts programs, such as `hyprctl dispatch exec` or `xdotool type`, and an unknown form (only you approve) |
 | `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
 | `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |

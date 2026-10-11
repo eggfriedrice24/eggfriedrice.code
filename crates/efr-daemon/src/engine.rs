@@ -328,6 +328,12 @@ fn with_sandbox(
             }
         };
     }
+    // NOTE: a credential agent signs and logs in as the user, so a socket of one that
+    // the model names asks the user, whatever the reviewer would say.
+    for socket in &facts.host.agent_sockets {
+        locations =
+            add(locations, socket.clone(), "credential socket", |l, p| l.with_credential_socket(p));
+    }
     if let Some(zdotdir) = &facts.host.zdotdir {
         for file in ZSH_STARTUP_FILES.iter().map(|name| zdotdir.join(name)) {
             locations =

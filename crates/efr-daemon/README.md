@@ -470,6 +470,9 @@ spec; `docs/sandbox.md` for the user's view):
   and its links, the persistence paths of the home directory, `$ZDOTDIR`'s startup
   files, dotfile link targets in a write root (`sandbox/links.rs`), efr's programs, the
   protected names in each project and `sandbox.protect` as floors; the call's grants.
+  The engine gets `$SSH_AUTH_SOCK` and the socket of `$GPG_AGENT_INFO` from the hidden
+  shells' environment as credential sockets (`HostFacts::agent_sockets`), so only the
+  user approves one.
 - `prepare` takes the plan lock of the call's projects (`sandbox/lock.rs`), makes the
   target of an approved `MakeFile` or `MakeDir` grant through its parent's descriptor
   (`sandbox/fs.rs`, `openat2` with no link on the way), and writes the call dir

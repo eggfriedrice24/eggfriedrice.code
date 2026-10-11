@@ -172,6 +172,9 @@ pub struct Locations {
     floor_roots: Vec<AddedFloor>,
     /// Paths that a contained call reads as empty, besides the built-in table.
     mask_roots: Vec<PathBuf>,
+    /// The sockets of the user's credential agents that the daemon knows from the
+    /// environment, such as `$SSH_AUTH_SOCK`.
+    credential_sockets: Vec<PathBuf>,
     /// efr's own programs: efrd, efr and the launcher with its copy.
     efr_binaries: Vec<PathBuf>,
     /// efr's runtime, data and state roots, each with the places below it that a tool
@@ -205,6 +208,7 @@ impl Locations {
             synced_roots: Vec::new(),
             floor_roots: Vec::new(),
             mask_roots: Vec::new(),
+            credential_sockets: Vec::new(),
             efr_binaries: Vec::new(),
             efr_roots: Vec::new(),
         })
@@ -248,6 +252,7 @@ impl Locations {
             synced_roots,
             floor_roots,
             mask_roots,
+            credential_sockets,
             efr_binaries,
             efr_roots,
         } = &mut self;
@@ -270,6 +275,7 @@ impl Locations {
                     .flat_map(|floor| std::iter::once(&mut floor.root).chain(floor.link.as_mut())),
             )
             .chain(mask_roots)
+            .chain(credential_sockets)
             .chain(efr_binaries)
             .chain(efr_roots);
         for root in roots.chain(projects.values_mut()) {
@@ -498,6 +504,21 @@ impl Locations {
         Ok(self)
     }
 
+    /// Adds the socket of a credential agent of the user, such as `$SSH_AUTH_SOCK` or
+    /// the gpg-agent's socket: a key held there signs or logs in as the user, so in
+    /// `auto` only the user approves a call that names it in `needs.sockets`. The engine
+    /// also knows the common names of these sockets without this.
+    pub fn with_credential_socket(
+        mut self,
+        socket: impl Into<PathBuf>,
+    ) -> Result<Self, PermissionsError> {
+        let socket = self.absolute_root(socket.into())?;
+        if !self.credential_sockets.contains(&socket) {
+            self.credential_sockets.push(socket);
+        }
+        Ok(self)
+    }
+
     /// The home directory.
     pub fn home(&self) -> &Path {
         &self.home
@@ -573,6 +594,11 @@ impl Locations {
     /// The masks that the daemon added.
     pub(crate) fn mask_roots(&self) -> &[PathBuf] {
         &self.mask_roots
+    }
+
+    /// The credential agent sockets that the daemon added.
+    pub(crate) fn credential_sockets(&self) -> &[PathBuf] {
+        &self.credential_sockets
     }
 
     /// The class of `path` for a conversation whose `$SCRATCH` is `scratch`, or `None`

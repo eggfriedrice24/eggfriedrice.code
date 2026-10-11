@@ -484,6 +484,27 @@ fn plan_grants_bind_sockets_devices_and_open_the_network() {
 }
 
 #[test]
+fn plan_refuses_a_socket_below_a_secret_or_in_efrs_roots() {
+    let mut fs = world();
+    let base = spec();
+    let efrd = base.runtime.runtime.join("daemon.sock");
+    fs.socket("/home/u/.ssh/agent.sock").socket(&efrd.display().to_string());
+    fs.socket("/run/user/1000/app.sock");
+    for refused in [PathBuf::from("/home/u/.ssh/agent.sock"), efrd] {
+        let mut spec = base.clone();
+        spec.grants = vec![Grant::Socket { path: refused.clone() }];
+        assert!(
+            matches!(MountPlan::build(&spec, &fs), Err(SandboxError::GrantTarget { .. })),
+            "{refused:?}"
+        );
+    }
+    // A socket in the user's runtime dir, which the plan masks as a whole, still binds.
+    let mut spec = base;
+    spec.grants = vec![Grant::Socket { path: "/run/user/1000/app.sock".into() }];
+    assert!(has_mount(&plan(&spec, &fs), &rw("/run/user/1000/app.sock")));
+}
+
+#[test]
 fn plan_binds_the_launcher_files_and_refuses_a_missing_one() {
     let spec = spec();
     let plan = plan(&spec, &world());
