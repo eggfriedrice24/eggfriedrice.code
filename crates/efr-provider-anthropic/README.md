@@ -222,8 +222,8 @@ the full table. In short:
   has no `provider_raw`.
 - Stop reasons: `end_turn` and `stop_sequence` are `EndTurn`, `tool_use` is `ToolUse`,
   `max_tokens` and `model_context_window_exceeded` are `MaxTokens`, `refusal` is
-  `ContentFilter`, `pause_turn` is `EndTurn`; an unknown or missing one is `ToolUse`
-  with a tool call, else `EndTurn`.
+  `Refusal`, `pause_turn` is `PauseTurn` (efr does not continue it); an unknown or
+  missing one is `ToolUse` with a tool call, else `EndTurn`.
 - `ping` is ignored, `citations_delta` too. Any other unknown event, block or delta is
   `Raw`, never a failure.
 - An `error` event fails the stream with the class of its `error.type` (see

@@ -96,6 +96,8 @@ fn stop_reasons_are_snake_case() {
         (StopReason::ToolUse, "tool_use"),
         (StopReason::MaxTokens, "max_tokens"),
         (StopReason::ContentFilter, "content_filter"),
+        (StopReason::Refusal, "refusal"),
+        (StopReason::PauseTurn, "pause_turn"),
     ];
     for (reason, wire) in cases {
         assert_eq!(serde_json::to_value(reason).unwrap(), json!(wire));

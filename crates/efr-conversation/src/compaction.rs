@@ -487,7 +487,8 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     let omitted = u32::try_from(trim.front).unwrap_or(u32::MAX);
     match answer {
         Answer::Done {
-            stop: stop @ (StopReason::MaxTokens | StopReason::ContentFilter), ..
+            stop: stop @ (StopReason::MaxTokens | StopReason::ContentFilter | StopReason::Refusal),
+            ..
         } => Outcome::Incomplete(stop),
         Answer::Done { text, .. } if text.trim().is_empty() => Outcome::Empty,
         Answer::Done { text, usage, .. } => {

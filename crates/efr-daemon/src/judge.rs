@@ -439,7 +439,7 @@ struct Answer {
 
 /// The judgement in a completed answer.
 fn read(completion: &Completion) -> Result<Judgement, Failure> {
-    if completion.stop_reason == StopReason::ContentFilter {
+    if matches!(completion.stop_reason, StopReason::ContentFilter | StopReason::Refusal) {
         return Err(Failure::Filtered);
     }
     parse(&completion.message.text()).ok_or(Failure::Unreadable)

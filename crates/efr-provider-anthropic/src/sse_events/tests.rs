@@ -241,11 +241,46 @@ fn nothing_counts_after_the_stream_ended() {
 
 #[rstest]
 #[case::max_tokens("max_tokens.sse", StopReason::MaxTokens)]
-#[case::refusal("refusal.sse", StopReason::ContentFilter)]
+#[case::refusal("refusal.sse", StopReason::Refusal)]
 fn a_cut_answer_keeps_its_text(#[case] fixture: &str, #[case] stop_reason: StopReason) {
     let completion = fixture_completion(fixture);
     assert_eq!(completion.stop_reason, stop_reason);
     assert!(!completion.message.text().is_empty());
+}
+
+/// The last event of a stream with `blocks` before the stop `reason`.
+fn last_event(blocks: &[Value], reason: &str) -> ProviderEvent {
+    let mut events = vec![start()];
+    events.extend_from_slice(blocks);
+    events.extend(stop(reason));
+    let (mapped, error) = map_all(&sse(&events));
+    assert!(error.is_none(), "{error:?}");
+    mapped.last().cloned().unwrap()
+}
+
+#[test]
+fn a_refusal_is_the_refusal_stop_reason() {
+    // NOTE: a refusal can come before any block, so the answer has no text at all.
+    assert_eq!(
+        last_event(&[], "refusal"),
+        ProviderEvent::Done { stop_reason: StopReason::Refusal, provider_raw: None }
+    );
+    let call = [
+        json!({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_1", "name": "shell", "input": {}}}),
+        json!({"type": "content_block_stop", "index": 0}),
+    ];
+    match last_event(&call, "refusal") {
+        ProviderEvent::Done { stop_reason, .. } => assert_eq!(stop_reason, StopReason::Refusal),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn pause_turn_is_its_own_stop_reason() {
+    match last_event(&text_block(0, "Searching."), "pause_turn") {
+        ProviderEvent::Done { stop_reason, .. } => assert_eq!(stop_reason, StopReason::PauseTurn),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[rstest]
@@ -253,9 +288,9 @@ fn a_cut_answer_keeps_its_text(#[case] fixture: &str, #[case] stop_reason: StopR
 #[case::stop_sequence("stop_sequence", false, StopReason::EndTurn)]
 #[case::tool_use("tool_use", true, StopReason::ToolUse)]
 #[case::max_tokens("max_tokens", false, StopReason::MaxTokens)]
-#[case::refusal("refusal", true, StopReason::ContentFilter)]
+#[case::refusal("refusal", true, StopReason::Refusal)]
 #[case::window_exceeded("model_context_window_exceeded", false, StopReason::MaxTokens)]
-#[case::pause_turn("pause_turn", false, StopReason::EndTurn)]
+#[case::pause_turn("pause_turn", false, StopReason::PauseTurn)]
 #[case::unknown_with_a_call("a_new_reason", true, StopReason::ToolUse)]
 #[case::unknown_without_a_call("a_new_reason", false, StopReason::EndTurn)]
 fn each_stop_reason_maps_to_a_canonical_one(

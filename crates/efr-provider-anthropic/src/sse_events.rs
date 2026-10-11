@@ -410,14 +410,14 @@ impl EventMapper {
             Some("end_turn" | "stop_sequence") => StopReason::EndTurn,
             Some("tool_use") => StopReason::ToolUse,
             Some("max_tokens") => StopReason::MaxTokens,
-            Some("refusal") => StopReason::ContentFilter,
+            Some("refusal") => StopReason::Refusal,
             Some("model_context_window_exceeded") => {
                 tracing::warn!("the answer reached the end of the model's context window");
                 StopReason::MaxTokens
             }
             Some("pause_turn") => {
                 tracing::warn!("the API paused a turn, which only server tools do");
-                StopReason::EndTurn
+                StopReason::PauseTurn
             }
             other => {
                 tracing::warn!(stop_reason = ?other.map(shown), "an answer without a known stop reason");

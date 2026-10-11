@@ -99,6 +99,12 @@ pub enum StopReason {
     MaxTokens,
     /// The provider stopped the answer for its content.
     ContentFilter,
+    /// The model refused to answer, such as Anthropic's `refusal`. A reader that
+    /// does not tell the two apart treats it as [`ContentFilter`](Self::ContentFilter).
+    Refusal,
+    /// The API paused a long turn, such as Anthropic's `pause_turn`, which only server
+    /// tools cause. efr does not send the answer back to continue it: the turn ends.
+    PauseTurn,
 }
 
 #[cfg(test)]
