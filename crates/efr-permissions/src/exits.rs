@@ -538,6 +538,37 @@ pub(crate) fn named_targets(mut needs: Vec<ExitNeed>, home: &Path) -> Vec<ExitNe
     needs
 }
 
+/// `needs` where the target of each need is the real file behind a declared link
+/// ([`CallFacts::links`]) with the names of the need of that link added: a file tool's
+/// write of `~/dotfiles/zsh/.zshrc` behind `~/.zshrc` is named by "my zshrc", as the
+/// write of the link is. The need of the link must be in the same call, so a name never
+/// reaches a path that the call does not write through the link.
+pub(crate) fn link_names(mut needs: Vec<ExitNeed>, facts: Option<&CallFacts>) -> Vec<ExitNeed> {
+    let Some(facts) = facts.filter(|facts| !facts.links.is_empty()) else {
+        return needs;
+    };
+    let mut added: Vec<(usize, Vec<String>)> = Vec::new();
+    for (at, need) in needs.iter().enumerate() {
+        let Some(target) = &need.target else { continue };
+        for (link, _) in facts.links.iter().filter(|(_, real)| real == target) {
+            let names = needs
+                .iter()
+                .filter(|other| other.target.as_ref() == Some(link))
+                .flat_map(|other| other.names.iter().cloned());
+            added.push((at, names.collect()));
+        }
+    }
+    for (at, names) in added {
+        let need = &mut needs[at];
+        for name in names {
+            if !need.names.contains(&name) {
+                need.names.push(name);
+            }
+        }
+    }
+    needs
+}
+
 /// What the daemon looks up on disk before [`predict`] reads a line, because the
 /// engine reads no file: the facts of [`CallFacts`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

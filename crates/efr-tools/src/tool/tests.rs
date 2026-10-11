@@ -142,6 +142,16 @@ fn a_path_through_a_link_also_declares_what_it_reaches() {
             access(fixture.home().join(".ssh/new"), AccessMode::Write),
         ]
     );
+    // Each link with what it reaches, so a write of the real file can take the names
+    // of the link.
+    assert_eq!(
+        requirements.links,
+        [
+            (fixture.cwd().join("notes"), key),
+            (fixture.cwd().join("keys"), fixture.home().join(".ssh")),
+            (fixture.cwd().join("keys/new"), fixture.home().join(".ssh/new")),
+        ]
+    );
 }
 
 #[test]

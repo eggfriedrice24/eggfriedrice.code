@@ -60,7 +60,8 @@ Modules:
   file (a delete or a move of `apply_patch`); the shell tool's `needs` and
   `nested_shell`; and
   `CallFacts`, the facts about the line's files and programs that the daemon collects
-  for the `auto` mode) and `ConversationPolicy` (the
+  for the `auto` mode, with each declared link and the real path it reaches, whose
+  write takes the names of the link) and `ConversationPolicy` (the
   conversation's `$SCRATCH` and its own rules). `efr-tools` has its own `ToolRequirements`; the forbidden edge keeps the
   crates apart, so the daemon's toolbox copies one into the other.
 - `command`: `analyze` splits a command line into simple commands on `;`, `&&`, `||`,

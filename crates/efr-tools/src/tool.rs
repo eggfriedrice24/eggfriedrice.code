@@ -213,6 +213,10 @@ pub struct ToolRequirements {
     /// `apply_patch`). Undo cannot bring such a file back yet, so the engine asks for it
     /// in every mode. The paths it touches are declared as writes too.
     pub destructive: bool,
+    /// Each declared path that reaches another path through a symbolic link, with the
+    /// path it reaches, as [`ToolRequirements::with_real_paths`] found them: a write of
+    /// `~/.zshrc` that links into `~/dotfiles` gives `(~/.zshrc, ~/dotfiles/zsh/.zshrc)`.
+    pub links: Vec<(PathBuf, PathBuf)>,
 }
 
 impl ToolRequirements {
@@ -258,11 +262,15 @@ impl ToolRequirements {
             let real =
                 if access.path.is_absolute() { paths::real_form(home, &access.path) } else { None };
             let mode = access.mode;
+            let declared = access.path.clone();
             paths.push(access);
-            if let Some(real) = real
-                && !paths.iter().any(|known| known.path == real && known.mode == mode)
-            {
-                paths.push(PathAccess { path: real, mode });
+            if let Some(real) = real {
+                if !self.links.iter().any(|(path, to)| *path == declared && *to == real) {
+                    self.links.push((declared, real.clone()));
+                }
+                if !paths.iter().any(|known| known.path == real && known.mode == mode) {
+                    paths.push(PathAccess { path: real, mode });
+                }
             }
         }
         self.paths = paths;

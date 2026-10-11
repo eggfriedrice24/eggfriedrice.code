@@ -172,8 +172,10 @@ many other paths are links. `ToolRequirements::with_real_paths` adds, after each
 declared path that reaches the file system through a link, the path it reaches with
 the same access, so `cat notes`, where `notes` links to `~/.ssh/id_ed25519`, is judged
 as a read of the key too, and a recursive search whose root is a link is judged by its
-target as well. It is the one step that reads the file system (it blocks; the daemon
-runs it on the blocking pool before the engine decides). A link that a glob expands
+target as well. It keeps each link with the path it reaches in
+`ToolRequirements::links`, so the daemon can tell the engine that the real file of
+`~/.zshrc` is named by the names of `~/.zshrc`. It is the one step that reads the file
+system (it blocks; the daemon runs it on the blocking pool before the engine decides). A link that a glob expands
 to, or one below the root of a recursive search that the program follows, is not
 seen.
 

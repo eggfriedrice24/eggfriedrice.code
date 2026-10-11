@@ -173,6 +173,40 @@ fn a_masked_target_says_so_in_the_record() {
     assert_eq!(effective(&record, &judgement, None), Verdict::AskUser);
 }
 
+/// A file tool write of `~/.zshrc` that links into a dotfiles dir that is no registered
+/// project also writes the real file. "my zshrc" names both, so a classifier allow
+/// stands for the main case of floor file edits.
+#[test]
+fn the_real_file_behind_a_dotfile_link_takes_the_names_of_the_link() {
+    let engine = engine();
+    let (link, real) = ("/home/u/.zshrc", "/home/u/dotfiles/zsh/.zshrc");
+    let facts = CallFacts {
+        targets: vec![(link.into(), Some(TargetKind::File)), (real.into(), Some(TargetKind::File))],
+        links: vec![(link.into(), real.into())],
+        ..CallFacts::default()
+    };
+    let requirements = Requirements::none().with_write(link).with_write(real).with_facts(facts);
+    let decision = decide(&engine, requirements.clone());
+    let kinds: Vec<ExitKind> = decision.exits().map(|need| need.kind).collect();
+    assert_eq!(kinds, [ExitKind::Persistence, ExitKind::Write]);
+    let said = messages(&["add alias k=kubectl to my zshrc"]);
+    assert_eq!(route(&decision, &said, None), Some(Approver::Classifier));
+
+    let record = record_of(&engine, "write_file", &decision, &requirements, None, &said);
+    assert!(record.facts.targets.iter().all(|target| target.named_in_user_messages));
+    let judgement = allow(Risk::Low, UserAuthorization::Medium);
+    assert_eq!(effective(&record, &judgement, None), Verdict::Allow);
+
+    // Without the link fact, the real file is a write that no message names.
+    let alone = Requirements::none().with_write(link).with_write(real).with_facts(CallFacts {
+        targets: vec![(link.into(), Some(TargetKind::File)), (real.into(), Some(TargetKind::File))],
+        ..CallFacts::default()
+    });
+    let decision = decide(&engine, alone.clone());
+    let record = record_of(&engine, "write_file", &decision, &alone, None, &said);
+    assert_eq!(effective(&record, &judgement, None), Verdict::AskUser);
+}
+
 #[test]
 fn a_cache_delete_target_has_the_cache_class() {
     let engine = engine();

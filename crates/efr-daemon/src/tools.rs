@@ -289,7 +289,12 @@ impl DaemonToolbox {
                 rebuildable: &[],
                 turn_start: self.clock.now(),
             };
-            return Some(facts::collect(&input, sandbox.git(), &self.home).await);
+            let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
+            // NOTE: the real file behind a dotfile link is a second write; the link
+            // tells the engine to give it the names of the link (`~/.zshrc`).
+            facts.links =
+                declared.links.iter().filter(|(_, real)| writes.contains(real)).cloned().collect();
+            return Some(facts);
         };
         let engine = Arc::clone(&engine.borrow());
         let command_dir = declared.command_dir.as_deref();

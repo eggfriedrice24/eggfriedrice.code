@@ -182,7 +182,10 @@ program on `PATH`, a unit, a desktop entry and an agent or editor config have co
 names, so their bare name names nothing: write the path (`~/.local/bin/git`), the name
 with its suffix (`backup.service`, `tasks.json`) or, for a unit, "the backup unit". A
 path names a file only as whole parts of the path: `bin/git` does not name
-`src/bin/github.rs`. A link target takes the group and the names of its link. Before the write, efr copies the
+`src/bin/github.rs`. A link target takes the group and the names of its link. A
+`write_file`, `edit` or `apply_patch` of `~/.zshrc` that links into a dotfiles dir also
+writes the real file there; it takes the names of the link too, so "my zshrc" names
+both, also when the dotfiles dir is no registered project. Before the write, efr copies the
 file into its backup store (below). Only you approve a dir, a link into a `*.wants`
 dir, `crontab`, `systemctl --user enable`, linger, the git surface and
 `sandbox.protect`, and a floor file that no message of yours names.

@@ -177,6 +177,10 @@ pub struct CallFacts {
     /// Each program word of the line: the word, the path it resolves to, and whether
     /// that file changed in this turn.
     pub programs: Vec<(String, Option<PathBuf>, bool)>,
+    /// Each declared path that reaches another declared path through a symbolic link,
+    /// with that path: `(~/.zshrc, ~/dotfiles/zsh/.zshrc)`. A write of the real file
+    /// takes the names of its link, so "my zshrc" names both.
+    pub links: Vec<(PathBuf, PathBuf)>,
 }
 
 impl CallFacts {

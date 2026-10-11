@@ -852,6 +852,9 @@ async fn file_tool_write_has_target_kind_facts() {
     let app = home.join("p/app");
     std::fs::create_dir_all(app.join("sub")).unwrap();
     std::fs::write(app.join("main.rs"), "fn main() {}\n").unwrap();
+    std::fs::create_dir_all(home.join("dotfiles/zsh")).unwrap();
+    std::fs::write(home.join("dotfiles/zsh/.zshrc"), "# zsh\n").unwrap();
+    std::os::unix::fs::symlink(home.join("dotfiles/zsh/.zshrc"), home.join(".zshrc")).unwrap();
     let clock = TestClock::new();
     let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
     let dirs =
@@ -889,7 +892,13 @@ async fn file_tool_write_has_target_kind_facts() {
             .await;
     let dir = facts("write_file", json!({"path": "sub", "content": "x"}), true).await;
     let cautious = facts("write_file", json!({"path": "new.txt", "content": "x"}), false).await;
+    let zshrc = home.join(".zshrc").display().to_string();
+    let linked = facts("write_file", json!({"path": zshrc, "content": "x"}), true).await;
 
+    let linked = linked.unwrap();
+    let real = home.join("dotfiles/zsh/.zshrc");
+    assert_eq!(linked.links, [(home.join(".zshrc"), real.clone())], "the real file of the link");
+    assert_eq!(linked.target(&real), Some(Some(TargetKind::File)));
     let new_file = new_file.unwrap();
     assert_eq!(new_file.target(&app.join("new.txt")), Some(None), "a new file is missing");
     assert_eq!(new_file.target(&app), Some(Some(TargetKind::Dir)), "under a directory");

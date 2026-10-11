@@ -310,7 +310,10 @@ impl Engine {
                     scratch: scratch.as_deref(),
                     support: &self.support,
                 }),
-                None => exits::named_targets(tool_found, self.locations.home()),
+                None => exits::link_names(
+                    exits::named_targets(tool_found, self.locations.home()),
+                    requirements.facts.as_ref(),
+                ),
             };
             reasons.extend(found.into_iter().map(exit_reason));
         }
