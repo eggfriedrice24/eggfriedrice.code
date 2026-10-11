@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use efr_permissions::exits::Ecosystem;
 use efr_permissions::{
-    Approver, AutoSupport, CallFacts, Decision, Engine, Locations, Requirements, TargetKind,
+    Approver, AutoSupport, CallFacts, CoverAsk, Coverage, Decision, Engine, Locations,
+    Requirements, TargetKind,
 };
 use efr_protocol::{
     ActionFacts, ExitFacts, ExitKind, ExitRecord, ExitSource, HostFact, Judgement, Launch,
@@ -302,6 +303,61 @@ fn floor_edit_payload_over_limit_asks_user() {
         Path::new(APP),
     );
     assert_eq!(route(&decision, &said, found.as_ref()), Some(Approver::User));
+}
+
+/// Only an edit of a file that runs code later carries a payload, and so only it meets
+/// the 8 KiB rule. A large write outside the roots is copied first as well, but it goes
+/// to the classifier on its name alone.
+#[test]
+fn payload_only_for_persistence_edits() {
+    let engine = engine();
+    let (zshrc, notes) = ("/home/u/.zshrc", "/home/u/Documents/notes.md");
+    let home = Path::new(HOME);
+    let long = "x".repeat(20 * 1024);
+
+    let floor =
+        decide(&engine, Requirements::none().with_write(zshrc).with_facts(file_fact(zshrc)));
+    let input = json!({ "path": zshrc, "content": long });
+    let found = payload("write_file", &input, &floor, home, Path::new(APP)).unwrap();
+    assert!(!found.judgeable());
+
+    let plain = Requirements::none().with_write(notes).with_facts(file_fact(notes));
+    let plain = decide(&engine, plain);
+    let need = plain.exits().next().expect("a write outside the roots is an exit");
+    assert_eq!(need.kind, ExitKind::Write);
+    assert!(need.backup_before_write, "efrd copies it before the write: {need:?}");
+    let input = json!({ "path": notes, "content": long });
+    assert_eq!(payload("write_file", &input, &plain, home, Path::new(APP)), None);
+    let said = messages(&["put my notes in ~/Documents/notes.md"]);
+    assert_eq!(route(&plain, &said, None), Some(Approver::Classifier));
+}
+
+/// A masked file gets no copy, so the record tells the classifier that undo cannot
+/// bring it back; a file that efrd says it covers is covered.
+#[test]
+fn record_snapshot_covers_false_for_masked_write() {
+    let engine = engine();
+    let config = "/home/u/.aws/config";
+    let mut facts = file_fact(config);
+    facts.covered = vec![(CoverAsk::Home(config.into()), Coverage::Masked)];
+    let requirements = Requirements::none().with_write(config).with_facts(facts);
+    let decision = decide(&engine, requirements.clone());
+
+    let record = record_of(&engine, "write_file", &decision, &requirements, None, &[]);
+    assert_eq!(record.facts.snapshot_covers, Some(false));
+
+    let notes = "/home/u/Documents/notes.md";
+    let mut facts = file_fact(notes);
+    facts.covered = vec![(CoverAsk::Home(notes.into()), Coverage::Covered)];
+    let requirements = Requirements::none().with_write(notes).with_facts(facts);
+    let decision = decide(&engine, requirements.clone());
+    let record = record_of(&engine, "write_file", &decision, &requirements, None, &[]);
+    assert_eq!(record.facts.snapshot_covers, Some(true));
+
+    let requirements = shell("cargo test");
+    let decision = decide(&engine, requirements.clone());
+    let record = record_of(&engine, "shell", &decision, &requirements, None, &[]);
+    assert_eq!(record.facts.snapshot_covers, None, "nothing to copy");
 }
 
 /// A verdict of the classifier.

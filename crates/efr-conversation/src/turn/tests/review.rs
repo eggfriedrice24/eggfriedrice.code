@@ -705,3 +705,43 @@ async fn home_file_changed_recorded_after_call() {
     let at = events.iter().position(|e| *e == changed).expect("the change is recorded");
     assert!(matches!(events[at - 1], Event::ToolCallCompleted { .. }), "with the call's end");
 }
+
+/// From phase B a copy is in efr's home store, which has no path of its own: the event
+/// says whether undo can bring the file back, and names no backup.
+#[tokio::test]
+async fn home_file_changed_says_whether_the_home_store_covers_it() {
+    let judge = FakeJudge::answering(vec![allows(), allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let zshrc = setup.home().join(".zshrc");
+    let aws = setup.home().join(".aws/config");
+    let copied = |path: &Path, reason| crate::FileBackup {
+        path: path.to_path_buf(),
+        backup: PathBuf::new(),
+        floor: true,
+        real: None,
+        reason,
+    };
+    let outcome = crate::ToolOutcome::ok("written").with_backups(vec![
+        copied(&zshrc, None),
+        copied(&aws, Some(efr_protocol::UndoReason::Masked)),
+    ]);
+    let requirements = Requirements::none().with_write(&zshrc).with_facts(a_file(&zshrc));
+    let key = zshrc.to_str().unwrap().to_owned();
+    let script = Script::new(vec![("write_file", json!({ "path": zshrc, "content": "x" }))]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.declared.lock().unwrap().insert(key.clone(), requirements);
+    h.toolbox.outcomes.lock().unwrap().insert(key, outcome);
+    let sent = h.prompt("add an alias to my zshrc").await;
+    h.wait_end(sent.turn_id).await;
+
+    let changed: Vec<(PathBuf, bool, Option<PathBuf>)> = h
+        .events()
+        .await
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::HomeFileChanged { path, covered, backup, .. } => Some((path, covered, backup)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(changed, [(zshrc, true, None), (aws, false, None)]);
+}

@@ -198,10 +198,10 @@ pub(crate) fn route(
 /// The tools that change files in efrd, outside the sandbox.
 const FILE_TOOLS: [&str; 3] = ["write_file", "edit", "apply_patch"];
 
-/// What a file tool writes to a floor file, for the record (`ActionFacts::edit`): the
-/// new content of `write_file`, the old and the new text of `edit`, the parts of an
-/// `apply_patch` for the floor files. The model wrote it, so it can hold attacker text,
-/// as the line can.
+/// What a file tool writes to a file that runs code later (a `persistence` exit, such as
+/// `~/.zshrc`), for the record (`ActionFacts::edit`): the new content of `write_file`,
+/// the old and the new text of `edit`, the parts of an `apply_patch` for those files.
+/// The model wrote it, so it can hold attacker text, as the line can.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Payload {
     text: String,
@@ -235,9 +235,11 @@ impl Payload {
     }
 }
 
-/// The payload of a file tool call that writes a floor file, which efrd copies first
-/// ([`ExitNeed::backup_before_write`]); `None` for any other call. `home` and `cwd`
-/// resolve a path of a patch as the tool does.
+/// The payload of a file tool call that writes a file that runs code later (an exit of
+/// the kind [`ExitKind::Persistence`]); `None` for any other call. A plain write outside
+/// the roots, such as a large file in `~/Documents`, has none: efrd copies it before the
+/// write too ([`ExitNeed::backup_before_write`]), but the 8 KiB rule of the payload is
+/// for code only. `home` and `cwd` resolve a path of a patch as the tool does.
 pub(crate) fn payload(
     tool: &str,
     input: &Value,
@@ -250,7 +252,7 @@ pub(crate) fn payload(
     }
     let targets: Vec<&Path> = decision
         .exits()
-        .filter(|need| need.backup_before_write)
+        .filter(|need| need.kind == ExitKind::Persistence)
         .filter_map(|need| need.target.as_deref())
         .collect();
     if targets.is_empty() {
@@ -850,7 +852,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             desktop_read,
             repo_surface_changed_this_turn: turn.surface_changed,
             git_status: None,
-            snapshot_covers: None,
+            snapshot_covers: snapshot_covers(action.decision),
             sandbox_export_names: turn.export_names.clone(),
             previous_exits_this_turn: turn.previous.clone(),
             refusals_in_a_row: turn.refusals_in_a_row,
@@ -858,6 +860,16 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             denials_this_turn: turn.denials_this_turn,
         },
     }
+}
+
+/// Whether efr copies every file of the exits of `decision` before the call, so that
+/// `efr undo` can bring it back: false when one exit's copy is not covered, such as a
+/// masked file or a directory over the limits. `None` when no exit has a file to copy.
+fn snapshot_covers(decision: &Decision) -> Option<bool> {
+    decision
+        .exits()
+        .filter_map(|need| need.covered)
+        .fold(None, |all, covered| Some(all.unwrap_or(true) && covered))
 }
 
 /// True when `decision` has a `desktop_ipc` exit and the classifier may judge each

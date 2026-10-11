@@ -793,3 +793,90 @@ async fn the_turn_report_comes_before_the_end_of_the_turn() {
     ));
     h.finish();
 }
+
+/// What the toolbox says at the end of a turn: what `efr undo` can take back.
+fn undo_info() -> efr_protocol::TurnUndoInfo {
+    efr_protocol::TurnUndoInfo {
+        undoable: true,
+        roots: vec![efr_protocol::RootFiles { shown: "app".to_owned(), files: 1 }],
+        home_files: 2,
+        not_covered: vec!["target/ (ignored, large)".to_owned()],
+        not_covered_more: 0,
+    }
+}
+
+fn snapshot(phase: efr_protocol::SnapshotPhase, commit: &str) -> crate::SnapshotRecord {
+    crate::SnapshotRecord {
+        root: "app".to_owned(),
+        phase,
+        commit: commit.to_owned(),
+        files: 12,
+        skipped: 1,
+        ms: 9,
+    }
+}
+
+#[tokio::test]
+async fn the_end_of_a_turn_carries_its_snapshots_and_what_undo_takes_back() {
+    let (setup, state) = auto("edit it");
+    let input = json!({ "command": "edit-files" });
+    let records = one_call(&setup, &state, "edit it", &input, "edited", false, "Edited.");
+    let mut h = setup.start(records).await;
+    *h.toolbox.turn_changes.lock().unwrap() = (Some(edited()), 0);
+    *h.toolbox.turn_undo.lock().unwrap() = Some(undo_info());
+    *h.toolbox.snapshots.lock().unwrap() = vec![
+        snapshot(efr_protocol::SnapshotPhase::Pre, "aaaa"),
+        snapshot(efr_protocol::SnapshotPhase::Post, "bbbb"),
+    ];
+
+    let sent = h.prompt("edit it").await;
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(
+        matches!(&end, Event::TurnCompleted { undo: Some(undo), .. } if *undo == undo_info()),
+        "{end:?}"
+    );
+    let events = h.events().await;
+    let taken: Vec<(usize, String)> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(at, e)| match e {
+            Event::SnapshotTaken {
+                turn_id, commit, root, files: 12, skipped: 1, ms: 9, ..
+            } if *turn_id == sent.turn_id && root == "app" => Some((at, commit.clone())),
+            _ => None,
+        })
+        .collect();
+    let completed = events.iter().position(|e| matches!(e, Event::TurnCompleted { .. })).unwrap();
+    assert_eq!(
+        taken,
+        [(completed - 2, "aaaa".to_owned()), (completed - 1, "bbbb".to_owned())],
+        "once per phase, right before the end"
+    );
+    h.finish();
+}
+
+#[tokio::test]
+async fn a_failed_turn_carries_its_changes_and_what_undo_takes_back() {
+    let (setup, state) = auto("edit it");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "edit it")])),
+        crate::testing::failure(json!({ "kind": "rate_limited", "retry_after_ms": 11_000 })),
+    ];
+    let mut h = setup.start(records).await;
+    *h.toolbox.turn_changes.lock().unwrap() = (Some(edited()), 0);
+    *h.toolbox.turn_undo.lock().unwrap() = Some(undo_info());
+
+    let sent = h.prompt("edit it").await;
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(
+        matches!(
+            &end,
+            Event::TurnFailed { changes: Some(changes), undo: Some(undo), .. }
+                if *changes == edited() && *undo == undo_info()
+        ),
+        "{end:?}"
+    );
+    h.finish();
+}

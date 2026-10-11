@@ -90,8 +90,8 @@ use crate::scratch::Scratch;
 use crate::settings::{self, Place};
 use crate::steer::Steering;
 use crate::{
-    CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, OutputSink,
-    ToolCall, ToolOutcome, Toolbox,
+    CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, FileBackup,
+    OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
 };
 
 /// The longest output tail in a `tool_call_output_updated` event, in bytes.
@@ -636,9 +636,11 @@ impl Turn {
         }
         self.shared.misses.store(self.misses, Ordering::Release);
         // NOTE: asked for every ending, so the toolbox keeps the last snapshot of an
-        // interrupted or failed turn too; only a completed turn reports the changes.
+        // interrupted or failed turn too, and every ending reports what changed and
+        // what `efr undo` can take back.
         let watch = Stopwatch::start();
-        let changes = self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await.changes;
+        let TurnChanges { changes, undo, snapshots } =
+            self.shared.deps.toolbox.turn_changes(conversation_id, turn_id).await;
         tracing::debug!(phase = "turn_changes", elapsed_ms = %watch, "phase=turn_changes elapsed_ms={}", watch);
         let usage = self.usage.map(|sum| {
             let mut usage = efr_protocol::Usage::from(sum);
@@ -667,19 +669,32 @@ impl Turn {
                 context,
                 changes,
                 stop: self.final_stop,
-                undo: None,
+                undo,
             },
             Ending::Failed(error) => {
-                Event::TurnFailed { turn_id, error, usage, context, changes: None, undo: None }
+                Event::TurnFailed { turn_id, error, usage, context, changes, undo }
             }
             Ending::Interrupted => {
-                Event::TurnInterrupted { turn_id, usage, context, changes: None, undo: None }
+                Event::TurnInterrupted { turn_id, usage, context, changes, undo }
             }
         };
         let key = self.model_key();
         let mut batch = Batch::new();
-        // NOTE: the report comes before the terminal event, so a view that stops at
-        // the end of the turn has shown it.
+        // NOTE: the snapshots and the report come before the terminal event, so a view
+        // that stops at the end of the turn has shown them. A snapshot from before the
+        // turn's first write is sent here too: a file tool takes it without a word.
+        for snapshot in snapshots {
+            let event = Event::SnapshotTaken {
+                turn_id,
+                root: snapshot.root,
+                phase: snapshot.phase,
+                commit: snapshot.commit,
+                files: snapshot.files,
+                skipped: snapshot.skipped,
+                ms: snapshot.ms,
+            };
+            batch = batch.event(conversation_id, event);
+        }
         let files = self.shared.deps.toolbox.turn_report(conversation_id, turn_id).await;
         if !files.is_empty() {
             batch = batch.event(conversation_id, Event::TurnSurfaceReport { turn_id, files });
@@ -915,19 +930,13 @@ impl Turn {
                 changes: outcome.changes.take(),
                 diff: outcome.diff.take(),
             }];
-            // NOTE: names only: the copy stays in efr's backup store, and the line at the
-            // end of the turn names it.
-            events.extend(std::mem::take(&mut outcome.backups).into_iter().map(|backup| {
-                Event::HomeFileChanged {
-                    turn_id,
-                    call_id,
-                    path: backup.path,
-                    floor: backup.floor,
-                    covered: false,
-                    backup: Some(backup.backup),
-                    real: backup.real,
-                }
-            }));
+            // NOTE: names only: the copy stays in efr's store, and the line at the end of
+            // the turn names the file.
+            events.extend(
+                std::mem::take(&mut outcome.backups)
+                    .into_iter()
+                    .map(|backup| home_file_changed(turn_id, call_id, backup)),
+            );
             let mut quarantined = Vec::new();
             if let Some(summary) = &outcome.sandbox {
                 self.exits.ran(summary);
@@ -1594,6 +1603,24 @@ fn tool_calls(message: &Message) -> Vec<PendingCall> {
             _ => None,
         })
         .collect()
+}
+
+/// The `home_file_changed` event of a file outside the roots that the call `call_id`
+/// changed. A copy in efr's phase A backup store keeps its path, and undo cannot bring
+/// the file back from it. From phase B the copy is in efr's home store, which has no
+/// path of its own (an empty `backup`): the file is covered unless the toolbox names
+/// why efr could not copy it.
+fn home_file_changed(turn_id: TurnId, call_id: CallId, backup: FileBackup) -> Event {
+    let phase_a = !backup.backup.as_os_str().is_empty();
+    Event::HomeFileChanged {
+        turn_id,
+        call_id,
+        path: backup.path,
+        floor: backup.floor,
+        covered: !phase_a && backup.reason.is_none(),
+        backup: phase_a.then_some(backup.backup),
+        real: backup.real,
+    }
 }
 
 /// What the model reads when the user says no to a call of `tool` that is no exit.

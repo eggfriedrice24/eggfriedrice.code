@@ -23,7 +23,8 @@ use efr_protocol::{
     LateSteer, Mode, ModelInfo, ModelSource, Needs, NetworkMode, Origin, OverriddenSettings,
     ProjectId, PromptSend, PromptSendResult, PromptWithdraw, QuestionId, ReportedFile,
     SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId,
-    TurnInterrupt, TurnSettings, TurnSteer, TurnUndoResult, UndoRefused, WithdrawTarget,
+    TurnInterrupt, TurnSettings, TurnSteer, TurnUndoInfo, TurnUndoResult, UndoRefused,
+    WithdrawTarget,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, ProviderEvent, ProviderId,
@@ -50,7 +51,8 @@ use crate::scratch;
 use crate::{
     CacheDeleteOutcome, CallContext, ConversationActor, ConversationConfig, ConversationDeps,
     ConversationDraft, ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink,
-    ScopeResolver, ToolCall, ToolOutcome, Toolbox, TurnChanges, UndoRequest, draft_channel,
+    ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome, Toolbox, TurnChanges, UndoRequest,
+    draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -105,6 +107,10 @@ pub(crate) struct FakeToolbox {
     pub(crate) report: Mutex<Vec<ReportedFile>>,
     /// What `turn_changes` answers, and how often it was asked.
     pub(crate) turn_changes: Mutex<(Option<FileChanges>, usize)>,
+    /// What `turn_changes` says that `efr undo` can take back.
+    pub(crate) turn_undo: Mutex<Option<TurnUndoInfo>>,
+    /// The snapshots that `turn_changes` reports.
+    pub(crate) snapshots: Mutex<Vec<SnapshotRecord>>,
     /// When set, `turn_changes` signals [`end_reached`](Self::end_reached) and waits
     /// for [`end_released`](Self::end_released): the turn has decided how it ends and
     /// has not ended yet.
@@ -461,7 +467,11 @@ impl Toolbox for FakeToolbox {
         }
         let mut answer = self.turn_changes.lock().unwrap_or_else(PoisonError::into_inner);
         answer.1 += 1;
-        TurnChanges { changes: answer.0.clone(), ..TurnChanges::default() }
+        TurnChanges {
+            changes: answer.0.clone(),
+            undo: self.turn_undo.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            snapshots: self.snapshots.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+        }
     }
 
     async fn undo(&self, request: UndoRequest) -> Result<TurnUndoResult, UndoRefused> {
