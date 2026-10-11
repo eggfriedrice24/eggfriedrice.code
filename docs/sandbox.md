@@ -197,7 +197,7 @@ and the reviewer can read what it installs:
 
 | Form | The reviewer decides when | efr copies first |
 |---|---|---|
-| `systemctl --user enable`, `reenable`, `preset`, `mask`, `add-wants`, `add-requires` of a unit by name | a message names the unit, and its unit file was in a unit dir before the turn, outside every write root, unchanged in the turn and at most 8 KiB; its text goes to the reviewer | the whole `~/.config/systemd/user` within the dir limits, and each link that the unit's `[Install]` section names |
+| `systemctl --user enable`, `reenable`, `preset`, `mask`, `add-wants`, `add-requires` of a unit by name | a message names the unit, and its unit file was in a unit dir before the turn, outside every write root, unchanged in the turn (also a link to it) and at most 8 KiB; its text and the text of each unit of its `Also=` go to the reviewer | the whole `~/.config/systemd/user` within the dir limits, and each link that the unit's `[Install]` section names |
 | `ln -s <src>` into a `*.wants` or `*.requires` dir; `cp <src>` into a floor dir such as `~/.config/autostart/` | a message names the target, and `<src>` holds the rule of a unit file; its text goes to the reviewer | the target, or the dir with what it holds |
 | `crontab <file>`, `crontab -` fed a literal by `echo` or `printf`, `crontab -r` | a message names cron or the crontab; the file holds the rule of a unit file | the text of the crontab (`crontab -l`) |
 | `loginctl enable-linger`, `loginctl disable-linger` | a message names linger | the linger setting |

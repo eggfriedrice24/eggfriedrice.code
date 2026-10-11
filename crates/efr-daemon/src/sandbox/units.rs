@@ -153,6 +153,12 @@ pub(crate) fn coverage(name: &str, home: &Path, masks: &[PathBuf], limits: HomeL
     }
 }
 
+/// The units of the `Also=` lines of the unit `name`, which `enable` links too; `None`
+/// when efrd cannot read its `[Install]` section whole. It blocks.
+pub(crate) fn also_units(name: &str, home: &Path) -> Option<Vec<String>> {
+    Some(install_of(name, home)?.also)
+}
+
 /// The `[Install]` section of a unit file.
 #[derive(Debug, Default)]
 struct Install {

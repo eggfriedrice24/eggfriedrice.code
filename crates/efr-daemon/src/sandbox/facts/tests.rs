@@ -153,3 +153,49 @@ async fn sources_of_persistence_forms_give_their_text_and_never_a_mask() {
     let facts = collect(&input, &git_runner, &Home::new(&home).unwrap()).await;
     assert!(!facts.sources[0].changed);
 }
+
+#[tokio::test]
+async fn a_unit_source_reads_its_also_units_and_the_links_on_the_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().canonicalize().unwrap();
+    let units = home.join(".config/systemd/user");
+    std::fs::create_dir_all(&units).unwrap();
+    std::fs::create_dir_all(home.join("dotfiles")).unwrap();
+    let main = "[Install]\nWantedBy=default.target\nAlso=helper.service\n";
+    std::fs::write(home.join("dotfiles/agent.service"), main).unwrap();
+    std::os::unix::fs::symlink(home.join("dotfiles/agent.service"), units.join("agent.service"))
+        .unwrap();
+    std::fs::write(units.join("helper.service"), "[Service]\nExecStart=/bin/true\n").unwrap();
+    std::fs::write(units.join("lonely.service"), "[Install]\nAlso=gone.service\n").unwrap();
+    let mut request = FactRequest::default();
+    request.sources =
+        vec![Source::Unit("agent.service".to_owned()), Source::Unit("lonely.service".to_owned())];
+    let later = Timestamp::now().checked_add(jiff::SignedDuration::from_hours(1)).unwrap();
+    let input = FactInput {
+        request: &request,
+        writes: &[],
+        command_dir: None,
+        shell_path: "",
+        rebuildable: &[],
+        turn_start: later,
+        masks: &[],
+    };
+    let git_runner = Git::new(TestClock::new().shared()).isolated();
+    let facts = collect(&input, &git_runner, &Home::new(&home).unwrap()).await;
+
+    let agent = &facts.sources[0];
+    assert!(!agent.changed, "{agent:?}");
+    let text = agent.text.as_deref().unwrap();
+    assert!(text.starts_with(main) && text.contains("ExecStart=/bin/true"), "{text}");
+    assert!(text.contains("# Also=helper.service"), "{text}");
+    assert!(facts.sources[1].changed, "an Also= unit that efrd cannot read keeps the user");
+
+    // A link made in this turn names an old file: only the link's own times tell.
+    let link = units.join("agent.service");
+    assert!(!super::link_changed_since(&link, later));
+    assert!(super::link_changed_since(&link, Timestamp::UNIX_EPOCH));
+    assert!(!super::link_changed_since(
+        &home.join("dotfiles/agent.service"),
+        Timestamp::UNIX_EPOCH
+    ));
+}

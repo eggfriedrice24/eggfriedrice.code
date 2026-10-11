@@ -184,7 +184,9 @@ fn changed_since(path: &Path, since: Timestamp) -> bool {
 }
 
 /// What efrd finds for one source of a persistence form: the real file, whether it
-/// changed at or after `since`, and its text, never for a path at or below `masks`.
+/// changed at or after `since`, and its text, never for a path at or below `masks`. A
+/// unit's text holds the text of each unit of its `Also=` too, which `enable` links as
+/// well, and a change of one of them counts as a change of the unit.
 fn source_fact(source: &Source, home: &Path, masks: &[PathBuf], since: Timestamp) -> SourceFact {
     let mut fact = SourceFact { source: source.clone(), path: None, changed: true, text: None };
     let named = match source {
@@ -192,18 +194,79 @@ fn source_fact(source: &Source, home: &Path, masks: &[PathBuf], since: Timestamp
         Source::Unit(name) => super::units::unit_file(name, home),
     };
     let Some(named) = named else { return fact };
-    let Ok(real) = std::fs::canonicalize(&named) else { return fact };
-    if crate::home::masked(&named, masks) || crate::home::masked(&real, masks) {
-        return fact;
-    }
-    let Ok(meta) = std::fs::metadata(&real) else { return fact };
-    if !meta.is_file() {
-        return fact;
-    }
-    fact.changed = changed_since(&real, since) || status_changed_since(&meta, since);
-    fact.text = read_text(&real);
+    let Some((real, changed, text)) = read_source(&named, masks, since) else { return fact };
+    fact.changed = changed;
+    fact.text = text;
     fact.path = Some(real);
+    if let Source::Unit(name) = source {
+        let Some(also) = super::units::also_units(name, home) else {
+            fact.changed = true;
+            return fact;
+        };
+        for other in also {
+            let found = super::units::unit_file(&other, home)
+                .and_then(|named| read_source(&named, masks, since));
+            let Some((path, changed, text)) = found else {
+                fact.changed = true;
+                return fact;
+            };
+            fact.changed |= changed;
+            fact.text = match (fact.text.take(), text) {
+                (Some(mine), Some(theirs)) => {
+                    Some(format!("{mine}\n# Also={other} ({})\n{theirs}", path.display()))
+                }
+                _ => None,
+            };
+        }
+    }
     fact
+}
+
+/// The real file of the source `named`, whether it or a link on the way to it changed
+/// at or after `since`, and its text; `None` for a mask, a path that is no regular
+/// file, or one that efrd cannot read.
+fn read_source(
+    named: &Path,
+    masks: &[PathBuf],
+    since: Timestamp,
+) -> Option<(PathBuf, bool, Option<String>)> {
+    let real = std::fs::canonicalize(named).ok()?;
+    if crate::home::masked(named, masks) || crate::home::masked(&real, masks) {
+        return None;
+    }
+    let meta = std::fs::metadata(&real).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let changed = changed_since(&real, since)
+        || status_changed_since(&meta, since)
+        || link_changed_since(named, since);
+    Some((real.clone(), changed, read_text(&real)))
+}
+
+/// True when `path` or a link on the way from it to its file was made or changed at or
+/// after `since`: a link in a unit dir that a call made in this turn names an old
+/// file, and only the link's own times tell. `true` when efrd cannot tell.
+fn link_changed_since(path: &Path, since: Timestamp) -> bool {
+    /// As many links as the kernel follows.
+    const MAX_LINKS: usize = 40;
+    let mut at = path.to_path_buf();
+    for _ in 0..MAX_LINKS {
+        let Ok(meta) = std::fs::symlink_metadata(&at) else { return true };
+        if !meta.file_type().is_symlink() {
+            return false;
+        }
+        let modified = meta.modified().ok().and_then(|time| Timestamp::try_from(time).ok());
+        if modified.is_none_or(|modified| modified >= since) || status_changed_since(&meta, since) {
+            return true;
+        }
+        let Ok(target) = std::fs::read_link(&at) else { return true };
+        at = match at.parent() {
+            Some(parent) => parent.join(target),
+            None => target,
+        };
+    }
+    true
 }
 
 /// True when the status of the file of `meta` changed at or after `since`: a copy that
