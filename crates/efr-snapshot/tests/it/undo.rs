@@ -473,6 +473,33 @@ async fn discarded_call_snapshot_keeps_its_root_complete() {
 }
 
 #[tokio::test]
+async fn file_tool_write_survives_a_stop() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "old\n");
+    world.snapshots.before_write(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    write(&dir.join("a.txt"), "by the tool\n");
+    world.snapshots.after_write(turn(1), vec![dir.join("a.txt")], limits()).await;
+    // efrd stops before the turn's end.
+    let restarted = store(world.base.path(), &world.clock);
+
+    let plain = restarted
+        .plan_undo(conversation(1), turn(1), &[], false, &undo_id(1), limits())
+        .await
+        .unwrap();
+    assert_eq!(entry(&plain, "a.txt").action, PlanAction::Skip(UndoReason::NoRecordAfterTurn));
+    let forced = restarted
+        .plan_undo(conversation(1), turn(1), &[], true, &undo_id(1), limits())
+        .await
+        .unwrap();
+    assert_eq!(entry(&forced, "a.txt").expect, Expect::Blob(blob_id(b"by the tool\n")));
+    restarted.capture_before_undo(&forced, limits()).await.unwrap();
+    apply_root(&restarted, &forced.roots[0]).await;
+    restarted.finish_undo(&forced, limits()).await.unwrap();
+    assert_eq!(read(&dir.join("a.txt")), "old\n");
+}
+
+#[tokio::test]
 async fn plan_undo_dry_run_writes_no_ref() {
     let world = World::new();
     let home = world.home();

@@ -321,9 +321,10 @@ impl Snapshots {
     }
 
     /// Adds the files that a file tool of the turn `turn` wrote (absolute paths) to the
-    /// turn's `touched` paths of the roots that hold them. The next snapshot's
-    /// `last` and the turn's `post` carry them.
-    pub async fn after_write(&self, turn: TurnId, written: Vec<PathBuf>) {
+    /// turn's `touched` paths of the roots that hold them, and moves the turn's `last`
+    /// ref of each such root to a snapshot taken now. So an efrd stop before the turn's
+    /// end keeps the write and its path, and `efr undo --force` takes it back.
+    pub async fn after_write(&self, turn: TurnId, written: Vec<PathBuf>, limits: Limits) {
         let first = written.first().cloned().unwrap_or_default();
         let resolved = self
             .runner()
@@ -336,7 +337,14 @@ impl Snapshots {
                 return;
             }
         };
-        self.touch_paths(turn, &resolved);
+        let roots = self.touch_paths(turn, &resolved);
+        futures::future::join_all(roots.into_iter().map(|root| async move {
+            match self.snap(&root, &limits, false).await {
+                Ok(snap) => self.touch(turn, &root, &[], &snap.tree).await,
+                Err(_) => self.mark_failed(turn, &root),
+            }
+        }))
+        .await;
     }
 
     pub(crate) fn lock_turns(&self) -> MutexGuard<'_, HashMap<TurnId, TurnRecord>> {

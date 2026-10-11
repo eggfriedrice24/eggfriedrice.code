@@ -274,10 +274,11 @@ impl Snapshots {
     }
 
     /// Adds the absolute `paths` to the turn's `touched` paths of each kept root that
-    /// holds them.
-    pub(crate) fn touch_paths(&self, turn: TurnId, paths: &[PathBuf]) {
+    /// holds them, and returns those roots.
+    pub(crate) fn touch_paths(&self, turn: TurnId, paths: &[PathBuf]) -> Vec<PathBuf> {
         let mut turns = self.lock_turns();
-        let Some(record) = turns.get_mut(&turn) else { return };
+        let Some(record) = turns.get_mut(&turn) else { return Vec::new() };
+        let mut touched_roots = Vec::new();
         for known in &mut record.roots {
             let State::Kept(kept) = &mut known.state else { continue };
             for path in paths {
@@ -286,6 +287,9 @@ impl Snapshots {
                     Some("") => {}
                     Some(relative) => {
                         kept.touched.insert(relative.to_owned());
+                        if !touched_roots.iter().any(|root| root == known.root.path()) {
+                            touched_roots.push(known.root.path().to_path_buf());
+                        }
                     }
                     // NOTE: a snapshot never holds a name that is not UTF-8, so undo
                     // cannot act on it either way.
@@ -293,6 +297,7 @@ impl Snapshots {
                 }
             }
         }
+        touched_roots
     }
 
     /// Ends the turn `turn`: snapshots each of its roots a last time (`post`), keeps

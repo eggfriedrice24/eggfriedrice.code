@@ -354,7 +354,11 @@ async fn after_call_moves_last_and_records_touched() {
     assert_eq!(last["touched"], serde_json::json!(["a.txt", "c.txt", "e.txt"]));
     // A file tool writes d.txt.
     write(&dir.join("d.txt"), "tool\n");
-    world.snapshots.after_write(turn(1), vec![dir.join("d.txt")]).await;
+    world.snapshots.after_write(turn(1), vec![dir.join("d.txt")], limits()).await;
+    let last = meta_of(&store, &home, &turn_ref(1, "last")).await;
+    assert_eq!(last["touched"], serde_json::json!(["a.txt", "c.txt", "d.txt", "e.txt"]));
+    let tree = blobs_of(&store, &home, &turn_ref(1, "last")).await;
+    assert_ne!(tree["d.txt"], pre["d.txt"], "last holds the file tool's write");
 
     let end = world.snapshots.turn_end(turn(1), limits()).await;
     let changed: Vec<&str> =

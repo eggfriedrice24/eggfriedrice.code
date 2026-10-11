@@ -275,12 +275,14 @@ impl CallSnapshots {
     }
 
     /// After a file tool of `call` wrote `written` (absolute paths): they join the
-    /// turn's paths that undo takes back.
+    /// turn's paths that undo takes back, and the turn's `last` ref of their roots moves
+    /// to a snapshot taken now. The caller holds the plan lock of the roots.
     pub(crate) async fn after_write(&self, call: &CallContext, written: Vec<PathBuf>) {
-        if written.is_empty() || self.limits().is_none() {
+        let Some(limits) = self.limits() else { return };
+        if written.is_empty() {
             return;
         }
-        self.snapshots.after_write(call.turn_id, written).await;
+        self.snapshots.after_write(call.turn_id, written, limits).await;
     }
 
     /// The end of the turn `turn_id`: its last snapshots, its refs and its changes, the
