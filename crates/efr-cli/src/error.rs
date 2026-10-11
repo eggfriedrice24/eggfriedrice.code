@@ -162,6 +162,10 @@ pub(crate) enum CliError {
     #[error("there is no conversation yet, so there is no context to compact")]
     NothingToCompact,
 
+    /// `efr away` found no conversation, so there is none to be away from.
+    #[error("there is no conversation yet, so there is none to be away from")]
+    NobodyToBeAwayFrom,
+
     /// The daemon has no diff of the turn that `efr diff` asked for: the conversation
     /// has no turn, or efr took no snapshot of it.
     #[error("there is no diff of {what}: {reason}")]

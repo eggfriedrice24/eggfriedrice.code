@@ -13,6 +13,7 @@ Commands:
   history   List recent conversations, or show the events of one
   diff      Show what the last turn changed in the files of its project and $SCRATCH
   compact   Make room in the model's context of this terminal's conversation now
+  away      Tell efr that you are away from this terminal's conversation
   settings  Show the mode, model and effort that a prompt would use, with where each comes from
   models    List the models that a prompt may name
   login     Log in to a model provider: the OpenAI subscription in a browser, or an API key
@@ -27,4 +28,4 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 
-In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>` and `,compact [focus]`, and `,mode`, `,model` and `,effort` set the terminal's turn settings.
+In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings.

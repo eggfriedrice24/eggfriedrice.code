@@ -54,6 +54,9 @@ pub(crate) struct Settings {
     pub(crate) turn: TurnDefaults,
     /// `model.provider` of a valid file, which the login hints name.
     pub(crate) provider: Option<String>,
+    /// The whole `[presence]` table, for the wait that `efr away` names. The defaults
+    /// when the file cannot be used.
+    pub(crate) presence: efr_config::PresenceSettings,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
 }
@@ -291,6 +294,7 @@ impl Settings {
         };
         settings.provider = Some(file.model.provider.clone());
         settings.render = file.render.clone();
+        settings.presence = file.presence.clone();
         let render = &file.render;
         let name = match render.theme.as_deref() {
             Some(AUTO_THEME) if settings.background == Some(Background::Light) => {

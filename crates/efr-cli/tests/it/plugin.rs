@@ -1245,6 +1245,35 @@ fn e2e_a_bare_setting_shows_its_line_in_the_terminals_words() {
 }
 
 #[test]
+fn e2e_away_runs_efr_away() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // It takes no words: a word is a usage error, and nothing runs.
+    let (_, status) = run_with(
+        &home,
+        &[],
+        "_efr_turn_mode=auto\n_efr_preexec 'make test'\nfalse; _efr_precmd\n,away\n,away now || efr status $?",
+    );
+    assert_eq!(status, Some(0));
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["away"], vec!["status", "2"]]);
+    let away = &calls[0];
+    assert_eq!((away.prompt.as_deref(), away.context.as_deref()), (None, None));
+    assert_eq!(away.last_command(), None);
+    assert_eq!(away.settings(), [None, None, None], "it hands over no turn settings");
+
+    // A typo of it stays on the line with a hint; one edit from it is a prompt.
+    let home = Home::new();
+    let screen = type_lines(&home, &[",aawy", "\x15", ",sway gaps are too wide"]);
+    assert!(screen.contains("efr: ,aawy is no command; did you mean ,away?"), "{screen}");
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("sway gaps are too wide"));
+}
+
+#[test]
 fn e2e_a_setting_takes_one_value() {
     if !zsh_tests_enabled() {
         return;

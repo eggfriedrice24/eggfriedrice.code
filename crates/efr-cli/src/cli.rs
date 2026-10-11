@@ -9,6 +9,7 @@
 //! - `efr send --steer` (without `EFR_LAST_COMMAND`)
 //! - `efr new`
 //! - `efr compact` (`,compact`, with the focus in `EFR_PROMPT`)
+//! - `efr away` (`,away`, with no prompt and no context)
 //!
 //! The flags `--context-json` and `--last-command` and the prompt words do the same by
 //! hand, and each wins over its variable.
@@ -33,7 +34,7 @@ use efr_protocol::{ConversationId, Mode, TurnId};
     version,
     about = "Talk to the efr daemon: send prompts, follow replies, check status",
     long_about = None,
-    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>` and `,compact [focus]`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
+    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -58,6 +59,11 @@ pub(crate) enum Command {
     /// efrd writes a summary of the earlier turns and keeps the newest ones word for
     /// word. It starts no turn.
     Compact(CompactArgs),
+    /// Tell efr that you are away from this terminal's conversation.
+    ///
+    /// A question then waits only a short time (presence.away_wait_secs), and its call
+    /// does not run. Your next input in the conversation ends this.
+    Away(AwayArgs),
     /// Show the mode, model and effort that a prompt would use, with where each comes
     /// from.
     Settings(TurnSettingsArgs),
@@ -272,6 +278,15 @@ pub(crate) struct CompactArgs {
     /// joined with spaces [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "FOCUS")]
     pub(crate) focus: Vec<String>,
+}
+
+/// The arguments of `efr away`.
+#[derive(Debug, Args)]
+pub(crate) struct AwayArgs {
+    /// The conversation: its id, or the start of it. Without it, this terminal's
+    /// conversation, else the newest of all.
+    #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
 }
 
 /// The providers `efr login` knows.

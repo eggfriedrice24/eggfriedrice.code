@@ -161,6 +161,18 @@ fn compact_takes_a_conversation_and_the_words_of_a_focus() {
 }
 
 #[test]
+fn away_takes_a_conversation_and_nothing_else() {
+    // The plugin's call is bare.
+    let Command::Away(args) = command(&["away"]) else { panic!("not away") };
+    assert_eq!(args.conversation, None);
+    let Command::Away(args) = command(&["away", "--conversation", "019a9b1c"]) else {
+        panic!("not away");
+    };
+    assert_eq!(args.conversation.as_deref(), Some("019a9b1c"));
+    assert_eq!(parse_error(&["away", "now"]), ErrorKind::UnknownArgument);
+}
+
+#[test]
 fn login_takes_a_known_provider() {
     assert!(matches!(command(&["login", "openai"]), Command::Login(LoginCommand::Openai)));
     assert!(matches!(
