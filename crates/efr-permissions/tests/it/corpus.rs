@@ -1,14 +1,15 @@
 //! The command and attack corpus through the engine in the `auto` mode: every line
-//! gets the phase A result of its `pa` column (`tests/fixtures/auto-corpus.toml`). The
-//! `p1` column keeps the phase 1 result of spec Appendix A.
+//! gets the phase A result of its `pa` column and, on a machine with undo, the phase B
+//! result of its `pb` column (`tests/fixtures/auto-corpus.toml`). The `p1` column keeps
+//! the phase 1 result of spec Appendix A.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
-    Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, Decision, DecisionInput, Effect,
-    Engine, Locations, Policy, Requirements, SettingsChange, TargetKind,
+    Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, CoverAsk, Coverage, Decision,
+    DecisionInput, Effect, Engine, Locations, Policy, Requirements, SettingsChange, TargetKind,
 };
 use efr_protocol::{ExitKind, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
@@ -35,8 +36,13 @@ struct Line {
     #[serde(default)]
     engine: Option<String>,
     pa: String,
+    pb: String,
     #[serde(default)]
     note: Option<String>,
+    #[serde(default)]
+    covered: Vec<String>,
+    #[serde(default)]
+    left_out: Vec<String>,
     exits: Vec<ExitKind>,
     #[serde(default)]
     reads: Vec<PathBuf>,
@@ -73,8 +79,19 @@ fn id(n: u8) -> ProjectId {
     format!("0192f0c1-7a00-7000-8000-0000000000{n:02}").parse().unwrap()
 }
 
-/// The machine of the fixture's header.
+/// The machine of the fixture's header, with the home store (phase A).
 fn engine() -> Engine {
+    machine(AutoSupport { floor_backup: true, ..AutoSupport::default() })
+}
+
+/// The machine of the fixture's header with snapshots and undo (phase B), and
+/// `sandbox.ask_destructive = "unless_undoable"`.
+fn undo_engine() -> Engine {
+    machine(AutoSupport { floor_backup: true, undo: true, ..AutoSupport::default() })
+}
+
+/// The machine of the fixture's header, whose sandbox supports `support`.
+fn machine(support: AutoSupport) -> Engine {
     let mut locations = Locations::new(HOME)
         .unwrap()
         .with_sealed_root("/home/u/.local/share/efr/secrets")
@@ -104,11 +121,26 @@ fn engine() -> Engine {
     for root in ["/home/u/p/app", "/home/u/p/project-x"] {
         locations = locations.with_envelope_root(root).unwrap();
     }
-    Engine::with_rules(locations, Policy::empty())
-        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() })
+    Engine::with_rules(locations, Policy::empty()).with_support(support)
 }
 
-/// What the call of `line` declares, with the facts the daemon would collect.
+/// One coverage answer of the fixture, such as `path:/home/u/p/efr/a.log`.
+fn ask(form: &str) -> CoverAsk {
+    let (kind, path) = form.split_once(':').unwrap_or_else(|| panic!("no kind in {form:?}"));
+    let path = PathBuf::from(path);
+    match kind {
+        "path" => CoverAsk::Path(path),
+        "tracked" => CoverAsk::Tracked(path),
+        "untracked" => CoverAsk::Untracked(path),
+        "refs" => CoverAsk::Refs(path),
+        "stash" => CoverAsk::Stash(path),
+        "home" => CoverAsk::Home(path),
+        other => panic!("unknown kind {other:?} in {form:?}"),
+    }
+}
+
+/// What the call of `line` declares, with the facts the daemon would collect: in phase
+/// B also its answers to the coverage asks.
 fn requirements(line: &Line) -> Requirements {
     if let Some(summary) = &line.settings {
         return Requirements::none().with_settings_change(SettingsChange::new(summary, true));
@@ -152,13 +184,53 @@ fn requirements(line: &Line) -> Requirements {
             (word.clone(), resolved, false)
         })
         .collect();
+    let covered = line
+        .covered
+        .iter()
+        .map(|form| (ask(form), Coverage::Covered))
+        .chain(line.left_out.iter().map(|form| (ask(form), Coverage::LeftOut)))
+        .collect();
     requirements.with_facts(CallFacts {
         targets,
         tracked_counts,
         programs,
         links: Vec::new(),
-        covered: Vec::new(),
+        covered,
     })
+}
+
+/// The lines of the corpus whose result on `engine` is not the one of `column`, each
+/// with what it found. A line that runs with no exit (`R` or `C`) must have none; any
+/// other line must have the exits of the fixture.
+fn mismatches(engine: &Engine, column: impl Fn(&Line) -> &str) -> Vec<String> {
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let mut failures = Vec::new();
+    for line in &corpus.line {
+        let expected = column(line);
+        let input = DecisionInput {
+            requirements: requirements(line),
+            scope: Scope::Project(id(1)),
+            origin: Origin::Shell,
+            mode: Mode::Auto,
+            conversation_policy: ConversationPolicy::new(SCRATCH),
+        };
+        let decision = engine.decide(&input);
+        let found = verdict(&decision, expected);
+        let exits: BTreeSet<ExitKind> = decision.exits().map(|need| need.kind).collect();
+        let wanted: BTreeSet<ExitKind> = if matches!(expected, "R" | "C") && expected != line.pa {
+            BTreeSet::new()
+        } else {
+            line.exits.iter().copied().collect()
+        };
+        let text = line.line.as_deref().or(line.settings.as_deref()).unwrap_or_default();
+        if found != expected || exits != wanted {
+            failures.push(format!(
+                "line {} {text:?}: expected {expected} with {wanted:?}, found {found} with {exits:?}",
+                line.n
+            ));
+        }
+    }
+    failures
 }
 
 /// The result of `decision` in the words of the `pa` column: `R` for a line that runs
@@ -221,30 +293,22 @@ fn rank(result: &str) -> u8 {
 
 #[test]
 fn every_line_has_the_phase_a_result() {
+    assert_eq!(mismatches(&engine(), |line| &line.pa), Vec::<String>::new());
+}
+
+#[test]
+fn every_line_has_the_phase_b_result() {
+    assert_eq!(mismatches(&undo_engine(), |line| &line.pb), Vec::<String>::new());
+}
+
+#[test]
+fn ask_destructive_always_keeps_every_destructive_exit() {
+    // `sandbox.ask_destructive = "always"` (or `undo.enabled = false`) keeps the phase
+    // A route of every line, whatever the snapshot covers.
+    assert_eq!(mismatches(&engine(), |line| &line.pa), Vec::<String>::new());
     let corpus: Corpus = toml::from_str(CORPUS).unwrap();
-    let engine = engine();
-    let mut failures = Vec::new();
-    for line in &corpus.line {
-        let input = DecisionInput {
-            requirements: requirements(line),
-            scope: Scope::Project(id(1)),
-            origin: Origin::Shell,
-            mode: Mode::Auto,
-            conversation_policy: ConversationPolicy::new(SCRATCH),
-        };
-        let decision = engine.decide(&input);
-        let found = verdict(&decision, &line.pa);
-        let exits: BTreeSet<ExitKind> = decision.exits().map(|need| need.kind).collect();
-        let wanted: BTreeSet<ExitKind> = line.exits.iter().copied().collect();
-        let text = line.line.as_deref().or(line.settings.as_deref()).unwrap_or_default();
-        if found != line.pa || exits != wanted {
-            failures.push(format!(
-                "line {} {text:?}: expected {} with {wanted:?}, found {found} with {exits:?}",
-                line.n, line.pa
-            ));
-        }
-    }
-    assert_eq!(failures, Vec::<String>::new());
+    let covered = corpus.line.iter().filter(|line| !line.covered.is_empty()).count();
+    assert!(covered >= 3, "the corpus has covered lines: {covered}");
 }
 
 #[test]
@@ -254,6 +318,10 @@ fn the_fixture_holds_all_110_lines_and_only_stricter_overrides() {
     assert_eq!(numbers, (1..=110).collect::<BTreeSet<u32>>());
     for line in &corpus.line {
         assert!(line.line.is_some() != line.settings.is_some(), "line {}", line.n);
+        // NOTE: the named persistence of phase B changes these rows later.
+        if (84..=89).contains(&line.n) {
+            assert_eq!(line.pb, line.pa, "line {}", line.n);
+        }
         if let Some(engine) = &line.engine {
             assert!(
                 rank(engine) > rank(&line.p1),
@@ -276,6 +344,22 @@ fn routine_lines_stay_routine_in_phase_a() {
         let df = line.line.as_deref().is_some_and(|text| text.starts_with("df "));
         if matches!(line.p1.as_str(), "R" | "C") && !df {
             assert_eq!(line.pa, line.p1, "line {} {:?}", line.n, line.line);
+        }
+    }
+}
+
+#[test]
+fn routine_lines_stay_routine_in_phase_b() {
+    // A line that runs with no exit in phase A makes no exit in phase B either; phase B
+    // only takes exits away, where the snapshot covers what a line destroys.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        if matches!(line.pa.as_str(), "R" | "C") {
+            assert_eq!(line.pb, line.pa, "line {} {:?}", line.n, line.line);
+        }
+        if line.pb != line.pa {
+            assert_eq!(line.pb, "R", "line {} {:?}", line.n, line.line);
+            assert_eq!(line.pa, "K(destructive)", "line {} {:?}", line.n, line.line);
         }
     }
 }

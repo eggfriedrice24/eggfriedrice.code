@@ -1,13 +1,14 @@
 //! The routine lines of the command corpus through a turn in `auto`: none of them asks
-//! the classifier (efr's auto spec, section 16.3). The corpus and its machine are those
-//! of `efr-permissions/tests/fixtures/auto-corpus.toml`.
+//! the classifier (efr's auto spec, sections 16.3 and 16.4). The corpus and its machine
+//! are those of `efr-permissions/tests/fixtures/auto-corpus.toml`, with undo (phase B):
+//! a destructive line that the snapshot covers is routine too.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
-    AutoSupport, CallFacts, Engine, Locations, Policy, Requirements, TargetKind,
+    AutoSupport, CallFacts, CoverAsk, Coverage, Engine, Locations, Policy, Requirements, TargetKind,
 };
 use efr_protocol::{Mode, ProjectId, Scope};
 use efr_scope::{Basis, Derivation};
@@ -34,7 +35,9 @@ struct Corpus {
 struct Line {
     #[serde(default)]
     line: Option<String>,
-    pa: String,
+    pb: String,
+    #[serde(default)]
+    covered: Vec<String>,
     #[serde(default)]
     reads: Vec<PathBuf>,
     #[serde(default)]
@@ -96,8 +99,26 @@ fn engine() -> Engine {
     for root in ["/home/u/p/app", "/home/u/p/project-x"] {
         locations = locations.with_envelope_root(root).unwrap();
     }
-    Engine::with_rules(locations, Policy::empty())
-        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() })
+    Engine::with_rules(locations, Policy::empty()).with_support(AutoSupport {
+        floor_backup: true,
+        undo: true,
+        ..AutoSupport::default()
+    })
+}
+
+/// One coverage answer of the fixture, such as `path:/home/u/p/efr/a.log`.
+fn ask(form: &str) -> CoverAsk {
+    let (kind, path) = form.split_once(':').unwrap();
+    let path = PathBuf::from(path);
+    match kind {
+        "path" => CoverAsk::Path(path),
+        "tracked" => CoverAsk::Tracked(path),
+        "untracked" => CoverAsk::Untracked(path),
+        "refs" => CoverAsk::Refs(path),
+        "stash" => CoverAsk::Stash(path),
+        "home" => CoverAsk::Home(path),
+        other => panic!("unknown kind {other:?} in {form:?}"),
+    }
 }
 
 /// What the shell tool declares for `line`, with the facts that the daemon collects.
@@ -140,12 +161,13 @@ fn requirements(line: &Line, text: &str) -> Requirements {
             (word.clone(), resolved, false)
         })
         .collect();
+    let covered = line.covered.iter().map(|form| (ask(form), Coverage::Covered)).collect();
     requirements.with_facts(CallFacts {
         targets,
         tracked_counts,
         programs,
         links: Vec::new(),
-        covered: Vec::new(),
+        covered,
     })
 }
 
@@ -155,7 +177,7 @@ async fn routine_corpus_lines_make_no_judge_call() {
     let routine: Vec<(String, Requirements)> = corpus
         .line
         .iter()
-        .filter(|line| line.pa == "R")
+        .filter(|line| line.pb == "R")
         .filter_map(|line| {
             let text = line.line.clone()?;
             let requirements = requirements(line, &text);
