@@ -92,6 +92,12 @@ fn desktop_grant_wire_shape() {
 }
 
 #[test]
+fn every_desktop_has_a_name_for_a_person() {
+    let names: Vec<&str> = DesktopKind::ALL.iter().map(|kind| kind.name()).collect();
+    assert_eq!(names, ["Wayland", "X11", "Hyprland", "sway", "i3", "niri"]);
+}
+
+#[test]
 fn every_exit_kind_reads_back_from_its_wire_name() {
     for kind in ExitKind::ALL {
         let value = serde_json::to_value(kind).unwrap();

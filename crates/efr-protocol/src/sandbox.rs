@@ -185,6 +185,19 @@ impl DesktopKind {
             DesktopKind::Niri => "NIRI_SOCKET",
         }
     }
+
+    /// The desktop's name for a person, such as `Hyprland` or `sway`, as its project
+    /// writes it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            DesktopKind::Wayland => "Wayland",
+            DesktopKind::X11 => "X11",
+            DesktopKind::Hyprland => "Hyprland",
+            DesktopKind::Sway => "sway",
+            DesktopKind::I3 => "i3",
+            DesktopKind::Niri => "niri",
+        }
+    }
 }
 
 /// How the sandbox treats the tool caches (`~/.cargo`, `~/.cache` and the others of
