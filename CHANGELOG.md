@@ -12,11 +12,41 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
+- In `auto`, a reviewer model now decides most actions that leave the sandbox, so you
+  see far fewer questions. It reads your messages and the facts that efr collects, and
+  never the output of a command. It allows an action that fits what you asked, refuses
+  an action that nothing you said relates to, and gives an unsure case to you. While it
+  works, the status row shows `reviewing: <command>`. Its answer shows as one line,
+  `reviewer allowed: ...` or `reviewer refused: ...`. The reviewer is the small model
+  of your provider (`gpt-6-luna` for OpenAI, `claude-haiku-5-5` for Claude). When that
+  model is missing or refuses, the turn's model reviews, and then you decide. Each
+  review is one more request to your provider; with an API key, you pay for it. The new
+  `[classifier]` keys turn it off (`enabled = false`), and set the model, the effort
+  and the timeout of each step (20 seconds).
+- The reviewer only reviews. You still decide every `sudo`, a delete of your home
+  directory, `/`, a system directory or more than one project, a read of a masked
+  file, a write to a synced folder, a desktop command that types or starts programs,
+  and a change of the settings. An upload, such as `git push`, and a delete above the
+  project go to the reviewer only when a message of yours names them.
 - Before efr writes a file that runs code later, such as `~/.zshrc`, a Hyprland
   config or a unit file, it copies the file to `~/.local/share/efr/file-backups/`. Copy
   the backup back to undo the change. When efr cannot make the copy, it does not change
   the file. efr keeps the backups of the last `snapshot.keep_turns` turns and for at
   most `snapshot.max_age_days` days.
+- In `auto`, efr can change a file that runs code later, such as `~/.zshrc` or a
+  Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
+  gap in my hyprland config". The reviewer decides, and it sees the change that efr
+  will write. Enabling a unit, `crontab`, linger and a whole directory still ask you.
+- efr counts you away after 10 minutes without input in the conversation
+  (`presence.away_after_minutes`). While you are away, a question waits 5 minutes
+  (`presence.away_wait_secs`). Then the call does not run, and the model goes on
+  without it and names it in its answer. Your next input ends the away state.
+- When a command in `auto` deletes files in a tool cache, such as `~/.cache` or
+  `~/.cargo`, the reviewer decides whether efr deletes them in your real cache too. So
+  "free some disk space" frees real space. efr never deletes below `~/.cargo/bin`, a
+  cargo config or a credentials file. The call shows the freed size.
+- After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
+  rest of the turn, and efr asks you instead. When you are away, the turn stops.
 
 ### Changed
 
@@ -34,6 +64,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - The shell tool tells the model to try what you asked first, and to call again with
   the narrowest `needs` after an access error. The note after a failed sandboxed
   command no longer lists what the sandbox cannot do.
+- The auto rule of the system prompt is short: the model does what you ask, tries
+  first, and lets efr decide. Older prompts of a conversation keep the old rule.
 - `efr sandbox explain` says that the reviewer decides a named floor file.
 
 ## [0.0.3] - 2026-10-09
