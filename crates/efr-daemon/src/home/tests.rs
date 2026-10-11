@@ -266,3 +266,36 @@ fn old_undo_trash_is_collected() {
     assert!(!trash.join(&old).exists() && trash.join(&new).exists());
     assert!(trash.join("kept").exists(), "a name that is not an undo stays");
 }
+
+#[tokio::test]
+async fn home_copy_names_an_uncovered_file_of_a_walked_dir_only_when_it_changed() {
+    let (_temp, root) = root();
+    let home = root.join("home");
+    let docs = home.join("Documents");
+    write(&docs.join("notes.md"), "notes\n");
+    let big = docs.join("video.mkv");
+    std::fs::File::create(&big).unwrap().set_len(20 * 1024 * 1024).unwrap();
+    let targets = [file(&docs.join("notes.md")), dir(&docs)];
+    let store = store(&root);
+    let (conversation, turn) = ids();
+
+    let before = prepare(&targets, &[], LIMITS).unwrap();
+    let copy = store.home_before(conversation, turn, Reader::new(&before)).await.unwrap();
+    write(&docs.join("notes.md"), "changed\n");
+    let after_copy = after(&before, &[], LIMITS);
+    let deltas = store.home_after(&copy, Reader::new(&after_copy)).await.unwrap();
+    let backups = changed(&deltas, &before, &after_copy);
+
+    let paths: Vec<&Path> = backups.iter().map(|backup| backup.path.as_path()).collect();
+    assert_eq!(paths, [docs.join("notes.md").as_path()], "the untouched large file stays quiet");
+
+    // The call grows the large file: no copy covers it, and the turn says so.
+    let copy = store.home_before(conversation, turn, Reader::new(&after_copy)).await.unwrap();
+    std::fs::OpenOptions::new().append(true).open(&big).unwrap().set_len(21 * 1024 * 1024).unwrap();
+    let grown = after(&after_copy, &[], LIMITS);
+    let deltas = store.home_after(&copy, Reader::new(&grown)).await.unwrap();
+    let backups = changed(&deltas, &after_copy, &grown);
+    let reasons: Vec<(&Path, Option<UndoReason>)> =
+        backups.iter().map(|backup| (backup.path.as_path(), backup.reason)).collect();
+    assert_eq!(reasons, [(big.as_path(), Some(UndoReason::OverLimit))]);
+}

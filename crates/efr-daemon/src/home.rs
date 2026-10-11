@@ -124,6 +124,20 @@ pub(crate) struct Prepared {
     pub(crate) not_covered: Vec<(PathBuf, UndoReason)>,
     /// The bytes of each state entry (`@crontab`, `@linger`), which no file holds.
     pub(crate) states: Vec<(PathBuf, Vec<u8>)>,
+    /// What `lstat` said of each path of a walked directory that no copy covers
+    /// (masked, over the size cap, special), so a copy after the call names it only
+    /// when it changed.
+    pub(crate) stamps: Vec<(PathBuf, Stamp)>,
+}
+
+/// What `lstat` says of a path that no copy holds: its inode, size, change and status
+/// times. Its bytes are never read.
+pub(crate) type Stamp = (u64, u64, i64, i64, i64, i64);
+
+/// The [`Stamp`] of `meta`.
+fn stamp_of(meta: &fs::Metadata) -> Stamp {
+    use std::os::unix::fs::MetadataExt as _;
+    (meta.ino(), meta.size(), meta.mtime(), meta.mtime_nsec(), meta.ctime(), meta.ctime_nsec())
 }
 
 impl Prepared {
@@ -351,7 +365,12 @@ fn dir_entries(
             ));
         }
         Walk::Within(found) => {
-            for (path, state) in found {
+            for (path, state, stamp) in found {
+                if let Some(stamp) = stamp
+                    && !prepared.stamps.iter().any(|(known, _)| *known == path)
+                {
+                    prepared.stamps.push((path.clone(), stamp));
+                }
                 prepared.push(entry(&path, state, floor));
             }
             if record && !prepared.walked.contains(&dir.to_path_buf()) {
@@ -365,7 +384,8 @@ fn dir_entries(
 /// What a bounded walk of a directory found.
 enum Walk {
     /// Each file and link below it, with its state; a masked path is "not covered".
-    Within(Vec<(PathBuf, HomeState)>),
+    /// A path that no copy covers has the [`Stamp`] of its `lstat`.
+    Within(Vec<(PathBuf, HomeState, Option<Stamp>)>),
     /// More files or bytes than the limits.
     Over,
     /// A directory could not be read.
@@ -385,7 +405,9 @@ fn walk(dir: &Path, masks: &[PathBuf], limits: HomeLimits) -> Walk {
         for name in names {
             let path = at.join(name);
             if masked(&path, masks) {
-                found.push((path, HomeState::NotCovered(UndoReason::Masked)));
+                // NOTE: `lstat` only, so a change shows; a mask's bytes are never read.
+                let stamp = fs::symlink_metadata(&path).ok().map(|meta| stamp_of(&meta));
+                found.push((path, HomeState::NotCovered(UndoReason::Masked), stamp));
                 continue;
             }
             let meta = match fs::symlink_metadata(&path) {
@@ -422,7 +444,8 @@ fn walk(dir: &Path, masks: &[PathBuf], limits: HomeLimits) -> Walk {
             } else {
                 HomeState::NotCovered(UndoReason::Unknown)
             };
-            found.push((path, state));
+            let stamp = matches!(state, HomeState::NotCovered(_)).then(|| stamp_of(&meta));
+            found.push((path, state, stamp));
         }
     }
     Walk::Within(found)
@@ -499,7 +522,9 @@ impl HomeReader for Reader {
 }
 
 /// The changed paths of a copy as the turn reports them, each with the path that the
-/// user knows (`~/.zshrc` for the real file behind it) and why no copy covers it.
+/// user knows (`~/.zshrc` for the real file behind it) and why no copy covers it. A
+/// path of a walked directory that no copy covers counts only when its `lstat` changed,
+/// so an untouched large file there is not named at each copy.
 /// The `backup` path is empty: the copy is in the home store, which has no path of its
 /// own for one file (efr-conversation's `FileBackup`).
 pub(crate) fn changed(
@@ -516,9 +541,17 @@ pub(crate) fn changed(
             .map(|(_, reason)| *reason)
             .unwrap_or(UndoReason::Unknown)
     };
+    let stamp = |prepared: &Prepared, path: &Path| {
+        prepared.stamps.iter().find(|(known, _)| known == path).map(|(_, stamp)| *stamp)
+    };
+    let unchanged = |delta: &HomeDelta| {
+        !delta.covered
+            && stamp(before, &delta.path).is_some()
+            && stamp(before, &delta.path) == stamp(after, &delta.path)
+    };
     deltas
         .iter()
-        .filter(|delta| delta.changed)
+        .filter(|delta| delta.changed && !unchanged(delta))
         .map(|delta| {
             let link =
                 before.shown.iter().find(|(real, _)| *real == delta.path).map(|(_, link)| link);
