@@ -4,8 +4,8 @@ use efr_protocol::{
     ApprovalDecision, BlockReason, Blocked, CallId, Draft, DraftPart, EffectiveSettings, ErrorBody,
     ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, Grant, InputWait,
     Launch, Mode, ModeFallback, Origin, OverriddenSettings, PathClassName, Presence,
-    PresenceSource, QuestionId, ReportedFile, SandboxSummary, Scope, Seq, SurfaceChange,
-    TargetFact, TurnId, Usage,
+    PresenceSource, QuestionId, ReportedFile, SandboxSummary, Scope, Seq, StopReason,
+    SurfaceChange, TargetFact, TurnId, TurnStop, Usage,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::{SignedDuration, Timestamp};
@@ -2214,6 +2214,45 @@ fn without_the_summary_a_turn_ends_as_before() {
         5_000,
     );
     assert!(frame.contains("interrupted\\e[0m"), "{frame}");
+}
+
+/// A completed turn that records why the model stopped, `stop`.
+fn stopped(reason: StopReason, empty: bool) -> Event {
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: Some(TurnStop { reason, empty }),
+    }
+}
+
+/// The live run (case 9.1): the model sent nothing, and the view said only `done in
+/// 3.0s`. The line shows also without the summary.
+#[test]
+fn a_completed_turn_without_text_says_the_model_stopped_with_no_answer() {
+    for look in [ALL, Look::default()] {
+        let frame = ended(look, stopped(StopReason::Refusal, true), 3_000);
+        // NOTE: the view is 40 columns wide, so the line is cut there.
+        assert!(frame.contains("the model stopped with no answer (stop:"), "{frame}");
+    }
+    let frame = ended(ALL, stopped(StopReason::EndTurn, true), 3_000);
+    assert!(frame.contains("the model stopped with no answer"), "{frame}");
+    assert!(frame.contains("done in 3.0s"), "{frame}");
+    let line = crate::format::turn_stop(&TurnStop { reason: StopReason::Refusal, empty: true });
+    assert_eq!(line, "the model stopped with no answer (stop: refusal)");
+}
+
+#[test]
+fn a_completed_turn_cut_at_the_output_limit_says_so() {
+    let frame = ended(ALL, stopped(StopReason::MaxTokens, false), 3_000);
+    assert!(frame.contains("the answer reached the output limit"), "{frame}");
+    let line = |reason| crate::format::turn_stop(&TurnStop { reason, empty: false });
+    assert_eq!(
+        line(StopReason::MaxTokens),
+        "the answer reached the output limit (stop: max_tokens)"
+    );
+    assert_eq!(line(StopReason::Refusal), "the model refused (stop: refusal)");
 }
 
 #[test]

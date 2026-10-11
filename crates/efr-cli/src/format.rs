@@ -14,7 +14,7 @@ use std::time::Duration;
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, CatalogOrigin, CatalogStatus,
     ConfigFileError, ContextUse, ConversationStatus, ConversationsListResult, EffectiveSettings,
-    Origin, Usage,
+    Origin, StopReason, TurnStop, Usage,
 };
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
@@ -900,6 +900,23 @@ fn cache_part(usage: &Usage) -> String {
     let cached = usage.cached_input_tokens.min(usage.input_tokens);
     let percent = u128::from(cached) * 100 / u128::from(usage.input_tokens);
     format!(", cache {percent}%")
+}
+
+/// Why the model of a completed turn stopped, when the turn records it: the model gave
+/// no answer, or its answer stopped before its end, such as `the answer reached the
+/// output limit (stop: max_tokens)`. Without this line, a turn that ends with no text
+/// shows only `done`.
+pub(crate) fn turn_stop(stop: &TurnStop) -> String {
+    let reason = stop.reason.as_str();
+    let what = match stop.reason {
+        _ if stop.empty => "the model stopped with no answer",
+        StopReason::MaxTokens => "the answer reached the output limit",
+        StopReason::Refusal => "the model refused",
+        StopReason::ContentFilter => "the provider stopped the answer for its content",
+        StopReason::PauseTurn => "the provider paused the turn",
+        _ => "the model stopped",
+    };
+    format!("{what} (stop: {reason})")
 }
 
 /// The end of an interrupted turn, such as `interrupted after 12s, ctx 43% (89k/207k)`;

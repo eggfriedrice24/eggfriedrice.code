@@ -160,6 +160,12 @@ Replies:
   `context` (`interrupted after 12s, ctx 43% (89k/206k)`); a failed one has no such
   line. `render.turn_summary = false` leaves the line out. Piped output keeps its notes
   as they were.
+- When `turn_completed` carries `stop`, a muted line before the end says why the model
+  stopped: `the model stopped with no answer (stop: refusal)` when the last model call
+  gave no text and no tool call, else `the answer reached the output limit (stop:
+  max_tokens)`, `the model refused (stop: refusal)` and so on (`format::turn_stop`).
+  It shows also with `render.turn_summary = false`, so a turn with no answer never ends
+  in silence. `efr history` shows the same line.
 - Context. A turn shows how full the model's context is with a gauge, `ctx N%`
   (`format/context.rs`). N is the tokens as a percent of the limit, rounded down: the
   limit is the point where efrd compacts (`[compaction] auto_at` percent of the

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use efr_protocol::Event;
-use efr_provider::{CompletionBuilder, Message, ProviderError, ProviderEvent, Request};
+use efr_provider::{CompletionBuilder, Message, ProviderError, ProviderEvent, Request, StopReason};
 use efr_stdx::time::Stopwatch;
 use futures::StreamExt as _;
 use tracing::Instrument as _;
@@ -119,23 +119,32 @@ impl Turn {
         // NOTE: dropping the stream closes the provider's connection, so an interrupted
         // answer stops costing tokens before the interrupt is recorded as done.
         drop(stream);
-        tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, "phase=model_answer elapsed_ms={}", watch);
         let partial = builder.text();
-        let failure = match streamed {
-            Streamed::Ended => match builder.finish() {
-                Ok(completion) => {
-                    if let Some(usage) = completion.usage {
-                        self.usage = Some(self.usage.unwrap_or_default() + usage);
-                        self.call_usage = Some(usage);
-                    }
-                    self.last_call = completion.usage;
-                    self.complete_text(completion.message.text()).await?;
-                    return Ok(Response::Done(completion.message));
+        let outcome = match streamed {
+            Streamed::Ended => builder.finish().map_err(Response::Failed),
+            Streamed::Failed(error) => Err(Response::Failed(error)),
+            Streamed::Interrupted => Err(Response::Interrupted),
+        };
+        // NOTE: after the outcome, so the line says why the model stopped; the line keeps
+        // its start for a reader that parses the `phase` lines.
+        let stop = match &outcome {
+            Ok(completion) => stop_name(completion.stop_reason),
+            Err(Response::Interrupted) => "interrupted",
+            Err(_) => "error",
+        };
+        tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, stop_reason = stop, "phase=model_answer elapsed_ms={} stop_reason={}", watch, stop);
+        let failure = match outcome {
+            Ok(completion) => {
+                if let Some(usage) = completion.usage {
+                    self.usage = Some(self.usage.unwrap_or_default() + usage);
+                    self.call_usage = Some(usage);
                 }
-                Err(error) => Response::Failed(error),
-            },
-            Streamed::Failed(error) => Response::Failed(error),
-            Streamed::Interrupted => Response::Interrupted,
+                self.last_call = completion.usage;
+                self.answer_stop = Some(completion.stop_reason);
+                self.complete_text(completion.message.text()).await?;
+                return Ok(Response::Done(completion.message));
+            }
+            Err(failure) => failure,
         };
         if !partial.is_empty() {
             self.complete_text(partial.clone()).await?;
@@ -175,5 +184,18 @@ impl Turn {
         self.assistant_index += 1;
         self.streamed = 0;
         Ok(())
+    }
+}
+
+/// The provider's stop reason as the log names it, such as `max_tokens`.
+fn stop_name(stop: StopReason) -> &'static str {
+    match stop {
+        StopReason::EndTurn => "end_turn",
+        StopReason::ToolUse => "tool_use",
+        StopReason::MaxTokens => "max_tokens",
+        StopReason::ContentFilter => "content_filter",
+        StopReason::Refusal => "refusal",
+        StopReason::PauseTurn => "pause_turn",
+        _ => "other",
     }
 }

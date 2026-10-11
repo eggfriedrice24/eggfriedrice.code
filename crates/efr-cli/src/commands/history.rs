@@ -488,6 +488,9 @@ impl<'a> Transcript<'a> {
                     self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
                 }
             }
+            Event::TurnCompleted { stop: Some(stop), .. } => {
+                self.note(&format::turn_stop(stop));
+            }
             Event::TurnInterrupted { .. } => self.note("interrupted"),
             Event::TurnFailed { error, .. } => {
                 self.note(&format!("failed: {}", format::one_line(&error.message)));

@@ -53,10 +53,10 @@ use efr_permissions::{
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
     ExitKind, InputWait, JudgeKind, Launch, Mode, Origin, Presence, QuestionId, Scope,
-    ShellContext, SurfaceChange, TurnId, TurnSettings, Verdict,
+    ShellContext, StopReason as WireStop, SurfaceChange, TurnId, TurnSettings, TurnStop, Verdict,
 };
 use efr_provider::{
-    ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, TokenUsage,
+    ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, StopReason, TokenUsage,
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Stopwatch;
@@ -328,6 +328,11 @@ struct Turn {
     stop: Option<ErrorBody>,
     /// The earlier turns that the newest request carried; see [`TurnEnd::carried`].
     carried: Option<HashSet<TurnId>>,
+    /// Why the newest model call that completed stopped, as its provider said.
+    answer_stop: Option<StopReason>,
+    /// Why the model stopped, for `turn_completed`, when its final answer had no text
+    /// and no call or stopped before its end ([`turn_stop`]).
+    final_stop: Option<TurnStop>,
 }
 
 /// What the check point found about one call before the call's start is recorded.
@@ -415,6 +420,8 @@ impl Turn {
             exits: TurnExits::default(),
             stop: None,
             carried: None,
+            answer_stop: None,
+            final_stop: None,
         }
     }
 
@@ -573,12 +580,14 @@ impl Turn {
                 Response::Interrupted => return Ok(Ending::Interrupted),
             };
             let calls = tool_calls(&message);
+            let stop = turn_stop(self.answer_stop, &message);
             self.push(&mut window, message);
             self.count_call();
             if calls.is_empty() {
                 if !self.control.steering.close_if_idle().await {
                     continue;
                 }
+                self.final_stop = stop;
                 return Ok(Ending::Completed);
             }
             let mut results = Vec::with_capacity(calls.len());
@@ -644,7 +653,7 @@ impl Turn {
         let context = tokens.map(|tokens| self.limits().gauge(tokens));
         let event = match ending {
             Ending::Completed => {
-                Event::TurnCompleted { turn_id, usage, context, changes, stop: None }
+                Event::TurnCompleted { turn_id, usage, context, changes, stop: self.final_stop }
             }
             Ending::Failed(error) => Event::TurnFailed { turn_id, error, usage, context },
             Ending::Interrupted => Event::TurnInterrupted { turn_id, usage, context },
@@ -1533,6 +1542,23 @@ struct PendingCall {
     input: Value,
     /// True when the model wrote the input as text for a freeform tool.
     freeform: bool,
+}
+
+/// Why the model stopped, for `turn_completed`, when the final answer `message`, which
+/// stopped for `stop`, has no text and no tool call, or stopped for another reason than
+/// the end of its answer, such as the output limit or a refusal. `None` for a normal
+/// answer. A `pause_turn` ends the turn too: efr does not send the answer back to
+/// continue it.
+fn turn_stop(stop: Option<StopReason>, message: &Message) -> Option<TurnStop> {
+    let empty = message.text().trim().is_empty() && tool_calls(message).is_empty();
+    let reason = match stop {
+        Some(StopReason::MaxTokens) => WireStop::MaxTokens,
+        Some(StopReason::Refusal) => WireStop::Refusal,
+        Some(StopReason::ContentFilter) => WireStop::ContentFilter,
+        Some(StopReason::PauseTurn) => WireStop::PauseTurn,
+        _ => WireStop::EndTurn,
+    };
+    (empty || reason != WireStop::EndTurn).then_some(TurnStop { reason, empty })
 }
 
 /// The tool calls of an assistant message, in order.

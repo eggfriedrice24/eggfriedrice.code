@@ -245,7 +245,9 @@ that came before it, in the same batch when that output was still held back), an
 answered with `tool_call_completed`, until the model answers without a tool call. A
 change that the tool reports just before it returns is still recorded before the
 completion. The turn ends with
-`turn_completed` (with the summed usage), `turn_failed` (a provider error mapped to an
+`turn_completed` (with the summed usage, and `stop` when the last model call gave no
+text and no tool call or stopped for another reason than `end_turn`, such as
+`max_tokens` or `refusal`; a `pause_turn` is not continued), `turn_failed` (a provider error mapped to an
 `ErrorBody`: 401, missing credentials and a token source that cannot produce a token
 to `unauthorized`, rate limits to `busy` with
 `retry_after_ms`, an overloaded provider to `busy` without it, an unknown model to `invalid` with the `model`, the rest to

@@ -1,15 +1,15 @@
-//! How a turn ends for the next one: the marker after a turn that did not complete,
-//! so the next turn does not answer a cancelled prompt.
+//! How a turn ends: the marker after a turn that did not complete, so the next turn
+//! does not answer a cancelled prompt, and why the model stopped when it gave no answer.
 
-use efr_protocol::{Event, Origin};
-use efr_provider::Message;
+use efr_protocol::{Event, Origin, StopReason as WireStop, TurnStop};
+use efr_provider::{Message, ProviderEvent, StopReason};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::history::INTERRUPTED_MARKER;
 use crate::testing::{
-    Harness, Setup, answer, expect_request, request, result_message, text_answer, tool_answer,
-    tool_message,
+    Harness, Setup, answer, done, expect_request, request, result_message, text_answer,
+    tool_answer, tool_message,
 };
 use crate::turn::STOPPED;
 
@@ -122,4 +122,47 @@ async fn a_steer_left_unread_follows_the_marker_as_the_next_prompt() {
 
     assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
     h.finish();
+}
+
+/// Runs one turn whose model answers with `events`, and returns its `stop`.
+async fn stop_of(events: &[ProviderEvent]) -> Option<TurnStop> {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "read README.md and do the setup");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "read README.md and do the setup")])),
+        answer(events),
+    ];
+    let mut h = setup.start(records).await;
+    let sent = h.prompt("read README.md and do the setup").await;
+    let end = h.wait_end(sent.turn_id).await;
+    h.finish();
+    match end {
+        Event::TurnCompleted { stop, .. } => stop,
+        other => panic!("the turn completes, got {other:?}"),
+    }
+}
+
+/// The live run (case 9.1): the model answered with nothing, and the user saw only
+/// `done in 3.0s`.
+#[tokio::test]
+async fn a_final_call_with_no_text_and_no_call_records_the_stop_on_turn_completed() {
+    let stop = stop_of(&[done(StopReason::Refusal, None)]).await;
+    assert_eq!(stop, Some(TurnStop { reason: WireStop::Refusal, empty: true }));
+    let stop = stop_of(&[done(StopReason::EndTurn, None)]).await;
+    assert_eq!(stop, Some(TurnStop { reason: WireStop::EndTurn, empty: true }));
+}
+
+#[tokio::test]
+async fn a_final_answer_cut_at_max_tokens_records_the_stop() {
+    let stop = stop_of(&[
+        ProviderEvent::TextDelta { text: "The setup has three st".to_owned() },
+        done(StopReason::MaxTokens, None),
+    ])
+    .await;
+    assert_eq!(stop, Some(TurnStop { reason: WireStop::MaxTokens, empty: false }));
+}
+
+#[tokio::test]
+async fn an_end_turn_answer_with_text_records_no_stop() {
+    assert_eq!(stop_of(&text_answer("Done.")).await, None);
 }

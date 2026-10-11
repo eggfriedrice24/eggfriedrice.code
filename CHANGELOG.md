@@ -57,6 +57,8 @@ into the GitHub release notes, and it stops when the section is missing.
   while you were away, the space that a cache delete freed and the backup of each
   changed file. `efr history --verbose` adds the model of each review, the step of its
   chain, its time and the models that it skipped.
+- A turn that ends with no answer says why, such as `the model stopped with no answer
+  (stop: refusal)`. An answer that reached the output limit says so too.
 
 ### Changed
 

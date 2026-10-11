@@ -1508,7 +1508,10 @@ impl TurnView {
                 let rows = |options: &RenderOptions| gauge::compacted_rows(compaction, options);
                 self.rendered_after(before, rows, size)
             }
-            Event::TurnCompleted { usage, changes, context, .. } => {
+            Event::TurnCompleted { usage, changes, context, stop, .. } => {
+                // NOTE: why the model stopped shows also without the end's line: a turn
+                // with no answer must not end in silence.
+                let stopped = stop.as_ref().map(format::turn_stop).map(GaugedLine::from);
                 // NOTE: the files that the turn changed stand right before its end, also
                 // without the end's line: they say what the turn left behind.
                 let changed = changes.as_ref().and_then(format::changes::turn_line);
@@ -1516,7 +1519,7 @@ impl TurnView {
                     .summary()
                     .then(|| format::turn_done(self.took(), usage.as_ref(), context.as_ref()));
                 let lines: Vec<GaugedLine> =
-                    changed.map(GaugedLine::from).into_iter().chain(line).collect();
+                    stopped.into_iter().chain(changed.map(GaugedLine::from)).chain(line).collect();
                 self.end(TurnEnd::Completed, &lines, size)
             }
             Event::TurnFailed { error, .. } => self.end(TurnEnd::Failed(error.clone()), &[], size),
