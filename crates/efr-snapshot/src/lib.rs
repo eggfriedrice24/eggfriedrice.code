@@ -36,6 +36,7 @@
 
 mod capture;
 mod changes;
+mod cover;
 mod error;
 mod gc;
 mod history;
@@ -50,6 +51,7 @@ mod turn;
 
 pub use capture::{LeftOut, LeftOutReason, Limits, MAX_IGNORED_BYTES, SKIPPED_DIRS};
 pub use changes::shown_prefix;
+pub use cover::{CoverResult, RootCover};
 pub use error::SnapshotError;
 pub use gc::GcReport;
 pub use history::TurnDiff;

@@ -227,7 +227,6 @@ impl ProjectGit {
     }
 
     /// True when the project's index differs from `HEAD`: content that is only staged.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the coverage check uses it"))]
     pub(crate) async fn staged(&self) -> Result<bool, SnapshotError> {
         let output = self.run(&["diff-index", "--cached", "--quiet", "HEAD", "--"], None).await?;
         match output.code {
@@ -238,7 +237,6 @@ impl ProjectGit {
     }
 
     /// The entries of the project's stash.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the coverage check uses it"))]
     pub(crate) async fn stash_entries(&self) -> Result<u32, SnapshotError> {
         let out = self
             .checked("rev-list", &["rev-list", "--walk-reflogs", "--count", "refs/stash"])

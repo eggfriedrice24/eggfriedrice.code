@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _, symlink};
 
 use efr_protocol::{ChangeKind, FileChange, FileChanges};
-use efr_snapshot::{LeftOutReason, Limits, Phase, Root};
+use efr_snapshot::{CoverResult, LeftOutReason, Limits, Phase, Root, RootCover};
 use pretty_assertions::assert_eq;
 
 use crate::support::{
@@ -152,12 +152,26 @@ async fn snapshot_never_runs_repo_config() {
         world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits()).await;
     write(&dir.join("a.txt"), "changed\n");
     world.snapshots.after_call(call, limits()).await.unwrap();
+    let asks = [
+        RootCover::Tracked,
+        RootCover::Untracked,
+        RootCover::Refs,
+        RootCover::Stash,
+        RootCover::Path(dir.join("a.txt")),
+    ];
+    let found =
+        world.snapshots.covers(conversation(1), turn(1), &git_root(&dir), &asks, limits()).await;
+    assert_eq!(found, [CoverResult::Covered; 5]);
     let end = world.snapshots.turn_end(turn(1), limits()).await;
     assert!(end.kept && end.not_covered.is_empty(), "{end:?}");
     let store = world.only_store();
     let mirrored = refs(&store, &home).await;
     assert!(mirrored.iter().any(|name| name.ends_with("/heads/feature")), "{mirrored:?}");
-    assert_eq!(names(&markers), Vec::<String>::new(), "the capture and the mirror ran no code");
+    assert_eq!(
+        names(&markers),
+        Vec::<String>::new(),
+        "the capture, the mirror and the coverage check ran no code"
+    );
 
     // NOTE: the keys act for plain git, so the test proves something.
     git(&dir, &home, &[], &["add", "-A"]).await;

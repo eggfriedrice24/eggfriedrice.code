@@ -112,6 +112,24 @@ pub(crate) struct Kept {
     _pin: Pin,
 }
 
+/// What a running turn has of one root, for a look from outside.
+#[derive(Debug, Clone)]
+pub(crate) enum View {
+    /// A kept `pre`.
+    Kept {
+        /// True when a later snapshot failed.
+        failed: bool,
+        /// What the first snapshot took of the project's refs.
+        mirror: Option<Mirror>,
+    },
+    /// The root has more files than `snapshot.max_files`.
+    TooLarge,
+    /// The first snapshot failed.
+    Failed,
+    /// The turn has no snapshot of the root.
+    Missing,
+}
+
 /// The roots of a running turn.
 #[derive(Debug, Clone)]
 pub(crate) struct TurnRecord {
@@ -130,6 +148,22 @@ impl Snapshots {
         self.lock_turns()
             .get(&turn)
             .is_some_and(|record| record.roots.iter().any(|known| known.root.path() == root))
+    }
+
+    /// What the running turn `turn` has of `root`.
+    pub(crate) fn view(&self, turn: TurnId, root: &Path) -> View {
+        let turns = self.lock_turns();
+        let known = turns
+            .get(&turn)
+            .and_then(|record| record.roots.iter().find(|known| known.root.path() == root));
+        match known.map(|known| &known.state) {
+            None => View::Missing,
+            Some(State::Kept(kept)) => {
+                View::Kept { failed: kept.failed, mirror: kept.mirror.clone() }
+            }
+            Some(State::TooLarge) => View::TooLarge,
+            Some(State::Failed) => View::Failed,
+        }
     }
 
     /// True when the running turn `turn` kept a `pre` of `root`.

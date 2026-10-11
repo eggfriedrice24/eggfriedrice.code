@@ -39,6 +39,17 @@ without undo).
   no link; 0 turns the mirror off), a failed fetch, or a fetch that adds more than
   `mirror_max_bytes` to the store (its refs go again). A linked work tree fetches
   from its own git dir, so its `HEAD` is its own.
+- `Snapshots::covers` (`cover.rs`): whether the turn's snapshot holds what a
+  destructive command can destroy (`RootCover`), so that undo can bring it back. It
+  takes the root's snapshot now (the turn's `pre` and mirror when they are missing)
+  and checks positively against the fresh tree, never against the left-out record. A
+  path is covered when it lies below the root, is not the root, is in no git dir and
+  each file at or below it (an `lstat` walk, at most `max_files`) is in the tree, or
+  when it does not exist. `Tracked` needs the project's index to equal `HEAD`, the
+  commit of `HEAD` in the store, and each tracked file that exists in the tree.
+  `Untracked` needs no untracked file left out. `Refs` needs the turn's mirror, and
+  `Stash` also a stash of at most one entry. A failed snapshot of the root covers
+  nothing (`CoverResult`).
 - A snapshot that fails marks the root for the turn. When the first one fails, no
   later snapshot becomes `pre`, because a call of the turn may have written in
   between.

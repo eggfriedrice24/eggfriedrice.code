@@ -7,6 +7,7 @@
 mod bytes;
 mod calls;
 mod cost;
+mod cover;
 mod gc;
 mod logs;
 mod mirror;
