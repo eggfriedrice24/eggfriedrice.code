@@ -1209,7 +1209,8 @@ async fn shell_a_named_floor_edit_runs_in_the_exit_child_after_the_reviewers_all
     assert_eq!(home_copies(&dirs).await, [(zshrc.clone(), "alias ll='ls -l'\n".to_owned())]);
     assert!(events.iter().any(|envelope| matches!(
         &envelope.event,
-        Event::HomeFileChanged { path, floor: true, .. } if *path == zshrc
+        Event::HomeFileChanged { path, floor: true, covered: true, backup: None, .. }
+            if *path == zshrc
     )));
     daemon.stop().await.unwrap();
 }

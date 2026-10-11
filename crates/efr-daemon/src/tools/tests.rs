@@ -1194,7 +1194,7 @@ async fn home_copy_before_write_file_outside_roots() {
         outcome.backups,
         [efr_conversation::FileBackup {
             path: notes,
-            backup: root.join("d/snapshots/home.git"),
+            backup: PathBuf::new(),
             floor: false,
             real: None,
             reason: None

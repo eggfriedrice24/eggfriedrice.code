@@ -92,8 +92,9 @@ async fn assert_reviewed_edit(
     // NOTE: phase B copies the real file into the home store (plan PB12).
     let copies = home_copies(dirs).await;
     assert!(copies.contains(&(path.to_path_buf(), OLD_RC.to_owned())), "{copies:?}");
-    let [(changed_path, floor, _, _)] = changed(events).try_into().unwrap();
+    let [(changed_path, floor, covered, backup)] = changed(events).try_into().unwrap();
     assert!(floor);
+    assert!(covered && backup.is_none(), "the home store covers it: {covered} {backup:?}");
     assert!(changed_path == path || changed_path == dirs.home().join(".zshrc"));
     let [record] = records(events).try_into().unwrap();
     assert_eq!(record.action.exits, [ExitKind::Persistence]);

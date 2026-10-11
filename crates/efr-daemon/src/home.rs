@@ -468,12 +468,12 @@ impl HomeReader for Reader {
 
 /// The changed paths of a copy as the turn reports them, each with the path that the
 /// user knows (`~/.zshrc` for the real file behind it) and why no copy covers it.
-/// `store` names the home store, for the record of phase A's backups.
+/// The `backup` path is empty: the copy is in the home store, which has no path of its
+/// own for one file (efr-conversation's `FileBackup`).
 pub(crate) fn changed(
     deltas: &[HomeDelta],
     before: &Prepared,
     after: &Prepared,
-    store: &Path,
 ) -> Vec<FileBackup> {
     let reason = |path: &Path| {
         before
@@ -492,7 +492,7 @@ pub(crate) fn changed(
                 before.shown.iter().find(|(real, _)| *real == delta.path).map(|(_, link)| link);
             FileBackup {
                 path: link.cloned().unwrap_or_else(|| delta.path.clone()),
-                backup: store.to_path_buf(),
+                backup: PathBuf::new(),
                 floor: delta.floor,
                 real: link.map(|_| delta.path.clone()),
                 reason: (!delta.covered).then(|| reason(&delta.path)),

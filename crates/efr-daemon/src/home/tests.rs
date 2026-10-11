@@ -191,7 +191,7 @@ async fn home_copy_of_a_parent_bind_walks_the_dir() {
     write(&parent.join("new.conf"), "made by the call\n");
     let after_copy = after(&before, &[], LIMITS);
     let deltas = store.home_after(&copy, Reader::new(&after_copy)).await.unwrap();
-    let backups = changed(&deltas, &before, &after_copy, Path::new("/store"));
+    let backups = changed(&deltas, &before, &after_copy);
 
     assert_eq!(before.walked, std::slice::from_ref(&parent));
     assert_eq!(before.entries.len(), 2, "the target and the other file of its dir");

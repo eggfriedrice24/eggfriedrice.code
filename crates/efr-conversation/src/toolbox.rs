@@ -415,7 +415,8 @@ impl ToolOutcome {
 pub struct FileBackup {
     /// The file that the call changed, as the call named it, absolute.
     pub path: PathBuf,
-    /// The copy from before the call, in efr's backup store.
+    /// The copy from before the call, in efr's phase A backup store. Empty when the copy
+    /// is in efr's home store (phase B), which has no path of its own for one file.
     pub backup: PathBuf,
     /// True when the file is a floor.
     pub floor: bool,

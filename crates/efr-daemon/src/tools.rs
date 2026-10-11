@@ -801,8 +801,7 @@ impl DaemonToolbox {
                 return Vec::new();
             }
         };
-        let store = snapshots.store().dir().join("home.git");
-        let changed = home::changed(&deltas, &before, &after, &store);
+        let changed = home::changed(&deltas, &before, &after);
         let shown = |path: &Path| match path.strip_prefix(self.home.path()) {
             Ok(below) => format!("~/{}", below.display()),
             Err(_) => path.display().to_string(),
