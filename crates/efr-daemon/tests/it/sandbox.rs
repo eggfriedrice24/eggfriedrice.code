@@ -5,6 +5,8 @@
 //! (a script that runs the child shell directly, as the fake bwrap of efr's auto spec,
 //! section 16.1) or, under `just test-sandbox`, the real `efr-sbx`.
 
+mod review;
+
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
