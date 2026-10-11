@@ -26,7 +26,11 @@ auto spec, section 10).
   such as an edit of the user, is in no call's list, so it never joins `touched`.
 - `Snapshots::before_write`: the turn's first snapshot of a root before a file tool
   writes into it. The tool's own diff lists its change; `Snapshots::after_write` adds
-  the files it wrote to `touched`.
+  the files it wrote to `touched` and moves `last` to a snapshot taken then, so a
+  stop of efrd keeps the write. A call snapshot that drops before
+  `Snapshots::after_call` (an interrupted call), or one marked `runs_on` (a command
+  that runs past its timeout), marks its roots as not complete for the turn: undo
+  acts on their paths outside `touched` only with `--force`.
 - The mirror (`mirror.rs`): at the turn's first snapshot of a root with trusted git
   dirs (`Root::with_git`), the store fetches the project's `refs/heads/*`,
   `refs/tags/*`, `refs/stash` and a detached `HEAD` into
