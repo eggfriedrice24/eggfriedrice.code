@@ -10,8 +10,8 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::os::unix::net::{SocketAddr, UnixListener};
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{CacheMode, Grant};
-use efr_sandbox::{FloorKind, MaskKind, WriteRoot, WriteRootKind};
+use efr_protocol::{CacheMode, DesktopKind, Grant};
+use efr_sandbox::{DesktopSocket, FloorKind, MaskKind, WriteRoot, WriteRootKind};
 
 use crate::support::{Fixture, Run, command, need, q, sandbox_or_skip, write};
 
@@ -312,6 +312,74 @@ fn escape_docker_sock_denied() {
     }
     line.push_str("; exit 1");
     fixture.run(&line).expect_status(1);
+}
+
+/// A fake Hyprland instance in the fixture's runtime dir: the control socket, the event
+/// socket and the log, which holds window titles. Returns the two listeners.
+fn hyprland(fixture: &mut Fixture) -> (PathBuf, UnixListener, UnixListener) {
+    let instance = fixture.xrt.join("hypr/a_1_2");
+    fs::create_dir_all(&instance).unwrap();
+    let control = UnixListener::bind(instance.join(".socket.sock")).unwrap();
+    let events = UnixListener::bind(instance.join(".socket2.sock")).unwrap();
+    for listener in [&control, &events] {
+        listener.set_nonblocking(true).unwrap();
+    }
+    write(&instance.join("hyprland.log"), "window title: bank login\n");
+    fixture.spec.runtime.desktops.push(DesktopSocket {
+        desktop: DesktopKind::Hyprland,
+        path: instance.join(".socket.sock"),
+        value: "a_1_2".to_owned(),
+    });
+    (instance, control, events)
+}
+
+#[test]
+fn escape_desktop_socket2_and_log_stay_hidden() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let (instance, _control, events) = hyprland(&mut fixture);
+    fixture.grant(Grant::Desktop { desktop: DesktopKind::Hyprland });
+    let line = format!(
+        "zmodload zsh/net/socket; zsocket {} && exit 3; cat {} && exit 4; ls -A {}",
+        q(&instance.join(".socket2.sock")),
+        q(&instance.join("hyprland.log")),
+        q(&instance),
+    );
+    let run = fixture.run(&line);
+    run.expect_status(0);
+    // Only the control socket's mount point is in the instance dir.
+    assert_eq!(run.stdout, ".socket.sock\n", "{run:#?}");
+    assert!(!run.stdout.contains("bank"), "{run:#?}");
+    assert!(events.accept().is_err(), "the event socket got a connection");
+}
+
+#[test]
+fn escape_wayland_denied_without_grant() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let (_, control, _events) = hyprland(&mut fixture);
+    let wayland = fixture.xrt.join("wayland-1");
+    let listener = UnixListener::bind(&wayland).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    fixture.spec.runtime.desktops.push(DesktopSocket {
+        desktop: DesktopKind::Wayland,
+        path: wayland.clone(),
+        value: "wayland-1".to_owned(),
+    });
+    fixture.env.insert("WAYLAND_DISPLAY".into(), "wayland-1".into());
+    // The grant of another desktop opens only that desktop.
+    fixture.grant(Grant::Desktop { desktop: DesktopKind::Hyprland });
+    let line = format!(
+        "print -r -- ${{WAYLAND_DISPLAY-unset}}; zmodload zsh/net/socket; zsocket {} && exit 0; \
+         exit 1",
+        q(&wayland)
+    );
+    let run = fixture.run(&line);
+    run.expect_status(1);
+    assert!(run.stdout.starts_with("unset"), "{run:#?}");
+    assert!(run.result().env_removed.contains(&"WAYLAND_DISPLAY".to_owned()));
+    assert!(listener.accept().is_err());
+    assert!(control.accept().is_err());
 }
 
 #[test]

@@ -5,14 +5,15 @@
 use std::fs;
 use std::io::{BufRead as _, BufReader, Read};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::net::UnixListener;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use efr_protocol::{CacheMode, Grant};
-use efr_sandbox::{CacheOverlay, SpecLaunch, WriteRoot, WriteRootKind};
+use efr_protocol::{CacheMode, DesktopKind, Grant};
+use efr_sandbox::{CacheOverlay, DesktopSocket, SpecLaunch, WriteRoot, WriteRootKind};
 
 use crate::support::{Fixture, Run, need, q, run_with_timeout, sandbox_or_skip, write};
 
@@ -726,6 +727,40 @@ fn sed_i_with_write_grant() {
     fixture.grant(Grant::Write { path: notes.clone() });
     fixture.run(&line).expect_status(0);
     assert_eq!(fs::read_to_string(notes.join("todo.txt")).unwrap(), "beta\n");
+}
+
+#[test]
+fn behaviour_desktop_grant_connects_hyprland_socket() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    // Short, because the socket's path holds at most 107 bytes.
+    let signature = "a_1_2";
+    let instance = fixture.xrt.join("hypr").join(signature);
+    fs::create_dir_all(&instance).unwrap();
+    let socket = instance.join(".socket.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let line = "print -r -- ${HYPRLAND_INSTANCE_SIGNATURE-unset}; zmodload zsh/net/socket && \
+                zsocket $XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket.sock && \
+                print connected";
+    // The shell's own value is stale, as after a restart of Hyprland.
+    fixture.env.insert("HYPRLAND_INSTANCE_SIGNATURE".into(), "old_1_1".into());
+    fixture.spec.runtime.desktops = vec![DesktopSocket {
+        desktop: DesktopKind::Hyprland,
+        path: socket.clone(),
+        value: signature.to_owned(),
+    }];
+    // Without the grant the call has neither the variable nor the socket.
+    let run = fixture.run(line);
+    assert_ne!(run.status, 0, "{run:#?}");
+    assert!(run.stdout.starts_with("unset"), "{run:#?}");
+    assert!(listener.accept().is_err());
+
+    fixture.grant(Grant::Desktop { desktop: DesktopKind::Hyprland });
+    let run = fixture.run(line);
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{signature}\nconnected\n"), "{run:#?}");
+    assert!(listener.accept().is_ok(), "the call reached the control socket");
 }
 
 #[test]
