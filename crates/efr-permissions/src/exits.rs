@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{ExitKind, ExitSource, Grant, Needs};
 
+pub(crate) use self::cover::set_copies;
 pub(crate) use self::envelope::Envelope;
 use self::envelope::{WriteExit, read_exit, resolve};
 #[cfg(test)]
@@ -125,9 +126,10 @@ pub struct ExitNeed {
     /// host of an upload. A `User` exit may have them too; they then fill the record
     /// only.
     pub names: Vec<String>,
-    /// True when efrd copies the target into its backup store before the call runs: a
-    /// `persistence` write of a file, or of a new file, while
-    /// [`AutoSupport::floor_backup`] is true, whoever approves it.
+    /// True when efr copies the file into the home store before the write (phase B):
+    /// for every write of a home path that is no secret and no part of efr's config
+    /// ([`copies`](Self::copies) is not empty), while [`AutoSupport::floor_backup`] is
+    /// true, whoever approves it.
     pub backup_before_write: bool,
     /// The hosts that the line names for a `host` or `upload` exit: the host of each URL
     /// of its command, of each remote operand of `scp`, `sftp` or `rsync`, and the
@@ -155,10 +157,16 @@ pub struct ExitNeed {
     /// by it. `None` when no link of a floor leads to the target.
     pub link: Option<PathBuf>,
     /// What efrd copies into its home store before the call, so that `efr undo` can
-    /// bring it back (phase B). Empty when it copies nothing.
+    /// bring it back (phase B, efr's auto spec 10.8): [`CoverAsk::Home`] for a file or a
+    /// new file, [`CoverAsk::HomeDir`] for a directory, for an `above_root` write and
+    /// for a dir that a contained call gets whole ([`WriteBind::Target`],
+    /// [`WriteBind::MakeDir`], and the parent of [`WriteBind::Parent`] next to the
+    /// target). Empty when it copies nothing.
     pub copies: Vec<CoverAsk>,
-    /// Whether every ask of [`copies`](Self::copies) is covered, for the exit record.
-    /// `None` when the exit has nothing to copy.
+    /// Whether every ask of [`copies`](Self::copies) is covered, for the exit record:
+    /// `Some(false)` when a fact says that one is not, such as a masked path or a dir
+    /// over the limits, or when no fact says. A write that is not covered still runs
+    /// when its approver says yes. `None` when the exit has nothing to copy.
     pub covered: Option<bool>,
 }
 
@@ -642,7 +650,11 @@ pub struct FactRequest {
     /// untracked files, refs or stash of the repository of a `git` command, whose
     /// directory the ask names; the daemon finds the root of its work tree. A form that
     /// undo never brings back (`shred`, `git clean -x`, `git reflog expire`,
-    /// `git gc --prune`) asks nothing.
+    /// `git gc --prune`) asks nothing. For each path that the line writes: the
+    /// [`CoverAsk::Home`] and [`CoverAsk::HomeDir`] asks of the home store, also for
+    /// its parent dir ([`FactRequest::with_writes`] adds the declared write paths). The
+    /// engine reads the `Home` and `HomeDir` asks only for a write outside the snapshot
+    /// roots, so the daemon may answer one inside a root with no work.
     pub covers: Vec<CoverAsk>,
 }
 
@@ -658,6 +670,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             list.push(path);
         }
     };
+    let home = locations.home();
     let mut covers: Vec<CoverAsk> = Vec::new();
     for segment in scan::scan(line) {
         let dir = if segment.after_cd { None } else { start.as_deref() };
@@ -680,6 +693,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 if bare && !redirect.append {
                     covers.extend(cover::path_asks(&[Some(path.clone())]));
                 }
+                covers.extend(cover::write_asks(&path, home));
                 add(&mut request.targets, path);
             }
         }
@@ -711,6 +725,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 .chain(programs::sed_in_place_targets(command));
             for word in written {
                 if let Some(path) = written_at(word) {
+                    covers.extend(cover::write_asks(&path, home));
                     add(&mut request.targets, path);
                 }
             }
@@ -718,6 +733,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             let removed: Vec<Option<PathBuf>> = operands.iter().map(|word| at(word)).collect();
             covers.extend(cover::path_asks(&removed));
             for path in removed.into_iter().flatten() {
+                covers.extend(cover::write_asks(&path, home));
                 add(&mut request.targets, path.clone());
                 add(&mut request.tracked, path);
             }
@@ -748,10 +764,25 @@ impl FactRequest {
         let Some(needs) = needs else { return self };
         let start = command_dir.and_then(normalize);
         for word in needs.write.iter().take(Needs::MAX_WRITE) {
-            if let Some(path) = resolve(word, start.as_deref(), locations)
-                && !self.targets.contains(&path)
-            {
-                self.targets.push(path);
+            if let Some(path) = resolve(word, start.as_deref(), locations) {
+                self.add_covers(cover::write_asks(&path, locations.home()));
+                if !self.targets.contains(&path) {
+                    self.targets.push(path);
+                }
+            }
+        }
+        self
+    }
+
+    /// Adds the asks of the home store for each declared write path of a shell call
+    /// (`writes`), as [`fact_requests`] adds them for the paths that the line names
+    /// (phase B).
+    #[must_use]
+    pub fn with_writes(mut self, writes: &[PathBuf], locations: &Locations) -> Self {
+        for path in writes {
+            if let Some(path) = normalize(path) {
+                let path = locations.rehome(&path).into_owned();
+                self.add_covers(cover::write_asks(&path, locations.home()));
             }
         }
         self
@@ -881,6 +912,7 @@ fn write_need(
         }
         _ => {}
     }
+    set_copies(&mut need, cx.facts, cx.support);
     Some(need)
 }
 

@@ -1,15 +1,17 @@
 //! What efr must hold before a call so that `efr undo` can bring back what the call
-//! destroys (efr's auto spec 10.7, phase B): the [`CoverAsk`]s of a destructive part
-//! of a line.
+//! destroys or writes (efr's auto spec 10.7 and 10.8, phase B): the [`CoverAsk`]s of a
+//! destructive part of a line, and the copies of a home write.
 //!
 //! The engine only asks. The daemon answers each ask in [`CallFacts::covered`], and an
 //! ask with no answer is never covered, so a lost fact keeps the question.
 
 use std::path::{Path, PathBuf};
 
+use efr_protocol::ExitKind;
+
 use super::programs::{self, base_name, is_sandbox_device};
-use super::{Envelope, git_dir};
-use crate::{AutoSupport, CallFacts, CoverAsk, Locations};
+use super::{Envelope, ExitNeed, WriteBind, existing_kind, git_dir};
+use crate::{AutoSupport, CallFacts, CoverAsk, Locations, TargetKind};
 
 /// The asks of a destructive part whose paths are `targets`: one [`CoverAsk::Path`]
 /// for each, or none when efr cannot name one of them. A part with no ask is never
@@ -126,6 +128,69 @@ pub(super) fn covers_all(
         && asks.iter().all(|ask| {
             envelope.may_cover(ask) && facts.is_some_and(|facts| facts.coverage(ask).is_covered())
         })
+}
+
+/// The asks that the daemon answers for a write of `path` outside the snapshot roots:
+/// the file itself, the directory itself, and its parent directory, which a contained
+/// call may get whole ([`WriteBind::Parent`]). The parent is left out when it is the
+/// home directory, above it, or a dir that many programs share, which no bind opens.
+pub(super) fn write_asks(path: &Path, home: &Path) -> Vec<CoverAsk> {
+    let mut asks = vec![CoverAsk::Home(path.to_path_buf()), CoverAsk::HomeDir(path.to_path_buf())];
+    if let Some(parent) = path.parent()
+        && !home.starts_with(parent)
+        && !super::envelope::shared_home_dir(parent, home)
+    {
+        asks.push(CoverAsk::HomeDir(parent.to_path_buf()));
+    }
+    asks
+}
+
+/// What efrd copies into its home store before an exit of `kind` writes `path`, while
+/// it keeps the store ([`AutoSupport::floor_backup`]): a file as itself, a directory
+/// with what it holds, and for a bind of the parent ([`WriteBind::Parent`]) the parent
+/// with what it holds, because the call can change any file there (spec 10.8). Nothing
+/// for a secret, efr's own config and a device or socket. `kind_fact` is what a fact
+/// says `path` is, `None` when no fact says.
+pub(super) fn write_copies(
+    kind: ExitKind,
+    path: &Path,
+    kind_fact: Option<Option<TargetKind>>,
+    bind: Option<&WriteBind>,
+    support: &AutoSupport,
+) -> Vec<CoverAsk> {
+    if !support.floor_backup || matches!(kind, ExitKind::Secret | ExitKind::Config) {
+        return Vec::new();
+    }
+    let path = path.to_path_buf();
+    let dir = kind == ExitKind::AboveRoot || kind_fact == Some(Some(TargetKind::Dir));
+    match bind {
+        Some(WriteBind::Target | WriteBind::MakeDir) => vec![CoverAsk::HomeDir(path)],
+        Some(WriteBind::Parent(parent)) => {
+            vec![CoverAsk::Home(path), CoverAsk::HomeDir(parent.clone())]
+        }
+        _ if kind_fact == Some(Some(TargetKind::Other)) => Vec::new(),
+        _ if dir => vec![CoverAsk::HomeDir(path)],
+        _ => vec![CoverAsk::Home(path)],
+    }
+}
+
+/// Sets what efrd copies before the write of `need` ([`write_copies`] of its kind,
+/// target and bind), [`ExitNeed::backup_before_write`] when that is anything, and
+/// whether `facts` say that every copy is covered.
+pub(crate) fn set_copies(need: &mut ExitNeed, facts: Option<&CallFacts>, support: &AutoSupport) {
+    let Some(path) = need.target.clone() else { return };
+    let kind_fact = existing_kind(facts, &path);
+    need.copies = write_copies(need.kind, &path, kind_fact, need.bind.as_ref(), support);
+    need.backup_before_write = !need.copies.is_empty();
+    need.covered = covered(&need.copies, facts);
+}
+
+/// Whether the daemon covers every ask of `copies`, for the exit record: `None` when
+/// there is nothing to copy, `Some(false)` when a fact is missing.
+pub(super) fn covered(copies: &[CoverAsk], facts: Option<&CallFacts>) -> Option<bool> {
+    (!copies.is_empty()).then(|| {
+        copies.iter().all(|ask| facts.is_some_and(|facts| facts.coverage(ask).is_covered()))
+    })
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use efr_protocol::{ExitKind, ExitSource, Grant};
 
+use super::cover::set_copies;
 use super::names::floor_names;
 use super::programs::is_sandbox_device;
 use super::scan::OPAQUE;
@@ -288,15 +289,15 @@ impl<'a> Envelope<'a> {
         protected.then_some(InRootFloor::Protected)
     }
 
-    /// Who approves a `persistence` write of `path`, with the names and the backup of
-    /// the exit (spec 9.1 and the decision of 2026-10-10 on floor file edits). The
-    /// classifier judges it when a user message names the file, only when all of these
-    /// hold: efrd keeps a backup ([`AutoSupport::floor_backup`]); the floor has a group;
-    /// a fact says that the target is a file, or that it is missing and its parent is a
-    /// directory; the line does not make a symbolic link there; and the target is not in
-    /// a `*.wants` or `*.requires` directory, where a file enables a unit. Else only the
-    /// user approves it. efrd copies the target first whenever it keeps backups and the
-    /// target is no directory, whoever approves it.
+    /// Who approves a `persistence` write of `path`, with the names of the exit (spec
+    /// 9.1 and the decision of 2026-10-10 on floor file edits). The classifier judges it
+    /// when a user message names the file, only when all of these hold: efrd keeps its
+    /// home store ([`AutoSupport::floor_backup`]); the floor has a group; a fact says
+    /// that the target is a file, or that it is missing and its parent is a directory;
+    /// the line does not make a symbolic link there; and the target is not in a
+    /// `*.wants` or `*.requires` directory, where a file enables a unit. Else only the
+    /// user approves it. What efrd copies first, whoever approves it, is
+    /// [`cover::set_copies`](super::cover::set_copies).
     pub(super) fn floor_edit(
         &self,
         need: &mut ExitNeed,
@@ -321,8 +322,6 @@ impl<'a> Envelope<'a> {
         });
         let named = support.floor_backup && file && !linked && !enables && floor.group.is_some();
         need.approver = if named { Approver::ClassifierWhenNamed } else { Approver::User };
-        need.backup_before_write = support.floor_backup
-            && !matches!(kind, Some(Some(TargetKind::Dir | TargetKind::Other)));
         let home = self.locations.home();
         let mut names = floor_names(&path, home, floor.group);
         if let Some(link) = &floor.link {
@@ -442,6 +441,7 @@ impl<'a> Envelope<'a> {
                 );
                 need.target = Some(path.to_path_buf());
                 self.floor_edit(&mut need, facts, support, false);
+                set_copies(&mut need, facts, support);
                 Some(need)
             }
         }
@@ -483,6 +483,7 @@ impl<'a> Envelope<'a> {
             ExitKind::Persistence => self.floor_edit(&mut need, facts, support, false),
             _ => {}
         }
+        set_copies(&mut need, facts, support);
         need
     }
 

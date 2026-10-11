@@ -416,6 +416,7 @@ impl Engine {
                         ExitNeed::new(kind, path.display().to_string(), ExitSource::CacheDelete);
                     need.approver = Approver::Classifier;
                     need.target = Some(path);
+                    exits::set_copies(&mut need, None, &self.support);
                     found.push(need);
                 }
                 None => {

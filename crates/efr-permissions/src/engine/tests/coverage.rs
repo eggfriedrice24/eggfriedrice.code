@@ -1,6 +1,6 @@
 //! Phase B: a destructive part of a line that the turn's snapshot covers runs with no
-//! exit (efr's auto spec 10.7). The engine only reads the daemon's answers in
-//! `CallFacts::covered`.
+//! exit (efr's auto spec 10.7), and each home write names what efrd copies first
+//! (10.8). The engine only reads the daemon's answers in `CallFacts::covered`.
 
 use std::path::PathBuf;
 
@@ -10,7 +10,7 @@ use rstest::rstest;
 
 use super::auto::auto_locations;
 use super::{app, input};
-use crate::exits::fact_requests;
+use crate::exits::{fact_requests, tool_fact_requests};
 use crate::{
     Approver, AutoSupport, CallFacts, CoverAsk, Coverage, Decision, DecisionInput, Effect, Engine,
     Requirements, TargetKind,
@@ -237,4 +237,141 @@ fn the_daemon_is_asked_what_the_engine_reads() {
     }
     let request = fact_requests("git -C sub reset --hard", Some(APP.as_ref()), &auto_locations());
     assert!(request.covers.contains(&CoverAsk::Tracked(in_app("sub"))));
+    // A write of the line asks for the home store, and so does a declared write.
+    let request = fact_requests("echo x > ~/notes.txt", Some(APP.as_ref()), &auto_locations())
+        .with_writes(&[PathBuf::from("/home/u/Documents/a.txt")], &auto_locations());
+    for ask in [
+        CoverAsk::Home(PathBuf::from("/home/u/notes.txt")),
+        CoverAsk::Home(PathBuf::from("/home/u/Documents/a.txt")),
+        CoverAsk::HomeDir(PathBuf::from("/home/u/Documents")),
+    ] {
+        assert!(request.covers.contains(&ask), "{ask:?}: {:?}", request.covers);
+    }
+}
+
+/// The exit of `kind` of `requirements` on `engine`.
+fn exit_of(engine: &Engine, requirements: Requirements, kind: ExitKind) -> crate::ExitNeed {
+    let decision = decide(engine, requirements);
+    let need = decision.exits().find(|need| need.kind == kind).cloned();
+    need.unwrap_or_else(|| panic!("no {kind:?} exit: {:?}", kinds(&decision)))
+}
+
+/// Facts with the kinds of `targets` and every ask of the request of `line` and of the
+/// declared `writes` answered with `answer`.
+fn home_facts(
+    line: Option<&str>,
+    writes: &[&str],
+    targets: &[(&str, Option<TargetKind>)],
+    answer: Coverage,
+) -> CallFacts {
+    let locations = auto_locations();
+    let writes: Vec<PathBuf> = writes.iter().map(PathBuf::from).collect();
+    let request = match line {
+        Some(line) => fact_requests(line, Some(APP.as_ref()), &locations),
+        None => {
+            let declared = writes
+                .iter()
+                .fold(Requirements::none(), |declared, path| declared.with_write(path));
+            tool_fact_requests(&declared, &locations)
+        }
+    }
+    .with_writes(&writes, &locations);
+    CallFacts {
+        targets: targets.iter().map(|(path, kind)| (PathBuf::from(path), *kind)).collect(),
+        covered: request.covers.iter().map(|ask| (ask.clone(), answer)).collect(),
+        ..CallFacts::default()
+    }
+}
+
+#[test]
+fn home_write_need_copies_before_write() {
+    let engine = undo_engine();
+    let file = Some(TargetKind::File);
+    let dir = Some(TargetKind::Dir);
+    // A new file that the line makes.
+    let notes = "/home/u/notes.txt";
+    let line = "echo x > ~/notes.txt";
+    let facts =
+        home_facts(Some(line), &[notes], &[(notes, None), ("/home/u", dir)], Coverage::Covered);
+    let shell = |line: &str| Requirements::none().with_command(line).with_command_dir(APP);
+    let need = exit_of(&engine, shell(line).with_write(notes).with_facts(facts), ExitKind::Write);
+    assert_eq!(need.copies, [CoverAsk::Home(PathBuf::from(notes))]);
+    assert!(need.backup_before_write);
+    assert_eq!(need.covered, Some(true));
+    // A dir target: the dir with what it holds.
+    let docs = "/home/u/Documents";
+    let line = "cp report.pdf ~/Documents/";
+    let facts = home_facts(Some(line), &[docs], &[(docs, dir)], Coverage::Covered);
+    let need = exit_of(&engine, shell(line).with_write(docs).with_facts(facts), ExitKind::Write);
+    assert_eq!(need.copies, [CoverAsk::HomeDir(PathBuf::from(docs))]);
+    assert_eq!(need.covered, Some(true));
+    // An existing file whose parent the call gets whole: the file and the parent.
+    let report = "/home/u/Documents/report.txt";
+    let line = "mv x ~/Documents/report.txt";
+    let facts =
+        home_facts(Some(line), &[report], &[(report, file), (docs, dir)], Coverage::OverLimit);
+    let need = exit_of(&engine, shell(line).with_write(report).with_facts(facts), ExitKind::Write);
+    assert_eq!(need.bind, Some(crate::WriteBind::Parent(PathBuf::from(docs))));
+    assert_eq!(
+        need.copies,
+        [CoverAsk::Home(PathBuf::from(report)), CoverAsk::HomeDir(PathBuf::from(docs))]
+    );
+    // Over the limits of the home store: still a write for the classifier, not covered.
+    assert_eq!(need.covered, Some(false));
+    assert_eq!(need.approver, Approver::Classifier);
+    // `write_file` outside the roots.
+    let facts = home_facts(None, &[report], &[(report, file)], Coverage::Covered);
+    let tool = Requirements::none().with_write(report).with_facts(facts);
+    let need = exit_of(&engine, tool, ExitKind::Write);
+    assert_eq!(need.copies, [CoverAsk::Home(PathBuf::from(report))]);
+    assert_eq!(need.covered, Some(true));
+    // With no fact, the copy is not covered.
+    let need = exit_of(&engine, Requirements::none().with_write(report), ExitKind::Write);
+    assert_eq!(need.covered, Some(false));
+    // A cache delete copies the cache file.
+    let cache = PathBuf::from("/home/u/.cache/x/data");
+    let decision = engine.decide_cache_delete(
+        std::slice::from_ref(&cache),
+        &Scope::Project(app()),
+        super::SCRATCH.as_ref(),
+    );
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.copies, [CoverAsk::Home(cache)]);
+    assert!(need.backup_before_write);
+    // Without the home store efrd copies nothing.
+    let engine = Engine::with_defaults(auto_locations());
+    let need = exit_of(&engine, Requirements::none().with_write(report), ExitKind::Write);
+    assert!(need.copies.is_empty() && !need.backup_before_write && need.covered.is_none());
+    // A write inside the turn's project is no exit and copies nothing.
+    let decision = decide(&undo_engine(), Requirements::none().with_write(format!("{APP}/a.rs")));
+    assert_eq!(kinds(&decision), []);
+}
+
+#[test]
+fn masked_home_write_is_not_covered_but_runs() {
+    // Plan PB14 and the phase A answer to OQ6: a named write to a masked file runs with
+    // no copy, and the record says that undo cannot bring it back.
+    let engine = undo_engine();
+    let config = "/home/u/.aws/config";
+    let facts = home_facts(None, &[config], &[(config, Some(TargetKind::File))], Coverage::Masked);
+    let tool = Requirements::none().with_write(config).with_facts(facts.clone());
+    let decision = decide(&engine, tool);
+    assert_eq!(decision.effect(), Effect::Ask);
+    let need = decision.exits().find(|need| need.kind == ExitKind::Write).unwrap();
+    assert_eq!(need.approver, Approver::Classifier);
+    assert_eq!(need.copies, [CoverAsk::Home(PathBuf::from(config))]);
+    assert_eq!(need.covered, Some(false));
+    // The same through a shell line, which runs in the exit child.
+    let line = "echo region = x >> ~/.aws/config";
+    let facts =
+        home_facts(Some(line), &[config], &[(config, Some(TargetKind::File))], Coverage::Masked);
+    let shell = Requirements::none()
+        .with_command(line)
+        .with_command_dir(APP)
+        .with_write(config)
+        .with_facts(facts);
+    let need = exit_of(&engine, shell, ExitKind::Write);
+    assert_eq!(need.bind, Some(crate::WriteBind::ExitChild));
+    assert_eq!(need.covered, Some(false));
+    assert_eq!(need.approver, Approver::Classifier);
 }

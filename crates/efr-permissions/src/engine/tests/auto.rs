@@ -12,9 +12,9 @@ use super::{SCRATCH, app, input, locations};
 use crate::command::PRIVILEGED;
 use crate::exits::{Ecosystem, ONE_COMMAND, REGISTRY_HOSTS, names_match, unsandboxed_line_problem};
 use crate::{
-    Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, Decision, DecisionInput,
-    Effect, Egress, Engine, ExitNeed, Layer, Locations, PathClass, PathFacts, Policy, Rebuild,
-    Requirements, Resource, Rule, Subject, TargetKind, WriteBind,
+    Action, Approver, AutoSupport, CallFacts, Cause, CommandPattern, CoverAsk, Decision,
+    DecisionInput, Effect, Egress, Engine, ExitNeed, Layer, Locations, PathClass, PathFacts,
+    Policy, Rebuild, Requirements, Resource, Rule, Subject, TargetKind, WriteBind,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -370,7 +370,7 @@ const FILE: Option<TargetKind> = Some(TargetKind::File);
 const DIR: Option<TargetKind> = Some(TargetKind::Dir);
 
 #[test]
-fn floor_file_edit_is_classifier_when_named_with_backup() {
+fn named_floor_edit_goes_to_classifier_with_snapshot() {
     let zshrc = "/home/u/.zshrc";
     let line = shell("echo 'alias ll=ls' >> ~/.zshrc")
         .with_write(zshrc)
@@ -378,6 +378,8 @@ fn floor_file_edit_is_classifier_when_named_with_backup() {
     let need = persistence(&with_backup(), line);
     assert_eq!(need.approver, Approver::ClassifierWhenNamed);
     assert!(need.backup_before_write);
+    // efrd copies the file into its home store first, so `efr undo` reverts the edit.
+    assert_eq!(need.copies, [CoverAsk::Home(PathBuf::from(zshrc))]);
     assert!(need.runs_unsandboxed());
     for name in ["/home/u/.zshrc", "~/.zshrc", "zshrc", "zsh config", "shell config"] {
         assert!(need.names.contains(&name.to_owned()), "{name}: {:?}", need.names);
@@ -392,13 +394,34 @@ fn floor_file_edit_is_classifier_when_named_with_backup() {
 }
 
 #[test]
-fn floor_file_edit_is_user_without_floor_backup() {
+fn snapshot_off_sends_floor_edits_back_to_the_user() {
     let zshrc = "/home/u/.zshrc";
     let line = shell("echo x >> ~/.zshrc").with_write(zshrc).with_facts(kinds_of(&[(zshrc, FILE)]));
     let need = persistence(&engine(), line);
     assert_eq!(need.approver, Approver::User);
     assert!(!need.backup_before_write);
+    assert!(need.copies.is_empty() && need.covered.is_none());
     assert!(need.names.contains(&"zshrc".to_owned()), "the record still names it");
+}
+
+#[test]
+fn unnamed_floor_edit_still_asks_user() {
+    // efr's auto spec 16.4: with the home store, a floor file edit that no user message
+    // names still goes to the user, whatever the snapshot covers.
+    let zshrc = "/home/u/.zshrc";
+    let mut facts = kinds_of(&[(zshrc, FILE)]);
+    facts.covered = vec![(CoverAsk::Home(PathBuf::from(zshrc)), crate::Coverage::Covered)];
+    let line = shell("echo 'alias ll=ls' >> ~/.zshrc").with_write(zshrc).with_facts(facts);
+    let engine = engine().with_support(AutoSupport {
+        floor_backup: true,
+        undo: true,
+        ..AutoSupport::default()
+    });
+    let need = persistence(&engine, line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.covered, Some(true));
+    assert!(!names_match(&need.names, &["fix the failing test in src/lib.rs".to_owned()]));
+    assert!(names_match(&need.names, &["add an alias to my zshrc".to_owned()]));
 }
 
 #[rstest]
@@ -472,7 +495,9 @@ fn floor_dir_target_is_user() {
     let line = shell("cp evil.desktop ~/.config/autostart/").with_write(dir);
     let need = persistence(&with_backup(), line.with_facts(kinds_of(&[(dir, DIR)])));
     assert_eq!(need.approver, Approver::User);
-    assert!(!need.backup_before_write);
+    // efrd copies the dir with what it holds, within the limits of the home store.
+    assert!(need.backup_before_write);
+    assert_eq!(need.copies, [CoverAsk::HomeDir(PathBuf::from(dir))]);
 }
 
 #[test]
@@ -597,11 +622,9 @@ fn backup_before_write_marks_every_floor_file_edit() {
     ] {
         let need = persistence(&with_backup(), requirements.clone());
         assert!(need.backup_before_write, "{requirements:?}");
+        assert_eq!(need.copies, [CoverAsk::Home(PathBuf::from(zshrc))], "{requirements:?}");
     }
-    // Never for a plain write, nor without the backup store.
-    let decision = with_backup()
-        .decide(&in_auto(shell("echo x > ~/notes.txt").with_write("/home/u/notes.txt")));
-    assert!(decision.exits().all(|need| !need.backup_before_write));
+    // Never without the home store.
     let need =
         persistence(&engine(), shell("echo x >> ~/.zshrc").with_write(zshrc).with_facts(facts));
     assert!(!need.backup_before_write);

@@ -1,13 +1,16 @@
-//! The asks of the destructive forms, below the engine. The routes themselves are tables in `engine/tests/auto.rs` and
+//! The asks of the destructive forms and the copies of a home write, below the
+//! engine. The routes themselves are tables in `engine/tests/auto.rs` and
 //! `engine/tests/destructive.rs`.
 
 use std::path::{Path, PathBuf};
 
+use efr_protocol::ExitKind;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{cleans_ignored, program_asks};
-use crate::{CoverAsk, Locations};
+use super::{cleans_ignored, program_asks, write_asks, write_copies};
+use crate::exits::WriteBind;
+use crate::{AutoSupport, CoverAsk, Locations, TargetKind};
 
 const HOME: &str = "/home/u";
 const APP: &str = "/home/u/p/app";
@@ -82,4 +85,55 @@ fn an_assignment_before_git_asks_nothing() {
 #[case("--exclude=x", false)]
 fn clean_options_that_remove_ignored_files(#[case] word: &str, #[case] ignored: bool) {
     assert_eq!(cleans_ignored(word), ignored, "{word}");
+}
+
+#[test]
+fn a_write_asks_for_the_file_the_dir_and_a_parent_that_a_bind_can_open() {
+    let home = Path::new(HOME);
+    let notes = PathBuf::from("/home/u/Documents/notes.txt");
+    assert_eq!(
+        write_asks(&notes, home),
+        [
+            CoverAsk::Home(notes.clone()),
+            CoverAsk::HomeDir(notes),
+            CoverAsk::HomeDir(PathBuf::from("/home/u/Documents")),
+        ]
+    );
+    // A shared dir is never bound whole, so its walk is never needed.
+    let zshrc = PathBuf::from("/home/u/.zshrc");
+    assert_eq!(write_asks(&zshrc, home), [CoverAsk::Home(zshrc.clone()), CoverAsk::HomeDir(zshrc)]);
+    let conf = PathBuf::from("/home/u/.config/app.conf");
+    assert_eq!(write_asks(&conf, home).len(), 2);
+}
+
+#[test]
+fn copies_follow_the_kind_and_the_bind_of_a_write() {
+    let backup = AutoSupport { floor_backup: true, ..AutoSupport::default() };
+    let path = Path::new("/home/u/Documents/notes.txt");
+    let parent = PathBuf::from("/home/u/Documents");
+    let file = Some(Some(TargetKind::File));
+    let dir = Some(Some(TargetKind::Dir));
+    let copies =
+        |kind, fact, bind: Option<&WriteBind>| write_copies(kind, path, fact, bind, &backup);
+    assert_eq!(
+        copies(ExitKind::Write, file, Some(&WriteBind::TargetOnly)),
+        [CoverAsk::Home(path.into())]
+    );
+    assert_eq!(
+        copies(ExitKind::Write, file, Some(&WriteBind::Parent(parent.clone()))),
+        [CoverAsk::Home(path.into()), CoverAsk::HomeDir(parent)]
+    );
+    assert_eq!(
+        copies(ExitKind::Write, dir, Some(&WriteBind::Target)),
+        [CoverAsk::HomeDir(path.into())]
+    );
+    assert_eq!(copies(ExitKind::Persistence, None, None), [CoverAsk::Home(path.into())]);
+    assert_eq!(copies(ExitKind::Persistence, dir, None), [CoverAsk::HomeDir(path.into())]);
+    assert_eq!(copies(ExitKind::AboveRoot, None, None), [CoverAsk::HomeDir(path.into())]);
+    assert!(copies(ExitKind::Write, Some(Some(TargetKind::Other)), None).is_empty());
+    assert!(copies(ExitKind::Secret, file, None).is_empty());
+    assert!(copies(ExitKind::Config, file, None).is_empty());
+    // Without the home store efrd copies nothing.
+    let none = write_copies(ExitKind::Write, path, file, None, &AutoSupport::default());
+    assert!(none.is_empty());
 }
