@@ -178,10 +178,11 @@ impl DaemonToolbox {
         let stopped = applied.failed.is_some();
         if !stopped && wrote {
             result.applied = self.finish(store, &plan, limits).await;
-        } else if !wrote && !plan.redo {
-            if let Err(error) = store.drop_undo(&plan).await {
-                tracing::warn!(error = %efr_stdx::with_causes(&error), undo = %plan.undo_id, "the journal of an undo that wrote nothing could not be removed");
-            }
+        } else if !wrote
+            && !plan.redo
+            && let Err(error) = store.drop_undo(&plan).await
+        {
+            tracing::warn!(error = %efr_stdx::with_causes(&error), undo = %plan.undo_id, "the journal of an undo that wrote nothing could not be removed");
         }
         result.stopped = stopped && wrote;
         self.describe(&mut result, &plan, Some(&applied));
