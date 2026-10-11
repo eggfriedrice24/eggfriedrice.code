@@ -41,7 +41,7 @@ mod testing;
 mod worktree;
 
 pub use args::{FdTable, LaunchFds, encode_args};
-pub use desktop::{HYPRLAND_SOCKET, X11_SOCKET_DIR, desktop_socket_path};
+pub use desktop::{HYPRLAND_SOCKET, X11_SOCKET_DIR, desktop_socket_path, is_desktop_socket};
 pub use env_filter::{EnvFilter, HIDDEN_SHELL_SCRUB, MOVED_CACHES, OFFLINE_HINTS};
 pub use error::SandboxError;
 pub use export_filter::{

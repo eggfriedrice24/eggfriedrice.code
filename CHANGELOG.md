@@ -113,6 +113,9 @@ into the GitHub release notes, and it stops when the section is missing.
   `niri msg`, `i3-msg`) now reaches the compositor socket of your terminal's session.
   The call gets that one socket and the one variable that names it, such as
   `HYPRLAND_INSTANCE_SIGNATURE`. It never gets Hyprland's event socket or its log.
+  The socket must have the place and the name of that desktop's socket, such as
+  `wayland-1`, so a variable cannot name another socket of yours, such as the session
+  bus.
   When efr finds no such socket, the model reads "efr found no Hyprland session in the
   terminal of this prompt". An X server that needs an X cookie is refused for now.
 - After you say no, the model does not ask again for the same action in that turn.

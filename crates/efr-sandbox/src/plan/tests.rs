@@ -570,7 +570,9 @@ fn plan_refuses_desktop_socket_outside_runtime_or_x11_dir() {
         .link("/run/user/1000/hypr/linked", "/home/u/p/app/hypr")
         .socket("/home/u/p/app/hypr/.socket.sock")
         .file("/run/user/1000/wayland-9", "")
-        .socket("/run/user/1000/sway-ipc.sock");
+        .socket("/run/user/1000/bus")
+        .link("/run/user/1000/wayland-3", "/run/user/1000/bus")
+        .socket("/run/user/1000/sway-ipc.1000.42.sock");
     let refused = [
         // The event socket, though the spec names it.
         DesktopSocket {
@@ -608,6 +610,18 @@ fn plan_refuses_desktop_socket_outside_runtime_or_x11_dir() {
             path: "/tmp/.X11-unix/X0".into(),
             value: "host:0".to_owned(),
         },
+        // Another socket of the user, though the spec names it.
+        DesktopSocket {
+            desktop: DesktopKind::Sway,
+            path: "/run/user/1000/bus".into(),
+            value: "/run/user/1000/bus".to_owned(),
+        },
+        // A link with a desktop's name to another socket of the user.
+        DesktopSocket {
+            desktop: DesktopKind::Wayland,
+            path: "/run/user/1000/wayland-3".into(),
+            value: "wayland-3".to_owned(),
+        },
     ];
     for socket in refused {
         let mut spec = spec();
@@ -622,10 +636,10 @@ fn plan_refuses_desktop_socket_outside_runtime_or_x11_dir() {
     spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Sway }];
     spec.runtime.desktops = vec![DesktopSocket {
         desktop: DesktopKind::Sway,
-        path: "/run/user/1000/sway-ipc.sock".into(),
-        value: "/run/user/1000/sway-ipc.sock".to_owned(),
+        path: "/run/user/1000/sway-ipc.1000.42.sock".into(),
+        value: "/run/user/1000/sway-ipc.1000.42.sock".to_owned(),
     }];
-    assert!(has_mount(&plan(&spec, &fs), &rw("/run/user/1000/sway-ipc.sock")));
+    assert!(has_mount(&plan(&spec, &fs), &rw("/run/user/1000/sway-ipc.1000.42.sock")));
 }
 
 #[test]

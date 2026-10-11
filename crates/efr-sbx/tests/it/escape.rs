@@ -382,6 +382,43 @@ fn escape_wayland_denied_without_grant() {
     assert!(control.accept().is_err());
 }
 
+/// The review of fix batch A: a desktop variable of the shell, which project tooling
+/// such as direnv can set, that names another socket of the user binds nothing, also
+/// through a link with a desktop's name.
+#[test]
+fn escape_desktop_value_naming_another_socket_binds_nothing() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let (instance, control, events) = hyprland(&mut fixture);
+    let bus = fixture.xrt.join("bus");
+    let bus_listener = UnixListener::bind(&bus).unwrap();
+    bus_listener.set_nonblocking(true).unwrap();
+    let linked = fixture.xrt.join("wayland-7");
+    symlink(&bus, &linked).unwrap();
+    let event_socket = instance.join(".socket2.sock");
+    let cases = [
+        (DesktopKind::Sway, "SWAYSOCK", event_socket.clone(), event_socket.display().to_string()),
+        (DesktopKind::Wayland, "WAYLAND_DISPLAY", bus.clone(), "bus".to_owned()),
+        (DesktopKind::Wayland, "WAYLAND_DISPLAY", linked.clone(), "wayland-7".to_owned()),
+    ];
+    for (desktop, variable, path, value) in cases {
+        fixture.spec.runtime.desktops =
+            vec![DesktopSocket { desktop, path: path.clone(), value: value.clone() }];
+        fixture.spec.grants = vec![Grant::Desktop { desktop }];
+        let line = format!(
+            "zmodload zsh/net/socket; zsocket {} && exit 0; zsocket ${{{variable}-unset}} && \
+             exit 0; exit 1",
+            q(&path)
+        );
+        let run = fixture.run(&line);
+        refused(&run, &format!("{variable}={value}"));
+        assert!(run.result().setup_error.is_some(), "{variable}={value}: {run:#?}");
+    }
+    assert!(events.accept().is_err(), "the event socket got a connection");
+    assert!(bus_listener.accept().is_err(), "the session bus got a connection");
+    assert!(control.accept().is_err());
+}
+
 #[test]
 fn escape_abstract_socket_denied() {
     let ready = sandbox_or_skip!();

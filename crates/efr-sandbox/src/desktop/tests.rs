@@ -71,3 +71,44 @@ fn a_value_that_leaves_the_runtime_dir_or_the_host_names_nothing() {
         assert_eq!(path(desktop, value), None, "{desktop:?} {value:?}");
     }
 }
+
+/// The review of fix batch A: a value of the shell's environment, which project
+/// tooling such as direnv can set, named any socket of the user in the runtime dir.
+#[test]
+fn a_value_that_names_another_socket_of_the_user_names_nothing() {
+    let cases = [
+        (DesktopKind::Sway, "/run/user/1000/hypr/x/.socket2.sock"),
+        (DesktopKind::Sway, "/run/user/1000/gnupg/S.gpg-agent"),
+        (DesktopKind::Sway, "/run/user/1000/bus"),
+        (DesktopKind::Sway, "/run/user/1000/sway-ipc.sock"),
+        (DesktopKind::Sway, "/run/user/1000/sub/sway-ipc.1000.42.sock"),
+        (DesktopKind::I3, "/run/user/1000/bus"),
+        (DesktopKind::I3, "/run/user/1000/ipc-socket.42"),
+        (DesktopKind::I3, "/run/user/1000/hypr/i3/ipc-socket.42"),
+        (DesktopKind::Niri, "/run/user/1000/hypr/x/niri.wayland-1.42.sock"),
+        (DesktopKind::Niri, "/run/user/1000/pipewire-0"),
+        (DesktopKind::Wayland, "bus"),
+        (DesktopKind::Wayland, "pipewire-0"),
+        (DesktopKind::Wayland, "wayland-"),
+        (DesktopKind::Wayland, "/run/user/1000/bus"),
+        (DesktopKind::Wayland, "/run/user/1000/hypr/x/wayland-1"),
+        (DesktopKind::Wayland, "/run/user/1000/wayland-0/"),
+    ];
+    for (desktop, value) in cases {
+        assert_eq!(path(desktop, value), None, "{desktop:?} {value:?}");
+    }
+}
+
+#[test]
+fn a_desktop_socket_has_the_place_and_the_name_of_its_desktop() {
+    let xrt = Path::new(XRT);
+    let fits = |desktop, path: &str| super::is_desktop_socket(desktop, Path::new(path), xrt);
+    assert!(fits(DesktopKind::Hyprland, "/run/user/1000/hypr/abc_1/.socket.sock"));
+    assert!(!fits(DesktopKind::Hyprland, "/run/user/1000/hypr/abc_1/.socket2.sock"));
+    assert!(!fits(DesktopKind::Hyprland, "/run/user/1000/hypr/a-b/.socket.sock"));
+    assert!(!fits(DesktopKind::Hyprland, "/home/u/hypr/abc_1/.socket.sock"));
+    assert!(fits(DesktopKind::X11, "/tmp/.X11-unix/X0"));
+    assert!(!fits(DesktopKind::X11, "/tmp/.X11-unix/X"));
+    assert!(!fits(DesktopKind::X11, "/run/user/1000/X0"));
+    assert!(!fits(DesktopKind::Wayland, "/run/user/1000/hypr/abc_1/wayland-1"));
+}

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, CacheMode, Grant};
 
 use crate::SandboxError;
-use crate::desktop::{X11_SOCKET_DIR, desktop_socket_path};
+use crate::desktop::{desktop_socket_path, is_desktop_socket};
 use crate::fs_view::{FileKind, FsView, Memo, Resolved, resolve};
 use crate::git_config::parse_config;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
@@ -602,9 +602,10 @@ impl Builder<'_> {
 
     /// The one control socket of a desktop grant, bound writable at the path that its
     /// variable names, and that variable. The socket must be the one that
-    /// [`desktop_socket_path`] computes from the value, a socket in the user's runtime
-    /// dir or the X11 dir after every link, and no hidden one, so the grant never
-    /// reaches another socket of the desktop, such as Hyprland's event socket.
+    /// [`desktop_socket_path`] computes from the value, still a socket with the place
+    /// and the name of that desktop's socket after every link ([`is_desktop_socket`]),
+    /// and no hidden one, so the grant never reaches another socket of the user, such
+    /// as Hyprland's event socket or the session bus.
     fn desktop(&mut self, socket: &DesktopSocket) -> Result<(), SandboxError> {
         let refused = || SandboxError::GrantTarget { path: socket.path.clone() };
         let runtime = &self.spec.runtime;
@@ -614,10 +615,10 @@ impl Builder<'_> {
         }
         let user_runtime = self.resolve(&runtime.user_runtime)?.path;
         let resolved = self.resolve(&socket.path)?;
-        let placed = is_within(&resolved.path, &user_runtime)
-            || is_within(&resolved.path, Path::new(X11_SOCKET_DIR));
+        // NOTE: the path after every link must still be a socket of this desktop, so a
+        // link named `wayland-1` that points to the session bus binds nothing.
         if resolved.kind != Some(FileKind::Other)
-            || !placed
+            || !is_desktop_socket(socket.desktop, &resolved.path, &user_runtime)
             || self.hidden_socket(&resolved.path)?
         {
             return Err(refused());

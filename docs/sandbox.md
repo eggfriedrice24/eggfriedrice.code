@@ -301,17 +301,19 @@ that its program talks to, and sets the one variable that names it:
 | Program | Desktop | Socket | Variable |
 |---|---|---|---|
 | `hyprctl` | Hyprland | `$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock` | `HYPRLAND_INSTANCE_SIGNATURE` |
-| `swaymsg` | sway | `$SWAYSOCK` | `SWAYSOCK` |
-| `i3-msg` | i3 | `$I3SOCK` | `I3SOCK` |
-| `niri msg` | niri | `$NIRI_SOCKET` | `NIRI_SOCKET` |
-| `wlr-randr`, `wtype`, `wl-copy`, `wl-paste` | Wayland | `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` | `WAYLAND_DISPLAY` |
+| `swaymsg` | sway | `$SWAYSOCK`, a `sway-ipc.*.sock` in `$XDG_RUNTIME_DIR` | `SWAYSOCK` |
+| `i3-msg` | i3 | `$I3SOCK`, an `ipc-socket.*` in `$XDG_RUNTIME_DIR/i3` | `I3SOCK` |
+| `niri msg` | niri | `$NIRI_SOCKET`, a `niri.*.sock` in `$XDG_RUNTIME_DIR` | `NIRI_SOCKET` |
+| `wlr-randr`, `wtype`, `wl-copy`, `wl-paste` | Wayland | `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY`, a `wayland-*` | `WAYLAND_DISPLAY` |
 | `xrandr`, `xdotool`, `wmctrl`, `xprop`, `xdpyinfo`, `xclip`, `xsel` | X11 | `/tmp/.X11-unix/X<n>` for a local `:<n>` | `DISPLAY` |
 
 efr reads these variables from the terminal of your prompt, because efrd's own
 environment goes stale when the compositor restarts. Only when the prompt sends none
 does efrd use its own environment. efrd checks the socket at each call: it must be a
-socket of yours in `$XDG_RUNTIME_DIR` (an X server's socket in `/tmp/.X11-unix` can
-also be root's), with no link on the way. The call never gets another socket of the
+socket of yours with the place and the name of the table (an X server's socket in
+`/tmp/.X11-unix` can also be root's), with no link on the way. So a variable that
+project tooling such as direnv sets cannot name another socket of yours, such as the
+session bus or a credential agent. The call never gets another socket of the
 desktop, such as Hyprland's event socket `.socket2.sock`, and never its dir or its
 log. When efr finds no such socket, the call does not run, and the model reads "efr
 found no Hyprland session in the terminal of this prompt". An X server that needs an
