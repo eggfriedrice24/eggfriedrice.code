@@ -53,5 +53,9 @@
     "more": 2,
     "added": 24,
     "removed": 47
+  },
+  "stop": {
+    "reason": "refusal",
+    "empty": true
   }
 }

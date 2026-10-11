@@ -31,7 +31,7 @@ Where things are:
 | `src/compaction.rs` | the model's context: `ContextUse` (how full it is against the point where efrd compacts), `CompactionTrigger` and `Compaction`, the body of `conversation_compacted` and of the `conversation.compact` result; the rules are in the README of `efr-conversation`, section "Context" |
 | `src/changes.rs` | what a call or a turn changed in files: `FileChanges`, `FileChange`, `ChangeKind`, and the caps `MAX_LISTED_FILES`, `MAX_CALL_DIFF_LINES` and `MAX_TURN_DIFF_LINES` |
 | `src/error.rs` | `ErrorCode`, `ErrorBody`, `ErrorFrame`, and `ProtocolError`, the crate's error type |
-| `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage` |
+| `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision`, `InputWait`, `Usage`, `TurnStop` and `StopReason` (why the model of a completed turn stopped) |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |
 | `src/methods.rs` | the types that several methods share: `PageCursor`, `Base64Bytes`, `ConfigFileError` |
 | `src/methods/*.rs` | one file per method: its params, and its result or stream item; `turn_steer.rs` also holds `LateSteer`, `turn_interrupt.rs` `ResentSteers` and `prompt_withdraw.rs` `WithdrawTarget` and `WithdrawnPrompt` |

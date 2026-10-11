@@ -274,6 +274,7 @@ fn fixture_events() -> Vec<(Option<efr_protocol::ConversationId>, efr_protocol::
                 usage: Some(Usage::new(812, 64)),
                 changes: None,
                 context: None,
+                stop: None,
             },
         ),
         (None, Event::LoginCompleted { provider: "openai".to_owned() }),

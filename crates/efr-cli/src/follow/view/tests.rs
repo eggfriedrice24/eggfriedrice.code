@@ -81,7 +81,7 @@ fn resolved(origin: Origin) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None, stop: None }
 }
 
 /// `step` with the frame that shows it, at a time that never moves, in its `out`.
@@ -2155,8 +2155,13 @@ fn ended(look: Look, end: Event, millis: i64) -> String {
 #[test]
 fn a_completed_turn_ends_with_its_time_and_tokens() {
     let usage = Usage::new(18_250, 1_100);
-    let end =
-        Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None, context: None };
+    let end = Event::TurnCompleted {
+        turn_id: turn(),
+        usage: Some(usage),
+        changes: None,
+        context: None,
+        stop: None,
+    };
     insta::assert_snapshot!(ended(ALL, end, 42_000));
 }
 
@@ -2194,7 +2199,13 @@ fn a_failed_turn_has_no_end_line_and_marks_the_bar_failed() {
 
 #[test]
 fn without_the_summary_a_turn_ends_as_before() {
-    let end = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None };
+    let end = Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+    };
     let frame = ended(Look::default(), end, 5_000);
     assert!(!frame.contains("done"), "{frame}");
     let frame = ended(
@@ -2257,6 +2268,7 @@ fn piped_output_has_no_status_row_and_no_escape_sequences() {
             usage: Some(Usage::new(5, 1)),
             changes: None,
             context: None,
+            stop: None,
         },
     ]) {
         let step = view.envelope(&sent(seq, 0, event), SIZE, false);

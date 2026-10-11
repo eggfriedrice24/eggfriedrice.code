@@ -339,3 +339,8 @@ No protocol version has shipped yet.
   now holds a desktop grant of each desktop, and `prompt_send_params.json`,
   `turn_steer_params.json`, `turn_interrupt_params.json` and
   `events/prompt_queued.json` now set `desktop`.
+- Version 1, additive: why a turn stopped. `turn_completed` gains an optional `stop`
+  with a `reason` (`end_turn`, `max_tokens`, `refusal`, `content_filter` or
+  `pause_turn`) and `empty` (false when absent): the last model call gave no text and
+  no tool call. It is absent for a normal answer and in turns recorded before it.
+  `events/turn_completed.json` now sets it.

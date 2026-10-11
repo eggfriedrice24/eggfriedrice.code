@@ -49,7 +49,13 @@ async fn new_with_a_prompt_starts_a_conversation_and_follows_the_reply() {
             sub,
             &item(
                 7,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;
@@ -87,7 +93,13 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
             sub,
             &item(
                 6,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;
@@ -136,7 +148,13 @@ async fn new_carries_the_turn_settings_of_the_flags_and_variables() {
             sub,
             &item(
                 6,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;

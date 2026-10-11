@@ -117,6 +117,7 @@ async fn the_status_follows_the_running_turn_and_its_approvals() {
             usage: Some(Usage::default()),
             changes: None,
             context: None,
+            stop: None,
         },
     ] {
         writer.append(Batch::new().event(id, event)).await.unwrap();

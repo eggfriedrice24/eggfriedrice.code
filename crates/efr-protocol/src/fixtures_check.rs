@@ -40,9 +40,10 @@ use crate::{
     ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootSource, RowCells, SandboxCheck,
     SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
     SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
-    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SurfaceChange, TargetFact,
-    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, Usage,
-    UserAuthorization, Verdict, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, StopReason, SurfaceChange,
+    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, TurnStop, Usage, UserAuthorization, Verdict, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -823,6 +824,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                         usage: Some(Usage::new(1200, 340)),
                         context: None,
                         changes: None,
+                        stop: None,
                     },
                 )],
                 next_cursor: Some(PageCursor::new("h1:10")),
@@ -1286,6 +1288,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             }),
             context: Some(context_use()),
             changes: Some(file_changes()),
+            stop: Some(TurnStop { reason: StopReason::Refusal, empty: true }),
         },
         Event::TurnFailed {
             turn_id: turn_id(),

@@ -38,7 +38,7 @@ fn completed(text: &str) -> Event {
 }
 
 fn turn_completed() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None, stop: None }
 }
 
 /// Reads the subscribe request and checks where it starts.
@@ -452,6 +452,7 @@ async fn a_queued_prompt_shows_and_answers_the_approval_the_running_turn_waits_f
                     usage: None,
                     changes: None,
                     context: None,
+                    stop: None,
                 },
             ),
         )
@@ -1094,6 +1095,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
                     usage: None,
                     changes: None,
                     context: None,
+                    stop: None,
                 },
             ),
         )

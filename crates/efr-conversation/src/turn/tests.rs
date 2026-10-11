@@ -296,7 +296,10 @@ async fn a_text_turn_records_the_answer_and_completes() {
 
     let usage = Some(Usage { context_tokens: 14, ..Usage::new(10, 4) });
     let context = Some(unknown_window().gauge(14));
-    assert_eq!(end, Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None, context });
+    assert_eq!(
+        end,
+        Event::TurnCompleted { turn_id: sent.turn_id, usage, changes: None, context, stop: None }
+    );
     assert_eq!(
         h.kinds().await,
         kinds(&[

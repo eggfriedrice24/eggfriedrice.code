@@ -340,7 +340,13 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                     sub,
                     &event(
                         5,
-                        Event::TurnCompleted { turn_id, usage: None, changes: None, context: None },
+                        Event::TurnCompleted {
+                            turn_id,
+                            usage: None,
+                            changes: None,
+                            context: None,
+                            stop: None,
+                        },
                     ),
                 );
             }
@@ -425,7 +431,16 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
         conn.item(sub, &event(4, Event::AssistantMessageCompleted { turn_id, index: 0, text }));
         conn.item(
             sub,
-            &event(5, Event::TurnCompleted { turn_id, usage: None, changes: None, context: None }),
+            &event(
+                5,
+                Event::TurnCompleted {
+                    turn_id,
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
+            ),
         );
         conn.drain();
     });

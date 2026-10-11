@@ -206,6 +206,7 @@ fn the_user_messages_end_with_the_turn_s_own_prompt() {
             usage: None,
             changes: None,
             context: None,
+            stop: None,
         }),
         prompt(current, "now push it"),
         prompt(later, "and tag it"),

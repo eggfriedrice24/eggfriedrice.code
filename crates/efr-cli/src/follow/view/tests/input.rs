@@ -113,7 +113,13 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
             settings: None,
         },
     );
-    let done = Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None };
+    let done = Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+    };
     let envelope =
         EventEnvelope { seq: Seq::new(12), conversation_id: None, at: at(2000), event: done };
     let step = view.envelope(&envelope, SIZE, true);
@@ -133,8 +139,13 @@ fn the_view_follows_a_prompt_that_it_queued_after_the_turn() {
         },
     );
     let running = screen(&mut view, &mut grid, 2100);
-    let ended =
-        Event::TurnCompleted { turn_id: turn_2(), usage: None, changes: None, context: None };
+    let ended = Event::TurnCompleted {
+        turn_id: turn_2(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+    };
     let envelope =
         EventEnvelope { seq: Seq::new(14), conversation_id: None, at: at(3000), event: ended };
     let step = view.envelope(&envelope, SIZE, true);

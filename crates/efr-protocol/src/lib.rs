@@ -49,7 +49,7 @@ pub use changes::{
 };
 pub use compaction::{Compaction, CompactionTrigger, ContextUse};
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
-pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, Usage};
+pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, StopReason, TurnStop, Usage};
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
     CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,

@@ -58,6 +58,7 @@ fn completed(tokens: u64) -> Event {
         usage: Some(Usage { cached_input_tokens: 870_000, ..Usage::new(918_000, 1_100) }),
         changes: None,
         context: Some(context(tokens)),
+        stop: None,
     }
 }
 
@@ -203,6 +204,7 @@ fn an_interrupted_turn_shows_the_gauge_and_one_without_a_count_keeps_its_line() 
             usage: Some(Usage { cached_input_tokens: 16_700, ..Usage::new(18_250, 1_100) }),
             changes: None,
             context: None,
+            stop: None,
         };
         view.envelope(&sent(12, 42_000, end), SIZE, false);
         bare(&view.frame(SIZE, at(42_000)))

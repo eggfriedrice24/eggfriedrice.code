@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use crate::{
     CallId, CommandId, Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
     EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq,
-    ShellContext, TurnId, TurnSettings, Usage,
+    ShellContext, StopReason, TurnId, TurnSettings, TurnStop, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -526,4 +526,47 @@ fn a_compaction_keeps_its_fresh_block_and_an_old_one_reads_without_it() {
     let wire = serde_json::to_value(&stored).unwrap();
     assert_eq!(wire["fresh"], fresh);
     assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), stored);
+}
+
+#[test]
+fn turn_completed_without_stop_reads_as_before() {
+    let old = json!({
+        "kind": "turn_completed",
+        "turn_id": TURN,
+        "usage": { "input_tokens": 1_200, "output_tokens": 340 },
+    });
+    let read: Event = serde_json::from_value(old.clone()).unwrap();
+    let Event::TurnCompleted { stop, .. } = &read else {
+        panic!("a completed turn");
+    };
+    assert_eq!(*stop, None, "a turn from before the field has no stop");
+    assert_eq!(serde_json::to_value(&read).unwrap(), old, "and writes none");
+
+    let stopped = Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        context: None,
+        changes: None,
+        stop: Some(TurnStop { reason: StopReason::Refusal, empty: true }),
+    };
+    let wire = serde_json::to_value(&stopped).unwrap();
+    assert_eq!(wire["stop"], json!({ "reason": "refusal", "empty": true }));
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), stopped);
+    let cut = TurnStop { reason: StopReason::MaxTokens, empty: false };
+    assert_eq!(serde_json::to_value(cut).unwrap(), json!({ "reason": "max_tokens" }));
+}
+
+#[test]
+fn every_stop_reason_is_its_wire_name() {
+    for reason in [
+        StopReason::EndTurn,
+        StopReason::MaxTokens,
+        StopReason::Refusal,
+        StopReason::ContentFilter,
+        StopReason::PauseTurn,
+    ] {
+        let value = serde_json::to_value(reason).unwrap();
+        assert_eq!(value, json!(reason.as_str()));
+        assert_eq!(serde_json::from_value::<StopReason>(value).unwrap(), reason);
+    }
 }

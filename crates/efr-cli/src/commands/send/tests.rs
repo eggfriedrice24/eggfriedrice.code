@@ -53,7 +53,13 @@ async fn answer(
         sub,
         &item(
             12,
-            Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+            Event::TurnCompleted {
+                turn_id: turn(),
+                usage: None,
+                changes: None,
+                context: None,
+                stop: None,
+            },
         ),
     )
     .await;
@@ -253,7 +259,13 @@ async fn a_queued_prompt_says_so_and_still_follows_its_turn() {
             sub,
             &item(
                 12,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;
@@ -314,7 +326,13 @@ async fn on_a_terminal_the_reply_is_rendered() {
             sub,
             &item(
                 14,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;
@@ -679,7 +697,13 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
             sub,
             &item(
                 12,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;
@@ -720,7 +744,13 @@ async fn on_a_terminal_the_settings_note_is_dim() {
             sub,
             &item(
                 12,
-                Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None },
+                Event::TurnCompleted {
+                    turn_id: turn(),
+                    usage: None,
+                    changes: None,
+                    context: None,
+                    stop: None,
+                },
             ),
         )
         .await;
@@ -744,7 +774,7 @@ fn row_context(env: &TestEnv, keys: &Arc<ScriptedKeys>, dir: &std::path::Path) -
 }
 
 fn completed_turn() -> Event {
-    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None }
+    Event::TurnCompleted { turn_id: turn(), usage: None, changes: None, context: None, stop: None }
 }
 
 #[tokio::test]

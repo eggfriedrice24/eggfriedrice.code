@@ -117,7 +117,13 @@ fn turn_started() -> Event {
 
 fn turn_completed() -> Event {
     let usage = Usage::new(18_200, 1_100);
-    Event::TurnCompleted { turn_id: turn(), usage: Some(usage), changes: None, context: None }
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: Some(usage),
+        changes: None,
+        context: None,
+        stop: None,
+    }
 }
 
 /// A terminal's screen: the rows that the writes of a view leave on it. The escape
@@ -619,6 +625,7 @@ fn turn_changed(changes: FileChanges) -> Event {
         usage: Some(usage),
         changes: Some(changes),
         context: None,
+        stop: None,
     }
 }
 
@@ -942,6 +949,7 @@ fn a_turn_that_compacts_its_context() {
         usage: Some(Usage::new(918_200, 1_100)),
         changes: None,
         context: Some(ContextUse { tokens: 196_000, limit: 206_720, window: 272_000 }),
+        stop: None,
     };
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),

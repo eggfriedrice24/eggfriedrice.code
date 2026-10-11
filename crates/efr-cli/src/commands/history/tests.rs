@@ -539,8 +539,13 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
         index: 0,
         text: text.to_owned(),
     };
-    let done =
-        |turn_id| Event::TurnCompleted { turn_id, usage: None, changes: None, context: None };
+    let done = |turn_id| Event::TurnCompleted {
+        turn_id,
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+    };
     // While the first turn runs, the user queues two prompts and takes the second
     // back, then steers and presses Esc: the steer runs next as a new prompt.
     let events = vec![

@@ -375,6 +375,11 @@ pub enum Event {
         /// the diff.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         changes: Option<FileChanges>,
+        /// Why the model stopped, when its last call gave no text and no tool call, or
+        /// stopped for another reason than the end of its answer. Absent for a normal
+        /// answer, and in turns recorded before efr reported it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop: Option<TurnStop>,
     },
 
     /// A turn ended with an error, such as a provider failure.
@@ -835,6 +840,47 @@ impl Usage {
             cache_write_tokens: 0,
             cache_write_1h_tokens: 0,
             context_tokens: 0,
+        }
+    }
+}
+
+/// Why the model of a completed turn stopped, when a client shows it: the last model
+/// call gave no answer, or it stopped for another reason than the end of its answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct TurnStop {
+    /// The stop reason of the last model call.
+    pub reason: StopReason,
+    /// True when the last model call gave no text and no tool call.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub empty: bool,
+}
+
+/// Why a model call stopped, as the provider reported it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StopReason {
+    /// The model finished its answer.
+    EndTurn,
+    /// The answer reached the output token limit.
+    MaxTokens,
+    /// The model refused to answer.
+    Refusal,
+    /// The provider stopped the answer for its content.
+    ContentFilter,
+    /// The provider paused a long turn, which efr does not continue.
+    PauseTurn,
+}
+
+impl StopReason {
+    /// The wire form, such as `max_tokens`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            StopReason::EndTurn => "end_turn",
+            StopReason::MaxTokens => "max_tokens",
+            StopReason::Refusal => "refusal",
+            StopReason::ContentFilter => "content_filter",
+            StopReason::PauseTurn => "pause_turn",
         }
     }
 }

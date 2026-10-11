@@ -117,7 +117,13 @@ async fn scene() -> Scene {
         .event(idle, started(t3))
         .event(
             idle,
-            Event::TurnCompleted { turn_id: t3, usage: None, changes: None, context: None },
+            Event::TurnCompleted {
+                turn_id: t3,
+                usage: None,
+                changes: None,
+                context: None,
+                stop: None,
+            },
         )
         .enqueue(NewOutboxItem::process_bound("notify", json!({})))
         .enqueue(NewOutboxItem::replay_safe("index", json!({})));

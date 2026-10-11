@@ -96,6 +96,7 @@ fn the_base_is_the_context_at_the_end_of_the_newest_turn() {
         usage: Some(usage),
         context: Some(limits.gauge(tokens)),
         changes: None,
+        stop: None,
     };
     let uncounted = Event::TurnInterrupted { turn_id: turn, usage: Some(usage), context: None };
     let estimated = Event::TurnFailed {
@@ -159,6 +160,7 @@ fn the_count_of_another_model_is_no_base() {
         usage: Some(Usage { context_tokens: 500_000, ..Usage::default() }),
         context: Some(limits.gauge(500_887)),
         changes: None,
+        stop: None,
     };
     let claude = [envelope(1, started("claude-opus-5-5")), envelope(2, ended.clone())];
 

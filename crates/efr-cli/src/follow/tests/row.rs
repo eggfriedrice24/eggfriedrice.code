@@ -217,7 +217,7 @@ fn answer(turn_id: TurnId, text: &str) -> Event {
 }
 
 fn ended(turn_id: TurnId) -> Event {
-    Event::TurnCompleted { turn_id, usage: None, changes: None, context: None }
+    Event::TurnCompleted { turn_id, usage: None, changes: None, context: None, stop: None }
 }
 
 /// The part of `text` after the last time it showed `marker`.
@@ -464,8 +464,13 @@ async fn alt_up_takes_back_the_newest_queued_prompt() {
         conn.item(sub, &item(15, started(turn_2()))).await;
         conn.item(sub, &item(16, answer(turn_2(), "First done."))).await;
         shows(&seen, "First done.").await;
-        let done =
-            Event::TurnCompleted { turn_id: turn_2(), usage: None, changes: None, context: None };
+        let done = Event::TurnCompleted {
+            turn_id: turn_2(),
+            usage: None,
+            changes: None,
+            context: None,
+            stop: None,
+        };
         conn.item(sub, &item(17, done)).await;
         conn.until_closed().await;
     })
