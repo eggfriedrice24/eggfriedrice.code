@@ -53,13 +53,13 @@ shipped binary.
 | `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
-| `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre` and `post` refs, the changes of a call or a turn, the diff of a turn, the collector (phase 4 of the auto spec, without undo) | `efr-scope`, `efr-protocol`, `efr-stdx` |
+| `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre`, `last` and `post` refs and the paths that its calls touched, the mirror of a project's refs and objects from the git dirs that efrd trusts, the check that a snapshot covers each file below a target, the changes of a call or a turn, the diff of a turn, the plan of an undo or a redo (pure: it writes no file of a root), the home store of the files outside the roots, the collector | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
-| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
+| `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the backup store of floor files and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain); renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the home copies of the files that an approved exit writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain), `undo`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -109,6 +109,24 @@ What each forbidden edge protects:
 
 The test for splitting a module into a crate, or folding one back: it gets heavy
 dependencies of its own, or a second binary needs it.
+
+## The project's git dir and undo
+
+- A snapshot never writes a project's git dir. git runs on a project's own git dir
+  only through `ProjectGit` (`crates/efr-snapshot/src/project_git.rs`), with hooks,
+  fsmonitor and automatic gc off, and only on the git dirs that efrd trusts: the work
+  tree record of `crates/efr-daemon/src/sandbox/projects.rs` when it matches, else
+  `<root>/.git` when it is a directory. The store pins both dirs by their `(dev, ino)`
+  and never follows a `.git` file in a root. A repository with alternates, or with a
+  `commondir` file where none belongs, gets no mirror and no undo of its refs.
+- Only an applied undo writes a project's git dir, and only its refs (compare and swap)
+  and the objects that the project lost, while efrd holds the plan lock of the root.
+  It never writes the project's config, its hooks or its index.
+- `efr-snapshot` plans an undo and writes no file in a root or in the home directory.
+  efrd writes them (`crates/efr-daemon/src/tools/undo.rs`): through `DaemonFs`, never
+  through a link, after it reads each path again and compares it with the plan. Each
+  file that undo overwrites or removes goes to the undo trash
+  (`$XDG_DATA_HOME/efr/undo-trash/<undo-id>/`) first.
 
 ## Threading model
 
@@ -226,12 +244,30 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-daemon/src/methods/presence_set.rs`; `efr away` in
   `crates/efr-cli/src/commands/away.rs`; `[presence]` in
   `crates/efr-config/src/tables/presence.rs`.
-- The backups of floor files: which exits get one (`ExitNeed::backup_before_write`) in
-  `crates/efr-permissions/src/exits.rs`; the one hook before a call runs
-  (`DaemonToolbox::invoke`) in `crates/efr-daemon/src/tools.rs`; the store, the copy
-  through dotfile links and the collector in `crates/efr-daemon/src/backups.rs`;
-  `home_file_changed` in `crates/efr-conversation/src/turn.rs`; the line at the end of
-  a turn in `crates/efr-cli/src/format/sandbox.rs`.
+- Undo and the home store: the store's refs, the mirror (`mirror.rs`), git on the
+  project's own git dir (`project_git.rs`), the check that a snapshot covers a target
+  (`cover.rs`), the plan of an undo or a redo (`undo.rs`) and the home store
+  (`home.rs`) in `crates/efr-snapshot/src/`. What a destructive line or a file tool
+  asks to be covered (`CoverAsk`) in `crates/efr-permissions/src/request.rs`; which
+  exits get a home copy (`ExitNeed::copies`, `ExitNeed::backup_before_write`) and the
+  rule that a covered destructive part is routine (`destructive`) in
+  `crates/efr-permissions/src/exits.rs`. efrd's answer to the asks before the decision
+  in `crates/efr-daemon/src/tools/snapshot.rs` (`CallSnapshots::covers`) and
+  `crates/efr-daemon/src/home.rs` (`coverage`), from the facts of a call
+  (`DaemonToolbox::facts`) in `crates/efr-daemon/src/tools.rs`; the home copies before
+  and after a call in `crates/efr-daemon/src/home.rs`, from the one hook before a call
+  runs (`DaemonToolbox::invoke`); the end of a turn (`TurnUndoInfo`) in
+  `crates/efr-daemon/src/tools/snapshot.rs`; the apply of an undo and the undo trash
+  in `crates/efr-daemon/src/tools/undo.rs`, through `DaemonFs` in
+  `crates/efr-daemon/src/sandbox/fs.rs`; `turn.undo` in
+  `crates/efr-daemon/src/methods/turn_undo.rs`; the actor's undo and its refusals in
+  `crates/efr-conversation/src/actor/undo.rs`; `home_file_changed` in
+  `crates/efr-conversation/src/turn.rs`; `efr undo` in
+  `crates/efr-cli/src/commands/undo.rs`; the lines at the end of a turn in
+  `crates/efr-cli/src/format/changes.rs` and `crates/efr-cli/src/format/sandbox.rs`.
+  The collector of the phase A backups, which efrd no longer writes, is in
+  `crates/efr-daemon/src/backups.rs`. The tests from the prompt to the files are in
+  `crates/efr-daemon/tests/it/undo.rs` and `crates/efr-daemon/tests/it/sandbox/undo.rs`.
 - Deletes that reach the real tool caches: the walk of the whiteouts in an upper layer
   (`CacheDeletes`) and the read path of a layer (`LayerView`) in
   `crates/efr-sandbox/src/layers/deletes.rs`; the launcher's reads of the uppers that
