@@ -19,7 +19,8 @@ use std::time::Duration;
 
 use efr_scope::{Git, Home};
 use efr_stdx::time::Clock;
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::process::ChildStderr;
 
 use crate::SnapshotError;
 use crate::store::Store;
@@ -59,11 +60,19 @@ const SCRUBBED_ENV: &[&str] = &[
     "GIT_PAGER",
 ];
 
+/// The most bytes of a command's standard error that [`Run::stderr`] keeps.
+pub(crate) const MAX_STDERR_BYTES: usize = 8 * 1024;
+
 /// What one command printed and whether it succeeded.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct Output {
     pub(crate) success: bool,
+    /// The exit code, `None` when a signal ended the command.
+    pub(crate) code: Option<i32>,
     pub(crate) stdout: Vec<u8>,
+    /// The first [`MAX_STDERR_BYTES`] of the standard error with [`Run::stderr`], else
+    /// empty.
+    pub(crate) stderr: Vec<u8>,
 }
 
 /// One command on a store.
@@ -79,6 +88,9 @@ pub(crate) struct Run<'a> {
     pub(crate) literal: bool,
     /// The author and committer time of a commit, in git's `<seconds> +0000` form.
     pub(crate) commit_time: Option<String>,
+    /// Keeps the first [`MAX_STDERR_BYTES`] of the standard error in
+    /// [`Output::stderr`]; without it the standard error goes nowhere.
+    pub(crate) stderr: bool,
 }
 
 /// Runs git on stores.
@@ -158,6 +170,9 @@ impl Runner {
         if run.stdin.is_some() {
             command.stdin(Stdio::piped());
         }
+        if run.stderr {
+            command.stderr(Stdio::piped());
+        }
         let stdin = run.stdin;
         let work = async move {
             // NOTE: spawning returns only once the child has changed into its working
@@ -170,12 +185,20 @@ impl Runner {
                 pipe.write_all(&bytes).await?;
                 drop(pipe);
             }
-            child.wait_with_output().await
+            let stderr = child.stderr.take();
+            let (output, stderr) =
+                tokio::join!(child.wait_with_output(), first_bytes(stderr, MAX_STDERR_BYTES));
+            let mut output = output?;
+            output.stderr = stderr?;
+            Ok::<_, io::Error>(output)
         };
         match self.clock.timeout(self.timeout, work).await {
-            Ok(Ok(output)) => {
-                Ok(Output { success: output.status.success(), stdout: output.stdout })
-            }
+            Ok(Ok(output)) => Ok(Output {
+                success: output.status.success(),
+                code: output.status.code(),
+                stdout: output.stdout,
+                stderr: output.stderr,
+            }),
             Ok(Err(source)) => Err(SnapshotError::RunGit { program: "git".into(), source }),
             Err(_) => Err(SnapshotError::GitTimedOut { after: self.timeout }),
         }
@@ -245,5 +268,23 @@ impl Runner {
                 after: self.timeout,
             }),
         }
+    }
+}
+
+/// The first `most` bytes of `pipe`. The rest is read and dropped, so the command never
+/// waits on a full pipe.
+async fn first_bytes(pipe: Option<ChildStderr>, most: usize) -> io::Result<Vec<u8>> {
+    let Some(mut pipe) = pipe else {
+        return Ok(Vec::new());
+    };
+    let mut kept = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        let read = pipe.read(&mut chunk).await?;
+        if read == 0 {
+            return Ok(kept);
+        }
+        let room = most.saturating_sub(kept.len());
+        kept.extend_from_slice(&chunk[..read.min(room)]);
     }
 }

@@ -3,7 +3,25 @@ use std::os::unix::fs::symlink;
 
 use pretty_assertions::assert_eq;
 
-use super::{MAX_IGNORED_BYTES, by_size, keep_others, parse_listing, small_ignored};
+use super::{
+    MAX_IGNORED_BYTES, Unreadable, by_size, keep_others, parse_listing, small_ignored, unreadable,
+};
+
+#[test]
+fn unreadable_file_errors_are_counted_with_the_first_path() {
+    let stderr = b"warning: could not open directory 'work/': Permission denied\n\
+        error: open(\"research/a/secret\"): Permission denied\n\
+        error: unable to index file 'research/a/secret'\n\
+        error: open(\"b \\\"q\\\").txt\"): Permission denied\n\
+        error: open(\"c.txt\"): Permission denied\n\
+        error: open(\"cut-off";
+    assert_eq!(
+        unreadable(stderr),
+        Unreadable { count: 3, first: Some("research/a/secret".to_owned()) }
+    );
+    assert_eq!(unreadable(b"fatal: adding files failed\n"), Unreadable::default());
+    assert_eq!(unreadable(b""), Unreadable::default());
+}
 
 #[test]
 fn a_listing_splits_tracked_changes_from_new_files() {

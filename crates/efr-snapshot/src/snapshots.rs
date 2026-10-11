@@ -11,7 +11,7 @@ use efr_scope::{Git, Home};
 use efr_stdx::time::{Clock, Stopwatch};
 
 use crate::SnapshotError;
-use crate::capture::{self, Limits, Staged};
+use crate::capture::{self, Limits, Reported, Staged};
 use crate::changes::{self, RootChange, Shown};
 use crate::runner::{Run, Runner};
 use crate::store::{self, Store};
@@ -225,6 +225,8 @@ struct Inner {
     runner: Runner,
     slots: Mutex<HashMap<PathBuf, Arc<Slot>>>,
     turns: Mutex<HashMap<TurnId, TurnRecord>>,
+    /// The roots whose unreadable files the log named already.
+    reported: Reported,
 }
 
 impl Snapshots {
@@ -238,6 +240,7 @@ impl Snapshots {
                 runner,
                 slots: Mutex::default(),
                 turns: Mutex::default(),
+                reported: Reported::default(),
             }),
         }
     }
@@ -411,7 +414,16 @@ impl Snapshots {
         let watch = Stopwatch::start();
         let cached = slot.tree();
         let taken: Result<Result<String, &str>, SnapshotError> = async {
-            match capture::stage(self.runner(), &store, limits, ignored, cached.is_none()).await? {
+            match capture::stage(
+                self.runner(),
+                &self.inner.reported,
+                &store,
+                limits,
+                ignored,
+                cached.is_none(),
+            )
+            .await?
+            {
                 Staged::Skipped(reason) => Ok(Err(reason)),
                 Staged::Unchanged if cached.is_some() => Ok(Ok(cached.clone().unwrap_or_default())),
                 Staged::Unchanged | Staged::Changed => {
@@ -460,8 +472,15 @@ impl Snapshots {
         let watch = Stopwatch::start();
         let cached = slot.tree();
         let compared: Result<Result<Vec<RootChange>, &str>, SnapshotError> = async {
-            let staged =
-                capture::stage(self.runner(), &store, limits, false, cached.is_none()).await?;
+            let staged = capture::stage(
+                self.runner(),
+                &self.inner.reported,
+                &store,
+                limits,
+                false,
+                cached.is_none(),
+            )
+            .await?;
             match staged {
                 Staged::Skipped(reason) => Ok(Err(reason)),
                 Staged::Unchanged if cached.as_deref() == Some(before) => Ok(Ok(Vec::new())),

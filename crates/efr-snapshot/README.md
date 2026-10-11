@@ -52,6 +52,12 @@ for an ignored file) leaves the index, so no later call hashes it again, and it 
 as changed with no line counts, not as deleted. A call's own list does not show a new
 ignored file; the turn's does.
 
+A file that git cannot read, such as a file that only root may read, stays out of the
+tree. `git add --ignore-errors` adds the rest. The debug log names the count of these
+files and the first path, once per root for the life of the process, from the first
+8 KiB of git's standard error. A git that stops with exit code 128 adds nothing, and
+the log gives a warning with git's `fatal:` line at each snapshot.
+
 The lists say what changed in a root between two snapshots, not who changed it. A
 write by another conversation's call, or by the user's editor, between a call's
 snapshots (or a turn's first and last) shows in that call's list (or turn's) too,
@@ -105,7 +111,9 @@ The tests need a `git` binary. They run in temporary directories with git's syst
 global config switched off. `tests/it/calls.rs` covers a plain directory and a git
 project (whose `.git` and index must keep their bytes), every kind of change, binary
 files, links, ignored, large and build files and the file limit; `turns.rs` the turn's
-refs and its diff with and without the patch; `gc.rs` both bounds of the collector.
+refs and its diff with and without the patch; `gc.rs` both bounds of the collector;
+`logs.rs` the log lines of an add that fails (a file that git cannot read, skipped
+when the tests run as root, and a git wrapper that stops with exit code 128).
 `cost.rs` measures one call on a copy of this repository and prints the numbers:
 
 ```sh

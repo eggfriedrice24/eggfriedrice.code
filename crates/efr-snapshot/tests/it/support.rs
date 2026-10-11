@@ -44,18 +44,23 @@ impl World {
              exec git \"$@\"\n",
             log.display()
         );
-        fs::write(&script, text).unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-        let home = Home::new(world.home()).unwrap();
+        world.with_git_script(&script, &text)
+    }
+
+    /// A world whose store runs git through the shell script `text` at `script`.
+    pub(crate) fn with_git_script(self, script: &Path, text: &str) -> World {
+        fs::write(script, text).unwrap();
+        fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
+        let home = Home::new(self.home()).unwrap();
         let snapshots = Snapshots::new(SnapshotParts {
-            dir: world.store_dir(),
-            git: Git::new(world.clock.shared()).isolated().with_program(&script),
+            dir: self.store_dir(),
+            git: Git::new(self.clock.shared()).isolated().with_program(script),
             home,
-            clock: world.clock.shared(),
+            clock: self.clock.shared(),
             excludes_file: None,
             timeout: DEFAULT_SNAPSHOT_TIMEOUT,
         });
-        World { snapshots, ..world }
+        World { snapshots, ..self }
     }
 
     /// The git subcommands that the store ran since the last look, sorted.

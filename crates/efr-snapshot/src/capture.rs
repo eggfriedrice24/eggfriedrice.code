@@ -16,13 +16,14 @@
 //! without a snapshot yet lists its ignored files only after the `max_files` check, so
 //! a root that is too big never pays for that listing.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
 use crate::SnapshotError;
-use crate::runner::{Run, Runner};
+use crate::runner::{MAX_STDERR_BYTES, Output, Run, Runner};
 use crate::store::Store;
 
 /// The largest ignored file a snapshot takes.
@@ -97,9 +98,11 @@ pub(crate) fn parse_listing(out: &[u8]) -> Listing {
 
 /// Brings the persistent index of `store` up to its root with `limits`; `ignored`
 /// also takes the small ignored files, and `fresh` (no tree known in this process)
-/// copies the project's exclude file first.
+/// copies the project's exclude file first. `reported` keeps which roots the log named
+/// for their unreadable files.
 pub(crate) async fn stage(
     runner: &Runner,
+    reported: &Reported,
     store: &Store,
     limits: &Limits,
     ignored: bool,
@@ -194,6 +197,7 @@ pub(crate) async fn stage(
                     work_tree: Some(&root),
                     stdin: Some(nul_list(&paths)),
                     literal: true,
+                    stderr: true,
                     ..Run::default()
                 },
             )
@@ -202,7 +206,7 @@ pub(crate) async fn stage(
             locked(store, "add")?;
             // NOTE: with --ignore-errors git adds what it can read and fails for the
             // rest, such as a file that only root may read; the tree holds the rest.
-            tracing::debug!(root = %root.display(), "some files could not be added to a snapshot");
+            log_failed_add(reported, &root, Added::Files, &output);
         }
     }
     if !forced.is_empty() {
@@ -214,16 +218,92 @@ pub(crate) async fn stage(
                     work_tree: Some(&root),
                     stdin: Some(nul_list(&forced)),
                     literal: true,
+                    stderr: true,
                     ..Run::default()
                 },
             )
             .await?;
         if !output.success {
             locked(store, "add")?;
-            tracing::debug!(root = %root.display(), "some ignored files could not be added to a snapshot");
+            log_failed_add(reported, &root, Added::Ignored, &output);
         }
     }
     Ok(Staged::Changed)
+}
+
+/// The exit code of a git that stopped at a fatal error, such as a path that went away
+/// between the listing and the add: it added nothing.
+const FATAL_EXIT: i32 = 128;
+
+/// Which `git add` of a snapshot failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Added {
+    /// The changed and new files.
+    Files,
+    /// The small ignored files.
+    Ignored,
+}
+
+/// The roots and adds whose unreadable files the log named already, so that a root
+/// with files that git cannot read gives one line for the life of the process, not one
+/// at each snapshot.
+#[derive(Debug, Default)]
+pub(crate) struct Reported(Mutex<HashSet<(PathBuf, Added)>>);
+
+impl Reported {
+    /// True the first time for `root` and `added`.
+    fn first(&self, root: &Path, added: Added) -> bool {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).insert((root.to_path_buf(), added))
+    }
+}
+
+/// What git said about the files that it could not read: how many, and the first.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Unreadable {
+    pub(crate) count: usize,
+    pub(crate) first: Option<String>,
+}
+
+/// Reads the `error: open("<path>"): <reason>` lines of a `git add --ignore-errors`.
+pub(crate) fn unreadable(stderr: &[u8]) -> Unreadable {
+    let mut found = Unreadable::default();
+    for line in String::from_utf8_lossy(stderr).lines() {
+        let Some((path, _)) =
+            line.strip_prefix("error: open(\"").and_then(|rest| rest.rsplit_once("\"): "))
+        else {
+            continue;
+        };
+        found.count += 1;
+        if found.first.is_none() {
+            found.first = Some(path.to_owned());
+        }
+    }
+    found
+}
+
+/// Logs a `git add` of `root` that failed. A fatal exit added nothing, so it is a
+/// warning each time. Files that git could not read, such as files that only root may
+/// read, stay unreadable at each later snapshot: their count and the first path go to
+/// the debug log once per root and add for the life of the process.
+pub(crate) fn log_failed_add(reported: &Reported, root: &Path, added: Added, output: &Output) {
+    if output.code == Some(FATAL_EXIT) {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let error = stderr.lines().find(|line| line.starts_with("fatal:")).unwrap_or_default();
+        tracing::warn!(root = %root.display(), ?added, error, "git stopped and added no file to a snapshot");
+        return;
+    }
+    if !reported.first(root, added) {
+        return;
+    }
+    let found = unreadable(&output.stderr);
+    tracing::debug!(
+        root = %root.display(),
+        ?added,
+        count = found.count,
+        first = found.first.as_deref().unwrap_or_default(),
+        cut = output.stderr.len() >= MAX_STDERR_BYTES,
+        "some files could not be added to a snapshot; this is logged once per root"
+    );
 }
 
 /// Why a root has no snapshot when it holds more files than `snapshot.max_files`.

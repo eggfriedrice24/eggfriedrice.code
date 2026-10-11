@@ -90,6 +90,10 @@ into the GitHub release notes, and it stops when the section is missing.
   first, and lets efr decide. Older prompts of a conversation keep the old rule.
 - `efr sandbox explain` says that the reviewer decides a named floor file. It adds
   `user only` only for a kind that only you approve, such as a synced write.
+- The debug log is quieter after a turn and for unreadable files in a snapshot. A
+  write to a client that closed its connection logs at `trace`. Files that git cannot
+  read give one line for each project, with their count and the first path. A git
+  that stops with a fatal error during a snapshot is now a warning.
 
 ### Fixed
 
