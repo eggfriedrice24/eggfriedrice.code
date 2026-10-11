@@ -9,6 +9,7 @@ mod calls;
 mod cost;
 mod cover;
 mod gc;
+mod home;
 mod logs;
 mod mirror;
 mod support;

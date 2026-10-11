@@ -110,6 +110,23 @@ auto spec, section 10).
   `capture_before_undo` fetches the values that the undo moves away from into
   `refs/efr-undo/<conversation>/<undo>/mirror/`, so a redo can give them back after
   the project lost their objects.
+- The home store (`home.rs`, spec 10.8): `$D/snapshots/home.git`, a bare repository
+  with no index, for the paths outside the roots that a call can change. The daemon
+  reads each path itself, without following a link, and hands the entries over
+  through a `HomeReader`; the bytes stream into `git fast-import`, at most one file
+  (16 MiB) in memory, so git never reads a home path and no filter runs. Each copy is
+  one ref `refs/efr/<conversation>/<turn>/home/<n>`: `home_before` writes a "before"
+  commit before the call, `home_after` an "after" commit, its child, after the call,
+  and lists what changed (`HomeDelta`). A tree holds `files/<path>`, `state/crontab`
+  and `state/linger`, and the manifest `efr-home.json`: per path a file with its whole
+  mode, a link (stored as a link; its real file is an entry of its own), a missing
+  path, a state, or why no copy covers it. A path that only the "after" lists was
+  missing before, so undo moves it to the undo trash. The undo of a turn takes, per
+  path, the state before the first copy and the state after the last (`HomePlan`); a
+  path below a root of the plan belongs to the root's plan; a copy with no "after"
+  (the call did not finish) is `CallUnfinished`, and with `force` its paths take what
+  the applier finds (`Expect::Any`). `home_undo_before` copies the home paths that an
+  undo changes, for its redo. Its root file `home.root` is the stamp of the last copy.
 
 What a snapshot takes (`Limits`): tracked files; new untracked files up to
 `max_file_bytes` (a link as a link, never followed); at the first and last snapshot of

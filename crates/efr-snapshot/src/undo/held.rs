@@ -146,7 +146,7 @@ impl Snapshots {
         Ok(parse(conversation, &String::from_utf8_lossy(&out)))
     }
 
-    /// The `efr-meta:` line of `commit` in `store`, and its tree.
+    /// The `efr-meta:` line of `commit` in `store`, its tree and its first parent.
     pub(crate) async fn commit_info(
         &self,
         store: &Store,
@@ -164,7 +164,7 @@ impl Snapshots {
                 .map(str::to_owned)
         };
         let tree = header("tree ").ok_or(SnapshotError::BadOutput { command: "cat-file" })?;
-        Ok(CommitInfo { tree, meta: Meta::of_commit(&text) })
+        Ok(CommitInfo { tree, parent: header("parent "), meta: Meta::of_commit(&text) })
     }
 }
 
@@ -172,6 +172,8 @@ impl Snapshots {
 #[derive(Debug, Clone)]
 pub(crate) struct CommitInfo {
     pub(crate) tree: String,
+    /// The first parent.
+    pub(crate) parent: Option<String>,
     pub(crate) meta: Meta,
 }
 

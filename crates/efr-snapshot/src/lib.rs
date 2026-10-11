@@ -24,6 +24,11 @@
 //!   [`stack_blocker`]: the turns that undo can take, newest first;
 //!   [`Snapshots::capture_before_undo`], [`Snapshots::blob`] and
 //!   [`Snapshots::finish_undo`] around the daemon's apply.
+//! - [`Snapshots::home_before`] and [`Snapshots::home_after`] ([`HomeReader`],
+//!   [`HomeEntry`], [`HomeCopy`], [`HomeDelta`]): the home store
+//!   `$D/snapshots/home.git`, copies of the paths outside the roots before and after a
+//!   call, which the daemon reads; [`HomePlan`] and [`HomeStep`]: their part of an
+//!   undo; [`Snapshots::home_undo_before`] and [`Snapshots::home_blob`].
 //! - [`Snapshots::gc`] ([`GcReport`]): the newest turns of each conversation stay, and
 //!   a store unused for too long goes.
 //! - [`Limits`], [`SKIPPED_DIRS`], [`MAX_IGNORED_BYTES`]: what a snapshot takes;
@@ -65,7 +70,10 @@ pub use cover::{CoverResult, RootCover};
 pub use error::SnapshotError;
 pub use gc::GcReport;
 pub use history::TurnDiff;
-pub use home::{HomePlan, HomeState, HomeStep};
+pub use home::{
+    HomeCopy, HomeDelta, HomeEntries, HomeEntry, HomePlan, HomeReader, HomeState, HomeStep,
+    MAX_HOME_FILE_BYTES,
+};
 pub use object::{ObjectId, blob_id, link_id};
 pub use project_git::GitDirs;
 pub use snapshots::{

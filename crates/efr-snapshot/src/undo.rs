@@ -70,7 +70,7 @@ pub enum Expect {
     Unknown,
     /// Only for a home path with `force`, whose call did not finish: no copy says what
     /// it was after the turn, so the applier takes what it finds. Its bytes come from
-    /// the copy that `home_undo_before` takes.
+    /// the copy that [`Snapshots::home_undo_before`] takes.
     Any,
 }
 

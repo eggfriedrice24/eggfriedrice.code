@@ -89,6 +89,9 @@ pub(crate) struct Run<'a> {
     pub(crate) work_tree: Option<&'a Path>,
     /// Bytes for the command's standard input.
     pub(crate) stdin: Option<Vec<u8>>,
+    /// Parts of the command's standard input, written as they come, after `stdin`; the
+    /// input ends when the sender goes.
+    pub(crate) feed: Option<tokio::sync::mpsc::Receiver<Vec<u8>>>,
     /// Reads every pathspec literally, so a file name such as `*` or `:(top)` names
     /// only itself.
     pub(crate) literal: bool,
@@ -184,17 +187,28 @@ impl Runner {
         if run.stderr {
             command.stderr(Stdio::piped());
         }
-        self.execute(command, run.stdin).await
+        self.execute_fed(command, run.stdin, run.feed).await
     }
 
     /// Runs `command` off the async workers under the timeout, with `stdin` as its
     /// standard input.
     pub(crate) async fn execute(
         &self,
-        mut command: tokio::process::Command,
+        command: tokio::process::Command,
         stdin: Option<Vec<u8>>,
     ) -> Result<Output, SnapshotError> {
-        if stdin.is_some() {
+        self.execute_fed(command, stdin, None).await
+    }
+
+    /// Runs `command` as [`Runner::execute`] does, with the parts of `feed` written to
+    /// its standard input after `stdin`, while its output is read.
+    async fn execute_fed(
+        &self,
+        mut command: tokio::process::Command,
+        stdin: Option<Vec<u8>>,
+        feed: Option<tokio::sync::mpsc::Receiver<Vec<u8>>>,
+    ) -> Result<Output, SnapshotError> {
+        if stdin.is_some() || feed.is_some() {
             command.stdin(Stdio::piped());
         }
         let work = async move {
@@ -204,19 +218,14 @@ impl Runner {
             let mut child = tokio::task::spawn_blocking(move || command.spawn())
                 .await
                 .map_err(io::Error::other)??;
-            if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-                // NOTE: git can stop before it reads its stdin (a fatal error, such as
-                // a held index lock); its exit code and stderr say why, so a broken
-                // pipe here is no error of its own.
-                match pipe.write_all(&bytes).await {
-                    Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
-                    result => result?,
-                }
-                drop(pipe);
-            }
+            let pipe = child.stdin.take();
             let stderr = child.stderr.take();
-            let (output, stderr) =
-                tokio::join!(child.wait_with_output(), first_bytes(stderr, MAX_STDERR_BYTES));
+            let (written, output, stderr) = tokio::join!(
+                write_input(pipe, stdin, feed),
+                child.wait_with_output(),
+                first_bytes(stderr, MAX_STDERR_BYTES)
+            );
+            written?;
             let mut output = output?;
             output.stderr = stderr?;
             Ok::<_, io::Error>(output)
@@ -298,6 +307,35 @@ impl Runner {
             }),
         }
     }
+}
+
+/// Writes `stdin`, then each part of `feed`, to `pipe`, and closes it. git can stop
+/// before it reads its input (a fatal error, such as a held index lock); its exit code
+/// and stderr say why, so a broken pipe is no error of its own.
+async fn write_input(
+    pipe: Option<tokio::process::ChildStdin>,
+    stdin: Option<Vec<u8>>,
+    feed: Option<tokio::sync::mpsc::Receiver<Vec<u8>>>,
+) -> io::Result<()> {
+    let Some(mut pipe) = pipe else { return Ok(()) };
+    let broken = |result: io::Result<()>| match result {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(true),
+        Err(error) => Err(error),
+        Ok(()) => Ok(false),
+    };
+    if let Some(bytes) = stdin
+        && broken(pipe.write_all(&bytes).await)?
+    {
+        return Ok(());
+    }
+    if let Some(mut feed) = feed {
+        while let Some(part) = feed.recv().await {
+            if broken(pipe.write_all(&part).await)? {
+                return Ok(());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The first `most` bytes of `pipe`. The rest is read and dropped, so the command never
