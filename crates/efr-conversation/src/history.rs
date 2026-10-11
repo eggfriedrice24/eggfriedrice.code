@@ -38,7 +38,7 @@ use efr_protocol::{
 use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_store::Readers;
 use efr_store::compactions::{self, LatestCompactions};
-use efr_store::conversations::{self, Turn};
+use efr_store::conversations::{self, Turn, TurnStatus};
 use efr_store::events;
 use efr_store::turn_messages::{self, TurnMessages};
 use efr_store::user_messages;
@@ -52,6 +52,34 @@ use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB};
 pub(crate) const UNFINISHED_CALL: &str = "The call did not finish: the turn ended before \
                                           its result was recorded; it may or may not have \
                                           run.";
+
+/// What the model reads at the end of a turn that the user interrupted.
+pub(crate) const INTERRUPTED_MARKER: &str = "[The user interrupted this turn. Do not continue it \
+                                             or answer its prompt unless the user asks again.]";
+
+/// What the model reads at the end of a turn that failed.
+pub(crate) const FAILED_MARKER: &str = "[This turn stopped because of an error before it was \
+                                        complete. Do not continue it unless the user asks \
+                                        again.]";
+
+/// What the model reads at the end of a turn that ran when efr stopped, which the next
+/// start cancelled.
+pub(crate) const CANCELLED_MARKER: &str = "[This turn stopped because efr stopped. Do not \
+                                           continue it unless the user asks again.]";
+
+/// The user message that ends a turn that did not complete, so the next turn does not
+/// answer its prompt or go on with its work: a cancelled prompt must stay cancelled. The
+/// text depends only on `status`, so every later request sends the same bytes. `None`
+/// for any other status.
+pub(crate) fn end_marker(status: TurnStatus) -> Option<Message> {
+    let text = match status {
+        TurnStatus::Interrupted => INTERRUPTED_MARKER,
+        TurnStatus::Failed => FAILED_MARKER,
+        TurnStatus::Cancelled => CANCELLED_MARKER,
+        _ => return None,
+    };
+    Some(Message::user(text))
+}
 
 /// How much history a request carries. There is no limit on the turns: every turn
 /// since the newest summary goes, word for word, so each request starts with the one
@@ -298,7 +326,11 @@ impl Snapshot {
             let messages = match exact {
                 Some(exact) if exact.key == *key => exact.messages.clone(),
                 Some(exact) => exact.messages.iter().cloned().map(without_raw).collect(),
-                None => rebuild(&turn.prompt, by_turn.get(&turn.id).map_or(&[], Vec::as_slice)),
+                None => rebuild(
+                    &turn.prompt,
+                    turn.status,
+                    by_turn.get(&turn.id).map_or(&[], Vec::as_slice),
+                ),
             };
             let placed: Vec<Placed> = messages
                 .into_iter()
@@ -510,8 +542,10 @@ fn without_raw(mut message: Message) -> Message {
 /// turn failed or was interrupted first, or the user took it back), and is left out.
 /// Text that was streamed but never completed, as when the daemon stopped mid-answer,
 /// is joined from its updates and ends the turn as its last assistant message. A tool
-/// call without a recorded result gets an error result, see [`close_open_calls`].
-pub(crate) fn rebuild(prompt: &str, events: &[&EventEnvelope]) -> Vec<Message> {
+/// call without a recorded result gets an error result, see [`close_open_calls`]. A
+/// turn that `status` says did not complete ends with its [`end_marker`], after those
+/// results.
+pub(crate) fn rebuild(prompt: &str, status: TurnStatus, events: &[&EventEnvelope]) -> Vec<Message> {
     let mut rebuilt = Rebuilt { messages: vec![Message::user(prompt)], open: Open::None };
     let mut streaming: Option<(u32, String)> = None;
     let mut steers: HashMap<Seq, &str> = HashMap::new();
@@ -572,6 +606,7 @@ pub(crate) fn rebuild(prompt: &str, events: &[&EventEnvelope]) -> Vec<Message> {
     }
     let mut messages = rebuilt.messages;
     close_open_calls(&mut messages);
+    messages.extend(end_marker(status));
     messages
 }
 

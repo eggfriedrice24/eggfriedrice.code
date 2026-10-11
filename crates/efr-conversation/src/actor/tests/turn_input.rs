@@ -15,6 +15,7 @@ use efr_test_support::TestRng;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
+use crate::history::INTERRUPTED_MARKER;
 use crate::testing::{
     Harness, Setup, answer, done, expect_request, find, hold, request, result_message, text_answer,
     tool_answer, tool_message,
@@ -65,6 +66,7 @@ async fn a_steer_after_an_interrupt_is_never_recorded_and_can_become_a_prompt() 
             setup.prompt(&state, "first"),
             tool_message("call_1", "hang", &json!({})),
             result_message("call_1", STOPPED, true),
+            Message::user(INTERRUPTED_MARKER),
             setup.prompt(&state, "in French"),
         ])),
         answer(&text_answer("En français.")),
@@ -336,6 +338,7 @@ async fn an_interrupt_hands_back_steers_and_prompts_in_one_append() {
         setup.prompt(&state, "first"),
         tool_message("call_1", "hang", &json!({})),
         result_message("call_1", STOPPED, true),
+        Message::user(INTERRUPTED_MARKER),
     ];
     let mut resent_history = stopped.to_vec();
     resent_history.push(setup.prompt(&state, "steer a\nsteer b"));

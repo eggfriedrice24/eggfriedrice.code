@@ -640,6 +640,31 @@ fn an_open_tool_call_gets_a_failed_result() {
     assert_eq!(messages[2]["content"][0]["content"], json!(UNANSWERED_CALL));
 }
 
+/// The conversation ends an interrupted turn with a marker after the results of the
+/// calls that the interrupt closed. The marker stays a user message of its own, so the
+/// results keep the bytes of the request before it, and the next prompt follows it.
+#[test]
+fn a_marker_after_tool_results_stays_a_user_message_of_its_own() {
+    let marker = "[The user interrupted this turn. Do not continue it or answer its prompt \
+                  unless the user asks again.]";
+    let request = request(vec![
+        Message::user("Go."),
+        written(vec![call("toolu_01", "ls")], THINK_AND_CALL),
+        user(vec![result("toolu_01", "stopped")]),
+        Message::user(marker),
+        Message::user("Something else."),
+    ]);
+    let messages = value(&body(&request))["messages"].clone();
+    let messages = messages.as_array().unwrap();
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages[2]["role"], json!("user"));
+    let results = messages[2]["content"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["type"], json!("tool_result"));
+    assert_eq!(messages[3], json!({"role": "user", "content": [{"type": "text", "text": marker}]}));
+    assert_eq!(messages[4]["content"][0]["text"], json!("Something else."));
+}
+
 #[test]
 fn empty_text_and_empty_messages_are_left_out() {
     let request = request(vec![

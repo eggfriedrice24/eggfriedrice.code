@@ -450,6 +450,15 @@ The design:
    (`Compaction::fresh`). The turn and the manual compaction send that stored text, so
    a restart sends the same bytes. Only a compaction from an efr before this field
    reads the block from disk again, once, and the actor keeps it in memory.
+6. A turn that did not complete ends with a user message of its own, the marker
+   (`history::end_marker`), so the next turn does not answer its prompt or go on with
+   its work: `[The user interrupted this turn. ...]`, `[This turn stopped because of
+   an error ...]` or, for a turn that ran when efr stopped, `[This turn stopped
+   because efr stopped. ...]`. `finish` adds it for an interrupted or failed turn,
+   after the results of the calls that it closed, and counts it in the context; a
+   rebuild adds it from the turn's status. The text depends only on the status, so
+   each later request sends the same bytes. A turn saved before the marker keeps its
+   bytes. A steer that an interrupt sends again as a prompt follows the marker.
 
 ## Context
 

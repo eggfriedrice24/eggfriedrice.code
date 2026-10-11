@@ -1,0 +1,125 @@
+//! How a turn ends for the next one: the marker after a turn that did not complete,
+//! so the next turn does not answer a cancelled prompt.
+
+use efr_protocol::{Event, Origin};
+use efr_provider::Message;
+use pretty_assertions::assert_eq;
+use serde_json::json;
+
+use crate::history::INTERRUPTED_MARKER;
+use crate::testing::{
+    Harness, Setup, answer, expect_request, request, result_message, text_answer, tool_answer,
+    tool_message,
+};
+use crate::turn::STOPPED;
+
+/// Interrupts the running turn `turn_id` while its `hang` call runs, and waits for its
+/// end. `resend` names the steers that go again as a prompt.
+async fn interrupt(h: &mut Harness, turn_id: efr_protocol::TurnId, resend: Vec<efr_protocol::Seq>) {
+    h.toolbox.hang_started.notified().await;
+    let params = h.interrupt_params(Some(turn_id), resend, Vec::new());
+    h.handle.interrupt(params, Origin::Shell).await.expect("interrupt accepted");
+    let end = h.wait_end(turn_id).await;
+    assert!(matches!(end, Event::TurnInterrupted { .. }), "{end:?}");
+}
+
+#[tokio::test]
+async fn an_interrupted_turn_saves_its_messages_with_the_marker_last() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "wait");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "wait")])),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("wait").await;
+    interrupt(&mut h, sent.turn_id, Vec::new()).await;
+
+    let conversation_id = h.conversation_id;
+    let saved = h
+        .store
+        .readers()
+        .with(move |conn| efr_store::turn_messages::of_conversation(conn, conversation_id))
+        .await
+        .expect("saved messages");
+    let messages: Vec<Message> = saved[0]
+        .messages
+        .iter()
+        .map(|message| serde_json::from_value(message.clone()).expect("a message"))
+        .collect();
+    assert_eq!(
+        messages[1..].to_vec(),
+        vec![
+            tool_message("call_1", "hang", &json!({})),
+            result_message("call_1", STOPPED, true),
+            Message::user(INTERRUPTED_MARKER),
+        ]
+    );
+    h.finish();
+}
+
+/// The marker comes after every message of the interrupted request and its answer, so
+/// the provider's cache still reads the whole interrupted request.
+#[tokio::test]
+async fn the_request_after_an_interrupted_turn_starts_with_the_bytes_of_the_interrupted_request() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let first = request(vec![setup.prompt(&state, "first")]);
+    let second = request(vec![
+        setup.prompt(&state, "first"),
+        tool_message("call_1", "hang", &json!({})),
+        result_message("call_1", STOPPED, true),
+        Message::user(INTERRUPTED_MARKER),
+        setup.prompt(&state, "something else"),
+    ]);
+    assert!(second.messages.starts_with(&first.messages));
+    let records = vec![
+        expect_request(first),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+        expect_request(second),
+        answer(&text_answer("Here it is.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("first").await;
+    interrupt(&mut h, sent.turn_id, Vec::new()).await;
+    let next = h.prompt("something else").await;
+    let end = h.wait_end(next.turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    h.finish();
+}
+
+/// A steer that no model call read goes again as a prompt of its own: it follows the
+/// marker, so the model reads it as the user's newest message.
+#[tokio::test]
+async fn a_steer_left_unread_follows_the_marker_as_the_next_prompt() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&tool_answer("call_1", "hang", &json!({}))),
+        expect_request(request(vec![
+            setup.prompt(&state, "first"),
+            tool_message("call_1", "hang", &json!({})),
+            result_message("call_1", STOPPED, true),
+            Message::user(INTERRUPTED_MARKER),
+            setup.prompt(&state, "in French"),
+        ])),
+        answer(&text_answer("En français.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let sent = h.prompt("first").await;
+    h.toolbox.hang_started.notified().await;
+    let steer = h.steer_params(Some(sent.turn_id), "in French", true);
+    let steer = h.handle.steer(steer, Origin::Shell).await.expect("steer accepted");
+    let params = h.interrupt_params(Some(sent.turn_id), vec![steer.seq], Vec::new());
+    let result = h.handle.interrupt(params, Origin::Shell).await.expect("interrupt accepted");
+    let resent = result.resent.expect("the unread steer goes again");
+    let end = h.wait_end(resent.turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    h.finish();
+}

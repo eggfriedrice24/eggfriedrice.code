@@ -10,13 +10,14 @@ use efr_provider::{ContentBlock, Message, ProviderId, Role};
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Clock;
 use efr_store::Batch;
+use efr_store::conversations::TurnStatus;
 use efr_test_support::{TestClock, TestRng, TestStore};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    CachedTurn, HistoryLimits, ModelKey, Snapshot, UNFINISHED_CALL, close_open_calls, decode,
-    drop_orphan_results, rebuild,
+    CANCELLED_MARKER, CachedTurn, FAILED_MARKER, HistoryLimits, INTERRUPTED_MARKER, ModelKey,
+    Snapshot, UNFINISHED_CALL, close_open_calls, decode, drop_orphan_results, rebuild,
 };
 use crate::compaction::Placed;
 
@@ -84,8 +85,14 @@ fn tool_result(call_id: CallId, output: &str) -> ContentBlock {
     }
 }
 
-/// `events` as the log of one turn from seq 1 on, rebuilt after `prompt`.
+/// `events` as the log of one completed turn from seq 1 on, rebuilt after `prompt`.
 fn rebuilt(prompt: &str, events: &[Event]) -> Vec<Message> {
+    rebuilt_as(prompt, TurnStatus::Completed, events)
+}
+
+/// `events` as the log of one turn from seq 1 on that ended with `status`, rebuilt
+/// after `prompt`.
+fn rebuilt_as(prompt: &str, status: TurnStatus, events: &[Event]) -> Vec<Message> {
     let clock = TestClock::new();
     let envelopes: Vec<EventEnvelope> = (1..)
         .zip(events)
@@ -97,7 +104,7 @@ fn rebuilt(prompt: &str, events: &[Event]) -> Vec<Message> {
         })
         .collect();
     let refs: Vec<&EventEnvelope> = envelopes.iter().collect();
-    rebuild(prompt, &refs)
+    rebuild(prompt, status, &refs)
 }
 
 #[test]
@@ -316,6 +323,87 @@ fn text_that_streamed_but_never_completed_ends_the_turn() {
     );
 }
 
+/// The live run: the user cancelled the prompt `models`, and the next turn answered it.
+/// A rebuilt interrupted turn ends with the marker, so the model reads that the prompt
+/// was cancelled.
+#[test]
+fn an_interrupted_prompt_is_marked_so_the_next_turn_does_not_answer_it() {
+    let t = turn(2);
+    let events = [
+        Event::TurnInterruptRequested { turn_id: t, origin: Origin::Shell },
+        Event::TurnInterrupted { turn_id: t, usage: None, context: None },
+    ];
+    assert_eq!(
+        rebuilt_as("models", TurnStatus::Interrupted, &events),
+        vec![Message::user("models"), Message::user(INTERRUPTED_MARKER)]
+    );
+    assert!(INTERRUPTED_MARKER.contains("Do not continue it or answer its prompt"));
+}
+
+#[test]
+fn a_failed_turn_is_rebuilt_with_the_failed_marker() {
+    let t = turn(2);
+    let events = [
+        completed(t, 0, "Working."),
+        Event::TurnFailed {
+            turn_id: t,
+            error: ErrorBody::new(ErrorCode::Busy, "overloaded"),
+            usage: None,
+            context: None,
+        },
+    ];
+    assert_eq!(
+        rebuilt_as("go", TurnStatus::Failed, &events),
+        vec![Message::user("go"), Message::assistant("Working."), Message::user(FAILED_MARKER)]
+    );
+}
+
+#[test]
+fn a_cancelled_turn_is_rebuilt_with_the_cancelled_marker() {
+    let t = turn(2);
+    let events = [completed(t, 0, "Working."), Event::TurnCancelled { turn_id: t }];
+    assert_eq!(
+        rebuilt_as("go", TurnStatus::Cancelled, &events),
+        vec![Message::user("go"), Message::assistant("Working."), Message::user(CANCELLED_MARKER)]
+    );
+}
+
+#[test]
+fn a_completed_turn_gets_no_marker() {
+    let t = turn(2);
+    let events = [
+        completed(t, 0, "Done."),
+        Event::TurnCompleted { turn_id: t, usage: None, changes: None, context: None, stop: None },
+    ];
+    assert_eq!(
+        rebuilt_as("go", TurnStatus::Completed, &events),
+        vec![Message::user("go"), Message::assistant("Done.")]
+    );
+}
+
+/// The interrupt left a call without a result: the closing result answers the call
+/// first, so the provider finds each result right after its call, and the marker comes
+/// last.
+#[test]
+fn the_marker_follows_the_results_of_calls_the_interrupt_closed() {
+    let t = turn(2);
+    let c = call(3);
+    let events = [
+        started(t, c, "shell"),
+        Event::TurnInterruptRequested { turn_id: t, origin: Origin::Shell },
+        Event::TurnInterrupted { turn_id: t, usage: None, context: None },
+    ];
+    assert_eq!(
+        rebuilt_as("go", TurnStatus::Interrupted, &events),
+        vec![
+            Message::user("go"),
+            Message::new(Role::Assistant, vec![tool_call(c, "shell")]),
+            Message::new(Role::User, vec![unfinished(c)]),
+            Message::user(INTERRUPTED_MARKER),
+        ]
+    );
+}
+
 /// Records a whole turn: queued, started, `body`, then `end`.
 fn whole_turn(t: TurnId, prompt: &str, body: Vec<Event>, end: Event) -> Vec<Event> {
     let command_id = CommandId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(1000)));
@@ -414,7 +502,12 @@ async fn only_finished_turns_other_than_the_current_one_count() {
 
     assert_eq!(
         history,
-        vec![Message::user("first"), Message::assistant("One."), Message::user("second")]
+        vec![
+            Message::user("first"),
+            Message::assistant("One."),
+            Message::user("second"),
+            Message::user(FAILED_MARKER),
+        ]
     );
 }
 
@@ -461,6 +554,7 @@ async fn a_steer_sent_again_as_a_prompt_is_in_the_history_once() {
         history,
         vec![
             Message::user("fix the build"),
+            Message::user(INTERRUPTED_MARKER),
             Message::user("only the parser"),
             Message::assistant("Parser fixed."),
         ]
@@ -539,6 +633,7 @@ async fn a_turn_cancelled_during_a_call_still_answers_the_call() {
             Message::user("first"),
             Message::new(Role::Assistant, vec![tool_call(c, "write_file")]),
             Message::new(Role::User, vec![unfinished(c)]),
+            Message::user(CANCELLED_MARKER),
         ]
     );
 }

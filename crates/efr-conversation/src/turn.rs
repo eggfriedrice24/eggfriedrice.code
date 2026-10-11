@@ -60,6 +60,7 @@ use efr_provider::{
 };
 use efr_stdx::id::uuid_v7;
 use efr_stdx::time::Stopwatch;
+use efr_store::conversations::TurnStatus;
 use efr_store::turn_messages::NewTurnMessages;
 use efr_store::{Batch, Committed};
 use serde_json::Value;
@@ -80,7 +81,7 @@ use crate::drafts::LiveStatus;
 use crate::exit::{self, TurnExits};
 use crate::fresh::Fresh;
 use crate::gap::CallGap;
-use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls};
+use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls, end_marker};
 use crate::interrupt::Interrupt;
 use crate::preamble::LiveState;
 use crate::presence::PRESENCE_CHECK;
@@ -235,6 +236,17 @@ enum Ending {
     Completed,
     Failed(ErrorBody),
     Interrupted,
+}
+
+impl Ending {
+    /// The status of a turn that ends so.
+    fn status(&self) -> TurnStatus {
+        match self {
+            Ending::Completed => TurnStatus::Completed,
+            Ending::Failed(_) => TurnStatus::Failed,
+            Ending::Interrupted => TurnStatus::Interrupted,
+        }
+    }
 }
 
 /// The answer of the check point about one tool call.
@@ -615,6 +627,16 @@ impl Turn {
             usage.context_tokens = self.last_call.map_or(0, |call| context_tokens(&call));
             usage
         });
+        close_open_calls(&mut self.transcript);
+        // NOTE: a turn that did not complete ends with a marker, after the results of
+        // the calls that it closed, so the next turn does not answer its prompt. It goes
+        // through the meter: the next request carries it.
+        if !self.transcript.is_empty()
+            && let Some(marker) = end_marker(ending.status())
+        {
+            self.meter.add(&marker);
+            self.transcript.push(marker);
+        }
         // NOTE: the last real count plus what came after it, such as the results of a
         // call that an interrupt stopped; after a compaction with no call since, the
         // estimate of the compacted request.
@@ -628,7 +650,6 @@ impl Turn {
             Ending::Interrupted => Event::TurnInterrupted { turn_id, usage, context },
         };
         let key = self.model_key();
-        close_open_calls(&mut self.transcript);
         let mut batch = Batch::new();
         // NOTE: the report comes before the terminal event, so a view that stops at
         // the end of the turn has shown it.
