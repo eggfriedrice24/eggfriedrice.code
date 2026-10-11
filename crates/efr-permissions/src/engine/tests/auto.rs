@@ -913,6 +913,35 @@ fn df_is_outside_exit_until_mount_view() {
     assert_eq!(approver_of(shell("./df").with_facts(facts)), Approver::User);
 }
 
+/// An interpreter on code that efr cannot read could edit `~/.zshrc` or read a masked
+/// file with no name and no backup, so only the user approves it outside the sandbox.
+#[rstest]
+#[case::python_inline("python3 -c \"open('/home/u/.zshrc', 'a').write('x')\"", "python3")]
+#[case::versioned("python3.12 -c 'print(1)'", "python3.12")]
+#[case::perl_inline("perl -e 'print 1'", "perl")]
+#[case::shell_inline("sh -c 'cat ~/.kube/config'", "sh")]
+#[case::script("python3 tools/fix.py", "python3")]
+#[case::node_script("node build.js", "node")]
+#[case::input("python3 < fix.py", "python3")]
+#[case::behind_env("env FOO=1 bash -c 'x'", "bash")]
+#[case::in_a_pipe("ls | awk '{ system($1) }'", "awk")]
+fn exits_outside_running_unread_code_is_user(#[case] line: &str, #[case] program: &str) {
+    let facts = programs(&[
+        (program, Some("/usr/bin/x"), false),
+        ("env", Some("/usr/bin/env"), false),
+        ("ls", Some("/usr/bin/ls"), false),
+    ]);
+    let decision = decide(outside(line).with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+}
+
+#[test]
+fn exits_outside_with_an_interpreters_version_is_classifier() {
+    let facts = programs(&[("python3", Some("/usr/bin/python3"), false)]);
+    assert_eq!(approver_of(outside("python3 --version").with_facts(facts)), Approver::Classifier);
+}
+
 #[test]
 fn exits_outside_without_facts_is_user() {
     assert_eq!(approver_of(outside("gdb -p 1")), Approver::User);

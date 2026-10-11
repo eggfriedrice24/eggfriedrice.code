@@ -442,13 +442,21 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
 /// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of
 /// the line, or a program that a wrapper runs, changed in this turn or lies in a real
 /// write root, so that code the sandbox wrote never gets the user's full rights; the
-/// user too when a fact about a program word is missing. Else the classifier. A cache
-/// overlay and the private tmp are no real write root: the sandbox never writes the
-/// real files there.
+/// user too when a fact about a program word is missing. The user also when the line
+/// runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script):
+/// such code can edit a floor file or read a masked file with no name, no backup and no
+/// exit of its own. Else the classifier. A cache overlay and the private tmp are no
+/// real write root: the sandbox never writes the real files there.
 fn outside_approver(input: &ExitInput<'_>, envelope: &Envelope<'_>) -> Approver {
     let Some(facts) = input.facts else {
         return Approver::User;
     };
+    let unread = scan::scan(input.line).iter().any(|segment| {
+        programs::commands(&segment.words).into_iter().any(programs::runs_unread_code)
+    });
+    if unread {
+        return Approver::User;
+    }
     let request = fact_requests(input.line, input.command_dir, input.locations);
     let trusted =
         request.programs.iter().filter(|word| !request.builtins.contains(word)).all(|word| {

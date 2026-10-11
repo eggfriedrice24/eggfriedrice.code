@@ -201,8 +201,9 @@ proptest property:
   message names them; a floor file edit only while `AutoSupport::floor_backup` holds, a
   fact says that the target is a file or a new file in an existing dir, and the line
   makes no link and touches no `*.wants` dir. An `outside` exit asks the user when a
-  fact about a program word is missing, or a program word changed in the turn or lies
-  in a real write root (not the private tmp or a cache). A `destructive` exit goes to
+  fact about a program word is missing, a program word changed in the turn or lies
+  in a real write root (not the private tmp or a cache), or the line runs an
+  interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script). A `destructive` exit goes to
   the classifier only when efr knows every target and each lies in a real write root.
   Persistence that is no file edit (`crontab`, `systemctl --user enable`, linger), the
   git surface, `sandbox.protect`, a privilege, a masked read, a synced write and a

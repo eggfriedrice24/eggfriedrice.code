@@ -276,7 +276,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | the reviewer when every target lies in a write root; else only you |
-| `outside` | `df`, `findmnt`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root |
+| `outside` | `df`, `findmnt`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file that a message of yours names, after a backup copy; else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
@@ -620,7 +620,7 @@ question, and none needs a restart.
 | no network | a build that must download fails | the network is an exit; `sandbox.offline_hints` tells package managers to use the cache |
 | MCP servers | they run outside the sandbox | none yet |
 | the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
-| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a backup | a script that the model did not write in this turn can change `~/.zshrc` with no name and no backup | the one-command rule; a program written in this turn or in a write root asks you; the reviewer sees the line |
+| an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a backup | a program that the model did not write in this turn can change `~/.zshrc` with no name and no backup | the one-command rule; a program written in this turn or in a write root asks you, and so does an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script); the reviewer sees the line |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
 | older system prompts of a conversation keep the old auto rule | the model can still read the old, longer rule in its history | the newest rule says that only the newest block counts |
 | a cache whose path holds a link | efrd refuses to apply its deletes | the deletes stay private; nothing is lost |

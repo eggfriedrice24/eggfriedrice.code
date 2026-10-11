@@ -108,6 +108,58 @@ const WRAPPERS: &[Wrapper] = &[
     ("pkexec", &["--user"], 0),
 ];
 
+/// Interpreters: programs that run code from their words, a file or their input, which
+/// efr cannot read from the line. A version number at the end of the name does not
+/// count, so `python3.12` and `lua5.4` are here too.
+const INTERPRETERS: &[&str] = &[
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ksh",
+    "mksh",
+    "fish",
+    "csh",
+    "tcsh",
+    "python",
+    "pypy",
+    "perl",
+    "ruby",
+    "node",
+    "nodejs",
+    "deno",
+    "bun",
+    "lua",
+    "luajit",
+    "php",
+    "rscript",
+    "tclsh",
+    "wish",
+    "pwsh",
+    "julia",
+    "awk",
+    "gawk",
+    "mawk",
+    "nawk",
+    "osascript",
+];
+
+/// The words after an interpreter that only print its version or help.
+const INTERPRETER_INFO: &[&str] = &["--version", "-V", "--help", "-h"];
+
+/// True when `words`, one command, runs an interpreter on code that efr cannot read: an
+/// inline program (`python3 -c`, `perl -e`, `sh -c`), a script file, or its input. Only a
+/// call that prints the version or the help, such as `python3 --version`, runs none.
+pub(super) fn runs_unread_code(words: &[String]) -> bool {
+    let Some((first, args)) = words.split_first() else {
+        return false;
+    };
+    let name = base_name(first).to_lowercase();
+    let name = name.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    INTERPRETERS.contains(&name)
+        && !(args.len() == 1 && INTERPRETER_INFO.contains(&args[0].as_str()))
+}
+
 /// The base name of a program word, so `/usr/bin/sudo` is `sudo`.
 pub(super) fn base_name(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)

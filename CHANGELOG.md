@@ -66,7 +66,8 @@ into the GitHub release notes, and it stops when the section is missing.
   your real disks and mounts.
 - In `auto`, a write that runs outside the sandbox, such as `mv src ~/x`, and an
   `outside` call go to the reviewer. An `outside` call whose program changed in this
-  turn still asks you.
+  turn still asks you, and so does one that runs an interpreter on code that efr
+  cannot read, such as `python3 -c`, `sh -c` or a script.
 - In `auto`, a socket that the model names goes to the reviewer, except a credential
   agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's
   agent), which only you approve. A socket inside a secret, such as
