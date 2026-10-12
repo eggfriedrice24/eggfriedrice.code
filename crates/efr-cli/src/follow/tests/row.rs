@@ -7,10 +7,11 @@ use std::sync::Arc;
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationHistoryResult, ErrorBody,
-    ErrorCode, Event, InputRespondResult, InputWait, JobId, LateSteer, Method, Mode, Origin,
-    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, RequestId, ResentSteers,
-    Scope, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ErrorCode, Event, InputRespondResult, InputWait, JobId, JobState, JobStopBy, JobsListResult,
+    JobsStopResult, LateSteer, Method, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
@@ -27,7 +28,7 @@ use crate::error::CliError;
 use crate::keys::Keys as _;
 use crate::testing::{
     Captured, Conn, FakeDaemon, ScriptedKeys, TestEnv, TestInterrupt, bare, call, capture,
-    conversation, item, turn,
+    conversation, item, job, turn,
 };
 
 /// The note when Esc sent the unread steers again as a new prompt.
@@ -1291,6 +1292,123 @@ async fn when_efrd_does_not_come_back_what_the_view_sent_goes_back_to_the_shell(
     assert!(matches!(result, Err(CliError::Client(_))), "{result:?}");
     assert!(out.contains("efrd did not come back"), "{out}");
     assert_eq!(setup.handed_back().as_deref(), Some("keep it small\nthen write the tests"));
+}
+
+/// Ctrl+X in the input row.
+const CTRL_X: u8 = 0x18;
+
+/// The next request, which must be `jobs.list` for the followed conversation; the
+/// daemon answers with `jobs`.
+async fn jobs_listed(conn: &mut Conn, jobs: Vec<efr_protocol::JobInfo>) {
+    let (id, method) = conn.request().await;
+    let Method::JobsList(params) = method else {
+        panic!("expected jobs.list, got {}", method.name());
+    };
+    assert_eq!(params.conversation_id, Some(conversation()));
+    conn.reply(id, &JobsListResult { jobs }).await;
+}
+
+#[tokio::test]
+async fn view_stop_key_stops_job() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"draft").await;
+        shows(&seen, "draft").await;
+        keys.press(CTRL_X).await;
+        // The newest running job: the list is newest first, and j4 ended.
+        let mut ended = job(4, "cargo build");
+        ended.state = JobState::Exited;
+        jobs_listed(&mut conn, vec![ended, job(3, "npm run dev"), job(2, "sleep 9")]).await;
+        shows(&seen, "stop job j3 (npm run dev)").await;
+        keys.press(b'y').await;
+        let (id, method) = conn.request().await;
+        let Method::JobsStop(params) = method else {
+            panic!("expected jobs.stop, got {}", method.name());
+        };
+        assert_eq!((params.conversation_id, params.job_id), (Some(conversation()), JobId::nth(3)));
+        // The daemon answers once the job ended; its end comes as an event first.
+        let end = Event::JobEnded {
+            job_id: JobId::nth(3),
+            state: JobState::Stopped,
+            exit_code: None,
+            stopped_by: Some(JobStopBy::User),
+            output_bytes: 10,
+            ran_secs: 60,
+            tail: String::new(),
+            surface_changes: Vec::new(),
+            quarantined: false,
+            survivors: Vec::new(),
+            launcher_lost: false,
+            output_truncated: false,
+        };
+        conn.item(sub, &item(11, end)).await;
+        let mut stopped = job(3, "npm run dev");
+        stopped.state = JobState::Stopped;
+        conn.reply(id, &JobsStopResult { job: stopped }).await;
+        shows(&seen, "job j3 stopped by you after 1 minute").await;
+        // The keys are the row's again, and its text stayed.
+        keys.type_bytes(b"!").await;
+        shows(&seen, "\u{203a} draft!").await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        let interrupts = frames.iter().filter(|frame| {
+            matches!(frame, ClientFrame::Request { method: Method::TurnInterrupt(_), .. })
+        });
+        assert_eq!(interrupts.count(), 0, "the stop key never interrupts the turn");
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("\u{2713} stopping job j3"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("draft!"));
+}
+
+#[tokio::test]
+async fn stop_key_with_no_job_says_so() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.press(CTRL_X).await;
+        let mut ended = job(1, "cargo build");
+        ended.state = JobState::Exited;
+        jobs_listed(&mut conn, vec![ended]).await;
+        shows(&seen, "no job runs").await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("stop job"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn stop_key_question_n_lets_the_job_run() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.press(CTRL_X).await;
+        jobs_listed(&mut conn, vec![job(3, "npm run dev")]).await;
+        shows(&seen, "stop job j3").await;
+        // A key that answers nothing waits; `n` says no.
+        keys.press(b'x').await;
+        keys.press(b'n').await;
+        shows(&seen, "job j3 runs on").await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        let stops = frames.iter().filter(|frame| {
+            matches!(frame, ClientFrame::Request { method: Method::JobsStop(_), .. })
+        });
+        assert_eq!(stops.count(), 0, "n stops nothing");
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("\u{2717} job j3 runs on"), "{}", readable(&out));
 }
 
 #[tokio::test]

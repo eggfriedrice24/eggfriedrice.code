@@ -67,14 +67,16 @@
 
 mod view;
 
+use std::pin::Pin;
 use std::time::Duration;
 
 use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, InputRespond, InputRespondResult, LateSteer, Method, Origin, PromptSend,
-    PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, SandboxSurfaceRespond,
+    ErrorCode, Event, InputRespond, InputRespondResult, JobId, JobState, JobsList, JobsListResult,
+    JobsStop, JobsStopResult, LateSteer, Method, Origin, PromptSend, PromptSendResult,
+    PromptWithdraw, PromptWithdrawResult, QuestionId, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, TurnId, TurnInterrupt,
     TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
@@ -200,6 +202,7 @@ pub(crate) async fn follow(
         frame: None,
         tick: None,
         paste_until: None,
+        stopping: None,
     };
     // The first frame shows the status row and the notes before the first event.
     let result = match follower.paint(out, view, false) {
@@ -324,7 +327,13 @@ struct Follower<'a> {
     /// A question took the keys while a paste into the row went on: until this time,
     /// the rest of the paste still goes into the row.
     paste_until: Option<Timestamp>,
+    /// The stop of a job that the stop key asked for, while efrd ends the job: the loop
+    /// goes on meanwhile, and the job's end shows when its `job_ended` comes.
+    stopping: Option<(JobId, Stopping<'a>)>,
 }
+
+/// The answer to a `jobs.stop`, which comes when the job ended.
+type Stopping<'a> = Pin<Box<dyn Future<Output = Result<JobsStopResult, ClientError>> + 'a>>;
 
 /// What the keys being read answer.
 #[derive(Debug)]
@@ -341,6 +350,8 @@ enum Asking {
     Pending { call_id: CallId, line: AnswerLine },
     /// The quarantine question, with one key.
     Surface(QuestionId),
+    /// The question of the stop key, with one key.
+    StopJob,
     /// The input row: nothing else takes the keys.
     Row,
 }
@@ -379,7 +390,9 @@ enum Seed {
 /// so the rest of a password neither shows nor reaches the user's shell.
 async fn stop(keys: KeyReader, asking: &Asking) {
     match asking {
-        Asking::Approval(_) | Asking::Surface(_) | Asking::Row => keys.stop().await,
+        Asking::Approval(_) | Asking::Surface(_) | Asking::StopJob | Asking::Row => {
+            keys.stop().await;
+        }
         Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => {
             keys.stop_discarding().await;
         }
@@ -587,6 +600,11 @@ impl Follower<'_> {
                         () = pressed(&mut self.quit) => {
                             self.quit = None;
                             self.pressed(out, view).await?;
+                        }
+                        answer = stop_answer(&mut self.stopping) => {
+                            if let Some((job, _)) = self.stopping.take() {
+                                self.stopped(job, answer, out, view)?;
+                            }
                         }
                         item = stream.next() => match item {
                             Some(Ok(value)) => {
@@ -929,6 +947,23 @@ impl Follower<'_> {
                 self.show(out, view, &step)?;
                 self.respond(call_id, decision, out, view).await
             }
+            Asking::StopJob => {
+                let stop = match key {
+                    b'y' | b'Y' => true,
+                    b'n' | b'N' | keys::ESC => false,
+                    _ => {
+                        self.keys = Some((reader, Asking::StopJob));
+                        return Ok(());
+                    }
+                };
+                self.release(reader, &Asking::StopJob, view).await;
+                let (step, job) = view.stop_answered(stop, self.ctx.screen.size());
+                self.show(out, view, &step)?;
+                match job {
+                    Some(job) => Box::pin(self.stop_job(job, out, view)).await,
+                    None => Ok(()),
+                }
+            }
             Asking::Surface(question_id) => {
                 let Some(decision) = keys::decision(key) else {
                     self.keys = Some((reader, Asking::Surface(question_id)));
@@ -1022,6 +1057,7 @@ impl Follower<'_> {
             Action::Queue => self.queue(out, view).await,
             Action::Interrupt => self.escape(out, view).await,
             Action::Withdraw => self.withdraw(out, view).await,
+            Action::StopJob => Box::pin(self.stop_key(out, view)).await,
         }
     }
 
@@ -1392,6 +1428,70 @@ impl Follower<'_> {
         self.apply(step, out, view, false).await.map(drop)
     }
 
+    /// Ctrl+X: asks whether to stop the newest running job of the conversation. The
+    /// view follows the conversation only from its prompt on, so it may not have seen
+    /// the job start: `jobs.list` names the jobs.
+    async fn stop_key(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        let method = Method::JobsList(JobsList { conversation_id: Some(self.target.conversation) });
+        let answer = self.send::<JobsListResult>(method).await?;
+        let size = self.ctx.screen.size();
+        let step = match answer {
+            // The list is newest first.
+            Ok(list) => match list.jobs.iter().find(|job| job.state == JobState::Running) {
+                Some(job) => view.stop_question(job, size),
+                None => view.note(crate::format::jobs::NO_JOB, size),
+            },
+            Err(body) => view.note(
+                &format!(
+                    "the jobs could not be listed: {}",
+                    crate::format::one_line(&body.message)
+                ),
+                size,
+            ),
+        };
+        self.apply(step, out, view, false).await.map(drop)
+    }
+
+    /// Asks efrd to stop `job`. The answer comes when the job ended, so the loop waits
+    /// for it beside the events; on a connection made again, it waits here.
+    async fn stop_job(
+        &mut self,
+        job: JobId,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let method = Method::JobsStop(JobsStop {
+            command_id: self.ctx.command_id(),
+            conversation_id: Some(self.target.conversation),
+            job_id: job.clone(),
+        });
+        if self.again.is_none() {
+            let first: &Client = self.first;
+            self.stopping = Some((job, Box::pin(first.call::<JobsStopResult>(method))));
+            return Ok(());
+        }
+        let answer = self.client().call::<JobsStopResult>(method).await;
+        self.stopped(job, answer, out, view)
+    }
+
+    /// The answer to the stop of `job`: nothing to show when efrd stopped it, because
+    /// its `job_ended` shows; else a note says why not.
+    fn stopped(
+        &mut self,
+        job: JobId,
+        answer: Result<JobsStopResult, ClientError>,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let message = match answer {
+            Ok(_) => return Ok(()),
+            Err(ClientError::Server { body }) => body.message,
+            Err(error) => error.to_string(),
+        };
+        let step = view.stop_failed(&job, &message, self.ctx.screen.size());
+        self.show(out, view, &step)
+    }
+
     async fn respond(
         &mut self,
         call_id: CallId,
@@ -1516,6 +1616,7 @@ fn take_over(
                 Ask::Discard(_) => Asking::Discard,
                 Ask::Retain(call_id) => Asking::Pending { call_id, line: AnswerLine::new() },
                 Ask::Surface(question_id) => Asking::Surface(question_id),
+                Ask::StopJob => Asking::StopJob,
             };
             (reader, asking, None, row)
         }
@@ -1530,6 +1631,16 @@ async fn silent(silence: &mut Option<((CallId, u64), Sleep)>) -> CallId {
             sleep.as_mut().await;
             *call_id
         }
+        None => std::future::pending().await,
+    }
+}
+
+/// The answer to the stop of a job; never resolves while no stop waits.
+async fn stop_answer(
+    stopping: &mut Option<(JobId, Stopping<'_>)>,
+) -> Result<JobsStopResult, ClientError> {
+    match stopping {
+        Some((_, answer)) => answer.as_mut().await,
         None => std::future::pending().await,
     }
 }

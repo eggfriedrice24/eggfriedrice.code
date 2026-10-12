@@ -13,8 +13,9 @@
 //!   blank). Alt+B and Alt+F go one word back and forward (letters and digits).
 //! - Ctrl+J and Alt+Enter add a newline. A bracketed paste (`CSI 200 ~` to
 //!   `CSI 201 ~`) is added whole, with its newlines: a newline in it never sends.
-//! - Enter steers, Tab queues, Esc interrupts and Alt+Up takes back the newest prompt
-//!   queued from here. Those keys only say so ([`Action`]); the follow loop acts.
+//! - Enter steers, Tab queues, Esc interrupts, Alt+Up takes back the newest prompt
+//!   queued from here, and Ctrl+X asks to stop the newest running job of the
+//!   conversation. Those keys only say so ([`Action`]); the follow loop acts.
 //!
 //! Other control characters and escape sequences change nothing. The line holds no
 //! secret: it is shown as it is typed, and it goes to the daemon as a steer or a
@@ -50,6 +51,8 @@ pub(crate) enum Action {
     Interrupt,
     /// Alt+Up: take back the newest prompt queued from here.
     Withdraw,
+    /// Ctrl+X: ask to stop the newest running job of the conversation.
+    StopJob,
 }
 
 /// Where the decoder is in an escape sequence or a paste.
@@ -223,6 +226,8 @@ impl RowLine {
             0x15 => self.remove(self.line_start(), self.cursor),
             0x0b => self.remove(self.cursor, self.line_end()),
             0x17 => self.remove(self.blank_word_start(), self.cursor),
+            // Ctrl+X: no terminal driver and no common terminal binds it.
+            0x18 => Action::StopJob,
             0x00..=0x1f => Action::None,
             _ => self.insert(char::from(byte).encode_utf8(&mut [0; 4])),
         }

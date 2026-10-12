@@ -1,12 +1,14 @@
 //! Background jobs in the view: the lines of a job's end, a matched line and a held
 //! notice, which belong to the conversation and show while any turn of it is
-//! followed; the mark of a turn that a job notice started.
+//! followed; the mark of a turn that a job notice started; the question of the stop
+//! key.
 
 use efr_protocol::{Event, HeldReason, JobId, JobState, JobStopBy, Seq, TurnId};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{feed, raw_view, terminal_view};
+use super::super::{Ask, TurnView};
+use super::{SIZE, feed, framed, raw_view, terminal_view};
 use crate::testing::{bare, call, job, turn};
 
 /// The `job_ended` of job 3 as `stopped_by` ended it, with `survivors`.
@@ -161,4 +163,26 @@ fn a_background_call_says_so_and_its_block_names_the_job() {
         "\u{b7} $ npm run dev (background)\n  \u{2713}\n  job j3 started; output \
          $SCRATCH/jobs/j3.out; ends in 180 minutes\n"
     );
+}
+
+#[test]
+fn stop_key_question_needs_yes() {
+    let mut view = terminal_view();
+    let step = framed(view.stop_question(&job(3, "npm run dev"), SIZE), &mut view);
+    assert_eq!(step.ask, Some(Ask::StopJob));
+    let shown = bare(&step.out);
+    assert!(shown.contains("? stop job j3 (npm run dev)"), "{shown:?}");
+    assert!(shown.contains("y yes \u{b7} n no"), "{shown:?}");
+
+    let (step, stopped) = view.stop_answered(false, SIZE);
+    assert_eq!(stopped, None, "n stops nothing");
+    let step = framed(step, &mut view);
+    assert!(bare(&step.out).contains("\u{2717} job j3 runs on"), "{:?}", step.out);
+    assert_eq!(view.stop_answered(true, SIZE).1, None, "no question waits now");
+
+    let mut view: TurnView = terminal_view();
+    framed(view.stop_question(&job(3, "npm run dev"), SIZE), &mut view);
+    let (step, stopped) = view.stop_answered(true, SIZE);
+    assert_eq!(stopped, Some(JobId::nth(3)));
+    assert!(bare(&framed(step, &mut view).out).contains("\u{2713} stopping job j3"));
 }

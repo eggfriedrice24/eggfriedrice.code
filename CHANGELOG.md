@@ -152,6 +152,9 @@ into the GitHub release notes, and it stops when the section is missing.
   job notice started shows `🤖 (job notice, not your input)`, in the view and in `efr
   history`. `efr history --verbose` adds the last lines of a job's output and the text
   of each notice.
+- In the input row of a followed turn, Ctrl+X stops the newest running job of the
+  conversation. It asks first: `stop job j3 (npm run dev)`, `y` yes, `n` no. With no
+  running job it says `no job runs`. Esc still stops only the turn, never a job.
 
 ### Changed
 

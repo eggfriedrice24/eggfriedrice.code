@@ -1,6 +1,7 @@
 //! The CLI's lines about background jobs (efr's auto spec, sections 3.18 and 14.8): the
 //! start and the end of a job, a line that matched its `watch` pattern, a notice that
-//! did not start a turn, and the mark of a turn that a job notice started.
+//! did not start a turn, the mark of a turn that a job notice started, and the
+//! question of the stop key.
 //!
 //! A job's command, its output and its tail come from a program, not from efr: every
 //! piece of them goes through [`one_line`] or [`lines`], so a control character or a
@@ -11,13 +12,23 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{Event, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange};
+use efr_render::WidthMethod;
 use jiff::Timestamp;
 
-use super::{one_line, size};
+use super::{cut, one_line, size};
 
 /// The line of a turn that a job notice started, not the user: the view and
 /// `efr history` show it where a prompt would stand.
 pub(crate) const WAKE_MARK: &str = "\u{1f916} (job notice, not your input)";
+
+/// The note of the stop key when no job of the conversation runs.
+pub(crate) const NO_JOB: &str = "no job runs";
+
+/// The keys of the stop key's question.
+pub(crate) const STOP_KEYS: &[(&str, &str)] = &[("y", "yes"), ("n", "no")];
+
+/// How many columns of a job's command a question shows.
+const COMMAND_COLUMNS: usize = 60;
 
 /// The output file of a job as the model names it: `$SCRATCH/jobs/j3.out`. A path
 /// whose dir is not `jobs` shows whole, safe to print.
@@ -42,6 +53,16 @@ pub(crate) fn minutes(seconds: u64) -> String {
 /// The seconds from `from` to `to`; 0 when `to` is earlier.
 fn seconds_between(from: Timestamp, to: Timestamp) -> u64 {
     u64::try_from(to.duration_since(from).as_secs()).unwrap_or(0)
+}
+
+/// The first line of a job's command, safe to print and cut to `columns`, with `…` when
+/// lines follow.
+pub(crate) fn command(command: &str, columns: usize) -> String {
+    let mut parts = command.lines().filter(|line| !line.trim().is_empty());
+    let first = one_line(parts.next().unwrap_or_default().trim());
+    let more = parts.next().is_some();
+    let shown = cut(&first, columns, WidthMethod::CodePoint);
+    if more && !shown.ends_with('\u{2026}') { format!("{shown} \u{2026}") } else { shown }
 }
 
 /// The line of a job's start: `job j3 started; output $SCRATCH/jobs/j3.out; ends in 180
@@ -206,6 +227,11 @@ pub(crate) fn conversation_line(event: &Event) -> Option<String> {
         Event::JobNoticeHeld { job_id, reason, .. } => Some(held(job_id, *reason)),
         _ => None,
     }
+}
+
+/// The title of the stop key's question about `job`: `stop job j3 (npm run dev)`.
+pub(crate) fn stop_title(job: &JobInfo) -> String {
+    format!("stop job {} ({})", job.id, command(&job.command, COMMAND_COLUMNS))
 }
 
 #[cfg(test)]

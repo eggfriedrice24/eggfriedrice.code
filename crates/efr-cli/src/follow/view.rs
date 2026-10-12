@@ -122,8 +122,9 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
-    ExitInfo, FileChanges, InputWait, JudgeKind, Launch, Origin, Presence, QuestionId, Risk, Scope,
-    Seq, SurfaceChange, TurnId, TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
+    ExitInfo, FileChanges, InputWait, JobId, JobInfo, JudgeKind, Launch, Origin, Presence,
+    QuestionId, Risk, Scope, Seq, SurfaceChange, TurnId, TurnInterruptResult, TurnUndoInfo,
+    Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -326,6 +327,9 @@ pub(crate) enum Ask {
     /// The quarantine question, answered with one key: `y` keeps the change, `n` leaves
     /// it in quarantine.
     Surface(QuestionId),
+    /// The question of the stop key, answered with one key: `y` stops the job that the
+    /// view asks about ([`TurnView::stop_answered`]), `n` lets it run.
+    StopJob,
 }
 
 /// What a question on the screen asks about.
@@ -333,6 +337,7 @@ pub(crate) enum Ask {
 enum About {
     Approval(CallId),
     Surface(QuestionId),
+    StopJob,
 }
 
 /// The question on a terminal, as a card in the live zone until it is answered.
@@ -447,6 +452,8 @@ struct Jobs {
     lines: HashMap<CallId, String>,
     /// The turns that a job notice started, whose mark showed.
     woken: HashSet<TurnId>,
+    /// The job that the question of the stop key asks about, while it waits for a key.
+    stopping: Option<JobId>,
 }
 
 /// The state of one followed turn on the screen.
@@ -861,9 +868,10 @@ impl TurnView {
         self
     }
 
-    /// True while an approval or the quarantine question waits for a key.
+    /// True while an approval, the quarantine question or the question of the stop key
+    /// waits for a key.
     fn question_pending(&self) -> bool {
-        self.asking.is_some() || self.surface.is_some()
+        self.asking.is_some() || self.surface.is_some() || self.jobs.stopping.is_some()
     }
 
     /// The turn waits behind the running one: until it starts, the running turn's
@@ -1933,6 +1941,42 @@ impl TurnView {
         self.whole_note(jobs::WAKE_MARK, size)
     }
 
+    /// The question of the stop key about `job`, the newest running job of the
+    /// conversation: `stop job j3 (npm run dev)`, answered with one key. The view holds
+    /// the job until [`stop_answered`](Self::stop_answered).
+    pub(crate) fn stop_question(&mut self, job: &JobInfo, size: Size) -> Step {
+        let before = self.finish_message();
+        let card = Card { title: jobs::stop_title(job), rows: Vec::new() };
+        let step = Step { out: before, ask: Some(Ask::StopJob), ..Step::default() };
+        self.jobs.stopping = Some(job.id.clone());
+        // One question at a time: the question's key reader replaces any other.
+        self.retained = None;
+        if let Some(running) = &mut self.running {
+            running.asking = None;
+            running.guarding = false;
+            running.typed.clear();
+            running.hinted = false;
+        }
+        self.show_question(step, card, About::StopJob, Footer::Keys(jobs::STOP_KEYS), size)
+    }
+
+    /// The user answered the question of the stop key: `stop` with `y`. The job to stop
+    /// comes back with a `y`; its end shows when its `job_ended` comes.
+    pub(crate) fn stop_answered(&mut self, stop: bool, size: Size) -> (Step, Option<JobId>) {
+        let Some(job) = self.jobs.stopping.take() else {
+            return (Step::default(), None);
+        };
+        let line = if stop { format!("stopping job {job}") } else { format!("job {job} runs on") };
+        let step = self.answer_line(About::StopJob, stop, &line, size);
+        (step, stop.then_some(job))
+    }
+
+    /// The daemon did not stop `job`: a note says why.
+    pub(crate) fn stop_failed(&mut self, job: &JobId, message: &str, size: Size) -> Step {
+        let line = format!("job {job} was not stopped: {}", format::one_line(message));
+        self.whole_note(&line, size)
+    }
+
     /// Shows `card`, the question about `about`, with `footer`, after `step`'s output:
     /// in the live zone on a terminal until it is answered, on stderr otherwise.
     fn show_question(
@@ -1943,6 +1987,11 @@ impl TurnView {
         footer: Footer,
         size: Size,
     ) -> Step {
+        // NOTE: a question of the turn takes the keys from the question of the stop key,
+        // which then waits for no key.
+        if about != About::StopJob {
+            self.jobs.stopping = None;
+        }
         if self.terminal() {
             let before = std::mem::take(&mut step.out);
             self.stage(&before);
