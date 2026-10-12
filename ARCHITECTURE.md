@@ -291,7 +291,11 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   the `env` file of the hidden shell in `crates/efr-shell/assets/zsh/efr-integration.zsh`.
   In efrd: the job table in `crates/efr-daemon/src/jobs.rs`, the spawn with the lifeline
   in `jobs/launch.rs`, the output file in `jobs/output.rs`, the sweep by session id in
-  `jobs/sweep.rs` and the guard of a running job in `jobs/guard.rs`; the start of a job
+  `jobs/sweep.rs`, the guard of a running job in `jobs/guard.rs`, the jobs that keep
+  an undo from running in `jobs/undo.rs`, the programs that a job wrote in
+  `jobs/since.rs`, the daemon-wide window of wake turns in `jobs/wakes.rs` and the
+  removal of old job outputs in `jobs/retention.rs`; a job's writes join its start turn
+  through `Snapshots::after_job` in `crates/efr-snapshot/src/job.rs`; the start of a job
   and the tools `jobs` and `job_stop` in `crates/efr-daemon/src/tools/job_tools.rs`;
   the running jobs of the hidden shell (the `jobs` builtin) in
   `crates/efr-daemon/src/tools/shell_children.rs`; `jobs.list` and `jobs.stop` in

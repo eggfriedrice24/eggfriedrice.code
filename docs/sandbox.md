@@ -607,12 +607,13 @@ format characters. A notice never enters a running turn. It waits until the turn
 ### Undo and jobs
 
 `efr undo` refuses while a job of the conversation runs, or a job of another
-conversation writes in a root of the undo, and names it: `job j3 runs; stop it first
-(efr jobs stop j3)`. When a job ends, its file changes join the turn that started it,
-and the undo of that turn needs `--force`. A file that a later call also changed stays
-with that call's turn. A job's copies of files outside the project have no "after"
-copy, so undo lists them as `not covered (a job wrote it)`, and `--force` brings back
-the state before the job.
+conversation can write in a root of the undo, and names it. A job outside the sandbox
+runs as you and can write everywhere, so it blocks every undo. The refusal says:
+`job j3 runs; stop it first (efr jobs stop j3)`. When a job ends, its file changes join
+the turn that started it, and the undo of that turn needs `--force`. A file that a later
+call also changed stays with that call's turn. A job's copies of files outside the
+project have no "after" copy, so undo lists them as `not covered (a job wrote it)`, and
+`--force` brings back the state before the job.
 
 ## Undo
 
