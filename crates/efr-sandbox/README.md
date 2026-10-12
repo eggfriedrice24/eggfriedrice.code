@@ -20,7 +20,7 @@ tested without a kernel.
 | `src/layers/deletes.rs` | `CacheDeletes`: the paths that a call deleted in its private cache layers (the whiteouts of each upper layer, read through `LayerView`), for `SandboxSummary::cache_deletes`, with the limits that keep `result.json` small |
 | `src/landlock.rs` | `LandlockPolicy` and `FsAccess` as data; no `RESOLVE_UNIX` rule without a socket grant |
 | `src/seccomp.rs` | `SeccompProfile`: the deny list as data |
-| `src/inner.rs` | `InnerPolicy`, what the launcher sends to `efr-sbx inner`, and `LayersSync`, the handshake while the overlays mount; a job's `oom_score_adj` |
+| `src/inner.rs` | `InnerPolicy`, what the launcher sends to `efr-sbx inner`, and `LayersSync`, the handshake while the overlays mount |
 | `src/env_filter.rs` | `EnvFilter`: the environment of a contained call |
 | `src/export_filter.rs` | `ExportFilter`: which exports return to the trusted shell; `OVERLAY_DENY` |
 | `src/records.rs` | the records of fd 3 and the `apply` file of the trusted shell |

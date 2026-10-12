@@ -49,7 +49,7 @@ pub use export_filter::{
 };
 pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
-pub use inner::{InnerPolicy, JOB_OOM_SCORE_ADJ, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
+pub use inner::{InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
 pub use landlock::{
     ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy, LandlockRule, LandlockScope,
     MIN_LANDLOCK_ABI,
@@ -81,8 +81,9 @@ pub use seccomp::{
 };
 pub use spec::{
     CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS, JOB_DIR,
-    JOB_FSIZE_BYTES, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan, RecordLimits,
-    RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, layer_name,
+    JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan,
+    RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
+    layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

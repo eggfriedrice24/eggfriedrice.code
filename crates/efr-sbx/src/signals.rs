@@ -12,13 +12,19 @@
 //! A signal that comes before bwrap or the exit child starts reaches only the
 //! launcher, so the launcher does not start the call, and a setup that the signal
 //! broke is reported as an interrupt (status 130), not as a setup failure (125).
+//!
+//! A job (`efr-sbx run --job`) also catches SIGTERM and SIGHUP, which stop it.
 
+use std::fs::File;
+use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
 
-use signal_hook::consts::{SIGINT, SIGQUIT, SIGTSTP};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP};
 
 use crate::error::SbxError;
+use crate::job::Event;
 
 /// The signals the launcher catches.
 pub(crate) const CAUGHT: [i32; 3] = [SIGINT, SIGQUIT, SIGTSTP];
@@ -50,6 +56,45 @@ pub(crate) fn interrupted() -> Option<i32> {
             .zip(flags())
             .any(|(caught, flag)| caught == signal && flag.load(Ordering::SeqCst))
     })
+}
+
+/// The signals that stop a job: efrd sends SIGTERM, and SIGHUP comes from a `kill`
+/// only, since a job has no terminal.
+const JOB_STOPS: [i32; 2] = [SIGTERM, SIGHUP];
+
+/// In job mode, catches SIGTERM and SIGHUP: each one sends [`Event::Signal`] to the
+/// job's stop thread. The handler writes a byte on a pipe and a thread of its own
+/// reads it; the signals are caught, never ignored, so every child gets the default
+/// action again at `exec`.
+pub(crate) fn catch_stop(events: Sender<Event>) -> Result<(), SbxError> {
+    let failed = |error| SbxError::os("catch SIGTERM and SIGHUP", error);
+    let (read, write) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)
+        .map_err(|error| failed(error.into()))?;
+    for signal in JOB_STOPS {
+        let end = write.try_clone().map_err(failed)?;
+        signal_hook::low_level::pipe::register(signal, end).map_err(failed)?;
+    }
+    drop(write);
+    std::thread::Builder::new()
+        .name("efr-sbx-signals".to_owned())
+        .spawn(move || {
+            let mut read = File::from(read);
+            let mut bytes = [0_u8; 16];
+            loop {
+                match read.read(&mut bytes) {
+                    Ok(0) => return,
+                    Ok(_) => {
+                        if events.send(Event::Signal).is_err() {
+                            return;
+                        }
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(_) => return,
+                }
+            }
+        })
+        .map(drop)
+        .map_err(failed)
 }
 
 /// Sends the signal that stopped the call to the launcher's own process group, the

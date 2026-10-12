@@ -61,6 +61,11 @@ pub(crate) struct SelfTestArgs {
     /// The address that TCP must fail to reach at once.
     #[arg(long)]
     pub(crate) tcp: Option<SocketAddr>,
+    /// Report this process's nice value and IO class (`job_priority`), which a job's
+    /// processes inherit from its launcher; a shell cannot read the IO class. The
+    /// probe does not run it.
+    #[arg(long)]
+    pub(crate) job_priority: bool,
 }
 
 /// One check's outcome, as the self-test prints it.
@@ -108,7 +113,23 @@ pub(crate) fn main(args: &SelfTestArgs) -> std::process::ExitCode {
         let text = serde_json::to_string(&line).unwrap_or_default();
         let _ = writeln!(out, "{text}");
     }
+    if args.job_priority {
+        let (ok, detail) = job_priority();
+        all &= ok;
+        let line = CheckLine { name: "job_priority".to_owned(), ok, detail };
+        let text = serde_json::to_string(&line).unwrap_or_default();
+        let _ = writeln!(out, "{text}");
+    }
     if all { std::process::ExitCode::SUCCESS } else { std::process::ExitCode::FAILURE }
+}
+
+/// A report, not a refusal: this process's nice value and IO class as
+/// `nice <n> io_class <c>`, which a job's test compares with what the launcher set.
+fn job_priority() -> (bool, String) {
+    match (rustix::process::getpriority_process(None), fds::ioprio_class()) {
+        (Ok(nice), Ok(class)) => outcome(true, format!("nice {nice} io_class {class}")),
+        (nice, class) => outcome(false, format!("{nice:?} {class:?}")),
+    }
 }
 
 /// `Some((ok, detail))`, or `None` when the check's argument is missing.

@@ -2,10 +2,11 @@
 //! them is trusted, and written only by atomic renames.
 //!
 //! efrd makes `$CALL` with mode 0700 in the masked runtime root and writes `spec.json`
-//! and `nonce` with mode 0600; efr-shell writes `line`. The launcher refuses a dir or a
-//! file that is a link, that another user owns, or that group or others may use, and a
-//! spec that names another call dir or conversation. Files are opened beneath the
-//! dir's descriptor with no link on the way.
+//! and `nonce` with mode 0600; efr-shell writes `line`. A job's call dir lies in the
+//! shell dir's `jobs` dir, and efrd writes its `line` and `env` too. The launcher
+//! refuses a dir or a file that is a link, that another user owns, or that group or
+//! others may use, and a spec that names another call dir or conversation. Files are
+//! opened beneath the dir's descriptor with no link on the way.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -149,9 +150,10 @@ impl CallDir {
         let Some(bytes) = dir.read(SPEC_FILE, MAX_SPEC_BYTES)? else {
             return Err(problem(CallDirProblem::File));
         };
+        // NOTE: the spec's check put its call dir in the shell dir, or in the shell
+        // dir's `jobs` for a job; the dir opened must be that one.
         let spec = SandboxSpec::from_json(&bytes)?;
-        if spec.runtime.call_dir != path || path.parent() != Some(spec.runtime.shell_dir.as_path())
-        {
+        if spec.runtime.call_dir != path {
             return Err(problem(CallDirProblem::Ids));
         }
         if dir.read(LINE_FILE, MAX_LINE_BYTES)?.is_none() {

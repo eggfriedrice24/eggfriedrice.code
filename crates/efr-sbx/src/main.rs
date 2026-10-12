@@ -5,7 +5,8 @@
 //! `efr-sandbox`, and inside bwrap `efr-sbx inner` applies Landlock and seccomp before
 //! it runs the child shell; or, for an approved exit, it runs the exit child as a
 //! subreaper. `layers` mounts the cache overlays of a call after bwrap's setup. efrd
-//! runs `efr-sbx probe --json` to learn whether `auto` can run here.
+//! runs `efr-sbx probe --json` to learn whether `auto` can run here. efrd starts a
+//! background job itself with `efr-sbx run --job`.
 //! `bridge` is the seam of phase 2.
 //!
 //! Allowed dependencies: `efr-sandbox` and `efr-protocol`. No async runtime: the
@@ -28,6 +29,7 @@ mod fds;
 mod finish;
 mod guard;
 mod inner;
+mod job;
 mod landlock;
 mod launch;
 mod layer_lock;
@@ -60,9 +62,14 @@ struct Cli {
 pub(crate) enum Command {
     /// Runs one call from its call dir.
     Run {
-        /// The call dir, `$R/sbx/<conversation>/<call>`.
+        /// The call dir, `$R/sbx/<conversation>/<call>`, or for a job
+        /// `$R/sbx/<conversation>/jobs/<call>`.
         #[arg(long)]
         call_dir: PathBuf,
+        /// Runs a job that efrd starts: no terminal, a session of its own, a lifeline
+        /// on stdin and the output pipe on stdout.
+        #[arg(long)]
+        job: bool,
     },
     /// The stage inside bwrap: Landlock, seccomp, then the child shell.
     #[command(hide = true)]

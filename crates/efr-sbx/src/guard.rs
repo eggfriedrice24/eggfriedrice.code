@@ -9,6 +9,10 @@
 //! global config, and from a `PATH` dir that no call can write. A content that git
 //! listed before is not listed again: the listings stay in the hidden shell's sandbox
 //! dir between calls ([`efr_sandbox::ConfigListings`]).
+//!
+//! A contained job keeps the record of its start in its state dir, `$SBX/jobs/<call>`,
+//! so `efr-sbx guard-check` can compare with it while the job runs, and after a
+//! restart. The two hold the job's guard lock while they compare and move entries.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -20,14 +24,15 @@ use std::process::Stdio;
 use efr_protocol::SurfaceChange;
 use efr_sandbox::{
     CONFIG_LISTINGS_FILE, ConfigLister, ConfigListings, FileKind, FsView, GitDirTarget,
-    MAX_CONFIG_LISTINGS_BYTES, MountOp, MountOrigin, MountPlan, SandboxSpec, ScanLimits,
-    SurfaceManifest, check_surface, is_within, scan_git_dirs,
+    MAX_CONFIG_LISTINGS_BYTES, MountOp, MountOrigin, MountPlan, SURFACE_BEFORE_FILE, SandboxSpec,
+    ScanLimits, SurfaceManifest, check_surface, is_within, scan_git_dirs,
 };
 use rustix::fs::MemfdFlags;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::call_dir::PrivateDir;
 use crate::error::SbxError;
+use crate::layer_lock::{self, LayerLock, Locked};
 use crate::os;
 use crate::real_fs::RealFs;
 
@@ -250,6 +255,70 @@ impl Guard {
     }
 }
 
+/// How long a job's end guard and `efr-sbx guard-check` wait for each other.
+const GUARD_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A job's guard as it was at the job's start: [`SURFACE_BEFORE_FILE`] in the job's
+/// state dir, where no call can reach.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Saved {
+    before: SurfaceManifest,
+    started: (i64, u32),
+    pins: Vec<PathBuf>,
+    roots: Vec<PathBuf>,
+    chain_roots: Vec<PathBuf>,
+    protected: Vec<String>,
+    git: Option<PathBuf>,
+    /// The host path of the job's start dir.
+    start: PathBuf,
+    /// The job's quarantine dir, `$SBX/quarantine/<call>`.
+    quarantine: PathBuf,
+}
+
+/// What a job's guard needs besides its record: where the job started and where its
+/// quarantine is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JobPlaces {
+    /// The host path of the job's start dir.
+    pub(crate) start: PathBuf,
+    /// `$SBX/quarantine/<call>`.
+    pub(crate) quarantine: PathBuf,
+}
+
+impl Guard {
+    /// Keeps this guard's record in `dir`, a job's state dir, with the job's places,
+    /// for `efr-sbx guard-check`. It lies on disk, so a check after a reboot finds it.
+    pub(crate) fn save(&self, dir: &PrivateDir, places: &JobPlaces) -> Result<(), SbxError> {
+        let saved = Saved {
+            before: self.before.clone(),
+            started: self.started,
+            pins: self.pins.clone(),
+            roots: self.roots.clone(),
+            chain_roots: self.chain_roots.clone(),
+            protected: self.protected.clone(),
+            git: self.lister.git.clone(),
+            start: places.start.clone(),
+            quarantine: places.quarantine.clone(),
+        };
+        let bytes = serde_json::to_vec(&saved).map_err(|error| {
+            SbxError::os("record the job's git surface", io::Error::other(error))
+        })?;
+        dir.write_atomic(SURFACE_BEFORE_FILE, &bytes)
+    }
+}
+
+/// The guard lock of a job's state dir `dir`: a job's end guard and `efr-sbx
+/// guard-check` hold it while they compare and move entries, so neither takes the
+/// other's half-moved quarantine as its view. `None` when the other held it for all of
+/// [`GUARD_LOCK_WAIT`].
+pub(crate) fn lock(dir: &Path) -> Result<Option<LayerLock>, SbxError> {
+    match layer_lock::lock(&[dir.to_path_buf()], GUARD_LOCK_WAIT)? {
+        Locked::Held(lock) => Ok(Some(lock)),
+        Locked::Busy { .. } => Ok(None),
+    }
+}
+
 fn now() -> (i64, u32) {
     let now = os::since_epoch();
     // A second earlier, so a file made in the second the call began still counts.
@@ -263,18 +332,21 @@ fn now() -> (i64, u32) {
 const MAX_QUARANTINE_COPY: u64 = 64 * 1024 * 1024;
 
 /// One entry of [`QUARANTINE_INDEX`].
-#[derive(Debug, Serialize)]
-struct Entry<'a> {
+#[derive(Debug, Serialize, Deserialize)]
+struct Entry {
     /// Where it was.
-    from: &'a Path,
+    from: PathBuf,
     /// Its name in the quarantine dir.
     to: String,
     /// The files of the entry, where they were, whose copy keeps only their first
     /// bytes: the copy reached [`MAX_QUARANTINE_COPY`]. efrd does not move such an
     /// entry back.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     truncated: Vec<PathBuf>,
 }
+
+/// The most bytes of a quarantine index that the launcher reads back.
+const MAX_INDEX_BYTES: usize = 1024 * 1024;
 
 /// Moves every quarantined change into `dir` and writes the index; a change that cannot
 /// move is reported with `quarantined = false`.
@@ -284,6 +356,10 @@ struct Entry<'a> {
 /// does not fit is copied in part, its path goes in the index's `truncated`, and the
 /// original is removed all the same: a flagged entry must leave the sandbox's reach,
 /// even when part of it is lost.
+///
+/// A job's quarantine can fill more than once: `efr-sbx guard-check` while the job
+/// runs, then the job's own end guard. Each one keeps the entries already there, gives
+/// its own a name that is not taken yet, and adds them to the index.
 pub(crate) fn quarantine(changes: &mut [SurfaceChange], dir: &Path) -> Result<(), SbxError> {
     if !changes.iter().any(|change| change.quarantined) {
         return Ok(());
@@ -295,21 +371,32 @@ pub(crate) fn quarantine(changes: &mut [SurfaceChange], dir: &Path) -> Result<()
         .map_err(|error| SbxError::io("create", dir, error))?;
     fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
         .map_err(|error| SbxError::io("protect", dir, error))?;
-    let mut entries = Vec::new();
+    let private = PrivateDir::open(dir)?;
+    let mut entries: Vec<Entry> = private
+        .read(QUARANTINE_INDEX, MAX_INDEX_BYTES)?
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
     let mut budget = MAX_QUARANTINE_COPY;
-    for (at, change) in changes.iter_mut().enumerate().filter(|(_, change)| change.quarantined) {
+    let mut number = entries.len();
+    for change in changes.iter_mut().filter(|change| change.quarantined) {
         let name = change.path.file_name().map(OsString::from).unwrap_or_default();
-        let to = format!("{at}-{}", name.to_string_lossy());
+        let to = loop {
+            let to = format!("{number}-{}", name.to_string_lossy());
+            number += 1;
+            if RealFs.lstat(&dir.join(&to)).is_err() {
+                break to;
+            }
+        };
         let mut truncated = Vec::new();
         if move_entry(&change.path, &dir.join(&to), &mut budget, &mut truncated).is_ok() {
-            entries.push(Entry { from: &change.path, to, truncated });
+            entries.push(Entry { from: change.path.clone(), to, truncated });
         } else {
             change.quarantined = false;
         }
     }
     let index = serde_json::to_vec_pretty(&entries)
         .map_err(|error| SbxError::os("write the quarantine index", io::Error::other(error)))?;
-    PrivateDir::open(dir)?.write_atomic(QUARANTINE_INDEX, &index)
+    private.write_atomic(QUARANTINE_INDEX, &index)
 }
 
 /// Moves `from`, which must not be reached through a link, to `to`; across file

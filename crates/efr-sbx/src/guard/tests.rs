@@ -85,6 +85,30 @@ fn quarantine_moves_entries_and_writes_the_index() {
 }
 
 #[test]
+fn a_second_quarantine_of_a_job_keeps_the_first_entries() {
+    // guard-check moves a job's hook while it runs; the job's end guard moves a config
+    // later into the same quarantine.
+    let temp = temp_dir();
+    let repo = temp.path().join("repo/.git");
+    fs::create_dir_all(repo.join("hooks")).unwrap();
+    fs::write(repo.join("hooks/pre-commit"), b"#!/bin/sh\n").unwrap();
+    fs::write(repo.join("config"), b"[core]\n\tfsmonitor = x\n").unwrap();
+    let change = |path: PathBuf, rule: &str| SurfaceChange {
+        path,
+        rule: rule.to_owned(),
+        key: None,
+        quarantined: true,
+    };
+    let dir = temp.path().join("quarantine/call");
+    quarantine(&mut [change(repo.join("hooks/pre-commit"), "hook_planted")], &dir).unwrap();
+    quarantine(&mut [change(repo.join("config"), "config_code_key")], &dir).unwrap();
+    assert_eq!(fs::read(dir.join("0-pre-commit")).unwrap(), b"#!/bin/sh\n");
+    assert_eq!(fs::read(dir.join("1-config")).unwrap(), b"[core]\n\tfsmonitor = x\n");
+    let index = fs::read_to_string(dir.join(QUARANTINE_INDEX)).unwrap();
+    assert!(index.contains("0-pre-commit") && index.contains("1-config"), "{index}");
+}
+
+#[test]
 fn an_entry_that_cannot_move_is_reported_as_not_quarantined() {
     let temp = temp_dir();
     let mut changes = vec![SurfaceChange {

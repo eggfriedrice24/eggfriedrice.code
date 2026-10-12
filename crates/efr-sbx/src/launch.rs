@@ -61,6 +61,9 @@ pub(crate) struct Launch<'a> {
     pub(crate) env: BTreeMap<OsString, OsString>,
     /// Where the child's stdout goes; `None` keeps the launcher's.
     pub(crate) stdout: Option<OwnedFd>,
+    /// A job: bwrap gets `/dev/null` as stdin, never the lifeline, and the child's
+    /// stderr is the launcher's stdout, the output pipe.
+    pub(crate) job: bool,
 }
 
 impl std::fmt::Debug for Launch<'_> {
@@ -95,8 +98,14 @@ pub(crate) fn run(
     let mut table = FdTable::new(&fs);
     let (status_read, status_write) = pipe("make the status pipe")?;
     let (records_read, records_write) = pipe("make the records pipe")?;
-    let terminal = rustix::io::fcntl_dupfd_cloexec(std::io::stderr().as_fd(), 3)
-        .map_err(|error| SbxError::os("copy the terminal", error.into()))?;
+    // NOTE: a job has no terminal: its stderr joins its stdout on the output pipe, and
+    // the launcher's own stderr is efrd's log file.
+    let terminal = if launch.job {
+        rustix::io::fcntl_dupfd_cloexec(std::io::stdout().as_fd(), 3)
+    } else {
+        rustix::io::fcntl_dupfd_cloexec(std::io::stderr().as_fd(), 3)
+    }
+    .map_err(|error| SbxError::os("copy the terminal", error.into()))?;
     let mut policy =
         InnerPolicy::new(launch.plan, records_write.as_raw_fd(), Some(terminal.as_raw_fd()));
     policy.argv.clone_from(&launch.argv);
@@ -146,7 +155,7 @@ pub(crate) fn run(
         .args(command_line)
         .env_clear()
         .envs(&launch.env)
-        .stdin(Stdio::inherit())
+        .stdin(if launch.job { Stdio::null() } else { Stdio::inherit() })
         .stderr(Stdio::piped());
     if let Some(stdout) = &launch.stdout {
         let copy = stdout.try_clone().map_err(|error| SbxError::os("copy stdout", error))?;

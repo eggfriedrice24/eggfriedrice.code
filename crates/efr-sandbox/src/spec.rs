@@ -26,6 +26,11 @@ pub const JOB_FSIZE_BYTES: u64 = 4 << 30;
 /// ([`JobPlan::backstop_secs`]): efrd's timer ends the job first.
 pub const JOB_BACKSTOP_SECS: u64 = 60;
 
+/// The `oom_score_adj` of a job's launcher, which every process of the job inherits:
+/// the highest, so the kernel's OOM killer picks a job before the user's own programs.
+/// A process may raise its own value without privilege.
+pub const JOB_OOM_SCORE_ADJ: i32 = 1000;
+
 /// The dir of jobs: `shell_dir/jobs/<call>` holds a job's call dir, and
 /// `sandbox_dir/jobs/<call>` its cache layers and its guard files. `$SCRATCH/jobs`
 /// holds the job outputs that efrd writes.

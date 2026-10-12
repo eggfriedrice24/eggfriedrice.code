@@ -43,16 +43,7 @@ pub struct InnerPolicy {
     /// The start dir, which the inner stage enters after the overlays are in place:
     /// with overlays, bwrap starts in `/`.
     pub cwd: Option<PathBuf>,
-    /// The value that the inner stage writes to `/proc/self/oom_score_adj` before
-    /// Landlock: [`JOB_OOM_SCORE_ADJ`] for a job, so the kernel's OOM killer picks the
-    /// job before the user's own programs; `None` for a call.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oom_score_adj: Option<i32>,
 }
-
-/// The `oom_score_adj` of every process of a job: the highest, so the OOM killer picks
-/// a job first. A process may raise its own value without privilege.
-pub const JOB_OOM_SCORE_ADJ: i32 = 1000;
 
 /// The two pipes between the inner stage and the launcher while the launcher's helper
 /// mounts the cache overlays.
@@ -78,7 +69,6 @@ impl InnerPolicy {
             argv: plan.child_argv().to_vec(),
             layers_sync: None,
             cwd: None,
-            oom_score_adj: None,
         }
     }
 

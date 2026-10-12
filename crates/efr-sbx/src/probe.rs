@@ -393,8 +393,15 @@ fn run_self_test(
     let (read, write) = rustix::pipe::pipe().map_err(|error| Some(error.to_string()))?;
     let mut argv = vec![plan.inside_launcher().as_os_str().to_owned(), "self-test".into()];
     argv.extend(fixture.self_test_args(mode));
-    let launch =
-        Launch { spec: &spec, plan: &plan, cwd: &fixture.project, argv, env, stdout: Some(write) };
+    let launch = Launch {
+        spec: &spec,
+        plan: &plan,
+        cwd: &fixture.project,
+        argv,
+        env,
+        stdout: Some(write),
+        job: false,
+    };
     let reader =
         launch::reader("efr-sbx-self-test", read, 1024 * 1024).map_err(|e| Some(e.chain()))?;
     let outcome = launch::run(&launch, &mut || Ok(()));
@@ -428,6 +435,7 @@ fn launch_cost(fixture: &fixture::Fixture, mode: CacheMode) -> Option<u64> {
             argv: vec![truth.clone().into_os_string()],
             env: env.clone(),
             stdout: None,
+            job: false,
         };
         let start = os::now();
         let outcome = launch::run(&launch, &mut || Ok::<(), SbxError>(())).ok()?;

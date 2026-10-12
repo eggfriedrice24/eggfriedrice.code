@@ -8,5 +8,6 @@ mod behaviour;
 mod corpus;
 mod cost;
 mod escape;
+mod job;
 mod probe;
 mod support;

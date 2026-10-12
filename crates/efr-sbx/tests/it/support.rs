@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -19,9 +20,9 @@ use std::time::Duration;
 
 use efr_protocol::{CacheMode, CallId, ConversationId, Grant};
 use efr_sandbox::{
-    CacheOverlay, EnvPlan, Floor, FloorKind, LINE_FILE, Mask, MaskKind, NONCE_FILE, NetworkPlan,
-    ProbeReport, RESULT_FILE, RecordLimits, RuntimePaths, SPEC_FILE, SPEC_VERSION, SandboxResult,
-    SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
+    CacheOverlay, ENV_FILE, EnvPlan, Floor, FloorKind, JOB_DIR, JobPlan, LINE_FILE, Mask, MaskKind,
+    NONCE_FILE, NetworkPlan, ProbeReport, RESULT_FILE, RecordLimits, RuntimePaths, SPEC_FILE,
+    SPEC_VERSION, SandboxResult, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
 };
 
 /// The child script every test call runs: efr-shell's own, which efrd installs, so the
@@ -454,6 +455,212 @@ impl Fixture {
         let apply = fs::read(call_dir.join("apply")).ok();
         Run { status, stdout, stderr, result, apply, call_dir: call_dir.to_path_buf() }
     }
+}
+
+/// A job that a test started: the launcher with a lifeline on its stdin.
+pub(crate) struct JobRun {
+    child: std::process::Child,
+    lifeline: Option<OwnedFd>,
+    out: Option<std::thread::JoinHandle<String>>,
+    err: Option<std::thread::JoinHandle<String>>,
+    pub(crate) call_dir: PathBuf,
+}
+
+impl JobRun {
+    /// The launcher's pid.
+    pub(crate) fn pid(&self) -> i32 {
+        i32::try_from(self.child.id()).unwrap()
+    }
+
+    /// Writes the start byte, as efrd does once the launcher's pid is model-side.
+    pub(crate) fn start(&mut self) -> &mut Self {
+        let lifeline = self.lifeline.as_ref().expect("the lifeline is open");
+        rustix::io::write(lifeline, b"s").unwrap();
+        self
+    }
+
+    /// Writes `bytes` on the lifeline after the start byte.
+    pub(crate) fn send(&mut self, bytes: &[u8]) {
+        let lifeline = self.lifeline.as_ref().expect("the lifeline is open");
+        rustix::io::write(lifeline, bytes).unwrap();
+    }
+
+    /// Ends the lifeline, as efrd's death does.
+    pub(crate) fn close_lifeline(&mut self) {
+        self.lifeline = None;
+    }
+
+    /// Sends `signal` to the launcher.
+    pub(crate) fn signal(&self, signal: rustix::process::Signal) {
+        let pid = rustix::process::Pid::from_raw(self.pid()).unwrap();
+        rustix::process::kill_process(pid, signal).unwrap();
+    }
+
+    /// Waits for the launcher to end, at most [`CALL_TIMEOUT`], and returns the run.
+    pub(crate) fn wait(mut self, fixture: &Fixture) -> Run {
+        let start = std::time::Instant::now();
+        let status = loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                break status;
+            }
+            if start.elapsed() > CALL_TIMEOUT {
+                let _ = self.child.kill();
+                panic!("the job took longer than {CALL_TIMEOUT:?}");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let code = std::os::unix::process::ExitStatusExt::signal(&status)
+            .map_or_else(|| status.code().unwrap_or(-1), |signal| 128 + signal);
+        let out = self.out.take().map(|out| out.join().unwrap()).unwrap_or_default();
+        let err = self.err.take().map(|err| err.join().unwrap()).unwrap_or_default();
+        fixture.collect(&self.call_dir, (code, out, err))
+    }
+}
+
+impl Drop for JobRun {
+    fn drop(&mut self) {
+        // A failed test leaves no launcher behind; its job ends with the lifeline.
+        self.lifeline = None;
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
+impl Fixture {
+    /// Makes a job's call dir with the spec, the line, a nonce and the `env` file, as
+    /// efrd does: below the shell dir's `jobs`, with the cache layers below the job's
+    /// own state dir.
+    pub(crate) fn prepare_job(&self, line: &str, job: JobPlan) -> PathBuf {
+        let call = CallId::from_uuid(new_id());
+        let jobs = self.spec.runtime.shell_dir.join(JOB_DIR);
+        private_dir(&jobs);
+        let call_dir = jobs.join(call.to_string());
+        private_dir(&call_dir);
+        let mut spec = self.spec.clone();
+        spec.call = call;
+        spec.runtime.call_dir.clone_from(&call_dir);
+        spec.job = Some(job);
+        let layers = spec.runtime.job_state_dir(call);
+        for cache in &mut spec.caches {
+            *cache = CacheOverlay::new(&cache.target, &layers, &self.home);
+        }
+        private_file(&call_dir.join(SPEC_FILE), &spec.to_json().unwrap(), 0o600);
+        private_file(&call_dir.join(LINE_FILE), line.as_bytes(), 0o600);
+        private_file(&call_dir.join(NONCE_FILE), b"0123456789abcdef0123456789abcdef", 0o600);
+        let mut env = Vec::new();
+        for (name, value) in &self.env {
+            env.extend_from_slice(name.as_encoded_bytes());
+            env.push(b'=');
+            env.extend_from_slice(value.as_encoded_bytes());
+            env.push(0);
+        }
+        private_file(&call_dir.join(ENV_FILE), &env, 0o600);
+        call_dir
+    }
+
+    /// Starts the launcher of the job in `call_dir` from the project, as efrd does:
+    /// efrd's own small environment, a pipe as the lifeline on stdin, the output pipe
+    /// on stdout. The start byte is not written yet.
+    pub(crate) fn spawn_job(&self, call_dir: &Path) -> JobRun {
+        self.spawn_job_with(call_dir, &[], |_| {})
+    }
+
+    /// [`spawn_job`](Self::spawn_job) through `wrapper`, a program with its arguments
+    /// that ends by running the launcher's command line, such as `nice -n 19`; `edit`
+    /// changes the command before it starts.
+    pub(crate) fn spawn_job_with(
+        &self,
+        call_dir: &Path,
+        wrapper: &[OsString],
+        edit: impl FnOnce(&mut Command),
+    ) -> JobRun {
+        let (read, write) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).unwrap();
+        let mut command = match wrapper.split_first() {
+            Some((program, args)) => {
+                let mut command = command(program);
+                command.args(args).arg(&self.ready.bin);
+                command
+            }
+            None => command(&self.ready.bin),
+        };
+        command
+            .args(["run", "--job", "--call-dir"])
+            .arg(call_dir)
+            .current_dir(&self.project)
+            .env_clear()
+            .env("PATH", "/nonexistent")
+            .env("LAUNCHER_ONLY", "1")
+            .stdin(Stdio::from(read))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        edit(&mut command);
+        let mut child = command.spawn().unwrap();
+        let pipe = |reader: Option<Box<dyn Read + Send>>| {
+            std::thread::spawn(move || {
+                let mut text = Vec::new();
+                if let Some(mut reader) = reader {
+                    let _ = reader.read_to_end(&mut text);
+                }
+                String::from_utf8_lossy(&text).into_owned()
+            })
+        };
+        let out = child.stdout.take().map(|p| pipe(Some(Box::new(p) as Box<dyn Read + Send>)));
+        let err = child.stderr.take().map(|p| pipe(Some(Box::new(p) as Box<dyn Read + Send>)));
+        JobRun { child, lifeline: Some(write), out, err, call_dir: call_dir.to_path_buf() }
+    }
+
+    /// Runs `line` as a job with `job` to its end: the start byte, then the lifeline
+    /// stays open until the job ends by itself.
+    pub(crate) fn run_job(&self, line: &str, job: JobPlan) -> Run {
+        let call_dir = self.prepare_job(line, job);
+        let mut run = self.spawn_job(&call_dir);
+        run.start();
+        run.wait(self)
+    }
+}
+
+/// A new pseudo-terminal: its master and the path of its slave.
+pub(crate) fn pty() -> (OwnedFd, OsString) {
+    use rustix::pty::OpenptFlags;
+    let master = rustix::pty::openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    rustix::pty::grantpt(&master).unwrap();
+    rustix::pty::unlockpt(&master).unwrap();
+    let name = rustix::pty::ptsname(&master, Vec::new()).unwrap();
+    let slave = OsString::from(std::str::from_utf8(name.as_bytes()).unwrap());
+    (master, slave)
+}
+
+/// The wrapper that opens `path` read-write as descriptor 7 of the launcher, as an
+/// inherited descriptor that efrd never passes: the job must never hold it.
+pub(crate) fn with_fd_7(path: &OsString) -> Vec<OsString> {
+    vec![
+        which("zsh").into_os_string(),
+        "-fc".into(),
+        "exec 7<>$1; shift; exec \"$@\"".into(),
+        "zsh".into(),
+        path.clone(),
+    ]
+}
+
+/// Waits until `ready` holds, at most 10 s; fails the test with `what` otherwise.
+pub(crate) fn wait_until(what: &str, ready: impl Fn() -> bool) {
+    let start = std::time::Instant::now();
+    while !ready() {
+        assert!(start.elapsed() < Duration::from_secs(10), "waited 10 s for {what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// True when a process whose command line holds `pattern` runs as this user.
+pub(crate) fn alive(pattern: &str) -> bool {
+    let Ok(entries) = fs::read_dir("/proc") else { return false };
+    entries.flatten().any(|entry| {
+        let cmdline = fs::read(entry.path().join("cmdline")).unwrap_or_default();
+        let text = String::from_utf8_lossy(&cmdline).replace('\0', " ");
+        text.contains(pattern)
+    })
 }
 
 impl Drop for Fixture {

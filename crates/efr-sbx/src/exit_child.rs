@@ -10,10 +10,15 @@
 //! only then is `result.json` written, so nothing of the call can read the next line
 //! typed into the PTY. A descendant that is still there 2 s after SIGKILL (one that
 //! runs as another user) is reported as a survivor, and efrd starts a new shell.
+//!
+//! As a job (`efr-sbx run --job`), the exit child is in the launcher's own session
+//! with no terminal, reads `/dev/null`, writes to the output pipe, runs with the
+//! hidden shell's environment from `$CALL/env`, and has `no_new_privs`. Its tree ends
+//! the same way when it ends or when the job is stopped.
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
@@ -28,23 +33,29 @@ use crate::call;
 use crate::call_dir::CallDir;
 use crate::error::SbxError;
 use crate::finish::{self, FinalCwd};
-use crate::launch;
-use crate::os;
+use crate::job::Job;
 use crate::real_fs::RealFs;
-use crate::signals;
+use crate::{launch, os, signals};
 
 /// How long the descendants get between SIGTERM and SIGKILL.
 const GRACE: Duration = Duration::from_secs(2);
 /// How often the launcher looks for exited descendants while it waits.
-const POLL: Duration = Duration::from_millis(10);
+pub(crate) const POLL: Duration = Duration::from_millis(10);
 /// The dir in `$CALL` that holds the exit child's copies.
 const EXIT_DIR: &str = "exit-child";
 /// The most bytes of a snapshot or a line that the launcher copies.
 const MAX_COPY_BYTES: usize = 64 * 1024 * 1024;
 
 /// Runs the exit child; `records_slot` is the launcher's fd 3, which becomes the
-/// child's records pipe.
-pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxResult, SbxError> {
+/// child's records pipe. As a `job`, the child gets the job's environment,
+/// `/dev/null` as stdin and the output pipe as stdout and stderr, it cannot gain
+/// privileges (`no_new_privs`, so a setuid program such as sudo gets no rights), and
+/// the launcher reaps every orphan of the job while it waits.
+pub(crate) fn run(
+    call: &CallDir,
+    mut records_slot: OwnedFd,
+    job: Option<&Job>,
+) -> Result<SandboxResult, SbxError> {
     let spec = &call.spec;
     rustix::process::set_child_subreaper(Some(rustix::process::getpid()))
         .map_err(|error| SbxError::os("become a child subreaper", error.into()))?;
@@ -56,37 +67,49 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
     rustix::io::dup2(&records_write, &mut records_slot)
         .map_err(|error| SbxError::os("put the records pipe on fd 3", error.into()))?;
     drop(records_write);
+    let mut command = os::command(&spec.runtime.zsh);
+    command.arg("-f").arg(&spec.runtime.child_script).arg(&dir);
+    match job {
+        Some(job) => as_job(&mut command, job)?,
+        None => {
+            command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
+        }
+    }
     call::stop_if_interrupted()?;
+    if let Some(job) = job {
+        job.stop_if_stopped()?;
+    }
     call.dir.touch(STARTED_FILE)?;
-    let spawned = os::command(&spec.runtime.zsh)
-        .arg("-f")
-        .arg(&spec.runtime.child_script)
-        .arg(&dir)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn();
+    let spawned = command.spawn();
     drop(records_slot);
     let mut child =
         spawned.map_err(|source| SbxError::Spawn { program: spec.runtime.zsh.clone(), source })?;
     // NOTE: a SIGINT between the last check and the fork reached only the launcher.
     signals::forward_interrupt();
     let records = launch::reader("efr-sbx-records", records_read, spec.limits.max_bytes)?;
-    let status = child.wait().map_err(|error| SbxError::os("wait for the exit child", error))?;
+    let (exit_code, signal) = match job {
+        Some(_) => wait_reaping(child.id())?,
+        None => {
+            let status =
+                child.wait().map_err(|error| SbxError::os("wait for the exit child", error))?;
+            (status.code(), status.signal())
+        }
+    };
     let ending = end_descendants(&mut System { start: os::now() });
     let records = call::exit_records(launch::join(records)?, call);
     let mut result = SandboxResult {
         started: true,
-        exit_code: status.code(),
-        signal: status.signal(),
+        exit_code,
+        signal,
         cwd: Some(pwd.clone()),
-        state_kept: records.is_some(),
+        state_kept: records.is_some() && job.is_none(),
         ..SandboxResult::default()
     };
     result.summary.confined = false;
     result.summary.background_stopped = ending.stopped;
     result.summary.survivors = ending.survivors;
-    if let Some(records) = &records {
+    // A job changes no state of the hidden shell: no apply.
+    if let Some(records) = records.as_ref().filter(|_| job.is_none()) {
         let cd = match records.cwd.as_deref().map(|cwd| finish::exit_child_cwd(cwd, spec, &RealFs))
         {
             Some(FinalCwd::Host(path)) if path != pwd => Some(path),
@@ -103,6 +126,43 @@ pub(crate) fn run(call: &CallDir, mut records_slot: OwnedFd) -> Result<SandboxRe
         result.state_kept = call::write_apply(call, &promotion).is_ok();
     }
     Ok(result)
+}
+
+/// Sets up `command` as the exit child of `job`: the job's environment, stdin
+/// `/dev/null`, stdout and stderr on the output pipe (the launcher's stdout), and no
+/// new privileges for the launcher's main thread and so for the child.
+fn as_job(command: &mut std::process::Command, job: &Job) -> Result<(), SbxError> {
+    let output = std::io::stdout()
+        .as_fd()
+        .try_clone_to_owned()
+        .map_err(|error| SbxError::os("copy the output pipe", error))?;
+    let errors = output.try_clone().map_err(|error| SbxError::os("copy the output pipe", error))?;
+    command
+        .env_clear()
+        .envs(&job.env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(output))
+        .stderr(Stdio::from(errors));
+    // NOTE: on the main thread, which spawns the child; bwrap of a contained job may be
+    // setuid, so only the exit child sets it.
+    rustix::thread::set_no_new_privs(true)
+        .map_err(|error| SbxError::os("set no_new_privs", error.into()))
+}
+
+/// Waits for the child `pid` and reaps every other process that ends meanwhile: the
+/// orphans of a job reparent to the launcher, a subreaper, and must not stay zombies
+/// for hours. Returns the child's exit code or signal.
+fn wait_reaping(pid: u32) -> Result<(Option<i32>, Option<i32>), SbxError> {
+    let child = i32::try_from(pid).ok().and_then(Pid::from_raw);
+    loop {
+        match rustix::process::wait(WaitOptions::empty()) {
+            Ok(Some((ended, status))) if Some(ended) == child => {
+                return Ok((status.exit_status(), status.terminating_signal()));
+            }
+            Ok(_) | Err(rustix::io::Errno::INTR) => {}
+            Err(error) => return Err(SbxError::os("wait for the exit child", error.into())),
+        }
+    }
 }
 
 /// `$CALL/exit-child/` with copies of the trusted snapshot (and its compiled form) and

@@ -134,6 +134,20 @@ pub(crate) enum SbxError {
         signal: i32,
     },
 
+    /// A stop came for a job before the launcher started its child, so it did not.
+    #[error("the job was stopped ({stop:?}) before it started")]
+    JobStopped {
+        /// Why.
+        stop: efr_sandbox::JobStop,
+    },
+
+    /// `run --job` got a spec without a job, or `run` got a job's spec.
+    #[error("the spec and the launcher's mode do not match: {problem}")]
+    JobMode {
+        /// What does not match.
+        problem: &'static str,
+    },
+
     /// Something that a later phase builds.
     #[error("{what} comes in a later phase of the auto sandbox")]
     LaterPhase {

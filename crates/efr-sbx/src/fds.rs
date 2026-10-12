@@ -23,11 +23,17 @@
 //! - [`io_uring_blocked`], [`tiocsti_blocked`] and [`userns_blocked`]: the probe's
 //!   self-test makes these three system calls to prove that seccomp refuses them;
 //!   rustix offers them only as `unsafe` or not at all.
+//! - [`ioprio_set_idle`] and [`ioprio_class`]: `ioprio_set` and `ioprio_get` for a
+//!   job's idle IO class; rustix has no wrapper for them.
+//! - [`ignore_sigxfsz`]: `signal(SIGXFSZ, SIG_IGN)`, so a job's write past its file
+//!   size limit fails with EFBIG and does not dump a core. Rust has no safe call that
+//!   sets a signal's disposition to ignore.
 //!
-//! Every block names what it relies on in a `// SAFETY:` comment. Each function is
-//! called while the process has one thread: at the start of the launcher, before the
-//! reader threads exist, in the inner stage, which never starts a thread, and in the
-//! layer helper.
+//! Every block names what it relies on in a `// SAFETY:` comment. Each function that
+//! takes a descriptor by number is called while the process has one thread: at the
+//! start of the launcher, before the reader threads exist, in the inner stage, which
+//! never starts a thread, and in the layer helper. The priority and signal calls of a
+//! job run on its main thread, which starts every child.
 
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -117,6 +123,44 @@ pub(crate) fn ns_parent(user_ns: BorrowedFd<'_>) -> io::Result<OwnedFd> {
     }
     // SAFETY: the call returned a new, open descriptor with no other owner.
     Ok(unsafe { OwnedFd::from_raw_fd(done) })
+}
+
+/// `ioprio_set`'s "who" for one process or thread.
+const IOPRIO_WHO_PROCESS: libc::c_int = 1;
+/// The idle IO class.
+const IOPRIO_CLASS_IDLE: libc::c_int = 3;
+/// Where the class sits in an IO priority.
+const IOPRIO_CLASS_SHIFT: libc::c_int = 13;
+
+/// Puts the calling thread in the idle IO class; the children it starts inherit it.
+pub(crate) fn ioprio_set_idle() -> io::Result<()> {
+    let priority = IOPRIO_CLASS_IDLE << IOPRIO_CLASS_SHIFT;
+    // SAFETY: ioprio_set takes three integers and touches no memory; who 0 is the
+    // calling thread.
+    let done = unsafe { libc::syscall(libc::SYS_ioprio_set, IOPRIO_WHO_PROCESS, 0, priority) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// The IO class of the calling thread: 0 none, 1 real time, 2 best effort, 3 idle.
+pub(crate) fn ioprio_class() -> io::Result<i32> {
+    // SAFETY: ioprio_get takes two integers and touches no memory; who 0 is the calling
+    // thread.
+    let done = unsafe { libc::syscall(libc::SYS_ioprio_get, IOPRIO_WHO_PROCESS, 0) };
+    if done < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    i32::try_from(done >> IOPRIO_CLASS_SHIFT).map_err(io::Error::other)
+}
+
+/// Ignores SIGXFSZ for the whole process. An ignored signal stays ignored across
+/// `fork` and `exec`, so every child of a job gets EFBIG for a write past its file size
+/// limit, not a core dump.
+pub(crate) fn ignore_sigxfsz() -> io::Result<()> {
+    // SAFETY: signal(SIGXFSZ, SIG_IGN) installs no handler, so no code of this process
+    // runs in a signal context; it only changes the disposition of one signal that no
+    // other code of efr-sbx uses.
+    let done = unsafe { libc::signal(libc::SIGXFSZ, libc::SIG_IGN) };
+    if done == libc::SIG_ERR { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 
 /// The self-test's `io_uring_setup(1, &params)`: `Ok(errno)` when it failed as seccomp
