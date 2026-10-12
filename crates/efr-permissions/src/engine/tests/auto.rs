@@ -795,7 +795,7 @@ fn named_linger_for_own_user_goes_to_classifier() {
     for line in ["loginctl enable-linger u", "loginctl disable-linger u"] {
         let need = persistence(&with_backup(), shell(line).with_facts(facts.clone()));
         assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line}");
-        assert_eq!(need.copies, [own.clone()]);
+        assert_eq!(need.copies, std::slice::from_ref(&own));
     }
     let need = persistence(&with_backup(), shell("loginctl enable-linger u v").with_facts(facts));
     assert_eq!(need.approver, Approver::User, "two users are no form of the route");
