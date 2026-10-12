@@ -15,7 +15,9 @@
 //!   runs `sh -c "$(cat D/line)"` with stdin `/dev/null` and stdout and stderr on its
 //!   own stdout, and writes `D/result.json` last. SIGTERM and SIGHUP write
 //!   `D/term-marker` and end the job (`stop: signal`); the end of its stdin, the
-//!   lifeline, ends it too (`stop: lifeline`). It keeps a copy of the job's `env` file
+//!   lifeline, ends it too (`stop: lifeline`). When it leads its own session, it sends
+//!   SIGTERM to its whole process group, so a test that fails before it stops the
+//!   daemon leaves no process of the job. It keeps a copy of the job's `env` file
 //!   as `env-<call>` in the fake's dir.
 //!
 //! Files in the fake's dir change what it does: `fail` (the setup fails),
@@ -67,12 +69,20 @@ if [ -e "$fake/fail" ]; then
 fi
 : > "$dir/started"
 stopped=''
+end_job() {
+    if [ -n "$EFR_FAKE_SID" ]; then
+        trap '' TERM HUP
+        kill -TERM 0 2> /dev/null
+    else
+        kill -TERM "$child" 2> /dev/null
+    fi
+}
 if [ -e "$fake/ignore-term" ]; then
     trap 'echo term > "$dir/term-marker"' TERM HUP
 else
-    trap 'stopped=signal; echo term > "$dir/term-marker"; kill -TERM "$child" 2> /dev/null' TERM HUP
+    trap 'stopped=signal; echo term > "$dir/term-marker"; end_job' TERM HUP
 fi
-trap 'stopped=lifeline; kill -TERM "$child" 2> /dev/null' USR1
+trap 'stopped=lifeline; end_job' USR1
 exec 9<&0
 (cat <&9 > /dev/null; kill -USR1 $$ 2> /dev/null) > /dev/null 2>&1 &
 watcher=$!
