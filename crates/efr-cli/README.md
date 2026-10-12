@@ -435,8 +435,9 @@ Replies:
   you asked to run the generator)`, and a refusal one muted line, `reviewer refused:
   <line>: <rationale>`; the call's rows follow either at once, as they follow an
   answer, and a refused call has no result. The deletes of a tool cache count their
-  paths: `reviewer allowed: delete 12 paths in ~/.cache/go-build for this call`. An
-  unsure verdict gets no line: the card of the question that follows has the muted row
+  paths: `reviewer allowed: delete 12 paths in ~/.cache/go-build for this call`. For
+  a background job the line ends with `for the whole job`, because the grants stay
+  open until the job ends. An unsure verdict gets no line: the card of the question that follows has the muted row
   `reviewer: unsure; <rationale>`, from the question's `judged`, else from the
   verdict. The rationale is the reviewer model's text, so it passes through
   `format::one_line`. A verdict from the turn's cache has no `exit_review_started`, so

@@ -592,6 +592,18 @@ fn reviewer_allowed_names_the_outside_command() {
     );
 }
 
+/// A background call keeps its grants until the job ends, so the line says so.
+#[test]
+fn reviewer_allowed_job_names_the_whole_job() {
+    let write = Grant::Write { path: PathBuf::from("/home/u/backup") };
+    let mut exit = requested("rsync -a ~/docs/ ~/backup/", &[ExitKind::Write], vec![write], &[]);
+    exit.record.action.background = true;
+    assert_eq!(
+        reviewed(Verdict::Allow, Some(Risk::Low), None, Some(&exit), home()).unwrap(),
+        "reviewer allowed: write ~/backup for the whole job (low risk)"
+    );
+}
+
 #[test]
 fn the_reviewer_lines_say_what_a_yes_opens_and_why() {
     let write = Grant::Write { path: PathBuf::from("/home/u/.local/share/app") };

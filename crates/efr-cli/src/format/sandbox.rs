@@ -725,7 +725,7 @@ fn risk_words(risk: Risk) -> &'static str {
 }
 
 /// The line of the reviewer's verdict on an exit: `reviewer allowed: <what> for this
-/// call (<risk>; <rationale>)` or `reviewer refused: <line>: <rationale>` (efr's auto
+/// call (<risk>; <rationale>)` (`for the whole job` for a background call) or `reviewer refused: <line>: <rationale>` (efr's auto
 /// spec, 14.3). `None` for an unsure verdict, which the question's card shows. The
 /// rationale is the reviewer model's text, so it passes through [`one_line`].
 pub(crate) fn reviewed(
@@ -742,6 +742,9 @@ pub(crate) fn reviewed(
             let why: Vec<String> =
                 risk.map(|risk| risk_words(risk).to_owned()).into_iter().chain(rationale).collect();
             let mut line = match exit {
+                Some(exit) if exit.record.action.background => {
+                    format!("reviewer allowed: {what} for the whole job")
+                }
                 Some(_) => format!("reviewer allowed: {what} for this call"),
                 None => format!("reviewer allowed: {what}"),
             };
