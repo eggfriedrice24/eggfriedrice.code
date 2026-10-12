@@ -552,10 +552,14 @@ async fn shell_exit_child_job_cannot_gain_privileges() {
     assert!(end.tail.contains("NoNewPrivs:\t1\n"), "{}", end.tail);
     assert!(end.tail.contains("CapEff:\t0000000000000000"), "{}", end.tail);
     assert!(end.tail.contains("nested NoNewPrivs:\t1"), "{}", end.tail);
-    // NOTE: the control: the test itself, with no no_new_privs, reads the dates.
+    // NOTE: the control: the test itself, with no no_new_privs, reads the dates, and
+    // cannot read /etc/shadow with its own rights. Where the user reads the file (the
+    // VM's root file system comes through virtiofs), passwd needs no setuid for it.
     let fields = |line: &str| line.split_whitespace().count();
     let control = efr_stdx::process::command("passwd", "/").args(["-S", &user]).output().await;
-    let gains = control.is_ok_and(|output| fields(&String::from_utf8_lossy(&output.stdout)) > 2);
+    let own_read = std::fs::File::open("/etc/shadow").is_ok();
+    let gains = !own_read
+        && control.is_ok_and(|output| fields(&String::from_utf8_lossy(&output.stdout)) > 2);
     let status = end.tail.lines().find_map(|line| line.strip_prefix("status "));
     if gains {
         let status = status.unwrap_or_else(|| panic!("{}", end.tail));
