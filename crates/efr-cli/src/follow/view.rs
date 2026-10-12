@@ -110,6 +110,13 @@
 //! that follows. A turn whose mode fell back says so at its start. When a call changed git settings that run programs, the
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
+//!
+//! A background job belongs to the conversation, not to a turn: the end of a job, a
+//! line that matched its `watch` pattern and a notice that did not start a turn show
+//! while the view follows any turn of the conversation (`format::jobs`). A call that
+//! starts a job says `(background)`, and its block names the job. A turn that a job
+//! notice started is marked once. Ctrl+X asks whether to stop the newest running job
+//! ([`TurnView::stop_question`]).
 
 mod call;
 mod input;

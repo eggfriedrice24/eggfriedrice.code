@@ -63,3 +63,11 @@ code of undo lives, what is on disk, and what git reads.
   at the end of the turn and says so, but it cannot stop the change.
 - A write of another conversation or of the user inside a call's window counts as the
   call's change. Its old bytes go to the undo trash, so nothing is lost.
+- Background jobs (phase C, ADR 0010) write after their call ended. Undo refuses while
+  a job of the conversation runs, or a job of another conversation writes in a root of
+  the undo. At the job's end, its changes join the `touched` paths of the turn that
+  started it, except the paths that another call changed meanwhile, which stay with
+  that call's turn. The start turn's roots are marked not complete, so its undo needs
+  `--force`. A job's home copies get the "before" commit and no "after": undo lists
+  them as `not covered (a job wrote it)`, and `--force` brings back the state before
+  the job.

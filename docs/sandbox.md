@@ -48,7 +48,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
 | Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. |
-| Background jobs | they stop when the call ends. Start a server and its test in one command. |
+| Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"). |
 | `/tmp` | private to the conversation; you do not see it. Share files through `$SCRATCH`. |
 
 Some tools show the sandbox's view: `tty` prints `/dev/console`, `df` shows the
@@ -479,6 +479,141 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 programs, and how it was judged (by you, a floor or the reviewer). Without a conversation id, it shows the newest
 conversation of this terminal, else the newest of all, and says which.
 
+## Background jobs
+
+A background job is a command that runs on after its call and after its turn, such as
+a dev server, a watcher or a slow build. The model starts one with `shell` and
+`background: true`. The call answers at once with the job's id (`j1`, `j2` and so on
+in each conversation) and its output file. `&`, `nohup` and `setsid` in a normal
+command still stop when that command ends; only a job runs on.
+
+### What the model asks for
+
+- `max_minutes`: the time limit. The default is `jobs.default_minutes` (60). efr cuts a
+  longer value to `jobs.max_minutes` (480), and the start result says so: `time limit:
+  480 minutes (the most that efr allows)`.
+- `watch`: a pattern (a regular expression of at most 200 characters) and
+  `max_wakes`. Each output line that matches tells the model, at most `max_wakes`
+  times, cut to `jobs.max_wakes_per_watch` (3).
+- A job takes no `timeout_seconds` and no `nested_shell`, and a line that waits for
+  input at the terminal cannot run as a job: its stdin is `/dev/null`.
+
+### Modes
+
+A job can start in every mode.
+
+- In `auto`, the job's line goes through the exits like any line. A line with no exit
+  starts at once in the sandbox. An exit goes to the reviewer or to you, as for a
+  normal call, and the record tells the reviewer that the grants last for the whole
+  job, up to its time limit. A covered delete in a job still goes to the reviewer,
+  because undo of the start turn needs `--force`.
+- In `cautious` and `manual`, efr asks you before each job starts. No reviewer
+  decides it. An approved job runs in the exit child with your rights.
+- In every mode, these kinds cannot run as a job: `sudo` and other ways to more
+  rights, a read of a masked file, a change of a file that runs code later (also one
+  that you name), a desktop command that types or starts programs, the D-Bus bus, and
+  a socket of a container engine or a service manager (`docker.sock`,
+  `podman.sock`, `systemd/private`). The model gets `this cannot run as a job; run that
+  part in the foreground, and the rest as a job`. Your yes does not change this: a job
+  has no terminal for a password, and a process that such a grant starts would outlive
+  the job.
+- The question of a job names its lifetime: `runs as a job for up to 60 minutes; these
+  grants stay open until it ends`. Only a terminal of yours answers it, never a phone.
+  While you are away, it expires as other questions do, and no job starts.
+
+### How a job runs
+
+- efrd starts the launcher itself (`efr-sbx run --job`), not the hidden shell. The job
+  has no terminal and its own session, and its stdin is `/dev/null`. It runs at nice
+  `jobs.nice` (19) in the idle IO class, each file that it writes can grow to at most
+  4 GiB, and the kernel's out-of-memory killer takes it before your programs. A job in
+  the exit child cannot gain rights through a setuid program (`no_new_privs`).
+- The job gets the environment of the hidden shell, which the shell writes to a file
+  at each prompt where it changed, and starts in the hidden shell's directory.
+- A contained job writes where the sandbox of its turn writes. Its tool caches are
+  layers of its own on the disk, so a job never makes a foreground call wait, and efr
+  never applies the deletes of a job in your real caches. The private `/tmp` is the
+  conversation's.
+- In a contained job, every git dir of the plan and every git dir that efr finds in
+  the roots at the start is read-only. A job cannot commit; the model commits in the
+  foreground. The surface guard checks a running job every 5 minutes and before each
+  contained call whose roots meet the job's. A changed git setting or hook goes to
+  quarantine at once, and the job stops (`stopped: it changed git settings`).
+- efrd reads the job's output from a pipe and writes `$SCRATCH/jobs/<id>.out`: the
+  first 1 MiB and the last 8 MiB, with `[N bytes omitted]` between them. Every
+  contained call reads `$SCRATCH/jobs` but cannot write it, so no command can change
+  or replace a job's output. Snapshots leave the dir out. efr removes the output of a
+  job 7 days after its end, and keeps at most 20 outputs of ended jobs in each
+  conversation. Some programs keep their output in a buffer when it goes to a pipe:
+  run them with `stdbuf -oL` or their own flag for line output.
+- At most `jobs.max_running` (4) jobs run in a conversation, and
+  `jobs.max_running_daemon` (16) in all. A start above a limit fails, and the model
+  gets the list of running jobs. `jobs.enabled = false` refuses every new job; running
+  jobs run on.
+
+### How a job ends
+
+A job ends when its command ends, when the model stops it (`job_stop`), when you stop
+it (`efr jobs stop <id>`, or Ctrl+X in the input row of a followed turn), at its time
+limit, when the surface guard stops it, or when efrd stops. Esc and the end of a turn
+never stop a job. The time limit counts the time on the clock, so a suspend counts
+too.
+
+A stop sends SIGTERM to the job's processes, then SIGKILL after a short wait. Then efrd
+ends every process that still has the job's session (the sweep). The end names the
+processes that may still run, and a launcher that efr lost. When efrd stops, it stops
+every job. When efrd dies, each launcher sees that and stops its job. At the next
+start, efrd records each job that the last efrd left as `stopped because efrd
+restarted`, checks its git surface, and ends what is left of it.
+
+### Notices and wake turns
+
+When a job ends, or a line of its output matches its `watch` pattern, efr tells the
+model with a job notice. A notice is never your input: it holds the line `efr: this is
+a job notice, not a message from the user; no human input has occurred.`, it never
+answers a question, and it never counts as your permission. efr escapes the job's output in it and removes control and
+format characters. A notice never enters a running turn. It waits until the turn ends.
+
+- When the conversation is idle and in `auto`, the notice starts a short turn of its
+  own, a wake turn, marked `🤖 (job notice, not your input)`. Its mode is the lowest of
+  the mode of the job's turn, the mode of your newest prompt and the mode of the
+  config. When that is not `auto`, no turn starts, and the notice rides in your next
+  prompt with `(the conversation is not in auto)`.
+- At most `jobs.max_wakes_per_hour` (6) wake turns start in a conversation in an hour,
+  and `jobs.max_wakes_per_hour_daemon` (12) in all. efr counts them over restarts. 0
+  means that notices never start a turn.
+- A wake turn runs at most 20 tool calls. A job that a wake turn starts never starts
+  another turn: its notices wait for your next prompt (`(job of a wake turn)`).
+- One turn takes at most 10 waiting notices and 32 KiB of their text.
+- A question in a wake turn waits only `presence.away_wait_secs`, unless a terminal of
+  yours follows the conversation. Its summary starts with `(job notice turn)`. The
+  reviewer's refusals count on from one wake turn to the next, until a turn of yours.
+- A notice of a job that ended at a restart of efrd never starts a turn. It rides in
+  your next prompt.
+
+### What you see
+
+- While efr follows a turn, the view shows `job j3 started; output
+  $SCRATCH/jobs/j3.out; ends in 60 minutes` under the call, which shows `(background)`.
+  It shows each end of a job of the conversation, such as `job j3 stopped by you after
+  92 minutes; 1.2 MB output`, a matched line (`job j3 matched: <line>`) and a notice
+  that did not start a turn (`job j3: no wake turn (wake limit reached)`).
+- Between turns, your next prompt shows `efr: job j3 ended (exit 0): <title>`.
+- `efr jobs` lists the jobs of this terminal's conversation; `--all` lists them all.
+  `efr jobs stop j3` stops one and shows its last lines.
+- `efr history` shows each start and end, and marks a wake turn; `--verbose` adds the
+  last lines of the output and the text of each notice.
+
+### Undo and jobs
+
+`efr undo` refuses while a job of the conversation runs, or a job of another
+conversation writes in a root of the undo, and names it: `job j3 runs; stop it first
+(efr jobs stop j3)`. When a job ends, its file changes join the turn that started it,
+and the undo of that turn needs `--force`. A file that a later call also changed stays
+with that call's turn. A job's copies of files outside the project have no "after"
+copy, so undo lists them as `not covered (a job wrote it)`, and `--force` brings back
+the state before the job.
+
 ## Undo
 
 `efr undo` takes back the newest turn of this terminal's conversation that is not
@@ -789,3 +924,9 @@ question, and none needs a restart.
 | older stash entries live only in the reflog | `git stash clear` loses them | stash drop and clear are covered only with one entry |
 | a snapshot holds no empty dirs, fifos, sockets, devices, extended attributes, ACLs, owners or hard links | a covered `rm -r` loses them, and undo makes hard-linked files separate | the preview notes `empty directories and special files do not come back` |
 | `at`, `batch` and `systemd-run --user` | they run later with no copy | they stay with you; a started unit runs on after an undo |
+| a background job in the exit child runs as you | it can open the hidden shell's terminal by its path and read efr's runtime files | it holds no terminal and no descriptor of one; `no_new_privs`; its time limit; a thin mount namespace for such jobs comes later |
+| a job in the exit child that ends its own launcher and then calls `setsid` | its process can escape the stop and the time limit | the sweep by the job's session ends every other process; the end names a lost launcher and the processes that may still run; a cgroup per job comes later |
+| a job keeps the sandbox plan of its start | a new mask, secret or floor of a settings change does not reach a running job | stop the job and let the model start it again |
+| a job writes a path that a later call also changes | that change stays with the later call's turn, not with the job's | undo refuses while a job writes in its roots |
+| a dev server in a contained job listens on the sandbox's own loopback | your browser cannot reach it | the model asks for the network for the job (`needs.hosts`), and the reviewer decides; a grant to listen comes later |
+| a job's output goes to a pipe | some programs keep their output in a buffer, so the output file and the notices come late | run the program with `stdbuf -oL` or its own flag for line output |

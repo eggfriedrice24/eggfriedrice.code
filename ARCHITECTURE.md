@@ -16,7 +16,8 @@ Three binaries ship:
   (`shell/zsh/efr.plugin.zsh`) calls it for every `,` line.
 - `efr-sbx`, the sandbox launcher of the `auto` mode, is installed next to efrd in
   `~/.local/lib/efr` (`/usr/lib/efr` from the AUR packages) and is never on the `PATH`. The hidden shell runs a copy of it for
-  each contained call.
+  each contained call, and efrd starts a copy for each background job
+  (`efr-sbx run --job`), with no terminal, in a session of its own.
 
 All clients speak one protocol, defined in `efr-protocol`, over a Unix socket at
 `$XDG_RUNTIME_DIR/efr/daemon.sock`. The phone client and the WebSocket listener come in
@@ -48,7 +49,7 @@ shipped binary.
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
-| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper), `inner`, `probe`; checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
+| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
@@ -58,8 +59,8 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the home copies of the files that an approved exit writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain), `undo`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line, the turn-end report and the read-only scope of model-side socket peers; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops and the sweep of a job's session), the home copies of the files that an approved exit writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `jobs` (list, stop), `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain), `undo`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -281,6 +282,26 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   question in `crates/efr-conversation/src/turn/cache.rs`; efrd's check and delete in
   `crates/efr-daemon/src/tools/cache_deletes.rs`, through `DaemonFs::remove_beneath` in
   `crates/efr-daemon/src/sandbox/fs.rs`.
+- Background jobs (ADR 0010): the wire types in `crates/efr-protocol/src/jobs.rs`;
+  `[jobs]` in `crates/efr-config/src/tables/jobs.rs`; the `jobs` projection, the
+  notices that no turn took and the wake turns of the last hour in
+  `crates/efr-store/src/jobs.rs`; the kinds that cannot run as a job (`job_refusal`) in
+  `crates/efr-permissions/src/jobs.rs`; the launcher's job mode in
+  `crates/efr-sbx/src/job.rs` and `guard-check` in `crates/efr-sbx/src/guard_check.rs`;
+  the `env` file of the hidden shell in `crates/efr-shell/assets/zsh/efr-integration.zsh`.
+  In efrd: the job table in `crates/efr-daemon/src/jobs.rs`, the spawn with the lifeline
+  in `jobs/launch.rs`, the output file in `jobs/output.rs`, the sweep by session id in
+  `jobs/sweep.rs` and the guard of a running job in `jobs/guard.rs`; the start of a job
+  and the tools `jobs` and `job_stop` in `crates/efr-daemon/src/tools/job_tools.rs`;
+  the running jobs of the hidden shell (the `jobs` builtin) in
+  `crates/efr-daemon/src/tools/shell_children.rs`; `jobs.list` and `jobs.stop` in
+  `crates/efr-daemon/src/methods/jobs_list.rs` and `jobs_stop.rs`. In the actor: the
+  text of a notice in `crates/efr-conversation/src/notice.rs`, the wake turns and their
+  limits in `crates/efr-conversation/src/wake.rs` and
+  `crates/efr-conversation/src/actor/notices.rs`. `efr jobs` in
+  `crates/efr-cli/src/commands/jobs.rs`, and the lines of the view and of `efr history`
+  in `crates/efr-cli/src/format/jobs.rs`. The fake launcher of the tests is
+  `crates/efr-test-daemon/src/fake_launcher.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in

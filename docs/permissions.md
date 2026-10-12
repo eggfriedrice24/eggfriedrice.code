@@ -74,6 +74,10 @@ Some floors hold in every mode, whatever the rules say:
 - no tool writes efr's config; see "Config protection";
 - a change of efr's settings through the settings tool asks, and a turn from the
   phone cannot make one; see "The settings tool";
+- a background job asks before it starts in `manual` and `cautious`, and its question
+  is local only; privilege, masked reads, persistence, desktop commands that type or
+  start programs, the bus and container engine or service manager sockets never run as
+  a job; see "Background jobs";
 - a delete or a move of a file through `apply_patch` asks in `manual` and `cautious`;
   in `auto` it runs when efr's snapshot holds each file, so `efr undo` brings it back;
   see "Edits with apply_patch".
@@ -393,6 +397,42 @@ line of the command corpus.
 `false`, or when the turn's project is your home directory, the turn runs as
 `cautious`. The turn records why, `efr history` shows it, and the model is told the
 mode that it really has.
+
+## Background jobs
+
+A `shell` call with `background: true` starts a background job: the command runs on
+after its call and its turn. [`docs/sandbox.md`](sandbox.md) tells how a job runs and
+ends. The engine decides a job as follows.
+
+- Jobs start in every mode. Outside `auto`, each job asks you first. The question names
+  the command, the time limit and the lifetime of the grants: `runs as a job for up to
+  60 minutes; these grants stay open until it ends`. No reviewer decides it, and no
+  rule of the mode skips the question. An approved job runs outside the sandbox, with
+  your rights.
+- In `auto`, the job's line goes through the exits like any line. A line with no exit
+  runs at once in the sandbox. The record of an exit has the facts of the job:
+  `background`, `max_minutes` (always the time limit that efr uses) and `watch`. The
+  reviewer judges the line as it can run for `max_minutes`, not for its first minute,
+  and an allow opens the grants for the whole job.
+- A covered delete in a job is not routine: the start call answers at once, and the
+  undo of the start turn needs `--force`. So a delete in a job goes to the reviewer.
+- In every mode, the engine refuses these kinds as a job: `privilege`, `masked_read`,
+  `persistence` (also a change that a message of yours names), a desktop command that
+  types or starts programs, `bus`, and a `socket` of a container engine or a service
+  manager. The model gets `this cannot run as a job; run that part in the foreground,
+  and the rest as a job`. Your yes does not change this.
+- A job's question is local only: a phone never answers it. While you are away, it
+  expires, and no job starts. A `n` starts no job.
+- A job in the exit child cannot gain rights through a setuid program
+  (`no_new_privs`).
+- The tools `jobs` and `job_stop` need no question in any mode for a turn of this
+  machine. They read and stop only the jobs of their conversation.
+- A job notice is never your input. It is not in the messages that the reviewer
+  reads, and the naming rule never finds a name in it. In a turn that a notice
+  started, the record says `wake_turn`, and the reviewer allows only what a message of
+  yours from before that turn asks for.
+- A process of a job reaches efr's socket with `read` only, also after its launcher is
+  gone: it cannot answer a question, stop a job or change the settings.
 
 ## How the engine reads a command line
 

@@ -11,6 +11,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_DATA_HOME/efr/daemon.lock` | exclusive `flock`; decides single instance | `efr-daemon/src/lock.rs` |
 | `$XDG_DATA_HOME/efr/recordings/<pty_id>/<start_seq>.rec` | append-only PTY recording segments | `efr-store/src/recording.rs` |
 | `$XDG_DATA_HOME/efr/scratch/<YYYY-MM-DD>-<slug>-<idtail>/` | `$SCRATCH` per conversation, claimed with a non-recursive `mkdir` | `efr-conversation/src/scratch.rs` |
+| `$SCRATCH/jobs/` (0700, marker `.efr-jobs`), `$SCRATCH/jobs/<id>.out` | the output of each background job of the conversation, which efrd writes from the job's pipe: the first 1 MiB and the last 8 MiB. efrd makes the dir before every contained call; an entry of that name without the marker goes aside to `jobs.moved-<n>`. Every contained call reads it but cannot write it, and snapshots leave it out. efr removes an output 7 days after its job ended, and keeps at most 20 outputs of ended jobs per conversation | `efr-daemon/src/jobs/output.rs` |
 | `$XDG_DATA_HOME/efr/snapshots/<root-id>.git`, `<root-id>.index`, `<root-id>.root` | efr's own snapshot store: one bare git repository per project or `$SCRATCH` (`root-id` is the first 16 hex characters of the SHA-256 of the root's canonical path), its persistent index and the root's path. Refs per turn: `refs/efr/<conversation>/<turn>/pre` (written at the turn's first snapshot of the root), `/last` (moved after each call, with the paths that the turn's calls changed), `/post` (at the turn's end) and `/undone` (after an undo). `refs/efr-mirror/<conversation>/<turn>/` holds the project's branches, tags, `refs/stash` and `HEAD` at the turn's start, at most `snapshot.mirror_max_mib` MiB of objects per turn and 4 times that per store. `refs/efr-undo/<conversation>/<undo-id>/` holds the state before an undo (`before`, `started`, `mirror/`), so a redo can take it back. The store holds the project's `.env` files and other small ignored files too, for up to `snapshot.max_age_days` days. The sandbox masks it with the rest of the data root. The collector keeps or drops a turn whole across every store: the newest `snapshot.keep_turns` turns of each conversation. It deletes a store without a snapshot for `snapshot.max_age_days` | `efr-snapshot` |
 | `$XDG_DATA_HOME/efr/snapshots/home.git` | efr's home store: before an approved write outside the project and `$SCRATCH` in `auto`, efrd copies each file that the call can change into it, and after the call it records the state after the call. Ref `refs/efr/<conversation>/<turn>/home/<n>` per copy: a commit "before" and a child commit "after", each with `files/<absolute path>` and a manifest `efr-home.json` (the state of each path, its mode, a link's target). efrd streams the bytes to `git fast-import`, so git never reads a home path. At most 16 MiB per file; a directory with more than `snapshot.home_max_files` files or `snapshot.home_max_mib` MiB gets no copy. The collector keeps it with the turns of the root stores | `efr-snapshot/src/home.rs`, `efr-daemon/src/home.rs` |
 | `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (dirs 0700) | every file that `efr undo` overwrote or removed, written from the store before the write: `root/<root-id>/<path in the root>` and `home/<absolute path without the leading />`. A file keeps its mode without set-id bits. efr's own floor protects it, and the sandbox masks it. The collector deletes an undo dir older than `snapshot.max_age_days` | `efr-daemon/src/tools/undo.rs` |
@@ -24,6 +25,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/last-call` | an empty file that each call's plan touches; the cache collector counts idle days from its time | `efr-daemon/src/sandbox/gc.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/cache.gone-<n>/` | cache layers that the collector moved aside under its lock and deletes next; a call that starts meanwhile gets new, empty layers | `efr-daemon/src/sandbox/gc.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/<conversation>/quarantine/<call>/` | git settings that a call planted and the surface guard moved away; the quarantine question moves them back | `efr-sbx` |
+| `$XDG_STATE_HOME/efr/sandbox/<conversation>/jobs/<call>/` | one contained background job: its own cache layers (`cache/<name>/`), so it never holds the layer lock of a foreground call; `surface-before.json`, the git surface at the job's start; `guard.json`, the result of the last `efr-sbx guard-check`. efrd removes the dir at the job's end, and all of `jobs/` at its start after the checks of the jobs that the last efrd left | `efr-daemon`, `efr-sbx` |
 | `$XDG_STATE_HOME/efr/sandbox/projects/<root>.json` | the git dir and common dir of a worktree or submodule project, recorded at `efr project add` | `efr-daemon`, `efr-sandbox/src/worktree.rs` |
 | `$XDG_STATE_HOME/efr/sandbox/probe/` | the throwaway project of the sandbox probe | `efr-sbx probe` |
 | `$XDG_RUNTIME_DIR/efr/daemon.sock` (0600) | the Unix socket | `efr-transport/src/unix_listener.rs` |
@@ -35,6 +37,8 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/state.zsh`, `state.json` | what sandboxed calls of the conversation defined (functions, aliases, exports that stay in the sandbox) | `efr-sbx` |
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/config-listings.json` | what git listed of each git config content that the last call's surface guard read, so the next call runs git only for a new content | `efr-sbx`, `efr-sandbox/src/surface/listings.rs` |
 | `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/<call>/` (0700, files 0600) | one call: `spec.json` and `nonce` from efrd, `line` (the model's line), `started`, `apply` (`cd` and promoted exports for the hidden shell) and `result.json` from the launcher, `times` (the time of the wrapper's steps, for the debug log) from the hidden shell | `efr-daemon`, `efr-shell`, `efr-sbx` |
+| `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/env` (0600) | the hidden shell's exported variables, NUL-separated, which its integration writes at each prompt where they changed; efrd copies it into a job's call dir, so a job gets the shell's environment. It holds the values that you export, secrets too, in the runtime root, which the sandbox masks | the hidden shell's integration (`efr-shell`) |
+| `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/jobs/<call>/` (0700, files 0600) | one background job: `spec.json` (with the job plan), `nonce`, `line` and `env` (at most 1 MiB) from efrd, `launcher.log` (the launcher's stderr), `started` and `result.json` from the launcher. Never a direct entry of the shell dir, so no check for a running call counts a job. efrd removes it at the job's end | `efr-daemon`, `efr-sbx` |
 | `$XDG_RUNTIME_DIR/efr/notices/<tty>` | notices for one terminal, shown and removed by the zsh plugin at the next prompt (`<tty>` is `$TTY` without `/dev/`, with `/` as `-`) | the daemon writes, `shell/zsh/efr.plugin.zsh` reads |
 | `$XDG_CONFIG_HOME/efr/config.toml`, `projects.toml` | config; the explicit project registry | `efr-config`, `efr-scope/src/registry.rs` |
 
@@ -50,7 +54,8 @@ the directory of its target too, and `efr config set` writes the target and keep
 link.
 
 Inside a call of the `auto` sandbox, the data, state and runtime roots are empty: only
-the conversation's `$SCRATCH` comes back, and the database reads as missing. So a
+the conversation's `$SCRATCH` comes back, with `$SCRATCH/jobs` read-only, and the
+database reads as missing. So a
 sandboxed command cannot read the call files, the nonce, the cache layers of other
 conversations or the daemon's socket. The config root stays readable and read-only.
 `efr paths` names the launcher and the sandbox's state and runtime directories;
@@ -76,8 +81,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
   so a subscriber can resume from `after_seq` without the projections. The payload is
   the serde form of `efr_protocol::Event`; an unknown kind reads back as
   `Event::Unknown { kind, payload }` so old readers keep advancing.
-- Projections `conversations`, `turns`, `approvals`, `shells`, `compactions` are
-  rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
+- Projections `conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`
+  and `job_notices` are rebuilt from events by `cargo xtask rebuild-projections`, and a test asserts the
   rebuild matches. They serve listing and paging; they are not a second source of
   truth.
 - `receipts(command_id PRIMARY KEY, method, result JSON, seq, created_at)`. A duplicate
@@ -99,6 +104,15 @@ conversations or the daemon's socket. The config root stays readable and read-on
   one row per `conversation_compacted` event, a projection. A turn reads the newest
   row with a summary and the newest row of any kind with a query of their own, never
   from the page of newest events.
+- `jobs(conversation_id, number, turn_id, call_id, command, launch, state, started_at,
+  ends_by, ended_at, exit_code, stopped_by, output_bytes, launcher_pid, launcher_start,
+  start_seq, info JSON)`, keyed by `(conversation_id, number)`: one row per background
+  job, from `job_started`, `job_ended` and `job_watch_matched`. A restart of efrd reads
+  the launcher's pid and start time here, never from a file that a job can write, and
+  the job ids go on from the highest number. `job_notices` has one row per event that
+  a notice tells about, so a start of efrd finds the notices that no turn took.
+  `turns.wake` is 1 for a turn that a job notice started; the limits of wake turns per
+  hour count these rows, also over a restart.
 
 ## Migrations
 
@@ -109,9 +123,9 @@ conversations or the daemon's socket. The config root stays readable and read-on
   after migrations finish.
 - Milestone 1 ships `0001_events.sql`, `0002_conversations.sql`,
   `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
-  `0005_turn_messages.sql` and `0006_compactions.sql`. The devices and scopes
-  table waits for the phone milestone, because a forward-only migration makes an unused
-  table permanent.
+  `0005_turn_messages.sql`, `0006_compactions.sql` and `0007_jobs.sql` (the jobs of
+  phase C). The devices and scopes table waits for the phone milestone, because a
+  forward-only migration makes an unused table permanent.
 - A migration never edits an earlier file. New columns use `ALTER TABLE ... ADD COLUMN`
   with a default so old projections keep reading.
 - Tests call `Migrations::validate()` and migrate a copy of every fixture database in

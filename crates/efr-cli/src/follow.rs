@@ -64,6 +64,10 @@
 //! ends, the view with the row connects again and subscribes after the last event that
 //! it showed, so the end events of a restarted daemon still reach it, and a request of
 //! the row whose answer was lost goes again with the same command id.
+//!
+//! Ctrl+X in the row asks `jobs.list` for the newest running job of the conversation,
+//! and after a `y` to the view's question it sends `jobs.stop`. efrd answers when the
+//! job ended, so the loop waits for the answer beside the events.
 
 mod view;
 
