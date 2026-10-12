@@ -1,14 +1,15 @@
-//! The running jobs of a hidden shell, for the fresh context block after a compaction:
-//! the shell's child processes, read from `/proc`. Between two tool calls nothing runs
-//! in the foreground, so each child is a job that a call left in the background.
+//! The children of a hidden shell, for the fresh context block after a compaction: the
+//! shell's child processes, read from `/proc`. Between two tool calls nothing runs in
+//! the foreground, so each child is a process that a call left in the shell's
+//! background. They are not efr's background jobs, which efrd starts itself.
 
 use std::fs;
 use std::path::Path;
 
-/// The most jobs that the block names.
-const MAX_JOBS: usize = 10;
+/// The most children that the block names.
+const MAX_CHILDREN: usize = 10;
 
-/// The longest command line of a job, in characters.
+/// The longest command line of a child, in characters.
 const MAX_LINE: usize = 200;
 
 /// The command lines of the children of the process `pid`, from the `/proc` at `proc`;
@@ -19,7 +20,7 @@ pub(crate) fn of(proc: &Path, pid: u32) -> Option<Vec<String>> {
         children
             .split_whitespace()
             .filter_map(|child| command_line(&proc.join(child)))
-            .take(MAX_JOBS)
+            .take(MAX_CHILDREN)
             .collect(),
     )
 }

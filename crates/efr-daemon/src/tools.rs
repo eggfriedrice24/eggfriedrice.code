@@ -70,8 +70,8 @@ use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine, unit
 use crate::trusted_programs::TrustedPrograms;
 
 mod cache_deletes;
-mod jobs;
 mod settings_tool;
+mod shell_children;
 mod snapshot;
 mod undo;
 
@@ -1313,13 +1313,16 @@ impl Toolbox for DaemonToolbox {
             .map(|state| state.effective_cwd().to_path_buf())
     }
 
-    async fn jobs(&self, conversation_id: ConversationId) -> Option<Vec<String>> {
-        // NOTE: no shell runs, so none of its jobs either.
+    async fn shell_children(&self, conversation_id: ConversationId) -> Option<Vec<String>> {
+        // NOTE: no shell runs, so none of its children either.
         let Ok(state) = self.shells.state(conversation_id).await else {
             return Some(Vec::new());
         };
         let pid = state.pid;
-        tokio::task::spawn_blocking(move || jobs::of(Path::new("/proc"), pid)).await.ok().flatten()
+        tokio::task::spawn_blocking(move || shell_children::of(Path::new("/proc"), pid))
+            .await
+            .ok()
+            .flatten()
     }
 
     async fn move_shell(&self, conversation_id: ConversationId, dir: &Path) {

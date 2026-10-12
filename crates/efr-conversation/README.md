@@ -740,9 +740,9 @@ A request after a compaction with a summary has these parts, in this order:
 1. the system prompt;
 2. a fresh context block, one user message read from disk when the compaction ends
    (`fresh.rs`), between `<fresh-context>` and `</fresh-context>`: the user's directory
-   and the hidden shell's directory, the running jobs of the hidden shell
-   (`Toolbox::jobs`; left out when the toolbox cannot tell), the git status of the
-   project root (`ScopeResolver::status`, at most 40 lines, git runs none of the work
+   and the hidden shell's directory, the children of the hidden shell
+   (`Toolbox::shell_children`; left out when the toolbox cannot tell), the git status
+   of the project root (`ScopeResolver::status`, at most 40 lines, git runs none of the work
    tree's programs), and the `AGENTS.md` files from the project root down to the user's
    directory, each cut at 32 KiB (memory joins at milestone 4). The project root is the
    registered project's, else the git work tree's; without one, only the user's

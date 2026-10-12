@@ -15,7 +15,7 @@ fn process(proc: &Path, pid: u32, children: &[u32], cmdline: &[u8]) {
 }
 
 #[test]
-fn the_jobs_are_the_command_lines_of_the_shells_children() {
+fn shell_children_lists_hidden_shell_children() {
     let proc = tempfile::tempdir().expect("a fake /proc");
     let long = format!("python3\0-c\0{}\0", "a".repeat(300));
     process(proc.path(), 10, &[11, 12, 13], b"zsh\0");
@@ -23,12 +23,12 @@ fn the_jobs_are_the_command_lines_of_the_shells_children() {
     process(proc.path(), 12, &[], long.as_bytes());
     // 13 ended between the two reads.
 
-    let jobs = of(proc.path(), 10).expect("the shell's children");
+    let children = of(proc.path(), 10).expect("the shell's children");
 
-    assert_eq!(jobs.len(), 2);
-    assert_eq!(jobs[0], "sleep 600");
-    assert_eq!(jobs[1].chars().count(), MAX_LINE + 3);
-    assert!(jobs[1].starts_with("python3 -c aaa") && jobs[1].ends_with("..."));
+    assert_eq!(children.len(), 2);
+    assert_eq!(children[0], "sleep 600");
+    assert_eq!(children[1].chars().count(), MAX_LINE + 3);
+    assert!(children[1].starts_with("python3 -c aaa") && children[1].ends_with("..."));
 }
 
 #[test]

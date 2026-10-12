@@ -359,9 +359,10 @@ Connections on the Unix socket hold every scope, `admin` included; a phone conne
   provider's error (`unauthorized`, `busy`, `invalid` or `internal`) and its message
   says why. The contract is in the README of efr-conversation, section "Context".
   `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`. For
-  the fresh context block after a compaction, the toolbox names the running jobs of
-  the hidden shell (`Toolbox::jobs`, `tools/jobs.rs`): the command lines of the
-  shell's child processes from `/proc`, at most 10, each cut at 200 characters.
+  the fresh context block after a compaction, the toolbox names the children of the
+  hidden shell (`Toolbox::shell_children`, `tools/shell_children.rs`): the command
+  lines of the shell's child processes from `/proc`, at most 10, each cut at 200
+  characters.
 - `admin.config_reload` reloads at once and answers with the outcome: applied, or the
   file's error with the old settings kept, and the keys that wait for a restart.
 - `projects.list`, `admin.project_add` and `admin.project_remove` (`projects.rs`) read

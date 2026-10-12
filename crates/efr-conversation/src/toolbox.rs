@@ -69,11 +69,12 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         None
     }
 
-    /// The jobs that run in the background of the conversation's hidden shell, one
-    /// line each (its command line), for the fresh context block after a compaction.
-    /// `None` when the toolbox cannot tell; an empty list when none runs. The default
-    /// cannot tell.
-    async fn jobs(&self, _conversation_id: ConversationId) -> Option<Vec<String>> {
+    /// The child processes of the conversation's hidden shell, which a call left
+    /// running in the shell's background, one line each (its command line), for the
+    /// fresh context block after a compaction. They are not background jobs of efr
+    /// ([`background_jobs`](Toolbox::background_jobs)). `None` when the toolbox cannot
+    /// tell; an empty list when none runs. The default cannot tell.
+    async fn shell_children(&self, _conversation_id: ConversationId) -> Option<Vec<String>> {
         None
     }
 

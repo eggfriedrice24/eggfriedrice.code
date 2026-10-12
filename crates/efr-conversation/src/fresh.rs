@@ -134,7 +134,7 @@ pub(crate) async fn read(
         Some(dir) => Some(dir),
         None => agent_cwd,
     };
-    let jobs = deps.toolbox.jobs(conversation_id).await;
+    let jobs = deps.toolbox.shell_children(conversation_id).await;
     let dirs = chain(root.as_deref(), cwd);
     let agents = tokio::task::spawn_blocking(move || read_agents(&dirs)).await.unwrap_or_default();
     FreshFacts { cwd: cwd.to_path_buf(), shell_cwd, jobs, root, git_status, agents }
