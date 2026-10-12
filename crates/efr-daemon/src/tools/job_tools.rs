@@ -424,7 +424,7 @@ impl DaemonToolbox {
         // on, as every job does after Esc, and shows in `efr jobs`.
         let (info, changes) = match tokio::spawn(launch.run()).await {
             Ok(Ok(started)) => started,
-            Ok(Err(outcome)) => return outcome,
+            Ok(Err(outcome)) => return *outcome,
             Err(error) => {
                 tracing::error!(%error, "the start of a job panicked");
                 return ToolOutcome::error(
@@ -526,7 +526,7 @@ struct JobLaunch {
 
 impl JobLaunch {
     /// Starts the job; `Err` is the outcome of a job that did not start.
-    async fn run(self) -> Result<(JobInfo, Option<FileChanges>), ToolOutcome> {
+    async fn run(self) -> Result<(JobInfo, Option<FileChanges>), Box<ToolOutcome>> {
         let JobLaunch {
             jobs,
             snapshots,
@@ -563,7 +563,7 @@ impl JobLaunch {
                 taken.discard();
             }
             super::remove_call_dir(prepared.run.dir.clone()).await;
-            return Err(ToolOutcome::error(stop));
+            return Err(Box::new(ToolOutcome::error(stop)));
         }
         sandbox
             .turns()
@@ -583,9 +583,9 @@ impl JobLaunch {
                     taken.discard();
                 }
                 super::remove_call_dir(prepared.run.dir.clone()).await;
-                return Err(ToolOutcome::error(format!(
+                return Err(Box::new(ToolOutcome::error(format!(
                     "[the job could not start: {error}. The command did not run.]"
-                )));
+                ))));
             }
         };
         tracing::debug!(job = %new.info.id, pid = spawned.pid(), "a job's launcher waits for its start byte");
@@ -593,7 +593,7 @@ impl JobLaunch {
             if let Some((taken, _)) = snapshot {
                 taken.discard();
             }
-            return Err(ToolOutcome::error(text));
+            return Err(Box::new(ToolOutcome::error(text)));
         }
         // NOTE: the launcher opened every bind source; the job blocks no plan any more.
         drop(prepared.guard);
@@ -605,7 +605,7 @@ impl JobLaunch {
         let kept = before(snapshots).await;
         let info = match jobs.begin(spawned, new, kept).await {
             Ok(info) => info,
-            Err(error) => return Err(ToolOutcome::error(started_unrecorded(&error))),
+            Err(error) => return Err(Box::new(ToolOutcome::error(started_unrecorded(&error)))),
         };
         drop(slot);
         Ok((info, changes))
