@@ -177,8 +177,8 @@ async fn kept_out_dropped_stopped_and_surviving_names_follow_the_output() {
             "[efr: these exports stay in the sandbox: PATH, PYTHONPATH. Later contained calls \
              see them; the hidden shell and a command that runs outside the sandbox do not.]",
             "[efr: these exports were dropped, and no later call sees them: LD_PRELOAD.]",
-            "[efr: these background jobs stopped when the command ended: node. Start a server \
-             and its test in one command.]",
+            "[efr: these background jobs stopped when the command ended: node. To keep a \
+             process running, call shell with background: true.]",
             "[efr: these processes of the command could not be ended: sudo. They may still \
              read the terminal, so the next call starts in a new hidden shell, in the user's \
              working directory, without the variables of this one.]",
@@ -218,15 +218,30 @@ fn shell_tool_auto_text_says_try_first() {
         "needs.outside runs the whole line with the user's full rights, so ask for it only \
          when no narrower member fits",
         "A command that runs outside the sandbox does not see exports or functions that \
-         sandboxed commands made, must be alone in its line apart from read-only helpers such \
-         as echo, and its background processes stop when it ends",
+         sandboxed commands made, and must be alone in its line apart from read-only helpers \
+         such as echo",
         "In auto, nested_shell is refused",
+        "background: true starts the line as a job and answers at once with a job id and an \
+         output file; the job runs until it ends, max_minutes passes (default 60, at most \
+         480, unless the user changed them), or job_stop stops it",
+        "You get a notice when it ends; do not poll and do not sleep",
+        "watch wakes you on an output line that matches a pattern",
+        "Processes that a normal call starts with &, nohup or setsid stop when the call ends",
     ] {
         assert!(description.contains(sentence), "{sentence:?} in {description}");
     }
     // The text names no limit that the model could read as a refusal, and the user no
     // longer decides every step: efr does.
-    for old in ["the user decides", "cannot use", "has no network", "it can write only"] {
+    // NOTE: no close method ends a conversation yet (phase C), so the text names no such
+    // end of a job.
+    for old in [
+        "the user decides",
+        "cannot use",
+        "has no network",
+        "it can write only",
+        "conversation ends",
+        "its background processes stop",
+    ] {
         assert!(!description.contains(old), "{old:?} in {description}");
     }
     let schema = tool().spec().input_schema;

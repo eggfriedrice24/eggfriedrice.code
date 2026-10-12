@@ -156,6 +156,7 @@ fn a_call_takes_a_manual_input_unless_its_line_goes_to_a_shell_that_reads_comman
     assert!(!takes(json!({"command": "bash"})));
     assert!(!takes(json!({"command": "ssh host"})));
     assert!(!takes(json!({"cmd": "./deploy"})), "an input that does not parse");
+    assert!(!takes(json!({"command": "./deploy", "background": true})), "a job reads no input");
 }
 
 #[test]

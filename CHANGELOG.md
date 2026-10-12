@@ -183,6 +183,9 @@ into the GitHub release notes, and it stops when the section is missing.
   as `~/.zshrc`, asks you again, because efr cannot copy it first.
 - `efr sandbox explain` says that `efr undo` reverts an allowed edit of a file that
   runs code later.
+- In `auto`, the model no longer hears that background processes stop when a
+  command ends. It hears that it can start a job with `background: true`. `&`, `nohup`
+  and `setsid` in a normal command still stop when the command ends.
 
 ### Fixed
 

@@ -32,7 +32,8 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
 - `Tool::takes_manual_input(input)`: whether a call takes an input that the user
   chooses to type while it reports no wait (false by default). The shell tool takes one
   unless its line goes to a nested shell or starts a shell or a REPL
-  (`efr_shell::takes_manual_answers`), where the hidden shell refuses it.
+  (`efr_shell::takes_manual_answers`), where the hidden shell refuses it, or the call
+  starts a background job, whose stdin is `/dev/null`.
 - `write_file` previews a write as a unified diff against the current file (every
   line added for a new file), at most 200 lines and 16 KiB, with a line that says
   how much is left out. `unified_diff` is that diff, public so the daemon's settings
@@ -75,16 +76,24 @@ The tools:
   `efr_shell::CommandRunner` (the daemon passes its `ShellSessions`). Input:
   `command`, `timeout_seconds` (default 30, at most 600), `nested_shell` (sentinel
   mode, for a `sudo -i`, `bash` or `ssh` started inside the hidden shell; the `auto`
-  mode refuses it) and `needs` (what a command needs beyond the `auto` sandbox, with
-  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`). The
+  mode refuses it), `needs` (what a command needs beyond the `auto` sandbox, with
+  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`), and
+  `background`, `max_minutes` and `watch` (phase C: a background job, which efrd starts
+  and which runs on after the call answers; `job_request` reads them, and a call that
+  breaks their rules is `ToolError::InvalidJob`). The
   description has one text for every mode. Its `auto` sentences tell the model to run
   what the user asked without asking for permission first, to call again with the same
   line and the narrowest `needs` after an access error, and that efr decides what
-  leaves the sandbox. After
+  leaves the sandbox. Its job sentences say that `background: true` answers at once
+  with a job id and an output file, that the job runs until it ends, `max_minutes`
+  passes or `job_stop` stops it, that a notice comes at its end so the model does not
+  poll, and that the `&`, `nohup` and `setsid` processes of a normal call stop when the
+  call ends. After
   a run through the sandbox's launcher, the answer names what `result.json` reports:
   the sandbox note after a contained command that failed (where it writes and that
   secrets read as empty, never a list of what it cannot do), the exports that stay in the
-  sandbox or were dropped, the background jobs that stopped, the hosts that the proxy
+  sandbox or were dropped, the background processes that stopped (with the advice to
+  start such a process with `background: true`), the hosts that the proxy
   refused, the git settings that the launcher moved away, a shell directory that the
   sandbox hides and a state that was not kept. A sandbox that could not start says
   why (`Completion::SandboxFailed`, from `setup_error` only), and a contained command

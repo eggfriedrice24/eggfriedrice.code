@@ -509,9 +509,14 @@ impl Tool for ShellTool {
              line and the narrowest needs that fits, and a short reason. needs.outside runs \
              the whole line with the user's full rights, so ask for it only when no \
              narrower member fits. A command that runs outside the sandbox does not see \
-             exports or functions that sandboxed commands made, must be alone in its line \
-             apart from read-only helpers such as echo, and its background processes stop \
-             when it ends. In auto, nested_shell is refused. The \
+             exports or functions that sandboxed commands made, and must be alone in its \
+             line apart from read-only helpers such as echo. In auto, nested_shell is \
+             refused. background: true starts the line as a job and answers at once with a \
+             job id and an output file; the job runs until it ends, max_minutes passes \
+             (default 60, at most 480, unless the user changed them), or job_stop stops it. \
+             You get a notice when it ends; do not poll and do not sleep. watch wakes you on \
+             an output line that matches a pattern. Processes that a normal call starts with \
+             &, nohup or setsid stop when the call ends. The \
              answer has the output, the exit code and the directory after the command. A \
              command still running at the timeout keeps running, and the next call waits \
              for it to end. When a command waits for input (a sudo password, a [Y/n] \
@@ -576,11 +581,13 @@ impl Tool for ShellTool {
 
     /// A call takes a manual input unless its line goes to a nested shell or starts a
     /// shell or a REPL: the hidden shell refuses one there, because the text would run
-    /// as a command line once the command ends. An input that does not parse takes
-    /// none; its call fails anyway.
+    /// as a command line once the command ends. A background job takes none either: its
+    /// stdin is `/dev/null`, and the call answers at once. An input that does not parse
+    /// takes none; its call fails anyway.
     fn takes_manual_input(&self, input: &Value) -> bool {
-        parse_input::<ShellInput>(Self::NAME, input)
-            .is_ok_and(|input| efr_shell::takes_manual_answers(mode(&input), &input.command))
+        parse_input::<ShellInput>(Self::NAME, input).is_ok_and(|input| {
+            !input.background && efr_shell::takes_manual_answers(mode(&input), &input.command)
+        })
     }
 
     async fn invoke(
@@ -705,8 +712,8 @@ fn sandbox_notes(summary: &SandboxSummary, failed: bool) -> String {
     }
     if !summary.background_stopped.is_empty() {
         notes.push(format!(
-            "[efr: these background jobs stopped when the command ended: {}. Start a \
-             server and its test in one command.]",
+            "[efr: these background jobs stopped when the command ended: {}. To keep a \
+             process running, call shell with background: true.]",
             summary.background_stopped.join(", ")
         ));
     }
