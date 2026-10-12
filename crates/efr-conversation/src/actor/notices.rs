@@ -6,12 +6,14 @@
 //! message, after the prompt. When the conversation is idle, a notice starts a wake
 //! turn, within these limits:
 //!
-//! - the job's turn is known to this actor, ran in `auto`, and was no wake turn itself
-//!   (a job of a wake turn never wakes, so wake turns never chain);
-//! - the mode of the wake turn, the lowest of the job's turn, the newest turn that a
-//!   prompt started and the config, is `auto`;
+//! - the job's turn is known to this actor and was no wake turn itself (a job of a
+//!   wake turn never wakes, so wake turns never chain);
+//! - the model did not stop the job (it read the output in the tool result);
 //! - `jobs.max_wakes_per_hour` of the conversation and the daemon-wide limit
 //!   (`Toolbox::wake_allowed`) allow one more.
+//!
+//! The wake turn runs in the mode of the newest turn that a prompt started (or of the
+//! job's turn when no prompt came since), so outside `auto` its calls ask as usual.
 //!
 //! A notice that could not start a turn records `job_notice_held` once, with the
 //! reason, and rides in the next turn. One turn takes every waiting notice, up to the
@@ -145,7 +147,10 @@ impl ConversationActor {
         let mut held: Vec<(JobId, Seq, HeldReason)> = Vec::new();
         let mut wakeable: Vec<JobStart> = Vec::new();
         for notice in &self.notices.waiting {
-            if self.notices.held.contains(&notice.source_seq) {
+            // NOTE: the model that stopped the job read its output in the tool result;
+            // the notice rides in the next turn with no held record, which would name
+            // the wrong reason.
+            if self.notices.held.contains(&notice.source_seq) || notice.stopped_by_model() {
                 continue;
             }
             match self.notices.alone(notice) {
@@ -194,15 +199,10 @@ impl ConversationActor {
             return Err(HeldReason::WakesOff);
         }
         let start = wakeable.iter().map(|start| start.mode).min().unwrap_or(first.mode);
-        let newest = self.notices.newest_prompt.unwrap_or(start);
-        let mode = wake::wake_mode(start, newest, config.mode);
+        let mode = wake::wake_mode(start, self.notices.newest_prompt);
+        // NOTE: the turn resolves these settings when it starts, as a prompt's turn
+        // does; a value that cannot work then fails the turn, which the user sees.
         let settings = TurnSettings { mode: Some(mode), ..first.settings.clone() };
-        // NOTE: the probe may have lost the sandbox since; then the turn would run as
-        // `cautious`, with nobody there.
-        let effective = self.resolve(&settings, first.origin).ok().map(|settings| settings.mode);
-        if effective != Some(Mode::Auto) {
-            return Err(HeldReason::NotAuto);
-        }
         let now = self.shared.deps.clock.now();
         let conversation_id = self.conversation_id();
         if !self.notices.window.allows(now, config.max_wakes_per_hour)

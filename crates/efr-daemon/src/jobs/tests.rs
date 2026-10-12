@@ -216,14 +216,15 @@ async fn limit_counts_jobs_that_start() {
 }
 
 #[tokio::test]
-async fn end_notice_of_stopped_job_never_wakes() {
+async fn end_notice_wakes_unless_the_model_stopped_the_job() {
     let scene = Scene::new().await;
-    for (number, by) in [(1, JobStopBy::Model), (2, JobStopBy::User)] {
+    for (number, by, wakes) in [(1, JobStopBy::Model, false), (2, JobStopBy::User, true)] {
         scene.start(number).await;
         scene.table.stop(scene.key(number), by).await.unwrap();
         let notice = scene.notice().await;
         assert_eq!(notice.input.kind, NoticeKind::Exited);
-        assert!(!notice.input.wakes, "a job that {by:?} stopped rides in the next turn");
+        assert_eq!(notice.input.wakes, wakes, "the end notice of a job that {by:?} stopped");
+        assert_eq!(notice.input.job.stopped_by, Some(by));
     }
     scene.start(3).await;
     scene.table.drop_lifeline(scene.key(3));

@@ -383,8 +383,8 @@ No protocol version has shipped yet.
   `j1`, `j2`, ... per conversation; any other string is refused), `job_state`
   (`running`, `exited`, `stopped`, `timed_out`, `failed`), `job_stop_by` (`model`,
   `user`, `time_limit`, `daemon_stop`, `daemon_restart`, `guard`), `notice_kind`
-  (`exited`, `watch`) and `held_reason` (`not_auto`, `wake_limit`, `wake_turn_job`,
-  `daemon_restart`, `wakes_off`). A reader takes a value of these enums that it does
+  (`exited`, `watch`) and `held_reason` (`wake_limit`, `wake_turn_job`,
+  `daemon_restart`, `wakes_off`, and `not_auto`, which only older builds record). A reader takes a value of these enums that it does
   not know as `unknown`. A `job_info` has `id`, `conversation_id`, `turn_id`, `call_id`,
   `command`, `launch`, `state`, `started_at`, `ends_by`, the optional `ended_at`,
   `exit_code`, `stopped_by` and `watch` (`pattern`, `max_wakes`), `output`,

@@ -1,14 +1,15 @@
 //! Job notices in the actor (phase C): a notice never enters a running turn and is never
 //! the user's input; it rides in the next turn, or starts a wake turn while the
-//! conversation is idle, within the wake limits, the mode and the chain rule.
+//! conversation is idle, within the wake limits and the chain rule, in the mode of the
+//! newest prompt.
 
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use efr_protocol::{
-    ApprovalDecision, Event, EventEnvelope, HeldReason, JobState, Mode, NoticeKind, Seq, TurnId,
-    TurnSettings,
+    ApprovalDecision, Event, EventEnvelope, HeldReason, JobState, JobStopBy, Mode, NoticeKind, Seq,
+    TurnId, TurnSettings,
 };
 use efr_provider::{ContentBlock, Message, Request, Role};
 use pretty_assertions::assert_eq;
@@ -326,37 +327,77 @@ async fn held_notice_rides_in_next_prompt_turn() {
     assert!(matches!(&events[1].event, Event::JobNotice { woke: false, .. }));
 }
 
+/// The mode that the turn `turn_id` started with.
+async fn started_mode(h: &Harness, turn_id: TurnId) -> Mode {
+    turn_events(h, turn_id)
+        .await
+        .iter()
+        .find_map(|e| match &e.event {
+            Event::TurnStarted { settings: Some(settings), .. } => Some(settings.mode),
+            _ => None,
+        })
+        .expect("the turn started with its settings")
+}
+
 #[tokio::test]
-async fn wake_turn_mode_never_above_start_turn() {
-    // The job started in a `cautious` turn, after the user said yes; the config is
-    // `auto` by the time it ends.
-    let script = Script::new(vec![job("npm run dev"), (DONE, Value::Null)]);
+async fn wake_turn_runs_in_cautious_and_asks() {
+    // The job started in a `cautious` turn, after the user said yes. Its end wakes the
+    // model in `cautious`, and a call of the wake turn asks.
+    let script = Script::new(vec![job("npm run dev"), (DONE, Value::Null), shell("sudo true")]);
     let mut h =
         Setup::new().start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
     let sent = h.prompt("run the dev server").await;
     let call_id = h.wait_approval().await;
     h.answer(call_id, ApprovalDecision::Allow).await;
     h.wait_end(sent.turn_id).await;
-    let mut config = (**h.settings.borrow()).clone();
-    config.mode = Mode::Auto;
-    h.settings.send_replace(Arc::new(config));
+    h.presence.set_followed(true);
 
     notify(&h, ended(&h, 1, 900, true)).await;
-    assert_eq!(held(&mut h, 900).await, HeldReason::NotAuto);
+    let event = h.wait_for(|e| matches!(e, Event::JobNotice { woke: true, .. })).await;
+    let woke = event.turn_id().unwrap();
+    let call_id = h.wait_approval().await;
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(woke).await;
+    assert_eq!(started_mode(&h, woke).await, Mode::Cautious);
 }
 
 #[tokio::test]
-async fn wake_turn_follows_lowered_mode() {
-    let (mut h, _, _) = with_job(auto(), vec![(DONE, Value::Null)]).await;
+async fn wake_turn_follows_newest_prompt_mode() {
+    let (mut h, _, _) = with_job(auto(), vec![(DONE, Value::Null), shell("sudo true")]).await;
     let cwd = h.cwd.clone();
     let mut params = h.prompt_params(&cwd, "thanks");
     params.settings = TurnSettings { mode: Some(Mode::Manual), ..TurnSettings::default() };
     let sent = h.handle.send_prompt(params, efr_protocol::Origin::Shell).await.unwrap();
     h.wait_end(sent.turn_id).await;
+    h.presence.set_followed(true);
 
     notify(&h, ended(&h, 1, 900, true)).await;
-    assert_eq!(held(&mut h, 900).await, HeldReason::NotAuto);
-    assert_eq!(h.handle.state().await.unwrap().running, None);
+    let event = h.wait_for(|e| matches!(e, Event::JobNotice { woke: true, .. })).await;
+    let woke = event.turn_id().unwrap();
+    let call_id = h.wait_approval().await;
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(woke).await;
+    assert_eq!(started_mode(&h, woke).await, Mode::Manual);
+}
+
+#[tokio::test]
+async fn model_stopped_job_rides_in_next_prompt_without_held() {
+    let (mut h, script, _) = with_job(auto(), Vec::new()).await;
+    let mut notice = ended(&h, 1, 900, false);
+    notice.job.stopped_by = Some(JobStopBy::Model);
+    notify(&h, notice.clone()).await;
+    // NOTE: the actor answers in order, so the notice was handled before this.
+    assert_eq!(h.handle.state().await.unwrap().running, None, "no wake turn");
+
+    let sent = h.prompt("status?").await;
+    h.wait_end(sent.turn_id).await;
+    let first = first_texts(&script.requests().last().cloned().unwrap());
+    assert_eq!(first[1..], ["status?".to_owned(), notice.text]);
+    let events = h.store.events().await.unwrap();
+    assert!(
+        !events.iter().any(|envelope| matches!(envelope.event, Event::JobNoticeHeld { .. })),
+        "a job that the model stopped records no job_notice_held"
+    );
 }
 
 #[tokio::test]

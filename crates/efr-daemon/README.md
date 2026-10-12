@@ -569,7 +569,8 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   start time that the scan found). Then it reads the rest of the output and
   `result.json`, records `job_ended` (with the processes that may still run and whether
   the launcher was lost), hands the conversation's actor the notice, and removes the
-  job's dirs. A job that the model or the user stopped gets a notice that wakes no turn.
+  job's dirs. A job that the model stopped gets a notice that wakes no turn; every
+  other end, also a stop by the user, wakes the conversation.
   A session that a process still has stays model-side; the table looks again every 10 s.
 - Socket peers: `methods::model_side_roots` adds each running launcher and each such
   session to the hidden shells, so a process of a job holds `read` only, also after its

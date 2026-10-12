@@ -228,8 +228,8 @@ impl NoticeKind {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum HeldReason {
-    /// The conversation is not in `auto`: the mode of the job's turn, of the newest
-    /// prompt or of the config is lower.
+    /// The conversation was not in `auto`. Only older builds record it: a wake turn now
+    /// runs in the mode of the newest prompt.
     NotAuto,
     /// The conversation or the daemon reached its limit of turns that notices start
     /// per hour.

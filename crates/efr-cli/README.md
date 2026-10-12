@@ -384,8 +384,8 @@ Replies:
   may still run`, `; 2 processes of the job may still run` and `; efr could not write
   all of its output to the file` when they apply; `job j3 matched: <line>` through
   `format::one_line`; `job j3: no wake turn (wake limit reached); the notice waits for
-  your next prompt` (also `the conversation is not in auto`, `job of a wake turn`,
-  `efrd restarted`). A notice that rides in the followed turn shows `the model also
+  your next prompt` (also `job of a wake turn`, `efrd restarted`, and `the
+  conversation is not in auto` for the records of older builds). A notice that rides in the followed turn shows `the model also
   reads a notice of job j3; it is not your input`. A turn that a job notice started,
   which a prompt of this view waits behind, shows `🤖 (job notice, not your input)` once;
   the newest page of the log says so for a turn that started before the prompt. Between

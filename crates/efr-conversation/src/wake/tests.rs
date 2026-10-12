@@ -52,17 +52,17 @@ fn a_limit_of_zero_never_wakes() {
 }
 
 #[rstest]
-#[case(Mode::Auto, Mode::Auto, Mode::Auto, Mode::Auto)]
-#[case(Mode::Auto, Mode::Manual, Mode::Auto, Mode::Manual)]
-#[case(Mode::Cautious, Mode::Auto, Mode::Auto, Mode::Cautious)]
-#[case(Mode::Auto, Mode::Auto, Mode::Cautious, Mode::Cautious)]
-fn wake_turn_mode_is_the_lowest(
+#[case(Mode::Auto, None, Mode::Auto)]
+#[case(Mode::Cautious, None, Mode::Cautious)]
+#[case(Mode::Auto, Some(Mode::Manual), Mode::Manual)]
+#[case(Mode::Cautious, Some(Mode::Auto), Mode::Auto)]
+#[case(Mode::Manual, Some(Mode::Cautious), Mode::Cautious)]
+fn wake_turn_mode_is_the_newest_prompts(
     #[case] start: Mode,
-    #[case] newest: Mode,
-    #[case] config: Mode,
+    #[case] newest: Option<Mode>,
     #[case] wake: Mode,
 ) {
-    assert_eq!(wake_mode(start, newest, config), wake);
+    assert_eq!(wake_mode(start, newest), wake);
 }
 
 fn notice(number: u32, bytes: usize) -> JobNoticeInput {

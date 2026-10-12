@@ -1,6 +1,6 @@
 //! The limits of turns that job notices start (efr's auto spec, section 3.18, phase C):
-//! a wake turn starts only in `auto`, at most `jobs.max_wakes_per_hour` times per hour
-//! in a conversation, and runs at most [`WAKE_TURN_MAX_CALLS`] tool calls. One turn
+//! a wake turn runs in the mode of the newest prompt, at most `jobs.max_wakes_per_hour`
+//! times per hour in a conversation, and runs at most [`WAKE_TURN_MAX_CALLS`] tool calls. One turn
 //! takes at most [`NOTICES_PER_TURN`] notices and [`NOTICE_BYTES_PER_TURN`] bytes of
 //! their text.
 //!
@@ -63,11 +63,12 @@ impl WakeWindow {
     }
 }
 
-/// The mode of a wake turn: the lowest of the mode of the turn that started the job,
-/// the mode of the newest turn that a prompt started, and the config's mode now. A
-/// lower mode that the user chose after the job started reaches its notices.
-pub(crate) fn wake_mode(start: Mode, newest_prompt: Mode, config: Mode) -> Mode {
-    start.min(newest_prompt).min(config)
+/// The mode of a wake turn: the mode of the newest turn that a prompt started, or the
+/// mode of the turn that started the job when no prompt came since. A mode that the user
+/// chose after the job started reaches its notices; outside `auto` the turn's calls ask
+/// as in any turn of that mode.
+pub(crate) fn wake_mode(start: Mode, newest_prompt: Option<Mode>) -> Mode {
+    newest_prompt.unwrap_or(start)
 }
 
 /// The line that stands for the notices that a turn could not take.

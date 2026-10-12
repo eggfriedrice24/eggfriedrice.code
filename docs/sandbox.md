@@ -576,13 +576,11 @@ a job notice, not a message from the user; no human input has occurred.`, it nev
 answers a question, and it never counts as your permission. efr escapes the job's output in it and removes control and
 format characters. A notice never enters a running turn. It waits until the turn ends.
 
-- When the conversation is idle and in `auto`, the notice starts a short turn of its
-  own, a wake turn, marked `🤖 (job notice, not your input)`. Its mode is the lowest of
-  the mode of the job's turn, the mode of your newest prompt and the mode of the
-  config. When that is not `auto`, no turn starts, and the notice rides in your next
-  prompt with `(the conversation is not in auto)`. The config's `permissions.mode` is
-  `cautious` by default, so a wake turn starts only after you set it to `auto`. A
-  `,mode auto` in the terminal is not enough.
+- When the conversation is idle, the notice starts a short turn of its own, a wake
+  turn, marked `🤖 (job notice, not your input)`. This occurs in every mode. The wake
+  turn runs in the mode of your newest prompt, or in the mode of the job's turn when
+  you sent no prompt since. Outside `auto`, its commands ask you as in any turn of
+  that mode.
 - At most `jobs.max_wakes_per_hour` (6) wake turns start in a conversation in an hour,
   and `jobs.max_wakes_per_hour_daemon` (12) in all. efr counts them over restarts. 0
   means that notices never start a turn.
@@ -594,8 +592,9 @@ format characters. A notice never enters a running turn. It waits until the turn
   reviewer's refusals count on from one wake turn to the next, until a turn of yours.
 - A notice of a job that ended at a restart of efrd never starts a turn. It rides in
   your next prompt.
-- A notice of a job that you or the model stopped never starts a turn. The model read
-  the output when it stopped the job. The notice rides in your next prompt.
+- A job that you stop also starts a wake turn. Only the notice of a job that the model
+  stopped never starts a turn, because the model read the output when it stopped the
+  job. That notice rides in your next prompt.
 
 ### What you see
 

@@ -158,9 +158,8 @@ impl Setup {
     }
 
     /// A daemon over `model` with the fake launcher, a ready sandbox, a fixed job
-    /// environment and `auto` as the config's mode. A wake turn runs in the lowest of
-    /// the job turn's mode, the newest prompt's mode and the config's mode, so a config
-    /// in `cautious` never wakes.
+    /// environment and the default config, whose mode is `cautious`. Each prompt names
+    /// its mode, and a wake turn runs in the mode of the newest prompt.
     fn builder(&self, model: Arc<Recorder>) -> TestDaemonBuilder {
         let env = BTreeMap::from([
             ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
@@ -171,7 +170,6 @@ impl Setup {
             .sandbox_launcher(self.fake.path())
             .probe_override(ready())
             .job_env(env)
-            .config(|config| config.permissions.mode = Mode::Auto)
             .custom_provider(model)
     }
 
@@ -555,7 +553,7 @@ async fn wake_chain_stops_after_one_turn() {
 }
 
 #[tokio::test]
-async fn wake_turn_follows_lowered_mode() {
+async fn wake_turn_follows_newest_prompt_mode() {
     let setup = Setup::new();
     let fifo = setup.fifo("go");
     let model = Recorder::new(vec![
@@ -563,7 +561,7 @@ async fn wake_turn_follows_lowered_mode() {
         None,
         // The `manual` turn: no call.
         None,
-        // The next `auto` prompt.
+        // The wake turn ends at once.
         None,
     ]);
     let daemon = setup.start(Arc::clone(&model)).await;
@@ -571,15 +569,19 @@ async fn wake_turn_follows_lowered_mode() {
     let conversation = sent.conversation_id;
     prompt(&daemon, 2, "now be careful", Mode::Manual).await;
     release(&fifo).await;
-    let events = until_held(&daemon, conversation, "j1").await;
-    assert_eq!(held(&events), [("j1".to_owned(), HeldReason::NotAuto)]);
-    assert_eq!(turn_starts(&events).len(), 2, "no wake turn after the lowered mode");
-    prompt(&daemon, 3, "back to auto", Mode::Auto).await;
     let events = until_turn_end(&daemon, conversation, 3).await;
-    let last = *turn_starts(&events).last().unwrap();
+    assert!(held(&events).is_empty(), "{:?}", held(&events));
+    let wake = *turn_starts(&events).last().unwrap();
     let taken: Vec<(TurnId, bool)> =
         notices(&events).into_iter().map(|(turn, _, _, woke, _)| (turn, woke)).collect();
-    assert_eq!(taken, [(last, false)]);
+    assert_eq!(taken, [(wake, true)]);
+    let mode = events.iter().find_map(|envelope| match &envelope.event {
+        Event::TurnStarted { turn_id, settings: Some(settings), .. } if *turn_id == wake => {
+            Some(settings.mode)
+        }
+        _ => None,
+    });
+    assert_eq!(mode, Some(Mode::Manual), "the wake turn runs in the newest prompt's mode");
     daemon.stop().await.unwrap();
 }
 

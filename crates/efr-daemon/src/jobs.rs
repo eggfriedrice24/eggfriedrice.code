@@ -1021,10 +1021,10 @@ impl JobTask {
                     tail: &tail,
                 };
                 let text = notice_text(&final_info, &self.output_path.display().to_string(), body);
-                // NOTE: the model that stopped a job read its output in the tool result,
-                // and the user who stopped it is there: the notice rides in the next turn
-                // and uses none of the hour's wake turns.
-                let wakes = !matches!(ended.stopped_by, Some(JobStopBy::Model | JobStopBy::User));
+                // NOTE: the model that stopped a job read its output in the tool result:
+                // the notice rides in the next turn and uses none of the hour's wake
+                // turns. Every other end wakes the model, also a stop by the user.
+                let wakes = !matches!(ended.stopped_by, Some(JobStopBy::Model));
                 let input =
                     JobNoticeInput::new(final_info.clone(), NoticeKind::Exited, seq, text, wakes);
                 table.notify(self.key.conversation, input);

@@ -133,15 +133,16 @@ into the GitHub release notes, and it stops when the section is missing.
   before it starts.
 - When a background job ends, efr tells the model with a job notice. A notice is never
   your input: it never answers a question and never counts as your permission. When
-  the conversation is idle and in `auto`, and `permissions.mode` in the config is
-  `auto` too, the notice starts a short turn, marked
-  `(job notice, not your input)`, at most `jobs.max_wakes_per_hour` times per hour in
+  the conversation is idle, the notice starts a short turn, marked
+  `(job notice, not your input)`, in every mode, at most `jobs.max_wakes_per_hour` times per hour in
   the conversation and `jobs.max_wakes_per_hour_daemon` times per hour in all. Such a
   turn runs at most 20 tool calls, and a job that it starts never starts another one.
   A question in such a turn waits only the away wait unless you follow the
   conversation. A `watch` pattern can also wake the model on a matching output line.
-  The notice of a job that you or the model stopped starts no turn. Otherwise the
-  notice rides in your next prompt.
+  The turn runs in the mode of your newest prompt, so outside `auto` its commands ask
+  you as usual. Every end of a job starts such a turn, also a stop by you. Only the
+  notice of a job that the model stopped starts no turn, because the model read the
+  output when it stopped the job. A notice over the limits rides in your next prompt.
 - While a job runs in the sandbox, efr checks the git settings and hooks in its
   projects every 5 minutes and before each sandboxed command there. When the job
   planted a hook or a git setting that runs code, efr moves it to the quarantine and
