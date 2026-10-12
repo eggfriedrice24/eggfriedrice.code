@@ -19,7 +19,7 @@ use crate::{
 const APP: &str = "/home/u/p/app";
 
 /// A machine with snapshots, undo and the home store.
-fn undo_engine() -> Engine {
+pub(super) fn undo_engine() -> Engine {
     Engine::with_defaults(auto_locations()).with_support(AutoSupport {
         undo: true,
         floor_backup: true,
@@ -60,7 +60,7 @@ fn shell_with(
 
 /// The destructive lines of the corpus that a snapshot can cover, each with the facts
 /// that make it destructive.
-fn coverable() -> Vec<Requirements> {
+pub(super) fn coverable() -> Vec<Requirements> {
     let log = "/home/u/p/app/important.log";
     vec![
         shell_with("git reset --hard HEAD~5", Coverage::Covered, &[], &[]),

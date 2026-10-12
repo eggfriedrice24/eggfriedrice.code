@@ -147,6 +147,16 @@ pub enum Subject {
     },
     /// The call types its line into a shell that runs inside the hidden one.
     NestedShell,
+    /// The call starts a background job (the shell tool's `background: true`), which
+    /// runs on after its turn, while nobody watches it.
+    Job,
+    /// A part of a background job's line that no job may hold (`crate::job_refusal`).
+    JobPart {
+        /// The simple command, its words joined by spaces, or the whole line.
+        part: String,
+        /// The kind of its exit.
+        kind: ExitKind,
+    },
     /// The call declared no requirement.
     Nothing,
 }
@@ -257,6 +267,12 @@ pub enum Cause {
     /// not delete there: one outside every cache, a floor such as `~/.cargo/bin`, or a
     /// mask.
     NotCacheFile,
+    /// The call starts a background job outside `auto`, so the user approves it first,
+    /// whatever the rules say: no classifier and no rule decides it.
+    JobAsks,
+    /// A part of the line cannot run as a background job, in every mode and whatever
+    /// the user answers ([`crate::JOB_REFUSAL`]).
+    NotAsJob,
 }
 
 /// The policy that a rule belongs to.
@@ -369,6 +385,10 @@ impl Reason {
                 ", because nested_shell is not available in auto: no shell outlives a \
                  contained call. For sudo or ssh, call shell without it; the command is an exit",
             ),
+            Cause::JobAsks => f.write_str(
+                ", because outside auto the user approves each background job before it starts",
+            ),
+            Cause::NotAsJob => write!(f, ", because {}", crate::JOB_REFUSAL),
         }
     }
 }
@@ -410,6 +430,8 @@ impl fmt::Display for Subject {
             Subject::Destructive => f.write_str("delete or move files"),
             Subject::Exit { need } => write!(f, "exit {need}"),
             Subject::NestedShell => f.write_str("a nested shell"),
+            Subject::Job => f.write_str("start a background job"),
+            Subject::JobPart { part, kind } => write!(f, "run {part:?} as a job ({kind})"),
             Subject::Nothing => f.write_str("no requirements"),
         }
     }

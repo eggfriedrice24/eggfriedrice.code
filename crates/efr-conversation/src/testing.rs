@@ -20,11 +20,11 @@ use efr_permissions::{Engine, Locations, Requirements};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, CacheMode, CallId, ChangeKind, CommandId, Compaction,
     ConversationId, EffectiveSettings, Event, EventEnvelope, FileChange, FileChanges, InputWait,
-    LateSteer, Mode, ModelInfo, ModelSource, Needs, NetworkMode, Origin, OverriddenSettings,
-    ProjectId, PromptSend, PromptSendResult, PromptWithdraw, QuestionId, ReportedFile,
-    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq, ShellContext, SurfaceChange, TurnId,
-    TurnInterrupt, TurnSettings, TurnSteer, TurnUndoInfo, TurnUndoResult, UndoRefused,
-    WithdrawTarget,
+    JobId, JobInfo, JobState, LateSteer, Launch, Mode, ModelInfo, ModelSource, Needs, NetworkMode,
+    Origin, OverriddenSettings, ProjectId, PromptSend, PromptSendResult, PromptWithdraw,
+    QuestionId, ReportedFile, SandboxStatus, SandboxSummary, SandboxSurfaceRespond, Seq,
+    ShellContext, SurfaceChange, TurnId, TurnInterrupt, TurnSettings, TurnSteer, TurnUndoInfo,
+    TurnUndoResult, UndoRefused, WithdrawTarget,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, ProviderEvent, ProviderId,
@@ -51,8 +51,8 @@ use crate::scratch;
 use crate::{
     CacheDeleteOutcome, CallContext, ConversationActor, ConversationConfig, ConversationDeps,
     ConversationDraft, ConversationHandle, ConversationStart, HistoryLimits, HostInfo, OutputSink,
-    ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome, Toolbox, TurnChanges, UndoRequest,
-    draft_channel,
+    ScopeResolver, SnapshotRecord, ToolCall, ToolOutcome, Toolbox, TurnChanges, UndoBusyReason,
+    UndoRequest, draft_channel,
 };
 
 pub(crate) const MODEL: &str = "test-model";
@@ -81,7 +81,9 @@ pub(crate) const OS: &str = "TestOS";
 /// knows, in the same place of the list; a call of either one runs.
 ///
 /// A `shell` input may also declare `reads` and `writes` (lists of paths), `network`,
-/// `nested_shell` and `needs`, as the real shell tool does. The command `plant-hook`
+/// `nested_shell`, `needs`, and `background` with `max_minutes` and `watch`, as the real
+/// shell tool does. A call with `background: true` answers at once that it started the
+/// job `j<n>` and names it in [`ToolOutcome::job`], as efrd does. The command `plant-hook`
 /// reports a git change that the launcher moved to quarantine ([`planted`]). A
 /// `read_file` of a file named `big-<bytes>` reads that many bytes ([`big_text`]), past
 /// the cap of the real tools, so a test fills the context fast.
@@ -139,6 +141,44 @@ pub(crate) struct FakeToolbox {
     pub(crate) undo_released: Notify,
     /// What `call_runs` answers.
     pub(crate) call_runs: AtomicBool,
+    /// How many background jobs `invoke` started.
+    jobs_started: Mutex<u32>,
+    /// What `background_jobs` answers.
+    pub(crate) background: Mutex<Vec<JobInfo>>,
+    /// What `job_blocks_undo` answers.
+    pub(crate) blocks_undo: Mutex<Option<UndoBusyReason>>,
+    /// When set, `wake_allowed` says no, as the daemon-wide limit of notice turns does.
+    pub(crate) wakes_denied: AtomicBool,
+}
+
+/// The job `j<number>` of the conversation, started by the call `call_id` of the turn
+/// `turn_id` with `command`, as efrd names it in its `job_started`.
+pub(crate) fn job_info(
+    conversation_id: ConversationId,
+    turn_id: TurnId,
+    call_id: CallId,
+    number: u32,
+    command: &str,
+) -> JobInfo {
+    let started_at = jiff::Timestamp::from_second(1_791_000_000).expect("a time");
+    JobInfo {
+        id: JobId::nth(number),
+        conversation_id,
+        turn_id,
+        call_id,
+        command: command.to_owned(),
+        launch: Launch::Contained { grants: Vec::new() },
+        state: JobState::Running,
+        started_at,
+        ends_by: started_at + jiff::SignedDuration::from_mins(60),
+        ended_at: None,
+        exit_code: None,
+        stopped_by: None,
+        output: PathBuf::from(format!("/scratch/jobs/j{number}.out")),
+        output_bytes: 0,
+        watch: None,
+        wakes: 0,
+    }
 }
 
 /// The changes that the command `edit-files` reports: one modified file.
@@ -315,6 +355,16 @@ impl Toolbox for FakeToolbox {
                         .map_err(|error| format!("needs: {error}"))?;
                     requirements = requirements.with_needs(needs);
                 }
+                if call.input["background"] == true {
+                    requirements = requirements.with_background();
+                }
+                if let Some(minutes) = call.input["max_minutes"].as_u64() {
+                    requirements =
+                        requirements.with_max_minutes(u32::try_from(minutes).unwrap_or(u32::MAX));
+                }
+                if call.input.get("watch").is_some() {
+                    requirements = requirements.with_watch();
+                }
                 Ok(requirements)
             }
             "hang" | "note" => Ok(Requirements::none()),
@@ -384,6 +434,25 @@ impl Toolbox for FakeToolbox {
             "apply_patch" => ToolOutcome::ok("patched"),
             "edit" => ToolOutcome::ok(format!("edited {path}")),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
+            "shell" if call.input["background"] == true => {
+                let number = {
+                    let mut started =
+                        self.jobs_started.lock().unwrap_or_else(PoisonError::into_inner);
+                    *started += 1;
+                    *started
+                };
+                let command = call.input["command"].as_str().unwrap_or_default();
+                let context = &call.context;
+                let mut job = job_info(
+                    context.conversation_id,
+                    context.turn_id,
+                    context.call_id,
+                    number,
+                    command,
+                );
+                job.launch = context.launch.clone();
+                ToolOutcome::ok(format!("job j{number} started: {command}")).with_job(job)
+            }
             "shell" if call.input["command"] == "ask-password" => {
                 out.update("pw: ", 4);
                 tokio::task::yield_now().await;
@@ -492,6 +561,22 @@ impl Toolbox for FakeToolbox {
 
     fn call_runs(&self, _conversation_id: ConversationId) -> bool {
         self.call_runs.load(Ordering::SeqCst)
+    }
+
+    async fn background_jobs(&self, _conversation_id: ConversationId) -> Vec<JobInfo> {
+        self.background.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    async fn job_blocks_undo(
+        &self,
+        _conversation_id: ConversationId,
+        _turn_id: TurnId,
+    ) -> Option<UndoBusyReason> {
+        *self.blocks_undo.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn wake_allowed(&self, _conversation_id: ConversationId) -> bool {
+        !self.wakes_denied.load(Ordering::SeqCst)
     }
 }
 

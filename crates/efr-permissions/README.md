@@ -169,6 +169,12 @@ Modules:
   every place of the line, a zsh builtin or reserved word such as `:`, `cd` or
   `printf` (a fixed list, `exits/programs.rs`); behind `env`, `sudo`, `command`,
   `exec` or `find -exec` only a file runs.
+- `jobs` (phase C): `job_refusal` names the exits that no background job may hold, in
+  every mode and whatever the user answers: `privilege`, `masked_read`, `persistence`,
+  a `desktop_ipc` form that types or starts programs, the whole message bus, and the
+  socket of a service manager or a container engine (`SERVICE_SOCKETS`). The engine
+  denies such a part of a job's line with `Cause::NotAsJob` (`JOB_REFUSAL`: run that
+  part in the foreground, and the rest as a job).
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each
@@ -261,6 +267,14 @@ proptest property:
 - A write of efr's own programs, or of its runtime, data or state roots outside
   `$SCRATCH` and efr's trash, is denied in every mode (`Cause::EfrOwn`), and in `auto`
   a shell write there is a `config` exit.
+- A shell call that starts a background job (`Requirements::background`) has the exits
+  of the same line in the foreground, except that no delete counts as covered by undo:
+  the job's call answers at once, and undo of its turn needs `--force` while it may
+  still write. A part that no job may hold is denied in every mode
+  (`Cause::NotAsJob`). Outside `auto` each job asks the user (`Subject::Job`,
+  `Cause::JobAsks`), whatever the rules say, and a remote turn runs as `cautious`, so it
+  asks too (`src/engine/tests/jobs.rs`, and the corpus table
+  `background_flag_does_not_change_prediction`).
 - `PRIVILEGED` holds the same six programs in every mode, so a user's `docker` rule
   keeps working in `cautious`; `auto` adds `exits::PRIVILEGE_EXITS`.
 - A write of the project's root itself is not a project write, so it asks.

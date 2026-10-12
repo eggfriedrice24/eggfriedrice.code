@@ -186,6 +186,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, the model no longer hears that background processes stop when a
   command ends. It hears that it can start a job with `background: true`. `&`, `nohup`
   and `setsid` in a normal command still stop when the command ends.
+- A background job cannot use sudo, read a masked file such as `.env`, type into
+  your desktop, use the D-Bus bus or a container engine or service manager socket, or
+  change a file that runs code later, such as `~/.zshrc`. This holds in every mode,
+  also after you answer yes. The model must run such a part in the foreground. In
+  `auto`, a delete that undo covers still goes to the reviewer when it runs as a job.
 
 ### Fixed
 

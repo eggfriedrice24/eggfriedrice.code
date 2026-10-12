@@ -242,6 +242,7 @@ fn refusal_part(reason: &Reason) -> String {
         Cause::NoRule => "no rule allows it",
         Cause::NestedShell => "auto runs no nested shell",
         Cause::RemoteSettings { .. } => "a remote turn cannot change settings",
+        Cause::NotAsJob => "it cannot run as a job",
         _ => return what,
     };
     format!("{what}: {why}")
@@ -259,6 +260,23 @@ pub(crate) fn brief(message: &str) -> String {
 /// each naming the path and its class, without the number of a rule
 /// ([`Reason::for_model`]).
 pub(crate) fn denial(tool: &str, decision: &Decision) -> String {
+    // NOTE: a part of a background job that no job may hold is no refusal of the
+    // action: the model runs that part in the foreground, and the rest as a job.
+    let job_parts: Vec<&str> = decision
+        .deciding()
+        .filter_map(|reason| match (&reason.subject, &reason.cause) {
+            (Subject::JobPart { part, .. }, Cause::NotAsJob) => Some(part.as_str()),
+            _ => None,
+        })
+        .collect();
+    if !job_parts.is_empty() && job_parts.len() == decision.deciding().count() {
+        let parts: Vec<String> = job_parts.iter().map(|part| format!("{part:?}")).collect();
+        return format!(
+            "The {tool} call did not start a job: {} cannot run as a job. Run that part in \
+             the foreground, and the rest as a job.",
+            parts.join(", ")
+        );
+    }
     let reasons: Vec<String> =
         decision.deciding().map(|reason| reason.for_model().to_string()).collect();
     format!(

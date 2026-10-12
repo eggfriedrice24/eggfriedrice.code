@@ -412,3 +412,34 @@ fn routine_lines_stay_routine_in_phase_b() {
         }
     }
 }
+
+#[test]
+fn background_flag_does_not_change_prediction() {
+    // A line run as a background job (phase C) has the exits of the same line in the
+    // foreground. Only a delete that the snapshot covers differs: a job answers at once,
+    // so undo of its turn needs `--force`, and the delete stays an exit.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let engine = undo_engine();
+    let decide = |requirements: Requirements| {
+        engine.decide(&DecisionInput {
+            requirements,
+            scope: Scope::Project(id(1)),
+            origin: Origin::Shell,
+            mode: Mode::Auto,
+            conversation_policy: ConversationPolicy::new(SCRATCH),
+        })
+    };
+    let kinds =
+        |decision: &Decision| -> Vec<ExitKind> { decision.exits().map(|need| need.kind).collect() };
+    let mut changed = Vec::new();
+    for line in corpus.line.iter().filter(|line| line.line.is_some()) {
+        let foreground = decide(requirements(line, true));
+        let background = decide(requirements(line, true).with_background());
+        if kinds(&foreground) != kinds(&background) {
+            assert_eq!(line.pb, "R", "line {}", line.n);
+            assert_eq!(kinds(&background), [ExitKind::Destructive], "line {}", line.n);
+            changed.push(line.n);
+        }
+    }
+    assert_eq!(changed, [54, 57, 59]);
+}

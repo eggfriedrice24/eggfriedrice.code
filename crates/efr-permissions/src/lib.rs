@@ -25,6 +25,8 @@
 //!   outside the sandbox. [`secret_paths`], [`SANDBOX_MASKS`], [`PROTECTED_NAMES`],
 //!   [`PERSISTENCE_FLOORS`] and [`ZSH_STARTUP_FILES`] are the tables the engine and the
 //!   sandbox share.
+//! - Background jobs (phase C): [`job_refusal`] names the exits that no job may hold,
+//!   in every mode; outside `auto` a job asks the user before it starts.
 //!
 //! `efr-tools` declares what a call needs, this crate decides, and
 //! `efr-conversation/src/turn.rs` enforces; `xtask/src/deps.rs` forbids
@@ -45,6 +47,7 @@ mod decision;
 mod engine;
 mod error;
 pub mod exits;
+mod jobs;
 mod path_class;
 mod policy;
 mod request;
@@ -56,6 +59,7 @@ pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
 pub use error::PermissionsError;
 pub use exits::{Approver, ExitNeed, FactRequest, Installed, PathFacts, Rebuild, WriteBind};
+pub use jobs::{JOB_REFUSAL, SERVICE_SOCKETS, job_refusal, service_socket};
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{

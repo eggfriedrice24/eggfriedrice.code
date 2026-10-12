@@ -7,6 +7,7 @@ use efr_protocol::{ExitKind, ExitSource, Mode, Origin, Scope};
 use crate::command::{self, SimpleCommand};
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 use crate::exits::{self, Approver, Envelope, ExitInput, ExitNeed, PathFacts, Rebuild};
+use crate::jobs::job_refusal;
 use crate::path_class::normalize;
 use crate::policy::{MatchContext, Part, Target, expand};
 use crate::{
@@ -73,6 +74,15 @@ use crate::{
 /// keep the `cautious` path rules, plus an exit for a read of a sandbox mask, for a
 /// write to a floor inside a write root, and for a write that a built-in rule asks
 /// about outside the turn's project and `$SCRATCH` ([`Cause::ExitDecides`]).
+///
+/// A shell call that starts a background job ([`Requirements::background`]) runs on
+/// after its turn, while nobody watches it (phase C). Its exits are those of the same
+/// line in the foreground, except that no delete of it counts as covered by undo. An
+/// exit that no job may hold ([`job_refusal`]) is denied with [`Cause::NotAsJob`] in
+/// every mode. Outside `auto` a job asks the user ([`Cause::JobAsks`]), whatever the
+/// rules say.
+///
+/// [`Requirements::background`]: crate::Requirements::background
 #[derive(Debug, Clone)]
 pub struct Engine {
     locations: Locations,
@@ -300,26 +310,47 @@ impl Engine {
                 cause: Cause::Destructive,
             });
         }
+        // NOTE: a background job (phase C). Its start call answers at once, and an undo
+        // of its turn needs `--force` while the job may still write, so no delete of it
+        // counts as covered: a destructive part stays an exit for the classifier.
+        let job = requirements.background && shell;
+        let support = if job { AutoSupport { undo: false, ..self.support } } else { self.support };
+        let predicted = |line: &str| {
+            exits::predict(&ExitInput {
+                line,
+                command_dir: requirements.command_dir.as_deref(),
+                paths: &requirements.paths,
+                network: requirements.network,
+                needs: requirements.needs.as_ref(),
+                facts: requirements.facts.as_ref(),
+                locations: &self.locations,
+                project_root,
+                scratch: scratch.as_deref(),
+                support: &support,
+            })
+        };
         if auto {
             let found = match &requirements.command {
-                Some(line) => exits::predict(&ExitInput {
-                    line,
-                    command_dir: requirements.command_dir.as_deref(),
-                    paths: &requirements.paths,
-                    network: requirements.network,
-                    needs: requirements.needs.as_ref(),
-                    facts: requirements.facts.as_ref(),
-                    locations: &self.locations,
-                    project_root,
-                    scratch: scratch.as_deref(),
-                    support: &self.support,
-                }),
+                Some(line) => predicted(line),
                 None => exits::link_names(
                     exits::named_targets(tool_found, self.locations.home()),
                     requirements.facts.as_ref(),
                 ),
             };
+            if job {
+                reasons.extend(found.iter().filter(|need| job_refusal(need)).map(not_as_job));
+            }
             reasons.extend(found.into_iter().map(exit_reason));
+        } else if let (true, Some(line)) = (job, &requirements.command) {
+            // NOTE: outside `auto` the user approves each job before it starts, and no
+            // rule decides it. The kinds that no job may hold stay refused in every mode,
+            // also after a "yes".
+            reasons.extend(predicted(line).iter().filter(|need| job_refusal(need)).map(not_as_job));
+            reasons.push(Reason {
+                subject: Subject::Job,
+                effect: Effect::Ask,
+                cause: Cause::JobAsks,
+            });
         }
         if reasons.is_empty() {
             let (effect, cause) =
@@ -467,6 +498,16 @@ impl Engine {
             masked,
             rebuild: if guarded { None } else { self.locations.rebuild(&path) },
         })
+    }
+}
+
+/// The refusal of the part of a background job's line that `need` leaves the sandbox
+/// for: no job may hold it ([`job_refusal`]).
+fn not_as_job(need: &ExitNeed) -> Reason {
+    Reason {
+        subject: Subject::JobPart { part: need.part.clone(), kind: need.kind },
+        effect: Effect::Deny,
+        cause: Cause::NotAsJob,
     }
 }
 
