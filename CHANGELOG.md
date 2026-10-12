@@ -155,6 +155,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - In the input row of a followed turn, Ctrl+X stops the newest running job of the
   conversation. It asks first: `stop job j3 (npm run dev)`, `y` yes, `n` no. With no
   running job it says `no job runs`. Esc still stops only the turn, never a job.
+- `efr jobs` (or `efr jobs list`) lists the jobs of this terminal's conversation,
+  newest first: the id, the state, when it ends or ended, the size of its output and
+  its command. `--all` lists the jobs of every conversation with its title, and
+  `--conversation` names another one. `efr jobs stop <id>` stops a job and shows how
+  it ended and the last 10 lines of its output. An unknown job exits 1.
 
 ### Changed
 

@@ -3,8 +3,11 @@ use std::path::Path;
 use efr_protocol::{Event, HeldReason, JobId, JobState, JobStopBy, Seq, SurfaceChange};
 use pretty_assertions::assert_eq;
 
-use super::{Ended, conversation_line, ended, held, matched, minutes, output_name, started};
-use crate::testing::job;
+use super::{
+    Ended, ListRow, conversation_line, ended, held, list, matched, minutes, output_name, started,
+    tail_lines,
+};
+use crate::testing::{job, now};
 
 fn j3() -> JobId {
     JobId::nth(3)
@@ -149,4 +152,39 @@ fn a_held_notice_says_why_no_turn_started() {
     };
     assert!(conversation_line(&event).unwrap().contains("(wake limit reached)"));
     assert!(held(&j3(), HeldReason::WakeTurnJob).contains("(job of a wake turn)"));
+}
+
+#[test]
+fn job_tail_drops_format_characters() {
+    let tail = "one\n\u{1b}]52;c;bad\u{7}\n\nok \u{202e}txt.exe\u{200b}\nlast";
+    let lines = tail_lines(tail, 3);
+    assert_eq!(lines, ["\u{241b}]52;c;bad\u{2407}", "ok \u{fffd}txt.exe\u{fffd}", "last"]);
+    for line in &lines {
+        assert!(!line.chars().any(|c| c.is_control() || efr_stdx::text::is_format(c)), "{line:?}");
+    }
+}
+
+#[test]
+fn the_list_has_a_row_per_job_in_columns() {
+    let running = job(2, "npm run dev\nnpm run lint");
+    let mut ended = job(1, "cargo build");
+    ended.state = JobState::Exited;
+    ended.exit_code = Some(0);
+    ended.ended_at = Some(now() - jiff::SignedDuration::from_mins(5));
+    ended.output_bytes = 34_000;
+    let rows = [
+        ListRow { job: &running, conversation: None, leftover: false },
+        ListRow { job: &ended, conversation: None, leftover: true },
+    ];
+    assert_eq!(
+        list(&rows, now()),
+        "j2  running  ends in 3h 0m        0 B  npm run dev \u{2026}\n\
+         j1  exit 0   ended 5m 0s ago  34.0 KB  cargo build  (its processes may still run)\n"
+    );
+    let rows = [ListRow {
+        job: &running,
+        conversation: Some("fix the build".to_owned()),
+        leftover: false,
+    }];
+    assert!(list(&rows, now()).starts_with("fix the build  j2  running"));
 }

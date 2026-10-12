@@ -15,6 +15,7 @@ Commands:
   undo      Take back what the last turn changed in files and branches
   compact   Make room in the model's context of this terminal's conversation now
   away      Tell efr that you are away from this terminal's conversation
+  jobs      List the background jobs of this terminal's conversation, or stop one
   settings  Show the mode, model and effort that a prompt would use, with where each comes from
   models    List the models that a prompt may name
   login     Log in to a model provider: the OpenAI subscription in a browser, or an API key

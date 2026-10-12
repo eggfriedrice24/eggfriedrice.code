@@ -1,7 +1,7 @@
 //! The CLI's lines about background jobs (efr's auto spec, sections 3.18 and 14.8): the
 //! start and the end of a job, a line that matched its `watch` pattern, a notice that
-//! did not start a turn, the mark of a turn that a job notice started, and the
-//! question of the stop key.
+//! did not start a turn, the mark of a turn that a job notice started, the question of
+//! the stop key, and the rows of `efr jobs list`.
 //!
 //! A job's command, its output and its tail come from a program, not from efr: every
 //! piece of them goes through [`one_line`] or [`lines`], so a control character or a
@@ -14,8 +14,9 @@ use std::path::Path;
 use efr_protocol::{Event, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange};
 use efr_render::WidthMethod;
 use jiff::Timestamp;
+use unicode_width::UnicodeWidthStr as _;
 
-use super::{cut, one_line, size};
+use super::{ago, cut, lines, one_line, size, until};
 
 /// The line of a turn that a job notice started, not the user: the view and
 /// `efr history` show it where a prompt would stand.
@@ -27,8 +28,11 @@ pub(crate) const NO_JOB: &str = "no job runs";
 /// The keys of the stop key's question.
 pub(crate) const STOP_KEYS: &[(&str, &str)] = &[("y", "yes"), ("n", "no")];
 
-/// How many columns of a job's command a question shows.
+/// How many columns of a job's command a question or a row of `efr jobs list` shows.
 const COMMAND_COLUMNS: usize = 60;
+
+/// How many lines of a job's tail `efr jobs stop` shows.
+pub(crate) const STOP_TAIL_LINES: usize = 10;
 
 /// The output file of a job as the model names it: `$SCRATCH/jobs/j3.out`. A path
 /// whose dir is not `jobs` shows whole, safe to print.
@@ -124,6 +128,25 @@ impl<'a> Ended<'a> {
             output_truncated: *output_truncated,
         };
         Some((job_id, ended))
+    }
+
+    /// The end of `job` as `jobs.list` or `jobs.stop` answers it. The facts that only
+    /// the `job_ended` holds (the survivors, a lost launcher) are not known.
+    pub(crate) fn from_info(job: &JobInfo) -> Ended<'static> {
+        let ran = job.ended_at.map_or(0, |end| seconds_between(job.started_at, end));
+        Ended {
+            state: Some(job.state),
+            exit_code: job.exit_code,
+            stopped_by: job.stopped_by,
+            output_bytes: job.output_bytes,
+            ran_secs: ran,
+            ..Ended::default()
+        }
+    }
+
+    /// True when processes of the job may still run.
+    pub(crate) fn leaves_processes(&self) -> bool {
+        self.launcher_lost || !self.survivors.is_empty()
     }
 }
 
@@ -229,9 +252,107 @@ pub(crate) fn conversation_line(event: &Event) -> Option<String> {
     }
 }
 
+/// The last `count` lines of a job's tail with text in them, each safe to print.
+pub(crate) fn tail_lines(tail: &str, count: usize) -> Vec<String> {
+    let safe = lines(tail);
+    let all: Vec<&str> = safe.lines().filter(|line| !line.trim().is_empty()).collect();
+    all[all.len().saturating_sub(count)..].iter().map(|line| (*line).to_owned()).collect()
+}
+
 /// The title of the stop key's question about `job`: `stop job j3 (npm run dev)`.
 pub(crate) fn stop_title(job: &JobInfo) -> String {
     format!("stop job {} ({})", job.id, command(&job.command, COMMAND_COLUMNS))
+}
+
+/// One row of `efr jobs list`.
+#[derive(Debug, Clone)]
+pub(crate) struct ListRow<'a> {
+    pub(crate) job: &'a JobInfo,
+    /// The title of the job's conversation, for `--all`.
+    pub(crate) conversation: Option<String>,
+    /// Processes of the job may still run: its `job_ended` named survivors or a lost
+    /// launcher.
+    pub(crate) leftover: bool,
+}
+
+/// The state of `job` in a word or two, for a row of `efr jobs list`.
+fn state_words(job: &JobInfo) -> String {
+    match (job.state, job.stopped_by) {
+        (JobState::Running, _) => "running".to_owned(),
+        (_, Some(JobStopBy::DaemonRestart)) => "stopped (efrd restarted)".to_owned(),
+        (_, Some(JobStopBy::DaemonStop)) => "stopped (efrd stopped)".to_owned(),
+        (_, Some(JobStopBy::Guard)) => "stopped (git settings)".to_owned(),
+        (JobState::TimedOut, _) | (_, Some(JobStopBy::TimeLimit)) => "timed out".to_owned(),
+        (_, Some(JobStopBy::User)) => "stopped by you".to_owned(),
+        (_, Some(JobStopBy::Model)) => "stopped by the model".to_owned(),
+        (JobState::Exited, _) => {
+            job.exit_code.map_or_else(|| "ended".to_owned(), |c| format!("exit {c}"))
+        }
+        (JobState::Failed, _) => "failed".to_owned(),
+        (JobState::Stopped, _) => "stopped".to_owned(),
+        _ => "unknown".to_owned(),
+    }
+}
+
+/// When `job` ends or ended, at `now`: `ends in 52m 3s`, `ends now`, `ended 5m 3s ago`.
+fn when(job: &JobInfo, now: Timestamp) -> String {
+    match (job.state, job.ended_at) {
+        // NOTE: a job past its time limit ends at once; the daemon's clock may differ.
+        (JobState::Running, _) if job.ends_by <= now => "ends now".to_owned(),
+        (JobState::Running, _) => format!("ends {}", until(job.ends_by, now)),
+        (_, Some(ended)) => format!("ended {}", ago(ended, now)),
+        _ => "ended".to_owned(),
+    }
+}
+
+/// The rows of `efr jobs list` at `now`, in columns: the id, the state, when it ends or
+/// ended, the size of its output, its command, and a mark when its processes may still
+/// run. With `--all` the conversation's title comes first.
+pub(crate) fn list(rows: &[ListRow<'_>], now: Timestamp) -> String {
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            let mut cells = Vec::new();
+            if let Some(title) = &row.conversation {
+                cells.push(cut(&one_line(title), 24, WidthMethod::CodePoint));
+            }
+            cells.push(row.job.id.to_string());
+            cells.push(state_words(row.job));
+            cells.push(when(row.job, now));
+            cells.push(size(row.job.output_bytes));
+            let mut command = command(&row.job.command, COMMAND_COLUMNS);
+            if row.leftover {
+                command.push_str("  (its processes may still run)");
+            }
+            cells.push(command);
+            cells
+        })
+        .collect();
+    let columns = cells.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..columns)
+        .map(|at| {
+            cells.iter().filter_map(|row| row.get(at)).map(|cell| cell.width()).max().unwrap_or(0)
+        })
+        .collect();
+    // NOTE: the size is the cell before the command, and its numbers line up at the
+    // right.
+    let size_at = columns.saturating_sub(2);
+    let mut out = String::new();
+    for row in &cells {
+        let last = row.len().saturating_sub(1);
+        for (at, cell) in row.iter().enumerate() {
+            let pad = " ".repeat(widths[at].saturating_sub(cell.width()));
+            if at == last {
+                out.push_str(cell);
+            } else if at == size_at {
+                let _ = write!(out, "{pad}{cell}  ");
+            } else {
+                let _ = write!(out, "{cell}{pad}  ");
+            }
+        }
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(test)]

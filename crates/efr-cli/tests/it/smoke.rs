@@ -516,3 +516,96 @@ async fn on_a_terminal_undo_asks_and_takes_the_turn_back_only_on_y() {
     assert_eq!(std::fs::read_to_string(&a).unwrap(), "one\n", "{screen:?}");
     daemon.stop().await.unwrap();
 }
+
+/// A sandbox that the probe found ready, so a turn in `auto` runs as `auto`.
+fn ready() -> efr_protocol::SandboxStatus {
+    efr_protocol::SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(0xf),
+        bwrap: Some(std::path::PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        cache_mode: efr_protocol::CacheMode::Tmp,
+        network_mode: efr_protocol::NetworkMode::None,
+        warnings: Vec::new(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn efr_jobs_stop_works() {
+    let server = ResponsesServer::start().await;
+    // NOTE: a short sleep, so a failed test leaves no long process; the stop ends it.
+    let input = serde_json::json!({ "command": "echo job-out; sleep 20", "background": true });
+    server.push(ResponsesAnswer::tool_call("call_job_1", "shell", &input));
+    server.push(ResponsesAnswer::text("Started."));
+    let dirs = std::sync::Arc::new(efr_test_support::TestDirs::new().unwrap());
+    let fake = efr_test_daemon::FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let env = std::collections::BTreeMap::from([
+        ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
+        ("HOME".to_owned(), dirs.home().display().to_string()),
+    ]);
+    let daemon = TestDaemon::builder()
+        .dirs(std::sync::Arc::clone(&dirs))
+        .responses(&server)
+        .sandbox_launcher(fake.path())
+        .probe_override(ready())
+        .job_env(env)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(1, "start the job", TTY) else {
+        unreachable!()
+    };
+    params.settings = TurnSettings { mode: Some(Mode::Auto), ..TurnSettings::default() };
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let events = events_until(&mut follow, |event| matches!(event, Event::TurnCompleted { .. }))
+        .await
+        .unwrap();
+    let output = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            Event::JobStarted { job, .. } => Some(job.output.clone()),
+            _ => None,
+        })
+        .expect("the call started a job");
+    efr_test_support::Wait::new("the job wrote its first line")
+        .until(|| std::fs::read_to_string(&output).is_ok_and(|text| text.contains("job-out")))
+        .await
+        .unwrap();
+    let jobs = |args: &[&str]| {
+        let mut command = efr(&daemon);
+        command.arg("jobs").args(args);
+        command
+    };
+
+    let listed = run(jobs(&[])).await;
+    assert!(listed.status.success(), "{}", text(&listed.stderr));
+    let row = text(&listed.stdout);
+    // NOTE: the test daemon's clock stands still in the past, so the time limit may
+    // read as passed.
+    assert!(row.starts_with("j1  running  ends "), "{row}");
+    assert!(row.trim_end().ends_with("echo job-out; sleep 20"), "{row}");
+
+    let stopped = run(jobs(&["stop", "j1"])).await;
+    assert!(stopped.status.success(), "{}", text(&stopped.stderr));
+    let report = text(&stopped.stdout);
+    assert!(report.starts_with("job j1 stopped by you after "), "{report}");
+    assert!(report.contains("\n  \u{2502} job-out\n"), "the tail shows: {report}");
+
+    let listed = run(jobs(&["list"])).await;
+    assert!(
+        text(&listed.stdout).starts_with("j1  stopped by you  ended "),
+        "{}",
+        text(&listed.stdout)
+    );
+
+    let unknown = run(jobs(&["stop", "j9"])).await;
+    assert_eq!(unknown.status.code(), Some(1), "{}", text(&unknown.stderr));
+    drop(follow);
+    drop(client);
+    daemon.stop().await.unwrap();
+}

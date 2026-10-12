@@ -25,7 +25,7 @@ use std::str::FromStr;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser as _};
 use clap::{Args, Parser, Subcommand};
-use efr_protocol::{ConversationId, Mode, TurnId};
+use efr_protocol::{ConversationId, JobId, Mode, TurnId};
 
 /// The parsed command line.
 #[derive(Debug, Parser)]
@@ -69,6 +69,11 @@ pub(crate) enum Command {
     /// A question then waits only a short time (presence.away_wait_secs), and its call
     /// does not run. Your next input in the conversation ends this.
     Away(AwayArgs),
+    /// List the background jobs of this terminal's conversation, or stop one.
+    ///
+    /// A job is a command that the model started with background: true. It runs on
+    /// after its turn, until it ends, its time limit passes or someone stops it.
+    Jobs(JobsArgs),
     /// Show the mode, model and effort that a prompt would use, with where each comes
     /// from.
     Settings(TurnSettingsArgs),
@@ -322,6 +327,49 @@ pub(crate) struct CompactArgs {
 /// The arguments of `efr away`.
 #[derive(Debug, Args)]
 pub(crate) struct AwayArgs {
+    /// The conversation: its id, or the start of it. Without it, this terminal's
+    /// conversation, else the newest of all.
+    #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
+}
+
+/// The arguments of `efr jobs`: a command, else the arguments of `efr jobs list`.
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
+pub(crate) struct JobsArgs {
+    #[command(subcommand)]
+    pub(crate) command: Option<JobsCommand>,
+    #[command(flatten)]
+    pub(crate) list: JobsListArgs,
+}
+
+/// The `efr jobs` commands.
+#[derive(Debug, Subcommand)]
+pub(crate) enum JobsCommand {
+    /// List the jobs, newest first (also `efr jobs` alone).
+    List(JobsListArgs),
+    /// Stop a running job, and show how it ended and the last lines of its output.
+    Stop(JobsStopArgs),
+}
+
+/// The arguments of `efr jobs list`.
+#[derive(Debug, Clone, Default, Args)]
+pub(crate) struct JobsListArgs {
+    /// List the jobs of every conversation, each with the title of its conversation.
+    #[arg(long, conflicts_with = "conversation")]
+    pub(crate) all: bool,
+    /// The conversation: its id, or the start of it. Without it, this terminal's
+    /// conversation, else the newest of all.
+    #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
+}
+
+/// The arguments of `efr jobs stop`.
+#[derive(Debug, Args)]
+pub(crate) struct JobsStopArgs {
+    /// The job, such as j3.
+    #[arg(value_name = "JOB")]
+    pub(crate) job: JobId,
     /// The conversation: its id, or the start of it. Without it, this terminal's
     /// conversation, else the newest of all.
     #[arg(long, value_name = "ID")]

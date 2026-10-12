@@ -180,6 +180,10 @@ pub(crate) enum CliError {
     #[error("there is no conversation yet, so there is none to be away from")]
     NobodyToBeAwayFrom,
 
+    /// `efr jobs stop` found no conversation, so there is no job to stop.
+    #[error("there is no conversation yet, so there is no job to stop")]
+    NoConversationForJobs,
+
     /// The daemon has no diff of the turn that `efr diff` asked for: the conversation
     /// has no turn, or efr took no snapshot of it.
     #[error("there is no diff of {what}: {reason}")]
