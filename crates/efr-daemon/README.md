@@ -512,6 +512,72 @@ spec; `docs/sandbox.md` for the user's view):
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
   only (`methods.rs`, `granted(surface, peer)`).
 
+### Background jobs
+
+A `shell` call with `background: true` starts a job (efr's auto spec, section 3.18).
+`jobs.rs` holds the job table; `tools/job_tools.rs` starts a job and answers the tools
+`jobs` and `job_stop`; `methods/jobs_list.rs` and `methods/jobs_stop.rs` answer
+`jobs.list` and `jobs.stop`.
+
+- Modes: a job starts in every mode. In `auto` its line goes through the exits like any
+  line and runs contained, or in the exit child for an approved exit. Outside `auto`
+  `DaemonToolbox::requirements` hands the engine the call with
+  `Requirements::background`, so the engine asks the user before each job, and an
+  approved job runs in the exit child. `jobs.enabled = false` refuses every new job.
+- The start (`DaemonToolbox::start_job`): the limits (`jobs.max_running` per
+  conversation, `jobs.max_running_daemon` in all; the refusal lists the running jobs),
+  the time limit (the default `jobs.default_minutes`, cut to `jobs.max_minutes`), the
+  watch pattern (a regular expression of at most 200 characters, with a size limit),
+  the hidden shell's environment (the `env` file that the zsh integration writes at each
+  prompt; with no shell, efrd opens one and waits for its first prompt; a shell with no
+  file gets one line that makes its next prompt write it), the job's number (one more
+  than the highest that the store or the table knows, so an id never repeats), and
+  `SandboxService::prepare_job`: the call dir `$R/sbx/<conversation>/jobs/<call>` with
+  `line` and `env`, the job plan in the spec, and the cache layers in
+  `$SBX/jobs/<call>`, so a job never holds the layer lock of a foreground call. Under
+  the plan lock: the snapshot before, the check of the covered asks, the spawn, the
+  start byte and the wait for `started`. Then the snapshot after with the roots marked
+  not complete, a second snapshot of the job's roots that the job keeps, and
+  `job_started`, recorded before the call answers. The home copies of the call get no
+  "after": the end of the turn names them `(a job wrote it)`, and a root of the turn
+  `(job j3 runs)` while the job runs.
+- `SandboxService::prepare` makes `$SCRATCH/jobs` (0700, with the marker
+  `.efr-jobs`, below the descriptor of `$SCRATCH`) before every contained call, so no
+  command can make it first; an entry of that name without the marker goes aside to
+  `jobs.moved-<n>`.
+- The spawn (`jobs/launch.rs`): `efr-sbx run --job` with efrd's own `PATH`, `HOME` and
+  `XDG_RUNTIME_DIR`, the job's start dir as its working directory, the lifeline pipe as
+  stdin (its write end only in efrd, close-on-exec), the output pipe as stdout and
+  `$CALL/launcher.log` as stderr; no process group, so the launcher's `setsid` works.
+  The launcher's pid joins the model-side list before efrd writes the start byte.
+- The output (`jobs/output.rs`): a reader thread per job writes
+  `$SCRATCH/jobs/<id>.out` below the descriptor of `$SCRATCH/jobs` with
+  `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`: the first 1 MiB, then the rest; past 16 MiB
+  more, a new file with the head, `[N bytes omitted]` and the last 8 MiB replaces it by
+  a rename. It keeps the last 8 KiB for the end, and matches lines of at most 4 KiB with
+  the watch pattern. A write that fails drops the file, never the pipe, and the end says
+  `output_truncated`.
+- The task of each job runs under the table's own cancel token, never in efrd's
+  `background` tasks. It waits for the launcher, a stop (`job_stop` for the model,
+  `jobs.stop` for the user) or the time limit on efrd's clock. A stop sends SIGCONT and
+  SIGTERM through the launcher's pidfd and SIGKILL after 6 s; every end sweeps the job's
+  session (`jobs/sweep.rs`: SIGKILL through a pidfd to each process whose session is
+  the launcher's pid, never efrd's own). Then it reads the rest of the output and
+  `result.json`, records `job_ended` (with the processes that may still run and whether
+  the launcher was lost), hands the conversation's actor the notice, and removes the
+  job's dirs. A session that a process still has stays model-side; the table looks
+  again every 10 s.
+- Socket peers: `methods::model_side_roots` adds each running launcher and each such
+  session to the hidden shells, so a process of a job holds `read` only, also after its
+  launcher is gone.
+- At efrd's stop, after the background tasks and before the actors, the table stops
+  every job with `daemon_stop` and records each end with no notice. At start, before the
+  socket opens, each job that the last efrd left running gets `job_ended` with
+  `daemon_restart`: efrd kills its launcher only when the pid's start time matches the
+  `job_started` event, sweeps its session, reads a `result.json` that the launcher left,
+  and removes every job dir. Then each actor gets the notices of the last day that no
+  turn took, which never start a turn of their own.
+
 ### The reviewer, presence and the home store
 
 Phase A of efr's auto spec. The turn in `efr-conversation` decides who answers an exit
@@ -711,8 +777,10 @@ last event never hears about that turn.
   screens are ghostty unless `EFR_SCREEN=vt100`; without it, vt100.
 
 - `test-sandbox-fake`: the test seams of the `auto` sandbox in `sandbox/seams.rs`:
-  `Deps::with_sandbox_launcher` names the `efr-sbx` to copy, and
-  `Deps::with_probe_override` replaces the probe's result. Only `efr-test-daemon`
+  `Deps::with_sandbox_launcher` names the `efr-sbx` to copy,
+  `Deps::with_probe_override` replaces the probe's result, `Deps::with_job_env` gives
+  every background job a fixed environment, and `Deps::with_peer_probe` lets a test ask
+  for the side of a socket peer by pid. Only `efr-test-daemon`
   turns it on; `just install` refuses an `efrd` whose hidden `--test-seams` says `on`.
 
 `cfg(feature = ...)` appears only in `screens.rs`, `shells.rs` and `sandbox/seams.rs`
@@ -782,6 +850,9 @@ conventions that `efr_stdx::env::Var` does not name.
 - efrd runs `crontab` and `loginctl` only from a root-owned dir outside every write
   root, as the file that it found at start, with fixed arguments and never a word of
   the model.
+- A background job starts only after its launcher's pid is model-side, and a process
+  of a job holds `read` only on the socket, also after its launcher is gone, while its
+  session lives. efrd writes a job's output itself, and never through a link.
 
 ## Tests
 
@@ -846,7 +917,7 @@ linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
 `input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`, `presence`,
 `classifier_eval`, `apply_patch`, `backtrace`, `cache_prefix`, `compact`, `home`,
-`snapshots`, `undo_method`, `undo`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`snapshots`, `undo_method`, `undo`, `jobs`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -854,6 +925,16 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
 that no client can answer is stopped within seconds.
+
+The `jobs` module starts background jobs through `efr-test-daemon`'s `FakeLauncher`
+(a `/bin/sh` script in place of `efr-sbx`) with a fixed job environment, so it needs no
+zsh: the start, the time limit on the test clock, the stops by the model, the user and
+efrd's stop, a launcher that stopped itself, the limits, the output tool, watch
+matches, a job in `manual` after the user's yes, and the ids after a restart. A job
+that must outlive its turn blocks on a FIFO that the test writes after the turn's end.
+Its two `shell_` tests take the environment from a real hidden zsh. The unit tests of
+`jobs/` cover the output file and its cut, a planted link, the start byte after the
+peer list, the lifeline, the sweep by session and the restart records.
 
 The `login` module also runs `admin.login_api_key` and `admin.logout` against the
 local server's `/v1/models`: a key that is checked with its organization and project

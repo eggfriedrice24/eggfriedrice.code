@@ -25,7 +25,20 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `sandbox_launcher` names the `efr-sbx` to copy (the real one from
   `EFR_TEST_SBX_BIN`, or a fake script) and `probe_override` sets the probe's result;
   without them the daemon finds no launcher next to its test binary, and `auto` runs as
-  `cautious`.
+  `cautious`. For background jobs, `job_env` gives every job a fixed environment in
+  place of the `env` file of a real hidden zsh, and `TestDaemon::peer_side` says where a
+  process stands on the daemon's socket (`User`, `ModelSide` or `Unknown`), as the scope
+  check decides it.
+- `fake_launcher`: `FakeLauncher`, one `/bin/sh` script in place of `efr-sbx` for the
+  tests of `efr-daemon`, `efr-cli` and the eval. `run --call-dir D` runs a call's line
+  with `/bin/sh`; `run --call-dir D --job` runs a job as the real launcher's contract
+  says: its own session, the start byte on stdin before anything starts, `D/started`,
+  the line with stdin `/dev/null` and its output on stdout, `D/term-marker` and the end
+  of the job at SIGTERM or SIGHUP, the end of the job at the end of its stdin, and
+  `D/result.json` last. It closes the descriptors from 3 to 9 that it inherited, and it
+  keeps each spec and each job's `env` in its own dir. Marker files there make it fail,
+  ignore SIGTERM, stop itself, write no result or name a survivor. A test passes its
+  path to `sandbox_launcher`; there is no second launcher seam.
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
