@@ -448,6 +448,11 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         } else {
             Found::of(ExitKind::Privilege)
         }),
+        // NOTE: `crontab -l` only reads the user's crontab, but it needs the setgid
+        // program, which the sandbox runs without its group. As an `outside` exit the
+        // classifier can let the model read the crontab before it writes all of it with
+        // `crontab -` (persist.rs).
+        "crontab" if args == ["-l"] => found.push(Found::of(ExitKind::Outside)),
         "crontab" | "at" | "batch" => found.push(Found::of(ExitKind::Persistence)),
         "passwd" | "chsh" | "chfn" | "newgrp" => found.push(Found::of(ExitKind::Privilege)),
         "git" => found.extend(git(args, &network)),

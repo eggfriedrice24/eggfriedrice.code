@@ -740,7 +740,6 @@ fn named_crontab_pipe_goes_to_classifier() {
 
 #[rstest]
 #[case::edit("crontab -e")]
-#[case::list("crontab -l")]
 #[case::other_user("crontab -u root jobs.txt")]
 #[case::interactive_remove("crontab -i -r")]
 fn crontab_e_stays_with_user(#[case] line: &str) {
@@ -1321,6 +1320,20 @@ fn exits_outside_with_changed_or_root_program_is_user(
     let decision = decide(outside(line).with_facts(programs(facts)));
     let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
     assert_eq!(need.approver, Approver::User, "{line:?}");
+}
+
+#[test]
+fn crontab_list_is_an_outside_read() {
+    let facts = programs(&[("crontab", Some("/usr/bin/crontab"), false)]);
+    let decision = decide(shell("crontab -l").with_facts(facts.clone()));
+    assert_eq!(kinds(&decision), [ExitKind::Outside]);
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.approver, Approver::Classifier);
+    // Any other form changes the crontab.
+    for line in ["crontab -e", "crontab -r", "crontab -l -u root"] {
+        let decision = decide(shell(line).with_facts(facts.clone()));
+        assert!(kinds(&decision).contains(&ExitKind::Persistence), "{line:?}");
+    }
 }
 
 #[test]

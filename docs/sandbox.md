@@ -200,7 +200,7 @@ and the reviewer can read what it installs:
 | `systemctl --user enable`, `reenable`, `preset`, `mask`, `add-wants`, `add-requires` of a unit by name | a message names the unit, and its unit file was in a unit dir before the turn, outside every write root, unchanged in the turn (also a link to it) and at most 8 KiB; its text and the text of each unit of its `Also=` go to the reviewer | the whole `~/.config/systemd/user` within the dir limits, and each link that the unit's `[Install]` section names |
 | `ln -s <src>` into a `*.wants` or `*.requires` dir; `cp <src>` into a floor dir such as `~/.config/autostart/` | a message names the target, and `<src>` holds the rule of a unit file; its text goes to the reviewer | the target, or the dir with what it holds |
 | `crontab <file>`, `crontab -` fed a literal by `echo` or `printf`, `crontab -r` | a message names cron or the crontab; the file holds the rule of a unit file | the text of the crontab (`crontab -l`) |
-| `loginctl enable-linger`, `loginctl disable-linger` | a message names linger | the linger setting |
+| `loginctl enable-linger`, `loginctl disable-linger`, with no user or with your own user (by name or uid) | a message names linger | the linger setting |
 
 Only you approve `systemctl --user link`, `edit`, `revert`, `enable <path>`,
 `set-environment`, `set-default`, `preset-all`, a unit that was not in a unit dir before
@@ -208,7 +208,9 @@ the turn, a template unit (`foo@.service`), `crontab -e`, `crontab -` with any o
 input, `at`, `batch` and `systemd-run --user`. efr reads and sets the crontab and linger
 only with a `crontab` and a `loginctl` that it found when it started, in a dir that
 root owns and only root can write, outside your home dir and efr's dirs. With no such
-program, these forms stay with you. `efr undo` compares the crontab or the linger
+program, these forms stay with you. `crontab -l` only reads your crontab: it is an
+`outside` exit, so the reviewer can let the model read the crontab before it writes all
+of it again with `crontab -`. `efr undo` compares the crontab or the linger
 setting with the one after the turn: when you changed it after the turn, undo leaves it
 as it is. After undo removes a unit link, run `systemctl --user daemon-reload`; a unit
 that started stays running.
@@ -316,7 +318,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
-| `outside` | `df`, `findmnt`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
+| `outside` | `df`, `findmnt`, `crontab -l`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
