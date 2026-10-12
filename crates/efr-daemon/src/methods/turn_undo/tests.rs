@@ -42,6 +42,22 @@ fn a_busy_conversation_is_busy_and_names_what_runs() {
     assert_eq!(busy(UndoBusyReason::Turn).data, Some(json!({ "busy": "turn" })));
 }
 
+/// A job that may write in the turn's roots names itself and how to stop it: by its id
+/// in the same conversation, by the list of every job in another one.
+#[test]
+fn a_busy_job_says_how_to_stop_it() {
+    let own = busy(UndoBusyReason::Job { number: 3, same_conversation: true });
+    assert_eq!(own.code, ErrorCode::Busy);
+    assert_eq!(own.message, "job j3 runs; stop it first (efr jobs stop j3)");
+    assert_eq!(own.data, Some(json!({ "busy": "job", "job_id": "j3", "same_conversation": true })));
+    let other = busy(UndoBusyReason::Job { number: 1, same_conversation: false });
+    assert_eq!(
+        other.message,
+        "a job of another conversation writes here; stop it first (efr jobs list --all)"
+    );
+    assert_eq!(other.data.unwrap()["busy"], "job");
+}
+
 /// A phone holds `operate`, so the scope check lets it through and the handler refuses
 /// it itself. A model-side peer holds `read` only, so the scope check refuses it.
 #[test]

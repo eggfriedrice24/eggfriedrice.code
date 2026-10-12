@@ -21,6 +21,7 @@ mod home;
 mod input_respond;
 mod interrupt;
 mod jobs;
+mod jobs_undo;
 mod login;
 mod presence;
 mod prompt_send;

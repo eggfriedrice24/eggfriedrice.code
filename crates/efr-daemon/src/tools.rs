@@ -1511,6 +1511,15 @@ impl Toolbox for DaemonToolbox {
         self.undo_turn(request).await
     }
 
+    async fn job_blocks_undo(
+        &self,
+        conversation_id: ConversationId,
+        turn_id: TurnId,
+    ) -> Option<efr_conversation::UndoBusyReason> {
+        let jobs = self.jobs.as_ref()?;
+        crate::jobs::undo::blocker(jobs, self.snapshots.as_ref(), conversation_id, turn_id).await
+    }
+
     fn call_runs(&self, conversation_id: ConversationId) -> bool {
         // NOTE: a call dir with `started` and no `result.json`: its launcher still runs,
         // also when its tool call answered at the timeout (plan PB39).

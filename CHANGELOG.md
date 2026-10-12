@@ -204,6 +204,11 @@ into the GitHub release notes, and it stops when the section is missing.
   change a file that runs code later, such as `~/.zshrc`. This holds in every mode,
   also after you answer yes. The model must run such a part in the foreground. In
   `auto`, a delete that undo covers still goes to the reviewer when it runs as a job.
+- `efr undo` refuses while a background job of the conversation runs, or a job of
+  another conversation can write in the same project, and names it: `job j3 runs;
+  stop it first (efr jobs stop j3)`. When a job ends, its file changes join the turn
+  that started it, and the undo of that turn needs `--force`. A file that a later turn
+  changed in the meantime stays with that turn. Snapshots leave `$SCRATCH/jobs` out.
 
 ### Fixed
 

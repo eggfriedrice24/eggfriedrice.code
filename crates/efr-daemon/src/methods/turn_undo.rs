@@ -13,7 +13,7 @@
 //! receipt.
 
 use efr_conversation::{ConversationError, UndoBusyReason, UndoCandidate};
-use efr_protocol::{ErrorBody, ErrorCode, Origin, TurnId, TurnUndo, UndoRefused};
+use efr_protocol::{ErrorBody, ErrorCode, JobId, Origin, TurnId, TurnUndo, UndoRefused};
 use efr_store::conversations::{Turn, TurnStatus};
 use efr_transport::{ConnectionContext, Responder};
 use jiff::Timestamp;
@@ -149,8 +149,23 @@ fn phone_refusal() -> ErrorBody {
 }
 
 /// The wire error of an undo that must wait: `busy`, with what runs as `busy` in its
-/// data (`turn`, `compaction`, `undo` or `call_runs`).
+/// data (`turn`, `compaction`, `undo`, `call_runs` or `job`, with the job's id).
 fn busy(reason: UndoBusyReason) -> ErrorBody {
+    if let UndoBusyReason::Job { number, same_conversation } = reason {
+        let id = JobId::nth(number);
+        let message = if same_conversation {
+            format!("job {id} runs; stop it first (efr jobs stop {id})")
+        } else {
+            "a job of another conversation writes here; stop it first (efr jobs list --all)"
+                .to_owned()
+        };
+        let data = serde_json::json!({
+            "busy": "job",
+            "job_id": id,
+            "same_conversation": same_conversation,
+        });
+        return ErrorBody::new(ErrorCode::Busy, message).with_data(data);
+    }
     let (name, message) = match reason {
         UndoBusyReason::Turn => ("turn", "a turn of the conversation runs; undo after it ends"),
         UndoBusyReason::Compaction => {
