@@ -212,11 +212,14 @@ pub enum NoticeKind {
     Exited,
     /// A line of the job's output matched its `watch` pattern.
     Watch,
+    /// A kind that this build does not know.
+    #[serde(other)]
+    Unknown,
 }
 
 impl NoticeKind {
     /// Every kind, in the order of the enum.
-    pub const ALL: [NoticeKind; 2] = [NoticeKind::Exited, NoticeKind::Watch];
+    pub const ALL: [NoticeKind; 3] = [NoticeKind::Exited, NoticeKind::Watch, NoticeKind::Unknown];
 }
 
 /// Why a job notice did not start a turn of its own: it waits for the next turn that a

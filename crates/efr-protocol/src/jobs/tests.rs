@@ -50,3 +50,15 @@ fn held_reason_reads_unknown_value() {
     assert_eq!(later, HeldReason::Unknown);
     assert_eq!(serde_json::to_value(NoticeKind::Watch).unwrap(), json!("watch"));
 }
+
+/// An older client reads a `job_notice` of a kind that a newer efrd added: the event
+/// still parses.
+#[test]
+fn notice_kind_reads_unknown_value() {
+    let later: NoticeKind = serde_json::from_value(json!("guard")).unwrap();
+    assert_eq!(later, NoticeKind::Unknown);
+    for kind in NoticeKind::ALL {
+        let text = serde_json::to_value(kind).unwrap();
+        assert_eq!(serde_json::from_value::<NoticeKind>(text).unwrap(), kind);
+    }
+}
