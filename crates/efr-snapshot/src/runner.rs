@@ -100,6 +100,9 @@ pub(crate) struct Run<'a> {
     /// Keeps the first [`MAX_STDERR_BYTES`] of the standard error in
     /// [`Output::stderr`]; without it the standard error goes nowhere.
     pub(crate) stderr: bool,
+    /// An index file in place of the store's persistent one, for a tree that efr
+    /// builds from other trees.
+    pub(crate) index: Option<&'a Path>,
 }
 
 /// Runs git on stores.
@@ -158,9 +161,10 @@ impl Runner {
         }
         all.extend(args.iter().map(|arg| arg.as_ref().to_owned()));
         let mut command = self.bare_command(cwd, &all);
+        let index = run.index.map_or_else(|| store.index(), Path::to_path_buf);
         command
             .env("GIT_DIR", store.git_dir())
-            .env("GIT_INDEX_FILE", store.index())
+            .env("GIT_INDEX_FILE", index)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_ATTR_NOSYSTEM", "1")

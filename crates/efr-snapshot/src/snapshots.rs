@@ -55,13 +55,14 @@ pub struct Root {
     shown: String,
     mode: Option<String>,
     dirs: Option<GitDirs>,
+    skip: Vec<String>,
 }
 
 impl Root {
     /// The root at `path`, whose changed files show as `shown` and their path, such as
     /// `""`, `"$SCRATCH/"` or `"~/p/app/"` ([`shown_prefix`](crate::shown_prefix)).
     pub fn new(path: impl Into<PathBuf>, shown: impl Into<String>) -> Self {
-        Root { path: path.into(), shown: shown.into(), mode: None, dirs: None }
+        Root { path: path.into(), shown: shown.into(), mode: None, dirs: None, skip: Vec::new() }
     }
 
     /// The root with the git dirs of its project that the daemon trusts. Only a root
@@ -77,6 +78,20 @@ impl Root {
     pub fn with_mode(mut self, mode: impl Into<String>) -> Self {
         self.mode = Some(mode.into());
         self
+    }
+
+    /// The root with the directories `names` at its top left out of every snapshot of
+    /// it, such as `jobs` of `$SCRATCH`, whose files efrd writes and keeps itself. A
+    /// file below one of them never enters a tree, and one that an older snapshot took
+    /// leaves the store's index at the next snapshot that starts fresh.
+    pub fn with_skip(mut self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.skip = names.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// The directories at the root's top that its snapshots leave out.
+    pub fn skip(&self) -> &[String] {
+        &self.skip
     }
 
     /// The root's path.
@@ -109,10 +124,12 @@ impl Root {
 /// them only with `force`, and the end of the turn names the root.
 #[derive(Debug, Default)]
 pub struct CallSnapshot {
-    turn: Option<TurnId>,
-    before: Vec<(Root, String, Pin)>,
+    pub(crate) turn: Option<TurnId>,
+    /// The conversation of the turn.
+    pub(crate) conversation: Option<ConversationId>,
+    pub(crate) before: Vec<(Root, String, Pin)>,
     /// The store that the drop marks; `None` once the snapshot after the call ran.
-    owner: Option<Snapshots>,
+    pub(crate) owner: Option<Snapshots>,
     /// True when the call's command may still write after the snapshot after it.
     runs_on: bool,
 }
@@ -135,6 +152,12 @@ impl CallSnapshot {
     /// Drops the snapshot of a call that did not run: its roots stay complete.
     pub fn discard(mut self) {
         self.owner = None;
+    }
+
+    /// The store that took the snapshot; `None` once the snapshot after the call ran or
+    /// the snapshot was discarded.
+    pub fn snapshots(&self) -> Option<Snapshots> {
+        self.owner.clone()
     }
 
     /// Marks each root of the snapshot as not complete for its turn.
@@ -262,6 +285,7 @@ impl Snapshots {
         .await;
         CallSnapshot {
             turn: Some(turn),
+            conversation: Some(conversation),
             before: taken.into_iter().flatten().collect(),
             owner: Some(self.clone()),
             runs_on: false,
@@ -375,7 +399,12 @@ impl Snapshots {
             })
             .await;
         match resolved {
-            Ok(roots) => roots,
+            Ok(roots) => {
+                for root in roots.iter().filter(|root| !root.skip.is_empty()) {
+                    self.slot(&root.path).add_skip(&root.skip);
+                }
+                roots
+            }
             Err(error) => {
                 tracing::warn!(error = %efr_stdx::with_causes(&error), "the roots of a snapshot could not be read");
                 Vec::new()
@@ -401,14 +430,14 @@ impl Snapshots {
         let store = Store::new(self.dir(), root);
         let watch = Stopwatch::start();
         let cached = slot.tree();
+        let skip = slot.skip_list();
         let taken: Result<Result<String, &str>, SnapshotError> = async {
             let captured = capture::stage(
                 self.runner(),
                 &self.inner.reported,
                 &store,
                 limits,
-                ignored,
-                cached.is_none(),
+                capture::Take { ignored, fresh: cached.is_none(), skip: &skip },
                 &slot.ready,
             )
             .await?;
@@ -453,7 +482,7 @@ impl Snapshots {
     /// in each call that changes files; with it, a call that changed files writes its
     /// tree at once and returns it. `None` with a line in the log when nothing could
     /// be compared.
-    async fn changes_since(
+    pub(crate) async fn changes_since(
         &self,
         root: &Path,
         before: &str,
@@ -470,14 +499,14 @@ impl Snapshots {
         let store = Store::new(self.dir(), root);
         let watch = Stopwatch::start();
         let cached = slot.tree();
+        let skip = slot.skip_list();
         let compared: Result<Result<_, &str>, SnapshotError> = async {
             let captured = capture::stage(
                 self.runner(),
                 &self.inner.reported,
                 &store,
                 limits,
-                false,
-                cached.is_none(),
+                capture::Take { ignored: false, fresh: cached.is_none(), skip: &skip },
                 &slot.ready,
             )
             .await?;

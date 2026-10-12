@@ -812,7 +812,11 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
             let mirror = u64::from(settings.snapshot.mirror_max_mib) * 1024 * 1024;
             (settings.snapshot.keep_turns as usize, Duration::from_secs(days * 24 * 3600), mirror)
         };
-        let report = state.snapshots.gc_capped(keep_turns, max_age, mirror_max_bytes).await;
+        // NOTE: a job's files join the turn that started it at its end, so that turn
+        // stays while the job runs.
+        let keep: Vec<_> =
+            state.jobs.running().iter().map(|job| (job.key.conversation, job.turn)).collect();
+        let report = state.snapshots.gc_keeping(keep_turns, max_age, mirror_max_bytes, &keep).await;
         tracing::debug!(?report, "collected old snapshots");
         let now = SystemTime::from(state.clock.now());
         let trash = state.dirs.data().join(home::UNDO_TRASH_DIR);

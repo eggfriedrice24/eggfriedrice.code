@@ -73,6 +73,12 @@ impl Store {
         self.dir.join(format!("{}.index", self.id))
     }
 
+    /// A second index, for a tree that efr builds from other trees; the persistent
+    /// index and its stat cache stay as they are.
+    pub(crate) fn build_index(&self) -> PathBuf {
+        self.dir.join(format!("{}.build-index", self.id))
+    }
+
     pub(crate) fn root_file(&self) -> PathBuf {
         self.dir.join(format!("{}.root", self.id))
     }

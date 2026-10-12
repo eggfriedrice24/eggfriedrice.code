@@ -10,6 +10,7 @@ mod cost;
 mod cover;
 mod gc;
 mod home;
+mod jobs;
 mod logs;
 mod mirror;
 mod support;

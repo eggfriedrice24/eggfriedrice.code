@@ -73,6 +73,25 @@ auto spec, section 10).
   scrollback get the patch. `turn_end` records these paths in the `efr-meta:` line of
   `post` (`hidden`). A turn with only `pre`, which efrd stopped before its end, has no
   record after the turn and shows no changes.
+- `Root::with_skip`: directories at the top of a root that no snapshot of it takes.
+  efrd gives `$SCRATCH` the skip `jobs`, where it writes the output of each background
+  job and keeps it itself. The listings of a snapshot leave such a directory out with
+  an exclude pathspec, and the first snapshot of a store in a process (with no known
+  tree) drops from the index what an older snapshot took below it
+  (`git rm --cached`). The store's format does not change.
+- `Snapshots::after_job` (`job.rs`): at the end of a background job, the files that
+  the job changed join the turn that started it. The job's start call takes a
+  `CallSnapshot` of the job's roots right after the start; at the job's end each root
+  is compared with it. A path that another turn or an undo changed in the root since
+  the job's start stays out: the `touched` paths of each turn's `last` or `post` and
+  of each undo's `before` or `after` whose commit time is at or after the start. While
+  the start turn runs, the job's paths join its `touched` paths as after a call, and
+  the root is not complete for the turn. Once it ended, `post` goes, and `last` names
+  `post`'s tree with the job's paths as the job left them (built in a second index,
+  `<root-id>.build-index`, so the persistent index keeps its stat cache), with the
+  job's paths in `touched` and the record not complete. The planner then reads
+  `last`, so the undo of the start turn takes the job's writes back, and only with
+  `--force`.
 - `Snapshots::gc` (and `gc_capped`, with `snapshot.mirror_max_mib`): the newest
   `keep_turns` turns of each conversation stay, counted across every store, the home
   store with them, so a turn stays or goes whole: its refs in each root store, its
@@ -87,6 +106,8 @@ auto spec, section 10).
   reach no ref yet, so the prune and the packing run with them pinned under
   `refs/efr-live/<tree>`. Only a `<16 hex>.git` is a root store and `home.git` the
   home store: another repository in the directory is never listed, trimmed or deleted.
+  `gc_keeping` also keeps the turns that it names: efrd names the turn that started
+  each background job that still runs.
 - Undo (`undo.rs`): `Snapshots::plan_undo` plans the undo of one turn in each root
   whose store holds its `pre`. It acts only on the paths that the turn's calls changed
   (`touched` of `post`, or of `last` when efrd stopped in the turn). For each path it
@@ -245,7 +266,9 @@ the modes, and a project whose config would run code at every git key it can;
 daemon's does, the refs by compare and swap and with objects that the project lost,
 and an undo that stopped half way; `home.rs` the home store's copies and its part of
 an undo; `gc.rs` the bounds of the collector across stores, the mirror cap, the undo
-refs, the packing and the home store; `logs.rs` the
+refs, the packing and the home store; `jobs.rs` the skip of the job outputs, the files
+of a job that join its start turn at its end without the paths of a later turn, and
+the collector's keep set; `logs.rs` the
 log lines of an add that fails (a file that git cannot read, skipped when the tests
 run as root, and a git wrapper that stops with exit code 128). The tests run on the
 developer's git and, in CI's shell job and `just test-shell-ubuntu`, on Ubuntu's.

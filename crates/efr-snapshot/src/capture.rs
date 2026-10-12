@@ -131,20 +131,31 @@ pub(crate) fn parse_listing(out: &[u8]) -> Listing {
     listing
 }
 
-/// Brings the persistent index of `store` up to its root with `limits`; `ignored`
-/// also takes the small ignored files, and `fresh` (no tree known in this process)
-/// copies the project's exclude file first. `ready` is false until this process
-/// checked the store's format ([`prepare`]). `reported` keeps which roots the log named
-/// for their unreadable files.
+/// What one [`stage`] takes besides the changed files.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Take<'a> {
+    /// Also take the small ignored files.
+    pub(crate) ignored: bool,
+    /// No tree of the store is known in this process: copy the project's exclude file
+    /// first, and drop what the index holds below `skip`.
+    pub(crate) fresh: bool,
+    /// The directories at the root's top that the snapshot leaves out.
+    pub(crate) skip: &'a [String],
+}
+
+/// Brings the persistent index of `store` up to its root with `limits`, as `take`
+/// says. `ready` is false until this process checked the store's format
+/// ([`prepare`]). `reported` keeps which roots the log named for their unreadable
+/// files.
 pub(crate) async fn stage(
     runner: &Runner,
     reported: &Reported,
     store: &Store,
     limits: &Limits,
-    ignored: bool,
-    fresh: bool,
+    take: Take<'_>,
     ready: &AtomicBool,
 ) -> Result<Captured, SnapshotError> {
+    let Take { ignored, fresh, skip } = take;
     let root = store.root().to_path_buf();
     if !store.exists() {
         let prepared = store.clone();
@@ -169,6 +180,9 @@ pub(crate) async fn stage(
     let stamped = store.clone();
     let now = SystemTime::from(runner.clock().now());
     runner.blocking(&root, move || stamped.stamp(now)).await?;
+    if fresh && !skip.is_empty() {
+        drop_skipped(runner, store, skip).await?;
+    }
 
     // NOTE: with `snapshot.ignored` off, the ignored files are still listed at the
     // first and last snapshot of a turn, only to name them in the record.
@@ -184,8 +198,12 @@ pub(crate) async fn stage(
     // the ignored listing only once the max_files check passed: a root that is too big
     // never pays for it.
     let together = scan_ignored && entries > 0;
-    let (listed, early) = tokio::join!(listing(runner, store, &root), async {
-        if together { ignored_listing(runner, store, &root).await.map(Some) } else { Ok(None) }
+    let (listed, early) = tokio::join!(listing(runner, store, &root, skip), async {
+        if together {
+            ignored_listing(runner, store, &root, skip).await.map(Some)
+        } else {
+            Ok(None)
+        }
     });
     let listing = parse_listing(&listed?);
     let early = early?;
@@ -194,7 +212,7 @@ pub(crate) async fn stage(
     }
     let ignored_listed = match early {
         Some(listed) => listed,
-        None if scan_ignored => ignored_listing(runner, store, &root).await?,
+        None if scan_ignored => ignored_listing(runner, store, &root, skip).await?,
         None => Vec::new(),
     };
     let mut record = Record::default();
@@ -413,32 +431,61 @@ pub(crate) fn log_failed_add(reported: &Reported, root: &Path, added: Added, out
 /// Why a root has no snapshot when it holds more files than `snapshot.max_files`.
 const TOO_MANY_FILES: &str = "the root has more files than snapshot.max_files";
 
-/// The modified, deleted and untracked files of the root of `store`, from `ls-files`.
-async fn listing(runner: &Runner, store: &Store, root: &Path) -> Result<Vec<u8>, SnapshotError> {
-    runner
-        .checked(
-            store,
-            "ls-files",
-            &["ls-files", "-z", "-t", "-m", "-d", "-o", "--exclude-standard"],
-            Run { work_tree: Some(root), ..Run::default() },
-        )
-        .await
+/// The modified, deleted and untracked files of the root of `store`, from `ls-files`,
+/// without the directories of `skip`.
+async fn listing(
+    runner: &Runner,
+    store: &Store,
+    root: &Path,
+    skip: &[String],
+) -> Result<Vec<u8>, SnapshotError> {
+    let mut args: Vec<String> = ["ls-files", "-z", "-t", "-m", "-d", "-o", "--exclude-standard"]
+        .map(str::to_owned)
+        .to_vec();
+    args.extend(skipped_pathspecs(skip));
+    runner.checked(store, "ls-files", &args, Run { work_tree: Some(root), ..Run::default() }).await
 }
 
-/// The ignored files and directories of the root of `store`, from `ls-files`.
+/// The ignored files and directories of the root of `store`, from `ls-files`, without
+/// the directories of `skip`.
 async fn ignored_listing(
     runner: &Runner,
     store: &Store,
     root: &Path,
+    skip: &[String],
 ) -> Result<Vec<u8>, SnapshotError> {
-    runner
-        .checked(
-            store,
-            "ls-files",
-            &["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"],
-            Run { work_tree: Some(root), ..Run::default() },
-        )
-        .await
+    let mut args: Vec<String> = ["ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"]
+        .map(str::to_owned)
+        .to_vec();
+    args.extend(skipped_pathspecs(skip));
+    runner.checked(store, "ls-files", &args, Run { work_tree: Some(root), ..Run::default() }).await
+}
+
+/// The pathspecs that leave the directories of `skip` out of a listing: `--` and one
+/// exclude for each, read literally from the root's top. A listing with only excludes
+/// lists the rest of the root.
+pub(crate) fn skipped_pathspecs(skip: &[String]) -> Vec<String> {
+    if skip.is_empty() {
+        return Vec::new();
+    }
+    let mut args = vec!["--".to_owned()];
+    args.extend(skip.iter().map(|name| format!(":(top,exclude,literal){name}")));
+    args
+}
+
+/// Drops from the index of `store` what an older snapshot took below the directories
+/// of `skip`, so no later tree holds it.
+async fn drop_skipped(
+    runner: &Runner,
+    store: &Store,
+    skip: &[String],
+) -> Result<(), SnapshotError> {
+    let mut args: Vec<String> =
+        ["rm", "--cached", "-r", "-q", "--ignore-unmatch", "--"].map(str::to_owned).to_vec();
+    args.extend(skip.iter().map(|name| format!(":(top,literal){name}")));
+    let root = store.root().to_path_buf();
+    runner.checked(store, "rm", &args, Run { work_tree: Some(&root), ..Run::default() }).await?;
+    Ok(())
 }
 
 /// Fails when a `command` that failed left the index as it was because another git

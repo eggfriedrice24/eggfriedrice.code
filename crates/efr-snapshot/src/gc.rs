@@ -23,6 +23,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::time::{Duration, SystemTime};
 
+use efr_protocol::{ConversationId, TurnId};
+
 use crate::SnapshotError;
 use crate::capture::Limits;
 use crate::history::stores;
@@ -90,6 +92,19 @@ impl Snapshots {
         max_age: Duration,
         mirror_max_bytes: u64,
     ) -> GcReport {
+        self.gc_keeping(keep_turns, max_age, mirror_max_bytes, &[]).await
+    }
+
+    /// [`Snapshots::gc_capped`] that also keeps the refs of each turn of `keep`, such
+    /// as the turn that started a background job that still runs: the job's files
+    /// join that turn at its end, and its undo needs them.
+    pub async fn gc_keeping(
+        &self,
+        keep_turns: usize,
+        max_age: Duration,
+        mirror_max_bytes: u64,
+        keep: &[(ConversationId, TurnId)],
+    ) -> GcReport {
         let dir = self.dir().to_path_buf();
         let roots = match self.runner().blocking(&dir.clone(), move || stores(&dir)).await {
             Ok(all) => all,
@@ -126,7 +141,10 @@ impl Snapshots {
                 }
             }
         }
-        let doomed = doomed_turns(seen.iter().flat_map(|found| &found.turns), keep_turns);
+        let mut doomed = doomed_turns(seen.iter().flat_map(|found| &found.turns), keep_turns);
+        for (conversation, turn) in keep {
+            doomed.remove(&(conversation.to_string(), turn.to_string()));
+        }
         let mut undos: BTreeMap<TurnKey, Option<String>> = BTreeMap::new();
         for (key, turn) in seen.iter().flat_map(|found| &found.undos) {
             let known = undos.entry(key.clone()).or_default();
@@ -472,6 +490,7 @@ fn undo_key(name: &str) -> Option<(TurnKey, &str)> {
 fn remove_store(store: &Store) -> bool {
     let removed = fs::remove_dir_all(store.git_dir()).is_ok();
     let _ = fs::remove_file(store.index());
+    let _ = fs::remove_file(store.build_index());
     let _ = fs::remove_file(store.root_file());
     removed
 }

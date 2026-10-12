@@ -26,6 +26,8 @@ pub(crate) struct Slot {
     /// True once this process checked the store's format (`capture::prepare`).
     pub(crate) ready: AtomicBool,
     record: Mutex<SlotRecord>,
+    /// The directories at the root's top that its snapshots leave out.
+    skip: Mutex<Vec<String>>,
 }
 
 /// What the snapshots of a store left out, and the modes they saw.
@@ -59,6 +61,7 @@ impl Default for Slot {
             skipped_until: Mutex::new(None),
             ready: AtomicBool::new(false),
             record: Mutex::new(SlotRecord::default()),
+            skip: Mutex::new(Vec::new()),
         }
     }
 }
@@ -109,6 +112,29 @@ impl Slot {
 
     pub(crate) fn set_tree(&self, tree: Option<String>) {
         *self.tree.lock().unwrap_or_else(PoisonError::into_inner) = tree;
+    }
+
+    /// The directories at the root's top that its snapshots leave out.
+    pub(crate) fn skip_list(&self) -> Vec<String> {
+        self.skip.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Adds `names` to the directories that the snapshots of the root leave out. A
+    /// new name forgets the tree of the last snapshot, so the next one starts fresh and
+    /// drops what an older snapshot took below it.
+    pub(crate) fn add_skip(&self, names: &[String]) {
+        let mut skip = self.skip.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut added = false;
+        for name in names {
+            if !skip.contains(name) {
+                skip.push(name.clone());
+                added = true;
+            }
+        }
+        drop(skip);
+        if added {
+            self.set_tree(None);
+        }
     }
 
     /// Forgets the store, for a store that the collector deleted.

@@ -15,7 +15,11 @@
 //!   [`Snapshots::after_write`] for a file tool, whose own diff lists its change;
 //!   [`Snapshots::turn_end`] ([`TurnEnd`], [`SnapshotInfo`]): `/post`, the turn's
 //!   changes, what its snapshots left out ([`LeftOut`]) and the roots it does not
-//!   cover. A root with trusted [`GitDirs`] gets a mirror of its project's refs.
+//!   cover. A root with trusted [`GitDirs`] gets a mirror of its project's refs, and
+//!   [`Root::with_skip`] leaves directories at its top out, such as `$SCRATCH/jobs`.
+//! - [`Snapshots::after_job`]: the files that a background job changed join the turn
+//!   that started it at the job's end, without the paths that other turns changed
+//!   meanwhile.
 //! - [`Snapshots::turn_diff`] ([`TurnDiff`]): a finished turn's changes and unified
 //!   diff, for `conversation.diff`.
 //! - [`Snapshots::plan_undo`] and [`Snapshots::plan_redo`] ([`UndoPlan`], [`RootPlan`],
@@ -29,9 +33,10 @@
 //!   `$D/snapshots/home.git`, copies of the paths outside the roots before and after a
 //!   call, which the daemon reads; [`HomePlan`] and [`HomeStep`]: their part of an
 //!   undo; [`Snapshots::home_undo_before`] and [`Snapshots::home_blob`].
-//! - [`Snapshots::gc`] and [`Snapshots::gc_capped`] ([`GcReport`]): the newest turns of
-//!   each conversation stay whole across every store, the mirrors of a store stay
-//!   within their limit, and a store unused for too long goes.
+//! - [`Snapshots::gc`], [`Snapshots::gc_capped`] and [`Snapshots::gc_keeping`]
+//!   ([`GcReport`]): the newest turns of each conversation stay whole across every
+//!   store, and the turns that the daemon names, the mirrors of a store stay within
+//!   their limit, and a store unused for too long goes.
 //! - [`Limits`], [`SKIPPED_DIRS`], [`MAX_IGNORED_BYTES`]: what a snapshot takes;
 //!   [`shown_prefix`]: how a root's paths show; [`blob_id`]: git's id of a file.
 //!
@@ -55,6 +60,7 @@ mod error;
 mod gc;
 mod history;
 mod home;
+mod job;
 mod meta;
 mod mirror;
 mod object;

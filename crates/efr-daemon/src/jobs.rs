@@ -927,10 +927,10 @@ impl JobTask {
         }
         let committed =
             table.inner.writer.append(Batch::new().event(self.key.conversation, event)).await;
-        // NOTE: P3b adds the job's writes to its start turn here; until then the
-        // snapshot of its roots only kept the trees.
-        if let Some((snapshot, _)) = kept {
-            snapshot.discard();
+        // NOTE: before the job leaves the table, so an undo waits until the job's files
+        // joined the turn that started it.
+        if let Some((snapshot, limits)) = kept {
+            join_start_turn(snapshot, limits, info.started_at).await;
         }
         table.lock().running.remove(&self.key);
         remove_dirs(self.call_dir.clone(), self.state_dir.clone()).await;
@@ -954,6 +954,26 @@ impl JobTask {
         }
         tracing::info!(conversation = %self.key.conversation, job = %info.id, state = ended.state.as_str(), "a job ended");
         let _ = self.ended.send(Some(final_info));
+    }
+}
+
+/// Adds the files that a job changed since `snapshot`, the snapshot of its roots right
+/// after its start at `started`, to the turn that started it, without the paths that
+/// other turns changed meanwhile.
+async fn join_start_turn(
+    snapshot: efr_snapshot::CallSnapshot,
+    limits: efr_snapshot::Limits,
+    started: Timestamp,
+) {
+    let Some(store) = snapshot.snapshots() else {
+        snapshot.discard();
+        return;
+    };
+    if let Some(joined) = store.after_job(snapshot, started, limits).await {
+        tracing::debug!(
+            files = joined.files.len(),
+            "a job's files joined the turn that started it"
+        );
     }
 }
 

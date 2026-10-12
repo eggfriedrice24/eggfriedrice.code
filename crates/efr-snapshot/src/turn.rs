@@ -697,7 +697,7 @@ pub(crate) fn refs_with_head(refs: &ProjectRefs) -> BTreeMap<String, String> {
 }
 
 /// Sets the `touched` paths of `meta`, cut at [`MAX_TOUCHED`].
-fn set_touched(meta: &mut Meta, touched: &BTreeSet<String>) {
+pub(crate) fn set_touched(meta: &mut Meta, touched: &BTreeSet<String>) {
     meta.touched = touched.iter().take(MAX_TOUCHED).cloned().collect();
     meta.touched_more = touched.len() > MAX_TOUCHED;
 }
