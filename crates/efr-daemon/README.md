@@ -577,6 +577,34 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   `job_started` event, sweeps its session, reads a `result.json` that the launcher left,
   and removes every job dir. Then each actor gets the notices of the last day that no
   turn took, which never start a turn of their own.
+- The job's files (`jobs.rs`, `efr-snapshot`'s `Snapshots::after_job`): at the job's
+  end, before the job leaves the table, the snapshot of its roots right after its
+  start is compared with the roots now, and what the job changed joins the turn that
+  started it, without the paths that another turn or an undo changed since the job's
+  start. Snapshots of `$SCRATCH` leave `jobs` out (`tools/snapshot.rs`), and the hourly
+  snapshot collector keeps the turn of each running job.
+- Undo (`jobs/undo.rs`, `Toolbox::job_blocks_undo`): `turn.undo` is `busy` while a job
+  of the conversation runs (`job j3 runs; stop it first (efr jobs stop j3)`), or a job
+  of another conversation can write in a root of the turn: a contained job whose write
+  roots hold a root of the turn or lie in one, and every exit child job (`a job of
+  another conversation writes here; stop it first (efr jobs list --all)`).
+- The guard while a job runs (`jobs/guard.rs`): `efr-sbx guard-check` for each running
+  contained job every 5 minutes on efrd's clock, and before each contained call whose
+  guard roots overlap the job's, before its launcher records the surface (it costs a few
+  milliseconds). A break moves the entries to the job's quarantine, stops the job with
+  `guard`, and its changes go into `job_ended`, also when the launcher's own end guard
+  no longer sees them. At start, a contained job of the last efrd with no
+  `result.json` gets the check before its dirs go.
+- Programs that a job wrote (`jobs/since.rs`, `sandbox/facts.rs`): a program counts as
+  changed in a turn from the earliest of the turn's start and the start of each job of
+  the conversation that ran since the previous turn started, by its change time or its
+  status time.
+- The daemon-wide limit of wake turns (`jobs/wakes.rs`): `Toolbox::wake_allowed` counts
+  the wake turns of every conversation in the last hour against
+  `jobs.max_wakes_per_hour_daemon`, seeded at start from the store's wake turns.
+- Retention (`jobs/retention.rs`): the hourly snapshot collector removes a job's output
+  7 days after the job's end, and keeps at most 20 outputs of ended jobs per
+  conversation; only a `j<n>.out` in a `jobs` dir, and a link as a link.
 
 ### The reviewer, presence and the home store
 
@@ -609,6 +637,9 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   conversation away, or each one that is present. No timer runs: the idle state is
   found when a waiting question reads the presence (when it parks, then every 15
   seconds) or the next input comes, and only then is `presence_changed` recorded. The push to a phone does nothing yet.
+  `PresenceReader::followed` is true while a client that can type answers subscribes to
+  the conversation (`Connections::answerers`); a turn that a job notice started counts
+  the user away unless one does.
 - The home store (`home.rs`, spec 10.8, phase B): before efrd runs a call, the top of
   `DaemonToolbox::invoke` (`tools.rs`) copies what each approved exit names in
   `ExitNeed::copies` into the home store of `efr-snapshot`,
@@ -752,7 +783,10 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
 
 ### Notices
 
-When a turn finishes or fails, or an approval waits, and no subscription from the
+When a turn finishes or fails, an approval waits, a background job ends (`efr: job j3
+ended (exit 0): <title>`, with the processes that may still run and a lost launcher),
+or a job's notice waits for the next prompt (`...; no wake turn (wake limit reached)`),
+and no subscription from the
 conversation's terminal (a connection whose hello named that tty) was handed the event,
 nor a live lease from it names the conversation, the daemon appends one line to
 `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`), which the zsh plugin prints at
@@ -934,7 +968,15 @@ matches, a job in `manual` after the user's yes, and the ids after a restart. A 
 that must outlive its turn blocks on a FIFO that the test writes after the turn's end.
 Its two `shell_` tests take the environment from a real hidden zsh. The unit tests of
 `jobs/` cover the output file and its cut, a planted link, the start byte after the
-peer list, the lifeline, the sweep by session and the restart records.
+peer list, the lifeline, the sweep by session and the restart records, and with a test
+launcher whose `guard-check` finds a planted hook, the guard schedule, a guard break
+and the check of a lost job at a restart; the undo rule, the retention, the wake window
+and the time from which a program counts as changed. The `jobs_undo` module runs undo
+while a job of the same or another conversation runs, and after a job's files joined
+its turn. `sandbox::jobs_guard::shell_job_planted_hook_quarantined_before_next_turn`
+runs a job on the real `efr-sbx` (`just test-sandbox`, a real zsh) that plants a hook
+in a new repository, and checks that the next contained call's guard check moves it to
+the quarantine and stops the job.
 
 The `login` module also runs `admin.login_api_key` and `admin.logout` against the
 local server's `/v1/models`: a key that is checked with its organization and project
