@@ -28,6 +28,7 @@ mod engine;
 mod error;
 mod gc;
 mod home;
+mod jobs;
 mod judge;
 mod lock;
 mod methods;

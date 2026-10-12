@@ -853,6 +853,7 @@ dependencies = [
  "jiff",
  "nix",
  "pretty_assertions",
+ "regex",
  "rustix",
  "sd-notify",
  "serde",
