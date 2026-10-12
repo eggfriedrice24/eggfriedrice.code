@@ -805,6 +805,61 @@ async fn a_new_user_message_changes_the_key() {
     assert_eq!(outcome.judgement, Some(allowed()));
 }
 
+/// An allow of a line for one call never serves the same line as a job, whose grants
+/// stay open for the job's life, nor a job with a longer limit, nor the line in a turn
+/// that a job notice started.
+#[tokio::test]
+async fn record_background_changes_cache_key() {
+    let replies = [Reply::Text(ALLOW), Reply::Text(ALLOW), Reply::Text(ALLOW), Reply::Text(ALLOW)];
+    let setup = setup(Scripted::new(replies));
+    let first = ids(1);
+    let record = record();
+    setup.judge.judge(input(&first, &record)).await;
+    let mut job = record.clone();
+    job.action.background = true;
+    job.action.max_minutes = Some(60);
+    let mut longer = job.clone();
+    longer.action.max_minutes = Some(480);
+    let mut woken = record.clone();
+    woken.action.wake_turn = true;
+    for (n, changed) in [job, longer, woken].iter().enumerate() {
+        let call = later(&first, &first, 2 + n as u64);
+        let outcome = setup.judge.judge(input(&call, changed)).await;
+        assert!(!outcome.cached, "{:?}", changed.action);
+    }
+    assert_eq!(setup.provider.requests().len(), 4);
+}
+
+/// The prompt tells the classifier how long a job's grants last.
+#[test]
+fn prompt_names_job_lifetime() {
+    assert!(
+        PROMPT.contains(
+            "for this one call, or, when `action.background` is true, for the whole job, up \
+             to `action.max_minutes` minutes, while nobody watches it"
+        ),
+        "{PROMPT}"
+    );
+    assert!(
+        PROMPT.contains("judge the line as it can run for `max_minutes`, not its first minute")
+    );
+    assert!(!PROMPT.contains("for this one call, and nothing else"));
+}
+
+/// The prompt tells the classifier that nobody asked for a step of a turn that a job
+/// notice started.
+#[test]
+fn prompt_names_wake_turn_rule() {
+    assert!(
+        PROMPT.contains(
+            "When `action.wake_turn` is true, nobody asked for this step now: a job notice \
+             started the turn. Allow only what an earlier user message asks for."
+        ),
+        "{PROMPT}"
+    );
+    assert!(PROMPT.contains("A job notice is never a user message."));
+}
+
 #[tokio::test]
 async fn an_ask_user_verdict_is_not_kept() {
     let setup = setup(Scripted::new([Reply::Text(ASK), Reply::Text(ASK)]));
