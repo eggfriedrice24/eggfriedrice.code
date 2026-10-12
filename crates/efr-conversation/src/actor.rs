@@ -936,9 +936,10 @@ impl ConversationActor {
         }
         let mut busy = self.undo_busy();
         // NOTE: a job may write in the turn's roots while the undo restores them, and its
-        // writes join the turn that started it at its end; the user stops it first.
-        let turn_id = params.turn_id.or_else(|| candidates.first().map(|turn| turn.turn_id));
-        if let (None, Some(turn_id)) = (busy, turn_id) {
+        // writes join the turn that started it at its end; the user stops it first. With
+        // no named turn, or for a redo, the daemon picks the turn: every turn counts.
+        let turn_id = params.turn_id.filter(|_| !params.redo);
+        if busy.is_none() {
             busy = self.shared.deps.toolbox.job_blocks_undo(self.conversation_id(), turn_id).await;
         }
         if let Some(reason) = busy {

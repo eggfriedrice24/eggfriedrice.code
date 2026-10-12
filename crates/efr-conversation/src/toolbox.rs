@@ -162,14 +162,15 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         Vec::new()
     }
 
-    /// Why an undo of the turn `turn_id` must wait for a background job: a job of the
-    /// conversation runs, or a job of another conversation writes in a root of the
-    /// turn ([`UndoBusyReason::Job`]). `None` when no job is in the way. The default
-    /// runs no job.
+    /// Why an undo must wait for a background job: a job of the conversation runs, or a
+    /// job of another conversation writes in a root of a turn that the undo may act on
+    /// ([`UndoBusyReason::Job`]). `turn_id` is the turn that the undo names; `None`
+    /// when it names none or redoes, so it may act on any turn of the conversation.
+    /// `None` when no job is in the way. The default runs no job.
     async fn job_blocks_undo(
         &self,
         _conversation_id: ConversationId,
-        _turn_id: TurnId,
+        _turn_id: Option<TurnId>,
     ) -> Option<UndoBusyReason> {
         None
     }

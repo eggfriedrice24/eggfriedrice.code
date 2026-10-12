@@ -12,18 +12,20 @@ use std::path::{Path, PathBuf};
 
 use efr_conversation::UndoBusyReason;
 use efr_protocol::{ConversationId, TurnId};
+use efr_snapshot::TurnRefs;
 
 use super::{JobTable, RunningJob};
 use crate::tools::CallSnapshots;
 
-/// Why an undo of the turn `turn` of `conversation` must wait for a running job of
-/// `jobs`; `None` when no job is in the way. The turn's roots are the roots whose
-/// snapshot store holds the turn.
+/// Why an undo of `conversation` must wait for a running job of `jobs`; `None` when no
+/// job is in the way. `turn` is the turn that the undo names; `None` when it names none
+/// or redoes. The roots are those whose snapshot store holds a turn that the undo may
+/// act on ([`undo_roots`]).
 pub(crate) async fn blocker(
     jobs: &JobTable,
     snapshots: Option<&CallSnapshots>,
     conversation: ConversationId,
-    turn: TurnId,
+    turn: Option<TurnId>,
 ) -> Option<UndoBusyReason> {
     let running = jobs.running();
     if running.is_empty() {
@@ -33,14 +35,7 @@ pub(crate) async fn blocker(
         return Some(UndoBusyReason::Job { number: own, same_conversation: true });
     }
     let roots = match snapshots {
-        Some(snapshots) => snapshots
-            .store()
-            .turns_with_refs(conversation)
-            .await
-            .into_iter()
-            .find(|refs| refs.turn == turn)
-            .map(|refs| refs.roots)
-            .unwrap_or_default(),
+        Some(snapshots) => undo_roots(&snapshots.store().turns_with_refs(conversation).await, turn),
         None => Vec::new(),
     };
     let running = tokio::task::spawn_blocking(move || {
@@ -56,6 +51,22 @@ pub(crate) async fn blocker(
     .ok()?;
     other_in(&running, conversation, &roots)
         .map(|number| UndoBusyReason::Job { number, same_conversation: false })
+}
+
+/// The roots of each turn of `turns` that an undo of `turn` may act on, each once: the
+/// named turn and a turn whose undo stopped half way, which the undo resumes first; for
+/// no named turn, or a redo, every turn, as the undo picks its turn itself.
+pub(crate) fn undo_roots(turns: &[TurnRefs], turn: Option<TurnId>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let acted = turns
+        .iter()
+        .filter(|refs| turn.is_none_or(|turn| refs.turn == turn) || refs.started_undo.is_some());
+    for root in acted.flat_map(|refs| &refs.roots) {
+        if !roots.contains(root) {
+            roots.push(root.clone());
+        }
+    }
+    roots
 }
 
 /// The number of the newest running job of `conversation`.

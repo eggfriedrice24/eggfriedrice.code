@@ -1527,7 +1527,7 @@ impl Toolbox for DaemonToolbox {
     async fn job_blocks_undo(
         &self,
         conversation_id: ConversationId,
-        turn_id: TurnId,
+        turn_id: Option<TurnId>,
     ) -> Option<efr_conversation::UndoBusyReason> {
         let jobs = self.jobs.as_ref()?;
         crate::jobs::undo::blocker(jobs, self.snapshots.as_ref(), conversation_id, turn_id).await

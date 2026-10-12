@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use efr_protocol::{CallId, ConversationId, TurnId};
 use jiff::Timestamp;
 
-use super::{newest_of, other_in};
+use super::{newest_of, other_in, undo_roots};
 use crate::jobs::{JobKey, RunningJob};
 
 fn conversation(n: u128) -> ConversationId {
@@ -46,4 +46,34 @@ fn a_job_of_another_conversation_blocks_only_where_it_writes() {
     let outside = [job(2, 4, &[], false)];
     assert_eq!(other_in(&outside, conversation(1), &roots), Some(4));
     assert_eq!(other_in(&outside, conversation(1), &[]), Some(4));
+}
+
+fn refs(turn: u128, roots: &[&str], started_undo: bool) -> efr_snapshot::TurnRefs {
+    efr_snapshot::TurnRefs {
+        turn: TurnId::from_uuid(uuid::Uuid::from_u128(turn)),
+        roots: roots.iter().map(PathBuf::from).collect(),
+        has_post: true,
+        undone: false,
+        home: false,
+        started_undo: started_undo.then(|| "u1".to_owned()),
+        auto: true,
+    }
+}
+
+/// The roots that a job of another conversation must not write in: those of the named
+/// turn and of an undo that stopped half way; with no named turn, or for a redo, those
+/// of every turn, since the undo picks its turn itself.
+#[test]
+fn undo_roots_cover_each_turn_that_the_undo_may_act_on() {
+    let turns =
+        [refs(1, &["/p/new"], false), refs(2, &["/p/old"], false), refs(3, &["/p/open"], true)];
+    let named = TurnId::from_uuid(uuid::Uuid::from_u128(2));
+    let paths = |roots: &[&str]| roots.iter().map(PathBuf::from).collect::<Vec<_>>();
+    assert_eq!(undo_roots(&turns, Some(named)), paths(&["/p/old", "/p/open"]));
+    assert_eq!(undo_roots(&turns, None), paths(&["/p/new", "/p/old", "/p/open"]));
+    let running = [job(2, 1, &["/p/old"], true)];
+    // NOTE: the newest turn is not the one that the undo acts on when it names none:
+    // the undo can pick an older turn, so the job blocks.
+    assert_eq!(other_in(&running, conversation(1), &undo_roots(&turns, None)), Some(1));
+    assert_eq!(other_in(&running, conversation(1), &undo_roots(&turns[..1], None)), None);
 }

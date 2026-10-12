@@ -570,7 +570,7 @@ impl Toolbox for FakeToolbox {
     async fn job_blocks_undo(
         &self,
         _conversation_id: ConversationId,
-        _turn_id: TurnId,
+        _turn_id: Option<TurnId>,
     ) -> Option<UndoBusyReason> {
         *self.blocks_undo.lock().unwrap_or_else(PoisonError::into_inner)
     }
