@@ -863,3 +863,45 @@ fn loosens_more_coverage_limits() {
         assert!(!super::loosens(&base, next), "{row} must not loosen");
     }
 }
+
+#[test]
+fn loosens_jobs_rows() {
+    let changed = |change: fn(&mut Settings)| {
+        let mut next = Settings::default();
+        change(&mut next);
+        next
+    };
+    let mut off = Settings::default();
+    off.jobs.enabled = false;
+    let on = Settings::default();
+    assert!(super::loosens(&off, &on), "turning jobs on loosens");
+    assert!(!super::loosens(&on, &off), "turning jobs off asks more");
+
+    let base = changed(|s| {
+        s.jobs.default_minutes = 30;
+        s.jobs.max_minutes = 120;
+        s.jobs.max_running = 2;
+        s.jobs.max_running_daemon = 8;
+        s.jobs.max_wakes_per_hour = 3;
+        s.jobs.max_wakes_per_hour_daemon = 6;
+        s.jobs.max_wakes_per_watch = 1;
+        s.jobs.nice = 10;
+    });
+    let more: [(&str, fn(&mut Settings)); 8] = [
+        ("jobs.default_minutes", |s| s.jobs.default_minutes = 31),
+        ("jobs.max_minutes", |s| s.jobs.max_minutes = 121),
+        ("jobs.max_running", |s| s.jobs.max_running = 3),
+        ("jobs.max_running_daemon", |s| s.jobs.max_running_daemon = 9),
+        ("jobs.max_wakes_per_hour", |s| s.jobs.max_wakes_per_hour = 4),
+        ("jobs.max_wakes_per_hour_daemon", |s| s.jobs.max_wakes_per_hour_daemon = 7),
+        ("jobs.max_wakes_per_watch", |s| s.jobs.max_wakes_per_watch = 2),
+        ("a lower jobs.nice", |s| s.jobs.nice = 9),
+    ];
+    for (row, change) in more {
+        let mut next = base.clone();
+        change(&mut next);
+        assert!(super::loosens(&base, &next), "{row} must loosen");
+        assert!(super::jobs_loosens(&base.jobs, &next.jobs), "{row}");
+        assert!(!super::loosens(&next, &base), "the way back from {row} must not loosen");
+    }
+}

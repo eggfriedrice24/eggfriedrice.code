@@ -388,6 +388,75 @@
         }
       ]
     },
+    "JobsSettings": {
+      "additionalProperties": false,
+      "description": "`[jobs]`: whether the model can start background jobs, their limits, and how often\ntheir notices may start a turn. Every key applies from the next job or notice; a job\nthat runs keeps the limits of its start.",
+      "properties": {
+        "default_minutes": {
+          "default": 60,
+          "description": "The time limit of a job in minutes when the model names none, from 1 to\n`max_minutes`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "description": "`false`: a shell call with `background: true` fails with a reason, and the model\nruns the command in the foreground. Jobs that run go on.",
+          "type": "boolean"
+        },
+        "max_minutes": {
+          "default": 480,
+          "description": "The longest time limit that the model can ask for, in minutes, from 1 to 1440.\nA longer one is cut to it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_running": {
+          "default": 4,
+          "description": "The most jobs that run at one time in one conversation, from 1 to 64.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_running_daemon": {
+          "default": 16,
+          "description": "The most jobs that run at one time in all conversations, from 1 to 256.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_wakes_per_hour": {
+          "default": 6,
+          "description": "The most turns per hour that job notices start in one conversation, from 0 to\n60. 0: a notice never starts a turn; it waits for your next prompt.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_wakes_per_hour_daemon": {
+          "default": 12,
+          "description": "The most turns per hour that job notices start in all conversations, from 0 to\n120. 0: a notice never starts a turn.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_wakes_per_watch": {
+          "default": 3,
+          "description": "The most times that one `watch` pattern of a job can wake the model, from 0 to\n10. A higher `max_wakes` of the model is cut to it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nice": {
+          "default": 19,
+          "description": "The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A\njob never runs at a higher priority than efrd. The disk priority of a job is\nalways the lowest (the idle class).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "Mode": {
       "description": "The permission mode of a turn: the base policy, which the user's own rules follow and\nwin over where they match.\n\nThe floors hold in every mode: an interactive call asks, a privileged program asks,\nsecrets are denied unless a user rule names them, and no tool writes efr's config. A\nturn from a remote origin runs with at most [`Mode::Cautious`].\n\nThe variants are ordered from the strictest to the loosest, so the remote cap is\n`mode.min(Mode::Cautious)`.",
       "oneOf": [
@@ -1369,6 +1438,21 @@
         "update_interval_ms": 200
       },
       "description": "Queues, approvals, streaming and terminals."
+    },
+    "jobs": {
+      "$ref": "#/$defs/JobsSettings",
+      "default": {
+        "default_minutes": 60,
+        "enabled": true,
+        "max_minutes": 480,
+        "max_running": 4,
+        "max_running_daemon": 16,
+        "max_wakes_per_hour": 6,
+        "max_wakes_per_hour_daemon": 12,
+        "max_wakes_per_watch": 3,
+        "nice": 19
+      },
+      "description": "Background jobs: whether the model can start them, their limits, and how often\ntheir notices may start a turn."
     },
     "log": {
       "default": "info",

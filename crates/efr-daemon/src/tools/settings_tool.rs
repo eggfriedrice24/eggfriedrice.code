@@ -35,7 +35,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
     Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, IgnoredFiles,
-    Kind, SandboxSettings, Settings, SnapshotSettings, Source, SudoCache, WriteProjects,
+    JobsSettings, Kind, SandboxSettings, Settings, SnapshotSettings, Source, SudoCache,
+    WriteProjects,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
@@ -621,8 +622,9 @@ fn ids(models: &[ModelInfo]) -> String {
 /// True when `next` lets more run without a question than `before`: a new allow rule,
 /// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, a secret
 /// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
-/// a model can allow exits that asked the user, or undo turned on or covering more,
-/// so more destructive lines run without a question (efr's auto spec, section 13.1).
+/// a model can allow exits that asked the user, undo turned on or covering more, so
+/// more destructive lines run without a question, or a `[jobs]` key that lets jobs run
+/// longer, more often or at a higher priority (efr's auto spec, section 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -642,6 +644,23 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
         || (next.classifier.enabled && !before.classifier.enabled)
         || (next.undo.enabled && !before.undo.enabled)
         || snapshot_loosens(&before.snapshot, &next.snapshot)
+        || jobs_loosens(&before.jobs, &next.jobs)
+}
+
+/// True when `next` lets the model's background jobs do more than `before`: jobs
+/// turned on, a longer default or longest time limit, more jobs at one time, more turns
+/// that notices start, more wakes of a watch pattern, or a higher CPU priority (a lower
+/// nice value).
+fn jobs_loosens(before: &JobsSettings, next: &JobsSettings) -> bool {
+    (next.enabled && !before.enabled)
+        || next.default_minutes > before.default_minutes
+        || next.max_minutes > before.max_minutes
+        || next.max_running > before.max_running
+        || next.max_running_daemon > before.max_running_daemon
+        || next.max_wakes_per_hour > before.max_wakes_per_hour
+        || next.max_wakes_per_hour_daemon > before.max_wakes_per_hour_daemon
+        || next.max_wakes_per_watch > before.max_wakes_per_watch
+        || next.nice < before.nice
 }
 
 /// True when `next` makes efr's snapshots cover more than `before`, so more lines that

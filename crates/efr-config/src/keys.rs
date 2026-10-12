@@ -13,8 +13,9 @@ use serde_json::Value as Json;
 
 use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConversationSettings, DiffColors,
-    ModelSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RenderColors,
-    RenderSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings, UndoSettings,
+    JobsSettings, ModelSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
+    RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings,
+    UndoSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -112,6 +113,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "undo" => fields::<UndoSettings>(),
         "snapshot" => fields::<SnapshotSettings>(),
         "presence" => fields::<PresenceSettings>(),
+        "jobs" => fields::<JobsSettings>(),
         "render" => fields::<RenderSettings>(),
         "render.colors" => fields::<RenderColors>(),
         "render.colors.diff" => fields::<DiffColors>(),

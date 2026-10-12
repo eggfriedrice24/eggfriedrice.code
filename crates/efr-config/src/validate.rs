@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
-    ClassifierSettings, CompactionSettings, ModelEntry, PROVIDERS, PresenceSettings, RenderColors,
-    SandboxSettings, Settings, SnapshotSettings,
+    ClassifierSettings, CompactionSettings, JobsSettings, ModelEntry, PROVIDERS, PresenceSettings,
+    RenderColors, SandboxSettings, Settings, SnapshotSettings,
 };
 
 /// A value outside its allowed set or range.
@@ -35,6 +35,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         classifier,
         snapshot,
         presence,
+        jobs,
         render,
         ..
     } = settings;
@@ -160,6 +161,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_classifier(classifier)?;
     check_snapshot(snapshot)?;
     check_presence(presence)?;
+    check_jobs(jobs)?;
 
     within("render.diff_lines", u64::from(render.diff_lines), 0..=1_000, "between 0 and 1000")?;
     if let Some(theme) = &render.theme {
@@ -301,6 +303,47 @@ fn check_presence(presence: &PresenceSettings) -> Result<(), Invalid> {
         1..=86_400,
         "between 1 and 86400 (a day)",
     )
+}
+
+/// The checks of `[jobs]`, in the order of the table. `default_minutes` is checked
+/// against `max_minutes` once both are in their ranges.
+fn check_jobs(jobs: &JobsSettings) -> Result<(), Invalid> {
+    const MINUTES: &str = "between 1 and 1440 (a day)";
+    within("jobs.default_minutes", u64::from(jobs.default_minutes), 1..=1_440, MINUTES)?;
+    within("jobs.max_minutes", u64::from(jobs.max_minutes), 1..=1_440, MINUTES)?;
+    if jobs.default_minutes > jobs.max_minutes {
+        return Err(invalid(
+            "jobs.default_minutes",
+            jobs.default_minutes.to_string(),
+            "at most jobs.max_minutes",
+        ));
+    }
+    within("jobs.max_running", u64::from(jobs.max_running), 1..=64, "between 1 and 64")?;
+    within(
+        "jobs.max_running_daemon",
+        u64::from(jobs.max_running_daemon),
+        1..=256,
+        "between 1 and 256",
+    )?;
+    within(
+        "jobs.max_wakes_per_hour",
+        u64::from(jobs.max_wakes_per_hour),
+        0..=60,
+        "between 0 and 60",
+    )?;
+    within(
+        "jobs.max_wakes_per_hour_daemon",
+        u64::from(jobs.max_wakes_per_hour_daemon),
+        0..=120,
+        "between 0 and 120",
+    )?;
+    within(
+        "jobs.max_wakes_per_watch",
+        u64::from(jobs.max_wakes_per_watch),
+        0..=10,
+        "between 0 and 10",
+    )?;
+    within("jobs.nice", u64::from(jobs.nice), 0..=19, "between 0 and 19")
 }
 
 /// The checks of `[sandbox]`, in the order of the table.

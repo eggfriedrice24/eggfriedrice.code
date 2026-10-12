@@ -14,9 +14,9 @@ use crate::location::{key_at, location, span_of, span_of_rule};
 use crate::validate::{self, Invalid};
 use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ConversationSettings,
-    DEFAULT_LOG, Location, ModelSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
-    RenderSettings, SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source,
-    UndoSettings,
+    DEFAULT_LOG, JobsSettings, Location, ModelSettings, OpenAiSettings, PermissionSettings,
+    PresenceSettings, RenderSettings, SandboxSettings, ScreenChoice, ShellSettings,
+    SnapshotSettings, Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -67,6 +67,9 @@ pub struct Settings {
     /// When efr counts you away from a conversation, and how long a question waits
     /// then.
     pub presence: PresenceSettings,
+    /// Background jobs: whether the model can start them, their limits, and how often
+    /// their notices may start a turn.
+    pub jobs: JobsSettings,
     /// How `efr` shows replies.
     pub render: RenderSettings,
     #[serde(skip)]
@@ -91,6 +94,7 @@ impl Default for Settings {
             undo: UndoSettings::default(),
             snapshot: SnapshotSettings::default(),
             presence: PresenceSettings::default(),
+            jobs: JobsSettings::default(),
             render: RenderSettings::default(),
             sources: Vec::new(),
         }

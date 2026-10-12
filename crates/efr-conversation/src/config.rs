@@ -78,6 +78,9 @@ pub struct ConversationConfig {
     /// How long a parked question waits while the user is away
     /// (`presence.away_wait_secs`); then the call does not run.
     pub away_wait: Duration,
+    /// The most turns per hour that job notices start in this conversation
+    /// (`jobs.max_wakes_per_hour`); 0: a notice never starts a turn.
+    pub max_wakes_per_hour: u32,
     /// The most model calls in one turn; a turn that needs more fails.
     pub max_model_calls: u32,
     /// The most prompts that may wait behind the running turn.
@@ -91,7 +94,8 @@ impl ConversationConfig {
     /// conversation rules, [`HistoryLimits::default`], [`CompactionConfig::default`],
     /// 200 ms between updates, 16 ms
     /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
-    /// question while the user is away, 64 model calls per turn and 16 queued prompts.
+    /// question while the user is away, 6 turns per hour that job notices start, 64
+    /// model calls per turn and 16 queued prompts.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -112,6 +116,7 @@ impl ConversationConfig {
             approval_timeout: None,
             classifier_enabled: true,
             away_wait: Duration::from_secs(300),
+            max_wakes_per_hour: 6,
             max_model_calls: 64,
             max_queued: 16,
         }

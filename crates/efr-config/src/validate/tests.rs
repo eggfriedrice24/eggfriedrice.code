@@ -295,3 +295,73 @@ fn ask_destructive_has_two_values() {
     }
     assert!(Settings::parse(path, Some("[sandbox]\nask_destructive = \"never\"\n")).is_err());
 }
+
+#[test]
+fn jobs_keys_have_defaults_and_checks() {
+    use std::path::Path;
+
+    let defaults = Settings::default().jobs;
+    assert!(defaults.enabled);
+    assert_eq!(defaults.default_minutes, 60);
+    assert_eq!(defaults.max_minutes, 480);
+    assert_eq!(defaults.max_running, 4);
+    assert_eq!(defaults.max_running_daemon, 16);
+    assert_eq!(defaults.max_wakes_per_hour, 6);
+    assert_eq!(defaults.max_wakes_per_hour_daemon, 12);
+    assert_eq!(defaults.max_wakes_per_watch, 3);
+    assert_eq!(defaults.nice, 19);
+    assert_eq!(crate::kind("jobs.enabled"), Some(crate::Kind::Boolean));
+
+    type Change = fn(&mut Settings);
+    let refused: [(Change, &str); 12] = [
+        (|s| s.jobs.default_minutes = 0, "jobs.default_minutes"),
+        (|s| s.jobs.default_minutes = 1_441, "jobs.default_minutes"),
+        (|s| s.jobs.max_minutes = 0, "jobs.max_minutes"),
+        (|s| s.jobs.max_minutes = 1_441, "jobs.max_minutes"),
+        (|s| s.jobs.max_running = 0, "jobs.max_running"),
+        (|s| s.jobs.max_running = 65, "jobs.max_running"),
+        (|s| s.jobs.max_running_daemon = 0, "jobs.max_running_daemon"),
+        (|s| s.jobs.max_running_daemon = 257, "jobs.max_running_daemon"),
+        (|s| s.jobs.max_wakes_per_hour = 61, "jobs.max_wakes_per_hour"),
+        (|s| s.jobs.max_wakes_per_hour_daemon = 121, "jobs.max_wakes_per_hour_daemon"),
+        (|s| s.jobs.max_wakes_per_watch = 11, "jobs.max_wakes_per_watch"),
+        (|s| s.jobs.nice = 20, "jobs.nice"),
+    ];
+    for (change, key) in refused {
+        let mut settings = Settings::default();
+        change(&mut settings);
+        assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err(key));
+    }
+    let mut settings = Settings::default();
+    settings.jobs.max_minutes = 1_440;
+    settings.jobs.default_minutes = 1_440;
+    settings.jobs.max_running = 64;
+    settings.jobs.max_running_daemon = 256;
+    settings.jobs.max_wakes_per_hour = 0;
+    settings.jobs.max_wakes_per_hour_daemon = 0;
+    settings.jobs.max_wakes_per_watch = 0;
+    settings.jobs.nice = 0;
+    assert_eq!(check(&settings), Ok(()), "0 turns wakes off, and each top is allowed");
+
+    let path = Path::new("/home/u/.config/efr/config.toml");
+    let off = Settings::parse(path, Some("[jobs]\nenabled = false\nnice = 10\n")).unwrap();
+    assert!(!off.jobs.enabled);
+    assert_eq!(off.jobs.nice, 10);
+    assert!(
+        Settings::parse(path, Some("[jobs]\nmax_jobs = 3\n")).is_err(),
+        "an unknown key of [jobs] is an error"
+    );
+}
+
+#[test]
+fn jobs_default_minutes_at_most_max_minutes() {
+    let mut settings = Settings::default();
+    settings.jobs.max_minutes = 30;
+    let refused = check(&settings).unwrap_err();
+    assert_eq!(refused.key, "jobs.default_minutes");
+    assert_eq!(refused.value, "60");
+    settings.jobs.default_minutes = 30;
+    assert_eq!(check(&settings), Ok(()));
+    settings.jobs.default_minutes = 1;
+    assert_eq!(check(&settings), Ok(()));
+}

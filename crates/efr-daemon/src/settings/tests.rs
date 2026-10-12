@@ -60,13 +60,16 @@ fn the_classifier_switch_and_the_away_wait_reach_the_conversations() {
     let defaults = convert(&Settings::default());
     assert!(defaults.classifier_enabled);
     assert_eq!(defaults.away_wait, Duration::from_secs(300));
+    assert_eq!(defaults.max_wakes_per_hour, 6);
 
     let mut config = Settings::default();
     config.classifier.enabled = false;
     config.presence.away_wait_secs = 45;
+    config.jobs.max_wakes_per_hour = 0;
     let settings = convert(&config);
     assert!(!settings.classifier_enabled);
     assert_eq!(settings.away_wait, Duration::from_secs(45));
+    assert_eq!(settings.max_wakes_per_hour, 0, "the wake limit reaches the conversations");
 }
 
 #[test]

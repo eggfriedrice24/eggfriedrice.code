@@ -101,6 +101,10 @@ into the GitHub release notes, and it stops when the section is missing.
   each snapshot.
 - New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
   `snapshot.home_max_mib` and `sandbox.ask_destructive`.
+- New keys for background jobs: `jobs.enabled`, `jobs.default_minutes`,
+  `jobs.max_minutes`, `jobs.max_running`, `jobs.max_running_daemon`,
+  `jobs.max_wakes_per_hour`, `jobs.max_wakes_per_hour_daemon`,
+  `jobs.max_wakes_per_watch` and `jobs.nice`.
 
 ### Changed
 

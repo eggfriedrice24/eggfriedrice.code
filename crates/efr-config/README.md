@@ -13,7 +13,7 @@ Modules:
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
   `SandboxSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
-  `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `JobsSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
   `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
   `openai.models` and `anthropic.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
@@ -65,6 +65,13 @@ Modules:
   1440; no input for so long counts a person away from a conversation),
   `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (no phone
   client exists yet).
+- `tables/jobs`: `[jobs]` (`JobsSettings`), the background jobs of phase C:
+  `enabled`, `default_minutes` (1 to `max_minutes`, default 60), `max_minutes` (1 to
+  1440, default 480), `max_running` (1 to 64, default 4, per conversation),
+  `max_running_daemon` (1 to 256, default 16), `max_wakes_per_hour` (0 to 60, default
+  6, per conversation; 0: a notice never starts a turn), `max_wakes_per_hour_daemon` (0
+  to 120, default 12), `max_wakes_per_watch` (0 to 10, default 3) and `nice` (0 to 19,
+  default 19). Each key applies from the next job or notice.
 - `tables/snapshot`: `[snapshot]` (`SnapshotSettings`), efr's own snapshots of the
   files that the agent can change (the auto spec, section 10): `enabled`,
   `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:

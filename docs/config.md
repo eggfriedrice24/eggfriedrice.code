@@ -183,6 +183,22 @@ When efr counts you away from a conversation, and how long a question waits then
 | `away_wait_secs` | `300` | live | How long a question waits while you are away, in seconds, from 1 to 86400. Then the call does not run, and the model goes on without it. |
 | `push` | `true` | live | `true` sends a question that waits while you are away to your paired phones. No phone client exists yet, so it does nothing today. |
 
+## [jobs]
+
+Background jobs: whether the model can start them, their limits, and how often their notices may start a turn.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `enabled` | `true` | live | `false`: a shell call with `background: true` fails with a reason, and the model runs the command in the foreground. Jobs that run go on. |
+| `default_minutes` | `60` | live | The time limit of a job in minutes when the model names none, from 1 to `max_minutes`. |
+| `max_minutes` | `480` | live | The longest time limit that the model can ask for, in minutes, from 1 to 1440. A longer one is cut to it. |
+| `max_running` | `4` | live | The most jobs that run at one time in one conversation, from 1 to 64. |
+| `max_running_daemon` | `16` | live | The most jobs that run at one time in all conversations, from 1 to 256. |
+| `max_wakes_per_hour` | `6` | live | The most turns per hour that job notices start in one conversation, from 0 to 60. 0: a notice never starts a turn; it waits for your next prompt. |
+| `max_wakes_per_hour_daemon` | `12` | live | The most turns per hour that job notices start in all conversations, from 0 to 120. 0: a notice never starts a turn. |
+| `max_wakes_per_watch` | `3` | live | The most times that one `watch` pattern of a job can wake the model, from 0 to 10. A higher `max_wakes` of the model is cut to it. |
+| `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
+
 ## [render]
 
 How `efr` shows replies.
