@@ -767,11 +767,11 @@ fn crontab_file_from_project_stays_with_user() {
 #[test]
 fn named_linger_goes_to_classifier() {
     // Corpus 89.
-    let facts = with_sources(CallFacts::default(), &[CoverAsk::Linger], &[]);
+    let facts = with_sources(CallFacts::default(), &[CoverAsk::Linger(None)], &[]);
     for line in ["loginctl enable-linger", "loginctl disable-linger"] {
         let need = persistence(&with_backup(), shell(line).with_facts(facts.clone()));
         assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line}");
-        assert_eq!(need.copies, [CoverAsk::Linger]);
+        assert_eq!(need.copies, [CoverAsk::Linger(None)]);
         assert!(names_match(&need.names, &["turn on lingering for my user".to_owned()]));
     }
     let need = persistence(&with_backup(), shell("loginctl enable-linger bob").with_facts(facts));
@@ -781,10 +781,25 @@ fn named_linger_goes_to_classifier() {
     // Two named forms on one line are one exit: a message that names one of them does
     // not send the other to the classifier.
     let mut facts = unit_facts();
-    facts.covered.push((CoverAsk::Linger, Coverage::Covered));
+    facts.covered.push((CoverAsk::Linger(None), Coverage::Covered));
     let line = "systemctl --user enable myagent.service && loginctl enable-linger";
     let need = persistence(&with_backup(), shell(line).with_facts(facts));
     assert_eq!(need.approver, Approver::User);
+}
+
+#[test]
+fn named_linger_for_own_user_goes_to_classifier() {
+    // The model often names the user: `loginctl enable-linger <name>`. efrd covers the
+    // form only when the name is its own user; the engine trusts that answer.
+    let own = CoverAsk::Linger(Some("u".to_owned()));
+    let facts = with_sources(CallFacts::default(), std::slice::from_ref(&own), &[]);
+    for line in ["loginctl enable-linger u", "loginctl disable-linger u"] {
+        let need = persistence(&with_backup(), shell(line).with_facts(facts.clone()));
+        assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line}");
+        assert_eq!(need.copies, [own.clone()]);
+    }
+    let need = persistence(&with_backup(), shell("loginctl enable-linger u v").with_facts(facts));
+    assert_eq!(need.approver, Approver::User, "two users are no form of the route");
 }
 
 #[rstest]
@@ -793,7 +808,7 @@ fn named_linger_goes_to_classifier() {
 #[case::user_run("systemd-run --user x")]
 #[case::user_timer("systemd-run --user --on-calendar=daily x")]
 fn at_and_systemd_run_stay_with_user(#[case] line: &str) {
-    let mut facts = with_sources(unit_facts(), &[CoverAsk::CronTable, CoverAsk::Linger], &[]);
+    let mut facts = with_sources(unit_facts(), &[CoverAsk::CronTable, CoverAsk::Linger(None)], &[]);
     facts.covered.push((CoverAsk::Home(PathBuf::from("/home/u/x")), Coverage::Covered));
     let need = persistence(&with_backup(), shell(line).with_facts(facts));
     assert_eq!(need.approver, Approver::User, "{line}");

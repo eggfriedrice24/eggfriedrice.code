@@ -406,8 +406,10 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         "systemctl" => found.extend(systemctl(args)),
         "loginctl" => found.push(match verb(args, &[]) {
             Some("enable-linger") => Found::of(ExitKind::Persistence),
-            // NOTE: for the caller's own user only; another user's needs root.
-            Some("disable-linger") if args.len() == 1 => Found::of(ExitKind::Persistence),
+            // NOTE: with no operand or one user, as `enable-linger`. The route sends it
+            // to the classifier only when efrd says the user is its own (persist.rs);
+            // more operands need root.
+            Some("disable-linger") if args.len() <= 2 => Found::of(ExitKind::Persistence),
             None => Found::bus(BusKind::System),
             Some(verb) if LOGINCTL_READ.contains(&verb) => Found::bus(BusKind::System),
             Some(_) => Found::of(ExitKind::Privilege),

@@ -273,8 +273,10 @@ pub enum CoverAsk {
     UnitLinks(String),
     /// The user's crontab.
     CronTable,
-    /// The linger setting of the user.
-    Linger,
+    /// The linger setting of the user. A `loginctl` form that names a user carries
+    /// that word here: efrd covers it only when the word is its own user, by name or
+    /// by uid, so a form for another user stays with the user.
+    Linger(Option<String>),
 }
 
 /// The daemon's answer to one [`CoverAsk`].

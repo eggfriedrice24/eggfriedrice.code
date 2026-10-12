@@ -1168,7 +1168,7 @@ fn home_side(ask: &CoverAsk) -> bool {
             | CoverAsk::HomeDir(_)
             | CoverAsk::UnitLinks(_)
             | CoverAsk::CronTable
-            | CoverAsk::Linger
+            | CoverAsk::Linger(_)
     )
 }
 

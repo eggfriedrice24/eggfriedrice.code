@@ -69,7 +69,7 @@ fn fact_requests_ask_for_the_copies_and_the_sources_of_named_persistence() {
     let cron = request("crontab ~/jobs.txt");
     assert!(cron.covers.contains(&CoverAsk::CronTable));
     assert_eq!(cron.sources, [Source::File(PathBuf::from("/home/u/jobs.txt"))]);
-    assert!(request("loginctl enable-linger").covers.contains(&CoverAsk::Linger));
+    assert!(request("loginctl enable-linger").covers.contains(&CoverAsk::Linger(None)));
     let link = request("ln -sf ~/evil ~/.config/systemd/user/default.target.wants/x.service");
     assert_eq!(link.sources, [Source::File(PathBuf::from("/home/u/evil"))]);
     // An agent config in the dir of the line is a floor too.

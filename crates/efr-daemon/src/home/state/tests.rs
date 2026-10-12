@@ -208,6 +208,30 @@ async fn linger_state_copy_and_undo() {
     );
 }
 
+#[test]
+fn linger_for_another_user_is_not_covered() {
+    let machine = Machine::new();
+    let uid = rustix::process::getuid().as_raw().to_string();
+    let linger = |user: Option<&str>| CoverAsk::Linger(user.map(str::to_owned));
+
+    assert_eq!(state::coverage(&machine.programs, &linger(None)), Coverage::Covered);
+    assert_eq!(state::coverage(&machine.programs, &linger(Some(&uid))), Coverage::Covered);
+    assert_eq!(
+        state::coverage(&machine.programs, &linger(Some("efr-no-such-user"))),
+        Coverage::NotAllowed
+    );
+}
+
+#[test]
+fn name_of_reads_the_line_of_the_uid() {
+    let passwd = "root:x:0:0::/root:/bin/sh\nme:x:1000:1000::/home/me:/bin/zsh\n";
+
+    assert_eq!(state::name_of("1000", Some(passwd)).as_deref(), Some("me"));
+    assert_eq!(state::name_of("0", Some(passwd)).as_deref(), Some("root"));
+    assert_eq!(state::name_of("1001", Some(passwd)), None);
+    assert_eq!(state::name_of("1000", None), None);
+}
+
 #[tokio::test]
 async fn state_copy_never_runs_a_program_from_a_write_root() {
     let machine = Machine::new();

@@ -14,8 +14,9 @@
 //! - `crontab <file>` under the same rule for the file, `crontab -` fed a literal by
 //!   `echo` or `printf`, and `crontab -r`, when efrd can copy the crontab
 //!   ([`CoverAsk::CronTable`]);
-//! - `loginctl enable-linger` and `disable-linger` for efrd's own user, when efrd can
-//!   copy the linger setting ([`CoverAsk::Linger`]).
+//! - `loginctl enable-linger` and `disable-linger` with no operand or with one user,
+//!   when efrd can copy the linger setting and the user is its own
+//!   ([`CoverAsk::Linger`]).
 //!
 //! Every other form stays with the user: `systemctl --user link`, `edit`, `revert`,
 //! `enable <path>`, a unit that no unit dir held, `crontab -e`, `crontab -` with any
@@ -66,6 +67,11 @@ const CRON_NAMES: &[&str] = &["cron", "crontab"];
 
 /// The forms that name the linger setting in a user message.
 const LINGER_NAMES: &[&str] = &["linger", "lingering"];
+
+/// True for the `loginctl` verbs that set the linger setting.
+fn linger_verb(verb: &str) -> bool {
+    verb == "enable-linger" || verb == "disable-linger"
+}
 
 /// The unit names that `systemctl` with `args` changes by a verb of [`UNIT_VERBS`], each
 /// with its suffix, or `None` for any other form: another verb, an option outside
@@ -168,8 +174,8 @@ pub(super) fn covers(words: &[String]) -> Vec<CoverAsk> {
         ("crontab", [only]) if only == "-r" || only == "-" || !only.starts_with('-') => {
             vec![CoverAsk::CronTable]
         }
-        ("loginctl", [verb]) if verb == "enable-linger" || verb == "disable-linger" => {
-            vec![CoverAsk::Linger]
+        ("loginctl", [verb, user @ ..]) if linger_verb(verb) && user.len() <= 1 => {
+            vec![CoverAsk::Linger(user.first().cloned())]
         }
         _ => Vec::new(),
     }
@@ -276,8 +282,8 @@ pub(super) fn route(
             (vec![CoverAsk::CronTable], installs, CRON_NAMES)
         }
         "loginctl" => match args {
-            [verb] if verb == "enable-linger" || verb == "disable-linger" => {
-                (vec![CoverAsk::Linger], Vec::new(), LINGER_NAMES)
+            [verb, user @ ..] if linger_verb(verb) && user.len() <= 1 => {
+                (vec![CoverAsk::Linger(user.first().cloned())], Vec::new(), LINGER_NAMES)
             }
             _ => return,
         },

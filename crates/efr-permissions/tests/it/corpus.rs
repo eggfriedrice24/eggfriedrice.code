@@ -150,7 +150,7 @@ fn persist_ask(form: &str) -> CoverAsk {
     match form.split_once(':') {
         Some(("unit", name)) => CoverAsk::UnitLinks(name.to_owned()),
         None if form == "cron" => CoverAsk::CronTable,
-        None if form == "linger" => CoverAsk::Linger,
+        None if form == "linger" => CoverAsk::Linger(None),
         _ => panic!("unknown persist form {form:?}"),
     }
 }

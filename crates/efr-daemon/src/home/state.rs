@@ -15,8 +15,10 @@
 //! word of the model. [`STATE_COPIES`] turns the copies off for every machine; the
 //! forms that need them then stay with the user.
 
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use efr_permissions::{CoverAsk, Coverage};
@@ -55,7 +57,7 @@ impl StateCopy {
     pub(crate) fn of(ask: &CoverAsk) -> Option<StateCopy> {
         match ask {
             CoverAsk::CronTable => Some(StateCopy::Crontab),
-            CoverAsk::Linger => Some(StateCopy::Linger),
+            CoverAsk::Linger(_) => Some(StateCopy::Linger),
             _ => None,
         }
     }
@@ -87,13 +89,39 @@ impl StateCopy {
 }
 
 /// Whether efrd can copy the state of `ask` before a call: only with [`STATE_COPIES`]
-/// and its program found. [`Coverage::Unknown`] for an ask of a file.
+/// and its program found, and for a linger form that names a user, only when that user
+/// is efrd's own. [`Coverage::Unknown`] for an ask of a file.
 pub(crate) fn coverage(programs: &TrustedPrograms, ask: &CoverAsk) -> Coverage {
+    if let CoverAsk::Linger(Some(user)) = ask
+        && *user != uid()
+        && Some(user.as_str()) != own_name()
+    {
+        return Coverage::NotAllowed;
+    }
     match StateCopy::of(ask) {
         None => Coverage::Unknown,
         Some(copy) if STATE_COPIES && programs.has(copy.program()) => Coverage::Covered,
         Some(_) => Coverage::NotAllowed,
     }
+}
+
+/// The user database that names efrd's own user.
+const PASSWD: &str = "/etc/passwd";
+
+/// The name of efrd's own user in [`PASSWD`], read once. `None` for a user that only a
+/// network directory knows: a linger form that names it then stays with the user.
+fn own_name() -> Option<&'static str> {
+    static NAME: OnceLock<Option<String>> = OnceLock::new();
+    NAME.get_or_init(|| name_of(&uid(), fs::read_to_string(PASSWD).ok().as_deref())).as_deref()
+}
+
+/// The name of the line of `passwd` whose uid is `uid`.
+fn name_of(uid: &str, passwd: Option<&str>) -> Option<String> {
+    passwd?.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        (fields.nth(1)? == uid).then(|| name.to_owned())
+    })
 }
 
 /// The programs that a state copy runs, and the clock of their time limit.
