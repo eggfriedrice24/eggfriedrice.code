@@ -509,14 +509,16 @@ A job can start in every mode.
   because undo of the start turn needs `--force`.
 - In `cautious` and `manual`, efr asks you before each job starts. No reviewer
   decides it. An approved job runs in the exit child with your rights.
-- In every mode, these kinds cannot run as a job: `sudo` and other ways to more
-  rights, a read of a masked file, a change of a file that runs code later (also one
+- In every mode, efr refuses a job whose line asks for one of these kinds: `sudo` and
+  other ways to more rights, a read of a masked file, a change of a file that runs code later (also one
   that you name), a desktop command that types or starts programs, the D-Bus bus, and
   a socket of a container engine or a service manager (`docker.sock`,
   `podman.sock`, `systemd/private`). The model gets `this cannot run as a job; run that
   part in the foreground, and the rest as a job`. Your yes does not change this: a job
   has no terminal for a password, and a process that such a grant starts would outlive
-  the job.
+  the job. efr reads only the line: outside `auto`, an approved job runs with your
+  rights, so a program that it starts can still do these things. Only a setuid program
+  cannot give it more rights.
 - The question of a job names its lifetime: `runs as a job for up to 60 minutes; these
   grants stay open until it ends`. Only a terminal of yours answers it, never a phone.
   While you are away, it expires as other questions do, and no job starts.
@@ -578,7 +580,9 @@ format characters. A notice never enters a running turn. It waits until the turn
   own, a wake turn, marked `🤖 (job notice, not your input)`. Its mode is the lowest of
   the mode of the job's turn, the mode of your newest prompt and the mode of the
   config. When that is not `auto`, no turn starts, and the notice rides in your next
-  prompt with `(the conversation is not in auto)`.
+  prompt with `(the conversation is not in auto)`. The config's `permissions.mode` is
+  `cautious` by default, so a wake turn starts only after you set it to `auto`. A
+  `,mode auto` in the terminal is not enough.
 - At most `jobs.max_wakes_per_hour` (6) wake turns start in a conversation in an hour,
   and `jobs.max_wakes_per_hour_daemon` (12) in all. efr counts them over restarts. 0
   means that notices never start a turn.

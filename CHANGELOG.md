@@ -133,7 +133,8 @@ into the GitHub release notes, and it stops when the section is missing.
   before it starts.
 - When a background job ends, efr tells the model with a job notice. A notice is never
   your input: it never answers a question and never counts as your permission. When
-  the conversation is idle and in `auto`, the notice starts a short turn, marked
+  the conversation is idle and in `auto`, and `permissions.mode` in the config is
+  `auto` too, the notice starts a short turn, marked
   `(job notice, not your input)`, at most `jobs.max_wakes_per_hour` times per hour in
   the conversation and `jobs.max_wakes_per_hour_daemon` times per hour in all. Such a
   turn runs at most 20 tool calls, and a job that it starts never starts another one.
@@ -230,10 +231,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - In `auto`, the model no longer hears that background processes stop when a
   command ends. It hears that it can start a job with `background: true`. `&`, `nohup`
   and `setsid` in a normal command still stop when the command ends.
-- A background job cannot use sudo, read a masked file such as `.env`, type into
-  your desktop, use the D-Bus bus or a container engine or service manager socket, or
-  change a file that runs code later, such as `~/.zshrc`. This holds in every mode,
-  also after you answer yes. The model must run such a part in the foreground. In
+- efr refuses a background job whose line asks for sudo, reads a masked file such as
+  `.env`, types into your desktop, uses the D-Bus bus or a container engine or service
+  manager socket, or changes a file that runs code later, such as `~/.zshrc`. This
+  holds in every mode, also after you answer yes. The model must run such a part in
+  the foreground. Outside `auto`, an approved job runs with your rights, so a program
+  that it starts can still do these things; only a setuid program cannot give it more
+  rights. In
   `auto`, a delete that undo covers still goes to the reviewer when it runs as a job.
 - A program that a background job of the conversation wrote since the previous turn
   started counts as changed in this turn, as one that a command of the turn wrote. A

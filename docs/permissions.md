@@ -420,7 +420,9 @@ ends. The engine decides a job as follows.
   `persistence` (also a change that a message of yours names), a desktop command that
   types or starts programs, `bus`, and a `socket` of a container engine or a service
   manager. The model gets `this cannot run as a job; run that part in the foreground,
-  and the rest as a job`. Your yes does not change this.
+  and the rest as a job`. Your yes does not change this. The engine reads only the
+  line: outside `auto`, a program that an approved job starts runs with your rights
+  and can still do these things.
 - A job's question is local only: a phone never answers it. While you are away, it
   expires, and no job starts. A `n` starts no job.
 - A job in the exit child cannot gain rights through a setuid program
@@ -432,7 +434,9 @@ ends. The engine decides a job as follows.
   started, the record says `wake_turn`, and the reviewer allows only what a message of
   yours from before that turn asks for.
 - A process of a job reaches efr's socket with `read` only, also after its launcher is
-  gone: it cannot answer a question, stop a job or change the settings.
+  gone: it cannot answer a question, stop a job or change the settings. A process of an
+  exit child job that left the job's session (`setsid`) is the exception: see
+  "Known limits" in `docs/sandbox.md`.
 
 ## How the engine reads a command line
 
