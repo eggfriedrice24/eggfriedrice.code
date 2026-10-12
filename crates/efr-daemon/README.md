@@ -525,7 +525,8 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   `Requirements::background`, so the engine asks the user before each job, and an
   approved job runs in the exit child. `jobs.enabled = false` refuses every new job.
 - The start (`DaemonToolbox::start_job`): the limits (`jobs.max_running` per
-  conversation, `jobs.max_running_daemon` in all; the refusal lists the running jobs),
+  conversation, `jobs.max_running_daemon` in all; a job that starts holds its place
+  from the check on, through `jobs::Slot`; the refusal lists the running jobs),
   the time limit (the default `jobs.default_minutes`, cut to `jobs.max_minutes`), the
   watch pattern (a regular expression of at most 200 characters, with a size limit),
   the hidden shell's environment (the `env` file that the zsh integration writes at each
@@ -534,9 +535,11 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   than the highest that the store or the table knows, so an id never repeats), and
   `SandboxService::prepare_job`: the call dir `$R/sbx/<conversation>/jobs/<call>` with
   `line` and `env`, the job plan in the spec, and the cache layers in
-  `$SBX/jobs/<call>`, so a job never holds the layer lock of a foreground call. Under
-  the plan lock: the snapshot before, the check of the covered asks, the spawn, the
-  start byte and the wait for `started`. Then the snapshot after with the roots marked
+  `$SBX/jobs/<call>`, so a job never holds the layer lock of a foreground call. From
+  there on the start runs in a task of its own, so an interrupt that drops the call
+  cannot cut it in half. Under the plan lock: the guard check of the running contained
+  jobs whose roots meet the new job's, the snapshot before, the check of the covered
+  asks, the spawn, the start byte and the wait for `started`. Then the snapshot after with the roots marked
   not complete, a second snapshot of the job's roots that the job keeps, and
   `job_started`, recorded before the call answers. The home copies of the call get no
   "after": the end of the turn names them `(a job wrote it)`, and a root of the turn
@@ -562,11 +565,13 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   `jobs.stop` for the user) or the time limit on efrd's clock. A stop sends SIGCONT and
   SIGTERM through the launcher's pidfd and SIGKILL after 6 s; every end sweeps the job's
   session (`jobs/sweep.rs`: SIGKILL through a pidfd to each process whose session is
-  the launcher's pid, never efrd's own). Then it reads the rest of the output and
+  the launcher's pid, never efrd's own; the pidfd's process must still have the
+  session and start time that the scan found). Then it reads the rest of the output and
   `result.json`, records `job_ended` (with the processes that may still run and whether
   the launcher was lost), hands the conversation's actor the notice, and removes the
-  job's dirs. A session that a process still has stays model-side; the table looks
-  again every 10 s.
+  job's dirs. A job that the model or the user stopped gets a notice that wakes no
+  turn. A session that a process still has stays model-side; the table looks again
+  every 10 s.
 - Socket peers: `methods::model_side_roots` adds each running launcher and each such
   session to the hidden shells, so a process of a job holds `read` only, also after its
   launcher is gone.
@@ -574,8 +579,11 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   every job with `daemon_stop` and records each end with no notice. At start, before the
   socket opens, each job that the last efrd left running gets `job_ended` with
   `daemon_restart`: efrd kills its launcher only when the pid's start time matches the
-  `job_started` event, sweeps its session, reads a `result.json` that the launcher left,
-  and removes every job dir. Then each actor gets the notices of the last day that no
+  `job_started` event. It sweeps the session only while it is still the job's: the
+  launcher runs with that start time, or it is gone and the boot time with its start
+  says the same boot (`sweep::sweep_left`); then only processes that started at or after
+  the launcher count. A session that a process outlived stays model-side. Then efrd
+  reads a `result.json` that the launcher left, and removes every job dir. Then each actor gets the notices of the last day that no
   turn took, which never start a turn of their own.
 - The job's files (`jobs.rs`, `efr-snapshot`'s `Snapshots::after_job`): at the job's
   end, before the job leaves the table, the snapshot of its roots right after its
@@ -585,7 +593,8 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   snapshot collector keeps the turn of each running job.
 - Undo (`jobs/undo.rs`, `Toolbox::job_blocks_undo`): `turn.undo` is `busy` while a job
   of the conversation runs (`job j3 runs; stop it first (efr jobs stop j3)`), or a job
-  of another conversation can write in a root of the turn: a contained job whose write
+  of another conversation can write in a root of a turn that the undo may act on (the
+  named turn and a half-done undo; every turn without a name or for a redo): a contained job whose write
   roots hold a root of the turn or lie in one, and every exit child job (`a job of
   another conversation writes here; stop it first (efr jobs list --all)`).
 - The guard while a job runs (`jobs/guard.rs`): `efr-sbx guard-check` for each running
