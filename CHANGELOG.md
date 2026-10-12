@@ -114,6 +114,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `jobs.max_running` jobs run per conversation and `jobs.max_running_daemon` in all.
   The model reads and stops its jobs with the tools `jobs` and `job_stop`; a `watch`
   pattern names output lines that the model must hear about.
+- efr removes the output file of a job 7 days after the job ended, and keeps at most
+  the 20 newest outputs of ended jobs per conversation.
 - New keys for background jobs: `jobs.enabled`, `jobs.default_minutes`,
   `jobs.max_minutes`, `jobs.max_running`, `jobs.max_running_daemon`,
   `jobs.max_wakes_per_hour`, `jobs.max_wakes_per_hour_daemon`,

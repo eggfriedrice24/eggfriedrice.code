@@ -189,6 +189,9 @@ pub(crate) struct DaemonToolbox {
     jobs: Option<JobTable>,
     /// The environment that a test gives every job in place of the hidden shell's.
     job_env: Option<BTreeMap<String, String>>,
+    /// The wake turns of every conversation in the last hour, for
+    /// `jobs.max_wakes_per_hour_daemon`.
+    wakes: Arc<crate::jobs::wakes::DaemonWakes>,
 }
 
 /// What the facts of one call said efr covers: its turn and each ask with its answer.
@@ -246,7 +249,15 @@ impl DaemonToolbox {
             programs: TrustedPrograms::none(),
             jobs: None,
             job_env: None,
+            wakes: Arc::default(),
         }
+    }
+
+    /// Counts the wake turns of `starts`, which the store recorded in the last hour,
+    /// for the daemon-wide limit of such turns.
+    pub(crate) fn with_wake_starts(mut self, starts: Vec<jiff::Timestamp>) -> Self {
+        self.wakes = Arc::new(crate::jobs::wakes::DaemonWakes::seeded(starts));
+        self
     }
 
     /// Starts background jobs on `jobs`; a test gives each job `job_env` in place of
@@ -1527,6 +1538,15 @@ impl Toolbox for DaemonToolbox {
     ) -> Option<efr_conversation::UndoBusyReason> {
         let jobs = self.jobs.as_ref()?;
         crate::jobs::undo::blocker(jobs, self.snapshots.as_ref(), conversation_id, turn_id).await
+    }
+
+    fn wake_allowed(&self, conversation_id: ConversationId) -> bool {
+        let limit = self.settings.borrow().jobs.max_wakes_per_hour_daemon;
+        let allowed = self.wakes.take(self.clock.now(), limit);
+        if !allowed {
+            tracing::info!(%conversation_id, limit, "the daemon-wide limit of job notice turns holds a notice");
+        }
+        allowed
     }
 
     fn call_runs(&self, conversation_id: ConversationId) -> bool {

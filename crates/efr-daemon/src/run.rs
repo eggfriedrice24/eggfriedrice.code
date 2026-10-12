@@ -566,7 +566,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         dirs.runtime().to_path_buf(),
     ])
     .with_programs(programs)
-    .with_jobs(jobs.clone(), job_seams.job_env());
+    .with_jobs(jobs.clone(), job_seams.job_env())
+    .with_wake_starts(wake_starts(&readers, clock.now()).await);
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
@@ -830,6 +831,23 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
         }
         let backups = state.dirs.data().join(backups::FILE_BACKUPS_DIR);
         backups::collect(&backups, keep_turns, max_age, now).await;
+        let outputs = crate::jobs::retention::collect(&state.readers, state.clock.now()).await;
+        if outputs > 0 {
+            tracing::debug!(outputs, "removed the outputs of old jobs");
+        }
+    }
+}
+
+/// When the turns that job notices started began in the last hour before `now`, in
+/// every conversation, from the store; none when it cannot be read.
+async fn wake_starts(readers: &efr_store::Readers, now: jiff::Timestamp) -> Vec<jiff::Timestamp> {
+    let since = now - jiff::SignedDuration::from_hours(1);
+    match readers.with(move |conn| efr_store::jobs::wake_starts_since(conn, None, since)).await {
+        Ok(starts) => starts,
+        Err(error) => {
+            tracing::warn!(%error, "the wake turns of the last hour could not be read");
+            Vec::new()
+        }
     }
 }
 

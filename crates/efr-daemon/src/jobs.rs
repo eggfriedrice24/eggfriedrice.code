@@ -49,8 +49,10 @@ use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 pub(crate) mod guard;
 pub(crate) mod launch;
 pub(crate) mod output;
+pub(crate) mod retention;
 pub(crate) mod sweep;
 pub(crate) mod undo;
+pub(crate) mod wakes;
 
 pub(crate) use launch::SpawnEnv;
 pub(crate) use output::Matcher;
