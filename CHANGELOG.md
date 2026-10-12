@@ -237,8 +237,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `auto`, a delete that undo covers still goes to the reviewer when it runs as a job.
 - A program that a background job of the conversation wrote since the previous turn
   started counts as changed in this turn, as one that a command of the turn wrote. A
-  program whose change time a command set back still counts as changed: efr also
-  reads its status time.
+  program whose modification time (mtime) a command set back still counts as changed:
+  efr also reads its change time (ctime).
 - `efr undo` refuses while a background job of the conversation runs, or a job of
   another conversation can write in the same project, and names it. A job outside the
   sandbox can write everywhere, so it blocks every undo. The refusal says: `job j3 runs;

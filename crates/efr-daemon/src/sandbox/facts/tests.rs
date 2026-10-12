@@ -200,8 +200,8 @@ async fn a_unit_source_reads_its_also_units_and_the_links_on_the_way() {
     ));
 }
 
-/// A job can set the change time of a program back (`touch -d`), but not its status
-/// time: the program still counts as changed.
+/// A job can set the modification time (mtime) of a program back (`touch -d`), but not
+/// its change time (ctime): the program still counts as changed.
 #[test]
 fn program_with_mtime_set_back_counts_as_changed() {
     let dir = tempfile::tempdir().unwrap();

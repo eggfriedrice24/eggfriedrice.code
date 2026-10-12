@@ -597,8 +597,8 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   `result.json` gets the check before its dirs go.
 - Programs that a job wrote (`jobs/since.rs`, `sandbox/facts.rs`): a program counts as
   changed in a turn from the earliest of the turn's start and the start of each job of
-  the conversation that ran since the previous turn started, by its change time or its
-  status time.
+  the conversation that ran since the previous turn started, by its modification time
+  (mtime) or its change time (ctime).
 - The daemon-wide limit of wake turns (`jobs/wakes.rs`): `Toolbox::wake_allowed` counts
   the wake turns of every conversation in the last hour against
   `jobs.max_wakes_per_hour_daemon`, seeded at start from the store's wake turns.
@@ -689,7 +689,7 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   clean environment. With no such program the state copies are off and the forms stay
   with the user. For the facts of such a form, `sandbox/facts.rs` reads each file that
   it installs (`FactRequest::sources`): the real file behind every link, whether its
-  change or status time is in the turn, and its text when it is UTF-8 and at most
+  mtime or ctime is in the turn, and its text when it is UTF-8 and at most
   8 KiB, never a mask or a secret. A test daemon finds no program: only
   `Deps::with_trusted_program_dir` of the feature `test-sandbox-fake` names a dir of
   fakes.

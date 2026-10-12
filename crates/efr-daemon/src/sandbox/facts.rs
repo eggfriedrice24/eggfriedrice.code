@@ -1,8 +1,8 @@
 //! The facts about a shell line's files and programs that the engine reads in `auto`
 //! (efr's auto spec, section 7.2): whether each target exists and what it is, how many
 //! files git tracks below each `rm -r` directory, and where each program word leads and
-//! whether that file changed in this turn: its change or status time at or after the
-//! turn's start, or the start of a background job of the conversation that ran since
+//! whether that file changed in this turn: its modification time (mtime) or change
+//! time (ctime) at or after the turn's start, or the start of a background job of the conversation that ran since
 //! the previous turn started (`jobs/since.rs`). A word that the shell runs itself, a zsh
 //! builtin or reserved word such as `:` or `cd` ([`FactRequest::builtins`]), leads to
 //! [`BUILTIN`], not to a file. `efr-permissions` reads no file, so efrd collects them
@@ -14,8 +14,8 @@
 //!
 //! For a persistence form whose content is another file (plan PB19a), it also reads
 //! each source that the engine names ([`FactRequest::sources`]): the real file behind
-//! every link, whether it changed in this turn (its change or status time at or after
-//! the turn's start), and its text when it is UTF-8 and at most 8 KiB. A unit name
+//! every link, whether it changed in this turn (its mtime or ctime at or after the
+//! turn's start), and its text when it is UTF-8 and at most 8 KiB. A unit name
 //! leads to its file in the user unit dirs (`sandbox/units.rs`). A mask or a secret is
 //! never read.
 
@@ -177,9 +177,9 @@ pub(crate) fn resolve_program(word: &str, dir: Option<&Path>, path: &str) -> Opt
         .map(|found| std::fs::canonicalize(&found).unwrap_or(found))
 }
 
-/// True when `path` was changed at or after `since`: its change time or its status
-/// time. A process can set the change time of a file it wrote back (`touch -d`), but
-/// no process without privilege can set its status time.
+/// True when `path` was changed at or after `since`: its modification time (mtime) or
+/// its change time (ctime). A process can set the mtime of a file it wrote back
+/// (`touch -d`), but no process without privilege can set its ctime.
 pub(crate) fn changed_since(path: &Path, since: Timestamp) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return true };
     match meta.modified().ok().and_then(|time| Timestamp::try_from(time).ok()) {
@@ -274,8 +274,8 @@ fn link_changed_since(path: &Path, since: Timestamp) -> bool {
     true
 }
 
-/// True when the status of the file of `meta` changed at or after `since`: a copy that
-/// kept an old change time still has a new status time.
+/// True when the change time (ctime) of the file of `meta` is at or after `since`: a
+/// copy that kept an old mtime still has a new ctime.
 fn status_changed_since(meta: &std::fs::Metadata, since: Timestamp) -> bool {
     // NOTE: whole seconds, so a change in the turn's first second counts too.
     std::os::unix::fs::MetadataExt::ctime(meta) >= since.as_second()
