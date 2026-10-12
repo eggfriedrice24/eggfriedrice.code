@@ -537,6 +537,24 @@ async fn undo_of_named_floor_edit_restores_bytes() {
 }
 
 #[tokio::test]
+async fn undo_preview_skips_a_home_file_changed_after_the_turn() {
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let zshrc = dirs.home().join(".zshrc");
+    std::fs::write(&zshrc, "alias ll='ls -l'\n").unwrap();
+    let write = json!({ "path": zshrc, "content": "alias k=kubectl\n" });
+    let model = ScriptedModel::reviewed(vec![("write_file", write)], REVIEWER_ALLOWS);
+    let daemon = reviewed_daemon(&dirs, model).await;
+    run_turn(&daemon, "add alias k=kubectl to my zshrc", Mode::Auto, ApprovalDecision::Deny).await;
+    std::fs::write(&zshrc, "alias k=kubectl\nalias mine=true\n").unwrap();
+
+    let preview = undo(&daemon, 10, |p| p.dry_run = true).await.unwrap();
+
+    assert_eq!(preview.entries, [skip("~/.zshrc", UndoReason::ChangedAfterTurn)]);
+    assert_eq!(read(&zshrc), "alias k=kubectl\nalias mine=true\n", "a dry run writes nothing");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn undo_of_write_file_outside_roots() {
     let dirs = Arc::new(TestDirs::new().unwrap());
     let notes = dirs.home().join("Documents/notes.md");

@@ -169,7 +169,8 @@ impl DaemonToolbox {
         result.undo_id = parse_undo_id(&plan.undo_id);
         result.resumed = plan.resumed;
         if params.dry_run {
-            self.describe(&mut result, &plan, None);
+            let seen = self.home_now(&plan).await;
+            self.describe(&mut result, &plan, None, &seen);
             return Ok(result);
         }
         if !plan_acts(&plan) {
@@ -179,7 +180,8 @@ impl DaemonToolbox {
             if plan.resumed {
                 result.applied = self.finish(store, &plan, limits).await;
             }
-            self.describe(&mut result, &plan, None);
+            let seen = self.home_now(&plan).await;
+            self.describe(&mut result, &plan, None, &seen);
             return Ok(result);
         }
         let applied = self.apply(&plan, limits).await;
@@ -197,7 +199,7 @@ impl DaemonToolbox {
             tracing::warn!(error = %efr_stdx::with_causes(&error), undo = %plan.undo_id, "the journal of an undo that wrote nothing could not be removed");
         }
         result.stopped = stopped && wrote;
-        self.describe(&mut result, &plan, Some(&applied));
+        self.describe(&mut result, &plan, Some(&applied), &[]);
         Ok(result)
     }
 
@@ -584,7 +586,32 @@ impl DaemonToolbox {
     }
 
     /// Fills `result` with what `plan` does, and with `applied`, what it did.
-    fn describe(&self, result: &mut TurnUndoResult, plan: &UndoPlan, applied: Option<&Applied>) {
+    /// What each home step of `plan` finds now, for a preview: [`Done::Changed`] for a
+    /// file or a state that is no longer what the turn left, which the apply would leave
+    /// as it is. `None` where the apply decides, such as a path that efrd cannot read.
+    async fn home_now(&self, plan: &UndoPlan) -> Vec<Option<Done>> {
+        let mut seen = Vec::with_capacity(plan.home.steps.len());
+        for step in &plan.home.steps {
+            let changed = if !step.acts() {
+                false
+            } else if let Some(copy) = StateCopy::from_path(&step.path) {
+                state::changed_after(step, &state::read(self.state_runner(), copy).await)
+            } else {
+                let step = step.clone();
+                tokio::task::spawn_blocking(move || home_file_changed(&step)).await.unwrap_or(false)
+            };
+            seen.push(changed.then_some(Done::Changed));
+        }
+        seen
+    }
+
+    fn describe(
+        &self,
+        result: &mut TurnUndoResult,
+        plan: &UndoPlan,
+        applied: Option<&Applied>,
+        seen: &[Option<Done>],
+    ) {
         let home = self.home.path().to_path_buf();
         let mut entries: Vec<UndoEntry> = Vec::new();
         let mut git = false;
@@ -625,7 +652,10 @@ impl DaemonToolbox {
             }
         }
         for (n, step) in plan.home.steps.iter().enumerate() {
-            let done = applied.and_then(|applied| applied.home.get(n)).copied();
+            let done = match applied {
+                Some(applied) => applied.home.get(n).copied(),
+                None => seen.get(n).copied().flatten(),
+            };
             writes |= step.acts();
             let path = match step.path.strip_prefix(&home) {
                 Ok(below) if step.path.is_absolute() => format!("~/{}", below.display()),
@@ -813,6 +843,21 @@ fn parse_undo_id(shown: &str) -> Option<UndoId> {
 /// A short object id.
 fn short(id: &ObjectId) -> String {
     id.as_str().chars().take(12).collect()
+}
+
+/// True when the home file of `step` is no longer what the turn left, as the apply
+/// checks it before a write, with no write. False when efrd cannot tell.
+fn home_file_changed(step: &HomeStep) -> bool {
+    let Ok(relative) = step.path.strip_prefix("/") else { return false };
+    let Ok(top) = Beneath::open(Path::new("/")) else { return false };
+    match top.parent(relative, None) {
+        Err(error) => moved_away(&error),
+        Ok(None) => step.expect != Expect::Missing,
+        Ok(Some((parent, name))) => {
+            let now = parent.node(&name, MAX_READ_BYTES).unwrap_or(Node::Other);
+            !matches_expect(&now, &step.expect)
+        }
+    }
 }
 
 /// One row of the result for a root path.

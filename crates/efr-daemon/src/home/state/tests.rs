@@ -180,7 +180,11 @@ async fn crontab_changed_after_turn_is_a_conflict() {
         .turn(StateCopy::Crontab, || machine.set("crontab.state", Some("* * * * * x\n")))
         .await;
 
+    let now = state::read(machine.runner(), StateCopy::Crontab).await;
+    assert!(!state::changed_after(&step, &now), "the crontab is what the turn left");
     machine.set("crontab.state", Some("* * * * * mine\n"));
+    let now = state::read(machine.runner(), StateCopy::Crontab).await;
+    assert!(state::changed_after(&step, &now), "the preview shows a skip");
     let (undone, kept) = machine.undo(&step).await;
 
     assert_eq!(undone, Undone::Changed);

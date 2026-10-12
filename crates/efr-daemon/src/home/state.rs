@@ -189,6 +189,33 @@ pub(crate) enum Undone {
     Changed,
 }
 
+/// The state that `now` read: `Some(None)` when it is missing, `None` when efrd could
+/// not read it.
+fn current(now: &(HomeEntry, Option<Vec<u8>>)) -> Option<Option<&[u8]>> {
+    match (&now.0.state, &now.1) {
+        (HomeState::Missing, _) => Some(None),
+        (HomeState::State, Some(text)) => Some(Some(text.as_slice())),
+        _ => None,
+    }
+}
+
+/// True when the state `current` is what the turn left, as `expect` says.
+fn expected(expect: &Expect, current: Option<&[u8]>) -> bool {
+    match (expect, current) {
+        (Expect::Any, _) => true,
+        (Expect::Missing, None) => true,
+        (Expect::Blob(id), Some(text)) => blob_id(text) == *id,
+        _ => false,
+    }
+}
+
+/// True when the state that `now` read is no longer what the turn left, so undo will
+/// leave it (the preview of `efr undo` shows it as a skip). False when efrd could not
+/// read it: the apply decides then.
+pub(crate) fn changed_after(step: &HomeStep, now: &(HomeEntry, Option<Vec<u8>>)) -> bool {
+    current(now).is_some_and(|current| !expected(&step.expect, current))
+}
+
 /// Sets the state of `step` back, when it is what the step expects: `bytes` is the
 /// state before the turn (the step's blob), `None` for a missing crontab. `now` is the
 /// state that [`read`] found just before. Before it changes a crontab, `keep` gets the
@@ -201,12 +228,7 @@ pub(crate) async fn undo(
     keep: impl FnOnce(&[u8]) -> io::Result<()>,
 ) -> io::Result<Undone> {
     let Some(copy) = StateCopy::from_path(&step.path) else { return Ok(Undone::Changed) };
-    let current = match (&now.0.state, &now.1) {
-        (HomeState::Missing, _) => Some(None),
-        (HomeState::State, Some(text)) => Some(Some(text.as_slice())),
-        _ => None,
-    };
-    let Some(current) = current else { return Ok(Undone::Changed) };
+    let Some(current) = current(now) else { return Ok(Undone::Changed) };
     let target = match (&step.write, &bytes) {
         (HomeState::State, Some(text)) => Some(text.as_slice()),
         (HomeState::Missing, _) => None,
@@ -215,13 +237,7 @@ pub(crate) async fn undo(
     if current == target {
         return Ok(Undone::Applied);
     }
-    let expected = match (&step.expect, current) {
-        (Expect::Any, _) => true,
-        (Expect::Missing, None) => true,
-        (Expect::Blob(id), Some(text)) => blob_id(text) == *id,
-        _ => false,
-    };
-    if !expected {
+    if !expected(&step.expect, current) {
         return Ok(Undone::Changed);
     }
     let (args, input): (Vec<String>, Option<&[u8]>) = match (copy, target) {
