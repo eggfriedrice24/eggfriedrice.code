@@ -152,6 +152,11 @@ into the GitHub release notes, and it stops when the section is missing.
   job notice started shows `🤖 (job notice, not your input)`, in the view and in `efr
   history`. `efr history --verbose` adds the last lines of a job's output and the text
   of each notice.
+- In a terminal that does not follow the conversation, the next prompt shows one line
+  when a job ends, such as `efr: job j3 ended (exit 0): <title>`, and when a job notice
+  waits for your next prompt, such as `efr: job j3 waits for your next prompt: <title>;
+  no wake turn (wake limit reached)`. The line also names a lost launcher and the
+  processes of the job that may still run.
 - In the input row of a followed turn, Ctrl+X stops the newest running job of the
   conversation. It asks first: `stop job j3 (npm run dev)`, `y` yes, `n` no. With no
   running job it says `no job runs`. Esc still stops only the turn, never a job.
@@ -234,7 +239,8 @@ into the GitHub release notes, and it stops when the section is missing.
   program whose change time a command set back still counts as changed: efr also
   reads its status time.
 - `efr undo` refuses while a background job of the conversation runs, or a job of
-  another conversation can write in the same project, and names it: `job j3 runs;
+  another conversation can write in the same project, and names it. A job outside the
+  sandbox can write everywhere, so it blocks every undo. The refusal says: `job j3 runs;
   stop it first (efr jobs stop j3)`. When a job ends, its file changes join the turn
   that started it, and the undo of that turn needs `--force`. A file that a later turn
   changed in the meantime stays with that turn. Snapshots leave `$SCRATCH/jobs` out.
