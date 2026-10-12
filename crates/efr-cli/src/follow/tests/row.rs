@@ -1451,3 +1451,31 @@ async fn a_prompt_behind_a_turn_that_a_job_notice_started_says_so() {
         readable(&out)
     );
 }
+
+#[tokio::test]
+async fn a_stop_asked_as_the_turn_ends_still_reaches_efrd() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, _, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.press(CTRL_X).await;
+        jobs_listed(&mut conn, vec![job(3, "npm run dev")]).await;
+        shows(&seen, "stop job j3").await;
+        keys.press(b'y').await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        // The command waits for the stop before it ends: a dropped request would be
+        // cancelled on the daemon.
+        let (id, method) = request_after_cancels(&mut conn).await;
+        let Method::JobsStop(params) = method else {
+            panic!("expected jobs.stop, got {}", method.name());
+        };
+        assert_eq!(params.job_id, JobId::nth(3));
+        let mut stopped = job(3, "npm run dev");
+        stopped.state = JobState::Stopped;
+        conn.reply(id, &JobsStopResult { job: stopped }).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+}

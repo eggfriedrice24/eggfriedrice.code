@@ -548,7 +548,9 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   `✓ stopping job j3`, `n` or Esc leaves `✗ job j3 runs on`, and other keys wait. efrd
   answers `jobs.stop` when the job ended, so the loop waits for the answer beside the
   events, and the end shows from the job's `job_ended`; a refusal shows `job j3 was not
-  stopped: <reason>`. A question of the turn takes the keys from this card. The key
+  stopped: <reason>`. A dropped request is cancelled on the daemon, so when the turn
+  ends first, the command waits up to 10 s for that answer before it ends. A question
+  of the turn takes the keys from this card. The key
   never interrupts the turn, and Esc never stops a job.
 - Esc sends `turn.interrupt` with the unread steers of this view (`resend_steers`),
   this terminal's context, last command and settings for them (`resend_as`, as Enter

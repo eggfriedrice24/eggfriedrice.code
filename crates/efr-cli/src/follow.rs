@@ -146,6 +146,10 @@ const MAX_RECONNECTS: u32 = 3;
 /// anyway.
 const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// How long the command waits at its end for the stop of a job that the user asked
+/// for: efrd answers when the job ended, at most about 6 s after the stop.
+const STOP_WAIT: Duration = Duration::from_secs(10);
+
 /// How long a shell call that reports no wait prints nothing before the view offers
 /// `Ctrl+\` to type an input for it.
 pub(crate) const SILENCE: Duration = Duration::from_secs(10);
@@ -220,6 +224,28 @@ pub(crate) async fn follow(
     // written or the process exits, whichever way the loop ended.
     if let Some((keys, asking)) = follower.keys.take() {
         stop_into(keys, &asking, view).await;
+    }
+    // NOTE: a dropped request is cancelled on the daemon, so a stop that the user asked
+    // for is waited for before the command ends, also after Ctrl+C or the turn's end.
+    if let Some((job, answer)) = follower.stopping.take() {
+        let note = match ctx.clock.timeout(STOP_WAIT, answer).await {
+            Ok(Ok(_)) => None,
+            Ok(Err(ClientError::Server { body })) => Some(format!(
+                "job {job} was not stopped: {}",
+                crate::format::one_line(&body.message)
+            )),
+            Ok(Err(error)) => Some(format!(
+                "job {job} was not stopped: {}",
+                crate::format::one_line(&error.to_string())
+            )),
+            Err(_) => {
+                Some(format!("efrd did not confirm the stop of job {job}; efr jobs shows it"))
+            }
+        };
+        if let Some(note) = note {
+            let step = view.note(&note, ctx.screen.size());
+            follower.show(out, view, &step)?;
+        }
     }
     if let Err(error) = &result {
         // The last frame shows the cursor again and clears the progress bar before the
