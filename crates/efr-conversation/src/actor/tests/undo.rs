@@ -299,6 +299,7 @@ async fn undo_refuses_while_a_job_runs() {
         title: Some("first".to_owned()),
         ended: None,
         stopped: false,
+        wake: false,
     };
 
     let undo = params(&mut h);

@@ -512,6 +512,8 @@ pub struct UndoCandidate {
     pub ended: Option<jiff::Timestamp>,
     /// True when efrd stopped while the turn ran.
     pub stopped: bool,
+    /// True when a job notice started the turn (a wake turn).
+    pub wake: bool,
 }
 
 /// What [`Toolbox::undo`] gets: the request of `turn.undo` with the turns of the

@@ -620,6 +620,10 @@ call also changed stays with that call's turn. A job's copies of files outside t
 project have no "after" copy, so undo lists them as `not covered (a job wrote it)`, and
 `--force` brings back the state before the job.
 
+A job's end starts a wake turn. When that wake turn changed nothing, `efr undo` with no
+`--turn` passes over it and takes back the job's turn, and the wake turn does not count
+as a newer turn that blocks the undo.
+
 ## Undo
 
 `efr undo` takes back the newest turn of this terminal's conversation that is not
@@ -642,7 +646,9 @@ undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193...
   made between two calls stays. A change that another conversation or you made while
   a call ran counts as the call's change, so its old bytes go to the undo trash.
 - A path that changed after the turn stays, and the preview says `skip`. `--force`
-  overwrites it. A path that a snapshot left out, such as a large ignored file, is
+  overwrites it. When only `--force` acts on any row of the preview, `efr undo`
+  without it changes nothing, does not ask, and fails with a hint to use `--force`.
+  A path that a snapshot left out, such as a large ignored file, is
   `not covered`: undo never writes, deletes or trashes it.
 - Every file that undo overwrites or removes, also outside the project, goes to
   `~/.local/share/efr/undo-trash/<undo-id>/` first. A file that undo makes again gets

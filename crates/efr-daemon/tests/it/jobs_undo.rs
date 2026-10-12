@@ -258,3 +258,58 @@ async fn undo_waits_for_job_of_other_conversation() {
     assert_eq!(rows, [("a.txt", UndoAction::Trash)], "the other conversation's job.txt stays");
     daemon.stop().await.unwrap();
 }
+
+/// Step 12 of the phase C live test: the job's end starts a wake turn that writes the
+/// job's file with the bytes that it has, so the turn has snapshots and changes nothing. `efr undo` passes over that wake turn and takes back
+/// the job's turn, with `force` for the job's file.
+#[tokio::test]
+async fn undo_passes_over_wake_turn_that_changed_nothing() {
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let gate = fifo(&dirs, "go");
+    let model = Script::new(vec![
+        job_writing(&gate),
+        None,
+        // The wake turn writes what the job wrote.
+        Some(("write_file", json!({ "path": "job.txt", "content": "hi\n" }))),
+        None,
+    ]);
+    let daemon = start(&dirs, model).await;
+    let (sent, _) = run_turn_with(
+        &daemon,
+        TTY,
+        1,
+        "write job.txt as a job",
+        Mode::Auto,
+        ApprovalDecision::Deny,
+    )
+    .await;
+    // NOTE: a turn id holds the clock's time, so the wake turn sorts after the job's
+    // turn as in a real run.
+    daemon.clock().advance(std::time::Duration::from_secs(1));
+    release(&gate).await;
+    let client = daemon.client().await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let mut ends = 0;
+    let events = events_until(&mut follow, |event| {
+        if matches!(event, Event::TurnCompleted { .. }) {
+            ends += 1;
+        }
+        ends == 2
+    })
+    .await
+    .unwrap();
+    let woke =
+        events.iter().any(|envelope| matches!(envelope.event, Event::JobNotice { woke: true, .. }));
+    assert!(woke, "the job's end started a wake turn");
+    let ran =
+        events.iter().any(|envelope| matches!(&envelope.event, Event::ToolCallCompleted { .. }));
+    assert!(ran);
+
+    let preview = undo_once_free(&daemon, TTY, 20, false).await;
+    assert_eq!(preview.turn_id, Some(sent.turn_id), "{preview:?}");
+    let forced = undo_once_free(&daemon, TTY, 40, true).await;
+    assert_eq!(forced.turn_id, Some(sent.turn_id));
+    let row = forced.entries.iter().find(|entry| entry.path.ends_with("job.txt")).unwrap();
+    assert_eq!(row.action, UndoAction::Trash, "{row:?}");
+    daemon.stop().await.unwrap();
+}

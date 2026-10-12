@@ -101,6 +101,7 @@ fn turn_undo_lists_a_stopped_turn() {
             title: Some("fix the test".to_owned()),
             ended: Some(at(5)),
             stopped: false,
+            wake: false,
         })
     );
     let stopped =
@@ -112,6 +113,7 @@ fn turn_undo_lists_a_stopped_turn() {
             title: Some("build it".to_owned()),
             ended: None,
             stopped: true,
+            wake: false,
         })
     );
     for (status, started) in [

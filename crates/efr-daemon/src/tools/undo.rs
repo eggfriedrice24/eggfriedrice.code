@@ -145,7 +145,8 @@ impl DaemonToolbox {
                 other => failed(&other),
             })?
         } else {
-            let turn = pick(&request, &turns)?;
+            let empty = self.empty_wake_turns(&request, &turns, &paths, limits).await;
+            let turn = pick(&request, &turns, &empty)?;
             let undo_id = request.undo_id.shown();
             self.planned(&paths, |roots| {
                 let undo_id = undo_id.clone();
@@ -201,6 +202,50 @@ impl DaemonToolbox {
         result.stopped = stopped && wrote;
         self.describe(&mut result, &plan, Some(&applied), &[]);
         Ok(result)
+    }
+
+    /// The newest turns of `request`'s candidates, newest first, that a job notice
+    /// started and that have nothing to undo, up to the first other turn. Their job's
+    /// writes join the job's own turn (PC27), so `efr undo` with no turn passes over
+    /// them to that turn, and they do not hold it back as a later turn. The check
+    /// plans each with `force`: a change that came after the turn still counts.
+    async fn empty_wake_turns(
+        &self,
+        request: &UndoRequest,
+        turns: &[TurnRefs],
+        paths: &[PathBuf],
+        limits: Limits,
+    ) -> HashSet<TurnId> {
+        let mut empty = HashSet::new();
+        let Some(snapshots) = &self.snapshots else { return empty };
+        let store = snapshots.store();
+        let conversation = request.conversation_id;
+        let undo_id = request.undo_id.shown();
+        for refs in turns.iter().filter(|refs| !refs.undone) {
+            let wake = request
+                .candidates
+                .iter()
+                .any(|candidate| candidate.turn_id == refs.turn && candidate.wake);
+            if !wake || refs.started_undo.is_some() {
+                break;
+            }
+            let turn = refs.turn;
+            let plan = self
+                .planned(paths, |roots| {
+                    let undo_id = undo_id.clone();
+                    async move {
+                        store.plan_undo(conversation, turn, &roots, true, &undo_id, limits).await
+                    }
+                })
+                .await;
+            match plan {
+                Ok(plan) if !plan_acts(&plan) => {
+                    empty.insert(turn);
+                }
+                _ => break,
+            }
+        }
+        empty
     }
 
     /// Records the end of the undo or redo `plan`; false, with a line in the log, when
@@ -713,9 +758,14 @@ fn failed(error: &SnapshotError) -> UndoRefused {
 }
 
 /// The turn that `request` undoes: an undo that stopped half way first (PB37), else
-/// the named turn, else the newest turn of the candidates that no undo undid. Undo is a
-/// stack: a newer turn that is not undone refuses, unless `force`.
-fn pick(request: &UndoRequest, turns: &[TurnRefs]) -> Result<TurnId, UndoRefused> {
+/// the named turn, else the newest turn of the candidates that no undo undid and that
+/// is not in `empty` (wake turns with nothing to undo). Undo is a stack: a newer turn
+/// that is not undone refuses, unless `force`; a turn of `empty` never refuses.
+fn pick(
+    request: &UndoRequest,
+    turns: &[TurnRefs],
+    empty: &HashSet<TurnId>,
+) -> Result<TurnId, UndoRefused> {
     let candidates: HashSet<TurnId> =
         request.candidates.iter().map(|candidate| candidate.turn_id).collect();
     if let Some(open) = turns.iter().find(|refs| refs.started_undo.is_some()) {
@@ -733,12 +783,16 @@ fn pick(request: &UndoRequest, turns: &[TurnRefs]) -> Result<TurnId, UndoRefused
         None => {
             turns
                 .iter()
-                .find(|refs| !refs.undone && candidates.contains(&refs.turn))
+                .find(|refs| {
+                    !refs.undone && candidates.contains(&refs.turn) && !empty.contains(&refs.turn)
+                })
                 .ok_or(UndoRefused::NothingToUndo)?
                 .turn
         }
     };
-    if let Some(newer) = stack_blocker(turns, turn)
+    let stack: Vec<TurnRefs> =
+        turns.iter().filter(|refs| !empty.contains(&refs.turn)).cloned().collect();
+    if let Some(newer) = stack_blocker(&stack, turn)
         && !request.params.force
     {
         return Err(UndoRefused::LaterTurnsNotUndone { turn_id: newer });

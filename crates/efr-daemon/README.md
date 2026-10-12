@@ -764,6 +764,10 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
 - Undo (`tools/undo.rs`, `Toolbox::undo`): `efr-snapshot` plans; efrd writes. It
   refuses with `undo.enabled = false`, from a phone, while a newer turn is not undone
   (unless `force`), and lists the turns. An undo that stopped half way resumes first.
+  With no turn named, it passes over the newest wake turns (`UndoCandidate::wake`)
+  whose plan with `force` acts on nothing (`empty_wake_turns`): their job's writes
+  join the job's own turn, so that turn is the one to take back, and those wake turns
+  do not block it as newer turns.
   The apply holds the plan lock of each root of the plan for all of it: the "before"
   snapshot and the journal ref, then for each path a fresh read and a compare with
   what the plan expects (git's blob id), a copy of what is there into

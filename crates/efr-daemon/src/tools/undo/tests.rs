@@ -98,6 +98,7 @@ fn request(turns: &[u128], undo: u128, change: impl FnOnce(&mut TurnUndo)) -> Un
                 title: Some(format!("turn {turn}")),
                 ended: None,
                 stopped: false,
+                wake: false,
             })
             .collect(),
         params,
@@ -178,6 +179,54 @@ async fn undo_restores_modified_and_trashes_created() {
         files_below(&trash).into_iter().map(|(_, text, _)| text).collect();
     assert_eq!(kept_files, ["new\n", "made\n"], "what undo overwrote or removed, by path");
     assert!(trash.starts_with(root.join("d/undo-trash")));
+}
+
+/// The request of [`request`] with the turns of `wake` marked as wake turns.
+fn with_wake(mut request: UndoRequest, wake: &[u128]) -> UndoRequest {
+    for candidate in &mut request.candidates {
+        candidate.wake = wake.iter().any(|turn| candidate.turn_id == TurnId::from_uuid(id(*turn)));
+    }
+    request
+}
+
+/// A job's turn wrote a file, and the wake turn of its end changed nothing: `efr undo`
+/// with no turn passes over the wake turn and takes back the job's turn.
+#[tokio::test]
+async fn undo_passes_over_empty_wake_turn() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = scratch(&kept);
+    std::fs::write(scratch.join("a.txt"), "old\n").unwrap();
+    write_turn(&kept, 2, &[(&scratch.join("a.txt"), "new\n")]).await;
+    // The wake turn writes what is there already.
+    write_turn(&kept, 3, &[(&scratch.join("a.txt"), "new\n")]).await;
+
+    let preview = with_wake(request(&[2, 3], 1, |params| params.dry_run = true), &[3]);
+    let preview = kept.toolbox.undo(preview).await.unwrap();
+    assert_eq!(preview.turn_id, Some(TurnId::from_uuid(id(2))), "{preview:?}");
+    let done = kept.toolbox.undo(with_wake(request(&[2, 3], 1, |_| {}), &[3])).await.unwrap();
+    assert!(done.applied, "{done:?}");
+    assert_eq!(done.turn_id, Some(TurnId::from_uuid(id(2))));
+    assert_eq!(read(&scratch.join("a.txt")), "old\n");
+}
+
+/// The rule holds only for wake turns: a turn of a prompt that changed nothing stays
+/// the newest turn, and a wake turn that changed a file is taken back first.
+#[tokio::test]
+async fn undo_takes_wake_turn_that_changed_something() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = scratch(&kept);
+    std::fs::write(scratch.join("a.txt"), "old\n").unwrap();
+    write_turn(&kept, 2, &[(&scratch.join("a.txt"), "new\n")]).await;
+    write_turn(&kept, 3, &[(&scratch.join("a.txt"), "new\n")]).await;
+    let prompt = kept.toolbox.undo(request(&[2, 3], 1, |params| params.dry_run = true)).await;
+    assert_eq!(prompt.unwrap().turn_id, Some(TurnId::from_uuid(id(3))));
+
+    write_turn(&kept, 4, &[(&scratch.join("b.txt"), "made\n")]).await;
+    let preview = with_wake(request(&[2, 3, 4], 1, |params| params.dry_run = true), &[4]);
+    let preview = kept.toolbox.undo(preview).await.unwrap();
+    assert_eq!(preview.turn_id, Some(TurnId::from_uuid(id(4))));
 }
 
 #[tokio::test]

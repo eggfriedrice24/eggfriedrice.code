@@ -113,6 +113,7 @@ pub(crate) fn candidates(turns: &[Turn]) -> Vec<UndoCandidate> {
         .rev()
         .filter_map(|turn| {
             candidate(turn.id, &turn.prompt, turn.status, turn.started_at, turn.ended_at)
+                .map(|candidate| UndoCandidate { wake: turn.wake, ..candidate })
         })
         .collect()
 }
@@ -131,7 +132,13 @@ pub(crate) fn candidate(
     }
     let stopped = status == TurnStatus::Cancelled;
     let title = prompt.lines().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned);
-    Some(UndoCandidate { turn_id, title, ended: ended_at.filter(|_| !stopped), stopped })
+    Some(UndoCandidate {
+        turn_id,
+        title,
+        ended: ended_at.filter(|_| !stopped),
+        stopped,
+        wake: false,
+    })
 }
 
 /// The wire error of a refused undo: `conflict`, with the refusal as `refused` in its
