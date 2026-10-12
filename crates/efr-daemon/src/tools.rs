@@ -830,14 +830,6 @@ impl DaemonToolbox {
     /// model reads: the call does not run.
     async fn copy_before(&self, call: &CallContext) -> Result<Option<Copying>, String> {
         let mut targets = home::targets(&call.exits);
-        // NOTE: a path strictly inside the turn's project or `$SCRATCH` belongs to the
-        // snapshot of that root (plan PB12), which efrd takes before the call anyway. A
-        // home copy of it adds nothing, and for a masked file such as a project `.env`
-        // it would say "efr undo cannot revert it" while undo does.
-        if let Some(snapshots) = &self.snapshots {
-            let roots = snapshots.base_roots(call);
-            targets.retain(|target| !home::inside(&target.ask, &roots));
-        }
         let units: Vec<String> = call
             .exits
             .iter()
@@ -897,6 +889,15 @@ impl DaemonToolbox {
             })
             .collect();
         let masks = self.copy_masks(&target_paths).await;
+        // NOTE: the home store never copies a masked path. For one strictly inside the
+        // turn's project or `$SCRATCH`, such as a project `.env`, the snapshot of that
+        // root holds it (plan PB12), so a home copy would only say "efr undo cannot
+        // revert it" while undo does.
+        let roots = snapshots.base_roots(call);
+        targets.retain(|target| !home::root_holds(&target.ask, &roots, &masks));
+        if targets.is_empty() && states.is_empty() {
+            return Ok(None);
+        }
         let limits = HomeLimits::of(&self.settings.borrow());
         let (for_prepare, masks_for) = (targets.clone(), masks.clone());
         let mut prepared =

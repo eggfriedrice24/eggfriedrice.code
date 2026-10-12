@@ -10,7 +10,8 @@ use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 
 use crate::home::{
-    HomeLimits, Prepared, Reader, Target, after, changed, collect_trash, coverage, inside, prepare,
+    HomeLimits, Prepared, Reader, Target, after, changed, collect_trash, coverage, prepare,
+    root_holds,
 };
 
 fn root() -> (tempfile::TempDir, PathBuf) {
@@ -301,14 +302,13 @@ async fn home_copy_names_an_uncovered_file_of_a_walked_dir_only_when_it_changed(
 }
 
 #[test]
-fn a_path_inside_a_snapshot_root_needs_no_home_copy() {
+fn a_masked_path_inside_a_snapshot_root_needs_no_home_copy() {
     let roots = [PathBuf::from("/home/u/p/app"), PathBuf::from("/home/u/.local/share/efr/scratch")];
+    let masks = [PathBuf::from("/home/u/p/app/.env"), PathBuf::from("/home/u/.aws")];
     let home = |path: &str| CoverAsk::Home(PathBuf::from(path));
 
-    assert!(inside(&home("/home/u/p/app/.env"), &roots));
-    assert!(inside(&CoverAsk::HomeDir(PathBuf::from("/home/u/p/app/src")), &roots));
-    assert!(!inside(&home("/home/u/p/app"), &roots), "the root itself is no path inside it");
-    assert!(!inside(&home("/home/u/p/app-two/.env"), &roots));
-    assert!(!inside(&home("/home/u/.zshrc"), &roots));
-    assert!(!inside(&CoverAsk::CronTable, &roots));
+    assert!(root_holds(&home("/home/u/p/app/.env"), &roots, &masks));
+    assert!(!root_holds(&home("/home/u/p/app/.envrc"), &roots, &masks), "a floor keeps its copy");
+    assert!(!root_holds(&home("/home/u/.aws/config"), &roots, &masks), "outside the roots");
+    assert!(!root_holds(&CoverAsk::CronTable, &roots, &masks));
 }

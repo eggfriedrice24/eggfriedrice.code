@@ -110,12 +110,12 @@ pub(crate) fn targets(exits: &[ExitNeed]) -> Vec<Target> {
     targets
 }
 
-/// True when the home ask `ask` names a path strictly inside one of `roots`, whose
-/// snapshot covers it.
-pub(crate) fn inside(ask: &CoverAsk, roots: &[PathBuf]) -> bool {
+/// True when the home ask `ask` names a masked path strictly inside one of `roots`:
+/// the home store never copies it, and the snapshot of that root holds it.
+pub(crate) fn root_holds(ask: &CoverAsk, roots: &[PathBuf], masks: &[PathBuf]) -> bool {
     match ask {
         CoverAsk::Home(path) | CoverAsk::HomeDir(path) => {
-            roots.iter().any(|root| path.starts_with(root) && path != root)
+            masked(path, masks) && roots.iter().any(|root| path.starts_with(root) && path != root)
         }
         _ => false,
     }
