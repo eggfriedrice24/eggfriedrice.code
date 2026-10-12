@@ -255,6 +255,9 @@ impl Guard {
     }
 }
 
+/// The most bytes of a job's [`SURFACE_BEFORE_FILE`].
+const MAX_SAVED_BYTES: usize = 64 * 1024 * 1024;
+
 /// How long a job's end guard and `efr-sbx guard-check` wait for each other.
 const GUARD_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -305,6 +308,30 @@ impl Guard {
             SbxError::os("record the job's git surface", io::Error::other(error))
         })?;
         dir.write_atomic(SURFACE_BEFORE_FILE, &bytes)
+    }
+
+    /// The guard of a job from the record in `dir`, its state dir, and the job's places.
+    pub(crate) fn load(dir: &PrivateDir) -> Result<(Guard, JobPlaces), SbxError> {
+        let path = dir.path().join(SURFACE_BEFORE_FILE);
+        let Some(bytes) = dir.read(SURFACE_BEFORE_FILE, MAX_SAVED_BYTES)? else {
+            return Err(SbxError::io("read", path, io::ErrorKind::NotFound.into()));
+        };
+        let saved: Saved = serde_json::from_slice(&bytes)
+            .map_err(|error| SbxError::io("read", path, io::Error::other(error)))?;
+        let lister = GitLister { git: saved.git };
+        let listings = ConfigListings::new(lister.identity());
+        let guard = Guard {
+            pins: saved.pins,
+            roots: saved.roots,
+            chain_roots: saved.chain_roots,
+            protected: saved.protected,
+            lister,
+            listings,
+            kept: Vec::new(),
+            before: saved.before,
+            started: saved.started,
+        };
+        Ok((guard, JobPlaces { start: saved.start, quarantine: saved.quarantine }))
     }
 }
 

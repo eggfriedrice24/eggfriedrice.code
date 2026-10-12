@@ -530,6 +530,114 @@ fn job_exit_child_holds_no_pty_fd() {
     drop(master);
 }
 
+/// The job's state dir, `$SBX/jobs/<call>`, for its call dir.
+fn state_dir(fixture: &Fixture, call_dir: &Path) -> std::path::PathBuf {
+    let call = call_dir.file_name().unwrap().to_string_lossy().parse().unwrap();
+    fixture.spec.runtime.job_state_dir(call)
+}
+
+/// Runs `efr-sbx guard-check` for the job of `call_dir`: its status and stderr.
+fn guard_check(fixture: &Fixture, call_dir: &Path) -> (i32, String) {
+    let mut command = crate::support::command(&fixture.ready.bin);
+    command
+        .args(["guard-check", "--call-dir"])
+        .arg(call_dir)
+        .arg("--state-dir")
+        .arg(state_dir(fixture, call_dir))
+        .current_dir("/")
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let (status, _, stderr) = crate::support::run_with_timeout(command);
+    (status, stderr)
+}
+
+/// A job that makes a new repository `sub` with a hook in the project, then waits for
+/// `done`; the started job and its call dir.
+fn job_that_plants_a_hook(fixture: &Fixture) -> (crate::support::JobRun, std::path::PathBuf) {
+    let started = fixture.project.join("started");
+    let line = format!(
+        "mkdir -p sub/.git/hooks; print '[core]' > sub/.git/config; \
+         print '#!/bin/sh' > sub/.git/hooks/pre-commit; print ok > {}; {}",
+        q(&started),
+        wait_for(&fixture.project.join("done"))
+    );
+    let call_dir = fixture.prepare_job(&line, plan());
+    let mut run = fixture.spawn_job(&call_dir);
+    run.start();
+    wait_until("the job's start", || started.exists());
+    (run, call_dir)
+}
+
+#[test]
+fn guard_check_quarantines_new_hook() {
+    let ready = sandbox_or_skip!();
+    let fixture = Fixture::new(&ready);
+    let (run, call_dir) = job_that_plants_a_hook(&fixture);
+    let hook = fixture.project.join("sub/.git/hooks/pre-commit");
+    assert!(hook.exists());
+    // The job still runs: the check moves the hook away now, not at the job's end.
+    let (status, stderr) = guard_check(&fixture, &call_dir);
+    assert_eq!(status, 3, "{stderr}");
+    assert!(!hook.exists());
+    let report = fs::read_to_string(state_dir(&fixture, &call_dir).join("guard.json")).unwrap();
+    assert!(
+        report.contains("hook_planted") && report.contains("\"quarantined\": true"),
+        "{report}"
+    );
+    let call = call_dir.file_name().unwrap().to_string_lossy().parse().unwrap();
+    let quarantine = fixture.spec.runtime.quarantine(call);
+    let index = fs::read_to_string(quarantine.join("entries.json")).unwrap();
+    assert!(index.contains("pre-commit"), "{index}");
+    // A second check finds nothing new.
+    assert_eq!(guard_check(&fixture, &call_dir).0, 0);
+    fs::write(fixture.project.join("done"), "").unwrap();
+    let run = run.wait(&fixture);
+    run.expect_status(0);
+}
+
+#[test]
+fn guard_check_and_end_guard_take_one_lock() {
+    let ready = sandbox_or_skip!();
+    let fixture = Fixture::new(&ready);
+    let (run, call_dir) = job_that_plants_a_hook(&fixture);
+    let hook = fixture.project.join("sub/.git/hooks/pre-commit");
+    // Another holder of the job's guard lock, such as the launcher's end guard, keeps
+    // the check from moving anything until it lets go.
+    let state = state_dir(&fixture, &call_dir);
+    let held = fs::File::open(&state).unwrap();
+    rustix::fs::flock(&held, rustix::fs::FlockOperation::NonBlockingLockExclusive).unwrap();
+    let (status, stderr) = guard_check(&fixture, &call_dir);
+    assert_eq!(status, 1, "{stderr}");
+    assert!(stderr.contains("lock"), "{stderr}");
+    assert!(hook.exists());
+    assert!(!state.join("guard.json").exists());
+    drop(held);
+    assert_eq!(guard_check(&fixture, &call_dir).0, 3);
+    assert!(!hook.exists());
+    fs::write(fixture.project.join("done"), "").unwrap();
+    run.wait(&fixture).expect_status(0);
+}
+
+#[test]
+fn guard_check_works_from_the_state_dir_alone() {
+    let ready = sandbox_or_skip!();
+    let fixture = Fixture::new(&ready);
+    let call_dir = fixture.prepare_job("true", plan());
+    let mut run = fixture.spawn_job(&call_dir);
+    run.start();
+    run.wait(&fixture).expect_status(0);
+    // After a reboot: the call dir in the runtime root is gone, and a hook planted
+    // while efrd was down waits. The record on disk says where to look.
+    fs::remove_dir_all(&call_dir).unwrap();
+    write(&fixture.project.join("late/.git/config"), "[core]\n");
+    write(&fixture.project.join("late/.git/hooks/post-checkout"), "#!/bin/sh\n");
+    assert_eq!(guard_check(&fixture, &call_dir).0, 3);
+    assert!(!fixture.project.join("late/.git/hooks/post-checkout").exists());
+}
+
 #[test]
 fn exit_child_job_cannot_gain_privileges() {
     let ready = sandbox_or_skip!();

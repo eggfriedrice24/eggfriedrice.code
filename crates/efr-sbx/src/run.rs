@@ -3,12 +3,13 @@
 use std::process::ExitCode;
 
 use crate::Command;
-use crate::{bridge, call, inner, layers, probe, self_test};
+use crate::{bridge, call, guard_check, inner, layers, probe, self_test};
 
 /// Runs `command` and returns the process's exit status.
 pub(crate) fn run(command: Command) -> ExitCode {
     match command {
         Command::Run { call_dir, job } => call::main(&call_dir, job),
+        Command::GuardCheck { call_dir, state_dir } => guard_check::main(&call_dir, &state_dir),
         Command::Inner { policy_fd } => inner::main(policy_fd),
         Command::Layers { pid } => layers::main(pid),
         Command::Bridge { listen_fd, socket } => bridge::main(listen_fd, &socket),

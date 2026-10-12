@@ -28,6 +28,7 @@ mod exit_child;
 mod fds;
 mod finish;
 mod guard;
+mod guard_check;
 mod inner;
 mod job;
 mod landlock;
@@ -94,6 +95,16 @@ pub(crate) enum Command {
         /// The call's proxy socket.
         #[arg(long)]
         socket: PathBuf,
+    },
+    /// Compares a running contained job's git surface with the one of its start, and
+    /// moves what breaks a rule to its quarantine. Exit status 3 when it found a change.
+    GuardCheck {
+        /// The job's call dir, `$R/sbx/<conversation>/jobs/<call>`.
+        #[arg(long)]
+        call_dir: PathBuf,
+        /// The job's state dir, `$S/sandbox/<conversation>/jobs/<call>`.
+        #[arg(long)]
+        state_dir: PathBuf,
     },
     /// Checks whether the auto sandbox can run here.
     Probe(probe::ProbeArgs),
