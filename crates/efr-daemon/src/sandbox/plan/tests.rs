@@ -62,6 +62,7 @@ impl Fixture {
             cache_mode: CacheMode::Tmp,
             launcher: &self.dirs.runtime().join("bin/efr-sbx"),
             desktops: &[],
+            job: None,
         };
         build(&input)
     }

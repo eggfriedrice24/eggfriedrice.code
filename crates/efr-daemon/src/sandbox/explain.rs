@@ -80,6 +80,7 @@ impl SandboxService {
             cache_mode: status.cache_mode,
             launcher: &self.inner.copy,
             desktops: &[],
+            job: None,
         };
         let spec = plan::build(&input).spec;
         let runtime = spec.runtime.clone();

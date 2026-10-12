@@ -25,10 +25,12 @@ use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{Engine, ExitNeed, WriteBind};
 use efr_protocol::{
-    ConversationId, DesktopEnv, DesktopKind, Event, Grant, SandboxPaths, SandboxStatus, Scope,
+    ConversationId, DesktopEnv, DesktopKind, Event, Grant, Launch, SandboxPaths, SandboxStatus,
+    Scope,
 };
 use efr_sandbox::{
-    DesktopSocket, NONCE_FILE, ProbeReport, SPEC_FILE, SpecLaunch, expand_home, nonce_hex, too_wide,
+    DesktopSocket, JobPlan, NONCE_FILE, ProbeReport, SPEC_FILE, SpecLaunch, expand_home, nonce_hex,
+    too_wide,
 };
 use efr_scope::{Git, Home};
 use efr_shell::SandboxRun;
@@ -64,6 +66,10 @@ pub(crate) use seams::Seams;
 
 /// The reason of the status before the first probe.
 pub(crate) const NOT_PROBED: &str = "the sandbox probe has not run yet";
+
+/// The bubblewrap that the spec of an exit child job names when the probe found none:
+/// the exit child never runs it, and the spec must name an absolute path.
+const EXIT_CHILD_BWRAP: &str = "/usr/bin/bwrap";
 
 /// The directory of the probe's fake call below efr's state root.
 const PROBE_DIR: &str = "sandbox/probe";
@@ -156,8 +162,26 @@ pub(crate) struct Prepared {
     pub(crate) projects: Vec<PathBuf>,
     /// Notes for the model.
     pub(crate) notes: Vec<&'static str>,
-    /// Counts the call as running until it drops.
-    _running: Running,
+    /// The roots that the surface guard scans.
+    pub(crate) guard_roots: Vec<PathBuf>,
+    /// The write roots of the spec.
+    pub(crate) write_roots: Vec<PathBuf>,
+    /// The state dir of a job, `$SBX/jobs/<call>`.
+    pub(crate) state_dir: PathBuf,
+    /// True for a contained launch, false for the exit child.
+    pub(crate) contained: bool,
+    /// Counts the call as running until it drops; `None` for a job.
+    _running: Option<Running>,
+}
+
+/// What [`SandboxService::prepare_job`] needs besides a call's input.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct JobInput<'a> {
+    pub(crate) plan: JobPlan,
+    /// The line, which efrd writes to `$CALL/line`.
+    pub(crate) line: &'a str,
+    /// The job's environment, the bytes of `$CALL/env`.
+    pub(crate) env: &'a [u8],
 }
 
 /// One running call of a conversation, counted until it drops.
@@ -340,6 +364,22 @@ impl SandboxService {
             sockets.push(socket);
         }
         Ok(sockets)
+    }
+
+    /// `$R/sbx/<conversation>`, where the conversation's hidden shell writes its `PATH`,
+    /// its `env` and `snapshot.zsh`.
+    pub(crate) fn shell_dir(&self, conversation: ConversationId) -> PathBuf {
+        self.inner.dirs.runtime().join(plan::SHELL_DIR).join(conversation.to_string())
+    }
+
+    /// The launcher's copy, `$R/bin/efr-sbx`, which starts every job.
+    pub(crate) fn launcher(&self) -> &Path {
+        &self.inner.copy
+    }
+
+    /// The machine facts of the hidden shells.
+    pub(crate) fn host(&self) -> &HostFacts {
+        &self.inner.host
     }
 
     /// The hardened git runner.
@@ -536,23 +576,57 @@ impl SandboxService {
     }
 
     /// Prepares `call` for the launcher: takes the plan lock of its projects, makes the
-    /// targets of its approved `MakeFile` and `MakeDir` grants, and writes its call dir
-    /// with `spec.json` and `nonce`.
+    /// targets of its approved `MakeFile` and `MakeDir` grants, makes `$SCRATCH/jobs`,
+    /// and writes its call dir with `spec.json` and `nonce`.
     pub(crate) async fn prepare(
         &self,
         call: &CallContext,
         input: &PrepareInput<'_>,
     ) -> Result<Prepared, DaemonError> {
+        self.prepare_with(call, input, None).await
+    }
+
+    /// Prepares the background job of `call`, as [`prepare`](Self::prepare) does a
+    /// call, with its job plan: its call dir is `$R/sbx/<conversation>/jobs/<call>`,
+    /// and efrd writes `line` and `env` there itself. A job of a `manual` or `cautious`
+    /// turn runs in the exit child, which needs no bubblewrap. The job does not count
+    /// as a running call of the conversation: its layers are its own.
+    pub(crate) async fn prepare_job(
+        &self,
+        call: &CallContext,
+        input: &PrepareInput<'_>,
+        job: JobInput<'_>,
+    ) -> Result<Prepared, DaemonError> {
+        self.prepare_with(call, input, Some(job)).await
+    }
+
+    async fn prepare_with(
+        &self,
+        call: &CallContext,
+        input: &PrepareInput<'_>,
+        job: Option<JobInput<'_>>,
+    ) -> Result<Prepared, DaemonError> {
         let status = self.current();
-        if !status.available {
+        // NOTE: a job outside `auto` runs in the exit child: no bubblewrap, Landlock or
+        // seccomp, only the launcher, which the spawn needs.
+        let launch = match (&job, &call.launch) {
+            (Some(_), Launch::Direct) => Launch::Unsandboxed,
+            (_, launch) => launch.clone(),
+        };
+        let exit_child_job = job.is_some() && launch == Launch::Unsandboxed;
+        if !status.available && !exit_child_job {
             return Err(DaemonError::SandboxUnavailable {
                 reason: status.reason.clone().unwrap_or_else(|| NOT_PROBED.to_owned()),
             });
         }
-        let Some(bwrap) = status.bwrap.clone() else {
-            return Err(DaemonError::SandboxUnavailable {
-                reason: "no bubblewrap was found".to_owned(),
-            });
+        let bwrap = match status.bwrap.clone() {
+            Some(bwrap) => bwrap,
+            None if exit_child_job => PathBuf::from(EXIT_CHILD_BWRAP),
+            None => {
+                return Err(DaemonError::SandboxUnavailable {
+                    reason: "no bubblewrap was found".to_owned(),
+                });
+            }
         };
         let desktops = self.desktop_sockets(call)?;
         let projects = self.projects().await;
@@ -570,7 +644,7 @@ impl SandboxService {
         let plan_input = plan::PlanInput {
             conversation: call.conversation_id,
             call: call.call_id,
-            launch: &call.launch,
+            launch: &launch,
             turn_project: turn_project.as_deref(),
             projects: &projects,
             named_paths: &input.named_paths,
@@ -585,6 +659,7 @@ impl SandboxService {
             cache_mode: status.cache_mode,
             launcher: &self.inner.copy,
             desktops: &desktops,
+            job: job.as_ref().map(|job| job.plan),
         };
         let roots: Vec<PathBuf> =
             plan::project_roots(&plan_input).into_iter().map(|root| root.path).collect();
@@ -602,25 +677,49 @@ impl SandboxService {
         let mut nonce = [0_u8; 16];
         self.inner.rng.fill_bytes(&mut nonce);
         let bytes = spec.to_json().map_err(|source| DaemonError::SandboxSpec { source })?;
-        let dirs = [
-            self.inner.dirs.runtime().join(plan::SHELL_DIR),
-            spec.runtime.shell_dir.clone(),
-            call_dir.clone(),
-            spec.runtime.sandbox_dir.clone(),
-        ];
-        let hex = nonce_hex(&nonce);
+        let mut dirs =
+            vec![self.inner.dirs.runtime().join(plan::SHELL_DIR), spec.runtime.shell_dir.clone()];
+        if job.is_some() {
+            dirs.push(spec.runtime.shell_dir.join(efr_sandbox::JOB_DIR));
+        }
+        dirs.extend([call_dir.clone(), spec.runtime.sandbox_dir.clone()]);
+        if job.is_some() {
+            dirs.push(spec.runtime.job_state_dir(call.call_id));
+        }
+        let mut files: Vec<(&'static str, Vec<u8>)> =
+            vec![(SPEC_FILE, bytes), (NONCE_FILE, nonce_hex(&nonce).into_bytes())];
+        if let Some(job) = &job {
+            files.push((efr_sandbox::LINE_FILE, job.line.as_bytes().to_vec()));
+            files.push((efr_sandbox::ENV_FILE, job.env.to_vec()));
+        }
         let dir = call_dir.clone();
         let stamp = spec.runtime.sandbox_dir.join(gc::LAST_CALL_FILE);
+        let scratch = call.scratch.clone();
         let watch = Stopwatch::start();
         tokio::task::spawn_blocking(move || {
-            write_call_dir(&dirs, &dir, &bytes, hex.as_bytes())?;
+            write_call_dir(&dirs, &dir, &files)?;
+            // NOTE: before any command of the call runs, so no command can make the dir
+            // of the job outputs first and plant a file or a link there.
+            crate::jobs::output::make_dir(&scratch).map_err(|source| DaemonError::Io {
+                path: scratch.join(efr_sandbox::JOB_DIR),
+                source,
+            })?;
             // The cache collector counts a conversation's idle days from this file.
             std::fs::write(&stamp, b"").map_err(|source| DaemonError::Io { path: stamp, source })
         })
         .await
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
         tracing::debug!(phase = "call_dir_write", elapsed_ms = %watch, "phase=call_dir_write elapsed_ms={}", watch);
-        self.running().entry(call.conversation_id).and_modify(|count| *count += 1).or_insert(1);
+        let running = match job {
+            Some(_) => None,
+            None => {
+                self.running()
+                    .entry(call.conversation_id)
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                Some(Running { service: self.clone(), conversation: call.conversation_id })
+            }
+        };
         let launch = match spec.launch {
             SpecLaunch::Unsandboxed => SpecLaunch::Unsandboxed,
             _ => SpecLaunch::Contained,
@@ -632,7 +731,11 @@ impl SandboxService {
             started: call_dir.join(efr_sandbox::STARTED_FILE),
             projects: roots,
             notes: planned.notes,
-            _running: Running { service: self.clone(), conversation: call.conversation_id },
+            guard_roots: spec.guard_roots.clone(),
+            write_roots: spec.write_roots.iter().map(|root| root.path.clone()).collect(),
+            state_dir: spec.runtime.job_state_dir(call.call_id),
+            contained: spec.launch == SpecLaunch::Contained,
+            _running: running,
         })
     }
 
@@ -724,13 +827,12 @@ async fn make_targets(exits: &[ExitNeed]) -> Result<(), DaemonError> {
     .map_err(|_| DaemonError::TaskPanicked { task: "sandbox grant targets" })?
 }
 
-/// Makes `dirs` (0700, in order) and writes `spec.json` and `nonce` (0600, new files)
-/// into `call_dir`. It blocks.
+/// Makes `dirs` (0700, in order) and writes `files` (0600, new files) into `call_dir`:
+/// `spec.json` and `nonce`, and for a job `line` and `env`. It blocks.
 fn write_call_dir(
     dirs: &[PathBuf],
     call_dir: &Path,
-    spec: &[u8],
-    nonce: &[u8],
+    files: &[(&str, Vec<u8>)],
 ) -> Result<(), DaemonError> {
     for dir in dirs {
         std::fs::DirBuilder::new()
@@ -739,7 +841,7 @@ fn write_call_dir(
             .create(dir)
             .map_err(|source| DaemonError::Io { path: dir.clone(), source })?;
     }
-    for (name, bytes) in [(SPEC_FILE, spec), (NONCE_FILE, nonce)] {
+    for (name, bytes) in files {
         let path = call_dir.join(name);
         let mut file = efr_stdx::fs::create_private(&path).map_err(|source| DaemonError::Io {
             path: path.clone(),

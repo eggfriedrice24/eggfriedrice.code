@@ -17,9 +17,9 @@ use efr_config::{SandboxSettings, WriteProjects};
 use efr_permissions::{PROTECTED_NAMES, ZSH_STARTUP_FILES, persistence_floors, sandbox_masks};
 use efr_protocol::{CacheMode, CallId, ConversationId, DesktopEnv, Grant, Launch};
 use efr_sandbox::{
-    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, Mask, MaskKind, NetworkPlan,
-    RecordLimits, RuntimePaths, SCAN_SKIP, SPEC_VERSION, SandboxSpec, SpecLaunch, WorktreeCheck,
-    WriteRoot, WriteRootKind, expand_home, is_within, name_matches, too_wide,
+    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_DIR, JobPlan, Mask, MaskKind,
+    NetworkPlan, RecordLimits, RuntimePaths, SCAN_SKIP, SPEC_VERSION, SandboxSpec, SpecLaunch,
+    WorktreeCheck, WriteRoot, WriteRootKind, expand_home, is_within, name_matches, too_wide,
 };
 use efr_stdx::paths::Dirs;
 
@@ -133,6 +133,10 @@ pub(crate) struct PlanInput<'a> {
     /// The desktop sockets of the call's desktop grants, which efrd found and checked
     /// for the terminal of the prompt.
     pub(crate) desktops: &'a [DesktopSocket],
+    /// The job plan of a background job: its call dir lies in `shell_dir/jobs`, and its
+    /// cache layers in `$SBX/jobs/<call>`, so it never holds the layer lock of the
+    /// conversation's foreground calls. `None` for a call of the hidden shell.
+    pub(crate) job: Option<JobPlan>,
 }
 
 /// A built spec, and what the tool result says about it.
@@ -207,12 +211,18 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
     let writable: Vec<PathBuf> = write_roots.iter().map(|root| root.path.clone()).collect();
 
     let runtime = runtime_paths(input);
+    // NOTE: a job's layers lie on disk in its own state dir: a job holds the layer lock
+    // of its layers for hours, and a foreground call of the conversation must not wait.
+    let layer_root = match input.job {
+        Some(_) => runtime.job_state_dir(input.call),
+        None => runtime.sandbox_dir.clone(),
+    };
     let caches = settings
         .caches
         .iter()
         .map(|cache| expand_home(cache, home))
         .filter(|cache| cache.is_absolute())
-        .map(|cache| CacheOverlay::new(&cache, &runtime.sandbox_dir, home))
+        .map(|cache| CacheOverlay::new(&cache, &layer_root, home))
         .collect();
 
     let masks = masks(input, &projects);
@@ -252,7 +262,7 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         shell_path: input.host.path.clone(),
         limits: RecordLimits::default(),
         runtime,
-        job: None,
+        job: input.job,
     };
     Planned { spec, notes }
 }
@@ -262,6 +272,10 @@ pub(crate) fn runtime_paths(input: &PlanInput<'_>) -> RuntimePaths {
     let dirs = input.dirs;
     let conversation = input.conversation.to_string();
     let shell_dir = dirs.runtime().join(SHELL_DIR).join(&conversation);
+    let call_dir = match input.job {
+        Some(_) => shell_dir.join(JOB_DIR).join(input.call.to_string()),
+        None => shell_dir.join(input.call.to_string()),
+    };
     let zsh_dir = crate::shells::integration_dir(dirs.runtime());
     RuntimePaths {
         home: input.home.to_path_buf(),
@@ -271,7 +285,7 @@ pub(crate) fn runtime_paths(input: &PlanInput<'_>) -> RuntimePaths {
         state: dirs.state().to_path_buf(),
         config: dirs.config().to_path_buf(),
         sandbox_dir: dirs.state().join(SANDBOX_DIR).join(&conversation),
-        call_dir: shell_dir.join(input.call.to_string()),
+        call_dir,
         shell_dir,
         scratch: input.scratch.to_path_buf(),
         launcher: input.launcher.to_path_buf(),
