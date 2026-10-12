@@ -4,15 +4,19 @@
 //! alone, and how many calls failed to start (the launcher tries a busy overlay again).
 //! With `EFR_TEST_SBX_GATE=1` it runs 1000 calls per mode, reports the gate of each mode
 //! (p95 at most 10 ms, no setup failure; the default becomes `tmp` when `overlay` fails
-//! it), and fails when the `tmp` mode cannot start every call.
+//! it), and fails when the `tmp` mode cannot start every call. A second test reports
+//! the cost of a job's start.
 
 use std::fs;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use efr_protocol::CacheMode;
+use efr_sandbox::JobPlan;
 
-use crate::support::{Fixture, command, env_var, run_with_timeout, sandbox_or_skip, say};
+use crate::support::{
+    Fixture, command, env_var, run_with_timeout, sandbox_or_skip, say, wait_until,
+};
 
 /// The caches of the spec's section 5.2, made in the fake home.
 const CACHES: &[&str] = &[
@@ -71,6 +75,30 @@ fn launches(fixture: &Fixture, calls: usize) -> (Vec<Duration>, Vec<String>) {
         }
     }
     (costs, failures)
+}
+
+/// The cost of a job's start (efr's auto spec, section 16.5): from the spawn of the
+/// launcher to the first byte of the job's output, for jobs that print one line. A
+/// report, not a gate: its time depends on the load of the machine. With
+/// `EFR_TEST_SBX_GATE=1` it starts 1000 jobs, else 100.
+#[test]
+fn job_start_cost() {
+    let ready = sandbox_or_skip!();
+    let gate = env_var("EFR_TEST_SBX_GATE").is_some_and(|value| value == "1");
+    let starts = if gate { 1000 } else { 100 };
+    let fixture = Fixture::new(&ready);
+    let mut costs = Vec::with_capacity(starts);
+    for _ in 0..starts {
+        let call_dir = fixture.prepare_job("print started", JobPlan::new(600, 19));
+        let spawned = Instant::now();
+        let mut run = fixture.spawn_job(&call_dir);
+        run.start();
+        wait_until("the job's first output", || run.first_output().is_some());
+        let first = run.first_output().unwrap_or(spawned);
+        costs.push(first.saturating_duration_since(spawned));
+        run.wait(&fixture).expect_status(0);
+    }
+    report("job start cost (spawn to first output byte)", costs);
 }
 
 #[test]

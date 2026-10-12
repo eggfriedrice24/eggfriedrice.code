@@ -151,7 +151,7 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
             echo
             echo '```'
             sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|toolchain) /\1 /p' "$log"
-            sed -nE 's/^ *((efr-sbx run|the child shell|launch cost|setup failures|gate:).*)/\1/p' "$log"
+            sed -nE 's/^ *((efr-sbx run|the child shell|launch cost|setup failures|gate:|job start).*)/\1/p' "$log"
             echo '```'
             echo
             echo "Corpus rows that skip because their tool is not installed. pacman is the"

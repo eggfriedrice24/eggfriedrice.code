@@ -464,9 +464,18 @@ pub(crate) struct JobRun {
     out: Option<std::thread::JoinHandle<String>>,
     err: Option<std::thread::JoinHandle<String>>,
     pub(crate) call_dir: PathBuf,
+    first_output: FirstByte,
 }
 
+/// When the first byte of a job's output came.
+type FirstByte = std::sync::Arc<std::sync::OnceLock<std::time::Instant>>;
+
 impl JobRun {
+    /// When the first byte of the job's output came, if one did.
+    pub(crate) fn first_output(&self) -> Option<std::time::Instant> {
+        self.first_output.get().copied()
+    }
+
     /// The launcher's pid.
     pub(crate) fn pid(&self) -> i32 {
         i32::try_from(self.child.id()).unwrap()
@@ -597,18 +606,37 @@ impl Fixture {
             .stderr(Stdio::piped());
         edit(&mut command);
         let mut child = command.spawn().unwrap();
-        let pipe = |reader: Option<Box<dyn Read + Send>>| {
+        let first_output = std::sync::Arc::new(std::sync::OnceLock::new());
+        let pipe = |mut reader: Option<Box<dyn Read + Send>>, first: Option<FirstByte>| {
             std::thread::spawn(move || {
                 let mut text = Vec::new();
-                if let Some(mut reader) = reader {
-                    let _ = reader.read_to_end(&mut text);
+                let mut chunk = [0_u8; 4096];
+                while let Some(read) = reader.as_mut().and_then(|r| r.read(&mut chunk).ok()) {
+                    if read == 0 {
+                        break;
+                    }
+                    if let Some(first) = &first {
+                        let _ = first.set(std::time::Instant::now());
+                    }
+                    text.extend_from_slice(chunk.get(..read).unwrap_or_default());
                 }
                 String::from_utf8_lossy(&text).into_owned()
             })
         };
-        let out = child.stdout.take().map(|p| pipe(Some(Box::new(p) as Box<dyn Read + Send>)));
-        let err = child.stderr.take().map(|p| pipe(Some(Box::new(p) as Box<dyn Read + Send>)));
-        JobRun { child, lifeline: Some(write), out, err, call_dir: call_dir.to_path_buf() }
+        let out = child
+            .stdout
+            .take()
+            .map(|p| pipe(Some(Box::new(p) as Box<dyn Read + Send>), Some(first_output.clone())));
+        let err =
+            child.stderr.take().map(|p| pipe(Some(Box::new(p) as Box<dyn Read + Send>), None));
+        JobRun {
+            child,
+            lifeline: Some(write),
+            out,
+            err,
+            call_dir: call_dir.to_path_buf(),
+            first_output,
+        }
     }
 
     /// Runs `line` as a job with `job` to its end: the start byte, then the lifeline
