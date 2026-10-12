@@ -54,6 +54,16 @@ pub enum ToolError {
         source: efr_protocol::ProtocolError,
     },
 
+    /// The members of a shell call that start a background job do not fit together,
+    /// such as `max_minutes` without `background: true`.
+    #[error("{member} {reason}")]
+    InvalidJob {
+        /// The member, such as `max_minutes` or `background: true`.
+        member: &'static str,
+        /// What does not fit, such as `needs background: true`.
+        reason: &'static str,
+    },
+
     /// The call named an empty path.
     #[error("the path is empty")]
     EmptyPath,

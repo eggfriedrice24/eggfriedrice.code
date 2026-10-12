@@ -67,6 +67,15 @@ pub struct Requirements {
     /// the exits of the `auto` mode. `None`, or a path that they leave out, makes the
     /// engine assume the stricter case.
     pub facts: Option<CallFacts>,
+    /// True when the call starts a background job (the shell tool's
+    /// `background: true`), which runs on after the call answers, while nobody watches
+    /// it (phase C).
+    pub background: bool,
+    /// The time limit of the job in minutes that the call asked for (the shell tool's
+    /// `max_minutes`); `None` takes the default.
+    pub max_minutes: Option<u32>,
+    /// True when the job has a watch pattern (the shell tool's `watch`).
+    pub watch: bool,
 }
 
 impl Requirements {
@@ -145,6 +154,24 @@ impl Requirements {
     /// Sets the facts that the daemon collected about the line.
     pub fn with_facts(mut self, facts: CallFacts) -> Self {
         self.facts = Some(facts);
+        self
+    }
+
+    /// Marks the call as one that starts a background job.
+    pub fn with_background(mut self) -> Self {
+        self.background = true;
+        self
+    }
+
+    /// Sets the time limit of the job that the call asked for, in minutes.
+    pub fn with_max_minutes(mut self, minutes: u32) -> Self {
+        self.max_minutes = Some(minutes);
+        self
+    }
+
+    /// Marks the job as one with a watch pattern.
+    pub fn with_watch(mut self) -> Self {
+        self.watch = true;
         self
     }
 

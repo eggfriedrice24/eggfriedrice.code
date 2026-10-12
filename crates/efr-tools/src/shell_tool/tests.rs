@@ -497,6 +497,151 @@ async fn shell_conditions_the_model_can_act_on_are_error_results() {
     }
 }
 
+/// The member and the reason of a job rule that `input` breaks, or `None`.
+fn job_refusal(input: serde_json::Value) -> Option<(&'static str, &'static str)> {
+    let fixture = Fixture::new();
+    let from_requirements = tool().requirements(&fixture.context(), &input).err();
+    let from_request = super::job_request(&input).err();
+    match (from_requirements, from_request) {
+        (None, None) => None,
+        (
+            Some(ToolError::InvalidJob { member, reason }),
+            Some(ToolError::InvalidJob { member: again, reason: same }),
+        ) => {
+            assert_eq!((member, reason), (again, same), "both places hold one rule");
+            Some((member, reason))
+        }
+        other => panic!("not a job refusal: {other:?}"),
+    }
+}
+
+#[test]
+fn shell_background_refuses_timeout_and_nested_shell() {
+    let (member, reason) =
+        job_refusal(json!({"command": "npm run dev", "background": true, "timeout_seconds": 60}))
+            .unwrap();
+    assert_eq!(member, "background: true");
+    assert!(reason.contains("timeout_seconds"), "{reason}");
+    let (member, reason) =
+        job_refusal(json!({"command": "make", "background": true, "nested_shell": true})).unwrap();
+    assert_eq!(member, "background: true");
+    assert!(reason.contains("nested_shell"), "{reason}");
+
+    let fixture = Fixture::new();
+    let job = json!({"command": "npm run dev", "background": true, "max_minutes": 120,
+                     "watch": {"pattern": "error|panic", "max_wakes": 2}});
+    let declared = tool().requirements(&fixture.context(), &job).unwrap();
+    assert!(declared.background && declared.watch);
+    assert_eq!(declared.max_minutes, Some(120));
+    assert_eq!(declared.command.as_deref(), Some("npm run dev"));
+    let request = super::job_request(&job).unwrap().unwrap();
+    assert_eq!(request.max_minutes, Some(120));
+    assert_eq!(
+        request.watch.map(|watch| (watch.pattern, watch.max_wakes)),
+        Some(("error|panic".to_owned(), Some(2)))
+    );
+    assert_eq!(super::job_request(&json!({"command": "ls"})).unwrap(), None, "a foreground call");
+    let plain = tool().requirements(&fixture.context(), &json!({"command": "ls"})).unwrap();
+    assert!(!plain.background && !plain.watch && plain.max_minutes.is_none());
+}
+
+#[test]
+fn max_minutes_needs_background() {
+    assert_eq!(
+        job_refusal(json!({"command": "make", "max_minutes": 30})),
+        Some(("max_minutes", "needs background: true"))
+    );
+    assert_eq!(
+        job_refusal(json!({"command": "make", "background": false, "watch": {"pattern": "x"}})),
+        Some(("watch", "needs background: true"))
+    );
+    assert_eq!(
+        job_refusal(json!({"command": "make", "background": true, "max_minutes": 0})),
+        Some(("max_minutes", "is from 1 to 1440"))
+    );
+    assert_eq!(
+        job_refusal(json!({"command": "make", "background": true, "max_minutes": 1441})),
+        Some(("max_minutes", "is from 1 to 1440"))
+    );
+    let long = "a".repeat(201);
+    assert_eq!(
+        job_refusal(json!({"command": "make", "background": true, "watch": {"pattern": long}})),
+        Some(("watch.pattern", "is 1 to 200 characters"))
+    );
+    assert_eq!(
+        job_refusal(
+            json!({"command": "make", "background": true, "watch": {"pattern": "x", "max_wakes": 11}})
+        ),
+        Some(("watch.max_wakes", "is from 1 to 10"))
+    );
+    assert_eq!(
+        job_refusal(json!({"command": "make", "background": true, "max_minutes": 1440,
+                           "watch": {"pattern": "é".repeat(200), "max_wakes": 10}})),
+        None,
+        "each top is allowed"
+    );
+    let fixture = Fixture::new();
+    let unknown =
+        json!({"command": "make", "background": true, "watch": {"pattern": "x", "regex": true}});
+    assert!(matches!(
+        tool().requirements(&fixture.context(), &unknown),
+        Err(ToolError::InvalidInput { .. })
+    ));
+}
+
+#[test]
+fn background_refuses_interactive_line() {
+    for line in ["sudo pacman -Syu", "ssh host tail -f /var/log/x", "vim notes", "env sudo -n x"] {
+        let (member, reason) = job_refusal(json!({"command": line, "background": true}))
+            .unwrap_or_else(|| {
+                panic!("{line} is refused as a job");
+            });
+        assert_eq!(member, "background: true", "{line}");
+        assert!(reason.contains("no terminal"), "{line}: {reason}");
+    }
+    assert_eq!(job_refusal(json!({"command": "cargo build --release", "background": true})), None);
+    assert_eq!(job_refusal(json!({"command": "sudo -n true"})), None, "a foreground line asks");
+}
+
+#[test]
+fn job_started_text_has_four_lines() {
+    let text = super::job_started_text("j3", "npm run dev", "$SCRATCH/jobs/j3.out", 60, false);
+    assert_eq!(
+        text,
+        "job j3 started: npm run dev\noutput: $SCRATCH/jobs/j3.out\ntime limit: 60 minutes\n\
+         You will get a notice when it ends. Do not poll. Do other work, or end your response."
+    );
+    let lines =
+        super::job_started_text("j4", "cd app\n  make\tall", "$SCRATCH/jobs/j4.out", 1, false);
+    assert_eq!(lines.lines().count(), 4, "{lines}");
+    assert!(lines.starts_with("job j4 started: cd app make all\n"), "{lines}");
+    assert!(lines.contains("time limit: 1 minute\n"));
+    let long = super::job_started_text("j5", &"x".repeat(300), "$SCRATCH/jobs/j5.out", 5, false);
+    assert!(long.lines().next().unwrap().ends_with("xxx..."), "a long command is cut");
+}
+
+#[test]
+fn job_started_text_names_the_clamp() {
+    let text = super::job_started_text("j3", "sleep 99999", "$SCRATCH/jobs/j3.out", 480, true);
+    assert!(text.contains("\ntime limit: 480 minutes (the most that efr allows)\n"), "{text}");
+    assert_eq!(text.lines().count(), 4);
+}
+
+#[test]
+fn the_schema_names_the_job_members_with_their_limits() {
+    let schema = tool().spec().input_schema;
+    let properties = &schema["properties"];
+    assert_eq!(properties["background"]["type"], json!("boolean"));
+    assert_eq!(properties["max_minutes"]["minimum"], json!(1));
+    assert_eq!(properties["max_minutes"]["maximum"], json!(1440));
+    let text = schema.to_string();
+    assert!(text.contains("\"maxLength\":200"), "{text}");
+    assert!(text.contains("\"maximum\":10"), "{text}");
+    let background = properties["background"]["description"].as_str().unwrap();
+    assert!(background.contains("Outside auto, the user is asked"), "{background}");
+    assert!(!background.contains("only in auto"), "{background}");
+}
+
 #[tokio::test]
 async fn other_shell_failures_are_tool_errors() {
     let fixture = Fixture::new();

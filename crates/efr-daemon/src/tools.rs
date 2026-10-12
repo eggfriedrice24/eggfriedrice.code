@@ -1524,6 +1524,15 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     if declared.destructive {
         requirements = requirements.with_destructive();
     }
+    if declared.background {
+        requirements = requirements.with_background();
+    }
+    if let Some(minutes) = declared.max_minutes {
+        requirements = requirements.with_max_minutes(minutes);
+    }
+    if declared.watch {
+        requirements = requirements.with_watch();
+    }
     requirements
 }
 

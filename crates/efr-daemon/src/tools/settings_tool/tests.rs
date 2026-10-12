@@ -887,7 +887,8 @@ fn loosens_jobs_rows() {
         s.jobs.max_wakes_per_watch = 1;
         s.jobs.nice = 10;
     });
-    let more: [(&str, fn(&mut Settings)); 8] = [
+    type Change = fn(&mut Settings);
+    let more: [(&str, Change); 8] = [
         ("jobs.default_minutes", |s| s.jobs.default_minutes = 31),
         ("jobs.max_minutes", |s| s.jobs.max_minutes = 121),
         ("jobs.max_running", |s| s.jobs.max_running = 3),

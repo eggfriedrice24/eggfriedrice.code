@@ -217,6 +217,14 @@ pub struct ToolRequirements {
     /// path it reaches, as [`ToolRequirements::with_real_paths`] found them: a write of
     /// `~/.zshrc` that links into `~/dotfiles` gives `(~/.zshrc, ~/dotfiles/zsh/.zshrc)`.
     pub links: Vec<(PathBuf, PathBuf)>,
+    /// True when the call starts a background job (the shell tool's
+    /// `background: true`), which runs on after the call answers.
+    pub background: bool,
+    /// The time limit of the job in minutes that the call asked for (the shell tool's
+    /// `max_minutes`); `None` takes the default.
+    pub max_minutes: Option<u32>,
+    /// True when the job has a watch pattern (the shell tool's `watch`).
+    pub watch: bool,
 }
 
 impl ToolRequirements {
@@ -332,6 +340,27 @@ impl ToolRequirements {
         self.destructive = destructive;
         self
     }
+
+    /// Sets whether the call starts a background job.
+    #[must_use]
+    pub fn with_background(mut self, background: bool) -> Self {
+        self.background = background;
+        self
+    }
+
+    /// Sets the time limit of the job that the call asked for.
+    #[must_use]
+    pub fn with_max_minutes(mut self, max_minutes: Option<u32>) -> Self {
+        self.max_minutes = max_minutes;
+        self
+    }
+
+    /// Sets whether the job has a watch pattern.
+    #[must_use]
+    pub fn with_watch(mut self, watch: bool) -> Self {
+        self.watch = watch;
+        self
+    }
 }
 
 impl fmt::Debug for ToolRequirements {
@@ -346,6 +375,9 @@ impl fmt::Debug for ToolRequirements {
             .field("nested", &self.nested)
             .field("timeout", &self.timeout)
             .field("destructive", &self.destructive)
+            .field("background", &self.background)
+            .field("max_minutes", &self.max_minutes)
+            .field("watch", &self.watch)
             .finish()
     }
 }

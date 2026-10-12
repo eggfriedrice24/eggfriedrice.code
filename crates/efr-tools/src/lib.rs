@@ -9,7 +9,9 @@
 //!   output to a [`ToolOutputSink`]).
 //! - [`ToolRegistry`]: the specs for the provider request and dispatch by name; it
 //!   never hands out a tool.
-//! - [`ShellTool`] over `efr_shell::CommandRunner`, [`ReadFileTool`] and
+//! - [`ShellTool`] over `efr_shell::CommandRunner`, with the members of a background
+//!   job ([`job_request`], [`JobRequest`], [`WatchInput`], [`job_started_text`]),
+//!   [`ReadFileTool`] and
 //!   [`WriteFileTool`], which records each original in a [`WriteJournal`]
 //!   ([`JournalEntry`], [`FileSnapshot`], [`Original`]) before it writes, and
 //!   previews a write as a bounded unified diff for its approval
@@ -56,7 +58,9 @@ pub use journal::{FileSnapshot, JournalEntry, MemoryJournal, Original, WriteJour
 pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
-pub use shell_tool::{ShellTool, not_ready_message};
+pub use shell_tool::{
+    JobRequest, ShellTool, WatchInput, job_request, job_started_text, not_ready_message,
+};
 pub use tool::{
     AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,
     ToolRequirements, ToolResult, ToolSpec, WrittenFile, WrittenKind, freeform_text,

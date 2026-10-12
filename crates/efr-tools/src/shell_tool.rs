@@ -48,6 +48,172 @@ struct ShellInput {
     #[serde(default)]
     #[schemars(with = "NeedsInput")]
     needs: Option<Needs>,
+    /// True starts the line as a background job and answers at once with the job's id
+    /// and its output file. The job runs on after this turn, at a low priority and with
+    /// no terminal, until it ends, max_minutes passes or job_stop stops it. You get a
+    /// notice when it ends; do not poll. Outside auto, the user is asked before each
+    /// job starts. Not with timeout_seconds or nested_shell.
+    #[serde(default)]
+    background: bool,
+    /// The time limit of the job in minutes, from 1 to 1440; default 60. efr cuts a
+    /// longer limit to its own maximum (480 unless the user changed it). Only with
+    /// background.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 1440))]
+    max_minutes: Option<u32>,
+    /// Wakes you when a line of the job's output matches pattern, a regular expression.
+    /// Only with background.
+    #[serde(default)]
+    watch: Option<WatchInput>,
+}
+
+/// The `watch` member of a `shell` call: a pattern that wakes the model when a line of
+/// the job's output matches it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WatchInput {
+    /// A regular expression of at most 200 characters, such as `error|panic`.
+    #[schemars(length(min = 1, max = 200))]
+    pub pattern: String,
+    /// How many matches may wake you, from 1 to 10; default 1. efr cuts a higher
+    /// number to its own maximum.
+    #[serde(default)]
+    #[schemars(range(min = 1, max = 10))]
+    pub max_wakes: Option<u8>,
+}
+
+impl WatchInput {
+    /// The longest pattern, in characters.
+    pub const MAX_PATTERN_CHARS: usize = 200;
+    /// The most wakes that a call may ask for.
+    pub const MAX_WAKES: u8 = 10;
+}
+
+/// What a `shell` call with `background: true` asks for, besides its line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct JobRequest {
+    /// The time limit in minutes that the model asked for, from 1 to
+    /// [`JobRequest::MAX_MINUTES`]; `None` takes the default of `jobs.default_minutes`.
+    pub max_minutes: Option<u32>,
+    /// The watch pattern.
+    pub watch: Option<WatchInput>,
+}
+
+impl JobRequest {
+    /// The longest time limit that a call may name, in minutes. The daemon cuts it to
+    /// `jobs.max_minutes`.
+    pub const MAX_MINUTES: u32 = 1_440;
+}
+
+/// The job that the `shell` call with `input` asks for; `None` for a call that runs in
+/// the foreground. An input that does not match the schema, or whose job members do
+/// not fit together, is the error that the model reads.
+pub fn job_request(input: &Value) -> Result<Option<JobRequest>, ToolError> {
+    let input: ShellInput = parse_input(ShellTool::NAME, input)?;
+    let line = words::split(&input.command);
+    check_job(&input, interactive(&input, &line))?;
+    Ok(input
+        .background
+        .then_some(JobRequest { max_minutes: input.max_minutes, watch: input.watch }))
+}
+
+/// The answer of a `shell` call that started the job `id` with `command`, whose output
+/// goes to `output` (as the model reads it, such as `$SCRATCH/jobs/j3.out`) and which
+/// ends after `minutes` at most. `clamped` says that efr cut a longer limit that the
+/// model asked for (efr's auto spec, section 13.8).
+pub fn job_started_text(
+    id: &str,
+    command: &str,
+    output: &str,
+    minutes: u32,
+    clamped: bool,
+) -> String {
+    let command: String = {
+        let flat = command.split_whitespace().collect::<Vec<_>>().join(" ");
+        if flat.chars().count() <= JOB_COMMAND_CHARS {
+            flat
+        } else {
+            let mut cut: String = flat.chars().take(JOB_COMMAND_CHARS).collect();
+            cut.push_str("...");
+            cut
+        }
+    };
+    let unit = if minutes == 1 { "minute" } else { "minutes" };
+    let limit = if clamped {
+        format!("time limit: {minutes} {unit} (the most that efr allows)")
+    } else {
+        format!("time limit: {minutes} {unit}")
+    };
+    format!(
+        "job {id} started: {command}\noutput: {output}\n{limit}\nYou will get a notice when it \
+         ends. Do not poll. Do other work, or end your response."
+    )
+}
+
+/// The most characters of the command that the answer of a job start names.
+const JOB_COMMAND_CHARS: usize = 200;
+
+/// Why the job members of `input` do not fit together, or `Ok` (efr's auto spec,
+/// section 13.8): `max_minutes` and `watch` need `background: true`, and a job takes
+/// no `timeout_seconds`, no `nested_shell` and no line that may wait for input at the
+/// terminal (`interactive`), because its stdin is `/dev/null`.
+fn check_job(input: &ShellInput, interactive: bool) -> Result<(), ToolError> {
+    const NEEDS_BACKGROUND: &str = "needs background: true";
+    const JOB: &str = "background: true";
+    let refuse =
+        |member: &'static str, reason: &'static str| Err(ToolError::InvalidJob { member, reason });
+    if !input.background {
+        if input.max_minutes.is_some() {
+            return refuse("max_minutes", NEEDS_BACKGROUND);
+        }
+        if input.watch.is_some() {
+            return refuse("watch", NEEDS_BACKGROUND);
+        }
+        return Ok(());
+    }
+    if input.timeout_seconds.is_some() {
+        return refuse(
+            JOB,
+            "does not take timeout_seconds; a job runs until it ends or max_minutes passes",
+        );
+    }
+    if input.nested_shell {
+        return refuse(JOB, "does not take nested_shell; run that line in the foreground");
+    }
+    if interactive {
+        return refuse(
+            JOB,
+            "cannot run a line that may wait for input at the terminal, such as sudo, ssh or \
+             an editor: a job has no terminal; run that part in the foreground",
+        );
+    }
+    if input.max_minutes.is_some_and(|minutes| minutes == 0 || minutes > JobRequest::MAX_MINUTES) {
+        return refuse("max_minutes", "is from 1 to 1440");
+    }
+    if let Some(watch) = &input.watch {
+        let chars = watch.pattern.chars().count();
+        if chars == 0 || chars > WatchInput::MAX_PATTERN_CHARS {
+            return refuse("watch.pattern", "is 1 to 200 characters");
+        }
+        if watch.max_wakes.is_some_and(|wakes| wakes == 0 || wakes > WatchInput::MAX_WAKES) {
+            return refuse("watch.max_wakes", "is from 1 to 10");
+        }
+    }
+    Ok(())
+}
+
+/// True when the line of `input` (split as `line`) may wait for input at the terminal:
+/// a nested shell, or a program such as `sudo`, `ssh` or an editor. A line that the
+/// split cannot read whole is also scanned without its quotes.
+fn interactive(input: &ShellInput, line: &words::Line) -> bool {
+    let commands = programs_of(line);
+    let mut interactive = input.nested_shell
+        || commands.iter().any(|(program, _)| INTERACTIVE.contains(&program.as_str()));
+    if line.opaque {
+        interactive |= programs(&input.command).iter().any(|program| INTERACTIVE.contains(program));
+    }
+    interactive
 }
 
 /// The schema of `needs` as the model sees it: [`Needs`] with the limits that
@@ -370,20 +536,19 @@ impl Tool for ShellTool {
         let input: ShellInput = parse_input(Self::NAME, input)?;
         let line = words::split(&input.command);
         let commands = programs_of(&line);
-        let mut interactive = input.nested_shell
-            || commands.iter().any(|(program, _)| INTERACTIVE.contains(&program.as_str()));
+        let interactive = interactive(&input, &line);
         let mut network = commands.iter().any(|(program, args)| reaches_network(program, args))
             || networked_git(&input.command);
         if line.opaque {
             // NOTE: the split may miss a program inside quotes or a substitution, so the
             // coarse scan that ignores quotes adds what it finds.
             let coarse = programs(&input.command);
-            interactive |= coarse.iter().any(|program| INTERACTIVE.contains(program));
             network |= coarse.iter().any(|program| NETWORK.contains(program));
         }
         if let Some(needs) = &input.needs {
             needs.check().map_err(|source| ToolError::InvalidNeeds { source })?;
         }
+        check_job(&input, interactive)?;
         let declared = declare::declared(&line, ctx.command_dir(), ctx.home.path());
         let timeout = self.timeout(&input);
         let mut requirements = ToolRequirements::none()
@@ -393,7 +558,10 @@ impl Tool for ShellTool {
             .with_network(network)
             .with_needs(input.needs)
             .with_nested(input.nested_shell)
-            .with_timeout(timeout);
+            .with_timeout(timeout)
+            .with_background(input.background)
+            .with_max_minutes(input.max_minutes)
+            .with_watch(input.watch.is_some());
         for path in declared.reads {
             requirements = requirements.with_read(path);
         }
