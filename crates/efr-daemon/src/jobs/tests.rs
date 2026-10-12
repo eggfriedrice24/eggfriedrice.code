@@ -37,6 +37,7 @@ struct Scene {
     store: TestStore,
     table: JobTable,
     conversation: ConversationId,
+    notices: std::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<super::Notice>>,
 }
 
 impl Scene {
@@ -47,7 +48,7 @@ impl Scene {
         let launcher = dirs.root().join("efr-sbx");
         std::fs::write(&launcher, LAUNCHER).unwrap();
         std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let (table, _notices) = JobTable::new(JobParts {
+        let (table, notices) = JobTable::new(JobParts {
             clock: clock.shared(),
             writer: store.writer().clone(),
             readers: store.readers().clone(),
@@ -62,7 +63,7 @@ impl Scene {
         let conversation = ConversationId::from_uuid(id(1));
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
         store.writer().append(Batch::new().event(conversation, created)).await.unwrap();
-        Scene { dirs, clock, store, table, conversation }
+        Scene { dirs, clock, store, table, conversation, notices: std::sync::Mutex::new(notices) }
     }
 
     fn info(&self, number: u32) -> JobInfo {
@@ -140,6 +141,16 @@ impl Scene {
     }
 }
 
+impl Scene {
+    /// The next notice that the table handed to the actors.
+    async fn notice(&self) -> super::Notice {
+        Wait::new("a notice")
+            .until_some(|| self.notices.lock().unwrap().try_recv().ok())
+            .await
+            .unwrap()
+    }
+}
+
 trait NowTimestamp {
     fn now_timestamp(&self) -> jiff::Timestamp;
 }
@@ -182,6 +193,22 @@ async fn lifeline_write_end_not_inherited_by_other_jobs() {
     assert!(scene.table.live(scene.key(2)).is_some(), "the second job still runs");
     scene.table.drop_lifeline(scene.key(2));
     scene.ended(2).await;
+}
+
+#[tokio::test]
+async fn end_notice_of_stopped_job_never_wakes() {
+    let scene = Scene::new().await;
+    for (number, by) in [(1, JobStopBy::Model), (2, JobStopBy::User)] {
+        scene.start(number).await;
+        scene.table.stop(scene.key(number), by).await.unwrap();
+        let notice = scene.notice().await;
+        assert_eq!(notice.input.kind, NoticeKind::Exited);
+        assert!(!notice.input.wakes, "a job that {by:?} stopped rides in the next turn");
+    }
+    scene.start(3).await;
+    scene.table.drop_lifeline(scene.key(3));
+    let notice = scene.notice().await;
+    assert!(notice.input.wakes, "a job that ended on its own wakes the conversation");
 }
 
 #[tokio::test]

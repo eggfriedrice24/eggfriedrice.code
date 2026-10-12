@@ -139,7 +139,8 @@ into the GitHub release notes, and it stops when the section is missing.
   turn runs at most 20 tool calls, and a job that it starts never starts another one.
   A question in such a turn waits only the away wait unless you follow the
   conversation. A `watch` pattern can also wake the model on a matching output line.
-  Otherwise the notice rides in your next prompt.
+  The notice of a job that you or the model stopped starts no turn. Otherwise the
+  notice rides in your next prompt.
 - While a job runs in the sandbox, efr checks the git settings and hooks in its
   projects every 5 minutes and before each sandboxed command there. When the job
   planted a hook or a git setting that runs code, efr moves it to the quarantine and

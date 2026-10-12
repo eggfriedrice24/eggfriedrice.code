@@ -590,6 +590,8 @@ format characters. A notice never enters a running turn. It waits until the turn
   reviewer's refusals count on from one wake turn to the next, until a turn of yours.
 - A notice of a job that ended at a restart of efrd never starts a turn. It rides in
   your next prompt.
+- A notice of a job that you or the model stopped never starts a turn. The model read
+  the output when it stopped the job. The notice rides in your next prompt.
 
 ### What you see
 
