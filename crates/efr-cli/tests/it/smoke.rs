@@ -432,6 +432,7 @@ async fn undo_previews_lists_applies_and_redoes_a_turn() {
 /// the terminal showed and how `efr` ended.
 async fn undo_on_a_terminal(daemon: &TestDaemon, key: u8) -> (String, std::process::ExitStatus) {
     let (master, slave) = pty();
+    let mode = slave.try_clone().unwrap();
     let mut command =
         efr_stdx::process::command(env!("CARGO_BIN_EXE_efr"), daemon.cwd()).into_std();
     let dirs = daemon.dirs().dirs();
@@ -462,10 +463,22 @@ async fn undo_on_a_terminal(daemon: &TestDaemon, key: u8) -> (String, std::proce
             }
         };
         let mut answered = false;
+        // NOTE: the key thread drops keys typed before it reads (a key typed ahead must
+        // not answer a question), so the key goes only once the terminal is out of
+        // canonical mode.
+        let reads_keys = || {
+            !rustix::termios::tcgetattr(&mode)
+                .unwrap()
+                .local_modes
+                .contains(rustix::termios::LocalModes::ICANON)
+        };
         // NOTE: at most 10 s; the key goes only once the question shows.
         for _ in 0..1000 {
             drain(&mut screen);
-            if !answered && String::from_utf8_lossy(&screen).contains("undo? y = yes, n = no") {
+            if !answered
+                && String::from_utf8_lossy(&screen).contains("undo? y = yes, n = no")
+                && reads_keys()
+            {
                 rustix::io::write(&master, &[key]).unwrap();
                 answered = true;
             }
