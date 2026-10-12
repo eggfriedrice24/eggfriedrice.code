@@ -2,9 +2,9 @@
 //! ends, so the model does not work from a stale picture of the machine.
 //!
 //! The block is one user message before the summary: the user's directory and the
-//! hidden shell's directory, the running jobs of the hidden shell, the git status of
-//! the project, and the `AGENTS.md` files from the project root down to the user's
-//! directory. The compaction stores it (`Compaction::fresh`), so every request until
+//! hidden shell's directory, the running jobs of the hidden shell, efrd's background
+//! jobs of the conversation, the git status of the project, and the `AGENTS.md` files
+//! from the project root down to the user's directory. The compaction stores it (`Compaction::fresh`), so every request until
 //! the next compaction sends the same bytes and the prompt cache hits, also after a
 //! daemon restart. Only for a compaction from an efrd before the stored block is the
 //! block read from disk again; the actor then keeps it in memory with the compaction's
@@ -14,7 +14,8 @@ use std::fmt::Write as _;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{Compaction, CompactionId, ConversationId, Scope};
+use efr_protocol::{Compaction, CompactionId, ConversationId, JobInfo, JobState, Scope};
+use jiff::Timestamp;
 
 use crate::ConversationDeps;
 
@@ -47,6 +48,8 @@ pub(crate) struct FreshFacts {
     /// The jobs in the background of the hidden shell; `None` when the toolbox cannot
     /// tell.
     pub(crate) jobs: Option<Vec<String>>,
+    /// efrd's background jobs of the conversation, one line each ([`job_line`]).
+    pub(crate) background: Vec<String>,
     /// The project root, and its git status when git can tell.
     pub(crate) root: Option<PathBuf>,
     pub(crate) git_status: Option<String>,
@@ -81,6 +84,12 @@ impl FreshFacts {
                 let _ = writeln!(out, "None.");
             }
             for job in jobs {
+                let _ = writeln!(out, "- {job}");
+            }
+        }
+        if !self.background.is_empty() {
+            let _ = writeln!(out, "\n## Background jobs");
+            for job in &self.background {
                 let _ = writeln!(out, "- {job}");
             }
         }
@@ -135,10 +144,42 @@ pub(crate) async fn read(
         None => agent_cwd,
     };
     let jobs = deps.toolbox.shell_children(conversation_id).await;
+    let now = deps.clock.now();
+    let background = deps
+        .toolbox
+        .background_jobs(conversation_id)
+        .await
+        .iter()
+        .map(|job| job_line(job, now))
+        .collect();
     let dirs = chain(root.as_deref(), cwd);
     let agents = tokio::task::spawn_blocking(move || read_agents(&dirs)).await.unwrap_or_default();
-    FreshFacts { cwd: cwd.to_path_buf(), shell_cwd, jobs, root, git_status, agents }
+    FreshFacts { cwd: cwd.to_path_buf(), shell_cwd, jobs, background, root, git_status, agents }
 }
+
+/// One background job as the block names it at `now`: its id, its state, its command
+/// and, while it runs, its time left, such as `j3 running: npm run dev (ends in 42
+/// minutes)`.
+pub(crate) fn job_line(job: &JobInfo, now: Timestamp) -> String {
+    let command: String = job.command.split_whitespace().collect::<Vec<_>>().join(" ");
+    let command = match command.char_indices().nth(JOB_COMMAND_CHARS) {
+        Some((at, _)) => format!("{}...", &command[..at]),
+        None => command,
+    };
+    let state = match (job.state, job.exit_code) {
+        (JobState::Exited, Some(code)) => format!("exited ({code})"),
+        (state, _) => state.as_str().replace('_', " "),
+    };
+    if job.state != JobState::Running {
+        return format!("{} {state}: {command}", job.id);
+    }
+    let left = job.ends_by.duration_since(now).as_secs().max(0) / 60;
+    let unit = if left == 1 { "minute" } else { "minutes" };
+    format!("{} {state}: {command} (ends in {left} {unit})", job.id)
+}
+
+/// The most characters of a job's command that the block names.
+const JOB_COMMAND_CHARS: usize = 120;
 
 /// The directories from `root` down to `cwd`, or `cwd` alone when it is not inside
 /// `root`.

@@ -232,7 +232,7 @@ fn a_turn_that_fell_back_says_which_mode_it_runs_as_and_why() {
 #[test]
 fn the_auto_rule_promises_nothing_of_a_later_phase() {
     let text = minimal().render();
-    for later in ["phase", "proxy", "undo", "registries", "background: true", "notice"] {
+    for later in ["phase", "proxy", "undo", "registries"] {
         assert!(!text.contains(later), "{later:?} in {text}");
     }
 }
@@ -279,9 +279,12 @@ fn prompt_auto_names_scratch_and_background() {
     assert!(rule.contains("share files with the user through $SCRATCH"), "{rule}");
     assert!(
         rule.contains(
-            "Background processes stop when the command ends, so start a server and its test \
-             in one command."
+            "For long work, such as a server or a monitor, call shell with background: true; \
+             you get a notice when it ends, so do not poll."
         ),
         "{rule}"
     );
+    assert!(!rule.contains("Background processes stop"), "{rule}");
+    // Jobs start in every mode; outside auto each one asks, and no text says otherwise.
+    assert!(!rule.contains("need the auto mode"), "{rule}");
 }

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use pretty_assertions::assert_eq;
 
-use super::{AGENTS_MAX_BYTES, FreshFacts, chain, read_agents};
+use super::{AGENTS_MAX_BYTES, FreshFacts, chain, job_line, read_agents};
 
 #[test]
 fn the_block_names_the_directories_the_jobs_the_status_and_each_agents_file() {
@@ -10,6 +10,7 @@ fn the_block_names_the_directories_the_jobs_the_status_and_each_agents_file() {
         cwd: PathBuf::from("/home/u/p/app/src"),
         shell_cwd: Some(PathBuf::from("/home/u/p/app")),
         jobs: Some(vec!["sleep 600".to_owned()]),
+        background: vec!["j3 running: npm run dev (ends in 42 minutes)".to_owned()],
         root: Some(PathBuf::from("/home/u/p/app")),
         git_status: Some("## main...origin/main\n M src/lib.rs\n".to_owned()),
         agents: vec![
@@ -66,4 +67,28 @@ fn agents_files_are_read_where_they_exist_and_a_large_one_is_cut() {
     assert_eq!(path, &root.join("AGENTS.md"));
     assert!(text.starts_with(&"x".repeat(AGENTS_MAX_BYTES)));
     assert!(text.ends_with("\n[efr cut this file at 32 KiB]"), "{}", &text[AGENTS_MAX_BYTES..]);
+}
+
+#[test]
+fn fresh_context_lists_efrd_jobs() {
+    let turn = "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap();
+    let call = "0192f0c1-7a00-7000-8000-000000000002".parse().unwrap();
+    let conversation = crate::testing::conversation_id();
+    let mut running = crate::testing::job_info(conversation, turn, call, 3, "npm run   dev");
+    let now = running.ends_by - jiff::SignedDuration::from_mins(42);
+    assert_eq!(job_line(&running, now), "j3 running: npm run dev (ends in 42 minutes)");
+    running.state = efr_protocol::JobState::Exited;
+    running.exit_code = Some(1);
+    assert_eq!(job_line(&running, now), "j3 exited (1): npm run dev");
+    running.state = efr_protocol::JobState::TimedOut;
+    assert_eq!(job_line(&running, now), "j3 timed out: npm run dev");
+
+    let facts = FreshFacts {
+        cwd: PathBuf::from("/etc"),
+        background: vec![job_line(&running, now)],
+        ..FreshFacts::default()
+    };
+    assert!(facts.render().contains("\n## Background jobs\n- j3 timed out: npm run dev\n"));
+    // A conversation without jobs has no such section, so its block keeps its bytes.
+    assert!(!FreshFacts::default().render().contains("Background jobs"));
 }

@@ -248,8 +248,7 @@ fn mode_rule(mode: Mode) -> &'static str {
              the turn's registered project run at once; other calls ask the user."
         }
         // NOTE: efr's auto spec, section 13.7, without its leading "In auto, ", because
-        // the list prints `- auto: <rule>`. Background jobs come in phase C, so the
-        // sentence about background processes stays until then.
+        // the list prints `- auto: <rule>`.
         Mode::Auto => {
             "do what the user asks. The request is the permission. Never tell the user that \
              you lack permission before you try. Run the command, and efr decides: it runs it \
@@ -260,10 +259,10 @@ fn mode_rule(mode: Mode) -> &'static str {
              are private to this conversation, so share files with the user through \
              $SCRATCH. When a command fails for access, call shell again with the narrowest \
              needs and a short reason. A command that runs outside the sandbox, such as sudo \
-             or a push, must be alone in its call. Background processes stop when the command \
-             ends, so start a server and its test in one command. If efr refuses an action, \
-             do not try it another way. In the sandbox, tty, $$ and df can differ from the \
-             host."
+             or a push, must be alone in its call. For long work, such as a server or a \
+             monitor, call shell with background: true; you get a notice when it ends, so do \
+             not poll. If efr refuses an action, do not try it another way. In the sandbox, \
+             tty, $$ and df can differ from the host."
         }
         _ => "calls it does not allow ask the user.",
     }
