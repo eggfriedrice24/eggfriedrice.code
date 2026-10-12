@@ -18,6 +18,10 @@ use crate::{StoreError, approvals, sql};
 const CONVERSATIONS: &str = "conversations";
 const TURNS: &str = "turns";
 
+/// The start of the prompt column of a turn that a job notice started, before the ids
+/// of its jobs.
+pub const WAKE_PROMPT: &str = "job notice: ";
+
 /// The longest title taken from a prompt, in characters.
 const TITLE_CHARS: usize = 80;
 
@@ -112,6 +116,9 @@ pub struct Turn {
     pub ended_at: Option<Timestamp>,
     /// The sequence number of its newest event.
     pub last_seq: Seq,
+    /// True for a turn that a job notice started, not a prompt. Its `command_id` is
+    /// `None`, and its `prompt` names the jobs, such as `job notice: j3, j4`.
+    pub wake: bool,
 }
 
 /// Brings the conversation and its turns up to date with one event of the
@@ -160,6 +167,24 @@ pub(crate) fn apply(
                     params![id, sql::path_text(&context.pwd)],
                 )?;
             }
+        }
+        Event::JobNotice { turn_id, job_id, woke: true, .. } => {
+            // NOTE: the first notice that starts a turn makes its row, as a prompt does
+            // for its turn; the turn's `turn_started` follows in the same batch.
+            conn.execute(
+                "INSERT INTO turns (id, conversation_id, command_id, prompt, status, queued_seq, \
+                 last_seq, wake) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?5, 1) \
+                 ON CONFLICT (id) DO UPDATE SET prompt = turns.prompt || ', ' || ?6 \
+                 WHERE turns.wake = 1",
+                params![
+                    turn_id.to_string(),
+                    id,
+                    format!("{WAKE_PROMPT}{job_id}"),
+                    TurnStatus::Queued.as_str(),
+                    seq,
+                    job_id.as_str(),
+                ],
+            )?;
         }
         Event::PromptHeld { turn_id } => {
             conn.execute(
@@ -336,7 +361,7 @@ pub fn turns(conn: &Connection, conversation_id: ConversationId) -> Result<Vec<T
     query_turns(
         conn,
         "SELECT id, conversation_id, command_id, prompt, status, queued_seq, started_at, ended_at, \
-         last_seq FROM turns WHERE conversation_id = ?1 ORDER BY queued_seq",
+         last_seq, wake FROM turns WHERE conversation_id = ?1 ORDER BY queued_seq",
         params![conversation_id.to_string()],
     )
 }
@@ -346,7 +371,7 @@ pub fn turn(conn: &Connection, turn_id: TurnId) -> Result<Option<Turn>, StoreErr
     let mut found = query_turns(
         conn,
         "SELECT id, conversation_id, command_id, prompt, status, queued_seq, started_at, ended_at, \
-         last_seq FROM turns WHERE id = ?1",
+         last_seq, wake FROM turns WHERE id = ?1",
         params![turn_id.to_string()],
     )?;
     Ok(found.pop())
@@ -358,7 +383,7 @@ pub fn unfinished_turns(conn: &Connection) -> Result<Vec<Turn>, StoreError> {
     query_turns(
         conn,
         "SELECT id, conversation_id, command_id, prompt, status, queued_seq, started_at, ended_at, \
-         last_seq FROM turns WHERE status IN (?1, ?2, ?3) ORDER BY queued_seq",
+         last_seq, wake FROM turns WHERE status IN (?1, ?2, ?3) ORDER BY queued_seq",
         params![
             TurnStatus::Queued.as_str(),
             TurnStatus::Held.as_str(),
@@ -432,6 +457,7 @@ struct RawTurn {
     started_at: Option<i64>,
     ended_at: Option<i64>,
     last_seq: i64,
+    wake: i64,
 }
 
 impl RawTurn {
@@ -446,6 +472,7 @@ impl RawTurn {
             started_at: row.get(6)?,
             ended_at: row.get(7)?,
             last_seq: row.get(8)?,
+            wake: row.get(9)?,
         })
     }
 
@@ -469,6 +496,7 @@ impl RawTurn {
                 .map(|value| sql::to_timestamp(value, TURNS, "ended_at"))
                 .transpose()?,
             last_seq: sql::to_seq(self.last_seq, TURNS, "last_seq")?,
+            wake: self.wake != 0,
         })
     }
 }

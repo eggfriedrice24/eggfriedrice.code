@@ -8,7 +8,7 @@
 use efr_protocol::{Event, EventEnvelope, Seq};
 use rusqlite::Connection;
 
-use crate::{StoreError, approvals, compactions, conversations, events, shells};
+use crate::{StoreError, approvals, compactions, conversations, events, jobs, shells};
 
 /// How many events a rebuild reads at a time.
 const REBUILD_PAGE: u32 = 512;
@@ -25,6 +25,7 @@ pub(crate) fn apply(conn: &Connection, envelope: &EventEnvelope) -> Result<(), S
     approvals::apply(conn, conversation_id, envelope)?;
     shells::apply(conn, conversation_id, envelope)?;
     compactions::apply(conn, conversation_id, envelope)?;
+    jobs::apply(conn, conversation_id, envelope)?;
     conversations::refresh_status(conn, conversation_id)
 }
 
@@ -33,6 +34,7 @@ pub(crate) fn rebuild(conn: &Connection) -> Result<(), StoreError> {
     approvals::clear(conn)?;
     shells::clear(conn)?;
     compactions::clear(conn)?;
+    jobs::clear(conn)?;
     conversations::clear(conn)?;
     let mut after = Seq::ZERO;
     loop {

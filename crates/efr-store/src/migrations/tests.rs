@@ -49,9 +49,9 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport { from: 0, to: 6, backup: None });
+    assert_eq!(report, MigrationReport { from: 0, to: 7, backup: None });
     assert!(report.applied());
-    assert_eq!(Migrations::version(&conn).unwrap(), 6);
+    assert_eq!(Migrations::version(&conn).unwrap(), 7);
     assert_eq!(
         tables(&conn),
         [
@@ -59,6 +59,8 @@ fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
             "compactions",
             "conversations",
             "events",
+            "job_notices",
+            "jobs",
             "outbox",
             "receipts",
             "recording_segments",
@@ -76,7 +78,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport { from: 6, to: 6, backup: None });
+    assert_eq!(report, MigrationReport { from: 7, to: 7, backup: None });
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -96,8 +98,8 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
 
     let backup = backups.join("efr.sqlite.2");
-    assert_eq!(report, MigrationReport { from: 2, to: 6, backup: Some(backup.clone()) });
-    assert_eq!(Migrations::version(&conn).unwrap(), 6);
+    assert_eq!(report, MigrationReport { from: 2, to: 7, backup: Some(backup.clone()) });
+    assert_eq!(Migrations::version(&conn).unwrap(), 7);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     let dir_mode = fs::metadata(&backups).unwrap().permissions().mode() & 0o777;
@@ -141,7 +143,7 @@ fn a_database_from_a_newer_build_is_refused() {
     let mut conn = db::open_in_memory().unwrap();
     conn.pragma_update(None, "user_version", 9).unwrap();
     let error = Migrations::new().migrate(&mut conn, None).unwrap_err();
-    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 6 }), "{error:?}");
+    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 7 }), "{error:?}");
 }
 
 static BROKEN: &[M<'static>] = &[
@@ -248,6 +250,10 @@ fn every_fixture_database_migrates_to_the_latest_version() {
         assert_eq!(saved.len(), usize::from(version >= 5), "efr.sqlite.{version}");
         let compactions = crate::compactions::latest(&conn, fixture_conversation()).unwrap();
         assert_eq!(compactions.newest.is_some(), version >= 6, "efr.sqlite.{version}");
+        let jobs = crate::jobs::of_conversation(&conn, fixture_conversation(), 10).unwrap();
+        assert_eq!(jobs.len(), usize::from(version >= 7), "efr.sqlite.{version}");
+        let turns = crate::conversations::turns(&conn, fixture_conversation()).unwrap();
+        assert!(turns.iter().all(|turn| !turn.wake), "efr.sqlite.{version}");
     }
 }
 
@@ -425,6 +431,46 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
     // NOTE: a pruning alone, so the saved messages of the turn stay.
     let pruned = crate::testing::compacted(1, 1, None, false);
     store.writer().append(Batch::new().event(id, pruned)).await.unwrap();
+    let job = efr_protocol::JobInfo {
+        id: efr_protocol::JobId::nth(1),
+        conversation_id: id,
+        turn_id: crate::testing::turn(1),
+        call_id: crate::testing::call(2),
+        command: "journalctl -f".to_owned(),
+        launch: efr_protocol::Launch::contained(),
+        state: efr_protocol::JobState::Running,
+        started_at: crate::sql::truncate_to_micros(crate::testing::start()),
+        ends_by: crate::sql::truncate_to_micros(crate::testing::start()),
+        ended_at: None,
+        exit_code: None,
+        stopped_by: None,
+        output: "/d/scratch/x/jobs/j1.out".into(),
+        output_bytes: 0,
+        watch: None,
+        wakes: 0,
+    };
+    let job_started = Event::JobStarted {
+        turn_id: job.turn_id,
+        call_id: job.call_id,
+        job,
+        launcher_pid: 4343,
+        launcher_start: 99,
+    };
+    let job_ended = Event::JobEnded {
+        job_id: efr_protocol::JobId::nth(1),
+        state: efr_protocol::JobState::Exited,
+        exit_code: Some(0),
+        stopped_by: None,
+        output_bytes: 12,
+        ran_secs: 1,
+        tail: "-- No entries --\n".to_owned(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+    };
+    store.writer().append(Batch::new().event(id, job_started).event(id, job_ended)).await.unwrap();
     let recordings = crate::recording::Recordings::new(
         recordings,
         store.writer().clone(),

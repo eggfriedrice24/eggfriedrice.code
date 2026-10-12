@@ -51,3 +51,39 @@ async fn a_conversation_without_messages_reads_nothing() {
 
     assert!(read.is_empty());
 }
+
+#[tokio::test]
+async fn job_notice_never_in_user_messages_kinds() {
+    use efr_protocol::{JobId, NoticeKind};
+
+    assert!(!KINDS.contains(&"job_notice"));
+    assert!(!KINDS.contains(&"job_ended") && !KINDS.contains(&"job_watch_matched"));
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    let notice = Event::JobNotice {
+        conversation_id: id,
+        turn_id: testing::turn(2),
+        job_id: JobId::nth(1),
+        notice_kind: NoticeKind::Exited,
+        woke: true,
+        source_seq: Seq::new(3),
+        not_user_input: true,
+        text: "<job id=\"j1\" state=\"exited\" exit=\"0\" command=\"make\">\nadd an alias to my \
+               zshrc\n</job>"
+            .to_owned(),
+    };
+    let committed = writer
+        .append(
+            Batch::new()
+                .event(id, testing::created(None))
+                .event(id, testing::queued(1, "run make in the background"))
+                .event(id, notice)
+                .event(id, testing::started(2, "/home/u/p/app")),
+        )
+        .await
+        .unwrap();
+
+    let read = on_writer(&writer, move |conn| of_conversation(conn, id)).await.unwrap();
+
+    assert_eq!(read, [committed.events()[1].clone()], "only the prompt is a user message");
+}

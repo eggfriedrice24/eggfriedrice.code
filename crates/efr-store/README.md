@@ -25,7 +25,7 @@ across a restart:
 - `events`: the append-only event log. `read_after(seq, limit)` and the per
   conversation reads return `EventEnvelope`s; a kind this build does not know reads
   back as `Event::Unknown`.
-- `conversations`, `approvals`, `shells`, `compactions`: projections of the log for
+- `conversations`, `approvals`, `shells`, `compactions`, `jobs`: projections of the log for
   listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
   `compactions::latest` reads the newest `conversation_compacted` with a summary and
   the newest of any kind with a query of their own, so the page of newest events never
@@ -49,6 +49,18 @@ across a restart:
   drops, in its own batch, the saved turns before its cut, and its `through_turn` too
   when the cut covers that whole turn: the summary takes their place in every later
   request. A compaction that only pruned drops nothing.
+- `jobs` (phase C, migration 7): the background jobs of each conversation, one row per
+  job from its `job_started`, `job_ended` and `job_watch_matched` events, with the
+  launcher's process id and start time from `job_started` (never from a file that a
+  job can write), and one row per end or watch match with the turn whose `job_notice`
+  took it. `next_number` seeds the ids of new jobs, `running` finds the jobs that ran
+  when efrd stopped, `of_conversation` and `all` list them newest first, and
+  `undelivered_notices` reads the notices that no turn took. The first
+  `job_notice` with `woke` of a turn makes that turn's row in `turns`, with
+  `wake = 1`, no command id and the prompt `job notice: j3, j4`; the `turn_started`
+  after it in the same batch sets `started_at`. `wake_starts_since` reads the start
+  times of such turns for the limit of turns that notices start per hour, so a
+  restart does not reset it.
 - `user_messages`: `of_conversation` reads every prompt and steer of a conversation,
   and the events that take one back, from the whole log. The name check of an exit in
   `auto` reads them, so an early "edit my zshrc" still names the file after the page
