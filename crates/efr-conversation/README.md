@@ -172,6 +172,35 @@ turns.
   or as the last line of the summary), and only the user's own machine answers it
   (`RemotePrivilegeAnswer` for a phone), because its "yes" lasts while nobody watches
   the job. A "no", an expired question and the away wait start no job.
+- Job notices and wake turns (phase C, `actor/notices.rs`, `wake.rs`). efrd hands
+  each notice of a job (it ended, or a line matched its `watch` pattern) to
+  `ConversationHandle::notice`. A notice is never a prompt or a steer, never enters a
+  running turn, and never answers a question: it waits until a turn starts. The next
+  turn that a prompt starts takes the waiting notices after its prompt, in its first
+  message. A turn takes at most 10 notices and 32 KiB of their text; one more line
+  names the rest (`N more job notices; call jobs to read them`). The turn records one
+  `job_notice` per notice in the batch of its `turn_started`, before it. While the
+  conversation is idle (no turn, compaction, undo or queued prompt), a notice starts a
+  wake turn: its first message is the preamble and the notices, with no prompt, it
+  runs with the origin, the settings and the directory of the job's turn, and its
+  `job_notice` events say `woke`. It starts only when the actor ran the job's turn and
+  that turn was no wake turn (a job of a wake turn never wakes, so wake turns never
+  chain), the lowest of the job's turn's mode, the mode of the newest turn that a
+  prompt started and the config's mode is `auto` (with a working sandbox), and both
+  `jobs.max_wakes_per_hour` (`ConversationConfig::max_wakes_per_hour`, counted over
+  the stored starts of the last hour, so a restart keeps it) and the daemon-wide limit
+  (`Toolbox::wake_allowed`) allow one more. A notice from efrd's restart (`wakes`
+  false) never starts one. A notice that could not start a turn records
+  `job_notice_held` with the reason, once, and rides in the next turn. A wake turn
+  runs at most 20 tool calls (`WAKE_TURN_MAX_CALLS`); then it ends as completed, and
+  its last message tells the next turn why. Its classifier record says `wake_turn`,
+  its user messages are those before its notices (a prompt queued behind it is no
+  earlier request), its questions start with `(job notice turn)`, and a question
+  counts the user away unless a client that can answer follows the conversation
+  (`PresenceReader::followed`). The classifier's denial counts and its pause go on
+  from one wake turn to the next until a prompt starts a turn. A user's prompt queues
+  behind a wake turn, and a steer reaches it as usual. The rebuilt history of a turn
+  puts its notices where the turn sent them.
 - Cache deletes (`turn/cache.rs`). A contained call that deleted files in its private
   cache layer reports them in `SandboxSummary::cache_deletes`. After the call,
   `Engine::decide_cache_delete` makes one `write` exit of each path below a cache, and
@@ -1002,7 +1031,11 @@ deletes (`turn/tests/cache.rs`), the snapshots and the undo info at the end of a
 `efr-permissions`, which make no judge call (`turn/tests/corpus.rs`). `exit/tests.rs`
 checks `grant`, the question facts and the record against the real engine, and
 `exit/tests/review.rs` the route, the payload, the allow rule and the naming rule. The undo of the actor (busy, a call that
-runs on, the queue, one record per apply, a phone) is in `actor/tests/undo.rs`. The calls of tools that a request does
+runs on, the queue, one record per apply, a phone) is in `actor/tests/undo.rs`. Job
+notices and wake turns (the wake limits, the mode, the chain rule, the call cap, the
+held notices, the presence of a wake turn) are in `actor/tests/jobs.rs` and the table
+tests of `wake/tests.rs`; a job at the check point (what starts at once, what is
+refused as a job, the question outside `auto`) is in `turn/tests/jobs.rs`. The calls of tools that a request does
 not offer are covered by table tests (`unoffered/tests.rs`) and by turns that move an
 `edit` call from a Claude model to an OpenAI model and an `apply_patch` call the other
 way and back (`turn/tests/tools.rs`), each request a byte prefix of the next. The

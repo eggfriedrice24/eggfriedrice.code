@@ -126,6 +126,15 @@ into the GitHub release notes, and it stops when the section is missing.
   last: `runs as a job for up to 60 minutes; these grants stay open until it ends`.
   Only your own terminal answers it, never a phone. Outside `auto`, each job asks you
   before it starts.
+- When a background job ends, efr tells the model with a job notice. A notice is never
+  your input: it never answers a question and never counts as your permission. When
+  the conversation is idle and in `auto`, the notice starts a short turn, marked
+  `(job notice, not your input)`, at most `jobs.max_wakes_per_hour` times per hour in
+  the conversation and `jobs.max_wakes_per_hour_daemon` times per hour in all. Such a
+  turn runs at most 20 tool calls, and a job that it starts never starts another one.
+  A question in such a turn waits only the away wait unless you follow the
+  conversation. A `watch` pattern can also wake the model on a matching output line.
+  Otherwise the notice rides in your next prompt.
 
 ### Changed
 

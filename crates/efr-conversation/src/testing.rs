@@ -41,7 +41,7 @@ use serde_json::{Map, Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
 pub(crate) use self::review::{
-    FakeJudge, FakePresence, Script, allows, denies, judged, unanswered,
+    DONE, FakeJudge, FakePresence, Script, allows, denies, judged, unanswered,
 };
 use crate::compaction::{LeftOut, summary_request};
 use crate::fresh::FreshFacts;

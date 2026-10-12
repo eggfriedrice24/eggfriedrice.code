@@ -20,6 +20,7 @@ use crate::testing::{
 use crate::{ConversationError, ConversationStart};
 
 mod compact;
+mod jobs;
 mod turn_input;
 mod undo;
 

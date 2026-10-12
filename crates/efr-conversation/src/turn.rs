@@ -52,7 +52,7 @@ use efr_permissions::{
 };
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    ExitKind, InputWait, JudgeKind, Launch, Mode, Origin, Presence, QuestionId, Scope,
+    ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId, Scope,
     ShellContext, StopReason as WireStop, SurfaceChange, TurnId, TurnSettings, TurnStop, Verdict,
 };
 use efr_provider::{
@@ -89,9 +89,10 @@ use crate::questions::Questions;
 use crate::scratch::Scratch;
 use crate::settings::{self, Place};
 use crate::steer::Steering;
+use crate::wake;
 use crate::{
     CallContext, ConfigSource, ConversationConfig, ConversationDeps, ConversationError, FileBackup,
-    OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
+    JobNoticeInput, OutputSink, ToolCall, ToolOutcome, Toolbox, TurnChanges,
 };
 
 /// The longest output tail in a `tool_call_output_updated` event, in bytes.
@@ -113,6 +114,9 @@ const NOT_RUN: &str = "The user interrupted the turn before this call ran.";
 /// What the model reads for a call that was running when the user interrupted the turn.
 pub(crate) const STOPPED: &str =
     "The user interrupted the turn while this call ran; it was stopped.";
+
+/// What the summary of a question in a wake turn starts with.
+pub(crate) const WAKE_QUESTION: &str = "(job notice turn) ";
 
 /// What the model reads for a call whose approval request expired unanswered.
 const EXPIRED: &str = "The approval request expired before the user answered; the call did \
@@ -141,12 +145,14 @@ pub(crate) struct Shared {
     pub(crate) denied_cache_deletes: Mutex<HashSet<PathBuf>>,
 }
 
-/// A prompt that waits for its turn, or runs as one.
+/// A prompt that waits for its turn, or runs as one; or a turn that job notices
+/// started.
 ///
 /// `Debug` leaves out the last command, which can hold a secret.
 #[derive(Clone)]
 pub(crate) struct TurnSpec {
     pub(crate) turn_id: TurnId,
+    /// The prompt; empty for a turn that job notices started.
     pub(crate) text: String,
     pub(crate) origin: Origin,
     pub(crate) context: Option<ShellContext>,
@@ -154,6 +160,36 @@ pub(crate) struct TurnSpec {
     pub(crate) last_command: Option<String>,
     /// The settings the prompt asked for, resolved when the turn starts.
     pub(crate) settings: TurnSettings,
+    /// What started the turn: a prompt, or job notices.
+    pub(crate) kind: TurnKind,
+    /// The job notices that the turn takes into its first message, after the prompt.
+    /// It records their `job_notice` events before its `turn_started`.
+    pub(crate) notices: Vec<JobNoticeInput>,
+    /// How many more notices wait, which the first message names in one line.
+    pub(crate) more_notices: usize,
+    /// The classifier's denial counts of the turn that notices started before this
+    /// one, which a turn that notices start goes on with (phase C).
+    pub(crate) carried: Option<TurnExits>,
+}
+
+/// What started a turn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TurnKind {
+    /// A prompt of the user.
+    Prompt,
+    /// Job notices, while the conversation was idle (a wake turn). Nobody asked for its
+    /// steps now. It runs in `cwd`, the directory of the turn that started the job.
+    Wake {
+        /// The user's directory when the job's turn started.
+        cwd: PathBuf,
+    },
+}
+
+impl TurnSpec {
+    /// True for a turn that job notices started.
+    pub(crate) fn is_wake(&self) -> bool {
+        matches!(self.kind, TurnKind::Wake { .. })
+    }
 }
 
 impl fmt::Debug for TurnSpec {
@@ -165,6 +201,8 @@ impl fmt::Debug for TurnSpec {
             .field("origin", &self.origin)
             .field("context", &self.context)
             .field("settings", &self.settings)
+            .field("kind", &self.kind)
+            .field("notices", &self.notices.len())
             .finish_non_exhaustive()
     }
 }
@@ -200,6 +238,17 @@ pub(crate) struct TurnEnd {
     /// of the turn: the only ones that the next turn can need from the actor's cache.
     /// `None` when the turn stopped before it built a request.
     pub(crate) carried: Option<HashSet<TurnId>>,
+    /// The background jobs that the turn's calls started.
+    pub(crate) jobs: Vec<JobInfo>,
+    /// The mode the turn ran with; `None` when it stopped before it resolved one.
+    pub(crate) mode: Option<Mode>,
+    /// The user's directory of the turn.
+    pub(crate) cwd: PathBuf,
+    /// The exits, refusals and classifier denials of the turn.
+    pub(crate) exits: TurnExits,
+    /// The job notices that the turn did not record because it stopped before it
+    /// started; they wait for the next turn.
+    pub(crate) untaken: Vec<JobNoticeInput>,
 }
 
 /// Runs the turn `spec` to its terminal event.
@@ -333,6 +382,12 @@ struct Turn {
     /// Why the model stopped, for `turn_completed`, when its final answer had no text
     /// and no call or stopped before its end ([`turn_stop`]).
     final_stop: Option<TurnStop>,
+    /// The background jobs that the turn's calls started.
+    jobs: Vec<JobInfo>,
+    /// How many tool calls the turn judged, for the limit of a wake turn.
+    calls: usize,
+    /// True once the turn recorded the `job_notice` events of its notices.
+    notices_recorded: bool,
 }
 
 /// What the check point found about one call before the call's start is recorded.
@@ -394,6 +449,10 @@ impl Turn {
             config.draft_interval,
         );
         let misses = shared.misses.load(Ordering::Acquire);
+        // NOTE: a turn that notices started goes on with the denials of the one before,
+        // so a model with nobody there cannot collect a fresh count each time (phase C).
+        let mut exits = spec.carried.clone().unwrap_or_default();
+        exits.wake_turn = spec.is_wake();
         Turn {
             shared,
             config,
@@ -417,11 +476,14 @@ impl Turn {
             fresh,
             logged_shell_cwd: None,
             user_messages: Vec::new(),
-            exits: TurnExits::default(),
+            exits,
             stop: None,
             carried: None,
             answer_stop: None,
             final_stop: None,
+            jobs: Vec::new(),
+            calls: 0,
+            notices_recorded: false,
         }
     }
 
@@ -444,6 +506,11 @@ impl Turn {
             (None, Some(cwd)) => cwd.clone(),
             (None, None) => shared.deps.home.path().to_path_buf(),
         };
+        // NOTE: a wake turn works where the job's turn worked, not where the user went
+        // since; it has no context, so the hidden shell does not move.
+        if let TurnKind::Wake { cwd } = &self.spec.kind {
+            self.cwd = cwd.clone();
+        }
         let derivation = shared.deps.scope.resolve(&self.cwd).await;
         self.scope = derivation.scope.clone();
         // NOTE: resolved again against the settings of this moment, because the config
@@ -463,19 +530,42 @@ impl Turn {
             };
         self.settings = Some(settings.clone());
         self.meter = Meter::new(context::context_base(&snapshot.page, &settings.model));
-        self.user_messages = exit::user_messages(&snapshot.user_events, turn_id);
-        let mut started = vec![Event::TurnStarted {
+        self.user_messages = if self.spec.is_wake() {
+            exit::wake_user_messages(&snapshot.user_events, &exit::waiting_turns(&snapshot.turns))
+        } else {
+            exit::user_messages(&snapshot.user_events, turn_id)
+        };
+        // NOTE: the notices go before `turn_started` in its batch: the first notice of a
+        // wake turn makes the turn's row, which `turn_started` then updates.
+        let woke = self.spec.is_wake();
+        let mut started: Vec<Event> = self
+            .spec
+            .notices
+            .iter()
+            .map(|notice| Event::JobNotice {
+                conversation_id: shared.conversation_id,
+                turn_id,
+                job_id: notice.job.id.clone(),
+                notice_kind: notice.kind,
+                woke,
+                source_seq: notice.source_seq,
+                not_user_input: true,
+                text: notice.text.clone(),
+            })
+            .collect();
+        started.push(Event::TurnStarted {
             turn_id,
             cwd: self.cwd.clone(),
             scope: self.scope.clone(),
             settings: Some(settings.clone()),
-        }];
+        });
         if let Some(previous) = summary.and_then(|summary| summary.scope.clone())
             && previous != self.scope
         {
             started.push(Event::ScopeChanged { turn_id, from: previous, to: self.scope.clone() });
         }
         self.record(started).await?;
+        self.notices_recorded = true;
         self.transcript.push(Message::user(self.spec.text.clone()));
 
         self.scratch = match self.ensure_scratch(&snapshot).await {
@@ -514,13 +604,19 @@ impl Turn {
         let mut window =
             snapshot.window(Some(turn_id), cache, &self.model_key(), history, fresh.as_deref());
         self.carry(&window);
-        let prompt = Message::new(
-            Role::User,
-            vec![
-                ContentBlock::Text { text: preamble },
-                ContentBlock::Text { text: self.spec.text.clone() },
-            ],
+        // NOTE: a wake turn has no prompt: its first message is the preamble and the
+        // notices. A prompt turn reads the notices that waited after its prompt.
+        let mut blocks = vec![ContentBlock::Text { text: preamble }];
+        if !self.spec.is_wake() {
+            blocks.push(ContentBlock::Text { text: self.spec.text.clone() });
+        }
+        blocks.extend(
+            self.spec.notices.iter().map(|notice| ContentBlock::Text { text: notice.text.clone() }),
         );
+        if self.spec.more_notices > 0 {
+            blocks.push(ContentBlock::Text { text: wake::more_notices(self.spec.more_notices) });
+        }
+        let prompt = Message::new(Role::User, blocks);
         // NOTE: the history is in the base already, the context at the end of the
         // previous turn; only the new prompt comes after it.
         self.meter.add(&prompt);
@@ -606,6 +702,13 @@ impl Turn {
             }
             if interrupted {
                 return Ok(Ending::Interrupted);
+            }
+            if self.capped() {
+                // NOTE: nobody asked for a wake turn's steps now, so it does not go on
+                // for ever; the next request says why it stopped.
+                tracing::info!(calls = self.calls, "the job notice turn reached its limit");
+                self.push(&mut window, Message::user(wake::CALL_CAP));
+                return Ok(Ending::Completed);
             }
         }
         let limit = config.max_model_calls;
@@ -705,7 +808,19 @@ impl Turn {
         }
         let cached =
             (!self.transcript.is_empty()).then_some(CachedTurn { key, messages: self.transcript });
-        TurnEnd { turn_id, cached, record: batch, fresh: self.fresh, carried: self.carried }
+        let untaken = if self.notices_recorded { Vec::new() } else { self.spec.notices };
+        TurnEnd {
+            turn_id,
+            cached,
+            record: batch,
+            fresh: self.fresh,
+            carried: self.carried,
+            jobs: self.jobs,
+            mode: self.settings.map(|settings| settings.mode),
+            cwd: self.cwd,
+            exits: self.exits,
+            untaken,
+        }
     }
 
     /// The turn's messages as the store saves them, or `None` for a turn that never
@@ -737,6 +852,12 @@ impl Turn {
     fn model_key(&self) -> ModelKey {
         let model = self.settings.as_ref().map_or(&self.config.model, |settings| &settings.model);
         ModelKey::new(self.shared.deps.provider.id().clone(), model.clone())
+    }
+
+    /// True when the turn is a wake turn that judged [`wake::WAKE_TURN_MAX_CALLS`]
+    /// calls: no more calls run in it.
+    fn capped(&self) -> bool {
+        self.spec.is_wake() && self.calls >= wake::WAKE_TURN_MAX_CALLS
     }
 
     /// The turn's permission mode; the config's until the turn has resolved its own.
@@ -864,7 +985,12 @@ impl Turn {
                 edit_tool: self.edit_tool,
             };
             let mut tool_call = ToolCall::new(call.name, call.input, context);
-            let skipped = skip || self.control.interrupt.is_raised();
+            let interrupt = skip || self.control.interrupt.is_raised();
+            let capped = !interrupt && self.capped();
+            let skipped = interrupt || capped;
+            if !skipped {
+                self.calls += 1;
+            }
             // NOTE: judged before the start is recorded, so `tool_call_started` says how
             // the call runs; the engine is pure, and nothing runs until it allows.
             let judged = if skipped { None } else { Some(self.judge(&tool_call).await) };
@@ -886,6 +1012,7 @@ impl Turn {
             tracing::debug!(phase = "record_started", elapsed_ms = %watch, "phase=record_started elapsed_ms={}", watch);
             let mut refused = None;
             let (mut outcome, mut interrupted) = match judged {
+                None if capped => (ToolOutcome::error(wake::CALL_CAP), false),
                 None => (ToolOutcome::error(NOT_RUN), true),
                 Some(judged) => match self.authorize_tool_call(&tool_call, judged).await? {
                     (Authorization::Allowed { approved_interactive, launch }, exits) => {
@@ -895,6 +1022,11 @@ impl Turn {
                         let watch = Stopwatch::start();
                         let invoked = self.invoke(tool_call.clone()).await?;
                         tracing::debug!(phase = "tool_run", elapsed_ms = %watch, "phase=tool_run elapsed_ms={}", watch);
+                        // NOTE: efrd recorded `job_started` before the call answered; the
+                        // actor keeps how this turn ran for the job's notices.
+                        if let Some(job) = invoked.as_ref().and_then(|outcome| outcome.job.clone()) {
+                            self.jobs.push(job);
+                        }
                         match invoked {
                             Some(outcome) => (outcome, false),
                             None => (ToolOutcome::error(STOPPED), true),
@@ -1216,6 +1348,10 @@ impl Turn {
         };
         let mut summary =
             ruling.summary.clone().unwrap_or_else(|| approvals::summary(&call.name, decision));
+        // NOTE: a present user sees that a notice, not the user, led to the question.
+        if self.spec.is_wake() {
+            summary.insert_str(0, WAKE_QUESTION);
+        }
         // NOTE: a job's question names how long the job and what a "yes" opens last; a
         // question with exits names it among their facts.
         if let (Some(minutes), None) = (exit::job_minutes(&ruling.requirements), &exit) {
@@ -1256,11 +1392,17 @@ impl Turn {
         // sees it. A user who comes back gets the normal wait again.
         let mut away_from: Option<Duration> = None;
         let mut pushed = false;
+        // NOTE: nobody typed the input of a wake turn. Unless a client that can answer
+        // follows the conversation, the user counts as away, so no wake turn waits for
+        // hours for a user who typed in another terminal a while ago.
+        let wake = self.spec.is_wake();
         let watch = Stopwatch::start();
         let waited = loop {
             let elapsed =
                 Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default();
-            if presence.presence(conversation_id) == Presence::Away {
+            let away = presence.presence(conversation_id) == Presence::Away
+                || (wake && !presence.followed(conversation_id));
+            if away {
                 away_from.get_or_insert(elapsed);
                 if !pushed {
                     presence.push(conversation_id, call_id);

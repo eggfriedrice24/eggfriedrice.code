@@ -126,6 +126,7 @@ pub(crate) fn unanswered() -> JudgeOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct FakePresence {
     away: Mutex<bool>,
+    followed: Mutex<bool>,
     pushed: Mutex<Vec<CallId>>,
     reads: Mutex<usize>,
     read: tokio::sync::Notify,
@@ -150,6 +151,17 @@ impl FakePresence {
         *self.away.lock().unwrap_or_else(PoisonError::into_inner) = away;
     }
 
+    /// Counts a client that can answer as following the conversation from now on, or
+    /// none.
+    pub(crate) fn set_followed(&self, followed: bool) {
+        *self.followed.lock().unwrap_or_else(PoisonError::into_inner) = followed;
+    }
+
+    /// How many times a turn read the presence.
+    pub(crate) fn reads(&self) -> usize {
+        *self.reads.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// The questions that it sent to the phones, in order.
     pub(crate) fn pushed(&self) -> Vec<CallId> {
         self.pushed.lock().unwrap_or_else(PoisonError::into_inner).clone()
@@ -170,10 +182,18 @@ impl PresenceReader for FakePresence {
     fn push(&self, _conversation_id: ConversationId, call_id: CallId) {
         self.pushed.lock().unwrap_or_else(PoisonError::into_inner).push(call_id);
     }
+
+    fn followed(&self, _conversation_id: ConversationId) -> bool {
+        *self.followed.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
+/// The tool of a [`Script`] entry that answers with text and ends the turn.
+pub(crate) const DONE: &str = "";
+
 /// A model that answers its requests in order: each `(tool, input)` of the script as
-/// one tool call (a freeform one when the input is text), then the text `Done.` for every later request. It keeps every
+/// one tool call (a freeform one when the input is text), or the text `Done.` for an
+/// entry whose tool is [`DONE`], then the text `Done.` for every later request. It keeps every
 /// request, so a test reads what each call gave back without writing out the requests.
 #[derive(Debug)]
 pub(crate) struct Script {
@@ -190,6 +210,11 @@ impl Script {
             calls: Mutex::new(calls),
             requests: Mutex::default(),
         })
+    }
+
+    /// Every request that the model got, in order.
+    pub(crate) fn requests(&self) -> Vec<Request> {
+        self.requests.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// The result of each tool call that the model read, in order, with whether it was
@@ -224,6 +249,7 @@ impl Provider for Script {
         requests.push(request);
         let next = self.calls.lock().unwrap_or_else(PoisonError::into_inner).pop_front();
         let events: Vec<ProviderEvent> = match next {
+            Some((tool, _)) if tool == DONE => text_answer("Done."),
             Some((tool, Value::String(text))) => {
                 freeform_answer(&format!("call_{number}"), &tool, &text)
             }

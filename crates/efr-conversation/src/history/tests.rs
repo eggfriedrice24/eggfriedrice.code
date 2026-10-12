@@ -1256,3 +1256,34 @@ fn the_safety_net_scales_with_the_window() {
     let small = HistoryLimits::new(4096, 64 * 1024 * 1024).for_window(1_000);
     assert_eq!(small.max_bytes, 64 * 1024 * 1024, "a larger limit stays");
 }
+
+fn notice(turn_id: TurnId, woke: bool, text: &str) -> Event {
+    Event::JobNotice {
+        conversation_id: conversation(),
+        turn_id,
+        job_id: efr_protocol::JobId::nth(3),
+        notice_kind: efr_protocol::NoticeKind::Exited,
+        woke,
+        source_seq: Seq::new(9),
+        not_user_input: true,
+        text: text.to_owned(),
+    }
+}
+
+#[test]
+fn a_wake_turn_is_rebuilt_from_its_notices_and_a_prompt_turn_keeps_them_after_its_prompt() {
+    let t = turn(1);
+    let wake = rebuilt("job notice: j3", &[notice(t, true, "<job j3>"), completed(t, 0, "ok")]);
+    let first = Message::new(Role::User, vec![ContentBlock::Text { text: "<job j3>".to_owned() }]);
+    assert_eq!(wake, vec![first, Message::assistant("ok")]);
+
+    let prompt = rebuilt("go on", &[notice(t, false, "<job j3>"), completed(t, 0, "ok")]);
+    let first = Message::new(
+        Role::User,
+        vec![
+            ContentBlock::Text { text: "go on".to_owned() },
+            ContentBlock::Text { text: "<job j3>".to_owned() },
+        ],
+    );
+    assert_eq!(prompt, vec![first, Message::assistant("ok")]);
+}

@@ -545,8 +545,26 @@ fn without_raw(mut message: Message) -> Message {
 /// call without a recorded result gets an error result, see [`close_open_calls`]. A
 /// turn that `status` says did not complete ends with its [`end_marker`], after those
 /// results.
+///
+/// The job notices of the turn (`job_notice`, phase C) join its first message as the
+/// turn sent them: after the prompt, or in its place for a turn that notices started.
 pub(crate) fn rebuild(prompt: &str, status: TurnStatus, events: &[&EventEnvelope]) -> Vec<Message> {
-    let mut rebuilt = Rebuilt { messages: vec![Message::user(prompt)], open: Open::None };
+    let notices: Vec<(&str, bool)> = events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::JobNotice { text, woke, .. } => Some((text.as_str(), *woke)),
+            _ => None,
+        })
+        .collect();
+    let woke = notices.iter().any(|(_, woke)| *woke);
+    let mut first: Vec<ContentBlock> = Vec::new();
+    if !woke {
+        first.push(ContentBlock::Text { text: prompt.to_owned() });
+    }
+    first.extend(notices.iter().map(|(text, _)| ContentBlock::Text { text: (*text).to_owned() }));
+    let first =
+        if notices.is_empty() { Message::user(prompt) } else { Message::new(Role::User, first) };
+    let mut rebuilt = Rebuilt { messages: vec![first], open: Open::None };
     let mut streaming: Option<(u32, String)> = None;
     let mut steers: HashMap<Seq, &str> = HashMap::new();
     // NOTE: a daemon from before `steering_delivered` did not record it. A completed

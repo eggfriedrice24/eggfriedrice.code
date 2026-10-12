@@ -37,6 +37,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod compact;
+mod notices;
 mod undo;
 
 use efr_protocol::{
@@ -66,7 +67,7 @@ use crate::questions::Questions;
 use crate::scratch::Scratch;
 use crate::settings;
 use crate::steer::Reservation;
-use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
+use crate::turn::{self, Control, Shared, TurnEnd, TurnKind, TurnSpec};
 use crate::{
     ConfigSource, ConversationDeps, ConversationError, ConversationStart, JobNoticeInput,
     UndoBusyReason, UndoCandidate,
@@ -104,6 +105,9 @@ pub struct ConversationActor {
     compacting: Option<Compacting>,
     /// The undo that runs, with the caller that waits for it.
     undoing: Option<Undoing>,
+    /// The notices of the conversation's background jobs, and the limits of the turns
+    /// that they start.
+    notices: notices::Notices,
 }
 
 /// An undo in its task, and the callers that wait for its answer.
@@ -228,6 +232,10 @@ impl NewPrompt {
             context: self.context,
             last_command: self.last_command,
             settings: self.settings,
+            kind: TurnKind::Prompt,
+            notices: Vec::new(),
+            more_notices: 0,
+            carried: None,
         }
     }
 }
@@ -332,6 +340,7 @@ impl ConversationActor {
             fresh: None,
             compacting: None,
             undoing: None,
+            notices: notices::Notices::default(),
         };
         let span = tracing::info_span!("conversation", conversation_id = %conversation_id);
         tokio::spawn(actor.run().instrument(span));
@@ -339,6 +348,7 @@ impl ConversationActor {
     }
 
     async fn run(mut self) {
+        self.notices = notices::Notices::seeded(self.wake_starts().await);
         let mut open = true;
         let mut stopped_reply = None;
         while open || self.busy() {
@@ -354,6 +364,11 @@ impl ConversationActor {
                 ended = turn_end(&mut self.running) => self.turn_ended(ended).await,
                 ended = compaction_end(&mut self.compacting) => self.compaction_ended(ended),
                 ended = undo_end(&mut self.undoing) => self.undo_ended(ended),
+            }
+            // NOTE: after every step, so a notice that waited for a turn, a compaction
+            // or an undo starts its wake turn once the conversation is idle.
+            if open {
+                self.wake_if_idle().await;
             }
         }
         if let Some(undoing) = self.undoing.take() {
@@ -409,10 +424,11 @@ impl ConversationActor {
             Request::State { reply } => {
                 let _ = reply.send(self.state());
             }
-            // NOTE: until the actor delivers notices (phase C, wake turns), it keeps
-            // none; no job runs before the job runtime either.
+            // NOTE: a notice never enters a running turn; it waits for the next one,
+            // or starts a wake turn when the conversation is idle.
             Request::Notice { notice, reply } => {
-                tracing::debug!(job = %notice.job.id, "a job notice was dropped");
+                tracing::debug!(job = %notice.job.id, "a job notice arrived");
+                self.notices.arrived(*notice);
                 let _ = reply.send(Ok(()));
             }
         }
@@ -491,6 +507,25 @@ impl ConversationActor {
             home: engine.locations().home(),
         };
         settings::resolve(settings, &config, origin, place)
+    }
+
+    /// When the turns that job notices started in this conversation began, within the
+    /// last hour, so a restart keeps the limit of such turns.
+    async fn wake_starts(&self) -> Vec<jiff::Timestamp> {
+        let conversation_id = self.conversation_id();
+        let since = self.shared.deps.clock.now() - jiff::SignedDuration::from_hours(1);
+        let starts = self
+            .shared
+            .deps
+            .readers
+            .with(move |conn| {
+                efr_store::jobs::wake_starts_since(conn, Some(conversation_id), since)
+            })
+            .await;
+        starts.unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "the wake turns of the last hour could not be read");
+            Vec::new()
+        })
     }
 
     fn new_turn_id(&self) -> TurnId {
@@ -1068,14 +1103,18 @@ impl ConversationActor {
         }
     }
 
-    /// Starts the oldest queued turn when none runs.
+    /// Starts the oldest queued turn when none runs. A turn that a prompt starts takes
+    /// the job notices that wait.
     fn start_next(&mut self) {
         if self.busy() {
             return;
         }
-        let Some(spec) = self.queue.pop_front() else {
+        let Some(mut spec) = self.queue.pop_front() else {
             return;
         };
+        if !spec.is_wake() {
+            self.notices.take_for_prompt(&mut spec);
+        }
         let turn_id = spec.turn_id;
         let control = Control::new();
         let turn = turn::run(
@@ -1106,6 +1145,7 @@ impl ConversationActor {
         match ended {
             Ok(mut end) => {
                 self.record_end(std::mem::take(&mut end.record)).await;
+                self.notices.ended(&running.spec, &mut end);
                 if let Some(fresh) = end.fresh.take() {
                     self.fresh = Some(fresh);
                 }

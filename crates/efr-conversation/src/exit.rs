@@ -15,6 +15,7 @@
 //! unit dir, which efrd read outside every write root ([`ExitNeed::installs`]). [`effective`] applies the allow rule and the
 //! naming rule of efr's auto spec (section 9.4) to the classifier's verdict.
 
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
 use efr_permissions::exits::{self, Ecosystem, REGISTRY_HOSTS};
@@ -27,6 +28,7 @@ use efr_protocol::{
     ExitSource, Grant, HostFact, Judgement, Launch, PathClassName, PauseReason, ProgramFact, Risk,
     SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
 };
+use efr_store::conversations::{Turn as StoredTurn, TurnStatus};
 use serde_json::Value;
 
 /// The time limit of a background job, in minutes, when the call's requirements name
@@ -672,6 +674,18 @@ impl TurnExits {
         self.paused.is_some()
     }
 
+    /// The counts that a turn which job notices start goes on with, from this one: the
+    /// refusals and classifier denials, and the pause (phase C).
+    pub(crate) fn carried(&self) -> TurnExits {
+        TurnExits {
+            refusals_in_a_row: self.refusals_in_a_row,
+            denials_in_a_row: self.denials_in_a_row,
+            denials_this_turn: self.denials_this_turn,
+            paused: self.paused,
+            ..TurnExits::default()
+        }
+    }
+
     /// Notes what a call through the launcher reported.
     pub(crate) fn ran(&mut self, summary: &SandboxSummary) {
         for name in summary.promoted.iter().chain(&summary.kept_out) {
@@ -687,8 +701,38 @@ impl TurnExits {
 /// `page`: each prompt and each steering text, oldest first. A prompt that the user
 /// withdrew is left out, and so is a steer that an interrupt sent again as a prompt,
 /// which counts once, as that prompt, or that the user took back.
+///
+/// A job notice is never one: it is a `job_notice` event, which `page` does not hold.
 pub(crate) fn user_messages(page: &[EventEnvelope], turn_id: TurnId) -> Vec<String> {
-    let withdrawn: std::collections::HashSet<TurnId> = page
+    messages_until(page, Some(turn_id), &HashSet::new())
+}
+
+/// The user messages before a turn that job notices started (phase C), from the events
+/// of `page`: every prompt and steer of the conversation before the turn, as
+/// [`user_messages`] reads them. A wake turn starts only when no prompt waits, so a
+/// prompt of `waiting`, the turns that wait, came after the wake turn started: it is
+/// no earlier request, and it is left out.
+pub(crate) fn wake_user_messages(page: &[EventEnvelope], waiting: &HashSet<TurnId>) -> Vec<String> {
+    messages_until(page, None, waiting)
+}
+
+/// The turns of `turns` that wait to start.
+pub(crate) fn waiting_turns(turns: &[StoredTurn]) -> HashSet<TurnId> {
+    turns
+        .iter()
+        .filter(|turn| matches!(turn.status, TurnStatus::Queued | TurnStatus::Held))
+        .map(|turn| turn.id)
+        .collect()
+}
+
+/// The user messages of `page` up to the prompt of `until`, without the prompts of the
+/// turns `skipped`.
+fn messages_until(
+    page: &[EventEnvelope],
+    until: Option<TurnId>,
+    skipped: &HashSet<TurnId>,
+) -> Vec<String> {
+    let withdrawn: HashSet<TurnId> = page
         .iter()
         .filter_map(|envelope| match envelope.event {
             Event::PromptWithdrawn { turn_id, .. } => Some(turn_id),
@@ -699,13 +743,14 @@ pub(crate) fn user_messages(page: &[EventEnvelope], turn_id: TurnId) -> Vec<Stri
     let mut messages = Vec::new();
     for envelope in page {
         match &envelope.event {
-            Event::PromptQueued { turn_id: prompt, .. } if withdrawn.contains(prompt) => {}
+            Event::PromptQueued { turn_id: prompt, .. }
+                if withdrawn.contains(prompt) || skipped.contains(prompt) => {}
             Event::TurnSteered { .. } if left.contains(&envelope.seq) => {}
             Event::PromptQueued { turn_id: prompt, text, .. } => {
                 messages.push(text.clone());
                 // NOTE: prompts queued behind this turn are not part of what the user
                 // asked so far.
-                if *prompt == turn_id {
+                if Some(*prompt) == until {
                     break;
                 }
             }

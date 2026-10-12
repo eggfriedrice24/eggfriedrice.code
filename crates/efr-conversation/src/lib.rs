@@ -42,7 +42,9 @@
 //! - Background jobs (phase C): a [`ToolOutcome`] names the job that a call started,
 //!   the daemon hands each job notice to [`ConversationHandle::notice`]
 //!   ([`JobNoticeInput`]), and [`notice_text`] writes a notice with the line
-//!   [`NOT_USER_INPUT`], escaped so that the job's output cannot end it.
+//!   [`NOT_USER_INPUT`], escaped so that the job's output cannot end it. A notice rides
+//!   in the next turn, or starts a wake turn while the conversation is idle, within
+//!   the wake limits and only in `auto`.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`,
 //! `efr-sandbox` (only `secret_like`), `efr-protocol` and `efr-stdx`. Not `efr-tools`:
@@ -77,6 +79,7 @@ mod testing;
 mod toolbox;
 mod turn;
 mod unoffered;
+mod wake;
 
 pub use actor::{ConversationActor, ConversationHandle, ConversationState, completed_result};
 pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};

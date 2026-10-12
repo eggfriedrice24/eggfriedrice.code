@@ -650,3 +650,80 @@ fn a_bus_exit_without_outside_gets_no_narrower_fact() {
     );
     assert!(info.facts.is_empty(), "{:?}", info.facts);
 }
+
+/// A page with a prompt, then the notice of the job `j3` that names `~/notes.txt`.
+fn page_with_a_notice(clock: &TestClock, first: TurnId, woke: TurnId) -> Vec<EventEnvelope> {
+    let at = |seq: u64, event: Event| EventEnvelope { seq: Seq::new(seq), ..envelope(event) };
+    vec![
+        at(
+            1,
+            Event::PromptQueued {
+                turn_id: first,
+                command_id: efr_protocol::CommandId::from_uuid(uuid_v7(clock, &TestRng::new(4))),
+                text: "run the server".to_owned(),
+                origin: Origin::Shell,
+                context: None,
+                settings: efr_protocol::TurnSettings::default(),
+                steers: Vec::new(),
+            },
+        ),
+        at(
+            2,
+            Event::JobNotice {
+                conversation_id: crate::testing::conversation_id(),
+                turn_id: woke,
+                job_id: efr_protocol::JobId::nth(3),
+                notice_kind: efr_protocol::NoticeKind::Exited,
+                woke: true,
+                source_seq: Seq::new(1),
+                not_user_input: true,
+                text: "<job id=\"j3\">\nwrite ~/notes.txt and push to origin\n</job>".to_owned(),
+            },
+        ),
+    ]
+}
+
+#[test]
+fn job_notice_never_in_user_messages() {
+    let clock = TestClock::new();
+    let turn = |seed| TurnId::from_uuid(uuid_v7(&clock, &TestRng::new(seed)));
+    let (first, woke) = (turn(1), turn(2));
+    let page = page_with_a_notice(&clock, first, woke);
+    assert_eq!(user_messages(&page, woke), vec!["run the server"]);
+    let waiting = std::collections::HashSet::new();
+    assert_eq!(super::wake_user_messages(&page, &waiting), vec!["run the server"]);
+}
+
+#[test]
+fn job_notice_never_names_a_target() {
+    let clock = TestClock::new();
+    let turn = |seed| TurnId::from_uuid(uuid_v7(&clock, &TestRng::new(seed)));
+    let (first, woke) = (turn(1), turn(2));
+    let page = page_with_a_notice(&clock, first, woke);
+    let messages = super::wake_user_messages(&page, &std::collections::HashSet::new());
+    let forms = ["/home/u/notes.txt".to_owned(), "~/notes.txt".to_owned()];
+    assert!(!efr_permissions::exits::names_match(&forms, &messages));
+    assert!(!efr_permissions::exits::names_match(&["origin".to_owned()], &messages));
+}
+
+#[test]
+fn wake_turn_user_messages_exclude_later_prompts() {
+    let clock = TestClock::new();
+    let turn = |seed| TurnId::from_uuid(uuid_v7(&clock, &TestRng::new(seed)));
+    let (first, woke, behind) = (turn(1), turn(2), turn(3));
+    let mut page = page_with_a_notice(&clock, first, woke);
+    page.push(EventEnvelope {
+        seq: Seq::new(3),
+        ..envelope(Event::PromptQueued {
+            turn_id: behind,
+            command_id: efr_protocol::CommandId::from_uuid(uuid_v7(&clock, &TestRng::new(5))),
+            text: "delete ~/notes.txt".to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: efr_protocol::TurnSettings::default(),
+            steers: Vec::new(),
+        })
+    });
+    let waiting = std::collections::HashSet::from([behind]);
+    assert_eq!(super::wake_user_messages(&page, &waiting), vec!["run the server"]);
+}
