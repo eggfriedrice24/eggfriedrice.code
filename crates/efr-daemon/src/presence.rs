@@ -14,6 +14,11 @@
 //! user is recorded at once. A conversation that the table does not know yet, such as
 //! the first one after a restart, counts as present from the moment efrd first sees it.
 //!
+//! A conversation is followed while a client that can type answers subscribes to it
+//! (`Connections::answerers`). A turn that a job notice started counts the user away
+//! unless one does, so its question never waits for hours on a person who typed in
+//! another terminal a few minutes ago.
+//!
 //! The push of an away question to the user's phones does nothing: no phone client
 //! exists yet.
 
@@ -28,6 +33,8 @@ use efr_stdx::time::Clock;
 use efr_store::{Batch, WriterHandle};
 use jiff::Timestamp;
 use tokio::sync::watch;
+
+use crate::connections::Connections;
 
 /// One change of presence to record: the conversation and its `presence_changed`.
 pub(crate) type Change = (ConversationId, Event);
@@ -80,6 +87,9 @@ pub(crate) struct PresenceTable {
     settings: watch::Receiver<Arc<Settings>>,
     clock: Arc<dyn Clock>,
     writer: WriterHandle,
+    /// The live subscriptions, which say whether a client that answers input follows a
+    /// conversation; `None` knows no client, so nobody follows.
+    connections: Option<Arc<Connections>>,
 }
 
 impl PresenceTable {
@@ -90,7 +100,14 @@ impl PresenceTable {
         clock: Arc<dyn Clock>,
         writer: WriterHandle,
     ) -> Self {
-        PresenceTable { entries: Mutex::default(), settings, clock, writer }
+        PresenceTable { entries: Mutex::default(), settings, clock, writer, connections: None }
+    }
+
+    /// The table, which reads from `connections` whether a client that answers input
+    /// follows a conversation.
+    pub(crate) fn with_connections(mut self, connections: Arc<Connections>) -> Self {
+        self.connections = Some(connections);
+        self
     }
 
     /// Input of a person in `conversation_id` now: an idle state that the log does not
@@ -223,6 +240,12 @@ impl PresenceReader for PresenceTable {
             }
         }
         presence
+    }
+
+    fn followed(&self, conversation_id: ConversationId) -> bool {
+        self.connections
+            .as_ref()
+            .is_some_and(|connections| connections.answerers(conversation_id) > 0)
     }
 }
 

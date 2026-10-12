@@ -573,8 +573,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         Some(host) => host,
         None => tokio::task::spawn_blocking(host_info).await.unwrap_or_default(),
     };
-    let presence =
-        Arc::new(PresenceTable::new(settings_receiver.clone(), Arc::clone(&clock), writer.clone()));
+    let presence = Arc::new(
+        PresenceTable::new(settings_receiver.clone(), Arc::clone(&clock), writer.clone())
+            .with_connections(Arc::clone(&connections)),
+    );
     // NOTE: the judge asks the provider of every conversation, whose company names the
     // small model; `[model] provider` needs a restart, so the company stays.
     let judge: Arc<dyn ExitJudge> = Arc::new(ClassifierJudge::new(

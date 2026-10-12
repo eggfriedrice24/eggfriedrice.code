@@ -174,3 +174,32 @@ async fn an_unknown_conversation_counts_as_present_from_the_first_look() {
     fixture.clock.advance(Duration::from_secs(10 * 60));
     assert_eq!(fixture.table.presence(id), Presence::Away);
 }
+
+/// A conversation counts as followed while a client that can type answers subscribes to
+/// it; a client that only reads, or none, does not count, and a table with no
+/// connections knows nobody.
+#[tokio::test]
+async fn followed_true_with_an_answering_client() {
+    let fixture = Fixture::new().await;
+    let id = fixture.conversation(1).await;
+    assert!(!fixture.table.followed(id), "a table with no connections");
+    let connections = Arc::new(crate::connections::Connections::default());
+    let hello = crate::connections::HelloInfo {
+        surface: Origin::Shell,
+        tty: Some("/dev/pts/3".to_owned()),
+        client: None,
+    };
+    connections.opened(efr_transport::ConnId::new(1), hello);
+    let Fixture { clock, store, table, settings: _settings } = fixture;
+    let table = table.with_connections(Arc::clone(&connections));
+    assert!(!table.followed(id));
+    let reading = connections.subscribe(efr_transport::ConnId::new(1), id, false);
+    assert!(!table.followed(id), "a subscription that cannot answer");
+    let answering = connections.subscribe(efr_transport::ConnId::new(1), id, true);
+    assert!(table.followed(id));
+    let other = ConversationId::from_uuid(uuid_v7(&clock, &TestRng::new(9)));
+    assert!(!table.followed(other));
+    drop(answering);
+    assert!(!table.followed(id), "the answering client left");
+    drop((reading, store));
+}
