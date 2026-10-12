@@ -18,31 +18,31 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_conversation::NOT_USER_INPUT;
 use efr_protocol::{
-    ApprovalDecision, ConversationId, Event, EventEnvelope, HeldReason, JobState, Method, Mode,
-    NoticeKind, PromptSendResult, TurnId,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ConversationId, Event, EventEnvelope,
+    HeldReason, JobState, Method, Mode, NoticeKind, PromptSendResult, TurnId, TurnSettings,
 };
 use efr_provider::{
     Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream, Request, Role,
     StopReason,
 };
 use efr_stdx::time::Clock as _;
-use efr_test_daemon::{FakeLauncher, TTY, TestDaemon, TestDaemonBuilder, events_until};
+use efr_test_daemon::{FakeLauncher, TTY, TestDaemon, TestDaemonBuilder, command_id, events_until};
 use efr_test_support::TestDirs;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use crate::sandbox::{REVIEWER_ALLOWS, ready, run_turn_with};
+use crate::sandbox::{REVIEWER_ALLOWS, ready};
 
 /// The reviewer's answer that hands an exit to the user.
-const REVIEWER_ASKS: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user decides"}"#;
+pub(crate) const REVIEWER_ASKS: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user decides"}"#;
 
 /// One answer of the model: a tool call, or `None` for the end of the turn.
-type Answer = Option<(&'static str, Value)>;
+pub(crate) type Answer = Option<(&'static str, Value)>;
 
 /// A model that answers each request of every turn with the next answer of its list,
 /// and keeps the text blocks of the first message of each turn: the preamble, the
 /// prompt of a prompt turn, then the notices. The reviewer answers `verdict`.
-struct Recorder {
+pub(crate) struct Recorder {
     id: ProviderId,
     answers: Mutex<VecDeque<Answer>>,
     firsts: Mutex<Vec<Vec<String>>>,
@@ -58,11 +58,11 @@ impl std::fmt::Debug for Recorder {
 }
 
 impl Recorder {
-    fn new(answers: Vec<Answer>) -> Arc<Self> {
+    pub(crate) fn new(answers: Vec<Answer>) -> Arc<Self> {
         Recorder::reviewed(answers, REVIEWER_ALLOWS)
     }
 
-    fn reviewed(answers: Vec<Answer>, verdict: &'static str) -> Arc<Self> {
+    pub(crate) fn reviewed(answers: Vec<Answer>, verdict: &'static str) -> Arc<Self> {
         Arc::new(Recorder {
             id: ProviderId::new("test").unwrap(),
             answers: Mutex::new(answers.into()),
@@ -74,8 +74,13 @@ impl Recorder {
     }
 
     /// The text blocks of the first message of each turn, in order.
-    fn firsts(&self) -> Vec<Vec<String>> {
+    pub(crate) fn firsts(&self) -> Vec<Vec<String>> {
         self.firsts.lock().unwrap().clone()
+    }
+
+    /// How many reviews the reviewer answered.
+    pub(crate) fn reviews(&self) -> usize {
+        self.reviews.load(Ordering::SeqCst)
     }
 }
 
@@ -199,9 +204,55 @@ fn blocked(fifo: &Path, then: &str) -> String {
 }
 
 /// The turn of the prompt `text` with the command id `n` in `mode` from the test's
-/// terminal, up to its end; every question gets a no.
+/// terminal, up to its own end, with each of its questions answered with `decision`.
+/// The events start at the prompt's `prompt_queued`; an earlier turn's are left out.
+pub(crate) async fn turn(
+    daemon: &TestDaemon,
+    n: u128,
+    text: &str,
+    mode: Mode,
+    decision: ApprovalDecision,
+) -> (PromptSendResult, Vec<EventEnvelope>) {
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(n, text, TTY) else { unreachable!() };
+    params.settings = TurnSettings { mode: Some(mode), ..TurnSettings::default() };
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let own = sent.turn_id;
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    let mut seen = Vec::new();
+    let mut answers = n * 100;
+    loop {
+        let events = events_until(&mut follow, |event| {
+            event.turn_id() == Some(own)
+                && matches!(
+                    event,
+                    Event::ApprovalRequested { .. }
+                        | Event::TurnCompleted { .. }
+                        | Event::TurnFailed { .. }
+                        | Event::TurnInterrupted { .. }
+                )
+        })
+        .await
+        .unwrap();
+        let last = events.last().unwrap().event.clone();
+        seen.extend(events);
+        let Event::ApprovalRequested { call_id, .. } = last else { break };
+        answers += 1;
+        let answer = Method::ApprovalRespond(ApprovalRespond {
+            command_id: command_id(answers),
+            conversation_id: sent.conversation_id,
+            call_id,
+            decision,
+        });
+        let _: ApprovalRespondResult = client.call(answer).await.unwrap();
+    }
+    seen.retain(|envelope| envelope.seq >= sent.seq);
+    (sent, seen)
+}
+
+/// [`turn`] with a no to each question.
 async fn prompt(daemon: &TestDaemon, n: u128, text: &str, mode: Mode) -> PromptSendResult {
-    run_turn_with(daemon, TTY, n, text, mode, ApprovalDecision::Deny).await.0
+    turn(daemon, n, text, mode, ApprovalDecision::Deny).await.0
 }
 
 /// The events of `conversation` from its start up to the first that `stop` accepts.
