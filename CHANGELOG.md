@@ -144,6 +144,14 @@ into the GitHub release notes, and it stops when the section is missing.
   projects every 5 minutes and before each sandboxed command there. When the job
   planted a hook or a git setting that runs code, efr moves it to the quarantine and
   stops the job. After a restart, efr checks a job that the last efrd left running.
+- While efr follows a turn, the view shows a line when a job starts, such as `job j3
+  started; output $SCRATCH/jobs/j3.out; ends in 60 minutes`, and when a job of the
+  conversation ends, such as `job j3 ended with exit 3 after 1 minute; 2.0 KB output`.
+  The line also says when processes of the job may still run, and why a job notice
+  did not start a turn. A call that starts a job shows `(background)`. A turn that a
+  job notice started shows `🤖 (job notice, not your input)`, in the view and in `efr
+  history`. `efr history --verbose` adds the last lines of a job's output and the text
+  of each notice.
 
 ### Changed
 

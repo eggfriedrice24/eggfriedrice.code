@@ -1151,3 +1151,99 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
     );
     assert!(verbose.contains("snapshot after the turn of project: "), "{verbose}");
 }
+
+/// A turn that started job j1, the job's end, and a turn that its notice started.
+fn job_events() -> Vec<EventEnvelope> {
+    let wake: efr_protocol::TurnId = "019a9b1c-3d00-7a10-8b20-0000000000f2".parse().unwrap();
+    let command_id: CommandId = "019a9b1c-3d00-7a10-8b20-0000000000c9".parse().unwrap();
+    let notice = |n: u64| {
+        Event::JobNotice {
+        conversation_id: conversation(),
+        turn_id: wake,
+        job_id: efr_protocol::JobId::nth(1),
+        notice_kind: efr_protocol::NoticeKind::Exited,
+        woke: true,
+        source_seq: Seq::new(n),
+        not_user_input: true,
+        text: "<job id=\"j1\" state=\"exited\" exit=\"2\">\nefr: this is a job notice\n\u{1b}[2Jfail \u{202e}x\n</job>".to_owned(),
+    }
+    };
+    let events = vec![
+        Event::PromptQueued {
+            turn_id: turn(),
+            command_id,
+            text: "start the build in the background".to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: TurnSettings::default(),
+            steers: Vec::new(),
+        },
+        Event::ToolCallStarted {
+            turn_id: turn(),
+            call_id: call(),
+            tool: "shell".to_owned(),
+            input: json!({ "command": "cargo build", "background": true }),
+            manual_input: false,
+            launch: Some(Launch::contained()),
+            freeform: false,
+        },
+        Event::JobStarted {
+            turn_id: turn(),
+            call_id: call(),
+            job: crate::testing::job(1, "cargo build"),
+            launcher_pid: 4242,
+            launcher_start: 99,
+        },
+        Event::JobEnded {
+            job_id: efr_protocol::JobId::nth(1),
+            state: efr_protocol::JobState::Exited,
+            exit_code: Some(2),
+            stopped_by: None,
+            output_bytes: 2_000,
+            ran_secs: 61,
+            tail: "error[E0308]: mismatched types\n\u{1b}]0;title\u{7}\u{202e}evil".to_owned(),
+            surface_changes: Vec::new(),
+            quarantined: false,
+            survivors: Vec::new(),
+            launcher_lost: false,
+            output_truncated: false,
+        },
+        notice(4),
+        notice(4),
+        Event::TurnStarted {
+            turn_id: wake,
+            cwd: PathBuf::from("/home/user/project"),
+            scope: Scope::Machine,
+            settings: None,
+        },
+    ];
+    events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+}
+
+#[test]
+fn wake_turn_marked_in_history() {
+    let page = ConversationHistoryResult { events: job_events(), next_cursor: None };
+    let options = RenderOptions::new(80).with_terminal(false);
+    let plain = show(&page, &options);
+    assert!(plain.contains("$ cargo build (background)\n"), "{plain}");
+    assert!(
+        plain.contains("job j1 started; output $SCRATCH/jobs/j1.out; ends in 180 minutes\n"),
+        "{plain}"
+    );
+    assert!(plain.contains("job j1 ended with exit 2 after 1 minute; 2.0 KB output\n"), "{plain}");
+    assert_eq!(
+        plain.matches("\u{1f916} (job notice, not your input)\n").count(),
+        1,
+        "one mark for the turn, however many notices it took: {plain}"
+    );
+    assert!(!plain.contains("mismatched"), "the tail shows only with --verbose: {plain}");
+
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home: None });
+    assert!(verbose.contains("    error[E0308]: mismatched types\n"), "{verbose}");
+    assert!(verbose.contains("    efr: this is a job notice\n"), "{verbose}");
+    // NOTE: the tail and the notice come from a program: no escape or format character
+    // reaches the terminal.
+    assert!(!verbose.contains('\u{1b}') && !verbose.contains('\u{202e}'), "{verbose:?}");
+    assert!(verbose.contains("\u{241b}]0;title\u{2407}\u{fffd}evil"), "{verbose}");
+}

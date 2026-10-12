@@ -8,6 +8,12 @@
 //! the line that the turn showed, such as `context compacted (auto): 231k -> 24k
 //! tokens, kept 3 turns, summary 3.2k`. `--verbose` adds what the user asked the
 //! summary to keep and the summary itself.
+//!
+//! Background jobs show as the view shows them: a job's start, its end, a line that
+//! matched its `watch` pattern and a notice that did not start a turn. A turn that a
+//! job notice started shows `🤖 (job notice, not your input)` where a prompt would
+//! stand. `--verbose` adds the text of each notice and the tail of each end, through
+//! `format::lines`, so the output of a job cannot drive the terminal.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -24,7 +30,7 @@ use efr_render::{RenderOptions, render, render_trace};
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
-use crate::format::{self, Block, Spacing, Tone, changes, context, sandbox};
+use crate::format::{self, Block, Spacing, Tone, changes, context, jobs, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
 
@@ -272,6 +278,8 @@ struct Transcript<'a> {
     /// The newest text of a message that has not completed, which a turn that ended
     /// early never completes.
     partial: Option<(TurnId, u32, String)>,
+    /// The turns that a job notice started, whose mark shows once.
+    woken: HashSet<TurnId>,
 }
 
 impl<'a> Transcript<'a> {
@@ -287,6 +295,7 @@ impl<'a> Transcript<'a> {
             exits: HashMap::new(),
             commands: HashMap::new(),
             partial: None,
+            woken: HashSet::new(),
         }
     }
 
@@ -337,7 +346,49 @@ impl<'a> Transcript<'a> {
                 if matches!(launch, Some(Launch::Contained { .. })) {
                     self.contained.insert(*call_id);
                 }
-                self.note(&format::tool_call(tool, input, format::columns(self.options)));
+                let mut line = format::tool_call(tool, input, format::columns(self.options));
+                if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
+                    line.push_str(" (background)");
+                }
+                self.note(&line);
+            }
+            Event::JobStarted { job, .. } => self.note(&jobs::started(job)),
+            Event::JobNotice { turn_id, woke, job_id, text, .. } => {
+                // Each notice of a turn that notices started says so; the mark shows once.
+                if *woke && self.woken.insert(*turn_id) {
+                    self.out.push_str(self.spacing.before(Block::Prompt));
+                    let _ = writeln!(
+                        self.out,
+                        "{}",
+                        format::paint(jobs::WAKE_MARK, Tone::Dim, self.options)
+                    );
+                } else if !*woke {
+                    self.note(&jobs::notice_rides(job_id));
+                }
+                if self.verbose {
+                    self.indented(text);
+                }
+            }
+            event @ (Event::JobEnded { .. }
+            | Event::JobWatchMatched { .. }
+            | Event::JobNoticeHeld { .. }) => {
+                if let Some(line) = jobs::conversation_line(event) {
+                    self.dim_lines(&[line]);
+                }
+                if let Event::JobEnded { tail, surface_changes, .. } = event
+                    && self.verbose
+                {
+                    let changed: Vec<String> = surface_changes
+                        .iter()
+                        .map(|change| {
+                            format!("  {}", sandbox::surface_change(change, self.home).trim())
+                        })
+                        .collect();
+                    if !changed.is_empty() {
+                        self.dim_lines(&changed);
+                    }
+                    self.indented(tail);
+                }
             }
             Event::ToolCallCompleted {
                 call_id,
@@ -607,6 +658,16 @@ impl<'a> Transcript<'a> {
             }));
         }
         if !lines.is_empty() {
+            self.dim_lines(&lines);
+        }
+    }
+
+    /// Text that a program or a notice wrote, for `--verbose`: each line dim, indented
+    /// and safe to print. Nothing for a blank text.
+    fn indented(&mut self, text: &str) {
+        let lines: Vec<String> =
+            format::lines(text).lines().map(|line| format!("    {line}")).collect();
+        if lines.iter().any(|line| !line.trim().is_empty()) {
             self.dim_lines(&lines);
         }
     }

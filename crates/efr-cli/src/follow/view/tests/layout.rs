@@ -1449,3 +1449,59 @@ fn interrupted_turn_shows_its_undo_line() {
         Sent(1_000, interrupted),
     ]));
 }
+
+/// Job `number`, which call `n` started.
+fn job_of(n: u8, number: u32, command: &str) -> efr_protocol::JobInfo {
+    efr_protocol::JobInfo { call_id: id(n), ..crate::testing::job(number, command) }
+}
+
+#[test]
+fn view_shows_job_start_and_end() {
+    let input = json!({ "command": "npm run dev -- --port 3000", "background": true });
+    let job = job_of(1, 3, "npm run dev -- --port 3000");
+    let job_ended = Event::JobEnded {
+        job_id: job.id.clone(),
+        state: efr_protocol::JobState::Stopped,
+        exit_code: None,
+        stopped_by: Some(efr_protocol::JobStopBy::User),
+        output_bytes: 1_200_000,
+        ran_secs: 92 * 60,
+        tail: "ready on :3000\n".to_owned(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: vec!["node".to_owned()],
+        launcher_lost: false,
+        output_truncated: false,
+    };
+    let matched = Event::JobWatchMatched {
+        job_id: job.id.clone(),
+        line: "error: port 3000 in use".to_owned(),
+        wakes_left: 2,
+    };
+    let held = Event::JobNoticeHeld {
+        job_id: job.id.clone(),
+        source_seq: Seq::new(14),
+        reason: efr_protocol::HeldReason::NotAuto,
+    };
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, started(1, "shell", input, Some(Launch::contained()))),
+        Sent(
+            40,
+            Event::JobStarted {
+                turn_id: turn(),
+                call_id: id(1),
+                job,
+                launcher_pid: 4242,
+                launcher_start: 99,
+            }
+        ),
+        Sent(50, ended(1, None, None)),
+        Shot("started"),
+        Sent(60, matched),
+        Sent(70, message(0, "The dev server runs as job j3.")),
+        Sent(80, job_ended),
+        Sent(90, held),
+        Sent(100, turn_completed()),
+    ]));
+}

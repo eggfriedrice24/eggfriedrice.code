@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationHistoryResult, ErrorBody,
-    ErrorCode, Event, InputRespondResult, InputWait, LateSteer, Method, Mode, Origin, PromptSend,
-    PromptSendResult, PromptWithdraw, PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq,
-    ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    ErrorCode, Event, InputRespondResult, InputWait, JobId, LateSteer, Method, Mode, Origin,
+    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, RequestId, ResentSteers,
+    Scope, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
     TurnSteerResult, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::env::{Env, Var};
@@ -1291,4 +1291,45 @@ async fn when_efrd_does_not_come_back_what_the_view_sent_goes_back_to_the_shell(
     assert!(matches!(result, Err(CliError::Client(_))), "{result:?}");
     assert!(out.contains("efrd did not come back"), "{out}");
     assert_eq!(setup.handed_back().as_deref(), Some("keep it small\nthen write the tests"));
+}
+
+#[tokio::test]
+async fn a_prompt_behind_a_turn_that_a_job_notice_started_says_so() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let wake: TurnId = "019a9b1c-3d00-7a10-8b20-0000000000f3".parse().unwrap();
+    let notice = Event::JobNotice {
+        conversation_id: conversation(),
+        turn_id: wake,
+        job_id: JobId::nth(1),
+        notice_kind: efr_protocol::NoticeKind::Exited,
+        woke: true,
+        source_seq: Seq::new(3),
+        not_user_input: true,
+        text: "<job id=\"j1\">".to_owned(),
+    };
+    let (result, out, _) = run_row_view(&setup, &ctx, queued_view(), |mut conn, seen| async move {
+        let (id, method) = conn.request().await;
+        let Method::ConversationHistory(_) = method else {
+            panic!("expected conversation.history, got {}", method.name());
+        };
+        let page = ConversationHistoryResult {
+            events: vec![crate::testing::envelope(4, notice)],
+            next_cursor: None,
+        };
+        conn.reply(id, &page).await;
+        let sub = subscribed(&mut conn, 10).await;
+        shows(&seen, "(job notice, not your input)").await;
+        conn.item(sub, &item(11, started(turn()))).await;
+        conn.item(sub, &item(12, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(
+        out.matches("\u{1f916} (job notice, not your input)").count(),
+        1,
+        "{}",
+        readable(&out)
+    );
 }

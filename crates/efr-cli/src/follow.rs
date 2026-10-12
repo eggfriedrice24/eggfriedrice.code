@@ -416,6 +416,8 @@ impl Follower<'_> {
             }
         };
         let mut pending: Vec<Event> = Vec::new();
+        // The notice that started the turn ahead, when a job notice started it.
+        let mut wake: Option<Event> = None;
         // The running call's last output and input wait; tool calls run one at a time.
         let mut call: Option<CallId> = None;
         let mut output: Option<Event> = None;
@@ -423,6 +425,17 @@ impl Follower<'_> {
         for envelope in page.events.into_iter().filter(|envelope| envelope.seq <= self.target.after)
         {
             match &envelope.event {
+                Event::JobNotice { turn_id, woke: true, .. } if *turn_id != self.target.turn => {
+                    wake = Some(envelope.event);
+                }
+                Event::TurnCompleted { turn_id, .. }
+                | Event::TurnFailed { turn_id, .. }
+                | Event::TurnInterrupted { turn_id, .. }
+                | Event::TurnCancelled { turn_id }
+                    if wake.as_ref().and_then(Event::turn_id) == Some(*turn_id) =>
+                {
+                    wake = None;
+                }
                 // The record of an exit comes before its approval and shows in it.
                 Event::ApprovalRequested { turn_id, .. }
                 | Event::ExitRequested { turn_id, .. }
@@ -465,7 +478,7 @@ impl Follower<'_> {
                 _ => {}
             }
         }
-        for event in pending.into_iter().chain(output).chain(input) {
+        for event in wake.into_iter().chain(pending).chain(output).chain(input) {
             let step = view.event(&event, self.ctx.screen.size(), self.ctx.keys.available());
             self.apply(step, out, view, true).await?;
         }

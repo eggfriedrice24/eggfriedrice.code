@@ -155,12 +155,29 @@ pub(crate) struct Call {
     /// Its first rows are not written yet: when stdout is not a terminal, they wait for
     /// its question and the answer.
     pub(crate) header_due: bool,
+    /// It starts a background job (`background: true`): its block says so after what
+    /// it runs.
+    background: bool,
 }
 
 impl Call {
     /// Call `call_id`, which does `text`, started at `since` on the daemon's clock.
     pub(crate) fn new(call_id: CallId, text: CallText, since: Option<Timestamp>) -> Call {
-        Call { call_id, text, since, shown: None, awaiting: false, header_due: false }
+        Call {
+            call_id,
+            text,
+            since,
+            shown: None,
+            awaiting: false,
+            header_due: false,
+            background: false,
+        }
+    }
+
+    /// The same call, which starts a background job.
+    pub(crate) fn in_background(mut self) -> Call {
+        self.background = true;
+        self
     }
 
     /// Its approval was answered at `at`: the call runs from then.
@@ -251,6 +268,15 @@ impl Call {
     /// each line cut into rows of the width on a terminal, with their newlines. A list,
     /// such as the files of a patch, is cut only between two of its entries.
     pub(crate) fn header(&self, options: &RenderOptions) -> String {
+        let mut out = self.rows(options);
+        if self.background {
+            push_mark(&mut out, BACKGROUND, self.text_column(), options);
+        }
+        out
+    }
+
+    /// The rows of [`header`](Self::header) without the mark of a background job.
+    fn rows(&self, options: &RenderOptions) -> String {
         let columns = format::columns(options);
         let column = self.text_column();
         let mut out = format::paint(MARK, Tone::Accent, options);
@@ -324,6 +350,31 @@ impl Call {
         }
         indented(&text, tone, options)
     }
+}
+
+/// The mark after what a call that starts a background job runs.
+const BACKGROUND: &str = "(background)";
+
+/// Adds `mark`, muted, to the last row of `rows`, which ends with a newline, after a
+/// space; on a row of its own at `column` when the last row has no room for it.
+fn push_mark(rows: &mut String, mark: &str, column: usize, options: &RenderOptions) {
+    let method = options.width_method();
+    let body = rows.strip_suffix('\n').unwrap_or(rows);
+    let last = body.rsplit('\n').next().unwrap_or_default();
+    let used = efr_render::display_width(last, method);
+    let fits = match format::columns(options) {
+        Some((width, _)) => used + 1 + text_width(mark, method) <= width,
+        None => true,
+    };
+    rows.truncate(body.len());
+    if fits {
+        rows.push(' ');
+    } else {
+        rows.push('\n');
+        rows.push_str(&" ".repeat(column));
+    }
+    rows.push_str(&format::paint(mark, Tone::Dim, options));
+    rows.push('\n');
 }
 
 /// Muted rows of notes about a call under its result, such as a connection that the

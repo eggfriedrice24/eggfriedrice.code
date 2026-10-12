@@ -2439,4 +2439,5 @@ fn the_cli_lines_take_their_colours_from_the_palette() {
 
 mod context;
 mod input;
+mod jobs;
 mod layout;

@@ -1,0 +1,132 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\", input, Some(Launch::contained()))),\nSent(40, Event::JobStarted\n{\n    turn_id: turn(), call_id: id(1), job, launcher_pid: 4242, launcher_start:\n    99,\n}), Sent(50, ended(1, None, None)), Shot(\"started\"), Sent(60, matched),\nSent(70, message(0, \"The dev server runs as job j3.\")), Sent(80, job_ended),\nSent(90, held), Sent(100, turn_completed()),])"
+---
+=== 40 columns, colour
+[started]
+\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m
+    \e[2m(background)\e[0m
+  \e[32m✓\e[0m
+  \e[2mjob j3 started; output\e[0m
+    \e[2m$SCRATCH/jobs/j3.out; ends in 180\e[0m
+    \e[2mminutes\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m
+    \e[2m(background)\e[0m
+  \e[32m✓\e[0m
+  \e[2mjob j3 started; output\e[0m
+    \e[2m$SCRATCH/jobs/j3.out; ends in 180\e[0m
+    \e[2mminutes\e[0m
+
+\e[2mjob j3 matched: error: port 3000 in use\e[0m
+
+The dev server runs as job j3.
+
+\e[2mjob j3 stopped by you after 92 minutes;\e[0m
+  \e[2m1.2 MB output; 1 process of the job\e[0m
+  \e[2mmay still run\e[0m
+\e[2mjob j3: no wake turn (the conversation\e[0m
+  \e[2mis not in auto); the notice waits for\e[0m
+  \e[2myour next prompt\e[0m
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out…\e[0m
+
+=== 40 columns, NO_COLOR
+[started]
+\e[1m·\e[0m $ npm run dev -- --port 3000
+    \e[2m(background)\e[0m
+  ✓
+  \e[2mjob j3 started; output\e[0m
+    \e[2m$SCRATCH/jobs/j3.out; ends in 180\e[0m
+    \e[2mminutes\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[1m·\e[0m $ npm run dev -- --port 3000
+    \e[2m(background)\e[0m
+  ✓
+  \e[2mjob j3 started; output\e[0m
+    \e[2m$SCRATCH/jobs/j3.out; ends in 180\e[0m
+    \e[2mminutes\e[0m
+
+\e[2mjob j3 matched: error: port 3000 in use\e[0m
+
+The dev server runs as job j3.
+
+\e[2mjob j3 stopped by you after 92 minutes;\e[0m
+  \e[2m1.2 MB output; 1 process of the job\e[0m
+  \e[2mmay still run\e[0m
+\e[2mjob j3: no wake turn (the conversation\e[0m
+  \e[2mis not in auto); the notice waits for\e[0m
+  \e[2myour next prompt\e[0m
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out…\e[0m
+
+=== 80 columns, colour
+[started]
+\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m \e[2m(background)\e[0m
+  \e[32m✓\e[0m
+  \e[2mjob j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ npm run dev -- --port 3000\e[0m \e[2m(background)\e[0m
+  \e[32m✓\e[0m
+  \e[2mjob j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes\e[0m
+
+\e[2mjob j3 matched: error: port 3000 in use\e[0m
+
+The dev server runs as job j3.
+
+\e[2mjob j3 stopped by you after 92 minutes; 1.2 MB output; 1 process of the job may\e[0m
+  \e[2mstill run\e[0m
+\e[2mjob j3: no wake turn (the conversation is not in auto); the notice waits for\e[0m
+  \e[2myour next prompt\e[0m
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
+
+=== 80 columns, NO_COLOR
+[started]
+\e[1m·\e[0m $ npm run dev -- --port 3000 \e[2m(background)\e[0m
+  ✓
+  \e[2mjob j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[1m·\e[0m $ npm run dev -- --port 3000 \e[2m(background)\e[0m
+  ✓
+  \e[2mjob j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes\e[0m
+
+\e[2mjob j3 matched: error: port 3000 in use\e[0m
+
+The dev server runs as job j3.
+
+\e[2mjob j3 stopped by you after 92 minutes; 1.2 MB output; 1 process of the job may\e[0m
+  \e[2mstill run\e[0m
+\e[2mjob j3: no wake turn (the conversation is not in auto); the notice waits for\e[0m
+  \e[2myour next prompt\e[0m
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
+
+=== not a terminal
+[started]
+stdout:
+stderr:
+· $ npm run dev -- --port 3000 (background)
+  ✓
+  job j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes
+
+[end]
+stdout:
+The dev server runs as job j3.
+stderr:
+· $ npm run dev -- --port 3000 (background)
+  ✓
+  job j3 started; output $SCRATCH/jobs/j3.out; ends in 180 minutes
+
+job j3 matched: error: port 3000 in use
+job j3 stopped by you after 92 minutes; 1.2 MB output; 1 process of the job may still run
+job j3: no wake turn (the conversation is not in auto); the notice waits for your next prompt
+sandbox: writes in the project, $SCRATCH, private /tmp; no network

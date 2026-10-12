@@ -20,8 +20,8 @@ use efr_protocol::{
     ActionFacts, CallId, Capabilities, CatalogOrigin, CatalogStatus, ClientFrame, Compaction,
     CompactionTrigger, ConversationId, ConversationSubscribeItem, DaemonPaths, ErrorBody, Event,
     EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, Hello, HelloResult,
-    Launch, Method, ModelInfo, ModelSource, ModelsListResult, PROTOCOL_VERSION, ProgramFact,
-    RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
+    JobId, JobInfo, JobState, Launch, Method, ModelInfo, ModelSource, ModelsListResult,
+    PROTOCOL_VERSION, ProgramFact, RequestId, Scope, Seq, ServerFrame, TurnId, Usage,
 };
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
@@ -284,6 +284,30 @@ pub(crate) fn exit_info(kinds: &[ExitKind], launch: Launch) -> ExitInfo {
         model_reason: None,
         judged: None,
         user_only: false,
+    }
+}
+
+/// Job `n` of the test's conversation, started by the test's call at [`now`] with
+/// `command`: it runs and ends by its time limit of 180 minutes.
+pub(crate) fn job(n: u32, command: &str) -> JobInfo {
+    let id = JobId::nth(n);
+    JobInfo {
+        output: PathBuf::from(format!("/home/user/.local/share/efr/scratch/jobs/{id}.out")),
+        id,
+        conversation_id: conversation(),
+        turn_id: turn(),
+        call_id: call(),
+        command: command.to_owned(),
+        launch: Launch::contained(),
+        state: JobState::Running,
+        started_at: now(),
+        ends_by: now() + jiff::SignedDuration::from_mins(180),
+        ended_at: None,
+        exit_code: None,
+        stopped_by: None,
+        output_bytes: 0,
+        watch: None,
+        wakes: 0,
     }
 }
 

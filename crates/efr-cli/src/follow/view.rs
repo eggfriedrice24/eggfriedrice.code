@@ -131,7 +131,7 @@ use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::card::{self, Card, Footer};
 use crate::format::context::{self as gauge, GaugedLine};
-use crate::format::{self, Block, Spacing, Tone, sandbox};
+use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
 use crate::live::{LiveZone, Measured, effective_width, fits, rows_of};
 use crate::progress;
@@ -439,6 +439,16 @@ struct Changed<'a> {
     diff: Option<&'a str>,
 }
 
+/// What a view keeps of background jobs.
+#[derive(Debug, Default)]
+struct Jobs {
+    /// The line of each job that a call of this turn started (`job_started`), for the
+    /// call's block when it ends.
+    lines: HashMap<CallId, String>,
+    /// The turns that a job notice started, whose mark showed.
+    woken: HashSet<TurnId>,
+}
+
 /// The state of one followed turn on the screen.
 #[derive(Debug)]
 pub(crate) struct TurnView {
@@ -516,6 +526,9 @@ pub(crate) struct TurnView {
     surface_answered: Option<QuestionId>,
     /// Every quarantine question shown, of this turn or of the turn it waits behind.
     surfaces: HashSet<QuestionId>,
+    /// What the view keeps of background jobs.
+    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
+    jobs: Box<Jobs>,
     /// What `config.toml` switches.
     look: Look,
     /// On a terminal: the committed output since the last frame.
@@ -590,6 +603,7 @@ impl TurnView {
             surface: None,
             surface_answered: None,
             surfaces: HashSet::new(),
+            jobs: Box::default(),
             look: Look::default(),
             pending: String::new(),
             dirty: false,
@@ -1192,6 +1206,12 @@ impl TurnView {
             }
             return Step::default();
         }
+        // NOTE: a job outlives its turn, so its end, a matched line and a notice that
+        // did not start a turn belong to the conversation; they show while the view
+        // follows any turn of it.
+        if let Some(line) = jobs::conversation_line(event) {
+            return self.whole_note(&line, size);
+        }
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);
         }
@@ -1318,6 +1338,9 @@ impl TurnView {
                 // message before it is complete.
                 let before = self.finish_message();
                 let mut call = Call::new(*call_id, format::call_text(tool, input), self.event_at);
+                if input.get("background").and_then(serde_json::Value::as_bool) == Some(true) {
+                    call = call.in_background();
+                }
                 // On a terminal the call's block shows in the live zone while it runs
                 // and is written once when it ends; elsewhere its first rows go to
                 // stderr after its question and its answer, if it has one
@@ -1357,7 +1380,8 @@ impl TurnView {
                 // The end of the turn says once where the sandbox can write, when a call
                 // ran in it.
                 self.traced |= contained && !denied && refusal.is_none() && setup.is_none();
-                let mut notes: Vec<String> = Vec::new();
+                // The job that the call started, first: it runs on after the call.
+                let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
                     notes.extend(summary.blocked.iter().map(sandbox::blocked));
                     notes.extend(sandbox::background_stopped(&summary.background_stopped));
@@ -1484,6 +1508,18 @@ impl TurnView {
             Event::ClassifierPaused { reason, denials, .. } => {
                 self.whole_note(&sandbox::paused(*reason, *denials), size)
             }
+            Event::JobStarted { call_id, job, .. } => {
+                let line = jobs::started(job);
+                // NOTE: efrd records the start before the call ends, so the line goes in
+                // the call's block, under its result.
+                if self.call.as_ref().is_some_and(|call| call.call_id == *call_id) {
+                    self.jobs.lines.insert(*call_id, line);
+                    return Step::default();
+                }
+                self.whole_note(&line, size)
+            }
+            Event::JobNotice { turn_id, woke: true, .. } => self.wake_mark(*turn_id, size),
+            Event::JobNotice { job_id, .. } => self.whole_note(&jobs::notice_rides(job_id), size),
             Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
                 let line = sandbox::cache_freed(paths, *freed_bytes, self.home.as_deref());
                 self.whole_note(&line, size)
@@ -1568,6 +1604,8 @@ impl TurnView {
             return Step::default();
         }
         match event {
+            // The turn ahead is one that a job notice started, not the user.
+            Event::JobNotice { turn_id, woke: true, .. } => self.wake_mark(*turn_id, size),
             Event::ToolCallStarted { call_id, tool, input, .. } => {
                 self.tools.insert(*call_id, tool.clone());
                 if let Some(command) = format::command_of(input) {
@@ -1884,6 +1922,15 @@ impl TurnView {
         }
         let line = sandbox::surface_answered(keep, origin.map(format::origin));
         Step { settled, ..self.answer_line(About::Surface(question_id), keep, &line, size) }
+    }
+
+    /// The mark of turn `turn`, which a job notice started: once, however many notices
+    /// it takes.
+    fn wake_mark(&mut self, turn: TurnId, size: Size) -> Step {
+        if !self.jobs.woken.insert(turn) {
+            return Step::default();
+        }
+        self.whole_note(jobs::WAKE_MARK, size)
     }
 
     /// Shows `card`, the question about `about`, with `footer`, after `step`'s output:
