@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, watch};
 use crate::connections::Connections;
 use crate::conversations::Conversations;
 use crate::engine::EngineParts;
+use crate::jobs::JobTable;
 use crate::presence::PresenceTable;
 use crate::providers::Providers;
 use crate::ptys::Ptys;
@@ -85,4 +86,6 @@ pub(crate) struct State {
     /// Whether a person is at each conversation: the input marks of `methods.rs`,
     /// `presence.set`, and the conversations' reader.
     pub(crate) presence: Arc<PresenceTable>,
+    /// The background jobs, which `jobs.list`, `jobs.stop` and the peer check read.
+    pub(crate) jobs: JobTable,
 }

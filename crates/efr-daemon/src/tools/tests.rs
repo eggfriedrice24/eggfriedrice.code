@@ -388,24 +388,73 @@ fn every_declared_requirement_is_copied() {
     );
 }
 
+/// A job table on a store in memory, for the toolbox's own checks.
+async fn job_table(home: &Path) -> (crate::jobs::JobTable, efr_test_support::TestStore) {
+    let clock = TestClock::new();
+    let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
+    let dirs = efr_stdx::paths::Dirs::new(
+        home.join("config"),
+        home.join("data"),
+        home.join("state"),
+        home.join("runtime"),
+    )
+    .unwrap();
+    let (table, _) = crate::jobs::JobTable::new(crate::jobs::JobParts {
+        clock: clock.shared(),
+        writer: store.writer().clone(),
+        readers: store.readers().clone(),
+        dirs,
+        launcher: home.join("efr-sbx"),
+        spawn_env: crate::jobs::SpawnEnv::default(),
+    });
+    (table, store)
+}
+
+/// A job starts in every mode: outside `auto` the call reaches the engine with its
+/// background mark, and the engine asks the user before the job starts. Only a toolbox
+/// with no job table, or `jobs.enabled = false`, refuses it here.
 #[tokio::test]
-async fn background_not_ready_before_the_runtime() {
+async fn background_outside_auto_reaches_the_engine() {
     let home = tempfile::tempdir().unwrap();
-    let toolbox = toolbox(home.path());
     let job = json!({"command": "npm run dev", "background": true, "max_minutes": 30});
 
-    let refused = toolbox.requirements(&call("shell", job, home.path())).await;
-
+    let without = toolbox(home.path());
+    let refused = without.requirements(&call("shell", job.clone(), home.path())).await;
     assert_eq!(refused, Err(super::job_tools::NOT_READY.to_owned()));
-    // NOTE: the rules of the job members refuse first, as they will once jobs run.
+
+    let (table, _store) = job_table(home.path()).await;
+    let toolbox = toolbox(home.path()).with_jobs(table.clone(), None);
+    let mut cautious = call("shell", job.clone(), home.path());
+    cautious.context.auto = false;
+    let requirements = toolbox.requirements(&cautious).await.unwrap();
+    assert!(requirements.background, "the engine reads the mark");
+    assert_eq!(requirements.max_minutes, Some(30));
+    assert_eq!(requirements.command.as_deref(), Some("npm run dev"));
+
+    let mut settings = Settings::default();
+    settings.jobs.enabled = false;
+    let off = toolbox_with(home.path(), settings).0.with_jobs(table, None);
+    let refused = off.requirements(&call("shell", job, home.path())).await.unwrap_err();
+    assert_eq!(refused, super::job_tools::JOBS_OFF);
+
+    // NOTE: the rules of the job members refuse first.
     let early = json!({"command": "make", "background": true, "timeout_seconds": 5});
     let rule = toolbox.requirements(&call("shell", early, home.path())).await.unwrap_err();
     assert!(rule.contains("timeout_seconds"), "{rule}");
-    let without = json!({"command": "make", "max_minutes": 5});
-    let rule = toolbox.requirements(&call("shell", without, home.path())).await.unwrap_err();
+    let alone = json!({"command": "make", "max_minutes": 5});
+    let rule = toolbox.requirements(&call("shell", alone, home.path())).await.unwrap_err();
     assert!(rule.contains("needs background: true"), "{rule}");
     let foreground = json!({"command": "ls", "background": false});
     assert!(toolbox.requirements(&call("shell", foreground, home.path())).await.is_ok());
+}
+
+#[test]
+fn job_minutes_take_the_default_and_the_most() {
+    let settings = efr_config::JobsSettings::default();
+    assert_eq!(super::job_tools::job_minutes(None, &settings), (60, false));
+    assert_eq!(super::job_tools::job_minutes(Some(30), &settings), (30, false));
+    assert_eq!(super::job_tools::job_minutes(Some(480), &settings), (480, false));
+    assert_eq!(super::job_tools::job_minutes(Some(1440), &settings), (480, true));
 }
 
 #[tokio::test]

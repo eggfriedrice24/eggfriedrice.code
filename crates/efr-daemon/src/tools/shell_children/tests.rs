@@ -39,3 +39,17 @@ fn a_shell_without_children_has_no_jobs_and_a_gone_one_cannot_tell() {
     assert_eq!(of(proc.path(), 10), Some(Vec::new()));
     assert_eq!(of(proc.path(), 99), None);
 }
+
+/// efr's background jobs run below efrd, never below the hidden shell, so the shell's
+/// list keeps naming only what a call left in the shell's background.
+#[test]
+fn shell_children_still_lists_hidden_shell_jobs() {
+    let proc = tempfile::tempdir().expect("a fake /proc");
+    process(proc.path(), 50, &[60, 70], b"efrd\0");
+    process(proc.path(), 60, &[61], b"zsh\0");
+    process(proc.path(), 61, &[], b"npm\0run\0dev\0");
+    process(proc.path(), 70, &[71], b"efr-sbx\0run\0--call-dir\0/r/jobs/c\0--job\0");
+    process(proc.path(), 71, &[], b"cargo\0build\0");
+
+    assert_eq!(of(proc.path(), 60).expect("the shell's children"), ["npm run dev"]);
+}

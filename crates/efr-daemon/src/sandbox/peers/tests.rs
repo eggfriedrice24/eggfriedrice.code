@@ -174,3 +174,46 @@ fn the_walk_clears_a_peer_only_at_the_top_or_efrds_own_chain() {
     assert_eq!(side(&table(deep, 1)), PeerSide::Unknown);
     assert_eq!(side(&table(deep, 60)), PeerSide::Unknown);
 }
+
+/// efrd is 50, below 1, in session 7; a job's launcher is 70, below efrd, and leads its
+/// own session 70 (it calls `setsid`). efrd passes the launcher's pid with the hidden
+/// shells (`methods::model_side_roots`).
+fn job_table() -> Table {
+    Table(HashMap::from([
+        (1, (0, 1)),
+        (50, (1, 7)),
+        (70, (50, 70)),
+        // A process of the job, two levels down.
+        (71, (70, 70)),
+        (72, (71, 70)),
+        // A process of the job that went to pid 1 after a double fork.
+        (73, (1, 70)),
+        // A process of the user in efrd's session.
+        (80, (1, 7)),
+    ]))
+}
+
+#[test]
+fn job_launcher_pid_is_model_side_peer() {
+    let table = job_table();
+    let side = |pid| super::side_in(&table, Some(pid), &[70], 50);
+    assert_eq!(side(70), PeerSide::ModelSide, "the launcher itself");
+    assert_eq!(side(72), PeerSide::ModelSide, "a process below it");
+    assert_eq!(side(73), PeerSide::ModelSide, "an orphan that kept its session");
+    assert_eq!(side(80), PeerSide::User);
+    // NOTE: no hidden shell runs: the job's launcher alone makes the list.
+    assert_eq!(super::side_in(&table, Some(80), &[], 50), PeerSide::User);
+}
+
+#[test]
+fn exit_child_job_orphan_after_launcher_kill_is_model_side() {
+    // NOTE: the launcher 70 is gone (killed by the job); its orphan 73 went to pid 1 and
+    // still has the session 70, which efrd keeps model-side while a process has it.
+    let mut table = job_table();
+    table.0.remove(&70);
+    table.0.remove(&71);
+    table.0.remove(&72);
+    assert_eq!(super::side_in(&table, Some(73), &[70], 50), PeerSide::ModelSide);
+    // Without the session in the list, the orphan would pass as the user's.
+    assert_eq!(super::side_in(&table, Some(73), &[], 50), PeerSide::User);
+}

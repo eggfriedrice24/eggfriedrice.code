@@ -46,6 +46,7 @@ use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
 use crate::engine::EngineParts;
+use crate::jobs::{JobParts, JobTable, SpawnEnv};
 use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
@@ -498,6 +499,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let git = if isolated_git { git.isolated() } else { git };
     let programs =
         trusted_programs(&dirs, home.path(), programs_path, seams.trusted_programs()).await;
+    let job_seams = seams.clone();
     let sandbox = SandboxService::new(ServiceParts {
         dirs: dirs.clone(),
         home: home.clone(),
@@ -512,6 +514,21 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     })
     .await;
     sandbox.probe(&settings).await;
+    // NOTE: the jobs that the last efrd left running end before anything can start a
+    // new one, so a pid or a dir of the old job never meets a new one.
+    let (jobs, job_notices) = JobTable::new(JobParts {
+        clock: Arc::clone(&clock),
+        writer: writer.clone(),
+        readers: readers.clone(),
+        dirs: dirs.clone(),
+        launcher: sandbox.launcher().to_path_buf(),
+        spawn_env: SpawnEnv {
+            path: sandbox.host().path.clone(),
+            home: home.path().to_path_buf(),
+            user_runtime: sandbox.host().user_runtime.clone(),
+        },
+    });
+    jobs.recover().await?;
     // NOTE: boxed, so the start future stays small.
     let excludes_file =
         if isolated_git { None } else { Box::pin(user_excludes_file(&git, &home)).await };
@@ -548,7 +565,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         dirs.state().to_path_buf(),
         dirs.runtime().to_path_buf(),
     ])
-    .with_programs(programs);
+    .with_programs(programs)
+    .with_jobs(jobs.clone(), job_seams.job_env());
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
         Some(host) => host,
@@ -618,7 +636,19 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         sandbox,
         snapshots,
         presence,
+        jobs,
     });
+    let peer_state = Arc::downgrade(&state);
+    // NOTE: weak, so the probe that the seams keep never keeps the state alive.
+    job_seams.fill_peer_probe(Arc::new(move |pid| {
+        let Some(state) = peer_state.upgrade() else { return "unknown" };
+        let shells = crate::methods::model_side_roots(&state);
+        match sandbox::peers::side(Some(pid), &shells, state.pid) {
+            sandbox::peers::PeerSide::User => "user",
+            sandbox::peers::PeerSide::ModelSide => "model_side",
+            sandbox::peers::PeerSide::Unknown => "unknown",
+        }
+    }));
 
     // The socket opens only now, after migrations and reconciliation.
     let listener =
@@ -636,6 +666,19 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let stop = CancellationToken::new();
     let shell_events =
         tokio::spawn(shells::follow_notices(notice_queue, writer, Arc::clone(&recording)));
+    // NOTE: the job tasks run under the job table's own token, never in `background`,
+    // so the drain records each job's end before it cancels them.
+    let undelivered = state.jobs.undelivered().await.unwrap_or_else(|error| {
+        tracing::warn!(error = %error, "the job notices that no turn took could not be read");
+        Vec::new()
+    });
+    tokio::spawn(crate::jobs::deliver(
+        Arc::clone(&state),
+        undelivered,
+        job_notices,
+        state.jobs.token(),
+    ));
+    tokio::spawn(state.jobs.clone().scan());
     let mut background = vec![
         tokio::spawn(notices::follow(Arc::clone(&state), stop.clone())),
         tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),
@@ -715,6 +758,9 @@ impl Daemon {
                 tracing::warn!("a background task panicked");
             }
         }
+        // NOTE: after the background tasks and before the actors: each job's end is
+        // recorded while the writer runs, with no notice.
+        state.jobs.stop_all().await;
         state.conversations.shutdown_all().await;
         state.shells.close_all().await;
         recording.close_all().await;

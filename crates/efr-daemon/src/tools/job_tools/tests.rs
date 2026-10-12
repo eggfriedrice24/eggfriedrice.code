@@ -4,6 +4,11 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{JOB_STOP, JOBS, NOT_READY, job_stop_definition, jobs_definition};
+use efr_protocol::{
+    CallId, ConversationId, Event, JobId, JobInfo, JobState, Launch, Origin, TurnId,
+};
+use efr_store::Batch;
+
 use crate::tools::tests::{call, toolbox};
 
 #[test]
@@ -21,8 +26,11 @@ fn the_job_tools_take_a_job_id_and_nothing_else() {
     assert!(!stop.description.contains("auto"));
 }
 
+/// Both tools declare nothing, so the engine runs them with no question in every mode
+/// for a turn from this machine (a phone turn gets the question of every tool, which
+/// the engine's own tests cover). A toolbox with no job table answers that no job runs.
 #[tokio::test]
-async fn the_job_tools_need_nothing_and_answer_not_ready() {
+async fn jobs_tool_needs_no_question() {
     let home = tempfile::tempdir().unwrap();
     let toolbox = toolbox(home.path());
     for (name, input) in [
@@ -48,4 +56,96 @@ async fn the_job_tools_need_nothing_and_answer_not_ready() {
         let refused = toolbox.requirements(&call(name, input.clone(), home.path())).await;
         assert!(refused.is_err(), "{name} {input}");
     }
+}
+
+#[tokio::test]
+async fn job_stop_of_ended_job_returns_state() {
+    let home = tempfile::tempdir().unwrap();
+    let clock = efr_test_support::TestClock::new();
+    let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
+    let dirs = efr_stdx::paths::Dirs::new(
+        home.path().join("config"),
+        home.path().join("data"),
+        home.path().join("state"),
+        home.path().join("runtime"),
+    )
+    .unwrap();
+    let (table, _) = crate::jobs::JobTable::new(crate::jobs::JobParts {
+        clock: clock.shared(),
+        writer: store.writer().clone(),
+        readers: store.readers().clone(),
+        dirs,
+        launcher: home.path().join("efr-sbx"),
+        spawn_env: crate::jobs::SpawnEnv::default(),
+    });
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    // NOTE: the conversation of the tools' test calls.
+    let conversation = ConversationId::from_uuid(id(1));
+    let now = efr_stdx::time::Clock::now(&clock);
+    let output = home.path().join("j1.out");
+    std::fs::write(&output, "built\ndone\n").unwrap();
+    let job = JobInfo {
+        id: JobId::nth(1),
+        conversation_id: conversation,
+        turn_id: TurnId::from_uuid(id(2)),
+        call_id: CallId::from_uuid(id(9)),
+        command: "make".to_owned(),
+        launch: Launch::contained(),
+        state: JobState::Running,
+        started_at: now,
+        ends_by: now,
+        ended_at: None,
+        exit_code: None,
+        stopped_by: None,
+        output,
+        output_bytes: 0,
+        watch: None,
+        wakes: 0,
+    };
+    let batch = Batch::new()
+        .event(conversation, Event::ConversationCreated { origin: Origin::Shell, tty: None })
+        .event(
+            conversation,
+            Event::JobStarted {
+                turn_id: job.turn_id,
+                call_id: job.call_id,
+                job: job.clone(),
+                launcher_pid: 0,
+                launcher_start: 0,
+            },
+        )
+        .event(
+            conversation,
+            Event::JobEnded {
+                job_id: JobId::nth(1),
+                state: JobState::Exited,
+                exit_code: Some(0),
+                stopped_by: None,
+                output_bytes: 11,
+                ran_secs: 3,
+                tail: "built\ndone".to_owned(),
+                surface_changes: Vec::new(),
+                quarantined: false,
+                survivors: Vec::new(),
+                launcher_lost: false,
+                output_truncated: false,
+            },
+        );
+    store.writer().append(batch).await.unwrap();
+
+    let stop = call(JOB_STOP, json!({"id": "j1"}), home.path());
+    let outcome = super::invoke(Some(&table), &stop).await;
+    assert!(!outcome.is_error, "{}", outcome.output);
+    assert!(
+        outcome.output.starts_with("job j1 had ended already\nj1 exited: make (exited with exit 0"),
+        "{}",
+        outcome.output
+    );
+    assert!(outcome.output.ends_with("built\ndone"), "{}", outcome.output);
+    let unknown =
+        super::invoke(Some(&table), &call(JOB_STOP, json!({"id": "j2"}), home.path())).await;
+    assert!(unknown.is_error);
+    assert!(unknown.output.starts_with("no job j2 in this conversation"), "{}", unknown.output);
+    let listed = super::invoke(Some(&table), &call(JOBS, json!({}), home.path())).await;
+    assert!(listed.output.starts_with("j1 exited: make"), "{}", listed.output);
 }

@@ -10,7 +10,9 @@
 //! `tools/settings_tool.rs`), which needs `efr-config` and the daemon's settings and so
 //! cannot live in `efr-tools`. Its changes declare a settings change, which the engine
 //! always asks about. It also offers `jobs` and `job_stop` (`tools/job_tools.rs`),
-//! which read and stop the background jobs of a conversation.
+//! which read and stop the background jobs of a conversation, and starts the job of a
+//! `shell` call with `background: true` there, in every mode, on efrd's job table
+//! (`jobs.rs`).
 //!
 //! It also decides who can answer a command that waits for hidden input, such as a
 //! password: a call's sink says yes while the conversation has a live subscription
@@ -34,7 +36,7 @@
 //! each snapshot ask that was covered, and a call whose answer changed does not start.
 //! [`Toolbox::undo`] is in `tools/undo.rs`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -67,6 +69,7 @@ use crate::DaemonError;
 use crate::connections::Connections;
 use crate::home::state::{self, StateCopy};
 use crate::home::{self, HomeLimits};
+use crate::jobs::JobTable;
 use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine, units};
 use crate::trusted_programs::TrustedPrograms;
 
@@ -182,6 +185,10 @@ pub(crate) struct DaemonToolbox {
     /// The `crontab` and `loginctl` that efrd runs for the state copies of cron and
     /// linger (`trusted_programs.rs`).
     programs: TrustedPrograms,
+    /// The background jobs; `None` starts none.
+    jobs: Option<JobTable>,
+    /// The environment that a test gives every job in place of the hidden shell's.
+    job_env: Option<BTreeMap<String, String>>,
 }
 
 /// What the facts of one call said efr covers: its turn and each ask with its answer.
@@ -237,7 +244,21 @@ impl DaemonToolbox {
             home_turns: Arc::default(),
             auto_turns: Arc::default(),
             programs: TrustedPrograms::none(),
+            jobs: None,
+            job_env: None,
         }
+    }
+
+    /// Starts background jobs on `jobs`; a test gives each job `job_env` in place of
+    /// the hidden shell's environment.
+    pub(crate) fn with_jobs(
+        mut self,
+        jobs: JobTable,
+        job_env: Option<BTreeMap<String, String>>,
+    ) -> Self {
+        self.jobs = Some(jobs);
+        self.job_env = job_env;
+        self
     }
 
     /// Takes snapshots before and after the calls that can write, with `snapshots`.
@@ -1041,6 +1062,27 @@ impl DaemonToolbox {
         changed
     }
 
+    /// Leaves the home copy of the job call `call` without its "after": the end of the
+    /// turn names its files as not covered, because a job wrote them.
+    fn leave_copy(&self, call: &CallContext, copying: Copying) {
+        drop(copying);
+        self.tally(call.turn_id, |tally| {
+            let names: Vec<String> = tally
+                .pending
+                .iter()
+                .filter(|(pending, _)| *pending == call.call_id)
+                .flat_map(|(_, names)| names.clone())
+                .collect();
+            tally.pending.retain(|(pending, _)| *pending != call.call_id);
+            for name in names {
+                let line = format!("{name} ({JOB_WROTE})");
+                if !tally.not_covered.contains(&line) {
+                    tally.not_covered.push(line);
+                }
+            }
+        });
+    }
+
     /// The programs of the state copies of cron and linger, with this toolbox's clock.
     fn state_runner(&self) -> state::Runner<'_> {
         state::Runner { programs: &self.programs, clock: &*self.clock }
@@ -1236,10 +1278,13 @@ impl Toolbox for DaemonToolbox {
             .registry
             .requirements(&call.name, &context, &call.input)
             .map_err(|error| for_model(&error))?;
-        // NOTE: the shell tool checked the job members first, so a call that breaks
-        // one of their rules learns it now; no job starts before the job runtime.
-        if declared.background {
-            return Err(job_tools::NOT_READY.to_owned());
+        // NOTE: a job starts in every mode. In `auto` its line goes through the exits
+        // like any line; outside `auto` the engine asks the user before every job, from
+        // `Requirements::background`, which is the mark of this call.
+        if declared.background
+            && let Some(reason) = self.jobs_refused()
+        {
+            return Err(reason.to_owned());
         }
         // NOTE: a tool declares paths as written. What one reaches through a symbolic
         // link is read from the disk here, on the blocking pool, so the engine judges
@@ -1296,7 +1341,7 @@ impl Toolbox for DaemonToolbox {
             return self.settings_tool.invoke(call).await;
         }
         if job_tools::is_job_tool(&call.name) {
-            return job_tools::invoke(&call);
+            return job_tools::invoke(self.jobs.as_ref(), &call).await;
         }
         // NOTE: the one place that copies home files before an approved write (plan
         // PD9, PB13), so `write_file`, `edit`, `apply_patch` and a line in the exit
@@ -1312,9 +1357,16 @@ impl Toolbox for DaemonToolbox {
                 return ToolOutcome::error(reason);
             }
         };
-        let outcome = self.run_call(call, out).await;
+        let job = call.name == ShellTool::NAME && is_background(&call.input);
+        let outcome = if job { self.start_job(call).await } else { self.run_call(call, out).await };
         self.forget_call(context.call_id);
         let Some(copying) = copying else { return outcome };
+        if job {
+            // NOTE: a job writes after its call answered, so its home copies get no
+            // "after": undo restores their "before" only with --force (plan PC27).
+            self.leave_copy(&context, copying);
+            return outcome;
+        }
         let backups = self.copy_after(&context, copying).await;
         outcome.with_backups(backups)
     }
@@ -1338,6 +1390,17 @@ impl Toolbox for DaemonToolbox {
             .await
             .ok()
             .flatten()
+    }
+
+    async fn background_jobs(&self, conversation_id: ConversationId) -> Vec<efr_protocol::JobInfo> {
+        let Some(jobs) = &self.jobs else { return Vec::new() };
+        match jobs.list(Some(conversation_id)).await {
+            Ok(list) => list,
+            Err(error) => {
+                tracing::warn!(%conversation_id, error = %error, "the jobs of a conversation could not be read");
+                Vec::new()
+            }
+        }
     }
 
     async fn move_shell(&self, conversation_id: ConversationId, dir: &Path) {
@@ -1431,7 +1494,10 @@ impl Toolbox for DaemonToolbox {
         let enabled = self.settings.borrow().undo.enabled;
         let home_files = u32::try_from(tally.changed.len()).unwrap_or(u32::MAX);
         let runs = self.call_runs(conversation_id);
-        let undo = snapshot::undo_info(&ended, home_files, &tally.not_covered, enabled, runs);
+        let mut undo = snapshot::undo_info(&ended, home_files, &tally.not_covered, enabled, runs);
+        if let (Some(undo), Some(jobs)) = (&mut undo, &self.jobs) {
+            name_running_jobs(undo, jobs, conversation_id, turn_id);
+        }
         let mut records = snapshot::records(&ended);
         records.extend(tally.records);
         TurnChanges { changes: ended.end.changes, undo, snapshots: records }
@@ -1452,6 +1518,47 @@ impl Toolbox for DaemonToolbox {
         // does nothing, so every interrupted call interrupts the conversation's shell.
         if let Err(error) = self.shells.interrupt(call.conversation_id).await {
             tracing::debug!(error = %error, call_id = %call.call_id, "nothing to interrupt in the hidden shell");
+        }
+    }
+}
+
+/// What the end of a turn says of a home file that a job of the turn wrote.
+const JOB_WROTE: &str = "a job wrote it";
+
+/// True for the input of a `shell` call with `background: true`.
+fn is_background(input: &Value) -> bool {
+    input.get("background").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Says in the end of the turn `turn` which job of it still runs, in place of "a call
+/// did not finish": the job's writes reach the roots after the turn's end.
+fn name_running_jobs(
+    undo: &mut efr_protocol::TurnUndoInfo,
+    jobs: &JobTable,
+    conversation: ConversationId,
+    turn: TurnId,
+) {
+    let mut running: Vec<u32> = jobs
+        .running()
+        .into_iter()
+        .filter(|job| job.key.conversation == conversation && job.turn == turn)
+        .map(|job| job.key.number)
+        .collect();
+    if running.is_empty() {
+        return;
+    }
+    running.sort_unstable();
+    let names: Vec<String> =
+        running.iter().map(|number| efr_protocol::JobId::nth(*number).to_string()).collect();
+    let reason = if names.len() == 1 {
+        format!("(job {} runs)", names[0])
+    } else {
+        format!("(jobs {} run)", names.join(", "))
+    };
+    let unfinished = format!("({})", efr_snapshot::NOT_COVERED_UNFINISHED);
+    for line in &mut undo.not_covered {
+        if let Some(root) = line.strip_suffix(&unfinished) {
+            *line = format!("{root}{reason}");
         }
     }
 }

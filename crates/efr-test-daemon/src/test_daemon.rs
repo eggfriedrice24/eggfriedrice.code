@@ -28,7 +28,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_client::{Client, ConnectOptions, ItemStream};
-use efr_daemon::{DaemonError, Deps, HostInfo, Provider, ProviderFactory, ScreenChoice, Settings};
+use efr_daemon::{
+    DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice, Settings,
+};
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
@@ -148,6 +150,20 @@ struct Launch {
     probe_override: Option<SandboxStatus>,
     /// The dir of the fake `crontab` and `loginctl` that the daemon runs.
     trusted_programs: Option<PathBuf>,
+    /// The environment of every background job, in place of the hidden shell's.
+    job_env: Option<BTreeMap<String, String>>,
+}
+
+/// Where a socket peer stands for the daemon: the user's own process, a process of
+/// the model's commands (a hidden shell's or a job's), or one that is gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerSide {
+    /// Every scope of its surface.
+    User,
+    /// `read` only: below a hidden shell or a job's launcher, or in their session.
+    ModelSide,
+    /// `read` only: the process is gone, or the walk up from it did not end clearly.
+    Unknown,
 }
 
 /// Builds a [`TestDaemon`].
@@ -179,6 +195,7 @@ impl Default for TestDaemonBuilder {
                 sandbox_launcher: None,
                 probe_override: None,
                 trusted_programs: None,
+                job_env: None,
             },
         }
     }
@@ -315,6 +332,14 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Gives every background job `env` as its environment, in place of the `env` file
+    /// that a real hidden zsh writes, so a test with the fake PTY holder starts jobs.
+    #[must_use]
+    pub fn job_env(mut self, env: BTreeMap<String, String>) -> Self {
+        self.settings.job_env = Some(env);
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -341,6 +366,7 @@ pub struct TestDaemon {
     daemon_id: DaemonId,
     shutdown: CancellationToken,
     served: Option<JoinHandle<Result<(), DaemonError>>>,
+    peers: PeerProbe,
 }
 
 impl TestDaemon {
@@ -385,6 +411,11 @@ impl TestDaemon {
         if let Some(dir) = &settings.trusted_programs {
             deps = deps.with_trusted_program_dir(dir.clone());
         }
+        if let Some(env) = &settings.job_env {
+            deps = deps.with_job_env(env.clone());
+        }
+        let peers = PeerProbe::new();
+        deps = deps.with_peer_probe(peers.clone());
         match &settings.holder {
             HolderChoice::Fake(holder) => {
                 if config.shell.program.is_none() {
@@ -445,7 +476,19 @@ impl TestDaemon {
             daemon_id,
             shutdown,
             served: Some(served),
+            peers,
         })
+    }
+
+    /// Where the process `pid` stands as a peer of the daemon's socket, as the scope
+    /// check decides it: below or in the session of a hidden shell or a job is
+    /// model-side.
+    pub fn peer_side(&self, pid: u32) -> PeerSide {
+        match self.peers.side(pid) {
+            Some("user") => PeerSide::User,
+            Some("model_side") => PeerSide::ModelSide,
+            _ => PeerSide::Unknown,
+        }
     }
 
     /// The daemon's socket.

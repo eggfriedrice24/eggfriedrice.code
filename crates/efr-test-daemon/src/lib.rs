@@ -8,6 +8,9 @@
 //!   It hands out `efr_client::Client`s and reads the event log back.
 //! - [`MessagesServer`]: a stand-in for Anthropic's Messages API and its model list,
 //!   for a daemon that runs the Anthropic provider.
+//! - [`FakeLauncher`]: a `/bin/sh` script in place of `efr-sbx`, which runs calls and
+//!   background jobs with no sandbox; [`TestDaemonBuilder::job_env`] gives every job an
+//!   environment, and [`TestDaemon::peer_side`] says where a process stands on the socket.
 //! - [`FakePtyHolder`]: a `PtyHolder` over socketpairs, whose shell the test plays
 //!   with scripted bytes ([`PtyScript`], [`FakeTerminal`]).
 //! - [`Replay`]: drives a [`Scenario`], an NDJSON transcript from `fixtures/`, through a
@@ -23,6 +26,7 @@
 //! that a leaf crate's tests need (those belong in `efr-test-support`).
 
 mod error;
+mod fake_launcher;
 mod pty_script;
 mod replay;
 mod test_daemon;
@@ -31,6 +35,7 @@ mod test_daemon;
 // clients), so its users need no efr-client edge of their own.
 pub use efr_client::{Client, ClientError, ConnectOptions, ItemStream};
 pub use error::TestDaemonError;
+pub use fake_launcher::FakeLauncher;
 pub use pty_script::{
     FakePtyHolder, FakeTerminal, PROMPT, PtyScript, PtyStep, command_output, typed_command,
 };
@@ -41,7 +46,7 @@ pub use replay::{
 pub use test_daemon::{
     ANTHROPIC_API_KEY, ANTHROPIC_CREDENTIAL, API_KEY, DEFAULT_SEED, HOME_PLACEHOLDER, HOSTNAME,
     MessagesAnswer, MessagesRequest, MessagesServer, ModelsAnswer, ModelsPageRequest,
-    ModelsRequest, OS, ReceivedRequest, ResponsesAnswer, ResponsesServer,
+    ModelsRequest, OS, PeerSide, ReceivedRequest, ResponsesAnswer, ResponsesServer,
     SUBSCRIPTION_ACCESS_TOKEN, SUBSCRIPTION_ACCOUNT, SUBSCRIPTION_CREDENTIAL,
     SUBSCRIPTION_REFRESH_TOKEN, SYSTEM_PROMPT, TTY, TestDaemon, TestDaemonBuilder, TokenRequest,
     command_id, events_until,

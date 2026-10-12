@@ -101,6 +101,19 @@ into the GitHub release notes, and it stops when the section is missing.
   each snapshot.
 - New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
   `snapshot.home_max_mib` and `sandbox.ask_destructive`.
+- Background jobs. The model can start a long command, such as a dev server, a
+  watcher or a slow build, as a job with `background: true`. The call answers at once
+  with the job's id and its output file. In `auto` the job runs in the same sandbox as
+  a normal command; in `cautious` and `manual` efr asks you before each job starts,
+  and the job runs as an approved command does. A job runs at low CPU and disk
+  priority, with no terminal. efr writes its output to `$SCRATCH/jobs/<id>.out`: the
+  first 1 MiB and the last 8 MiB. A job ends when its command ends, when you or the
+  model stop it, after its time limit (60 minutes unless the model asks for more, at
+  most `jobs.max_minutes`), or when efrd stops. After a restart, efrd ends each job
+  that still ran. Esc and the end of a turn do not stop a job. At most
+  `jobs.max_running` jobs run per conversation and `jobs.max_running_daemon` in all.
+  The model reads and stops its jobs with the tools `jobs` and `job_stop`; a `watch`
+  pattern names output lines that the model must hear about.
 - New keys for background jobs: `jobs.enabled`, `jobs.default_minutes`,
   `jobs.max_minutes`, `jobs.max_running`, `jobs.max_running_daemon`,
   `jobs.max_wakes_per_hour`, `jobs.max_wakes_per_hour_daemon`,

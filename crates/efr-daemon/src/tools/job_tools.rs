@@ -7,16 +7,32 @@
 //! question that every tool gets there. They act only on the jobs of the call's
 //! conversation.
 //!
-//! The definitions here are final. Until the job runtime exists, no job starts: a
-//! `shell` call with `background: true` and each call of these tools answer
-//! [`NOT_READY`].
+//! The start of a job is here too ([`DaemonToolbox::start_job`]): a `shell` call with
+//! `background: true` that the check point let through. Its line runs in the sandbox
+//! with its grants in `auto`, and in the exit child after the user's yes in `manual` and
+//! `cautious`. The toolbox clamps its time limit and its watch, gets the hidden shell's
+//! environment, prepares its call dir under the plan lock with the snapshot before it,
+//! and hands the launcher to the job table, which records `job_started` before the call
+//! answers.
 
-use efr_conversation::{ToolCall, ToolOutcome};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use efr_config::JobsSettings;
+use efr_conversation::{ToolCall, ToolOutcome, Toolbox as _};
 use efr_permissions::Requirements;
-use efr_protocol::JobId;
+use efr_protocol::{JobId, JobInfo, JobState, JobStopBy, Launch, SandboxSummary, Watch};
 use efr_provider::ToolDefinition;
+use efr_sandbox::JobPlan;
+use efr_shell::{NoProgress, RunRequest};
+use efr_tools::{JobRequest, job_request, job_started_text};
 use serde::Deserialize;
 use serde_json::{Value, json};
+
+use super::{DaemonToolbox, SANDBOX_NOT_STARTED, for_model};
+use crate::DaemonError;
+use crate::jobs::{JobKey, JobTable, Matcher, NewJob, job_line, output};
+use crate::sandbox::{JobInput, PrepareInput};
 
 /// The name of the tool that lists the jobs and reads their output.
 pub(crate) const JOBS: &str = "jobs";
@@ -24,9 +40,39 @@ pub(crate) const JOBS: &str = "jobs";
 /// The name of the tool that stops a job.
 pub(crate) const JOB_STOP: &str = "job_stop";
 
-/// What the model reads while background jobs cannot start.
+/// What the model reads when this efrd runs no jobs, such as one with no sandbox
+/// service.
 pub(crate) const NOT_READY: &str =
-    "background jobs are not ready in this build of efr; run the command in the foreground";
+    "background jobs do not run in this efrd; run the command in the foreground";
+
+/// What the model reads while `jobs.enabled` is false.
+pub(crate) const JOBS_OFF: &str = "background jobs are off here (jobs.enabled = false); run \
+     the command in the foreground, or ask the user to turn jobs on";
+
+/// What the model reads when efr could not get the hidden shell's environment for a job.
+pub(crate) const ENV_NOT_READY: &str = "the shell environment is not ready; try again";
+
+/// The line that efrd types into a hidden shell that has no `env` file: it changes
+/// nothing but the zsh integration's record of the environment that it wrote last, so the
+/// next prompt writes the file.
+const ENV_REFRESH: &str = "_efr_hs_env=";
+
+/// The lines of the output that `jobs` shows with an id and no `tail` or `offset`, and
+/// that `job_stop` shows.
+const DEFAULT_TAIL_LINES: usize = 50;
+
+/// The most bytes of output that `jobs` and `job_stop` show.
+const MAX_SHOWN_BYTES: usize = 32 * 1024;
+
+/// How long a job start waits for a new hidden shell's first prompt, which writes the
+/// shell's `env` file.
+const ENV_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long a job start looks for the `env` file after a prompt.
+const ENV_FILE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How often it looks.
+const ENV_FILE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// The most lines of output that `jobs` shows with `tail`.
 pub(crate) const MAX_TAIL_LINES: u32 = 200;
@@ -135,17 +181,367 @@ pub(crate) fn requirements(call: &ToolCall) -> Result<Requirements, String> {
     Ok(Requirements::none())
 }
 
-/// Runs a call of a job tool. No job starts before the job runtime, so each call
-/// answers [`NOT_READY`], and names the job that it asked for.
-pub(crate) fn invoke(call: &ToolCall) -> ToolOutcome {
-    let id = match call.name.as_str() {
-        JOBS => parse::<JobsInput>(JOBS, &call.input).ok().and_then(|input| input.id),
-        _ => parse::<JobStopInput>(JOB_STOP, &call.input).ok().map(|input| input.id),
-    };
-    match id {
-        Some(id) => ToolOutcome::error(format!("{NOT_READY}; no job {id} runs")),
-        None => ToolOutcome::error(NOT_READY),
+/// Runs a call of a job tool on `jobs`, for the jobs of the call's conversation only.
+pub(crate) async fn invoke(jobs: Option<&JobTable>, call: &ToolCall) -> ToolOutcome {
+    let Some(jobs) = jobs else { return ToolOutcome::error(NOT_READY) };
+    let conversation = call.context.conversation_id;
+    let now = jobs.now();
+    match call.name.as_str() {
+        JOBS => {
+            let input = match parse::<JobsInput>(JOBS, &call.input) {
+                Ok(input) => input,
+                Err(text) => return ToolOutcome::error(text),
+            };
+            let Some(id) = input.id else {
+                return match jobs.list(Some(conversation)).await {
+                    Ok(list) if list.is_empty() => {
+                        ToolOutcome::ok("no background jobs in this conversation")
+                    }
+                    Ok(list) => ToolOutcome::ok(
+                        list.iter().map(|job| job_line(job, now)).collect::<Vec<_>>().join("\n"),
+                    ),
+                    Err(error) => ToolOutcome::error(efr_stdx::with_causes(&error)),
+                };
+            };
+            let job = match find(jobs, conversation, &id).await {
+                Ok(job) => job,
+                Err(text) => return ToolOutcome::error(text),
+            };
+            let lines =
+                input.tail.map_or(DEFAULT_TAIL_LINES, |tail| tail.min(MAX_TAIL_LINES) as usize);
+            let shown = shown_output(&job.output, input.offset, lines).await;
+            ToolOutcome::ok(format!("{}\n{shown}", job_line(&job, now)))
+        }
+        _ => {
+            let input = match parse::<JobStopInput>(JOB_STOP, &call.input) {
+                Ok(input) => input,
+                Err(text) => return ToolOutcome::error(text),
+            };
+            let before = match find(jobs, conversation, &input.id).await {
+                Ok(job) => job,
+                Err(text) => return ToolOutcome::error(text),
+            };
+            let Some(key) = JobKey::of(conversation, &input.id) else {
+                return ToolOutcome::error(format!("no job {} in this conversation", input.id));
+            };
+            let (job, first) = if before.state == JobState::Running {
+                match jobs.stop(key, JobStopBy::Model).await {
+                    Ok(job) => (job, format!("job {} stopped", input.id)),
+                    Err(error) => return ToolOutcome::error(efr_stdx::with_causes(&error)),
+                }
+            } else {
+                (before, format!("job {} had ended already", input.id))
+            };
+            let shown = shown_output(&job.output, None, DEFAULT_TAIL_LINES).await;
+            ToolOutcome::ok(format!("{first}\n{}\n{shown}", job_line(&job, now)))
+        }
     }
+}
+
+/// The job `id` of `conversation`, or what the model reads when it has none.
+async fn find(
+    jobs: &JobTable,
+    conversation: efr_protocol::ConversationId,
+    id: &JobId,
+) -> Result<JobInfo, String> {
+    let missing = || format!("no job {id} in this conversation; call jobs to list them");
+    let key = JobKey::of(conversation, id).ok_or_else(missing)?;
+    match jobs.find(key).await {
+        Ok(Some(job)) => Ok(job),
+        Ok(None) => Err(missing()),
+        Err(error) => Err(efr_stdx::with_causes(&error)),
+    }
+}
+
+/// The output of a job as a tool shows it: from `offset`, or its last `lines` lines,
+/// at most [`MAX_SHOWN_BYTES`].
+async fn shown_output(path: &Path, offset: Option<u64>, lines: usize) -> String {
+    let path = path.to_path_buf();
+    let read =
+        tokio::task::spawn_blocking(move || output::read(&path, offset, lines, MAX_SHOWN_BYTES))
+            .await;
+    match read {
+        Ok(Ok(text)) if text.is_empty() => "(no output yet)".to_owned(),
+        Ok(Ok(text)) => text,
+        Ok(Err(error)) => format!("(the output could not be read: {error})"),
+        Err(_) => "(the output could not be read)".to_owned(),
+    }
+}
+
+/// The time limit in minutes of a job that asked for `asked`, and whether efr cut it:
+/// the default when it asked for none, at most `jobs.max_minutes`.
+pub(crate) fn job_minutes(asked: Option<u32>, settings: &JobsSettings) -> (u32, bool) {
+    let max = settings.max_minutes.max(1);
+    let wanted = asked.unwrap_or(settings.default_minutes).max(1);
+    (wanted.min(max), wanted > max)
+}
+
+impl DaemonToolbox {
+    /// Why a `shell` call with `background: true` cannot start a job here; `None` when
+    /// it can, in every mode.
+    pub(super) fn jobs_refused(&self) -> Option<&'static str> {
+        if self.jobs.is_none() {
+            return Some(NOT_READY);
+        }
+        if !self.settings.borrow().jobs.enabled {
+            return Some(JOBS_OFF);
+        }
+        None
+    }
+
+    /// Starts the job of a `shell` call with `background: true` and answers at once
+    /// with its id, its output file and its time limit.
+    pub(super) async fn start_job(&self, call: ToolCall) -> ToolOutcome {
+        let Some(jobs) = &self.jobs else { return ToolOutcome::error(NOT_READY) };
+        let Some((sandbox, engine)) = &self.sandbox else {
+            return ToolOutcome::error(SANDBOX_NOT_STARTED);
+        };
+        let request: JobRequest = match job_request(&call.input) {
+            Ok(Some(request)) => request,
+            Ok(None) => return ToolOutcome::error("this call does not start a background job"),
+            Err(error) => return ToolOutcome::error(for_model(&error)),
+        };
+        let settings = Arc::clone(&self.settings.borrow());
+        if !settings.jobs.enabled {
+            return ToolOutcome::error(JOBS_OFF);
+        }
+        let conversation = call.context.conversation_id;
+        if let Some(text) = jobs.over_limit(conversation, &settings.jobs) {
+            return ToolOutcome::error(text);
+        }
+        let (minutes, clamped) = job_minutes(request.max_minutes, &settings.jobs);
+        let (matcher, watch) = match &request.watch {
+            Some(watch) => match Matcher::new(&watch.pattern) {
+                Ok(matcher) => {
+                    let most = u8::try_from(settings.jobs.max_wakes_per_watch).unwrap_or(u8::MAX);
+                    let max_wakes = watch.max_wakes.unwrap_or(1).min(most);
+                    (Some(matcher), Some(Watch { pattern: watch.pattern.clone(), max_wakes }))
+                }
+                Err(text) => return ToolOutcome::error(text),
+            },
+            None => (None, None),
+        };
+        let context = self.context(&call.context);
+        let declared = match self.registry.requirements(&call.name, &context, &call.input) {
+            Ok(declared) => declared,
+            Err(error) => return ToolOutcome::error(for_model(&error)),
+        };
+        let Some(command) = declared.command.clone() else {
+            return ToolOutcome::error("this call has no command line");
+        };
+        let cwd = match call.context.shell_cwd.clone() {
+            Some(dir) => dir,
+            None => self.shell_cwd(conversation).await.unwrap_or_else(|| call.context.cwd.clone()),
+        };
+        let env = match self.job_env(sandbox, conversation, &cwd).await {
+            Ok(env) => env,
+            Err(text) => return ToolOutcome::error(text),
+        };
+        let number = match jobs.number(conversation).await {
+            Ok(number) => number,
+            Err(error) => return ToolOutcome::error(efr_stdx::with_causes(&error)),
+        };
+        let id = JobId::nth(number);
+        let launch = match &call.context.launch {
+            Launch::Direct => Launch::Unsandboxed,
+            launch => launch.clone(),
+        };
+        let output_path =
+            call.context.scratch.join(efr_sandbox::JOB_DIR).join(output::file_name(&id));
+        let now = self.clock.now();
+        let info = JobInfo {
+            id: id.clone(),
+            conversation_id: conversation,
+            turn_id: call.context.turn_id,
+            call_id: call.context.call_id,
+            command: command.clone(),
+            launch,
+            state: JobState::Running,
+            started_at: now,
+            ends_by: now,
+            ended_at: None,
+            exit_code: None,
+            stopped_by: None,
+            output: output_path.clone(),
+            output_bytes: 0,
+            watch,
+            wakes: 0,
+        };
+        let mut named_paths: Vec<PathBuf> =
+            declared.paths.iter().map(|access| access.path.clone()).collect();
+        named_paths.extend(declared.command_dir.clone());
+        named_paths.extend(self.covered_root_paths(&call.context));
+        let engine = Arc::clone(&engine.borrow());
+        let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
+        let limit_secs = u64::from(minutes) * 60;
+        let job_input = JobInput {
+            plan: JobPlan::new(limit_secs, settings.jobs.nice),
+            line: &command,
+            env: &env,
+        };
+        let prepared = match sandbox.prepare_job(&call.context, &input, job_input).await {
+            Ok(prepared) => prepared,
+            Err(error) => return prepare_failed(sandbox, &settings, &error, &call),
+        };
+        let snapshot = self.snapshot_before(&call.context, &prepared.projects).await;
+        if let Some(stop) = self.check_covered(&call.context, &prepared.projects).await {
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
+            super::remove_call_dir(prepared.run.dir.clone()).await;
+            return ToolOutcome::error(stop);
+        }
+        sandbox
+            .turns()
+            .before_call(
+                call.context.turn_id,
+                now,
+                &prepared.projects,
+                &settings.sandbox.surface_files,
+                sandbox.git(),
+                &self.home,
+            )
+            .await;
+        let new = NewJob {
+            info,
+            limit: std::time::Duration::from_secs(limit_secs),
+            call_dir: prepared.run.dir.clone(),
+            state_dir: prepared.state_dir.clone(),
+            cwd,
+            scratch: call.context.scratch.clone(),
+            matcher,
+            wakes: 0,
+            guard_roots: prepared.guard_roots.clone(),
+            write_roots: prepared.write_roots.clone(),
+            contained: prepared.contained,
+        };
+        let new =
+            NewJob { wakes: new.info.watch.as_ref().map_or(0, |watch| watch.max_wakes), ..new };
+        let mut spawned = match jobs.spawn(&new) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                if let Some((taken, _)) = snapshot {
+                    taken.discard();
+                }
+                super::remove_call_dir(prepared.run.dir.clone()).await;
+                return ToolOutcome::error(format!(
+                    "[the job could not start: {error}. The command did not run.]"
+                ));
+            }
+        };
+        tracing::debug!(job = %id, pid = spawned.pid(), "a job's launcher waits for its start byte");
+        if let Err(text) = jobs.start(&mut spawned, &new).await {
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
+            return ToolOutcome::error(text);
+        }
+        // NOTE: the launcher opened every bind source; the job blocks no plan any more.
+        drop(prepared.guard);
+        let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
+        let changes = self.snapshot_after(snapshot).await;
+        let kept = self.snapshot_before(&call.context, &prepared.projects).await;
+        let info = match jobs.begin(spawned, new, kept).await {
+            Ok(info) => info,
+            Err(error) => return ToolOutcome::error(started_unrecorded(&error)),
+        };
+        let mut text = job_started_text(
+            id.as_str(),
+            &command,
+            &output_path.display().to_string(),
+            minutes,
+            clamped,
+        );
+        if !prepared.notes.is_empty() {
+            text = format!("{text}\n{}", prepared.notes.join("\n"));
+        }
+        let mut outcome = ToolOutcome::ok(text).with_job(info);
+        outcome.changes = changes;
+        outcome
+    }
+
+    /// The hidden shell's environment for a job of `conversation`, as the bytes of an
+    /// `env` file: the test seam's, else the file that the zsh integration writes at
+    /// each prompt. A shell with no file runs one line ([`ENV_REFRESH`]) to get a prompt;
+    /// with no shell, efrd opens one in `start_dir` and waits for its first prompt.
+    async fn job_env(
+        &self,
+        sandbox: &crate::sandbox::SandboxService,
+        conversation: efr_protocol::ConversationId,
+        start_dir: &Path,
+    ) -> Result<Vec<u8>, String> {
+        if let Some(env) = &self.job_env {
+            return Ok(output::env_bytes(env));
+        }
+        let file = sandbox.shell_dir(conversation).join(efr_sandbox::ENV_FILE);
+        // NOTE: the integration writes the file right after the prompt's marks, so a
+        // read after a prompt looks again for a moment, in real time, as the wait for a
+        // launcher's `started` does.
+        let read = |file: PathBuf, wait: bool| async move {
+            tokio::task::spawn_blocking(move || {
+                let begin = std::time::Instant::now();
+                loop {
+                    let bytes =
+                        crate::sandbox::fs::DaemonFs::read(&file, efr_sandbox::MAX_ENV_BYTES)
+                            .ok()
+                            .filter(|bytes| !bytes.is_empty());
+                    if bytes.is_some() || !wait || begin.elapsed() >= ENV_FILE_WAIT {
+                        return bytes;
+                    }
+                    std::thread::sleep(ENV_FILE_POLL);
+                }
+            })
+            .await
+            .ok()
+            .flatten()
+        };
+        if let Some(bytes) = read(file.clone(), false).await {
+            return Ok(bytes);
+        }
+        if self.shells.state(conversation).await.is_err() {
+            if let Err(error) = self.shells.open(conversation, start_dir).await {
+                tracing::info!(%conversation, %error, "a hidden shell for a job's environment did not start");
+                return Err(ENV_NOT_READY.to_owned());
+            }
+            let _ = self.shells.until_free(conversation, ENV_WAIT).await;
+            if let Some(bytes) = read(file.clone(), true).await {
+                return Ok(bytes);
+            }
+        }
+        // NOTE: the integration writes the file at a prompt only when the environment
+        // changed since it wrote it last; a line that empties its own record of the last
+        // write makes the next prompt write the file again, also one that went away.
+        let request = RunRequest::new(ENV_REFRESH, start_dir);
+        if let Err(error) = self.shells.run_command(conversation, request, &mut NoProgress).await {
+            tracing::info!(%conversation, %error, "the line for a job's environment did not run");
+        }
+        read(file, true).await.ok_or_else(|| ENV_NOT_READY.to_owned())
+    }
+}
+
+/// What the model reads for a job whose call dir could not be prepared.
+fn prepare_failed(
+    sandbox: &crate::sandbox::SandboxService,
+    settings: &Arc<efr_config::Settings>,
+    error: &DaemonError,
+    call: &ToolCall,
+) -> ToolOutcome {
+    tracing::warn!(error = %error, call_id = %call.context.call_id, "a job could not be prepared");
+    if matches!(error, DaemonError::SandboxUnavailable { .. }) {
+        sandbox.reprobe(Arc::clone(settings));
+    }
+    let reason = efr_stdx::with_causes(error);
+    let summary = SandboxSummary { setup_error: Some(reason.clone()), ..SandboxSummary::default() };
+    ToolOutcome::error(format!("[the job could not start: {reason}. The command did not run.]"))
+        .with_sandbox(Some(summary))
+}
+
+/// What the model reads when the store did not take a job's start: efr stopped it.
+fn started_unrecorded(error: &DaemonError) -> String {
+    format!(
+        "[the job started, but efr could not record it ({}), so efr stopped it. Try again.]",
+        efr_stdx::with_causes(error)
+    )
 }
 
 /// The input of the tool `name`, or the text that the model reads.

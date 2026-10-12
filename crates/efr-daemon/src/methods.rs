@@ -251,11 +251,20 @@ pub(crate) async fn peer_side(state: &State, context: &ConnectionContext) -> Pee
         return PeerSide::User;
     }
     let pid = context.pid();
-    let shells = state.ptys.shell_pids();
+    let shells = model_side_roots(state);
     let own = state.pid;
     tokio::task::spawn_blocking(move || peers::side(pid, &shells, own))
         .await
         .unwrap_or(PeerSide::Unknown)
+}
+
+/// The pids below which, or in whose session, a peer is model-side: each hidden
+/// shell, each running job's launcher, and the session of each job that ended while a
+/// process still had it (efr's auto spec, section 13.5).
+pub(crate) fn model_side_roots(state: &State) -> Vec<u32> {
+    let mut roots = state.ptys.shell_pids();
+    roots.extend(state.jobs.model_side());
+    roots
 }
 
 /// The side of the peer of `context`, looked at only when `method` needs more than
