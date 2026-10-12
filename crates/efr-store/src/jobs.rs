@@ -5,7 +5,8 @@
 //! efrd seeds the ids of new jobs from it ([`next_number`]), finds the jobs that ran
 //! when it stopped ([`running`]), with the launcher's process id and start time from
 //! the event and never from a file, and hands each actor the notices that no turn took
-//! ([`undelivered_notices`]). The turns that a notice started are rows of `turns` with
+//! ([`undelivered_notices`]), with those that a `job_notice_held` names already
+//! ([`held_notices`]). The turns that a notice started are rows of `turns` with
 //! `wake = 1` (`conversations.rs`); [`wake_starts_since`] counts them for the limit of
 //! such turns per hour, so a restart does not reset it.
 
@@ -299,6 +300,27 @@ pub fn undelivered_notices(
             })
         })
         .collect()
+}
+
+/// The events of `conversation` that a job notice tells about, that no turn took yet,
+/// and that a `job_notice_held` names already, oldest first: a restart records no
+/// second `job_notice_held` for them.
+pub fn held_notices(
+    conn: &Connection,
+    conversation: ConversationId,
+) -> Result<Vec<Seq>, StoreError> {
+    let mut stmt = conn.prepare(
+        "SELECT n.source_seq FROM job_notices n WHERE n.conversation_id = ?1 \
+         AND n.taken_by IS NULL AND EXISTS (SELECT 1 FROM events e \
+         WHERE e.conversation_id = n.conversation_id AND e.seq > n.source_seq \
+         AND e.kind = 'job_notice_held' \
+         AND json_extract(e.payload, '$.source_seq') = n.source_seq) \
+         ORDER BY n.source_seq",
+    )?;
+    let seqs = stmt
+        .query_map([conversation.to_string()], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    seqs.into_iter().map(|seq| sql::to_seq(seq, NOTICES, "source_seq")).collect()
 }
 
 fn query(

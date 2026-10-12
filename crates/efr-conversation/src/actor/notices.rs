@@ -58,9 +58,14 @@ pub(super) struct Notices {
 }
 
 impl Notices {
-    /// Notices whose wake turns of the last hour began at `starts`.
-    pub(super) fn seeded(starts: Vec<jiff::Timestamp>) -> Self {
-        Notices { window: WakeWindow::new(starts), ..Notices::default() }
+    /// Notices whose wake turns of the last hour began at `starts`, and whose waiting
+    /// notices of the events `held` recorded `job_notice_held` before a restart.
+    pub(super) fn seeded(starts: Vec<jiff::Timestamp>, held: Vec<Seq>) -> Self {
+        Notices {
+            window: WakeWindow::new(starts),
+            held: held.into_iter().collect(),
+            ..Notices::default()
+        }
     }
 
     /// Keeps `notice` until a turn takes it.
@@ -72,7 +77,7 @@ impl Notices {
     pub(super) fn take_for_prompt(&mut self, spec: &mut TurnSpec) {
         spec.notices = wake::take_notices(&mut self.waiting);
         spec.more_notices = self.waiting.len();
-        self.forget_held();
+        self.forget_held(&spec.notices);
         // NOTE: a person started this turn: the counts of the wake turns start again.
         self.carried = None;
     }
@@ -104,10 +109,12 @@ impl Notices {
         self.waiting = untaken;
     }
 
-    /// Forgets the held marks of the notices that a turn took.
-    fn forget_held(&mut self) {
-        let waiting: HashSet<Seq> = self.waiting.iter().map(|notice| notice.source_seq).collect();
-        self.held.retain(|seq| waiting.contains(seq));
+    /// Forgets the held marks of `taken`, the notices that a turn took. A mark of a
+    /// notice that has not arrived yet, as after a restart, stays.
+    fn forget_held(&mut self, taken: &[JobNoticeInput]) {
+        for notice in taken {
+            self.held.remove(&notice.source_seq);
+        }
     }
 
     /// Why `notice` cannot start a turn on its own, whatever the limits; `None` when
@@ -170,7 +177,7 @@ impl ConversationActor {
         if let Some(mut spec) = started {
             spec.notices = wake::take_notices(&mut self.notices.waiting);
             spec.more_notices = self.notices.waiting.len();
-            self.notices.forget_held();
+            self.notices.forget_held(&spec.notices);
             self.queue.push_front(spec);
             self.start_next();
         }

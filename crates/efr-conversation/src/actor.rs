@@ -348,7 +348,8 @@ impl ConversationActor {
     }
 
     async fn run(mut self) {
-        self.notices = notices::Notices::seeded(self.wake_starts().await);
+        self.notices =
+            notices::Notices::seeded(self.wake_starts().await, self.held_notices().await);
         let mut open = true;
         let mut stopped_reply = None;
         while open || self.busy() {
@@ -524,6 +525,22 @@ impl ConversationActor {
             .await;
         starts.unwrap_or_else(|error| {
             tracing::warn!(error = %error, "the wake turns of the last hour could not be read");
+            Vec::new()
+        })
+    }
+
+    /// The waiting notices of this conversation that recorded `job_notice_held` before
+    /// a restart, so the restart records none of them again.
+    async fn held_notices(&self) -> Vec<Seq> {
+        let conversation_id = self.conversation_id();
+        let held = self
+            .shared
+            .deps
+            .readers
+            .with(move |conn| efr_store::jobs::held_notices(conn, conversation_id))
+            .await;
+        held.unwrap_or_else(|error| {
+            tracing::warn!(error = %error, "the held job notices could not be read");
             Vec::new()
         })
     }

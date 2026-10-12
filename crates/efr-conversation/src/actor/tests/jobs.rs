@@ -261,6 +261,45 @@ async fn restart_notice_never_wakes() {
     assert_eq!(first[1..], ["what happened?".to_owned(), notice.text]);
 }
 
+/// A notice that efrd hands the actor again at each start is held once: the store
+/// keeps the first `job_notice_held`.
+#[tokio::test]
+async fn restart_records_held_notice_once() {
+    let (mut h, _, _) = with_job(auto(), Vec::new()).await;
+    let end = Event::JobEnded {
+        job_id: efr_protocol::JobId::nth(1),
+        state: JobState::Exited,
+        exit_code: Some(1),
+        stopped_by: None,
+        output_bytes: 10,
+        ran_secs: 3,
+        tail: "error\n".to_owned(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+    };
+    let committed =
+        h.store.writer().append(efr_store::Batch::new().event(h.conversation_id, end)).await;
+    let seq = committed.unwrap().events()[0].seq.get();
+    notify(&h, ended(&h, 1, seq, false)).await;
+    assert_eq!(held(&mut h, seq).await, HeldReason::DaemonRestart);
+    let script = Script::new(Vec::new());
+    for _ in 0..2 {
+        h = h.restart_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+        notify(&h, ended(&h, 1, seq, false)).await;
+        // NOTE: the actor answers in order, so the notice was handled before this.
+        h.handle.state().await.unwrap();
+    }
+    let events = h.store.events().await.unwrap();
+    let held_count = events
+        .iter()
+        .filter(|envelope| matches!(envelope.event, Event::JobNoticeHeld { .. }))
+        .count();
+    assert_eq!(held_count, 1, "a restart records no second job_notice_held");
+}
+
 #[tokio::test]
 async fn wake_turn_without_start_turn_never_wakes() {
     let (mut h, _, _) = with_job(auto(), Vec::new()).await;

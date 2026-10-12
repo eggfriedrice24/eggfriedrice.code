@@ -226,6 +226,12 @@ async fn undelivered_notices_skip_delivered_ones() {
     assert_eq!(waiting[0].job.state, JobState::Exited);
     assert!(matches!(waiting[1].event, Event::JobEnded { state: JobState::TimedOut, .. }));
 
+    let held = on_writer(&writer, move |conn| held_notices(conn, id)).await.unwrap();
+    assert_eq!(held, [Seq::new(end_two)], "only the waiting notice that was held");
+    let other = testing::conversation(2);
+    let none = on_writer(&writer, move |conn| held_notices(conn, other)).await.unwrap();
+    assert!(none.is_empty());
+
     clock.advance(Duration::from_secs(60));
     let later = Timestamp::from_second(testing::start().as_second() + 30).unwrap();
     let none = on_writer(&writer, move |conn| undelivered_notices(conn, later)).await.unwrap();
