@@ -9,7 +9,7 @@ use std::path::Path;
 
 use efr_protocol::UndoReason;
 use efr_snapshot::{
-    Expect, LeftOutReason, NOT_COVERED_FAILED, PlanAction, PlanEntry, RootPlan, Snapshots,
+    Expect, LeftOutReason, NOT_COVERED_UNFINISHED, PlanAction, PlanEntry, RootPlan, Snapshots,
     UndoPlan, blob_id, stack_blocker,
 };
 use pretty_assertions::assert_eq;
@@ -430,7 +430,7 @@ async fn interrupted_call_marks_its_root_and_force_undoes_it() {
     // The user interrupts the call: the toolbox drops it before its snapshot after.
     drop(call);
     let end = world.snapshots.turn_end(turn(1), limits()).await;
-    assert!(end.not_covered.iter().any(|(_, reason)| reason == NOT_COVERED_FAILED), "{end:?}");
+    assert!(end.not_covered.iter().any(|(_, reason)| reason == NOT_COVERED_UNFINISHED), "{end:?}");
 
     let plain = plan(&world, 1, false, 1).await;
     assert_eq!(entry(&plain, "a.txt").action, PlanAction::Skip(UndoReason::SnapshotFailed));

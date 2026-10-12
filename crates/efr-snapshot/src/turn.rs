@@ -58,7 +58,7 @@ pub struct TurnEnd {
     /// once; a root with too many files is itself in the list.
     pub left_out: Vec<(PathBuf, LeftOutReason)>,
     /// The roots whose record of the turn is not complete, and why:
-    /// [`NOT_COVERED_FAILED`] or [`NOT_COVERED_STORE_CHANGED`].
+    /// [`NOT_COVERED_FAILED`], [`NOT_COVERED_UNFINISHED`] or [`NOT_COVERED_STORE_CHANGED`].
     pub not_covered: Vec<(PathBuf, String)>,
     /// True when at least one root kept a complete record of the turn.
     pub kept: bool,
@@ -69,6 +69,9 @@ pub struct TurnEnd {
 
 /// The reason in [`TurnEnd::not_covered`] for a root whose snapshot failed in the turn.
 pub const NOT_COVERED_FAILED: &str = "a snapshot failed";
+/// The reason in [`TurnEnd::not_covered`] for a root that a call changed with no
+/// snapshot after it, because the call was interrupted or still runs.
+pub const NOT_COVERED_UNFINISHED: &str = "a call did not finish";
 /// The reason in [`TurnEnd::not_covered`] for a root whose `pre` ref is gone or moved,
 /// as when an approved command outside the sandbox changed efr's store.
 pub const NOT_COVERED_STORE_CHANGED: &str = "the snapshot store changed";
@@ -107,8 +110,13 @@ pub(crate) struct Kept {
     /// The `efr-meta:` line of `pre`, the base of `last` and `post`.
     pub(crate) meta: Meta,
     pub(crate) touched: BTreeSet<String>,
-    /// True when a later snapshot of the root failed in the turn.
+    /// True when a later snapshot of the root failed in the turn, or a call ended without
+    /// its snapshot after it.
     pub(crate) failed: bool,
+    /// True when every gap of [`failed`](Self::failed) is a call that ended without its
+    /// snapshot after it, such as an interrupted call: the turn end then says
+    /// [`NOT_COVERED_UNFINISHED`].
+    pub(crate) unfinished: bool,
     /// What the turn's first snapshot took of the project's refs; `None` for a root
     /// that is no git work tree.
     pub(crate) mirror: Option<Mirror>,
@@ -199,6 +207,7 @@ impl Snapshots {
                     meta,
                     touched: BTreeSet::new(),
                     failed: false,
+                    unfinished: false,
                     mirror,
                     _pin: Pin::new(self.slot(root.path()), &snap.tree),
                 })),
@@ -224,12 +233,23 @@ impl Snapshots {
     /// Marks the kept `pre` of `root` in the turn `turn` as not complete: a later
     /// snapshot failed, so the turn's calls may have changed paths that `touched` lacks.
     pub(crate) fn mark_failed(&self, turn: TurnId, root: &Path) {
+        self.mark(turn, root, false);
+    }
+
+    /// Marks the kept `pre` of `root` in the turn `turn` as not complete because a call
+    /// ended without its snapshot after it ([`Kept::unfinished`]).
+    pub(crate) fn mark_unfinished(&self, turn: TurnId, root: &Path) {
+        self.mark(turn, root, true);
+    }
+
+    fn mark(&self, turn: TurnId, root: &Path, unfinished: bool) {
         let mut turns = self.lock_turns();
         let Some(record) = turns.get_mut(&turn) else { return };
         for known in &mut record.roots {
             if known.root.path() == root
                 && let State::Kept(kept) = &mut known.state
             {
+                kept.unfinished = unfinished && (kept.unfinished || !kept.failed);
                 kept.failed = true;
             }
         }
@@ -448,7 +468,9 @@ impl Snapshots {
                     ms: post.ms,
                 });
                 if kept.failed {
-                    end.not_covered.push((path.clone(), NOT_COVERED_FAILED.to_owned()));
+                    let why =
+                        if kept.unfinished { NOT_COVERED_UNFINISHED } else { NOT_COVERED_FAILED };
+                    end.not_covered.push((path.clone(), why.to_owned()));
                 } else {
                     end.kept = true;
                 }

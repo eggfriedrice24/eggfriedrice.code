@@ -81,7 +81,8 @@ pub use snapshots::{
     CallSnapshot, DEFAULT_SNAPSHOT_TIMEOUT, Root, SNAPSHOTS_DIR, SnapshotParts, Snapshots,
 };
 pub use turn::{
-    NOT_COVERED_FAILED, NOT_COVERED_REFS, NOT_COVERED_STORE_CHANGED, Phase, SnapshotInfo, TurnEnd,
+    NOT_COVERED_FAILED, NOT_COVERED_REFS, NOT_COVERED_STORE_CHANGED, NOT_COVERED_UNFINISHED, Phase,
+    SnapshotInfo, TurnEnd,
 };
 pub use undo::{
     BeforeUndo, Expect, PlanAction, PlanEntry, RefPlan, RootPlan, TurnRefs, UndoPlan, stack_blocker,

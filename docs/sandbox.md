@@ -529,7 +529,7 @@ undone: 1 file restored, 1 file moved to ~/.local/share/efr/undo-trash/u-0193...
   turn as it is.
 - A call that you interrupt, or a command that runs on after its timeout, can change
   files after efr's last snapshot of the call. The turn then says `not covered:
-  <project> (a snapshot failed)`, and `efr undo --force` takes back those files too. A
+  <project> (a call did not finish)`, and `efr undo --force` takes back those files too. A
   home copy whose call did not finish shows as `not covered: <path> (the call did not
   finish)`.
 - Undo works for a turn of every mode with a snapshot. The hint `efr undo reverts this

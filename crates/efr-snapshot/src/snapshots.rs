@@ -141,7 +141,7 @@ impl CallSnapshot {
     fn mark_unfinished(&self, owner: &Snapshots) {
         let Some(turn) = self.turn else { return };
         for (root, _, _) in &self.before {
-            owner.mark_failed(turn, root.path());
+            owner.mark_unfinished(turn, root.path());
         }
     }
 }
