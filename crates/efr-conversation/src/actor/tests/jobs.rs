@@ -597,3 +597,27 @@ async fn wake_turn_keeps_classifier_pause() {
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(woke).await;
 }
+
+#[tokio::test]
+async fn a_paused_wake_turn_stops_when_nobody_follows() {
+    let mut setup = auto();
+    let judge = crate::testing::FakeJudge::answering(vec![crate::testing::denies(); 3]);
+    setup.judge = Some(Arc::clone(&judge));
+    let write = write_notes(&setup);
+    let (mut h, _, _) = with_job(
+        setup,
+        vec![write.clone(), write.clone(), write.clone(), (DONE, Value::Null), write],
+    )
+    .await;
+    notify(&h, ended(&h, 1, 900, true)).await;
+    wake(&mut h).await;
+
+    // Nobody follows the conversation: the paused classifier cannot hand the exit to a
+    // person, so the turn stops at once, with no question.
+    notify(&h, ended(&h, 1, 901, true)).await;
+    let woke = wake(&mut h).await;
+    let events = turn_events(&h, woke).await;
+    assert!(matches!(events.last().unwrap().event, Event::TurnFailed { .. }));
+    assert!(!events.iter().any(|e| matches!(e.event, Event::ApprovalRequested { .. })));
+    assert_eq!(judge.calls(), 3);
+}

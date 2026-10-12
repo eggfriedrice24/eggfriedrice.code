@@ -854,6 +854,17 @@ impl Turn {
         ModelKey::new(self.shared.deps.provider.id().clone(), model.clone())
     }
 
+    /// True when nobody can answer a question of the turn now: the user is away, or,
+    /// in a turn that job notices started, no client that can answer follows the
+    /// conversation. Nobody typed the input of such a turn, so a user who typed in
+    /// another terminal a while ago does not count as there (phase C).
+    fn nobody_there(&self) -> bool {
+        let presence = &self.shared.deps.presence;
+        let conversation_id = self.shared.conversation_id;
+        presence.presence(conversation_id) == Presence::Away
+            || (self.spec.is_wake() && !presence.followed(conversation_id))
+    }
+
     /// True when the turn is a wake turn that judged [`wake::WAKE_TURN_MAX_CALLS`]
     /// calls: no more calls run in it.
     fn capped(&self) -> bool {
@@ -1392,17 +1403,11 @@ impl Turn {
         // sees it. A user who comes back gets the normal wait again.
         let mut away_from: Option<Duration> = None;
         let mut pushed = false;
-        // NOTE: nobody typed the input of a wake turn. Unless a client that can answer
-        // follows the conversation, the user counts as away, so no wake turn waits for
-        // hours for a user who typed in another terminal a while ago.
-        let wake = self.spec.is_wake();
         let watch = Stopwatch::start();
         let waited = loop {
             let elapsed =
                 Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default();
-            let away = presence.presence(conversation_id) == Presence::Away
-                || (wake && !presence.followed(conversation_id));
-            if away {
+            if self.nobody_there() {
                 away_from.get_or_insert(elapsed);
                 if !pushed {
                     presence.push(conversation_id, call_id);

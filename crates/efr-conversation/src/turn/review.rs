@@ -22,9 +22,7 @@
 use std::task::Poll;
 
 use efr_permissions::{Approver, Cause, Effect};
-use efr_protocol::{
-    ErrorBody, ErrorCode, Event, ExitRecord, JudgeKind, Judgement, Presence, Verdict,
-};
+use efr_protocol::{ErrorBody, ErrorCode, Event, ExitRecord, JudgeKind, Judgement, Verdict};
 
 use super::{Authorization, Ruling, Turn};
 use crate::exit;
@@ -73,9 +71,7 @@ impl Turn {
             && self.shared.deps.judge.is_some()
             && self.config.classifier_enabled
             && self.goes_to_classifier(ruling);
-        let away =
-            self.shared.deps.presence.presence(self.shared.conversation_id) == Presence::Away;
-        if !judged || !away {
+        if !judged || !self.nobody_there() {
             return None;
         }
         let message = exit::away_stopped(reason, denials);
