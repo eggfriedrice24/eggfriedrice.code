@@ -915,6 +915,16 @@ impl JobTask {
             launcher_lost,
             output_truncated: self.output.truncated(),
         };
+        // NOTE: the launcher ended, so its pid leaves the model-side list before the
+        // record: a reader that sees `JobEnded` sees the list without it. A session that
+        // a process still had stays listed.
+        {
+            let mut guard = table.lock();
+            guard.launchers.remove(&self.pid);
+            if !swept.is_empty() {
+                guard.sessions.insert(self.pid);
+            }
+        }
         let committed =
             table.inner.writer.append(Batch::new().event(self.key.conversation, event)).await;
         // NOTE: P3b adds the job's writes to its start turn here; until then the
@@ -922,14 +932,7 @@ impl JobTask {
         if let Some((snapshot, _)) = kept {
             snapshot.discard();
         }
-        {
-            let mut guard = table.lock();
-            guard.running.remove(&self.key);
-            guard.launchers.remove(&self.pid);
-            if !swept.is_empty() {
-                guard.sessions.insert(self.pid);
-            }
-        }
+        table.lock().running.remove(&self.key);
         remove_dirs(self.call_dir.clone(), self.state_dir.clone()).await;
         match committed {
             Ok(committed) => {
