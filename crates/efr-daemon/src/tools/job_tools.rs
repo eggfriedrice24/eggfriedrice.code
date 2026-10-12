@@ -19,11 +19,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_config::JobsSettings;
-use efr_conversation::{ToolCall, ToolOutcome, Toolbox as _};
+use efr_conversation::{CallContext, ToolCall, ToolOutcome, Toolbox as _};
+use efr_permissions::CoverAsk;
 use efr_permissions::Requirements;
-use efr_protocol::{JobId, JobInfo, JobState, JobStopBy, Launch, SandboxSummary, Watch};
+use efr_protocol::{
+    FileChanges, JobId, JobInfo, JobState, JobStopBy, Launch, SandboxSummary, Watch,
+};
 use efr_provider::ToolDefinition;
 use efr_sandbox::JobPlan;
+use efr_scope::Home;
 use efr_shell::{NoProgress, RunRequest};
 use efr_tools::{JobRequest, job_request, job_started_text};
 use serde::Deserialize;
@@ -31,8 +35,9 @@ use serde_json::{Value, json};
 
 use super::{DaemonToolbox, SANDBOX_NOT_STARTED, for_model};
 use crate::DaemonError;
-use crate::jobs::{JobKey, JobTable, Matcher, NewJob, job_line, output};
-use crate::sandbox::{JobInput, PrepareInput};
+use crate::jobs::{JobKey, JobTable, Matcher, NewJob, Slot, job_line, output};
+use crate::sandbox::{JobInput, PrepareInput, Prepared};
+use crate::tools::CallSnapshots;
 
 /// The name of the tool that lists the jobs and reads their output.
 pub(crate) const JOBS: &str = "jobs";
@@ -306,9 +311,10 @@ impl DaemonToolbox {
             return ToolOutcome::error(JOBS_OFF);
         }
         let conversation = call.context.conversation_id;
-        if let Some(text) = jobs.over_limit(conversation, &settings.jobs) {
-            return ToolOutcome::error(text);
-        }
+        let slot = match jobs.reserve(conversation, &settings.jobs) {
+            Ok(slot) => slot,
+            Err(text) => return ToolOutcome::error(text),
+        };
         let (minutes, clamped) = job_minutes(request.max_minutes, &settings.jobs);
         let (matcher, watch) = match &request.watch {
             Some(watch) => match Matcher::new(&watch.pattern) {
@@ -383,25 +389,6 @@ impl DaemonToolbox {
             Ok(prepared) => prepared,
             Err(error) => return prepare_failed(sandbox, &settings, &error, &call),
         };
-        let snapshot = self.snapshot_before(&call.context, &prepared.projects).await;
-        if let Some(stop) = self.check_covered(&call.context, &prepared.projects).await {
-            if let Some((taken, _)) = snapshot {
-                taken.discard();
-            }
-            super::remove_call_dir(prepared.run.dir.clone()).await;
-            return ToolOutcome::error(stop);
-        }
-        sandbox
-            .turns()
-            .before_call(
-                call.context.turn_id,
-                now,
-                &prepared.projects,
-                &settings.sandbox.surface_files,
-                sandbox.git(),
-                &self.home,
-            )
-            .await;
         let new = NewJob {
             info,
             limit: std::time::Duration::from_secs(limit_secs),
@@ -417,33 +404,33 @@ impl DaemonToolbox {
         };
         let new =
             NewJob { wakes: new.info.watch.as_ref().map_or(0, |watch| watch.max_wakes), ..new };
-        let mut spawned = match jobs.spawn(&new) {
-            Ok(spawned) => spawned,
-            Err(error) => {
-                if let Some((taken, _)) = snapshot {
-                    taken.discard();
-                }
-                super::remove_call_dir(prepared.run.dir.clone()).await;
-                return ToolOutcome::error(format!(
-                    "[the job could not start: {error}. The command did not run.]"
-                ));
-            }
+        let notes = prepared.notes.clone();
+        let launch = JobLaunch {
+            jobs: jobs.clone(),
+            snapshots: self.snapshots.clone(),
+            asks: self.covered_root_asks(&call.context),
+            sandbox: sandbox.clone(),
+            settings: Arc::clone(&settings),
+            home: self.home.clone(),
+            context: call.context.clone(),
+            prepared,
+            new,
+            now,
+            slot,
         };
-        tracing::debug!(job = %id, pid = spawned.pid(), "a job's launcher waits for its start byte");
-        if let Err(text) = jobs.start(&mut spawned, &new).await {
-            if let Some((taken, _)) = snapshot {
-                taken.discard();
+        // NOTE: in a task of its own: an interrupt drops this call's future, and a start
+        // cut in half would leave a launcher model-side, a snapshot pinned, or a job that
+        // runs with no record or a record with no job. A job that starts after Esc runs
+        // on, as every job does after Esc, and shows in `efr jobs`.
+        let (info, changes) = match tokio::spawn(launch.run()).await {
+            Ok(Ok(started)) => started,
+            Ok(Err(outcome)) => return outcome,
+            Err(error) => {
+                tracing::error!(%error, "the start of a job panicked");
+                return ToolOutcome::error(
+                    "[the job could not start: efr failed. The command did not run.]",
+                );
             }
-            return ToolOutcome::error(text);
-        }
-        // NOTE: the launcher opened every bind source; the job blocks no plan any more.
-        drop(prepared.guard);
-        let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
-        let changes = self.snapshot_after(snapshot).await;
-        let kept = self.snapshot_before(&call.context, &prepared.projects).await;
-        let info = match jobs.begin(spawned, new, kept).await {
-            Ok(info) => info,
-            Err(error) => return ToolOutcome::error(started_unrecorded(&error)),
         };
         let mut text = job_started_text(
             id.as_str(),
@@ -452,8 +439,8 @@ impl DaemonToolbox {
             minutes,
             clamped,
         );
-        if !prepared.notes.is_empty() {
-            text = format!("{text}\n{}", prepared.notes.join("\n"));
+        if !notes.is_empty() {
+            text = format!("{text}\n{}", notes.join("\n"));
         }
         let mut outcome = ToolOutcome::ok(text).with_job(info);
         outcome.changes = changes;
@@ -516,6 +503,112 @@ impl DaemonToolbox {
             tracing::info!(%conversation, %error, "the line for a job's environment did not run");
         }
         read(file, true).await.ok_or_else(|| ENV_NOT_READY.to_owned())
+    }
+}
+
+/// The part of a job's start that must not stop half way: from the guard check and
+/// the snapshot under the plan lock to `job_started` and the job's task.
+struct JobLaunch {
+    jobs: JobTable,
+    snapshots: Option<CallSnapshots>,
+    /// The snapshot asks that the call's facts said are covered.
+    asks: Vec<CoverAsk>,
+    sandbox: crate::sandbox::SandboxService,
+    settings: Arc<efr_config::Settings>,
+    home: Home,
+    context: CallContext,
+    prepared: Prepared,
+    new: NewJob,
+    now: jiff::Timestamp,
+    /// The job's place in the limits, until it runs or did not start.
+    slot: Slot,
+}
+
+impl JobLaunch {
+    /// Starts the job; `Err` is the outcome of a job that did not start.
+    async fn run(self) -> Result<(JobInfo, Option<FileChanges>), ToolOutcome> {
+        let JobLaunch {
+            jobs,
+            snapshots,
+            asks,
+            sandbox,
+            settings,
+            home,
+            context,
+            prepared,
+            new,
+            now,
+            slot,
+        } = self;
+        // NOTE: before the launcher records the surface, so its guard never takes an
+        // entry that a running job planted in these roots as its baseline.
+        if prepared.contained {
+            jobs.check_guards(Some(&prepared.guard_roots)).await;
+        }
+        let before = |snapshots: Option<CallSnapshots>| {
+            let context = context.clone();
+            let projects = prepared.projects.clone();
+            async move {
+                match snapshots {
+                    Some(snapshots) => snapshots.before_call(&context, &projects).await,
+                    None => None,
+                }
+            }
+        };
+        let snapshot = before(snapshots.clone()).await;
+        let lost =
+            super::recheck_covered(snapshots.as_ref(), &context, &asks, &prepared.projects).await;
+        if let Some(stop) = lost {
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
+            super::remove_call_dir(prepared.run.dir.clone()).await;
+            return Err(ToolOutcome::error(stop));
+        }
+        sandbox
+            .turns()
+            .before_call(
+                context.turn_id,
+                now,
+                &prepared.projects,
+                &settings.sandbox.surface_files,
+                sandbox.git(),
+                &home,
+            )
+            .await;
+        let mut spawned = match jobs.spawn(&new) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                if let Some((taken, _)) = snapshot {
+                    taken.discard();
+                }
+                super::remove_call_dir(prepared.run.dir.clone()).await;
+                return Err(ToolOutcome::error(format!(
+                    "[the job could not start: {error}. The command did not run.]"
+                )));
+            }
+        };
+        tracing::debug!(job = %new.info.id, pid = spawned.pid(), "a job's launcher waits for its start byte");
+        if let Err(text) = jobs.start(&mut spawned, &new).await {
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
+            return Err(ToolOutcome::error(text));
+        }
+        // NOTE: the launcher opened every bind source; the job blocks no plan any more.
+        drop(prepared.guard);
+        let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
+        let changes = match &snapshots {
+            Some(snapshots) => snapshots.after_call(snapshot).await,
+            None => None,
+        };
+        let kept = before(snapshots).await;
+        let info = match jobs.begin(spawned, new, kept).await {
+            Ok(info) => info,
+            Err(error) => return Err(ToolOutcome::error(started_unrecorded(&error))),
+        };
+        drop(slot);
+        Ok((info, changes))
     }
 }
 

@@ -23,7 +23,9 @@
 //! Files in the fake's dir change what it does: `fail` (the setup fails),
 //! `ignore-term` (a job ignores SIGTERM, so efrd must kill it), `stop-self` (a job's
 //! launcher stops itself with SIGSTOP once it started), `no-result` (it writes no
-//! `result.json`), `survivors` (the result names one survivor, once).
+//! `result.json`), `survivors` (the result names one survivor, once), `hold-start` (a
+//! job's launcher writes `held` in the fake's dir after the start byte and waits until
+//! the file is gone before it writes `started`).
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -66,6 +68,10 @@ fi
 if [ -e "$fake/fail" ]; then
     printf '{"setup_error":"a fake setup failure"}' > "$dir/result.json"
     exit 125
+fi
+if [ -e "$fake/hold-start" ]; then
+    : > "$fake/held"
+    while [ -e "$fake/hold-start" ]; do sleep 0.05; done
 fi
 : > "$dir/started"
 stopped=''

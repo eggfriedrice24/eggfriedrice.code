@@ -203,6 +203,34 @@ struct Table {
     sessions: HashSet<u32>,
     /// True while efrd stops: no notice goes to an actor.
     stopping: bool,
+    /// The jobs of each conversation that start now, from the limit check until their
+    /// start is done (`Slot`).
+    starting: HashMap<ConversationId, usize>,
+}
+
+/// The place of a job that starts in the limits of the table; it frees the place when
+/// it drops, after the job runs or did not start.
+pub(crate) struct Slot {
+    table: JobTable,
+    conversation: ConversationId,
+}
+
+impl std::fmt::Debug for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Slot").field("conversation", &self.conversation).finish()
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut table = self.table.lock();
+        if let Some(count) = table.starting.get_mut(&self.conversation) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                table.starting.remove(&self.conversation);
+            }
+        }
+    }
 }
 
 /// A running job.
@@ -276,39 +304,45 @@ impl JobTable {
         Ok(number)
     }
 
-    /// What the model reads when one more job of `conversation` would pass
-    /// `jobs.max_running` or `jobs.max_running_daemon`: the running jobs, with their
-    /// time left. `None` when one more may start.
-    pub(crate) fn over_limit(
+    /// Holds a place for one more job of `conversation` until the [`Slot`] drops, so
+    /// two starts at once cannot both pass `jobs.max_running` or
+    /// `jobs.max_running_daemon`. `Err` is what the model reads when one more would pass
+    /// a limit: the running jobs, with their time left.
+    pub(crate) fn reserve(
         &self,
         conversation: ConversationId,
         settings: &JobsSettings,
-    ) -> Option<String> {
+    ) -> Result<Slot, String> {
         let now = self.inner.clock.now();
-        let table = self.lock();
+        let mut table = self.lock();
         let own: Vec<&Entry> = table
             .running
             .values()
             .filter(|entry| entry.meta.key.conversation == conversation)
             .collect();
-        let (limit, listed): (String, Vec<&Entry>) = if own.len() >= settings.max_running as usize {
-            (format!("{} jobs run in this conversation", own.len()), own)
-        } else if table.running.len() >= settings.max_running_daemon as usize {
-            (format!("{} jobs run in efr", table.running.len()), own)
+        // NOTE: a job that starts counts as one that runs: it holds its place from the
+        // check on.
+        let own_count = own.len() + table.starting.get(&conversation).copied().unwrap_or(0);
+        let all_count = table.running.len() + table.starting.values().sum::<usize>();
+        let limit = if own_count >= settings.max_running as usize {
+            format!("{} in this conversation", jobs_run(own_count))
+        } else if all_count >= settings.max_running_daemon as usize {
+            format!("{} in efr", jobs_run(all_count))
         } else {
-            return None;
+            *table.starting.entry(conversation).or_insert(0) += 1;
+            return Ok(Slot { table: self.clone(), conversation });
         };
         let mut text = format!(
             "this job did not start: {limit}, the most that efr allows. Stop one with job_stop, \
              or wait for one to end."
         );
-        let mut listed = listed;
+        let mut listed = own;
         listed.sort_by_key(|entry| entry.meta.key.number);
         for entry in listed {
             text.push('\n');
             text.push_str(&job_line(&entry.info, now));
         }
-        Some(text)
+        Err(text)
     }
 
     /// Spawns the launcher of `job`, puts its pid in the list of model-side peers, and
@@ -1073,6 +1107,11 @@ fn last_seq(committed: &efr_store::Committed) -> Seq {
 /// Whole seconds from `from` to `to`.
 fn ran_secs(from: Timestamp, to: Timestamp) -> u64 {
     u64::try_from(to.as_second().saturating_sub(from.as_second())).unwrap_or(0)
+}
+
+/// `1 job runs` or `<count> jobs run`.
+fn jobs_run(count: usize) -> String {
+    if count == 1 { "1 job runs".to_owned() } else { format!("{count} jobs run") }
 }
 
 /// One line about `job` for the model: its id, state, command, time left or end, and

@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, AdminStatus, AdminStatusResult, ApprovalDecision,
-    Event, JobStopBy, Method, Mode, PromptSendResult, TurnSettings,
+    Event, EventEnvelope, JobStopBy, Method, Mode, PromptSendResult, SurfaceChange, TurnSettings,
 };
 use efr_test_daemon::{TTY, TestDaemon, events_until};
 use efr_test_support::{TestDirs, Wait};
@@ -28,13 +28,73 @@ fn dirs() -> Arc<TestDirs> {
 }
 
 #[tokio::test]
-#[expect(clippy::print_stderr, reason = "the cost of a guard check is a report of the test")]
 async fn shell_job_planted_hook_quarantined_before_next_turn() {
     let test = "shell_job_planted_hook_quarantined_before_next_turn";
+    let next = json!({ "command": "cat a.txt" });
+    let Some((seen, hook)) = plant_then(test, next).await else { return };
+    let (stopped_by, surface_changes, quarantined) = guard_end(&seen);
+    assert_eq!(stopped_by, Some(JobStopBy::Guard), "{surface_changes:?}");
+    assert!(quarantined, "{surface_changes:?}");
+    assert!(!hook.exists(), "the hook went to the quarantine before the next call ran");
+}
+
+/// A second contained job in the project gets the same check before its launcher
+/// records the surface, so it never takes the planted hook as its baseline.
+#[tokio::test]
+async fn shell_job_planted_hook_quarantined_before_next_job() {
+    let test = "shell_job_planted_hook_quarantined_before_next_job";
+    let next = json!({ "command": "cat a.txt", "background": true });
+    let Some((seen, hook)) = plant_then(test, next).await else { return };
+    let (stopped_by, surface_changes, quarantined) = guard_end(&seen);
+    assert_eq!(stopped_by, Some(JobStopBy::Guard), "{surface_changes:?}");
+    assert!(quarantined, "{surface_changes:?}");
+    let guarded = seen
+        .iter()
+        .find(|envelope| {
+            matches!(&envelope.event, Event::JobEnded { job_id, .. } if job_id.as_str() == "j1")
+        })
+        .map(|envelope| envelope.seq);
+    let second = seen
+        .iter()
+        .find(|envelope| {
+            matches!(&envelope.event, Event::JobStarted { job, .. } if job.id.as_str() == "j2")
+        })
+        .map(|envelope| envelope.seq);
+    let (Some(guarded), Some(second)) = (guarded, second) else {
+        panic!("no guard stop or no second job: {:?}", super::kinds(&seen))
+    };
+    assert!(guarded < second, "the first job's guard stop {guarded} comes before {second}");
+    assert!(!hook.exists(), "the hook went to the quarantine before the next job ran");
+}
+
+/// The end of the first job of `seen`: how it stopped, the surface changes and whether
+/// one went to the quarantine.
+fn guard_end(seen: &[EventEnvelope]) -> (Option<JobStopBy>, Vec<SurfaceChange>, bool) {
+    let ended = seen.iter().find_map(|envelope| match &envelope.event {
+        Event::JobEnded { job_id, stopped_by, surface_changes, quarantined, .. }
+            if job_id.as_str() == "j1" =>
+        {
+            Some((*stopped_by, surface_changes.clone(), *quarantined))
+        }
+        _ => None,
+    });
+    let Some(ended) = ended else {
+        panic!("the job ran on through the next turn: {:?}", super::kinds(seen))
+    };
+    ended
+}
+
+/// A job that plants a hook in a project, then a turn of `next`: the events of the two
+/// turns and the hook's path, after the daemon stopped. `None` when the test skips.
+#[expect(clippy::print_stderr, reason = "the cost of a guard check is a report of the test")]
+async fn plant_then(
+    test: &'static str,
+    next: serde_json::Value,
+) -> Option<(Vec<EventEnvelope>, std::path::PathBuf)> {
     if !zsh_enabled(test) {
-        return;
+        return None;
     }
-    let Some(launcher) = real_launcher(test) else { return };
+    let launcher = real_launcher(test)?;
     let dirs = dirs();
     let project = dirs.create_dir("home/project").unwrap();
     git(&project, &["init", "-q", "-b", "main"]).await;
@@ -51,7 +111,7 @@ async fn shell_job_planted_hook_quarantined_before_next_turn() {
         Some(("shell", json!({ "command": "cat a.txt" }))),
         Some(("shell", json!({ "command": line, "background": true }))),
         None,
-        Some(("shell", json!({ "command": "cat a.txt" }))),
+        Some(("shell", next)),
         None,
     ]);
     let user_runtime = dirs.create_dir("xrt").unwrap();
@@ -80,7 +140,7 @@ async fn shell_job_planted_hook_quarantined_before_next_turn() {
     if !status.sandbox.is_some_and(|sandbox| sandbox.available) {
         skip(test, "the probe says the sandbox is unavailable");
         daemon.stop().await.unwrap();
-        return;
+        return None;
     }
     let add = Method::AdminProjectAdd(AdminProjectAdd {
         path: project.clone(),
@@ -133,17 +193,6 @@ async fn shell_job_planted_hook_quarantined_before_next_turn() {
     })
     .await
     .unwrap();
-    let ended = seen.iter().find_map(|envelope| match &envelope.event {
-        Event::JobEnded { stopped_by, surface_changes, quarantined, .. } => {
-            Some((*stopped_by, surface_changes.clone(), *quarantined))
-        }
-        _ => None,
-    });
-    let Some((stopped_by, surface_changes, quarantined)) = ended else {
-        panic!("the job ran on through the next turn: {:?}", super::kinds(&seen))
-    };
-    assert_eq!(stopped_by, Some(JobStopBy::Guard), "{surface_changes:?}");
-    assert!(quarantined, "{surface_changes:?}");
-    assert!(!hook.exists(), "the hook went to the quarantine before the next call ran");
     daemon.stop().await.unwrap();
+    Some((seen, hook))
 }

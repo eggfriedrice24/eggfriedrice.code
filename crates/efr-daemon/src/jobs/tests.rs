@@ -196,6 +196,26 @@ async fn lifeline_write_end_not_inherited_by_other_jobs() {
 }
 
 #[tokio::test]
+async fn limit_counts_jobs_that_start() {
+    let scene = Scene::new().await;
+    let mut settings = efr_config::JobsSettings::default();
+    settings.max_running = 1;
+    // NOTE: two starts at once: the first holds its place from the check on, before its
+    // job runs.
+    let first = scene.table.reserve(scene.conversation, &settings).unwrap();
+    let refused = scene.table.reserve(scene.conversation, &settings).unwrap_err();
+    assert!(refused.contains("1 job runs in this conversation"), "{refused}");
+    let other = ConversationId::from_uuid(id(2));
+    let mut daemon = settings.clone();
+    daemon.max_running_daemon = 1;
+    let refused = scene.table.reserve(other, &daemon).unwrap_err();
+    assert!(refused.contains("1 job runs in efr"), "{refused}");
+    drop(first);
+    let again = scene.table.reserve(scene.conversation, &settings);
+    assert!(again.is_ok(), "a start that ended frees its place");
+}
+
+#[tokio::test]
 async fn end_notice_of_stopped_job_never_wakes() {
     let scene = Scene::new().await;
     for (number, by) in [(1, JobStopBy::Model), (2, JobStopBy::User)] {

@@ -568,7 +568,7 @@ async fn job_limit_per_conversation() {
     let [(first, _), (second, is_error)] = outputs(&events).try_into().unwrap();
     assert!(first.starts_with("job j1 started"), "{first}");
     assert!(is_error, "{second}");
-    assert!(second.contains("1 jobs run in this conversation"), "{second}");
+    assert!(second.contains("1 job runs in this conversation"), "{second}");
     assert!(second.contains("j1 running: read answer"), "{second}");
     assert!(second.contains("60 minutes left"), "{second}");
     assert_eq!(started(&events).len(), 1);
@@ -601,7 +601,7 @@ async fn job_limit_per_daemon() {
     assert_ne!(first.conversation_id, second.conversation_id);
     let [(output, is_error)] = outputs(&events).try_into().unwrap();
     assert!(is_error, "{output}");
-    assert!(output.contains("1 jobs run in efr"), "{output}");
+    assert!(output.contains("1 job runs in efr"), "{output}");
     assert!(started(&events).is_empty());
     release(&fifo).await;
     ended(&daemon, first.conversation_id, "j1").await;
@@ -802,6 +802,52 @@ async fn esc_stops_foreground_not_jobs() {
     assert_eq!(list.jobs[0].state, JobState::Running, "Esc stops the turn, never a job");
     release(&fifo).await;
     ended(&daemon, sent.conversation_id, "j1").await;
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn esc_while_job_starts_leaves_whole_job() {
+    let setup = Setup::new();
+    let fifo = setup.fifo("go");
+    let line = format!("read answer < {}", fifo.display());
+    setup.fake.set("hold-start").unwrap();
+    let daemon = setup.start(JobModel::shell(vec![background(&line)])).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let Method::PromptSend(mut params) = daemon.prompt(1, "start it", TTY) else { unreachable!() };
+    params.settings = TurnSettings { mode: Some(Mode::Auto), ..TurnSettings::default() };
+    let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+    let held = setup.fake.dir().join("held");
+    Wait::new("the launcher between its start byte and its start")
+        .until(|| held.exists())
+        .await
+        .unwrap();
+    let interrupt = Method::TurnInterrupt(TurnInterrupt {
+        command_id: command_id(50),
+        conversation_id: sent.conversation_id,
+        turn_id: None,
+        resend_steers: Vec::new(),
+        resend_as: None,
+        withdraw_steers: Vec::new(),
+        withdraw: Vec::new(),
+    });
+    let _: Value = client.call(interrupt).await.unwrap();
+    until(&daemon, sent.conversation_id, |event| matches!(event, Event::TurnInterrupted { .. }))
+        .await;
+    std::fs::remove_file(setup.fake.dir().join("hold-start")).unwrap();
+    // NOTE: the start goes on without the call: the job is recorded and runs, as a job
+    // does after Esc, and its launcher is not left behind with no job.
+    until(&daemon, sent.conversation_id, |event| matches!(event, Event::JobStarted { .. })).await;
+    let list: JobsListResult = client
+        .call(Method::JobsList(JobsList { conversation_id: Some(sent.conversation_id) }))
+        .await
+        .unwrap();
+    assert_eq!(list.jobs[0].state, JobState::Running);
+    release(&fifo).await;
+    let Event::JobEnded { state, .. } = ended(&daemon, sent.conversation_id, "j1").await else {
+        unreachable!()
+    };
+    assert_eq!(state, JobState::Exited);
     drop(client);
     daemon.stop().await.unwrap();
 }

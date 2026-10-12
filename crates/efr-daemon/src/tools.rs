@@ -617,21 +617,7 @@ impl DaemonToolbox {
     /// when one is no longer covered: the call does not start.
     async fn check_covered(&self, call: &CallContext, projects: &[PathBuf]) -> Option<String> {
         let asks = self.covered_root_asks(call);
-        let snapshots = self.snapshots.as_ref()?;
-        if asks.is_empty() {
-            return None;
-        }
-        let answers = snapshots.covers(call, &asks, projects).await;
-        let lost: Vec<&CoverAsk> = answers
-            .iter()
-            .filter(|(_, coverage)| !coverage.is_covered())
-            .map(|(ask, _)| ask)
-            .collect();
-        if lost.is_empty() {
-            return None;
-        }
-        tracing::info!(call_id = %call.call_id, ?lost, "a covered line is no longer covered under the plan lock");
-        Some(COVERAGE_CHANGED.to_owned())
+        recheck_covered(self.snapshots.as_ref(), call, &asks, projects).await
     }
 
     /// Takes the plan lock of the projects that a `write_file`, `apply_patch` or `edit`
@@ -1621,6 +1607,29 @@ fn reason_text(reason: efr_protocol::UndoReason) -> &'static str {
         UndoReason::CallUnfinished => "the call did not finish",
         _ => "no copy",
     }
+}
+
+/// Asks `asks` again, under the call's plan lock and after its snapshot: each snapshot
+/// ask that the facts of `call` said is covered (plan PB15). `Some` is what the model
+/// reads when one is no longer covered: the call does not start.
+pub(crate) async fn recheck_covered(
+    snapshots: Option<&CallSnapshots>,
+    call: &CallContext,
+    asks: &[CoverAsk],
+    projects: &[PathBuf],
+) -> Option<String> {
+    let snapshots = snapshots?;
+    if asks.is_empty() {
+        return None;
+    }
+    let answers = snapshots.covers(call, asks, projects).await;
+    let lost: Vec<&CoverAsk> =
+        answers.iter().filter(|(_, coverage)| !coverage.is_covered()).map(|(ask, _)| ask).collect();
+    if lost.is_empty() {
+        return None;
+    }
+    tracing::info!(call_id = %call.call_id, ?lost, "a covered line is no longer covered under the plan lock");
+    Some(COVERAGE_CHANGED.to_owned())
 }
 
 /// Removes the dir of a sandboxed call that ended. A dir that cannot go stays in efr's
