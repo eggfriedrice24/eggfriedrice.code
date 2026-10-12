@@ -7,14 +7,15 @@ use efr_protocol::{
     Presence, PresenceSource, ProgramFact, ReportedFile, Risk, SandboxCheck, SandboxExplainResult,
     SandboxPathRole, SandboxStatus, Scope, SurfaceChange, TargetFact, UserAuthorization, Verdict,
 };
+use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
 use super::{
-    AWAY_EXPIRED, Requested, background_stopped, blocked, cache_freed, check, exit_heading,
-    exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
-    home_changed, judge_details, no_answer_row, paused, presence_changed, reviewed, reviewer_row,
-    reviewing, setup_failed, status_line, surface_answered, surface_change, surface_changed,
-    surface_report, survivors, tilde,
+    AWAY_EXPIRED, Requested, background_stopped, blocked, cache_freed, check, exit_card,
+    exit_heading, exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note,
+    fallback_warning, home_changed, judge_details, no_answer_row, paused, presence_changed,
+    reviewed, reviewer_row, reviewing, setup_failed, status_line, surface_answered, surface_change,
+    surface_changed, surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -602,6 +603,26 @@ fn reviewer_allowed_job_names_the_whole_job() {
         reviewed(Verdict::Allow, Some(Risk::Low), None, Some(&exit), home()).unwrap(),
         "reviewer allowed: write ~/backup for the whole job (low risk)"
     );
+}
+
+/// A question about a background job says that its grants stay open for the whole
+/// job, as the facts row does, never "for this call".
+#[test]
+fn job_question_says_grants_last_whole_job() {
+    let write = Grant::Write { path: PathBuf::from("/home/u/backup") };
+    let info = info(&[ExitKind::Write], Launch::Contained { grants: vec![write] });
+    let mut record = record("rsync -a ~/docs/ ~/backup/");
+    record.facts.targets = vec![target("/home/u/backup")];
+    record.action.background = true;
+    record.action.max_minutes = Some(90);
+    let card = exit_card(&info, Some(&record), home(), Vec::new(), None);
+    let rendered = card.render(None, &RenderOptions::new(80).with_terminal(false));
+    let text = format!("{}{rendered}", question(&info, &record));
+    assert!(!text.contains("for this call"), "{text}");
+    insta::assert_snapshot!(text);
+    record.action.max_minutes = Some(1);
+    let card = exit_card(&info, Some(&record), home(), Vec::new(), None);
+    assert_eq!(card.title, "allow ~/backup writable for the whole job (up to 1 minute)");
 }
 
 #[test]

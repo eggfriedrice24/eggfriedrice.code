@@ -244,14 +244,27 @@ fn bus_words(bus: BusKind) -> &'static str {
     }
 }
 
+/// How long the grants of a "yes" stay open: `for this call`, or for a background job
+/// `for the whole job (up to N minutes)`.
+fn grants_last(record: Option<&ExitRecord>) -> String {
+    match record.map(|record| &record.action) {
+        Some(action) if action.background => match action.max_minutes {
+            Some(1) => "for the whole job (up to 1 minute)".to_owned(),
+            Some(minutes) => format!("for the whole job (up to {minutes} minutes)"),
+            None => "for the whole job".to_owned(),
+        },
+        _ => "for this call".to_owned(),
+    }
+}
+
 /// How a call runs after a "yes", as the end of the exit line.
-fn launch_words(info: &ExitInfo, home: Option<&Path>) -> String {
+fn launch_words(info: &ExitInfo, record: Option<&ExitRecord>, home: Option<&Path>) -> String {
     match &info.launch {
         Launch::Unsandboxed => "runs outside the sandbox".to_owned(),
         Launch::Contained { grants } if grants.is_empty() => "runs in the sandbox".to_owned(),
         Launch::Contained { grants } => {
             let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
-            format!("runs in the sandbox with {} for this call", opened.join(", "))
+            format!("runs in the sandbox with {} {}", opened.join(", "), grants_last(record))
         }
         // NOTE: in auto only a file tool runs direct: efrd reads or writes the path.
         Launch::Direct => "the file tool runs outside the sandbox".to_owned(),
@@ -462,7 +475,7 @@ pub(crate) fn exit_lines(
     let first = if unsandboxed && program_only {
         format!("runs outside the sandbox: {}", parts.join("; "))
     } else {
-        format!("leaves the sandbox: {}; {}", parts.join("; "), launch_words(info, home))
+        format!("leaves the sandbox: {}; {}", parts.join("; "), launch_words(info, record, home))
     };
     let mut lines = vec![vec![(first, Tone::Plain)]];
     if unsandboxed {
@@ -497,7 +510,8 @@ pub(crate) fn exit_lines(
 }
 
 /// The card of an approval for an exit. The title says what a "yes" allows: to run
-/// outside the sandbox, or what the sandbox opens for this call. The rows show:
+/// outside the sandbox, or what the sandbox opens for this call, or for the whole job
+/// of a background call. The rows show:
 ///
 /// - the whole line of the call from its record, each line of a command on its own,
 ///   so nothing of it hides behind a summary; `subject` when the record has no line
@@ -524,7 +538,7 @@ pub(crate) fn exit_card(
         Launch::Contained { grants } if grants.is_empty() => "allow in the sandbox".to_owned(),
         Launch::Contained { grants } => {
             let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
-            format!("allow {} for this call", opened.join(", "))
+            format!("allow {} {}", opened.join(", "), grants_last(record))
         }
         Launch::Direct => "allow the file tool outside the sandbox".to_owned(),
         _ => "allow this call".to_owned(),

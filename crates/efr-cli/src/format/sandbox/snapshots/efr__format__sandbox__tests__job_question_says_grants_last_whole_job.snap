@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: text
+---
+approval needed: shell: run "rsync -a ~/docs/ ~/backup/"
+leaves the sandbox: write ~/backup; runs in the sandbox with ~/backup writable for the whole job (up to 90 minutes)
+? allow ~/backup writable for the whole job (up to 90 minutes)
+│ rsync -a ~/docs/ ~/backup/
+│ why: write ~/backup
