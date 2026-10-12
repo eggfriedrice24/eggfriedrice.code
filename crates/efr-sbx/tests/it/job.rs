@@ -506,8 +506,11 @@ fn job_exit_child_survivors_end_at_stop() {
     run.signal(Signal::TERM);
     let run = run.wait(&fixture);
     assert_eq!(stopped_by(&run), Some(JobStop::Signal), "{run:#?}");
-    assert!(!run.result().summary.confined);
-    assert!(run.result().summary.survivors.is_empty(), "{run:#?}");
+    let summary = &run.result().summary;
+    assert!(!summary.confined);
+    // The stop names what it ended, and nothing survived it.
+    assert!(summary.background_stopped.contains(&"sleep".to_owned()), "{run:#?}");
+    assert!(summary.survivors.is_empty(), "{run:#?}");
     assert!(!alive("sleep 9876.4") && !alive("sleep 9876.5"));
 }
 

@@ -39,12 +39,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use efr_sandbox::{ENV_FILE, JOB_OOM_SCORE_ADJ, JobPlan, JobStop, MAX_ENV_BYTES};
+use efr_sandbox::{ENV_FILE, JOB_OOM_SCORE_ADJ, JobPlan, JobStop, MAX_ENV_BYTES, SandboxResult};
 use rustix::process::{Pid, Resource, Rlimit, Signal};
 
 use crate::call_dir::CallDir;
 use crate::error::SbxError;
-use crate::exit_child::{self, Processes};
+use crate::exit_child::{self, Ending, Processes};
 use crate::{fds, os, signals};
 
 /// How often a stop that did not end the job runs again: a process that the job
@@ -71,7 +71,9 @@ pub(crate) struct Job {
     pub(crate) nice: u8,
     events: Sender<Event>,
     stopped: Arc<Mutex<Option<JobStop>>>,
-    monitor: Option<JoinHandle<()>>,
+    /// The names of the processes that a stop ended, and of those it could not end.
+    ended: Arc<Mutex<Ending>>,
+    monitor: Mutex<Option<JoinHandle<()>>>,
 }
 
 /// The stop signals of a job, caught before the call dir is read. Returns the stop
@@ -132,12 +134,16 @@ impl Job {
         watch_lifeline(send.clone())?;
         let stopped = Arc::new(Mutex::new(None));
         let decided = Arc::clone(&stopped);
+        let ended = Arc::new(Mutex::new(Ending::default()));
+        let names = Arc::clone(&ended);
         let monitor = std::thread::Builder::new()
             .name("efr-sbx-stop".to_owned())
             .spawn(move || {
                 let mut stop = || {
-                    let mut procs = JobProcesses::new(contained);
-                    exit_child::end_descendants(&mut procs);
+                    let ending = stop_job(&mut JobProcesses::new(contained));
+                    let mut all = names.lock().unwrap_or_else(PoisonError::into_inner);
+                    merge(&mut all.stopped, ending.stopped);
+                    merge(&mut all.survivors, ending.survivors);
                 };
                 if monitor(&receive, deadline, &mut stop, &decided).is_none() {
                     return;
@@ -154,7 +160,7 @@ impl Job {
                 }
             })
             .map_err(|error| SbxError::os("start the stop thread", error))?;
-        Ok(Job { env, nice, events: send, stopped, monitor: Some(monitor) })
+        Ok(Job { env, nice, events: send, stopped, ended, monitor: Mutex::new(Some(monitor)) })
     }
 
     /// Why the job was stopped, when it was: the launcher starts no child after a stop.
@@ -170,15 +176,53 @@ impl Job {
         }
     }
 
-    /// Tells the stop thread that the child ended, waits for it, and returns why the
-    /// job was stopped, if it was.
-    pub(crate) fn finish(&mut self) -> Option<JobStop> {
+    /// Tells the stop thread that the child ended and waits for it: from here on, no
+    /// stop signals a process. The launcher calls it as soon as bwrap or the exit child
+    /// is gone, so a late stop never ends the git of its own end guard, which would read
+    /// as a config that git cannot list.
+    pub(crate) fn child_ended(&self) {
         let _ = self.events.send(Event::Ended);
-        if let Some(monitor) = self.monitor.take() {
+        let monitor = self.monitor.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(monitor) = monitor {
             let _ = monitor.join();
         }
-        self.stopped()
     }
+
+    /// Ends the stop thread, when the child did not, and puts in `result` why the job
+    /// was stopped, if it was, the names of the processes that the stop ended and of
+    /// those it could not end, and the nice value that the job got.
+    pub(crate) fn finish(&self, result: &mut SandboxResult) {
+        self.child_ended();
+        result.stop = self.stopped();
+        result.nice = Some(self.nice);
+        let ended = std::mem::take(&mut *self.ended.lock().unwrap_or_else(PoisonError::into_inner));
+        merge(&mut result.summary.background_stopped, ended.stopped);
+        merge(&mut result.summary.survivors, ended.survivors);
+    }
+}
+
+/// Adds each of `names` to `into` that it does not hold yet.
+fn merge(into: &mut Vec<String>, names: Vec<String>) {
+    for name in names {
+        if !into.contains(&name) {
+            into.push(name);
+        }
+    }
+}
+
+/// One stop of the job's processes: SIGTERM, SIGKILL from the grace, and the names of
+/// the processes it found, without bwrap's own, and of those it could not end.
+fn stop_job<P: Processes>(procs: &mut JobProcesses<P>) -> Ending {
+    let mut stopped = Vec::new();
+    let found: Vec<String> = procs
+        .descendants()
+        .into_iter()
+        .filter(|(pid, _)| !procs.spared.contains(&pid.as_raw_nonzero().get()))
+        .map(|(_, name)| name)
+        .collect();
+    merge(&mut stopped, found);
+    let ending = exit_child::end_descendants(procs);
+    Ending { stopped, survivors: ending.survivors }
 }
 
 /// Waits for the first stop event, or the deadline, and runs `stop` for it. Returns

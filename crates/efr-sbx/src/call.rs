@@ -119,13 +119,12 @@ fn run_job(
         Err(error) => return setup_failure(error.chain()),
     }
     let contained = call.spec.launch == SpecLaunch::Contained;
-    let mut job = match Job::start(call, plan, events, contained) {
+    let job = match Job::start(call, plan, events, contained) {
         Ok(job) => job,
         Err(error) => return setup_failure(error.chain()),
     };
     let mut result = launch(call, reserved, Some(&job));
-    result.stop = job.finish();
-    result.nice = Some(job.nice);
+    job.finish(&mut result);
     result
 }
 
@@ -262,6 +261,9 @@ fn contained(call: &CallDir, job: Option<&Job>) -> Result<SandboxResult, SbxErro
         }
         call.dir.touch(STARTED_FILE)
     })?;
+    if let Some(job) = job {
+        job.child_ended();
+    }
     timings.append(std::mem::take(&mut outcome.timings));
     // NOTE: under the layer lock, so in the `overlay` mode no other call of the
     // conversation changes an upper while the walk reads it. A job's cache deletes are

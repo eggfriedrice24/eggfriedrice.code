@@ -88,7 +88,11 @@ pub(crate) fn run(
     signals::forward_interrupt();
     let records = launch::reader("efr-sbx-records", records_read, spec.limits.max_bytes)?;
     let (exit_code, signal) = match job {
-        Some(_) => wait_reaping(child.id())?,
+        Some(job) => {
+            let ended = wait_reaping(child.id())?;
+            job.child_ended();
+            ended
+        }
         None => {
             let status =
                 child.wait().map_err(|error| SbxError::os("wait for the exit child", error))?;
