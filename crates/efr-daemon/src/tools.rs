@@ -9,7 +9,8 @@
 //! Next to the registry it offers the settings tool ([`SettingsTool`], in
 //! `tools/settings_tool.rs`), which needs `efr-config` and the daemon's settings and so
 //! cannot live in `efr-tools`. Its changes declare a settings change, which the engine
-//! always asks about.
+//! always asks about. It also offers `jobs` and `job_stop` (`tools/job_tools.rs`),
+//! which read and stop the background jobs of a conversation.
 //!
 //! It also decides who can answer a command that waits for hidden input, such as a
 //! password: a call's sink says yes while the conversation has a live subscription
@@ -70,6 +71,7 @@ use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine, unit
 use crate::trusted_programs::TrustedPrograms;
 
 mod cache_deletes;
+mod job_tools;
 mod settings_tool;
 mod shell_children;
 mod snapshot;
@@ -1212,12 +1214,17 @@ impl Toolbox for DaemonToolbox {
             .map(definition)
             .collect();
         definitions.push(SettingsTool::definition());
+        definitions.push(job_tools::jobs_definition());
+        definitions.push(job_tools::job_stop_definition());
         definitions
     }
 
     async fn requirements(&self, call: &ToolCall) -> Result<Requirements, String> {
         if call.name == settings_tool::NAME {
             return self.settings_tool.requirements(call).await;
+        }
+        if job_tools::is_job_tool(&call.name) {
+            return job_tools::requirements(call);
         }
         // NOTE: the registry keeps both edit tools, so a model could name the one that
         // its request did not offer, such as `apply_patch` from an earlier model's calls.
@@ -1229,6 +1236,11 @@ impl Toolbox for DaemonToolbox {
             .registry
             .requirements(&call.name, &context, &call.input)
             .map_err(|error| for_model(&error))?;
+        // NOTE: the shell tool checked the job members first, so a call that breaks
+        // one of their rules learns it now; no job starts before the job runtime.
+        if declared.background {
+            return Err(job_tools::NOT_READY.to_owned());
+        }
         // NOTE: a tool declares paths as written. What one reaches through a symbolic
         // link is read from the disk here, on the blocking pool, so the engine judges
         // `cat notes`, where `notes` links into `~/.ssh`, as a read of the key too.
@@ -1282,6 +1294,9 @@ impl Toolbox for DaemonToolbox {
     async fn invoke(&self, call: ToolCall, out: &mut dyn OutputSink) -> ToolOutcome {
         if call.name == settings_tool::NAME {
             return self.settings_tool.invoke(call).await;
+        }
+        if job_tools::is_job_tool(&call.name) {
+            return job_tools::invoke(&call);
         }
         // NOTE: the one place that copies home files before an approved write (plan
         // PD9, PB13), so `write_file`, `edit`, `apply_patch` and a line in the exit

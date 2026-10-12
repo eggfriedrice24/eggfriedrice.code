@@ -179,7 +179,10 @@ fn the_model_is_offered_the_shell_the_file_tools_and_the_settings() {
     let definitions = toolbox(home.path()).definitions(EditTool::ApplyPatch);
 
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, ["shell", "read_file", "write_file", "apply_patch", "settings"]);
+    assert_eq!(
+        names,
+        ["shell", "read_file", "write_file", "apply_patch", "settings", "jobs", "job_stop"]
+    );
     assert!(definitions.iter().all(|tool| tool.input_schema["type"] == "object"));
     let patch = &definitions[3];
     assert_eq!(patch.grammar, Some(efr_provider::ToolGrammar::lark(efr_patch_grammar())));
@@ -191,7 +194,7 @@ fn a_model_that_replaces_text_is_offered_edit_in_place_of_apply_patch() {
     let definitions = toolbox(home.path()).definitions(EditTool::Replace);
 
     let names: Vec<&str> = definitions.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, ["shell", "read_file", "write_file", "edit", "settings"]);
+    assert_eq!(names, ["shell", "read_file", "write_file", "edit", "settings", "jobs", "job_stop"]);
     let edit = &definitions[3];
     assert_eq!(edit.grammar, None, "edit is a function tool");
     assert_eq!(edit.input_schema["required"], json!(["path", "old_string", "new_string"]));
@@ -363,7 +366,10 @@ fn every_declared_requirement_is_copied() {
         .with_command_dir("/srv/app")
         .with_network(true)
         .with_interactive(true)
-        .with_destructive(true);
+        .with_destructive(true)
+        .with_background(true)
+        .with_max_minutes(Some(90))
+        .with_watch(true);
 
     assert_eq!(
         permission_requirements(declared),
@@ -376,7 +382,30 @@ fn every_declared_requirement_is_copied() {
             .with_network()
             .with_interactive()
             .with_destructive()
+            .with_background()
+            .with_max_minutes(90)
+            .with_watch()
     );
+}
+
+#[tokio::test]
+async fn background_not_ready_before_the_runtime() {
+    let home = tempfile::tempdir().unwrap();
+    let toolbox = toolbox(home.path());
+    let job = json!({"command": "npm run dev", "background": true, "max_minutes": 30});
+
+    let refused = toolbox.requirements(&call("shell", job, home.path())).await;
+
+    assert_eq!(refused, Err(super::job_tools::NOT_READY.to_owned()));
+    // NOTE: the rules of the job members refuse first, as they will once jobs run.
+    let early = json!({"command": "make", "background": true, "timeout_seconds": 5});
+    let rule = toolbox.requirements(&call("shell", early, home.path())).await.unwrap_err();
+    assert!(rule.contains("timeout_seconds"), "{rule}");
+    let without = json!({"command": "make", "max_minutes": 5});
+    let rule = toolbox.requirements(&call("shell", without, home.path())).await.unwrap_err();
+    assert!(rule.contains("needs background: true"), "{rule}");
+    let foreground = json!({"command": "ls", "background": false});
+    assert!(toolbox.requirements(&call("shell", foreground, home.path())).await.is_ok());
 }
 
 #[tokio::test]
