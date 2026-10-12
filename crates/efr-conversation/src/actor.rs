@@ -419,7 +419,7 @@ impl ConversationActor {
             }
             Request::Compact { params, reply } => self.compact(params, reply),
             Request::Undo { params, candidates, origin, reply } => {
-                self.undo(params, candidates, origin, reply);
+                self.undo(params, candidates, origin, reply).await;
             }
             Request::State { reply } => {
                 let _ = reply.send(self.state());
@@ -896,10 +896,11 @@ impl ConversationActor {
     }
 
     /// Starts an undo in a task of its own, or refuses it: while a turn, a compaction or
-    /// another undo runs, or a call of the conversation still runs after its tool
-    /// answered (`UndoBusy`), and from a phone. A list only reads, so it runs at any
-    /// time and takes no place. The answer goes to `reply` when the task ends.
-    fn undo(
+    /// another undo runs, a call of the conversation still runs after its tool
+    /// answered, or a background job may write in a root of the turn (`UndoBusy`), and
+    /// from a phone. A list only reads, so it runs at any time and takes no place. The
+    /// answer goes to `reply` when the task ends.
+    async fn undo(
         &mut self,
         params: TurnUndo,
         candidates: Vec<UndoCandidate>,
@@ -933,7 +934,14 @@ impl ConversationActor {
             undoing.retries.push(reply);
             return;
         }
-        if let Some(reason) = self.undo_busy() {
+        let mut busy = self.undo_busy();
+        // NOTE: a job may write in the turn's roots while the undo restores them, and its
+        // writes join the turn that started it at its end; the user stops it first.
+        let turn_id = params.turn_id.or_else(|| candidates.first().map(|turn| turn.turn_id));
+        if let (None, Some(turn_id)) = (busy, turn_id) {
+            busy = self.shared.deps.toolbox.job_blocks_undo(self.conversation_id(), turn_id).await;
+        }
+        if let Some(reason) = busy {
             let conversation_id = self.conversation_id();
             let _ = reply.send(Err(ConversationError::UndoBusy { conversation_id, reason }));
             return;

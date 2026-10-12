@@ -844,9 +844,12 @@ history as before, with the stub in each pruned result.
 daemon found in the log (`UndoCandidate`, newest first). The actor runs it like a
 manual compaction (`actor/undo.rs`):
 
-- While a turn, a compaction or another undo of the conversation runs, or
-  `Toolbox::call_runs` says that a call still runs after its tool answered, it is
-  refused with `ConversationError::UndoBusy` and its reason (`UndoBusyReason`). A
+- While a turn, a compaction or another undo of the conversation runs,
+  `Toolbox::call_runs` says that a call still runs after its tool answered, or
+  `Toolbox::job_blocks_undo` names a background job that may write in a root of the
+  turn (phase C: a job of the conversation, or one of another conversation in the same
+  roots), it is refused with `ConversationError::UndoBusy` and its reason
+  (`UndoBusyReason`, `Job` with the job's number). A
   retry with the command id of the undo that runs waits for the same answer. A phone
   gets `UndoRefused(PhoneOrigin)`; the daemon refuses it before that too.
 - Otherwise the actor calls `Toolbox::undo` in a task of its own, with an `UndoId` from

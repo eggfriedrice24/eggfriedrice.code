@@ -286,3 +286,33 @@ async fn a_phone_cannot_undo() {
     assert!(h.toolbox.undos.lock().unwrap_or_else(PoisonError::into_inner).is_empty());
     h.finish();
 }
+
+#[tokio::test]
+async fn undo_refuses_while_a_job_runs() {
+    let setup = Setup::new();
+    let mut h = setup.start(Vec::new()).await;
+    let reason = UndoBusyReason::Job { number: 3, same_conversation: true };
+    *h.toolbox.blocks_undo.lock().unwrap_or_else(PoisonError::into_inner) = Some(reason);
+    let turn_id: TurnId = "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap();
+    let candidate = crate::UndoCandidate {
+        turn_id,
+        title: Some("first".to_owned()),
+        ended: None,
+        stopped: false,
+    };
+
+    let undo = params(&mut h);
+    let refused = h.handle.undo(undo, vec![candidate.clone()], Origin::Shell).await;
+    assert!(
+        matches!(refused, Err(ConversationError::UndoBusy { reason: r, .. }) if r == reason),
+        "{refused:?}"
+    );
+    assert!(h.toolbox.undos.lock().unwrap_or_else(PoisonError::into_inner).is_empty());
+
+    // A list only reads, so a job never keeps it from running.
+    let mut list = params(&mut h);
+    list.list = true;
+    let listed = h.handle.undo(list, vec![candidate], Origin::Shell).await;
+    assert!(!matches!(listed, Err(ConversationError::UndoBusy { .. })), "{listed:?}");
+    h.finish();
+}
