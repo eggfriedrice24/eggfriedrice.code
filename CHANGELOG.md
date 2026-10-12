@@ -43,7 +43,9 @@ into the GitHub release notes, and it stops when the section is missing.
   or a link to it that changed in the turn asks you. `systemctl --user link`, `edit`,
   `revert`, `at` and `systemd-run --user` still ask you. efr runs `crontab` and
   `loginctl` itself only when root owns them and their directory; else these forms
-  ask you.
+  ask you. `loginctl enable-linger` with your own user name or uid counts as the form
+  with no user. `crontab -l` only reads your crontab, so the reviewer can let the model
+  read it before it writes all of it with `crontab -`.
 - `efr away` and `,away` tell efr that you are away from the conversation of this
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a
@@ -87,11 +89,12 @@ into the GitHub release notes, and it stops when the section is missing.
 - After a stop of efrd, or for a call that you interrupted or that ran past its
   timeout, `efr undo --force` takes back the changes of the turn's calls, also those
   of `write_file`, `edit` and `apply_patch`. Such a turn says `not covered: <project>
-  (a snapshot failed)` or `<path> (the call did not finish)`.
+  (a call did not finish)` or `<path> (the call did not finish)`.
 - At the end of an `auto` turn, one line says what changed and that you can take it
   back: `changed 4 files (+12 -3) in <project> and 2 in ~; efr undo reverts this
   turn`. A file that runs code later gets its own line, `changed ~/.zshrc; efr undo
-  reverts it`. Files that undo cannot bring back, such as a large ignored file, show
+  reverts it`, and the turn's line does not count it again. A file inside the project,
+  such as `.env`, belongs to the project's snapshot, also when the sandbox hides it. Files that undo cannot bring back, such as a large ignored file, show
   on a line `not covered: ...`. A turn that only moved refs says `moved 1 ref in
   <project>; efr undo reverts this turn`. The lines come also when the turn failed or
   you interrupted it. `efr history` shows each undo as one line, and `--verbose` adds
