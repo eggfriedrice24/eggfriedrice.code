@@ -10,7 +10,8 @@
 //! without `--yes` it shows the preview, says so, and changes nothing. `--dry-run`
 //! stops after the preview, `--list` lists the turns that can be undone, `--redo` takes
 //! back the newest undo, and `--force` also overwrites a path that changed after the
-//! turn. A refusal (a turn runs, nothing to undo) is an error with the daemon's reason.
+//! turn. When only `--force` would act on any row, `efr undo` without it changes
+//! nothing and fails with that hint, before the question. A refusal (a turn runs, nothing to undo) is an error with the daemon's reason.
 
 use std::fmt::Write as _;
 
@@ -78,6 +79,10 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &UndoArgs) -> Res
     if args.dry_run {
         return Ok(());
     }
+    let count = needs_force(&preview);
+    if !args.force && !args.redo && count > 0 {
+        return Err(CliError::UndoNeedsForce { count });
+    }
     if !args.yes {
         if !ctx.keys.available() {
             return Err(CliError::UndoNeedsYes);
@@ -98,6 +103,31 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &UndoArgs) -> Res
     // as a write that failed.
     result.notes.retain(|note| !preview.notes.contains(note));
     out.out(&report(&result, args.redo, ctx.home.as_deref(), &options))
+}
+
+/// The rows of `preview` that only `--force` acts on, or 0 when another row acts
+/// without it: then the undo writes, and the rows stay as they are.
+fn needs_force(preview: &TurnUndoResult) -> usize {
+    let forced = |reason: Option<UndoReason>| {
+        matches!(
+            reason,
+            Some(
+                UndoReason::ChangedAfterTurn
+                    | UndoReason::NoRecordAfterTurn
+                    | UndoReason::LaterTurnNotUndone
+            )
+        )
+    };
+    let acts = preview
+        .entries
+        .iter()
+        .any(|entry| !matches!(entry.action, UndoAction::Skip | UndoAction::NotCovered))
+        || preview.refs.iter().any(|change| change.reason.is_none());
+    if acts {
+        return 0;
+    }
+    preview.entries.iter().filter(|entry| forced(entry.reason)).count()
+        + preview.refs.iter().filter(|change| forced(change.reason)).count()
 }
 
 /// Calls `turn.undo` with `params`; a refusal becomes the error that names its reason.

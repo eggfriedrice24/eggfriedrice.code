@@ -171,6 +171,16 @@ pub(crate) enum CliError {
     #[error("efr undo needs a terminal or --yes; nothing changed")]
     UndoNeedsYes,
 
+    /// The preview of `efr undo` without `--force` writes nothing: each path or ref
+    /// that it would act on changed after the turn, or waits for a later turn. Nothing
+    /// changed.
+    #[error(
+        "efr undo changed nothing: {count} {} only with --force; efr undo --force acts on {}",
+        if *.count == 1 { "path acts" } else { "paths act" },
+        if *.count == 1 { "it" } else { "them" }
+    )]
+    UndoNeedsForce { count: usize },
+
     /// The daemon refused the undo, or it must wait: the turn's undo needs `--force`, a
     /// turn runs, or nothing is left to undo. Nothing changed.
     #[error("efr undo changed nothing: {}", .body.message)]

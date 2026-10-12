@@ -285,3 +285,32 @@ async fn a_refused_undo_says_why_and_what_to_do() {
         "{stderr}"
     );
 }
+
+#[tokio::test]
+async fn efr_undo_without_force_fails_when_only_force_acts() {
+    let skipped = TurnUndoResult {
+        entries: vec![
+            entry(UndoAction::Skip, "job.txt", Some(UndoReason::ChangedAfterTurn)),
+            entry(UndoAction::NotCovered, ".env.large", Some(UndoReason::LeftOut)),
+        ],
+        refs: Vec::new(),
+        ..preview()
+    };
+    let (exit, stdout, stderr, asked) =
+        undo_with(&["--yes"], None, vec![Ok(skipped.clone())]).await;
+
+    assert_eq!(exit, Exit::DaemonError);
+    assert_eq!(stdout, preview_rows(&skipped, false, &plain()));
+    assert!(
+        stderr.ends_with(
+            "efr: efr undo changed nothing: 1 path acts only with --force; efr undo --force acts on it\n"
+        ),
+        "{stderr}"
+    );
+    assert_eq!(asked.len(), 1, "only the preview");
+
+    let (exit, _, _, asked) =
+        undo_with(&["--yes", "--force"], None, vec![Ok(skipped), Ok(applied())]).await;
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(asked.len(), 2, "--force applies it");
+}

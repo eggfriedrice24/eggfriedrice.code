@@ -78,7 +78,8 @@ into the GitHub release notes, and it stops when the section is missing.
   restores the files that the turn's commands changed in the project, in `$SCRATCH` and
   in the other projects that the turn wrote, and the branches that the turn moved. A
   file that changed after the turn stays, and the preview lists it; `--force`
-  overwrites it. A change that you made during the turn between two commands stays.
+  overwrites it. When only `--force` acts on the rows of the preview, `efr undo`
+  without it does not ask, changes nothing and fails with that hint. A change that you made during the turn between two commands stays.
   `--redo` takes back the undo. `--list`, `--turn` and `--dry-run` help you pick. Your
   git index stays as it is. Every file that undo overwrites or removes goes to
   `~/.local/share/efr/undo-trash/` first, and a directory that undo makes again gets
@@ -250,6 +251,8 @@ into the GitHub release notes, and it stops when the section is missing.
   stop it first (efr jobs stop j3)`. When a job ends, its file changes join the turn
   that started it, and the undo of that turn needs `--force`. A file that a later turn
   changed in the meantime stays with that turn. Snapshots leave `$SCRATCH/jobs` out.
+  When the wake turn of a job's end changed nothing, `efr undo` with no `--turn` passes
+  over it and takes back the job's turn.
 
 ### Fixed
 
