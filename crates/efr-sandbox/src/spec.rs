@@ -14,8 +14,25 @@ use serde::{Deserialize, Serialize};
 use crate::SandboxError;
 use crate::paths::is_normal;
 
-/// The version of the spec that this build writes and reads.
-pub const SPEC_VERSION: u32 = 1;
+/// The version of the spec that this build writes and reads. Version 2 adds
+/// [`SandboxSpec::job`]: efrd and its launcher copy come from one build, and a stale
+/// copy refuses the spec.
+pub const SPEC_VERSION: u32 = 2;
+
+/// The hard file size limit of a job (`RLIMIT_FSIZE`, soft and hard): 4 GiB.
+pub const JOB_FSIZE_BYTES: u64 = 4 << 30;
+
+/// The seconds that efrd adds to a job's limit for the launcher's own deadline
+/// ([`JobPlan::backstop_secs`]): efrd's timer ends the job first.
+pub const JOB_BACKSTOP_SECS: u64 = 60;
+
+/// The dir of jobs: `shell_dir/jobs/<call>` holds a job's call dir, and
+/// `sandbox_dir/jobs/<call>` its cache layers and its guard files. `$SCRATCH/jobs`
+/// holds the job outputs that efrd writes.
+pub const JOB_DIR: &str = "jobs";
+
+/// The highest nice value.
+const MAX_NICE: u8 = 19;
 
 /// The most bytes a `spec.json` may have.
 pub const MAX_SPEC_BYTES: usize = 1024 * 1024;
@@ -69,6 +86,45 @@ pub struct SandboxSpec {
     pub limits: RecordLimits,
     /// Where things are.
     pub runtime: RuntimePaths,
+    /// The job of `efr-sbx run --job`: a long command with no terminal. `None` for a
+    /// call of the hidden shell's wrapper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<JobPlan>,
+}
+
+/// The limits of a job (efr's auto spec, section 3.18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JobPlan {
+    /// efrd's time limit of the job, after its clamp. The launcher ends the job itself
+    /// [`backstop_secs`](Self::backstop_secs) later, in case efrd is gone.
+    pub max_seconds: u64,
+    /// The seconds after `max_seconds` at which the launcher ends the job:
+    /// [`JOB_BACKSTOP_SECS`] from efrd.
+    pub backstop_secs: u64,
+    /// `jobs.nice`. The launcher takes the higher of this and its own value, so a job
+    /// never runs at a higher priority than the launcher.
+    pub nice: u8,
+    /// The hard file size limit: [`JOB_FSIZE_BYTES`].
+    pub fsize_bytes: u64,
+}
+
+impl JobPlan {
+    /// The plan of a job with efrd's limit `max_seconds` and the nice value `nice`, with
+    /// the fixed backstop and file size limit.
+    pub fn new(max_seconds: u64, nice: u8) -> JobPlan {
+        JobPlan {
+            max_seconds,
+            backstop_secs: JOB_BACKSTOP_SECS,
+            nice: nice.min(MAX_NICE),
+            fsize_bytes: JOB_FSIZE_BYTES,
+        }
+    }
+
+    /// The time after which the launcher ends the job itself.
+    pub fn deadline(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.max_seconds.saturating_add(self.backstop_secs))
+    }
 }
 
 /// How the launcher runs the line.
@@ -216,6 +272,12 @@ pub enum FloorKind {
     ProtectedName,
     /// `sandbox.protect`.
     User,
+    /// `$SCRATCH/jobs`: the job outputs that efrd writes, read-only for every
+    /// contained call.
+    JobOutput,
+    /// A git dir that a job finds at its start, pinned or nested: read-only whole, so a
+    /// job that runs for hours cannot plant a hook or a config in it.
+    JobGitDir,
 }
 
 /// A path that stays read-only even inside a write root.
@@ -296,7 +358,8 @@ pub struct RuntimePaths {
     pub sandbox_dir: PathBuf,
     /// `$R/sbx/<conversation>`: `snapshot.zsh`, `state.zsh`.
     pub shell_dir: PathBuf,
-    /// `$CALL`, `$R/sbx/<conversation>/<call>`: spec, line, nonce, apply, result.
+    /// `$CALL`, `$R/sbx/<conversation>/<call>`: spec, line, nonce, apply, result. A
+    /// job's call dir is `$R/sbx/<conversation>/jobs/<call>`.
     pub call_dir: PathBuf,
     /// `$SCRATCH` of this conversation.
     pub scratch: PathBuf,
@@ -359,6 +422,17 @@ impl RuntimePaths {
     pub fn quarantine(&self, call: CallId) -> PathBuf {
         self.sandbox_dir.join("quarantine").join(call.to_string())
     }
+
+    /// The state dir of a job, `$SBX/jobs/<call>`: its cache layers and its guard
+    /// files, on disk.
+    pub fn job_state_dir(&self, call: CallId) -> PathBuf {
+        self.sandbox_dir.join(JOB_DIR).join(call.to_string())
+    }
+
+    /// `$SCRATCH/jobs`, where efrd writes the job outputs.
+    pub fn job_outputs(&self) -> PathBuf {
+        self.scratch.join(JOB_DIR)
+    }
 }
 
 impl SandboxSpec {
@@ -383,8 +457,10 @@ impl SandboxSpec {
         Ok(spec)
     }
 
-    /// Checks the version, that every path is absolute and in normal form, and that the
-    /// call and shell dirs name this call and conversation.
+    /// Checks the version, that every path is absolute and in normal form, that the
+    /// call and shell dirs name this call and conversation, that the call dir lies in
+    /// the shell dir (in its `jobs` dir for a job) and nowhere else, and the limits of
+    /// a job.
     pub fn check(&self) -> Result<(), SandboxError> {
         if self.version != SPEC_VERSION {
             return Err(SandboxError::SpecVersion { found: self.version, expected: SPEC_VERSION });
@@ -450,6 +526,21 @@ impl SandboxSpec {
                 field: "runtime.shell_dir",
                 path: runtime.shell_dir.clone(),
             });
+        }
+        let parent = match self.job {
+            Some(_) => runtime.shell_dir.join(JOB_DIR),
+            None => runtime.shell_dir.clone(),
+        };
+        if runtime.call_dir.parent() != Some(parent.as_path()) {
+            return Err(SandboxError::SpecIds {
+                field: "runtime.call_dir",
+                path: runtime.call_dir.clone(),
+            });
+        }
+        if let Some(job) = &self.job
+            && (job.max_seconds == 0 || job.nice > MAX_NICE || job.fsize_bytes == 0)
+        {
+            return Err(SandboxError::SpecJob);
         }
         Ok(())
     }

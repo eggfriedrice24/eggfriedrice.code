@@ -40,6 +40,11 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// The job of the spec has a time limit or a file size limit of zero, or a nice
+    /// value above 19.
+    #[error("the sandbox spec's job has a limit that is not valid")]
+    SpecJob,
+
     /// A JSON file of the sandbox could not be read or written.
     #[error("the sandbox file {what} is not valid JSON of its kind")]
     Json {

@@ -106,6 +106,7 @@ impl Launcher {
             shell_path: "/usr/bin:/bin".to_owned(),
             limits: RecordLimits::default(),
             runtime,
+            job: None,
         };
         std::fs::write(dir.join("spec.json"), spec.to_json().unwrap()).unwrap();
         // The launcher refuses a call file that another user could read or write.

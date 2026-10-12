@@ -33,8 +33,22 @@ pub const STATE_JSON_FILE: &str = "state.json";
 /// `$R/sbx/<conversation>/state.zsh`: the state for the child shell.
 pub const STATE_ZSH_FILE: &str = "state.zsh";
 /// `$R/sbx/<conversation>/snapshot.zsh`: the trusted shell's functions, aliases and
-/// options, written by the wrapper.
+/// options, written by the wrapper and, when it is stale, at a prompt.
 pub const SNAPSHOT_FILE: &str = "snapshot.zsh";
+/// `env`: the trusted shell's exported variables as NUL-separated `NAME=value`
+/// entries, at most [`MAX_ENV_BYTES`]. The zsh integration writes
+/// `$R/sbx/<conversation>/env` (0600) at a prompt when it changed; efrd copies it into
+/// a job's call dir, and the launcher gives the job this environment.
+pub const ENV_FILE: &str = "env";
+/// The most bytes of an `env` file.
+pub const MAX_ENV_BYTES: usize = 1024 * 1024;
+/// `$CALL/launcher.log`: a job launcher's stderr, which efrd opens.
+pub const LAUNCHER_LOG_FILE: &str = "launcher.log";
+/// `$SBX/jobs/<call>/surface-before.json`: the surface guard's record of a contained
+/// job's git surface at its start, for `efr-sbx guard-check`.
+pub const SURFACE_BEFORE_FILE: &str = "surface-before.json";
+/// `$SBX/jobs/<call>/guard.json`: what `efr-sbx guard-check` found.
+pub const GUARD_FILE: &str = "guard.json";
 
 /// The exit status of a call whose sandbox did not start, as bwrap uses it.
 pub const SETUP_FAILURE_STATUS: i32 = 125;
@@ -71,6 +85,26 @@ pub struct SandboxResult {
     pub state_kept: bool,
     /// How long each step of the launcher took, in order, for efrd's debug log.
     pub timings: Vec<LaunchTiming>,
+    /// Why the launcher stopped a job; `None` when the job ended by itself, and for a
+    /// call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop: Option<JobStop>,
+    /// The nice value that a job got; `None` for a call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nice: Option<u8>,
+}
+
+/// Why the launcher stopped a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum JobStop {
+    /// SIGTERM or SIGHUP: efrd stopped it.
+    Signal,
+    /// The lifeline ended: efrd is gone.
+    Lifeline,
+    /// The launcher's own deadline passed: efrd's limit plus the backstop.
+    Deadline,
 }
 
 /// How long one step of the launcher took, such as `plan` or `bwrap_setup`.

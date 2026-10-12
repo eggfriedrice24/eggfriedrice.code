@@ -11,22 +11,22 @@ tested without a kernel.
 
 | File | Holds |
 |---|---|
-| `src/spec.rs` | `SandboxSpec` and its parts: `WriteRoot`, `CacheOverlay`, `Mask`, `Floor`, `NetworkPlan`, `EnvPlan`, `RecordLimits`, `RuntimePaths` with its `DesktopSocket`s |
+| `src/spec.rs` | `SandboxSpec` and its parts: `WriteRoot`, `CacheOverlay`, `Mask`, `Floor`, `NetworkPlan`, `EnvPlan`, `RecordLimits`, `RuntimePaths` with its `DesktopSocket`s, and `JobPlan`, the limits of a job (`efr-sbx run --job`): its call dir lies in the shell dir's `jobs` dir, and a call's never does |
 | `src/fs_view.rs` | `FsView`, the only way this crate reads the file system (with the kinds of a listing, so a scan needs no `lstat` per entry), `resolve`, which follows every link, and `Memo`, which a plan uses so it looks up each path once |
 | `src/desktop.rs` | `desktop_socket_path`: the one control socket of a desktop from the variable that names it (`$XDG_RUNTIME_DIR/hypr/<signature>/.socket.sock`, `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY`, `$SWAYSOCK`, `$I3SOCK`, `$NIRI_SOCKET`, `/tmp/.X11-unix/X<n>` for a local `$DISPLAY`), which efrd and the plan share; `is_desktop_socket`: the place and the file name that the socket of each desktop must have (`wayland-*`, `sway-ipc.*.sock`, `i3/ipc-socket.*`, `niri.*.sock`), so a variable cannot name another socket of the user, such as the session bus |
-| `src/plan.rs`, `src/plan/` | `MountPlan`: the ordered mounts, the plan rules (a socket grant below an engine secret or a mask, or in efr's own roots, is refused; a desktop grant binds only the socket that `desktop_socket_path` names for the value in the spec, still with the place and the name of `is_desktop_socket` after every link, sets only its variable, and without a socket in the spec is `SandboxError::NoDesktop`), `explain` for `sandbox.explain` and the start dir of a call |
+| `src/plan.rs`, `src/plan/` | `MountPlan`: the ordered mounts, the plan rules (a socket grant below an engine secret or a mask, or in efr's own roots, is refused; a desktop grant binds only the socket that `desktop_socket_path` names for the value in the spec, still with the place and the name of `is_desktop_socket` after every link, sets only its variable, and without a socket in the spec is `SandboxError::NoDesktop`), `explain` for `sandbox.explain` and the start dir of a call. `$SCRATCH/jobs` is a floor of every call once efrd made it (`FloorKind::JobOutput`), and a job gets each git dir that it finds at its start as a floor whole (`FloorKind::JobGitDir`) |
 | `src/args.rs` | the bwrap argument list, `FdTable` (one descriptor per bind, never reused) and `LaunchFds` |
 | `src/layers.rs` | `CacheLayers`: the cache overlays that `efr-sbx layers` mounts after bwrap's setup, and the mounts inside each cache that move onto it |
 | `src/layers/deletes.rs` | `CacheDeletes`: the paths that a call deleted in its private cache layers (the whiteouts of each upper layer, read through `LayerView`), for `SandboxSummary::cache_deletes`, with the limits that keep `result.json` small |
 | `src/landlock.rs` | `LandlockPolicy` and `FsAccess` as data; no `RESOLVE_UNIX` rule without a socket grant |
 | `src/seccomp.rs` | `SeccompProfile`: the deny list as data |
-| `src/inner.rs` | `InnerPolicy`, what the launcher sends to `efr-sbx inner`, and `LayersSync`, the handshake while the overlays mount |
+| `src/inner.rs` | `InnerPolicy`, what the launcher sends to `efr-sbx inner`, and `LayersSync`, the handshake while the overlays mount; a job's `oom_score_adj` |
 | `src/env_filter.rs` | `EnvFilter`: the environment of a contained call |
 | `src/export_filter.rs` | `ExportFilter`: which exports return to the trusted shell; `OVERLAY_DENY` |
 | `src/records.rs` | the records of fd 3 and the `apply` file of the trusted shell |
 | `src/state.rs` | `SandboxState` and `state.zsh`: what later contained calls inherit |
-| `src/result.rs` | the files of a call dir and `SandboxResult`, the launcher's `result.json`, with the time of each launcher step (`LaunchTiming`) |
-| `src/surface.rs` | the surface guard: `SurfaceManifest`, `check_surface`, the scan for nested git dirs, the turn-end report entry |
+| `src/result.rs` | the files of a call dir and `SandboxResult`, the launcher's `result.json`, with the time of each launcher step (`LaunchTiming`), and for a job the stop reason (`JobStop`) and its nice value; the job files: `env`, `launcher.log`, `surface-before.json`, `guard.json` |
+| `src/surface.rs` | the surface guard: `SurfaceManifest`, `check_surface`, the scan for nested git dirs, the turn-end report entry; a manifest reads back from JSON, so a job keeps the one of its start on disk |
 | `src/surface/listings.rs` | `ConfigListings`: git's listing of each config content, which the captures of a call and the next calls of the shell use again |
 | `src/git_config.rs` | the git and cargo config keys that run a program, and a small git config reader |
 | `src/worktree.rs` | `WorktreeRecord`: the git dirs of a worktree project, read once at registration |

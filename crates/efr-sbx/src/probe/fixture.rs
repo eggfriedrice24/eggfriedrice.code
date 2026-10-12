@@ -205,6 +205,7 @@ impl Fixture {
             shell_path: programs.shell_path.clone(),
             limits: RecordLimits::default(),
             runtime,
+            job: None,
         };
         Ok(Fixture {
             outside: root.join("outside-file"),

@@ -212,6 +212,7 @@ pub(crate) fn spec() -> crate::SandboxSpec {
         shell_path: "/usr/bin".to_owned(),
         limits: RecordLimits::default(),
         runtime,
+        job: None,
     }
 }
 

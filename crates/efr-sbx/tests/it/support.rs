@@ -298,6 +298,7 @@ impl Fixture {
                 system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
                 desktops: Vec::new(),
             },
+            job: None,
         };
         let mut env = BTreeMap::new();
         for (name, value) in [

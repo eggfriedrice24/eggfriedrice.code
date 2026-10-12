@@ -14,6 +14,7 @@ use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
 use crate::plan::{Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote};
 use crate::spec::{DesktopSocket, FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
+use crate::surface::{ScanLimits, scan_git_dirs};
 
 /// The most bytes of a git config that the plan reads for its include paths.
 const MAX_GIT_CONFIG: usize = 1024 * 1024;
@@ -82,6 +83,7 @@ impl MountPlan {
         for dir in &path_dirs {
             builder.floor(dir, FloorKind::PathDir)?;
         }
+        builder.job_floors()?;
         builder.assets()?;
         builder.sockets_and_devices()?;
         Ok(builder.finish())
@@ -120,6 +122,21 @@ impl Builder<'_> {
 
     fn masked_by(&self, path: &Path) -> Option<&PlannedMask> {
         self.masks.iter().find(|mask| is_within(path, &mask.path))
+    }
+
+    /// The mask that hides `path` inside the sandbox. Scratch lies below efr's masked
+    /// data root and comes back as a write root, so a path in scratch is not hidden by
+    /// that mask; `$SCRATCH/jobs` is such a floor.
+    fn hides(&self, path: &Path) -> Option<&PlannedMask> {
+        self.masks.iter().find(|mask| {
+            is_within(path, &mask.path)
+                && !self.roots.iter().any(|root| {
+                    root.kind == WriteRootKind::Scratch
+                        && mask.kind == MaskKind::EfrState
+                        && is_within(path, &root.path)
+                        && is_within(&root.path, &mask.path)
+                })
+        })
     }
 
     fn mask(
@@ -491,7 +508,7 @@ impl Builder<'_> {
         if !self.writable(&resolved.path) {
             return Ok(());
         }
-        if let Some(mask) = self.masked_by(&resolved.path) {
+        if let Some(mask) = self.hides(&resolved.path) {
             let note =
                 PlanNote::FloorUnderMask { floor: path.to_path_buf(), mask: mask.path.clone() };
             self.notes.push(note);
@@ -500,6 +517,34 @@ impl Builder<'_> {
         let op =
             MountOp::Bind { source: resolved.path.clone(), target: resolved.path, writable: false };
         self.push(op, OpKind::Floor, MountOrigin::Floor(kind));
+        Ok(())
+    }
+
+    /// The floors of jobs. `$SCRATCH/jobs`, where efrd writes the job outputs, is
+    /// read-only for every call once efrd made it as a dir; a link or a file there is
+    /// not efrd's, and efrd moves it away before it makes the dir. A job also gets every
+    /// git dir that it finds at its start read-only whole: the pinned ones and each one
+    /// that the surface guard's scan finds in the guard roots, so a job that runs for
+    /// hours cannot plant a hook or a config in a known repository.
+    fn job_floors(&mut self) -> Result<(), SandboxError> {
+        let outputs = self.spec.runtime.job_outputs();
+        if self.lstat(&outputs)? == Some(FileKind::Dir) {
+            self.floor(&outputs, FloorKind::JobOutput)?;
+        }
+        if self.spec.job.is_none() {
+            return Ok(());
+        }
+        let pins: Vec<PathBuf> = self
+            .mounts
+            .iter()
+            .filter(|mount| mount.origin == MountOrigin::Pin)
+            .map(|mount| mount.op.target().to_path_buf())
+            .collect();
+        let (targets, _) =
+            scan_git_dirs(&self.spec.guard_roots, &[], &pins, self.fs, ScanLimits::default());
+        for target in targets {
+            self.floor(&target.git_dir, FloorKind::JobGitDir)?;
+        }
         Ok(())
     }
 

@@ -19,6 +19,10 @@
 //!   guard, so a call can still delete a repository that an earlier call made.
 //! - Every directory of the hidden shell's `PATH` that lies in a write root is a
 //!   floor, and a relative `PATH` entry refuses the call.
+//! - `$SCRATCH/jobs`, where efrd writes the output of each job, is a floor of every
+//!   call once efrd made it. A job (the spec has a `JobPlan`) also gets each git dir
+//!   that it finds at its start as a floor whole: the pinned ones and the nested ones
+//!   that the surface guard's scan finds in the guard roots.
 //! - A cache overlay is a [`CacheLayers`] entry that the launcher's helper mounts after
 //!   bwrap's setup; the plan's mounts inside the cache move onto it, so they still win.
 //!   A cache with another mount at its own path gets no overlay: that mount covers it.

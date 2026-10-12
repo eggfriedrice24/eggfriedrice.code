@@ -82,6 +82,21 @@ fn run(change: impl FnOnce(&mut FakeFs)) -> Vec<(PathBuf, String, bool)> {
 }
 
 #[test]
+fn a_manifest_kept_on_disk_compares_as_the_one_in_memory() {
+    // A job's launcher keeps the manifest of the job's start for guard-check.
+    let mut fs = repo();
+    let mut listings = ConfigListings::new("git");
+    let before = capture(&fs, &mut listings);
+    let kept: SurfaceManifest =
+        serde_json::from_slice(&serde_json::to_vec(&before).unwrap()).unwrap();
+    assert_eq!(kept, before);
+    fs.file("/p/app/.git/hooks/pre-commit", "#!/bin/sh\nevil\n");
+    let after = capture(&fs, &mut listings);
+    assert_eq!(check_surface(&kept, &after), check_surface(&before, &after));
+    assert_eq!(check_surface(&kept, &after).len(), 1);
+}
+
+#[test]
 fn an_unchanged_repository_breaks_no_rule() {
     assert_eq!(
         run(|fs| {

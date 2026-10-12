@@ -900,3 +900,70 @@ fn plan_keeps_the_pins_of_a_cache_that_links_into_another_cache() {
         ]
     );
 }
+
+/// [`spec`] as a job: its call dir below the shell dir's `jobs`, with the line there.
+fn job_spec(fs: &mut FakeFs) -> SandboxSpec {
+    let mut spec = spec();
+    spec.runtime.call_dir = spec.runtime.shell_dir.join(crate::JOB_DIR).join(crate::testing::CALL);
+    spec.job = Some(crate::JobPlan::new(3600, 19));
+    fs.file(&spec.runtime.call_dir.join("line").to_string_lossy(), "cargo watch");
+    spec
+}
+
+/// The mounts of `plan` without the two job floors.
+fn without_job_floors(plan: &MountPlan) -> Vec<(PathBuf, MountOrigin, OpKind)> {
+    plan.mounts()
+        .iter()
+        .filter(|mount| {
+            !matches!(mount.origin, MountOrigin::Floor(FloorKind::JobGitDir | FloorKind::JobOutput))
+        })
+        .map(|mount| (mount.op.target().to_path_buf(), mount.origin, mount.kind))
+        .collect()
+}
+
+#[test]
+fn plan_floors_the_job_output_dir_once_efrd_made_it() {
+    let mut fs = world();
+    let outputs = spec().runtime.job_outputs();
+    let output_floor = (outputs.clone(), FloorKind::JobOutput);
+    assert!(!floors(&plan(&spec(), &fs)).contains(&output_floor));
+    // A link that a call left there is not efrd's dir: no floor, and the call still
+    // runs (efrd moves it away before it makes the dir).
+    fs.link(&outputs.to_string_lossy(), PROJECT);
+    assert!(!floors(&plan(&spec(), &fs)).contains(&output_floor));
+    fs.remove(&outputs.to_string_lossy()).dir(&outputs.to_string_lossy());
+    assert!(floors(&plan(&spec(), &fs)).contains(&output_floor));
+    // Every contained call gets it, a job too.
+    let job = job_spec(&mut fs);
+    assert!(floors(&plan(&job, &fs)).contains(&output_floor));
+}
+
+#[test]
+fn job_plan_equals_call_plan_but_the_job_floors() {
+    let mut fs = world();
+    fs.dir("/home/u/p/app/vendor/lib/.git/hooks").file("/home/u/p/app/vendor/lib/.git/config", "");
+    let call = plan(&spec(), &fs);
+    let job_spec = job_spec(&mut fs);
+    let job = plan(&job_spec, &fs);
+    // The same masks, roots, floors and widenings, apart from the job's git dirs.
+    assert_eq!(without_job_floors(&job), without_job_floors(&call));
+    assert_eq!(job.write_dirs(), call.write_dirs());
+    let git_dirs: Vec<PathBuf> = floors(&job)
+        .into_iter()
+        .filter(|(_, kind)| *kind == FloorKind::JobGitDir)
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(
+        git_dirs,
+        [PathBuf::from("/home/u/p/app/.git"), PathBuf::from("/home/u/p/app/vendor/lib/.git")]
+    );
+    // The pinned git dir stays a mount point, and its floor comes after the pin.
+    let at = |path: &str, origin: MountOrigin| {
+        job.mounts()
+            .iter()
+            .position(|mount| mount.op.target() == Path::new(path) && mount.origin == origin)
+    };
+    let pin = at("/home/u/p/app/.git", MountOrigin::Pin).unwrap();
+    let floor = at("/home/u/p/app/.git", MountOrigin::Floor(FloorKind::JobGitDir)).unwrap();
+    assert!(pin < floor, "{:?}", job.mounts());
+}

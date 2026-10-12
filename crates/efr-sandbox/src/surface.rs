@@ -14,6 +14,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{ReportedFile, SurfaceChange};
+use serde::{Deserialize, Serialize};
 
 use crate::fs_view::{FileKind, FsView};
 use crate::git_config::{cargo_code_keys, code_keys};
@@ -106,7 +107,7 @@ pub struct GitDirTarget {
 }
 
 /// What one path held.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum Snap {
     Missing,
     File(Vec<u8>),
@@ -130,34 +131,34 @@ impl Snap {
 }
 
 /// A config file and its code keys.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct ConfigState {
     snap: Snap,
     keys: Vec<String>,
     unreadable: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct WorktreeState {
     commondir: Snap,
     config_worktree: ConfigState,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ModuleState {
     config: ConfigState,
     hooks: Hooks,
 }
 
 /// A hooks dir: missing, a link, or its entries.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum Hooks {
     Missing,
     Link(PathBuf),
     Entries(BTreeMap<String, Snap>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct RepoState {
     main: bool,
     work_tree: Option<PathBuf>,
@@ -171,8 +172,9 @@ struct RepoState {
     protected: BTreeSet<String>,
 }
 
-/// The git surface of a set of git dirs at one moment.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The git surface of a set of git dirs at one moment. A job's launcher keeps the one
+/// of the job's start on disk, so `efr-sbx guard-check` can compare with it later.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurfaceManifest {
     repos: BTreeMap<PathBuf, RepoState>,
 }

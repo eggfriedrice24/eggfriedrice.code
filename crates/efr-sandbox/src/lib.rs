@@ -49,7 +49,7 @@ pub use export_filter::{
 };
 pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
-pub use inner::{InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
+pub use inner::{InnerPolicy, JOB_OOM_SCORE_ADJ, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
 pub use landlock::{
     ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy, LandlockRule, LandlockScope,
     MIN_LANDLOCK_ABI,
@@ -70,18 +70,19 @@ pub use probe::{
 };
 pub use records::{RECORDS_HEADER, Records, encode_apply, encode_records, parse_records};
 pub use result::{
-    APPLY_FILE, LINE_FILE, LaunchTiming, MAX_RESULT_BYTES, NONCE_FILE, RESULT_FILE,
-    SETUP_FAILURE_STATUS, SNAPSHOT_FILE, SPEC_FILE, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE,
-    SandboxResult, TIMES_FILE, nonce_hex, parse_nonce_hex,
+    APPLY_FILE, ENV_FILE, GUARD_FILE, JobStop, LAUNCHER_LOG_FILE, LINE_FILE, LaunchTiming,
+    MAX_ENV_BYTES, MAX_RESULT_BYTES, NONCE_FILE, RESULT_FILE, SETUP_FAILURE_STATUS, SNAPSHOT_FILE,
+    SPEC_FILE, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE, SURFACE_BEFORE_FILE, SandboxResult,
+    TIMES_FILE, nonce_hex, parse_nonce_hex,
 };
 pub use seccomp::{
     AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, CLONE_NEW_MASK, EAFNOSUPPORT, ENOSYS, EPERM,
     SeccompAction, SeccompArch, SeccompProfile, SyscallRule, TIOCLINUX, TIOCSTI,
 };
 pub use spec::{
-    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, MAX_SPEC_BYTES, Mask, MaskKind,
-    NetworkPlan, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot,
-    WriteRootKind, layer_name,
+    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS, JOB_DIR,
+    JOB_FSIZE_BYTES, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan, RecordLimits,
+    RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 
 use crate::layers::{CacheDeletes, CacheLayer, DeleteLimits, LayerEntry, LayerView};
 use crate::result::{
-    MAX_RESULT_BYTES, SETUP_FAILURE_STATUS, SandboxResult, nonce_hex, parse_nonce_hex,
+    JobStop, MAX_RESULT_BYTES, SETUP_FAILURE_STATUS, SandboxResult, nonce_hex, parse_nonce_hex,
 };
 use crate::testing::FakeFs;
 
@@ -41,6 +41,25 @@ fn a_result_reads_back_and_old_fields_default() {
     };
     assert_eq!(SandboxResult::from_json(&result.to_json().unwrap()).unwrap(), result);
     assert_eq!(SandboxResult::from_json(b"{}").unwrap(), SandboxResult::default());
+}
+
+#[test]
+fn a_job_result_names_its_stop_and_its_nice_value() {
+    let result = SandboxResult {
+        started: true,
+        signal: Some(15),
+        stop: Some(JobStop::Deadline),
+        nice: Some(19),
+        ..SandboxResult::default()
+    };
+    let text = String::from_utf8(result.to_json().unwrap()).unwrap();
+    assert!(text.contains("\"stop\":\"deadline\""), "{text}");
+    assert_eq!(SandboxResult::from_json(text.as_bytes()).unwrap(), result);
+    // A call's result has neither field.
+    let call = String::from_utf8(SandboxResult::default().to_json().unwrap()).unwrap();
+    assert!(!call.contains("stop") && !call.contains("nice"), "{call}");
+    let lifeline = SandboxResult::from_json(br#"{"stop":"lifeline"}"#).unwrap();
+    assert_eq!(lifeline.stop, Some(JobStop::Lifeline));
 }
 
 #[test]

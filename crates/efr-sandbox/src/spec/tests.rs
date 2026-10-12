@@ -4,7 +4,10 @@ use efr_protocol::DesktopKind;
 use pretty_assertions::assert_eq;
 
 use crate::SandboxError;
-use crate::spec::{CacheOverlay, DesktopSocket, SandboxSpec, WriteRoot, WriteRootKind, layer_name};
+use crate::spec::{
+    CacheOverlay, DesktopSocket, JOB_BACKSTOP_SECS, JOB_DIR, JOB_FSIZE_BYTES, JobPlan, SandboxSpec,
+    WriteRoot, WriteRootKind, layer_name,
+};
 use crate::testing::spec;
 
 #[test]
@@ -62,6 +65,53 @@ fn a_spec_names_its_own_call_and_version() {
     let mut text = String::from_utf8(spec().to_json().unwrap()).unwrap();
     text.insert_str(1, "\"surprise\": 1,");
     assert!(matches!(SandboxSpec::from_json(text.as_bytes()), Err(SandboxError::Json { .. })));
+}
+
+#[test]
+fn job_call_dir_parent_is_jobs() {
+    let call_dir = spec().runtime.call_dir;
+    let mut job = spec();
+    job.job = Some(JobPlan::new(3600, 19));
+    // A job's call dir in the shell dir itself is refused, so the hidden shell's
+    // wrapper and a job never share a place.
+    assert!(matches!(job.check(), Err(SandboxError::SpecIds { field: "runtime.call_dir", .. })));
+    job.runtime.call_dir = job.runtime.shell_dir.join(JOB_DIR).join(call_dir.file_name().unwrap());
+    job.check().unwrap();
+    assert_eq!(SandboxSpec::from_json(&job.to_json().unwrap()).unwrap(), job);
+    // A call's call dir below `jobs` is refused too.
+    let mut call = job.clone();
+    call.job = None;
+    assert!(matches!(call.check(), Err(SandboxError::SpecIds { field: "runtime.call_dir", .. })));
+    // Nor may a call dir lie anywhere else.
+    let mut elsewhere = spec();
+    elsewhere.runtime.call_dir =
+        PathBuf::from("/run/user/1000/efr").join(call_dir.file_name().unwrap());
+    assert!(matches!(
+        elsewhere.check(),
+        Err(SandboxError::SpecIds { field: "runtime.call_dir", .. })
+    ));
+}
+
+#[test]
+fn a_job_has_limits_and_a_spec_without_one_leaves_it_out() {
+    let plan = JobPlan::new(3600, 25);
+    assert_eq!(plan.nice, 19);
+    assert_eq!(plan.backstop_secs, JOB_BACKSTOP_SECS);
+    assert_eq!(plan.fsize_bytes, JOB_FSIZE_BYTES);
+    assert_eq!(plan.deadline(), std::time::Duration::from_secs(3660));
+    let text = String::from_utf8(spec().to_json().unwrap()).unwrap();
+    assert!(!text.contains("\"job\""), "{text}");
+    let mut job = spec();
+    job.runtime.call_dir =
+        job.runtime.shell_dir.join(JOB_DIR).join(job.runtime.call_dir.file_name().unwrap());
+    for bad in [
+        JobPlan { max_seconds: 0, ..plan },
+        JobPlan { nice: 20, ..plan },
+        JobPlan { fsize_bytes: 0, ..plan },
+    ] {
+        job.job = Some(bad);
+        assert!(matches!(job.check(), Err(SandboxError::SpecJob)), "{bad:?}");
+    }
 }
 
 #[test]

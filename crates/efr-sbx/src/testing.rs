@@ -90,6 +90,7 @@ impl TestCall {
                 system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
                 desktops: Vec::new(),
             },
+            job: None,
         };
         private_dir(&runtime.join("bin"));
         private_dir(&runtime.join("zsh"));
