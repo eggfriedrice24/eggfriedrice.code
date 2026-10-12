@@ -49,8 +49,9 @@ it ends, and what its output can do in the conversation.
 6. **A sweep by session id, not yet a cgroup.** The launcher calls `setsid`, so its pid
    is the job's session id. Every stop ends with SIGKILL to each process that still has
    that session, and the session stays model-side on the socket while any process has
-   it. A process that ends its launcher and then calls `setsid` escapes the sweep. A
-   cgroup per job closes that, but it changes the systemd unit (`Delegate=yes`), so it
+   it. A process of an exit child job that calls `setsid` escapes the sweep once its
+   launcher is gone, and the socket then counts it as the user's. A cgroup per job
+   closes that, but it changes the systemd unit (`Delegate=yes`), so it
    waits for a later phase. The docs name the limit.
 
 7. **A notice is an event of its own and never enters a running turn.** A job's end is
