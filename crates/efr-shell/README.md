@@ -409,7 +409,8 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   (the shell's functions except efr's and the `_*` completion functions that zsh has
   not loaded yet, its aliases and its options, after a line that drops zsh's own
   aliases such as `run-help`, so a function of that name parses; `zcompile` above
-  4 KiB; stale after any line that efr did not type for a sandboxed call), runs the
+  4 KiB; stale after any line that efr did not type for a sandboxed call; the precmd
+  hook writes it too, see below), runs the
   launcher (`ShellConfig::sandbox_launcher`) as a foreground job, applies `$CALL/apply`
   (`cd` with `builtin cd -q`, so no `chpwd` hook runs, and allowed exports and unsets;
   it checks names and directories again and never evaluates text), clears the
@@ -419,10 +420,18 @@ nonce and whether the call is contained or the exit child of an approved exit) o
 - With the debug log on, the session writes the `phase` lines of a run
   (docs/sandbox.md): `shell_typing`, `shell_command`, `shell_check`, `shell_total`,
   the `wrapper_*` steps of `$CALL/times` and the `launcher_*` steps of `result.json`.
+- `ShellSessions` makes the conversation's sandbox dir `$R/sbx/<conversation>` (0700)
+  before it starts a zsh with the integration, when the config names a sandbox. The
+  integration writes its files only into a dir that exists.
 - The precmd hook writes the shell's `PATH` to `$R/sbx/<conversation>/path` when it
-  changed and the dir exists (from the first sandboxed call on). The user's startup
-  files set it, and efrd resolves the program words of an exit question with it, so
-  the question names the program that this shell runs.
+  changed. The user's startup files set it, and efrd resolves the program words of an
+  exit question with it, so the question names the program that this shell runs.
+- For background jobs (efr's auto spec, section 3.18), which efrd starts outside this
+  shell at any time, the precmd hook also writes, after the `D` mark: the shell's
+  exported variables to `$R/sbx/<conversation>/env` (0600, NUL-separated `NAME=value`
+  entries) when they changed, and `snapshot.zsh` when it is stale, after the words
+  that efr's clear key removes. Both go through a temporary file and a rename, so a
+  reader never gets half a file.
 - `efr-child.zsh` is the launcher's child shell: `zsh -f efr-child.zsh DIR` replays
   `DIR/snapshot.zsh` and the sandbox state `DIR/state.zsh` (the exit child's dir has
   none), evaluates `DIR/line` at the top level, and its `EXIT` trap writes the records of

@@ -27,6 +27,10 @@ works with descriptors that arrive by number:
   `/proc/<pid>/ns/user` names, because bwrap nests the call in a second one.
 - The probe's self-test proves that seccomp refuses `io_uring_setup`, `TIOCSTI` and
   `unshare(CLONE_NEWUSER)` by making these calls.
+- A background job (`efr-sbx run --job`, the spec's section 3.18) runs in the idle IO
+  class, and a write past its file size limit must fail with EFBIG, not end the job
+  with SIGXFSZ and a core dump. The launcher sets both for itself before any child
+  starts, and every child inherits them. The job's self-test reads the IO class back.
 
 Safe Rust and rustix cover most of the launcher: `openat2`, `memfd_create`, pipes,
 `fcntl_setfd` on an owned descriptor, `dup2` onto an owned descriptor, `prctl` for the
@@ -34,7 +38,10 @@ child subreaper, signal flags through `signal_hook::flag::register`, and Landloc
 seccomp through their crates. They do not cover these steps: rustix has no
 `close_range`, no way to turn a number into an `OwnedFd`, no `dup3` onto a number the
 process does not own yet, no `NS_GET_PARENT`, and it offers `io_uring_setup` and
-`unshare` only as `unsafe` functions and `TIOCSTI` not at all. `setns`, `fsopen`,
+`unshare` only as `unsafe` functions and `TIOCSTI` not at all. It has no wrapper for
+`ioprio_set` and `ioprio_get`, and no safe way to set a signal's disposition to
+ignore. `setpriority`, `setrlimit`, `setsid` and `prctl(PR_SET_NO_NEW_PRIVS)` of a
+job are safe in rustix, and need no exception. `setns`, `fsopen`,
 `fsconfig`, `fsmount`, `open_tree` and `move_mount` of the layer helper are safe in
 rustix. `efr-pty` has the same gap for its
 `pre_exec` code and calls `libc` in its one allowlisted module.
@@ -56,14 +63,20 @@ code. `main.rs` opts it out with `#[allow(unsafe_code)]` on its module item, and
 | `io_uring_blocked()` | `io_uring_setup(1, &params)` | a 120-byte zeroed buffer; a ring that is made is closed at once |
 | `tiocsti_blocked(fd)` | `ioctl(fd, TIOCSTI, &byte)` | one byte through a live pointer, on a terminal the self-test opened |
 | `userns_blocked()` | `unshare(CLONE_NEWUSER)` | no descriptor table is unshared; the self-test has one thread |
+| `ioprio_set_idle()` | `ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_CLASS_IDLE << 13)` | integers only; it acts on the calling thread |
+| `ioprio_class()` | `ioprio_get(IOPRIO_WHO_PROCESS, 0)` | integers only; it reads the calling thread's class |
+| `ignore_sigxfsz()` | `signal(SIGXFSZ, SIG_IGN)` | no handler is installed, so no code runs in a signal context; no other code of efr-sbx uses SIGXFSZ |
 
-Each call happens while the process has one thread: at the start of the launcher,
-before its reader threads exist, in the inner stage, which starts no thread, in the
-layer helper (`efr-sbx layers`) and in the self-test.
+Each call that takes a descriptor by number happens while the process has one thread:
+at the start of the launcher, before its reader threads exist, in the inner stage,
+which starts no thread, in the layer helper (`efr-sbx layers`) and in the self-test.
+A job's priority and signal calls run on the launcher's main thread, which starts
+every child, when the thread that reads its stop signals exists already; they take
+no descriptor and touch no memory.
 
 ## Consequences
 
-- The rest of `efr-sbx` stays safe Rust; a reviewer reads one file of about 150 lines.
+- The rest of `efr-sbx` stays safe Rust; a reviewer reads one file of about 200 lines.
 - A new raw call in the launcher goes into this module, with its row in this table and a
   `// SAFETY:` comment, or it does not go in.
 - `libc` is a dependency of `efr-sbx` for this module alone; the README says so.

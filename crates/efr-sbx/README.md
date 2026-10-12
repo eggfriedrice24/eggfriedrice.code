@@ -19,9 +19,27 @@ still there 2 s later (one that runs as another user, such as a root process tha
 starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 `auto` can run here.
 
+A background job (efr's auto spec, section 3.18) is not a call of the hidden shell:
+efrd starts `efr-sbx run --job` itself, with its own small environment, the job's
+start dir as the working directory, a pipe as stdin (the lifeline) and the output pipe
+as stdout. The launcher calls `setsid`, catches SIGTERM and SIGHUP, and reads one start
+byte from the lifeline before it starts anything. On its main thread it then sets
+nice to the higher of its own value and the spec's, the idle IO class, a hard file
+size limit (soft and hard), SIGXFSZ ignored and an `oom_score_adj` of 1000, which
+every child inherits. The job runs contained or in the exit child (with
+`no_new_privs`), with the environment of `$CALL/env`, `/dev/null` as stdin and the
+output pipe as stdout and stderr. A stop thread ends the job on SIGTERM or SIGHUP, at
+the end of the lifeline, or at efrd's limit plus the backstop: SIGTERM to every process
+of the job but bwrap's own, SIGKILL from 2 s, and it gives up at 4 s. `result.json`
+names the stop and the nice value. A job writes no apply and no state, lists no cache
+deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
+`efr-sbx guard-check` reads it while the job runs.
+
 | Subcommand | What it does |
 |---|---|
 | `run --call-dir DIR` | one call, contained or in the exit child |
+| `run --call-dir DIR --job` | one background job that efrd started; the spec must have a job plan, and without `--job` it must not |
+| `guard-check --call-dir DIR --state-dir SBXJOB` | compares a contained job's git surface with the record of its start, moves what breaks a rule to its quarantine, writes `guard.json`; exit status 0 with no change, 3 with a change, 1 on an error |
 | `inner --policy-fd N` (hidden) | inside bwrap: waits for the cache overlays, then Landlock, seccomp and the child shell |
 | `layers --pid N` (hidden) | enters the namespaces of the inner stage `N`, mounts the cache overlays of the plan on stdin, and sends the descriptors of their upper dirs back over its stdout, a Unix socket |
 | `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test |
@@ -32,6 +50,8 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 | File | Holds |
 |---|---|
 | `src/call.rs` | `run`: the call dir, the contained launch, apply, state and result |
+| `src/job.rs` | a job: the session, the start byte, the priority and limits, the `env` file, the lifeline thread and the stop thread |
+| `src/guard_check.rs` | `guard-check`: a contained job's surface guard while it runs and after a restart |
 | `src/call_dir.rs` | the call dir and shell dir checks; atomic writes |
 | `src/launch.rs`, `src/launch/status.rs` | one bwrap launch: argument and policy memfds, the pipes, the status stream, the handshake with the layer helper |
 | `src/layers.rs` | the layer helper: the cache overlays, the plan's mounts inside each cache moved onto it, and the upper dirs sent back with `SCM_RIGHTS` |
@@ -47,7 +67,7 @@ starts a new hidden shell. efrd runs `efr-sbx probe --json` to learn whether
 | `src/fds.rs` | the only `unsafe` code: descriptor numbers the process does not own yet (ADR 0007) |
 | `src/real_fs.rs` | `FsView` over `openat2(RESOLVE_NO_SYMLINKS)` |
 | `src/os.rs` | the process, environment and time calls that `efr-stdx` routes elsewhere |
-| `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored; whether SIGINT or SIGQUIT stopped the call |
+| `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored; whether SIGINT or SIGQUIT stopped the call; for a job, SIGTERM and SIGHUP caught through a pipe for the stop thread |
 | `src/bridge.rs` | the phase 2 seam |
 
 What the launcher writes, in order:
@@ -61,6 +81,16 @@ What the launcher writes, in order:
 | `$R/sbx/<conversation>/state.json`, `state.zsh` | contained calls only, when the records were valid |
 | `$R/sbx/<conversation>/config-listings.json` | contained calls only, after the surface guard, when its listings changed: git's listing of each config content that the call read. git reads the content on stdin, so a listing depends on the content alone, and the next call runs git only for a new content. A listing of another git (path, inode, size or times) is never used |
 | `$CALL/result.json` | last, by a rename, after every process of the call is gone; a contained call lists its cache deletes in `summary.cache_deletes` (at most 4096 paths and 256 KiB) and counts the rest in `cache_deletes_more` |
+| `$SBX/jobs/<call>/surface-before.json` | a contained job only, before its child starts: the guard's record of the job's start, on disk, for `guard-check` |
+| `$SBX/jobs/<call>/guard.json` | `guard-check` only: `{ "changes", "quarantined" }` |
+
+A job writes `started`, its quarantine and `result.json` as above, and never `apply`,
+`state.json`, `state.zsh` or `config-listings.json`. It writes no `launcher.pid`:
+efrd keeps the launcher's pid and start time itself. Its call dir is
+`$R/sbx/<conversation>/jobs/<call>`, so nothing that reads the direct entries of the
+shell dir takes it for a call that still runs. The job's end guard and `guard-check`
+hold a `flock` on `$SBX/jobs/<call>` while they compare and move entries; each one adds
+its entries to the quarantine's `entries.json` and keeps those already there.
 
 The child shell's contract (efr-shell's `assets/zsh/efr-child.zsh` keeps it):
 `zsh -f efr-child.zsh DIR`, where `DIR` holds `snapshot.zsh`, `state.zsh` (contained
@@ -120,6 +150,9 @@ async runtime; it reads its own environment, which is the trusted shell's.
   deletes anything itself: efrd decides and deletes.
 - The launcher never runs a program from a place a call can write: git for the surface
   guard comes from a `PATH` dir outside every write root.
+- A job never runs on a terminal: it has no controlling terminal, its stdin is
+  `/dev/null`, and no descriptor of the launcher above 2 reaches it. It starts only
+  after efrd's start byte, and it ends with efrd: the end of the lifeline stops it.
 - `unsafe` code exists only in `src/fds.rs` (`xtask/src/tidy.rs` holds the allowlist).
 
 ## Tests
@@ -131,7 +164,8 @@ cargo nextest run -p efr-sbx
 ```
 
 The unit tests need no sandbox. The integration tests (`tests/it/`: the escape suite,
-the behaviour tests, the probe, the launch cost and the corpus run) drive the real
+the behaviour tests, the jobs, the probe, the launch cost with the cost of a job's
+start, and the corpus run) drive the real
 launcher with real bwrap, Landlock and seccomp. They read the launcher from
 `EFR_TEST_SBX_BIN` and run `efr-sbx probe` first; without the variable, or when the
 probe says the sandbox cannot run here, each prints `skipped: <reason>` and passes.
