@@ -28,7 +28,7 @@ const OTHER: &str = "/dev/pts/efr-jobs-undo";
 
 /// A model that answers each request of every turn with the next call of its list, or
 /// `done` when the turn's calls are used up: `None` in the list ends a turn.
-struct Script {
+pub(crate) struct Script {
     id: ProviderId,
     answers: Mutex<VecDeque<Option<(&'static str, Value)>>>,
 }
@@ -40,7 +40,7 @@ impl std::fmt::Debug for Script {
 }
 
 impl Script {
-    fn new(answers: Vec<Option<(&'static str, Value)>>) -> Arc<Self> {
+    pub(crate) fn new(answers: Vec<Option<(&'static str, Value)>>) -> Arc<Self> {
         Arc::new(Script {
             id: ProviderId::new("test").unwrap(),
             answers: Mutex::new(answers.into()),

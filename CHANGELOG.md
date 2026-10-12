@@ -135,6 +135,10 @@ into the GitHub release notes, and it stops when the section is missing.
   A question in such a turn waits only the away wait unless you follow the
   conversation. A `watch` pattern can also wake the model on a matching output line.
   Otherwise the notice rides in your next prompt.
+- While a job runs in the sandbox, efr checks the git settings and hooks in its
+  projects every 5 minutes and before each sandboxed command there. When the job
+  planted a hook or a git setting that runs code, efr moves it to the quarantine and
+  stops the job. After a restart, efr checks a job that the last efrd left running.
 
 ### Changed
 

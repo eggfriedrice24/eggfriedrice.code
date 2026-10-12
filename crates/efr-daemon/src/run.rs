@@ -679,6 +679,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         state.jobs.token(),
     ));
     tokio::spawn(state.jobs.clone().scan());
+    tokio::spawn(state.jobs.clone().guard_schedule());
     let mut background = vec![
         tokio::spawn(notices::follow(Arc::clone(&state), stop.clone())),
         tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),

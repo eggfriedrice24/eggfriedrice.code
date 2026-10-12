@@ -31,7 +31,7 @@ use std::time::Duration;
 use efr_config::JobsSettings;
 use efr_conversation::{JobNoticeInput, NoticeBody, notice_text};
 use efr_protocol::{
-    CallId, ConversationId, Event, JobId, JobInfo, JobState, JobStopBy, NoticeKind, Seq,
+    CallId, ConversationId, Event, JobId, JobInfo, JobState, JobStopBy, Launch, NoticeKind, Seq,
     SurfaceChange, TurnId,
 };
 use efr_sandbox::{RESULT_FILE, SandboxResult};
@@ -46,6 +46,7 @@ use tokio_util::sync::CancellationToken;
 use crate::DaemonError;
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 
+pub(crate) mod guard;
 pub(crate) mod launch;
 pub(crate) mod output;
 pub(crate) mod sweep;
@@ -84,11 +85,12 @@ impl JobKey {
     }
 }
 
-/// A running job, as the guard and the undo of later packages read it.
+/// A running job, as the guard schedule (`jobs/guard.rs`), the undo of a turn
+/// (`jobs/undo.rs`) and the snapshot collector read it.
 #[derive(Debug, Clone)]
-#[expect(dead_code, reason = "the guard schedule and the undo of jobs read these fields (P3b)")]
 pub(crate) struct RunningJob {
     pub(crate) key: JobKey,
+    #[expect(dead_code, reason = "no reader names a running job by its call yet")]
     pub(crate) call: CallId,
     pub(crate) turn: TurnId,
     /// The roots that the surface guard of the job scans.
@@ -211,6 +213,8 @@ struct Entry {
     lifeline: Option<std::io::PipeWriter>,
     /// The snapshot of the job's write roots right after its start.
     kept: Option<KeptSnapshot>,
+    /// The changes that a guard check found while the job ran (`jobs/guard.rs`).
+    guard: Vec<SurfaceChange>,
 }
 
 impl JobTable {
@@ -412,6 +416,7 @@ impl JobTable {
             ended,
             lifeline: Some(lifeline),
             kept,
+            guard: Vec::new(),
         };
         self.lock().running.insert(key, entry);
         let watching = (job.matcher.is_some() && job.wakes > 0)
@@ -689,7 +694,16 @@ impl JobTable {
             let call_dir = job_call_dir(&dirs, info.conversation_id, info.call_id);
             let result = read_result(&call_dir).await;
             let launcher_lost = result.is_none();
-            let summary = result.map(|result| result.summary).unwrap_or_default();
+            // NOTE: a contained job that left no result had no end guard: its guard
+            // check runs now, before its state dir goes.
+            let lost_guard = if launcher_lost && matches!(info.launch, Launch::Contained { .. }) {
+                let state_dir = job_state_dir(&dirs, info.conversation_id, info.call_id);
+                self.check_lost(call_dir.clone(), state_dir).await.changes
+            } else {
+                Vec::new()
+            };
+            let mut summary = result.map(|result| result.summary).unwrap_or_default();
+            summary.surface_changes = with_guarded(summary.surface_changes, lost_guard);
             let mut survivors = summary.survivors;
             survivors.extend(swept);
             survivors.sort();
@@ -859,11 +873,16 @@ impl JobTask {
     async fn finish(mut self, stopped_by: Option<JobStopBy>) {
         let table = &self.table;
         let clock = Arc::clone(&table.inner.clock);
-        let (lifeline, kept, info) = {
+        let (lifeline, kept, guarded, info) = {
             let mut guard = table.lock();
             match guard.running.get_mut(&self.key) {
-                Some(entry) => (entry.lifeline.take(), entry.kept.take(), Some(entry.info.clone())),
-                None => (None, None, None),
+                Some(entry) => (
+                    entry.lifeline.take(),
+                    entry.kept.take(),
+                    std::mem::take(&mut entry.guard),
+                    Some(entry.info.clone()),
+                ),
+                None => (None, None, Vec::new(), None),
             }
         };
         drop(lifeline);
@@ -901,7 +920,9 @@ impl JobTask {
         final_info.output_bytes = self.output.bytes();
         final_info.ended_at = Some(now);
         let tail = self.output.tail();
-        let surface_changes: Vec<SurfaceChange> = summary.surface_changes;
+        // NOTE: the changes that a guard check moved while the job ran are gone from
+        // the surface, so the launcher's end guard no longer sees them.
+        let surface_changes = with_guarded(summary.surface_changes, guarded);
         let event = Event::JobEnded {
             job_id: info.id.clone(),
             state: ended.state,
@@ -1073,6 +1094,28 @@ pub(crate) fn job_call_dir(dirs: &Dirs, conversation: ConversationId, call: Call
         .join(conversation.to_string())
         .join(efr_sandbox::JOB_DIR)
         .join(call.to_string())
+}
+
+/// The job state dir of `call` of `conversation`, `$S/sandbox/<conversation>/jobs/<call>`.
+pub(crate) fn job_state_dir(dirs: &Dirs, conversation: ConversationId, call: CallId) -> PathBuf {
+    dirs.state()
+        .join(SANDBOX_DIR)
+        .join(conversation.to_string())
+        .join(efr_sandbox::JOB_DIR)
+        .join(call.to_string())
+}
+
+/// `changes` with each change of `guarded` that it lacks.
+fn with_guarded(
+    mut changes: Vec<SurfaceChange>,
+    guarded: Vec<SurfaceChange>,
+) -> Vec<SurfaceChange> {
+    for change in guarded {
+        if !changes.contains(&change) {
+            changes.push(change);
+        }
+    }
+    changes
 }
 
 /// The launcher's `result.json` in `call_dir`, if it wrote one that reads.

@@ -695,6 +695,15 @@ impl DaemonToolbox {
                 .with_sandbox(Some(summary));
             }
         };
+        // NOTE: before the launcher records the surface, so its guard never takes an
+        // entry that a running job planted in these roots as its baseline.
+        if prepared.contained
+            && let Some(jobs) = &self.jobs
+        {
+            let watch = Stopwatch::start();
+            jobs.check_guards(Some(&prepared.guard_roots)).await;
+            tracing::debug!(phase = "job_guards", elapsed_ms = %watch, "phase=job_guards elapsed_ms={}", watch);
+        }
         let turn_id = call.context.turn_id;
         // NOTE: under the plan lock, so no other call of these projects writes while
         // the snapshot reads them.
