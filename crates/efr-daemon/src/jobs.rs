@@ -678,22 +678,31 @@ impl JobTable {
     /// At start, before any job runs: ends each job that the last efrd left running
     /// with `daemon_restart`, and removes every job dir.
     pub(crate) async fn recover(&self) -> Result<(), DaemonError> {
+        self.recover_with(sweep::sweep_left).await
+    }
+
+    /// [`recover`](Self::recover) with `sweeper` in place of [`sweep::sweep_left`].
+    async fn recover_with(
+        &self,
+        sweeper: fn(u32, u64, i64) -> Vec<String>,
+    ) -> Result<(), DaemonError> {
         let rows = self.inner.readers.with(efr_store::jobs::running).await?;
         let dirs = self.inner.dirs.clone();
         for row in rows {
             let info = row.info;
             let pid = row.launcher_pid;
             let start = row.launcher_start;
-            let swept = tokio::task::spawn_blocking(move || {
-                // NOTE: the pid and its start time come from the event, never from a file
-                // that a job could write; a pid that a new process took keeps it.
-                if pid > 0 && sweep::start_time(pid) == Some(start) {
-                    sweep::kill(pid, Signal::KILL);
-                }
-                sweep::kill_session(pid)
-            })
-            .await
-            .unwrap_or_default();
+            let started_at = info.started_at.as_second();
+            // NOTE: the pid and its start time come from the event, never from a file
+            // that a job could write.
+            let swept = tokio::task::spawn_blocking(move || sweeper(pid, start, started_at))
+                .await
+                .unwrap_or_default();
+            // NOTE: a process that outlived the sweep has the job's session: it stays
+            // model-side until the scan finds the session empty, as after `finish`.
+            if pid > 0 && !swept.is_empty() {
+                self.lock().sessions.insert(pid);
+            }
             let call_dir = job_call_dir(&dirs, info.conversation_id, info.call_id);
             let result = read_result(&call_dir).await;
             let launcher_lost = result.is_none();
@@ -790,6 +799,15 @@ impl JobTable {
     #[cfg(test)]
     pub(crate) async fn scan_once(&self) {
         self.forget_empty_sessions().await;
+    }
+
+    /// [`recover`](Self::recover) with `sweeper` in place of the real sweep; for a test.
+    #[cfg(test)]
+    pub(crate) async fn recover_by(
+        &self,
+        sweeper: fn(u32, u64, i64) -> Vec<String>,
+    ) -> Result<(), DaemonError> {
+        self.recover_with(sweeper).await
     }
 
     /// Keeps `session` model-side as a session of a job that ended; for a test.

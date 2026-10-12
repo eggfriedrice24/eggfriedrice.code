@@ -3,7 +3,7 @@ use std::process::Stdio;
 
 use pretty_assertions::assert_eq;
 
-use super::{Process, kill_session, members, parse_stat, process};
+use super::{Process, boot_time, kill_session, members, parse_stat, process, same_boot};
 
 #[test]
 fn stat_fields_after_a_name_with_spaces_and_parens() {
@@ -58,4 +58,25 @@ async fn sweep_ends_every_process_of_a_session() {
     assert!(members(Path::new("/proc"), pid).is_empty());
     let status = child.wait().await.unwrap();
     assert!(!status.success());
+}
+
+#[test]
+fn same_boot_only_for_launcher_that_started_before_its_job() {
+    // A boot at 1000 s, 100 ticks per second: the launcher started at 1050 s.
+    assert!(same_boot(1_000, 100, 5_000, 1_052), "the job started after its launcher");
+    assert!(same_boot(1_000, 100, 5_000, 1_040), "within the slack of the boot time");
+    // NOTE: after a new boot at 2000 s, a process of the old launcher's pid seems to
+    // have started long after the job.
+    assert!(!same_boot(2_000, 100, 5_000, 1_052));
+    assert!(!same_boot(2_000, 100, 0, 1_052));
+    assert!(same_boot(1_000, 0, 50, 1_100), "a zero tick rate counts as one");
+}
+
+#[test]
+fn boot_time_reads_btime_line() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("stat"), "cpu 1 2 3\nbtime 1790000000\nprocesses 9\n").unwrap();
+    assert_eq!(boot_time(dir.path()), Some(1_790_000_000));
+    let now = jiff::Timestamp::now().as_second();
+    assert!(boot_time(Path::new("/proc")).is_some_and(|booted| booted <= now));
 }

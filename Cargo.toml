@@ -64,7 +64,7 @@ etcetera = "0.11.0"
 
 # Operating system
 # "fs" also holds inotify, which the config watcher of efr-daemon reads.
-rustix = { version = "1.1.5", default-features = false, features = ["std", "pty", "termios", "process", "fs"] }
+rustix = { version = "1.1.5", default-features = false, features = ["std", "pty", "termios", "process", "fs", "param"] }
 nix = { version = "0.31.3", default-features = false, features = ["process", "signal", "socket", "term", "fs", "user"] }
 libc = { version = "0.2.190", default-features = false, features = ["std"] }
 # Puts back what SIGQUIT does for efr once its own Ctrl+\ handler is installed

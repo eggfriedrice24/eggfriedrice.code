@@ -214,6 +214,22 @@ async fn sweep_keeps_session_until_no_process_has_it() {
 /// launcher.
 async fn started_before(scene: &Scene, number: u32, pid: u32, start: u64) -> JobInfo {
     let info = scene.info(number);
+    record_start(scene, info, pid, start).await
+}
+
+/// [`started_before`] for a job that started at `started_at` on the real clock.
+async fn started_at(
+    scene: &Scene,
+    number: u32,
+    pid: u32,
+    start: u64,
+    started_at: jiff::Timestamp,
+) -> JobInfo {
+    let info = JobInfo { started_at, ..scene.info(number) };
+    record_start(scene, info, pid, start).await
+}
+
+async fn record_start(scene: &Scene, info: JobInfo, pid: u32, start: u64) -> JobInfo {
     let event = Event::JobStarted {
         turn_id: info.turn_id,
         call_id: info.call_id,
@@ -248,6 +264,116 @@ async fn restart_kills_leftover_launcher_only_with_same_start_time() {
     assert!(!status.success(), "the launcher with its own start time was killed");
     assert!(sweep::process(Path::new("/proc"), other_pid).is_some(), "the other pid lives");
     other.kill().await.unwrap();
+}
+
+/// A session whose leader ended: `setsid sh` starts `sleep` and ends, so the sleep keeps
+/// the session of the shell's pid, as the orphan of a lost launcher does. Returns the
+/// session, the start time of its leader and the sleep's pid; `None` without `setsid`.
+async fn lost_leader(dir: &Path) -> Option<(u32, u64, u32)> {
+    use tokio::io::AsyncBufReadExt as _;
+    let mut leader = efr_stdx::process::command("setsid", dir)
+        .args(["sh", "-c", "sleep 30 < /dev/null > /dev/null 2>&1 & echo $!; read -r _"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .ok()?;
+    let session = leader.id().unwrap();
+    let start = sweep::start_time(session).unwrap();
+    let stdout = leader.stdout.take().unwrap();
+    let mut line = String::new();
+    tokio::io::BufReader::new(stdout).read_line(&mut line).await.unwrap();
+    let orphan: u32 = line.trim().parse().unwrap();
+    drop(leader.stdin.take());
+    leader.wait().await.unwrap();
+    let found = sweep::process(Path::new("/proc"), orphan).unwrap();
+    assert_eq!(found.session, session, "the orphan keeps the session of its leader");
+    Some((session, start, orphan))
+}
+
+/// True once `pid` is gone, or a zombie that its new parent did not reap yet.
+fn gone(pid: u32) -> bool {
+    sweep::process(Path::new("/proc"), pid).is_none_or(|process| process.state == 'Z')
+}
+
+#[tokio::test]
+async fn restart_spares_session_of_reused_pid() {
+    let scene = Scene::new().await;
+    // NOTE: a session leader that is not the job's launcher, such as a terminal's
+    // shell or a tmux server that got the launcher's pid after a boot.
+    let Ok(mut leader) = efr_stdx::process::command("setsid", scene.dirs.root())
+        .args(["sleep", "30"])
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+    else {
+        return;
+    };
+    let pid = leader.id().unwrap();
+    Wait::new("the new session").until(|| sweep::has_members(pid)).await.unwrap();
+    let start = sweep::start_time(pid).unwrap();
+    started_at(&scene, 1, pid, start + 1, jiff::Timestamp::now()).await;
+    scene.table.recover().await.unwrap();
+    assert!(!gone(pid), "a session that another process leads now is not swept");
+    assert!(!scene.table.model_side().contains(&pid));
+    leader.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_sweeps_session_of_lost_launcher_in_same_boot() {
+    let scene = Scene::new().await;
+    let Some((session, start, orphan)) = lost_leader(scene.dirs.root()).await else { return };
+    started_at(&scene, 1, session, start, jiff::Timestamp::now()).await;
+    scene.table.recover().await.unwrap();
+    Wait::new("the swept orphan").until(|| gone(orphan)).await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_spares_session_from_another_boot() {
+    let scene = Scene::new().await;
+    let Some((session, start, orphan)) = lost_leader(scene.dirs.root()).await else { return };
+    // NOTE: a job that started a day before the launcher seems to have started: the pid
+    // and its session belong to a later boot.
+    let day_before = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24);
+    started_at(&scene, 1, session, start, day_before).await;
+    scene.table.recover().await.unwrap();
+    assert!(!gone(orphan), "a session of another boot is not swept");
+    sweep::kill(orphan, rustix::process::Signal::KILL);
+    Wait::new("the orphan's end").until(|| gone(orphan)).await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_spares_processes_older_than_the_launcher() {
+    let scene = Scene::new().await;
+    let Some((session, _, orphan)) = lost_leader(scene.dirs.root()).await else { return };
+    // NOTE: a launcher that started after every process of the session started none
+    // of them.
+    let later = sweep::start_time(orphan).unwrap() + 1;
+    started_at(&scene, 1, session, later, jiff::Timestamp::now()).await;
+    scene.table.recover().await.unwrap();
+    assert!(!gone(orphan), "a process older than the launcher is not the job's");
+    sweep::kill(orphan, rustix::process::Signal::KILL);
+    Wait::new("the orphan's end").until(|| gone(orphan)).await.unwrap();
+}
+
+#[tokio::test]
+async fn restart_survivor_session_is_model_side() {
+    let scene = Scene::new().await;
+    let Some((session, start, orphan)) = lost_leader(scene.dirs.root()).await else { return };
+    started_at(&scene, 1, session, start, jiff::Timestamp::now()).await;
+    // NOTE: no process outlives SIGKILL on demand, so the sweep here leaves the orphan
+    // and names it as a survivor, as a sweep that a process outlived does.
+    scene.table.recover_by(|_, _, _| vec!["sleep".to_owned()]).await.unwrap();
+    let Event::JobEnded { survivors, .. } = scene.ended(1).await else { unreachable!() };
+    assert_eq!(survivors, ["sleep"]);
+    assert!(scene.table.model_side().contains(&session), "the survivor's session is model-side");
+    scene.table.scan_once().await;
+    assert!(scene.table.model_side().contains(&session), "a process still has the session");
+    sweep::kill(orphan, rustix::process::Signal::KILL);
+    Wait::new("the orphan's end").until(|| gone(orphan)).await.unwrap();
+    scene.table.scan_once().await;
+    assert!(!scene.table.model_side().contains(&session), "no process has it any more");
 }
 
 #[tokio::test]
