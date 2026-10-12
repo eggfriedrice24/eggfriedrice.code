@@ -208,12 +208,16 @@ async fn guard_runs_every_five_minutes() {
     // NOTE: the job's own time limit sleeps too.
     scene.clock.wait_for_sleeps(1).await;
     tokio::spawn(scene.table.clone().guard_schedule());
-    scene.clock.wait_for_sleeps(2).await;
+    // NOTE: a check sleeps too, for its own time limit; the schedule is asleep again
+    // once it asked for one more interval.
+    let intervals =
+        || scene.clock.requested_sleeps().iter().filter(|sleep| **sleep == GUARD_INTERVAL).count();
+    Wait::new("the schedule's first sleep").until(|| intervals() == 1).await.unwrap();
     assert_eq!(scene.guard_runs(), 0);
     for runs in 1..=2 {
         scene.clock.advance(GUARD_INTERVAL);
         Wait::new("a guard check").until(|| scene.guard_runs() == runs).await.unwrap();
-        scene.clock.wait_for_sleeps(2).await;
+        Wait::new("the schedule's next sleep").until(|| intervals() == runs + 1).await.unwrap();
     }
     scene.table.drop_lifeline(crate::jobs::JobKey { conversation: scene.conversation, number: 1 });
     scene.ended(1).await;
