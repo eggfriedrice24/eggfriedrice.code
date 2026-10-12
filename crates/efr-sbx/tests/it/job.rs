@@ -503,6 +503,9 @@ fn job_exit_child_survivors_end_at_stop() {
     let mut run = fixture.spawn_job(&call_dir);
     run.start();
     wait_until("the job's start", || started.exists());
+    // NOTE: `print` runs as soon as zsh forked the two; a stop before they ran `sleep`
+    // would find a zsh or a setsid by that name.
+    wait_until("both sleeps", || sleeping("9876.4") && sleeping("9876.5"));
     run.signal(Signal::TERM);
     let run = run.wait(&fixture);
     assert_eq!(stopped_by(&run), Some(JobStop::Signal), "{run:#?}");
@@ -531,6 +534,17 @@ fn job_exit_child_holds_no_pty_fd() {
     assert!(!run.stdout.contains("/dev/pts") && !run.stdout.contains("ptmx"), "{run:#?}");
     assert!(!run.stdout.contains("devtty-opened"), "{run:#?}");
     drop(master);
+}
+
+/// True while a process named `sleep` runs with `seconds` as its argument.
+fn sleeping(seconds: &str) -> bool {
+    let Ok(entries) = fs::read_dir("/proc") else { return false };
+    entries.flatten().any(|entry| {
+        let name = fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
+        let cmdline = fs::read(entry.path().join("cmdline")).unwrap_or_default();
+        name.trim_end() == "sleep"
+            && cmdline.split(|byte| *byte == 0).any(|arg| arg == seconds.as_bytes())
+    })
 }
 
 /// The job's state dir, `$SBX/jobs/<call>`, for its call dir.
