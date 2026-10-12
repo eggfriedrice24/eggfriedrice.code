@@ -448,6 +448,30 @@ async fn background_outside_auto_reaches_the_engine() {
     assert!(toolbox.requirements(&call("shell", foreground, home.path())).await.is_ok());
 }
 
+/// The question and the record name the limit that the job gets: the default when the
+/// call names none, and `jobs.max_minutes` when it asks for more.
+#[tokio::test]
+async fn background_requirements_name_the_job_limit() {
+    let home = tempfile::tempdir().unwrap();
+    let (table, _store) = job_table(home.path()).await;
+    let mut settings = Settings::default();
+    settings.jobs.default_minutes = 45;
+    settings.jobs.max_minutes = 120;
+    let toolbox = toolbox_with(home.path(), settings).0.with_jobs(table, None);
+
+    let minutes = |input: serde_json::Value| {
+        let call = call("shell", input, home.path());
+        let toolbox = &toolbox;
+        async move { toolbox.requirements(&call).await.unwrap().max_minutes }
+    };
+    assert_eq!(minutes(json!({"command": "make", "background": true})).await, Some(45));
+    let asked = json!({"command": "make", "background": true, "max_minutes": 30});
+    assert_eq!(minutes(asked).await, Some(30));
+    let over = json!({"command": "make", "background": true, "max_minutes": 600});
+    assert_eq!(minutes(over).await, Some(120));
+    assert_eq!(minutes(json!({"command": "make"})).await, None);
+}
+
 #[test]
 fn job_minutes_take_the_default_and_the_most() {
     let settings = efr_config::JobsSettings::default();

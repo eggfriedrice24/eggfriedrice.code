@@ -1274,17 +1274,21 @@ impl Toolbox for DaemonToolbox {
             return Err(not_offered(&call.name, call.context.edit_tool));
         }
         let context = self.context(&call.context);
-        let declared = self
+        let mut declared = self
             .registry
             .requirements(&call.name, &context, &call.input)
             .map_err(|error| for_model(&error))?;
         // NOTE: a job starts in every mode. In `auto` its line goes through the exits
         // like any line; outside `auto` the engine asks the user before every job, from
         // `Requirements::background`, which is the mark of this call.
-        if declared.background
-            && let Some(reason) = self.jobs_refused()
-        {
-            return Err(reason.to_owned());
+        if declared.background {
+            if let Some(reason) = self.jobs_refused() {
+                return Err(reason.to_owned());
+            }
+            // NOTE: the question and the record name the limit that the job gets, after
+            // the default and the cut of `jobs.max_minutes`, not the one that it asked.
+            let jobs = &self.settings.borrow().jobs;
+            declared.max_minutes = Some(job_tools::job_minutes(declared.max_minutes, jobs).0);
         }
         // NOTE: a tool declares paths as written. What one reaches through a symbolic
         // link is read from the disk here, on the blocking pool, so the engine judges
