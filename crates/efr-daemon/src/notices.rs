@@ -1,8 +1,9 @@
 //! Notices for terminals that do not show their conversation right now.
 //!
-//! When a turn finishes or fails, or an approval waits, and no subscription from the
-//! conversation's terminal was handed the event (nor a live lease from it names the
-//! conversation), the daemon appends one line to
+//! When a turn finishes or fails, an approval waits, a background job ends, or a job's
+//! notice waits for the next prompt because it could start no turn, and no subscription
+//! from the conversation's terminal was handed the event (nor a live lease from it names
+//! the conversation), the daemon appends one line to
 //! `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`). The zsh plugin prints and
 //! removes the file at its next prompt. `<tty>` is `$TTY` without `/dev/`, with `/` as
 //! `-`, so `/dev/pts/3` is `pts-3`.
@@ -19,7 +20,9 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_protocol::{ConversationId, ErrorCode, Event, EventEnvelope};
+use efr_protocol::{
+    ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, JobState, JobStopBy,
+};
 use efr_stdx::text::is_format;
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
@@ -70,9 +73,82 @@ pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
             // ask; on one line it follows after a `;`.
             format!("efr: approval waiting: {title}: {}", summary.replace('\n', "; "))
         }
+        Event::JobEnded {
+            job_id,
+            state,
+            exit_code,
+            stopped_by,
+            quarantined,
+            survivors,
+            launcher_lost,
+            ..
+        } => {
+            let what = job_end(*state, *exit_code, *stopped_by, *quarantined);
+            let mut extra = String::new();
+            if *launcher_lost {
+                extra.push_str("; its launcher was lost, and its processes may still run");
+            }
+            match survivors.len() {
+                0 => {}
+                1 => extra.push_str("; 1 process of the job may still run"),
+                count => extra.push_str(&format!("; {count} processes of the job may still run")),
+            }
+            return Some(with_extra(&format!("efr: job {job_id} {what}: {title}"), &extra));
+        }
+        Event::JobNoticeHeld { job_id, reason, .. } => {
+            let extra = format!("; no wake turn ({})", held_reason(*reason));
+            let text = format!("efr: job {job_id} waits for your next prompt: {title}");
+            return Some(with_extra(&text, &extra));
+        }
         _ => return None,
     };
     Some(one_line(&text, MAX_CHARS))
+}
+
+/// `text` cut so that `extra` fits after it on one line of [`MAX_CHARS`], then `extra`:
+/// a long title cannot push the end of the line out.
+fn with_extra(text: &str, extra: &str) -> String {
+    let mut line = one_line(text, MAX_CHARS.saturating_sub(extra.chars().count()));
+    line.push_str(extra);
+    line
+}
+
+/// How a job ended, in a few words: `ended (exit 0)`, `timed out`, `stopped by you`.
+fn job_end(
+    state: JobState,
+    exit_code: Option<i32>,
+    stopped_by: Option<JobStopBy>,
+    quarantined: bool,
+) -> String {
+    match (state, stopped_by) {
+        (JobState::TimedOut, _) | (_, Some(JobStopBy::TimeLimit)) => "timed out".to_owned(),
+        (JobState::Failed, _) => "failed to start or run".to_owned(),
+        (_, Some(JobStopBy::User)) => "stopped by you".to_owned(),
+        (_, Some(JobStopBy::Model)) => "stopped by the model".to_owned(),
+        (_, Some(JobStopBy::DaemonStop)) => "stopped because efrd stopped".to_owned(),
+        (_, Some(JobStopBy::DaemonRestart)) => "stopped because efrd restarted".to_owned(),
+        (_, Some(JobStopBy::Guard)) if quarantined => {
+            "stopped: it changed git settings (quarantined)".to_owned()
+        }
+        (_, Some(JobStopBy::Guard)) => "stopped: it changed git settings".to_owned(),
+        (_, Some(_)) | (JobState::Stopped, None) => "stopped".to_owned(),
+        (_, None) => match exit_code {
+            Some(code) => format!("ended (exit {code})"),
+            None => "ended".to_owned(),
+        },
+    }
+}
+
+/// Why a job's notice started no turn, in a few words.
+fn held_reason(reason: HeldReason) -> &'static str {
+    match reason {
+        HeldReason::NotAuto => "the conversation is not in auto",
+        HeldReason::WakeLimit => "wake limit reached",
+        HeldReason::WakeTurnJob => "job of a wake turn",
+        HeldReason::DaemonRestart => "efrd restarted",
+        HeldReason::WakesOff => "jobs.max_wakes_per_hour is 0",
+        _ => "held",
+    }
 }
 
 /// The notice for the `count` prompts of `conversation` that waited when the daemon

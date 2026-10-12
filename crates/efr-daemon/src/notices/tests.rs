@@ -1,6 +1,9 @@
 use std::os::unix::fs::PermissionsExt as _;
 
-use efr_protocol::{CallId, ConversationId, ErrorBody, ErrorCode, Event, TurnId};
+use efr_protocol::{
+    CallId, ConversationId, ErrorBody, ErrorCode, Event, HeldReason, JobId, JobState, JobStopBy,
+    Seq, TurnId,
+};
 use pretty_assertions::assert_eq;
 
 use crate::notices::{append, file_name, line, not_run};
@@ -212,4 +215,98 @@ fn a_notice_shows_a_stand_in_for_each_format_character() {
 
     assert!(!text.contains(['\u{202e}', '\u{200b}', '\u{2066}']), "{text:?}");
     assert!(text.ends_with("write /home/u/\u{fffd}fdp.sh\u{fffd}"), "{text:?}");
+}
+
+/// A job's end with how it ended.
+fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStopBy>) -> Event {
+    Event::JobEnded {
+        job_id: JobId::nth(3),
+        state,
+        exit_code,
+        stopped_by,
+        output_bytes: 2048,
+        ran_secs: 60,
+        tail: "the last line".to_owned(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+    }
+}
+
+#[test]
+fn job_ended_notice_line() {
+    let title = Some("run the dev server");
+    let cases = [
+        (job_ended(JobState::Exited, Some(0), None), "ended (exit 0)"),
+        (job_ended(JobState::Exited, Some(3), None), "ended (exit 3)"),
+        (job_ended(JobState::TimedOut, None, Some(JobStopBy::TimeLimit)), "timed out"),
+        (job_ended(JobState::Stopped, None, Some(JobStopBy::User)), "stopped by you"),
+        (job_ended(JobState::Stopped, None, Some(JobStopBy::Model)), "stopped by the model"),
+        (
+            job_ended(JobState::Stopped, None, Some(JobStopBy::DaemonRestart)),
+            "stopped because efrd restarted",
+        ),
+        (job_ended(JobState::Failed, None, None), "failed to start or run"),
+    ];
+    for (event, what) in cases {
+        assert_eq!(
+            line(&event, title).as_deref(),
+            Some(format!("efr: job j3 {what}: run the dev server").as_str())
+        );
+    }
+    let Event::JobEnded { job_id, state, exit_code, output_bytes, ran_secs, tail, .. } =
+        job_ended(JobState::Stopped, None, Some(JobStopBy::Guard))
+    else {
+        unreachable!()
+    };
+    let lost = Event::JobEnded {
+        job_id,
+        state,
+        exit_code,
+        stopped_by: Some(JobStopBy::Guard),
+        output_bytes,
+        ran_secs,
+        tail,
+        surface_changes: Vec::new(),
+        quarantined: true,
+        survivors: vec!["sleep".to_owned(), "node".to_owned()],
+        launcher_lost: true,
+        output_truncated: false,
+    };
+    assert_eq!(
+        line(&lost, title).as_deref(),
+        Some(
+            "efr: job j3 stopped: it changed git settings (quarantined): run the dev server; its \
+             launcher was lost, and its processes may still run; 2 processes of the job may \
+             still run"
+        )
+    );
+    // The end of the line survives a long title.
+    let text = line(&lost, Some(&"x".repeat(300))).unwrap();
+    assert!(text.ends_with("2 processes of the job may still run"), "{text}");
+    assert!(text.chars().count() <= 200, "{text}");
+}
+
+#[test]
+fn held_notice_line_names_reason() {
+    let held =
+        |reason| Event::JobNoticeHeld { job_id: JobId::nth(2), source_seq: Seq::new(7), reason };
+    let cases = [
+        (HeldReason::NotAuto, "the conversation is not in auto"),
+        (HeldReason::WakeLimit, "wake limit reached"),
+        (HeldReason::WakeTurnJob, "job of a wake turn"),
+        (HeldReason::DaemonRestart, "efrd restarted"),
+        (HeldReason::WakesOff, "jobs.max_wakes_per_hour is 0"),
+    ];
+    for (reason, why) in cases {
+        assert_eq!(
+            line(&held(reason), Some("fix nginx")).as_deref(),
+            Some(
+                format!("efr: job j2 waits for your next prompt: fix nginx; no wake turn ({why})")
+                    .as_str()
+            )
+        );
+    }
 }
