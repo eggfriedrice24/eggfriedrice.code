@@ -105,6 +105,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `jobs.max_minutes`, `jobs.max_running`, `jobs.max_running_daemon`,
   `jobs.max_wakes_per_hour`, `jobs.max_wakes_per_hour_daemon`,
   `jobs.max_wakes_per_watch` and `jobs.nice`.
+- To give a job your shell's environment, the hidden shell writes its exported
+  variables to an `env` file (0600) in efr's runtime dir at each prompt where they
+  changed. It also writes its functions, aliases and options for the sandbox at such a
+  prompt, not only before a command in `auto`.
 
 ### Changed
 

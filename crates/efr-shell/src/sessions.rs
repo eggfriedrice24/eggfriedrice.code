@@ -517,6 +517,7 @@ impl ShellSessions {
         let mut config = inner.config.clone();
         config.login = start.login;
         config.trusted_programs = start.trusted_programs.to_vec();
+        make_shell_dir(&config, conversation, start.integration).await;
         let pty_id = PtyId::from_uuid(efr_stdx::id::uuid_v7(&*inner.deps.clock, &*inner.deps.rng));
         // NOTE: the shell is a child subreaper, so a process that a command leaves
         // behind after a double fork or `setsid` stays in the shell's process tree,
@@ -1078,6 +1079,35 @@ async fn install(dir: PathBuf) -> Result<(), ShellError> {
             source: StdxError::WriteFile { path: dir.clone(), source: io::Error::other(join) },
             dir,
         }),
+    }
+}
+
+/// Makes the conversation's sandbox dir (`$R/sbx/<conversation>`, 0700) before its zsh
+/// starts, for a zsh with the integration and a sandbox in the config. The integration
+/// writes the shell's `env` file and `snapshot.zsh` at a prompt only into a dir that
+/// exists, and efrd gives a background job both (efr's auto spec, section 3.18). efrd
+/// makes the same dirs with the same mode before each sandboxed call. A failure is
+/// only logged: the shell starts, and efrd then starts no job until the dir exists.
+async fn make_shell_dir(config: &ShellConfig, conversation: ConversationId, integration: bool) {
+    let (Some(root), Some(_)) = (&config.sandbox_dir, &config.sandbox_launcher) else { return };
+    if !integration {
+        return;
+    }
+    let dir = sandbox::conversation_dir(root, conversation);
+    let made = dir.clone();
+    let done = tokio::task::spawn_blocking(move || {
+        use std::os::unix::fs::DirBuilderExt as _;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&made)
+    })
+    .await;
+    match done {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(%conversation, dir = %dir.display(), %error, "the hidden shell's sandbox dir could not be made");
+        }
+        Err(error) => {
+            tracing::warn!(%conversation, %error, "the hidden shell's sandbox dir could not be made");
+        }
     }
 }
 

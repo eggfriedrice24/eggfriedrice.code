@@ -60,6 +60,8 @@ builtin typeset -gi _efr_hs_state=0
 builtin typeset -g _efr_hs_pwd=
 # The PATH that _efr_hs_report_path wrote last.
 builtin typeset -g _efr_hs_path=
+# The exported variables that _efr_hs_report_env wrote last.
+builtin typeset -g _efr_hs_env=
 # 1 when the user's options asked for zsh's PROMPT_SP mark; see _efr_hs_precmd.
 builtin typeset -gi _efr_hs_prompt_sp=0
 
@@ -74,8 +76,8 @@ _efr_hs_report_pwd() {
 
 # Writes this shell's PATH to $_efr_hs_sbx_dir/path when it changed. The user's
 # startup files set it, and efrd resolves the program words of an exit question with
-# it, so the question names the program that this shell runs. The dir exists from the
-# first sandboxed call on; until then nothing is written.
+# it, so the question names the program that this shell runs. efr makes the dir before
+# it starts the shell; without it nothing is written.
 _efr_hs_report_path() {
   builtin emulate -L zsh
   [[ -n $_efr_hs_sbx_dir && $PATH != "$_efr_hs_path" && -d $_efr_hs_sbx_dir ]] || return 0
@@ -83,8 +85,30 @@ _efr_hs_report_path() {
   return 0
 }
 
+# Writes this shell's exported variables to $_efr_hs_sbx_dir/env (0600) when they
+# changed, as NUL-separated NAME=value entries. efrd starts a background job outside
+# this shell and gives it this environment. The file goes through a temporary file and
+# a rename, so efrd never reads half of it.
+_efr_hs_report_env() {
+  builtin emulate -L zsh
+  [[ -n $_efr_hs_sbx_dir && -d $_efr_hs_sbx_dir ]] || return 0
+  builtin local name text=
+  for name in ${(ko)parameters[(R)*export*]}; do
+    text+="$name=${(P)name}"$'\0'
+  done
+  [[ $text == "$_efr_hs_env" ]] && return 0
+  builtin zmodload -F zsh/files b:zf_chmod b:zf_mv 2>/dev/null
+  builtin local file=$_efr_hs_sbx_dir/env
+  builtin print -rn -- $text 2>/dev/null >| $file.tmp &&
+    zf_chmod 600 $file.tmp && zf_mv -f -- $file.tmp $file && _efr_hs_env=$text
+  return 0
+}
+
 _efr_hs_precmd() {
   builtin local -i st=$?
+  # The user's options, read before emulate -L sets its own, for a stale snapshot.
+  builtin local -A _efr_hs_sbx_opts
+  (( _efr_hs_sbx_stale )) && _efr_hs_sbx_opts=("${(@kv)options}")
   builtin emulate -L zsh
   # Some plugins run precmd hooks from inside a widget to refresh the prompt; a mark
   # printed then would land in the middle of the line editor's display.
@@ -106,6 +130,16 @@ _efr_hs_precmd() {
   builtin print -rn -- $'\e]133;A;cl=line\a'
   _efr_hs_state=1
   _efr_hs_no_user_hooks
+  # efrd can start a background job at any time, and the job replays the snapshot and
+  # gets the exported variables of this shell, so both are written here, after D, when
+  # they changed. The words that efr's clear key removes before each typed line go
+  # first, as they did before the wrapper wrote the snapshot.
+  _efr_hs_report_env
+  if [[ -n $_efr_hs_sbx_dir && -d $_efr_hs_sbx_dir ]] && (( _efr_hs_sbx_stale )); then
+    _efr_hs_plain_words
+    _efr_hs_sbx_snapshot
+  fi
+  return 0
 }
 
 # The hidden shell runs no hook and no prompt code of the user, in every mode. It cd's
@@ -334,7 +368,8 @@ _efr_hs_sbx_apply() {
 # Writes $_efr_hs_sbx_dir/snapshot.zsh when it is stale: this shell's functions (not
 # efr's), its aliases, and its options, for the child shell of each call to replay. A
 # snapshot above 4 KiB is compiled with zcompile, which the child's `source` reads
-# instead. The options come from _efr_hs_sbx, which reads them before emulate -L.
+# instead. The options come from the caller, _efr_hs_sbx or the precmd hook, which
+# reads them before emulate -L.
 _efr_hs_sbx_snapshot() {
   builtin emulate -L zsh -o extended_glob
   builtin local file=$_efr_hs_sbx_dir/snapshot.zsh
@@ -365,9 +400,13 @@ _efr_hs_sbx_snapshot() {
     (( $#on )) && builtin print -r -- "builtin setopt ${(j: :)${(@o)on}} 2>/dev/null"
     (( $#off )) && builtin print -r -- "builtin unsetopt ${(j: :)${(@o)off}} 2>/dev/null"
   )"
-  builtin print -r -- $snapshot >| $file || return 0
-  builtin zmodload -F zsh/files b:zf_rm
+  # A background job may read the snapshot at any time, so it goes through a temporary
+  # file and a rename: a reader gets the old file or the new one. The old compiled form
+  # goes first, so no reader takes it for the new file.
+  builtin zmodload -F zsh/files b:zf_rm b:zf_mv
+  builtin print -r -- $snapshot >| $file.tmp || return 0
   zf_rm -f -- $file.zwc
+  zf_mv -f -- $file.tmp $file || return 0
   (( $#snapshot > 4096 )) && builtin zcompile -U -- $file
   _efr_hs_sbx_stale=0
   return 0

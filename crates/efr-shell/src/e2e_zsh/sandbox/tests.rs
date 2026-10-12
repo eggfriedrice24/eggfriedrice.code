@@ -1,6 +1,7 @@
 //! The zsh tests of efr's auto spec, section 16.2, over a real zsh and the fake
 //! launcher.
 
+use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::{Path, PathBuf};
 
@@ -574,4 +575,77 @@ async fn run_child(child: &Path, dir: &Path) -> std::process::Output {
         .output()
         .await
         .unwrap()
+}
+
+/// The entries of the shell's `env` file, once one holds `wanted`.
+async fn env_entries(zsh: &Zsh, wanted: &str) -> Vec<String> {
+    let file = zsh.sandbox_dir().join("env");
+    Wait::new("the env file")
+        .until_some(|| {
+            let bytes = std::fs::read(&file).ok()?;
+            let entries: Vec<String> = bytes
+                .split(|byte| *byte == 0)
+                .filter(|entry| !entry.is_empty())
+                .map(|entry| String::from_utf8_lossy(entry).into_owned())
+                .collect();
+            entries.iter().any(|entry| entry == wanted).then_some(entries)
+        })
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn e2e_zsh_integration_writes_env_file() {
+    let Some(zsh) = Zsh::start_sandboxed("e2e_zsh_integration_writes_env_file") else {
+        return;
+    };
+    zsh.run_plain("export JOB_VAR='two words'; not_exported=1").await;
+    let entries = env_entries(&zsh, "JOB_VAR=two words").await;
+    assert!(entries.contains(&"PATH=/usr/bin:/bin".to_owned()), "{entries:?}");
+    assert!(!entries.iter().any(|entry| entry.starts_with("not_exported=")), "{entries:?}");
+    // efr's own state stays out: the integration took its variables out of the
+    // environment.
+    assert!(!entries.iter().any(|entry| entry.starts_with("_EFR_HS_")), "{entries:?}");
+    let file = zsh.sandbox_dir().join("env");
+    let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    // A change is written at the next prompt.
+    zsh.run_plain("export JOB_VAR=changed").await;
+    let entries = env_entries(&zsh, "JOB_VAR=changed").await;
+    assert!(!entries.contains(&"JOB_VAR=two words".to_owned()), "{entries:?}");
+}
+
+#[tokio::test]
+async fn e2e_zsh_snapshot_written_at_first_prompt() {
+    let Some(zsh) = Zsh::start_sandboxed("e2e_zsh_snapshot_written_at_first_prompt") else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshrc"), "from_rc() { print -r -- rc }\n").unwrap();
+    // No sandboxed call runs: a background job may start before the first one.
+    zsh.run_plain("true").await;
+    let snapshot = zsh.sandbox_dir().join("snapshot.zsh");
+    let holds = |text: &'static str| {
+        let snapshot = snapshot.clone();
+        move || std::fs::read_to_string(&snapshot).is_ok_and(|held| held.contains(text))
+    };
+    Wait::new("the snapshot of the first prompt").until(holds("from_rc")).await.unwrap();
+    // A line that changes the functions makes it stale; the next prompt writes it again.
+    zsh.run_plain("late_fn() { : }").await;
+    Wait::new("the snapshot of a later prompt").until(holds("late_fn")).await.unwrap();
+    assert!(!zsh.sandbox_dir().join("snapshot.zsh.tmp").exists());
+}
+
+#[tokio::test]
+async fn e2e_zsh_env_written_when_dir_made_before_spawn() {
+    let Some(zsh) = Zsh::start_sandboxed("e2e_zsh_env_written_when_dir_made_before_spawn") else {
+        return;
+    };
+    assert!(!zsh.sandbox_dir().exists());
+    zsh.run_plain("true").await;
+    // efr made the shell's sandbox dir before the shell started, so its first prompt
+    // wrote both files with no sandboxed call.
+    let mode = std::fs::metadata(zsh.sandbox_dir()).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    env_entries(&zsh, "PATH=/usr/bin:/bin").await;
+    assert!(zsh.sandbox_dir().join("snapshot.zsh").exists());
 }
