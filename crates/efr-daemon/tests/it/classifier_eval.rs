@@ -27,10 +27,20 @@
 //! permission before it calls a tool. With recorded answers this proves the replay and
 //! the check only; section 7 of the phase A plan checks the real models by hand.
 //!
+//! The job eval of phase C (16.5) replays `fixtures/classifier/job_prompts.json`: five
+//! prompts whose one call starts a background job. It checks who judged the job's
+//! exits, whether a job started, how it runs and with which grants, and that every
+//! record of a job holds its facts (`background`, `max_minutes`, `watch`). Its daemon
+//! starts jobs through the shared fake launcher of `efr-test-daemon`; a line that must
+//! not run on the test's machine (`gdb -p`) makes the fake fail its setup, and the spec
+//! that the fake kept tells the launch.
+//!
 //! No live model runs. The reviewer's answers are those that a model must give for the
-//! verdicts of the spec. No line runs either: the fake shell answers each typed line
-//! with status 0 at once, so the launcher never starts and an allowed call ends with
-//! "the sandbox could not start".
+//! verdicts of the spec. No line of the phase A and B evals runs either: the fake shell
+//! answers each typed line with status 0 at once, so the launcher never starts and an
+//! allowed call ends with "the sandbox could not start". The fake launcher of the job
+//! eval runs a job's line with `/bin/sh` and the test's home until efrd stops; the eval
+//! stops efrd before it checks, so a failed check leaves no job running.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -39,14 +49,16 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, ApprovalDecision, ApprovalRespond,
-    ApprovalRespondResult, CacheMode, Event, EventEnvelope, ExitRecord, JudgeKind, Method, Mode,
-    NetworkMode, PromptSendResult, SandboxStatus, TurnSettings, Verdict,
+    ApprovalRespondResult, CacheMode, Event, EventEnvelope, ExitRecord, JudgeKind, Launch, Method,
+    Mode, NetworkMode, PromptSendResult, SandboxStatus, TurnSettings, Verdict,
 };
 use efr_provider::{
     ContentBlock, Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
     Request, StopReason,
 };
-use efr_test_daemon::{FakePtyHolder, TTY, TestDaemon, TestDaemonError, command_id, events_until};
+use efr_test_daemon::{
+    FakeLauncher, FakePtyHolder, TTY, TestDaemon, TestDaemonError, command_id, events_until,
+};
 use efr_test_support::TestDirs;
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
@@ -722,4 +734,230 @@ async fn auto_prompt_eval_has_no_refusal_before_a_tool_call() {
         );
     }
     daemon.stop().await.unwrap();
+}
+
+/// One prompt of the job eval (efr's auto spec, section 16.5, phase C): the model
+/// starts a background job, and the eval checks who judged its exits, whether a job
+/// started and how, and the job facts of the reviewer's record.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JobCase {
+    prompt: String,
+    /// The `shell` input of the model's one call.
+    input: Value,
+    /// The files of the machine, below the home directory.
+    #[serde(default)]
+    files: BTreeMap<String, String>,
+    /// False for a line that must not run on the test's machine, such as `gdb -p`: the
+    /// fake launcher then fails its setup, and its copy of the job's spec tells the
+    /// launch.
+    #[serde(default = "runs_by_default")]
+    runs: bool,
+    reviewer: Option<Value>,
+    expect: JobExpect,
+}
+
+fn runs_by_default() -> bool {
+    true
+}
+
+/// What a job prompt must show.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JobExpect {
+    /// Each judgement of an exit: the judge and the verdict.
+    judged: Vec<(JudgeKind, Verdict)>,
+    asked: bool,
+    /// How the job runs, with its grants; `null` when no job may start.
+    launch: Option<Value>,
+    /// Words of the model's tool result when no job may start.
+    #[serde(default)]
+    refused: Option<String>,
+    /// The time limit in the reviewer's record; `null` when no record exists.
+    max_minutes: Option<u32>,
+}
+
+impl JobCase {
+    fn line(&self) -> &str {
+        self.input["command"].as_str().unwrap()
+    }
+
+    fn owns(&self, record: &ExitRecord) -> bool {
+        record.action.line == self.line() && record.user_messages.contains(&self.prompt)
+    }
+}
+
+/// The model of the job eval: the one call of each prompt, and the reviewer.
+#[derive(Debug)]
+struct JobEvalModel {
+    id: ProviderId,
+    cases: Vec<JobCase>,
+    reviews: Mutex<Vec<ExitRecord>>,
+}
+
+impl JobEvalModel {
+    fn review(&self, request: &Request) -> String {
+        let text: String = request.messages.iter().map(Message::text).collect();
+        let record: ExitRecord = serde_json::from_str(&text).unwrap();
+        let answer = self
+            .cases
+            .iter()
+            .find(|case| case.owns(&record))
+            .and_then(|case| case.reviewer.clone());
+        self.reviews.lock().unwrap().push(record);
+        answer.map_or_else(|| ASKS.to_owned(), |answer| answer.to_string())
+    }
+
+    fn step(&self, request: &Request) -> Vec<ProviderEvent> {
+        let text: String = request.messages.iter().map(Message::text).collect();
+        let case = self.cases.iter().find(|case| text.contains(&case.prompt));
+        match case.filter(|_| calls_made(request) == 0) {
+            Some(case) => tool_call(0, "shell", &case.input),
+            None => end_turn(),
+        }
+    }
+}
+
+#[async_trait]
+impl Provider for JobEvalModel {
+    fn id(&self) -> &ProviderId {
+        &self.id
+    }
+
+    async fn stream(&self, request: Request) -> Result<ProviderStream, ProviderError> {
+        let events =
+            if is_review(&request) { verdict(self.review(&request)) } else { self.step(&request) };
+        Ok(Box::pin(futures::stream::iter(events.into_iter().map(Ok))))
+    }
+}
+
+/// How the job of `events` runs, as the fixtures write it: `{ "kind", "grants" }` with
+/// `~` for the home dir `home`, from `job_started`, or from the spec that the fake
+/// launcher kept when it failed its setup on purpose; `None` when no job started.
+fn job_launch(events: &[EventEnvelope], fake: &FakeLauncher, home: &Path) -> Option<Value> {
+    let started = events.iter().find_map(|envelope| match &envelope.event {
+        Event::JobStarted { job, .. } => Some(job.launch.clone()),
+        _ => None,
+    });
+    let call = match started {
+        Some(Launch::Contained { grants }) => {
+            let grants = serde_json::to_string(&grants).unwrap();
+            let grants = grants.replace(&home.display().to_string(), "~");
+            let grants: Value = serde_json::from_str(&grants).unwrap();
+            return Some(json!({ "kind": "contained", "grants": grants }));
+        }
+        Some(_) => return Some(json!({ "kind": "unsandboxed" })),
+        None => events.iter().find_map(|envelope| match &envelope.event {
+            Event::ToolCallCompleted { call_id, .. } => Some(*call_id),
+            _ => None,
+        })?,
+    };
+    let spec = std::fs::read(fake.dir().join(format!("spec-{call}.json"))).ok()?;
+    let spec = efr_sandbox::SandboxSpec::from_json(&spec).unwrap();
+    Some(match spec.launch {
+        efr_sandbox::SpecLaunch::Contained => json!({ "kind": "contained" }),
+        _ => json!({ "kind": "unsandboxed" }),
+    })
+}
+
+/// What a job prompt showed: the prompt, the judgements, whether it asked, the launch
+/// and the record's time limit.
+type JobSeen<'a> = (&'a str, Vec<(JudgeKind, Verdict)>, bool, Option<Value>, Option<u32>);
+
+#[tokio::test]
+async fn job_prompts_decide_as_expected() {
+    let path = Path::new(FIXTURES).join("job_prompts.json");
+    let cases: Vec<JobCase> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(cases.len(), 5, "the eval has the five job prompts of 16.5");
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    for (path, text) in cases.iter().flat_map(|case| &case.files) {
+        let path = dirs.home().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
+        ("HOME".to_owned(), dirs.home().display().to_string()),
+    ]);
+    let model = Arc::new(JobEvalModel {
+        id: ProviderId::new("test").unwrap(),
+        cases: cases.clone(),
+        reviews: Mutex::new(Vec::new()),
+    });
+    // NOTE: the files of the fixtures exist before the turns start, so none of them
+    // changed in a turn.
+    let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
+    let daemon = TestDaemon::builder()
+        .dirs(Arc::clone(&dirs))
+        .clock(efr_test_support::TestClock::starting_at(start))
+        .sandbox_launcher(fake.path())
+        .probe_override(ready())
+        .job_env(env)
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+    add_project(&daemon, &project).await;
+
+    let mut seen: Vec<JobSeen<'_>> = Vec::new();
+    let mut want: Vec<JobSeen<'_>> = Vec::new();
+    let mut problems: Vec<String> = Vec::new();
+    for (n, case) in cases.iter().enumerate() {
+        if case.runs {
+            let _ = std::fs::remove_file(fake.dir().join("fail"));
+        } else {
+            fake.set("fail").unwrap();
+        }
+        let events = run_prompt(&daemon, n as u128 + 1, &case.prompt).await;
+        let asked =
+            events.iter().any(|envelope| matches!(envelope.event, Event::ApprovalRequested { .. }));
+        let mut all = records(&events);
+        all.extend(model.reviews.lock().unwrap().iter().filter(|r| case.owns(r)).cloned());
+        let max_minutes = all.first().and_then(|record| record.action.max_minutes);
+        let launch = job_launch(&events, &fake, dirs.home());
+        seen.push((&case.prompt, judgements(&events), asked, launch, max_minutes));
+        let expect = &case.expect;
+        want.push((
+            &case.prompt,
+            expect.judged.clone(),
+            expect.asked,
+            expect.launch.clone(),
+            expect.max_minutes,
+        ));
+        // Every record of a job holds the job's facts, and no record holds a notice.
+        for record in &all {
+            let facts = (
+                record.action.background,
+                record.action.watch,
+                record.action.wake_turn,
+                record.user_messages.as_slice(),
+            );
+            let wanted = (
+                true,
+                case.input.get("watch").is_some(),
+                false,
+                std::slice::from_ref(&case.prompt),
+            );
+            if facts != wanted {
+                problems.push(format!("{}: the record's facts are {facts:?}", case.prompt));
+            }
+        }
+        if let Some(words) = &expect.refused {
+            let output = events.iter().find_map(|envelope| match &envelope.event {
+                Event::ToolCallCompleted { output, is_error: true, .. } => Some(output.clone()),
+                _ => None,
+            });
+            let output = output.unwrap_or_default();
+            if !output.contains(words.as_str()) {
+                problems.push(format!("{}: the result is {output}", case.prompt));
+            }
+        }
+    }
+    let _ = std::fs::remove_file(fake.dir().join("fail"));
+    // NOTE: the daemon stops first, so a failed check leaves no job of the eval running.
+    daemon.stop().await.unwrap();
+    assert_eq!(problems, Vec::<String>::new());
+    assert_eq!(seen, want);
 }

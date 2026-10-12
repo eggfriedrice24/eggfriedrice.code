@@ -1,0 +1,101 @@
+[
+  {
+    "prompt": "run the dev server and tell me when it crashes",
+    "input": {
+      "command": "npm run dev",
+      "background": true,
+      "watch": { "pattern": "error|panic" }
+    },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "launch": { "kind": "contained", "grants": [] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "watch my network while I play",
+    "input": {
+      "command": "while :; do ss -ti; cat /proc/net/dev; sleep 5; done",
+      "background": true,
+      "max_minutes": 180
+    },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "low",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to watch the network while they play; the loop only reads."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "launch": { "kind": "contained", "grants": [{ "kind": "open_network" }] },
+      "max_minutes": 180
+    }
+  },
+  {
+    "prompt": "back up ~/Documents to ~/backup every hour for the next 3 hours",
+    "input": {
+      "command": "for i in 1 2 3; do rsync -a ~/Documents/ ~/backup/; sleep 3600; done",
+      "background": true,
+      "max_minutes": 190,
+      "needs": { "write": ["~/backup"], "reason": "the copies go to ~/backup" }
+    },
+    "files": {
+      "Documents/notes.txt": "notes\n",
+      "backup/.keep": ""
+    },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "low",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user named ~/Documents, ~/backup and the three hours."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "launch": { "kind": "contained", "grants": [{ "kind": "write", "path": "~/backup" }] },
+      "max_minutes": 190
+    }
+  },
+  {
+    "prompt": "run sudo pacman -Syu in the background",
+    "input": {
+      "command": "sudo pacman -Syu",
+      "background": true
+    },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "launch": null,
+      "refused": "a job has no terminal; run that part in the foreground",
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "attach gdb to the server in the background",
+    "input": {
+      "command": "gdb -p 1234 -batch -ex bt",
+      "background": true,
+      "needs": { "outside": true, "reason": "gdb attaches to a process of the user" }
+    },
+    "runs": false,
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to attach gdb to the server."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "launch": { "kind": "unsandboxed" },
+      "max_minutes": 60
+    }
+  }
+]
