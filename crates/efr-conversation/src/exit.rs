@@ -29,6 +29,17 @@ use efr_protocol::{
 };
 use serde_json::Value;
 
+/// The time limit of a background job, in minutes, when the call's requirements name
+/// none: the default of `jobs.default_minutes`. efrd names the job's own limit, after
+/// its default and its cut, in the requirements it declares.
+pub(crate) const JOB_MINUTES: u32 = 60;
+
+/// The time limit of the background job that a call with `requirements` starts, or
+/// `None` for a call in the foreground.
+pub(crate) fn job_minutes(requirements: &Requirements) -> Option<u32> {
+    requirements.background.then(|| requirements.max_minutes.unwrap_or(JOB_MINUTES))
+}
+
 /// How many refusals in a row without a person stop a turn. Not configurable: the model
 /// must not get a fourth try by changing a setting.
 pub(crate) const REFUSAL_LIMIT: u8 = 3;
@@ -480,7 +491,8 @@ pub(crate) fn info(
     }
 }
 
-/// efr's own facts for the question, one short sentence each: a target that does not
+/// efr's own facts for the question, one short sentence each: how long a background
+/// job and its grants last, a target that does not
 /// exist yet, a target that is a directory, and what a write grant does beyond a plain
 /// bind. What a grant opens is the question's own line, which a client builds from the
 /// launch. A file that exists gets no fact: the question names it already, and a line
@@ -494,6 +506,10 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
             facts.push(fact);
         }
     };
+    // NOTE: a job's grants are not one-shot: they stay open while nobody watches it.
+    if let Some(minutes) = job_minutes(requirements) {
+        push(crate::job_lifetime_fact(minutes));
+    }
     for need in decision.exits() {
         let Some(target) = &need.target else { continue };
         let shown = tilde(target, home);
@@ -602,6 +618,9 @@ pub(crate) struct TurnExits {
     /// True once a call of the turn changed a git setting or another file that runs
     /// code.
     pub(crate) surface_changed: bool,
+    /// True in a turn that a job notice started, not a prompt: nobody asked for its
+    /// steps now (phase C).
+    pub(crate) wake_turn: bool,
 }
 
 impl TurnExits {
@@ -864,10 +883,10 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             grants: action.launch.grants().to_vec(),
             source: source(action.decision),
             edit: action.payload.map(Payload::recorded),
-            background: false,
-            max_minutes: None,
-            watch: false,
-            wake_turn: false,
+            background: action.requirements.background,
+            max_minutes: job_minutes(action.requirements),
+            watch: action.requirements.watch,
+            wake_turn: turn.wake_turn,
         },
         facts: ExitFacts {
             targets,

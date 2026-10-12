@@ -1214,12 +1214,19 @@ impl Turn {
             info.judged = judgement;
             Some(info)
         };
-        let summary =
+        let mut summary =
             ruling.summary.clone().unwrap_or_else(|| approvals::summary(&call.name, decision));
+        // NOTE: a job's question names how long the job and what a "yes" opens last; a
+        // question with exits names it among their facts.
+        if let (Some(minutes), None) = (exit::job_minutes(&ruling.requirements), &exit) {
+            summary.push('\n');
+            summary.push_str(&crate::job_lifetime_fact(minutes));
+        }
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
         // NOTE: a privilege exit needs the password at the terminal, so a phone never
-        // answers it (efr's auto spec, section 9.5).
-        let local_only = kinds.contains(&ExitKind::Privilege);
+        // answers it (efr's auto spec, section 9.5). Nor does it answer a job's question:
+        // its "yes" is not one-shot, it lasts while nobody watches the job.
+        let local_only = kinds.contains(&ExitKind::Privilege) || ruling.requirements.background;
         let answer = self.shared.approvals.park(turn_id, call_id, local_only);
         events.push(Event::ApprovalRequested {
             turn_id,

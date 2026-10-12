@@ -122,6 +122,10 @@ into the GitHub release notes, and it stops when the section is missing.
   variables to an `env` file (0600) in efr's runtime dir at each prompt where they
   changed. It also writes its functions, aliases and options for the sandbox at such a
   prompt, not only before a command in `auto`.
+- A question about a background job names how long the job and what a yes opens
+  last: `runs as a job for up to 60 minutes; these grants stay open until it ends`.
+  Only your own terminal answers it, never a phone. Outside `auto`, each job asks you
+  before it starts.
 
 ### Changed
 

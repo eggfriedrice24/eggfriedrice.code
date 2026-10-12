@@ -158,6 +158,20 @@ turns.
   Continue without it, and name it in your final answer." The turn goes on. An answer
   always wins during the wait. A phone never answers a privilege exit
   (`RemotePrivilegeAnswer`), because the password needs the terminal.
+- Background jobs at the check point (phase C). A `shell` call with `background: true`
+  goes through the engine like any call. In `auto` a job with no exit starts at once,
+  with no question and no classifier call; an exit goes to the classifier or the user
+  as in the foreground, and its record has `background`, `max_minutes` (the job's
+  limit, 60 when the requirements name none, so the classifier always sees the
+  lifetime) and `watch`. A delete that undo covers stays an exit for a job. A part that
+  no job may hold (`efr_permissions::job_refusal`) gets the model's text "... cannot
+  run as a job. Run that part in the foreground, and the rest as a job.", with no
+  question, in every mode. Outside `auto` (also a turn that fell back to `cautious`
+  and a remote turn) each job asks the user before it starts, whatever the rules say.
+  The question of a job names its lifetime (`job_lifetime_fact`, among the exit's facts
+  or as the last line of the summary), and only the user's own machine answers it
+  (`RemotePrivilegeAnswer` for a phone), because its "yes" lasts while nobody watches
+  the job. A "no", an expired question and the away wait start no job.
 - Cache deletes (`turn/cache.rs`). A contained call that deleted files in its private
   cache layer reports them in `SandboxSummary::cache_deletes`. After the call,
   `Engine::decide_cache_delete` makes one `write` exit of each path below a cache, and
