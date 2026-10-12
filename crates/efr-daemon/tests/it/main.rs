@@ -20,6 +20,7 @@ mod hello;
 mod home;
 mod input_respond;
 mod interrupt;
+mod jobs;
 mod login;
 mod presence;
 mod prompt_send;

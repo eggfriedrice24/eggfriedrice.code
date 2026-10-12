@@ -37,7 +37,7 @@ use crate::home::home_copies;
 use crate::support::zsh_enabled;
 
 /// A sandbox that the probe found ready.
-fn ready() -> SandboxStatus {
+pub(crate) fn ready() -> SandboxStatus {
     SandboxStatus {
         available: true,
         reason: None,
@@ -138,15 +138,27 @@ pub(crate) async fn run_turn(
 }
 
 /// [`run_turn`] from the shell of `tty`, which has a conversation of its own.
-async fn run_turn_on(
+pub(crate) async fn run_turn_on(
     daemon: &TestDaemon,
     tty: &str,
     text: &str,
     mode: Mode,
     decision: ApprovalDecision,
 ) -> (PromptSendResult, Vec<EventEnvelope>) {
+    run_turn_with(daemon, tty, 1, text, mode, decision).await
+}
+
+/// [`run_turn_on`] with the command id `n` for the prompt.
+pub(crate) async fn run_turn_with(
+    daemon: &TestDaemon,
+    tty: &str,
+    n: u128,
+    text: &str,
+    mode: Mode,
+    decision: ApprovalDecision,
+) -> (PromptSendResult, Vec<EventEnvelope>) {
     let client = daemon.client_for_tty(tty).await.unwrap();
-    let Method::PromptSend(mut params) = daemon.prompt(1, text, tty) else { unreachable!() };
+    let Method::PromptSend(mut params) = daemon.prompt(n, text, tty) else { unreachable!() };
     params.settings = TurnSettings { mode: Some(mode), ..TurnSettings::default() };
     let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
     let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
