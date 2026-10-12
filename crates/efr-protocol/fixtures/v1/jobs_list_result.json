@@ -1,0 +1,32 @@
+{
+  "jobs": [
+    {
+      "id": "j3",
+      "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+      "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+      "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+      "command": "npm run dev",
+      "launch": {
+        "kind": "contained",
+        "grants": [
+          {
+            "kind": "open_network"
+          }
+        ]
+      },
+      "state": "stopped",
+      "started_at": "2026-10-12T10:00:00Z",
+      "ends_by": "2026-10-12T11:00:00Z",
+      "ended_at": "2026-10-12T10:32:00Z",
+      "exit_code": 143,
+      "stopped_by": "user",
+      "output": "/home/me/.local/share/efr/scratch/2026-10-12-019a9b1c/jobs/j3.out",
+      "output_bytes": 48213,
+      "watch": {
+        "pattern": "error|panic",
+        "max_wakes": 3
+      },
+      "wakes": 1
+    }
+  ]
+}

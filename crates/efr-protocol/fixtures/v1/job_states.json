@@ -1,0 +1,8 @@
+[
+  "running",
+  "exited",
+  "stopped",
+  "timed_out",
+  "failed",
+  "unknown"
+]

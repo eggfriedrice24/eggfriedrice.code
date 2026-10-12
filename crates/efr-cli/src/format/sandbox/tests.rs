@@ -52,6 +52,10 @@ fn record(line: &str) -> ExitRecord {
             grants: Vec::new(),
             source: ExitSource::Predicted,
             edit: None,
+            background: false,
+            max_minutes: None,
+            watch: false,
+            wake_turn: false,
         },
         facts: ExitFacts::default(),
     }

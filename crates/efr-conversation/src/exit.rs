@@ -864,6 +864,10 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             grants: action.launch.grants().to_vec(),
             source: source(action.decision),
             edit: action.payload.map(Payload::recorded),
+            background: false,
+            max_minutes: None,
+            watch: false,
+            wake_turn: false,
         },
         facts: ExitFacts {
             targets,

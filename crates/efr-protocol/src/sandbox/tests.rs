@@ -2,9 +2,33 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    BusKind, CacheMode, DesktopKind, EffectiveSettings, Event, ExitFacts, ExitKind, Grant, Launch,
-    Mode, ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus, SandboxSummary,
+    ActionFacts, BusKind, CacheMode, DesktopKind, EffectiveSettings, Event, ExitFacts, ExitKind,
+    Grant, Launch, Mode, ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus,
+    SandboxSummary,
 };
+
+#[test]
+fn action_facts_without_job_fields_reads_as_before() {
+    let old = json!({
+        "tool": "shell",
+        "line": "cp report.pdf ~/Documents/",
+        "cwd": "/home/me/p/app",
+        "scope": { "kind": "machine" },
+        "exits": ["write"],
+        "source": "predicted",
+    });
+    let read: ActionFacts = serde_json::from_value(old.clone()).unwrap();
+    assert!(!read.background && !read.watch && !read.wake_turn);
+    assert_eq!(read.max_minutes, None);
+    assert_eq!(serde_json::to_value(&read).unwrap(), old, "and writes none of them");
+
+    let job = ActionFacts { background: true, max_minutes: Some(60), ..read };
+    let wire = serde_json::to_value(&job).unwrap();
+    assert_eq!(wire["background"], json!(true));
+    assert_eq!(wire["max_minutes"], json!(60));
+    assert_eq!(wire.get("watch"), None);
+    assert_eq!(serde_json::from_value::<ActionFacts>(wire).unwrap(), job);
+}
 
 #[test]
 fn exit_facts_without_new_fields_read_as_before() {

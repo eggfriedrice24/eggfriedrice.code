@@ -1,0 +1,6 @@
+{
+  "kind": "job_notice_held",
+  "job_id": "j3",
+  "source_seq": 812,
+  "reason": "wake_limit"
+}

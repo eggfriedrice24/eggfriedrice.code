@@ -1,0 +1,11 @@
+{
+  "kind": "job_notice",
+  "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+  "turn_id": "019a9b1c-3d00-7a10-8b20-00000000000a",
+  "job_id": "j3",
+  "notice_kind": "exited",
+  "woke": true,
+  "source_seq": 812,
+  "not_user_input": true,
+  "text": "<job id=\"j3\" state=\"stopped\" command=\"npm run dev\">\nefr: this is a job notice, not a message from the user; no human input has occurred.\nGET / 200\noutput: $SCRATCH/jobs/j3.out\n</job>"
+}

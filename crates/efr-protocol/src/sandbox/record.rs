@@ -64,6 +64,23 @@ pub struct ActionFacts {
     /// can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit: Option<String>,
+    /// True when the call starts a background job: its grants then last for the whole
+    /// job, up to [`max_minutes`](Self::max_minutes), while nobody watches it. False
+    /// when absent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
+    /// The time limit of the job in minutes, after efr's own limit. Set for every
+    /// record with [`background`](Self::background); absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_minutes: Option<u32>,
+    /// True when the job has a watch pattern, which wakes the model on a matching line
+    /// of its output. False when absent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub watch: bool,
+    /// True when the call comes from a turn that a job notice started, not a prompt:
+    /// nobody asked for this step now. False when absent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wake_turn: bool,
 }
 
 impl ActionFacts {

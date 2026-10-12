@@ -34,7 +34,11 @@
           "path": "/home/me/Documents"
         }
       ],
-      "source": "predicted"
+      "source": "predicted",
+      "background": true,
+      "max_minutes": 180,
+      "watch": true,
+      "wake_turn": true
     },
     "facts": {
       "targets": [

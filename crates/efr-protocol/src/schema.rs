@@ -16,13 +16,14 @@ use crate::{
     ApprovalRespondResult, ConversationCompact, ConversationCompactResult, ConversationDiff,
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationSubscribe,
     ConversationSubscribeItem, ConversationsList, ConversationsListResult, ErrorCode, ErrorFrame,
-    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, LeaseReport,
-    LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, PresenceSet,
-    PresenceSetResult, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
-    PromptWithdraw, PromptWithdrawResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult,
-    PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
+    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, JobsList,
+    JobsListResult, JobsStop, JobsStopResult, LeaseReport, LeaseReportResult, ModelsList,
+    ModelsListResult, PROTOCOL_VERSION, PresenceSet, PresenceSetResult, ProjectsList,
+    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
+    PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId,
+    SandboxExplain, SandboxExplainResult, SandboxSurfaceRespond, SandboxSurfaceRespondResult,
+    ScopeName, TurnInterrupt, TurnInterruptResult, TurnSteer, TurnSteerResult, TurnUndo,
+    TurnUndoResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -132,6 +133,8 @@ pub fn document() -> Value {
         ),
         unary::<PresenceSet, PresenceSetResult>(&mut generator, "presence.set", ScopeName::Operate),
         unary::<TurnUndo, TurnUndoResult>(&mut generator, "turn.undo", ScopeName::Operate),
+        unary::<JobsList, JobsListResult>(&mut generator, "jobs.list", ScopeName::Read),
+        unary::<JobsStop, JobsStopResult>(&mut generator, "jobs.stop", ScopeName::Operate),
     ];
     let frames = json!({
         "client": client_frame(&mut generator),

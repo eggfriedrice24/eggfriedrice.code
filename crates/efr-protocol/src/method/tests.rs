@@ -8,10 +8,10 @@ use crate::{
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
     Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationDiff,
     ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
-    InputRespond, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet, ProjectsList,
-    PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer,
-    TurnUndo, WithdrawTarget,
+    InputRespond, JobId, JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence,
+    PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite,
+    QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt,
+    TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -311,7 +311,53 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             true,
             false,
         ),
+        (
+            Method::JobsList(JobsList { conversation_id: None }),
+            "jobs.list",
+            ScopeName::Read,
+            false,
+            false,
+        ),
+        (
+            Method::JobsStop(JobsStop {
+                command_id: command(),
+                conversation_id: Some(conversation()),
+                job_id: JobId::nth(3),
+            }),
+            "jobs.stop",
+            ScopeName::Operate,
+            true,
+            false,
+        ),
     ]
+}
+
+#[test]
+fn jobs_stop_needs_operate_scope() {
+    let stop = Method::JobsStop(JobsStop {
+        command_id: command(),
+        conversation_id: None,
+        job_id: JobId::nth(1),
+    });
+    assert_eq!(ScopeName::for_method(&stop), ScopeName::Operate);
+    assert_eq!(stop.command_id(), Some(command()));
+    let wire = serde_json::to_value(&stop).unwrap();
+    assert_eq!(
+        wire,
+        json!({ "method": "jobs.stop", "params": { "command_id": COMMAND, "job_id": "j1" } })
+    );
+    let bad = json!({ "method": "jobs.stop", "params": { "command_id": COMMAND, "job_id": "3" } });
+    assert!(serde_json::from_value::<Method>(bad).is_err(), "a job id is j and a number");
+}
+
+#[test]
+fn jobs_list_needs_read_scope() {
+    let list = Method::JobsList(JobsList { conversation_id: None });
+    assert_eq!(ScopeName::for_method(&list), ScopeName::Read);
+    assert_eq!(list.command_id(), None);
+    assert!(!list.is_stream());
+    let wire = serde_json::to_value(&list).unwrap();
+    assert_eq!(wire, json!({ "method": "jobs.list", "params": {} }));
 }
 
 #[test]

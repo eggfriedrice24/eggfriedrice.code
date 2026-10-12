@@ -217,6 +217,13 @@ pub enum ProtocolError {
         /// The string that failed to parse.
         value: String,
     },
+
+    /// A string is not a job id, such as `j3`.
+    #[error("{value:?} is not a job id")]
+    InvalidJobId {
+        /// The string that failed to parse.
+        value: String,
+    },
 }
 
 #[cfg(test)]

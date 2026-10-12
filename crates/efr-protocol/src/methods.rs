@@ -30,6 +30,8 @@ pub(crate) mod conversation_subscribe;
 pub(crate) mod conversations_list;
 pub(crate) mod hello;
 pub(crate) mod input_respond;
+pub(crate) mod jobs_list;
+pub(crate) mod jobs_stop;
 pub(crate) mod lease_report;
 pub(crate) mod models_list;
 pub(crate) mod presence_set;

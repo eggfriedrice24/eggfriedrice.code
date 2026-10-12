@@ -71,10 +71,12 @@ fn method_index(method: &Method) -> usize {
         Method::ConversationCompact(_) => 27,
         Method::PresenceSet(_) => 28,
         Method::TurnUndo(_) => 29,
+        Method::JobsList(_) => 30,
+        Method::JobsStop(_) => 31,
     }
 }
 
-const METHOD_COUNT: usize = 30;
+const METHOD_COUNT: usize = 32;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -123,10 +125,15 @@ fn event_index(event: &Event) -> usize {
         Event::HomeFileChanged { .. } => 41,
         Event::SnapshotTaken { .. } => 42,
         Event::UndoApplied { .. } => 43,
+        Event::JobStarted { .. } => 44,
+        Event::JobWatchMatched { .. } => 45,
+        Event::JobEnded { .. } => 46,
+        Event::JobNotice { .. } => 47,
+        Event::JobNoticeHeld { .. } => 48,
     }
 }
 
-const EVENT_COUNT: usize = 44;
+const EVENT_COUNT: usize = 49;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {

@@ -1,0 +1,330 @@
+//! Background jobs on the wire (efr's auto spec, section 3.18, phase C): a `shell` call
+//! with `background: true` starts a job that runs on after its turn, until it ends, its
+//! time limit passes or someone stops it.
+//!
+//! efrd starts and stops jobs; the actor delivers their notices to the model. These
+//! types are what the events, `jobs.list`, `jobs.stop` and the tools name. Every enum
+//! here reads a value that this build does not know as its `Unknown` variant, so an old
+//! client keeps working with a newer daemon.
+
+use std::borrow::Cow;
+use std::fmt;
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use jiff::Timestamp;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use serde::de::{self, Deserializer};
+use serde::{Deserialize, Serialize, Serializer};
+
+use crate::{CallId, ConversationId, Launch, ProtocolError, TurnId};
+
+/// The id of a job: `j1`, `j2`, ... in the order in which the jobs of one conversation
+/// started. Ids repeat across conversations, so a job is named by its conversation and
+/// its id.
+///
+/// On the wire a string. A string that is not `j` and a number from 1 to 999999999
+/// without a leading zero is refused.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct JobId(String);
+
+impl JobId {
+    /// The largest job number.
+    pub const MAX_NUMBER: u32 = 999_999_999;
+
+    /// The id of the `n`th job of a conversation, `j{n}`. `n` is at least 1 and at most
+    /// [`MAX_NUMBER`](Self::MAX_NUMBER); a value outside takes the nearest end.
+    pub fn nth(n: u32) -> JobId {
+        JobId(format!("j{}", n.clamp(1, Self::MAX_NUMBER)))
+    }
+
+    /// The number of the job, such as 3 for `j3`.
+    pub fn number(&self) -> Option<u32> {
+        self.0.strip_prefix('j').and_then(|digits| digits.parse().ok())
+    }
+
+    /// The id as text, such as `j3`.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// True when `text` is a job id: `j`, then a digit from 1 to 9, then at most eight
+    /// digits.
+    fn valid(text: &str) -> bool {
+        let Some(digits) = text.strip_prefix('j') else {
+            return false;
+        };
+        (1..=9).contains(&digits.len())
+            && digits.bytes().all(|byte| byte.is_ascii_digit())
+            && !digits.starts_with('0')
+    }
+}
+
+impl fmt::Display for JobId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for JobId {
+    type Err = ProtocolError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if JobId::valid(text) {
+            Ok(JobId(text.to_owned()))
+        } else {
+            Err(ProtocolError::InvalidJobId { value: text.to_owned() })
+        }
+    }
+}
+
+impl Serialize for JobId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for JobId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(de::Error::custom)
+    }
+}
+
+impl JsonSchema for JobId {
+    fn schema_name() -> Cow<'static, str> {
+        "JobId".into()
+    }
+
+    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "pattern": "^j[1-9][0-9]{0,8}$",
+            "description": "The id of a job of one conversation, such as j3."
+        })
+    }
+}
+
+/// Where a job is in its life.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum JobState {
+    /// The job runs.
+    Running,
+    /// The job's command ended by itself; `exit_code` says how.
+    Exited,
+    /// Someone or something stopped the job; `stopped_by` says who.
+    Stopped,
+    /// The job reached its time limit and efr stopped it.
+    TimedOut,
+    /// The job could not start, or its launcher failed.
+    Failed,
+    /// A state that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl JobState {
+    /// Every state, in the order of the enum.
+    pub const ALL: [JobState; 6] = [
+        JobState::Running,
+        JobState::Exited,
+        JobState::Stopped,
+        JobState::TimedOut,
+        JobState::Failed,
+        JobState::Unknown,
+    ];
+
+    /// The wire form, such as `timed_out`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            JobState::Running => "running",
+            JobState::Exited => "exited",
+            JobState::Stopped => "stopped",
+            JobState::TimedOut => "timed_out",
+            JobState::Failed => "failed",
+            JobState::Unknown => "unknown",
+        }
+    }
+
+    /// True for a job that no longer runs.
+    pub const fn has_ended(self) -> bool {
+        !matches!(self, JobState::Running)
+    }
+}
+
+/// Who or what stopped a job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum JobStopBy {
+    /// The model, with the `job_stop` tool.
+    Model,
+    /// The user: `efr jobs stop` or the stop key of the view (`jobs.stop`).
+    User,
+    /// The job's time limit.
+    TimeLimit,
+    /// efrd stopped.
+    DaemonStop,
+    /// efrd stopped while the job ran, and its next start found the job.
+    DaemonRestart,
+    /// The surface guard found a git setting or another file that runs code, which the
+    /// job changed.
+    Guard,
+    /// A cause that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl JobStopBy {
+    /// Every cause, in the order of the enum.
+    pub const ALL: [JobStopBy; 7] = [
+        JobStopBy::Model,
+        JobStopBy::User,
+        JobStopBy::TimeLimit,
+        JobStopBy::DaemonStop,
+        JobStopBy::DaemonRestart,
+        JobStopBy::Guard,
+        JobStopBy::Unknown,
+    ];
+
+    /// The wire form, such as `time_limit`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            JobStopBy::Model => "model",
+            JobStopBy::User => "user",
+            JobStopBy::TimeLimit => "time_limit",
+            JobStopBy::DaemonStop => "daemon_stop",
+            JobStopBy::DaemonRestart => "daemon_restart",
+            JobStopBy::Guard => "guard",
+            JobStopBy::Unknown => "unknown",
+        }
+    }
+}
+
+/// What a job notice tells the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum NoticeKind {
+    /// The job ended.
+    Exited,
+    /// A line of the job's output matched its `watch` pattern.
+    Watch,
+}
+
+impl NoticeKind {
+    /// Every kind, in the order of the enum.
+    pub const ALL: [NoticeKind; 2] = [NoticeKind::Exited, NoticeKind::Watch];
+}
+
+/// Why a job notice did not start a turn of its own: it waits for the next turn that a
+/// prompt starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum HeldReason {
+    /// The conversation is not in `auto`: the mode of the job's turn, of the newest
+    /// prompt or of the config is lower.
+    NotAuto,
+    /// The conversation or the daemon reached its limit of turns that notices start
+    /// per hour.
+    WakeLimit,
+    /// A turn that a notice started started the job, so its notices never start a
+    /// turn.
+    WakeTurnJob,
+    /// efrd restarted while the job ran.
+    DaemonRestart,
+    /// `jobs.max_wakes_per_hour` is 0: notices never start a turn.
+    WakesOff,
+    /// A reason that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl HeldReason {
+    /// Every reason, in the order of the enum.
+    pub const ALL: [HeldReason; 6] = [
+        HeldReason::NotAuto,
+        HeldReason::WakeLimit,
+        HeldReason::WakeTurnJob,
+        HeldReason::DaemonRestart,
+        HeldReason::WakesOff,
+        HeldReason::Unknown,
+    ];
+
+    /// The wire form, such as `wake_limit`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            HeldReason::NotAuto => "not_auto",
+            HeldReason::WakeLimit => "wake_limit",
+            HeldReason::WakeTurnJob => "wake_turn_job",
+            HeldReason::DaemonRestart => "daemon_restart",
+            HeldReason::WakesOff => "wakes_off",
+            HeldReason::Unknown => "unknown",
+        }
+    }
+}
+
+/// A pattern that wakes the model when a line of the job's output matches it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct Watch {
+    /// The pattern, a regular expression of at most
+    /// [`MAX_PATTERN_CHARS`](Self::MAX_PATTERN_CHARS) characters.
+    pub pattern: String,
+    /// How many matches may wake the model, after efr's own limit
+    /// (`jobs.max_wakes_per_watch`).
+    pub max_wakes: u8,
+}
+
+impl Watch {
+    /// The longest pattern, in characters.
+    pub const MAX_PATTERN_CHARS: usize = 200;
+}
+
+/// One job, as `jobs.list`, `jobs.stop` and `job_started` show it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct JobInfo {
+    /// The job's id in its conversation.
+    pub id: JobId,
+    /// The conversation.
+    pub conversation_id: ConversationId,
+    /// The turn whose call started the job.
+    pub turn_id: TurnId,
+    /// The call that started the job.
+    pub call_id: CallId,
+    /// The command line, as the model wrote it.
+    pub command: String,
+    /// How the job runs: in the sandbox with its grants, or in the exit child.
+    pub launch: Launch,
+    /// Where the job is in its life.
+    pub state: JobState,
+    /// When the job started.
+    pub started_at: Timestamp,
+    /// When the job's time limit ends it, if it still runs then.
+    pub ends_by: Timestamp,
+    /// When the job ended. Absent while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<Timestamp>,
+    /// The exit status of the job's command, when it exited. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    /// Who or what stopped the job. Absent for a job that runs or ended by itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_by: Option<JobStopBy>,
+    /// The output file, `$SCRATCH/jobs/<id>.out`, as a path on this machine.
+    pub output: PathBuf,
+    /// The bytes that the job wrote to its output so far, also the ones that the file
+    /// left out in the middle.
+    pub output_bytes: u64,
+    /// The job's watch pattern. Absent when it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watch: Option<Watch>,
+    /// How many lines of the output matched the watch pattern so far.
+    #[serde(default)]
+    pub wakes: u8,
+}
+
+#[cfg(test)]
+mod tests;

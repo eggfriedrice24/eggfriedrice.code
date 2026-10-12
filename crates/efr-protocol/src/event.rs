@@ -12,10 +12,11 @@ use serde_json::{Map, Value};
 use crate::compaction::is_zero_u64;
 use crate::{
     CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings,
-    ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, JudgeKind, Launch,
-    Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange, ReportedFile,
-    Risk, SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase, SurfaceChange, TurnId,
-    TurnSettings, TurnUndoInfo, UndoId, UserAuthorization, Verdict,
+    ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, HeldReason, JobId,
+    JobInfo, JobState, JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence,
+    PresenceSource, PtyId, QuestionId, RefChange, ReportedFile, Risk, SandboxSummary, Scope, Seq,
+    ShellContext, SnapshotPhase, SurfaceChange, TurnId, TurnSettings, TurnUndoInfo, UndoId,
+    UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -729,6 +730,113 @@ pub enum Event {
         stopped: bool,
     },
 
+    /// A `shell` call with `background: true` started a job, which runs on after the
+    /// call answered and after its turn ended. efrd records it before the call answers.
+    JobStarted {
+        /// The turn of the call.
+        turn_id: TurnId,
+        /// The call.
+        call_id: CallId,
+        /// The job as it started.
+        job: JobInfo,
+        /// The process id of the job's launcher, which efrd started.
+        launcher_pid: u32,
+        /// The start time of the launcher's process, in clock ticks after boot (the
+        /// 22nd field of `/proc/<pid>/stat`), so that a later efrd signals the launcher
+        /// and never another process that got its pid.
+        launcher_start: u64,
+    },
+
+    /// A line of a job's output matched the job's `watch` pattern. It belongs to the
+    /// conversation, not to a turn: the job outlives its turn. The line is the job's
+    /// output, so a client shows it as text that a program wrote.
+    JobWatchMatched {
+        /// The job.
+        job_id: JobId,
+        /// The line, at most 4 KiB.
+        line: String,
+        /// How many more matches may wake the model.
+        wakes_left: u8,
+    },
+
+    /// A job ended. It belongs to the conversation, not to a turn.
+    JobEnded {
+        /// The job.
+        job_id: JobId,
+        /// How it ended.
+        state: JobState,
+        /// The exit status of its command, when it exited. Absent otherwise.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        /// Who or what stopped it. Absent for a job that ended by itself.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stopped_by: Option<JobStopBy>,
+        /// The bytes that the job wrote to its output.
+        output_bytes: u64,
+        /// How long the job ran, in seconds.
+        #[serde(default)]
+        ran_secs: u64,
+        /// The end of the output: at most 50 lines and 8 KiB. The job wrote it, so a
+        /// client shows it as text that a program wrote.
+        tail: String,
+        /// The git settings and other files that run code, which the job changed.
+        /// Absent when none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        surface_changes: Vec<SurfaceChange>,
+        /// True when at least one of those changes went to quarantine. False when
+        /// absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        quarantined: bool,
+        /// The names of the job's processes that efr could not end, which may still
+        /// run. Absent when none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        survivors: Vec<String>,
+        /// True when the job's launcher ended without its result, so the job's
+        /// processes may still run. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        launcher_lost: bool,
+        /// True when efr could not write all of the output to the output file, such as
+        /// on a full disk; the tail is whole. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        output_truncated: bool,
+    },
+
+    /// A job notice entered the conversation: a turn took it into its first message.
+    /// The notice is never the user's input. The turn records it before its
+    /// `turn_started`.
+    JobNotice {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// The turn that took the notice.
+        turn_id: TurnId,
+        /// The job.
+        job_id: JobId,
+        /// What the notice tells. Not named `kind`, which names the event's kind.
+        notice_kind: NoticeKind,
+        /// True when the notice started the turn; false when it rode in a turn that a
+        /// prompt started.
+        woke: bool,
+        /// The sequence number of the `job_ended` or `job_watch_matched` event that the
+        /// notice tells about.
+        source_seq: Seq,
+        /// Always true: a notice is never the user's input.
+        not_user_input: bool,
+        /// The text of the notice, as the model read it.
+        text: String,
+    },
+
+    /// A job notice that could have started a turn did not, and waits for the next turn
+    /// that a prompt starts. Recorded once per notice. It belongs to the conversation,
+    /// not to a turn.
+    JobNoticeHeld {
+        /// The job.
+        job_id: JobId,
+        /// The sequence number of the event that the notice tells about.
+        source_seq: Seq,
+        /// Why no turn started.
+        reason: HeldReason,
+    },
+
     /// An event of a kind that this build does not know. It encodes back to the same JSON
     /// object it was decoded from. The schema leaves it out: it describes the known
     /// kinds, and says that readers must accept others.
@@ -792,7 +900,9 @@ impl Event {
             | Event::SurfaceQuestionRequested { turn_id, .. }
             | Event::SurfaceQuestionAnswered { turn_id, .. }
             | Event::TurnSurfaceReport { turn_id, .. }
-            | Event::SnapshotTaken { turn_id, .. } => Some(*turn_id),
+            | Event::SnapshotTaken { turn_id, .. }
+            | Event::JobStarted { turn_id, .. }
+            | Event::JobNotice { turn_id, .. } => Some(*turn_id),
             Event::ConversationCompacted(compaction) => compaction.turn_id,
             // NOTE: an undo runs between turns; a view that follows a turn must not end
             // or show it as part of the undone turn.
@@ -805,6 +915,11 @@ impl Event {
             | Event::LogoutCompleted { .. }
             | Event::SandboxUnavailable { .. }
             | Event::PresenceChanged { .. }
+            // NOTE: a job outlives its turn, so its match and its end are no part of a
+            // turn that a view follows.
+            | Event::JobWatchMatched { .. }
+            | Event::JobEnded { .. }
+            | Event::JobNoticeHeld { .. }
             | Event::Unknown { .. } => None,
         }
     }

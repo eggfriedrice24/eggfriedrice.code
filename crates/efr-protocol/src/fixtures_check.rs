@@ -29,13 +29,14 @@ use crate::{
     ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
     DaemonRoots, DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody,
     ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource,
-    FileChange, FileChanges, GitCounts, Grant, Hello, HelloResult, HostFact, InputRespond,
-    InputRespondResult, InputWait, JudgeKind, Judgement, LateSteer, Launch, LeaseReport,
+    FileChange, FileChanges, GitCounts, Grant, HeldReason, Hello, HelloResult, HostFact,
+    InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState, JobStopBy, JobsList,
+    JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport,
     LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
-    ModelsListResult, NetworkMode, Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor,
-    PathClassName, PauseReason, Presence, PresenceSet, PresenceSetResult, PresenceSource,
-    ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult, PromptSend,
-    PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
+    ModelsListResult, NetworkMode, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION,
+    PageCursor, PathClassName, PauseReason, Presence, PresenceSet, PresenceSetResult,
+    PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
+    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
     PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
     RefChange, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource,
     RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths,
@@ -44,7 +45,7 @@ use crate::{
     StopReason, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
     TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
     UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
-    Verdict, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    Verdict, Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -116,7 +117,33 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("undo_actions.json", &UndoAction::ALL.to_vec()));
     fixtures.push(fixture("undo_reasons.json", &UndoReason::ALL.to_vec()));
     fixtures.push(fixture("undo_refusals.json", &undo_refused_samples()));
+    fixtures.push(fixture("job_states.json", &JobState::ALL.to_vec()));
+    fixtures.push(fixture("job_stop_causes.json", &JobStopBy::ALL.to_vec()));
+    fixtures.push(fixture("held_reasons.json", &HeldReason::ALL.to_vec()));
+    fixtures.push(fixture("notice_kinds.json", &NoticeKind::ALL.to_vec()));
     fixtures
+}
+
+/// A job that ran, with every member set.
+fn job_info() -> JobInfo {
+    JobInfo {
+        id: JobId::nth(3),
+        conversation_id: conversation_id(),
+        turn_id: turn_id(),
+        call_id: call_id(),
+        command: "npm run dev".into(),
+        launch: Launch::Contained { grants: vec![Grant::OpenNetwork] },
+        state: JobState::Stopped,
+        started_at: at("2026-10-12T10:00:00Z"),
+        ends_by: at("2026-10-12T11:00:00Z"),
+        ended_at: Some(at("2026-10-12T10:32:00Z")),
+        exit_code: Some(143),
+        stopped_by: Some(JobStopBy::User),
+        output: "/home/me/.local/share/efr/scratch/2026-10-12-019a9b1c/jobs/j3.out".into(),
+        output_bytes: 48_213,
+        watch: Some(Watch { pattern: "error|panic".into(), max_wakes: 3 }),
+        wakes: 1,
+    }
 }
 
 /// Every refusal of `turn.undo`, so `undo_refusals.json` freezes the wire form of each.
@@ -432,6 +459,10 @@ fn exit_record() -> ExitRecord {
             grants: vec![Grant::Write { path: "/home/me/Documents".into() }],
             source: ExitSource::Predicted,
             edit: None,
+            background: true,
+            max_minutes: Some(180),
+            watch: true,
+            wake_turn: true,
         },
         facts: ExitFacts {
             targets: vec![TargetFact {
@@ -487,6 +518,10 @@ fn floor_edit_record() -> ExitRecord {
             grants: Vec::new(),
             source: ExitSource::Predicted,
             edit: Some("export EDITOR=nvim\nalias k=kubectl\n".into()),
+            background: false,
+            max_minutes: None,
+            watch: false,
+            wake_turn: false,
         },
         facts: ExitFacts {
             targets: vec![TargetFact {
@@ -765,6 +800,12 @@ pub(crate) fn method_samples() -> Vec<Method> {
             force: true,
             redo: true,
             list: true,
+        }),
+        Method::JobsList(JobsList { conversation_id: Some(conversation_id()) }),
+        Method::JobsStop(JobsStop {
+            command_id: command_id(),
+            conversation_id: Some(conversation_id()),
+            job_id: JobId::nth(3),
         }),
     ]
 }
@@ -1202,6 +1243,8 @@ fn answer_fixtures() -> Vec<Fixture> {
                 active: true,
             },
         ),
+        fixture("jobs_list_result.json", &JobsListResult { jobs: vec![job_info()] }),
+        fixture("jobs_stop_result.json", &JobsStopResult { job: job_info() }),
     ]
 }
 
@@ -1523,6 +1566,58 @@ pub(crate) fn event_samples() -> Vec<Event> {
                     .into(),
             ),
             stopped: true,
+        },
+        Event::JobStarted {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            job: JobInfo {
+                state: JobState::Running,
+                ended_at: None,
+                exit_code: None,
+                stopped_by: None,
+                output_bytes: 0,
+                wakes: 0,
+                ..job_info()
+            },
+            launcher_pid: 48_211,
+            launcher_start: 9_120_455,
+        },
+        Event::JobWatchMatched {
+            job_id: JobId::nth(3),
+            line: "error: listen EADDRINUSE: address already in use :::3000".into(),
+            wakes_left: 2,
+        },
+        Event::JobEnded {
+            job_id: JobId::nth(3),
+            state: JobState::Stopped,
+            exit_code: Some(143),
+            stopped_by: Some(JobStopBy::Guard),
+            output_bytes: 48_213,
+            ran_secs: 1_920,
+            tail: "ready in 412 ms\nGET / 200\n".into(),
+            surface_changes: vec![surface_change()],
+            quarantined: true,
+            survivors: vec!["node".into()],
+            launcher_lost: true,
+            output_truncated: true,
+        },
+        Event::JobNotice {
+            conversation_id: conversation_id(),
+            turn_id: queued_turn_id(),
+            job_id: JobId::nth(3),
+            notice_kind: NoticeKind::Exited,
+            woke: true,
+            source_seq: Seq::new(812),
+            not_user_input: true,
+            text: "<job id=\"j3\" state=\"stopped\" command=\"npm run dev\">\nefr: this is a job \
+                   notice, not a message from the user; no human input has occurred.\nGET / \
+                   200\noutput: $SCRATCH/jobs/j3.out\n</job>"
+                .into(),
+        },
+        Event::JobNoticeHeld {
+            job_id: JobId::nth(3),
+            source_seq: Seq::new(812),
+            reason: HeldReason::WakeLimit,
         },
         Event::Unknown { kind: "device_enrolled".into(), payload: future },
     ]

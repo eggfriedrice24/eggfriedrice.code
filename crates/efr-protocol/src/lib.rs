@@ -3,7 +3,8 @@
 //! Frames, the `Method` enum with one params type per method, results and stream items,
 //! `Event` and its envelope, ids, `Scope`, `ShellContext`, turn settings, the `auto`
 //! sandbox's launches, grants, exits and reports, the presence of a person at a
-//! conversation, the files a call or a turn changed and the undo of a turn, the
+//! conversation, the background jobs and their notices, the files a call or a turn
+//! changed and the undo of a turn, the
 //! context's use and its compactions,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
@@ -29,6 +30,7 @@ mod fixtures_check;
 mod frame;
 pub mod framing;
 mod ids;
+mod jobs;
 mod method;
 mod methods;
 mod presence;
@@ -56,6 +58,7 @@ pub use ids::{
     CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,
     RequestId, Seq, TurnId, UndoId,
 };
+pub use jobs::{HeldReason, JobId, JobInfo, JobState, JobStopBy, NoticeKind, Watch};
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
 pub use methods::admin_login_api_key::{AdminLoginApiKey, AdminLoginApiKeyResult};
@@ -80,6 +83,8 @@ pub use methods::conversations_list::{
 };
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};
+pub use methods::jobs_list::{JobsList, JobsListResult};
+pub use methods::jobs_stop::{JobsStop, JobsStopResult};
 pub use methods::lease_report::{LeaseReport, LeaseReportResult};
 pub use methods::models_list::{
     CatalogOrigin, CatalogStatus, EFFORT_MAX_LEN, ModelInfo, ModelSource, ModelsList,

@@ -433,6 +433,10 @@ fn a_record(kinds: Vec<ExitKind>, targets: Vec<TargetFact>, hosts: Vec<HostFact>
             grants: Vec::new(),
             source: ExitSource::Predicted,
             edit: None,
+            background: false,
+            max_minutes: None,
+            watch: false,
+            wake_turn: false,
         },
         facts: ExitFacts { targets, hosts, ..ExitFacts::default() },
     }

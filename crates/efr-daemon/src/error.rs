@@ -491,6 +491,14 @@ pub enum DaemonError {
     /// terminal has no active conversation.
     #[error("this terminal has no active conversation")]
     NoActiveConversation,
+    /// The conversation has no job with this id.
+    #[error("the conversation {conversation_id} has no job {job_id}")]
+    JobNotFound {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// The job.
+        job_id: efr_protocol::JobId,
+    },
     /// The snapshot store could not answer.
     #[error("the snapshot store could not answer")]
     Snapshot {
@@ -559,6 +567,7 @@ impl DaemonError {
             | DaemonError::NoFinishedTurn { .. }
             | DaemonError::TurnNotFound { .. }
             | DaemonError::NoActiveConversation
+            | DaemonError::JobNotFound { .. }
             | DaemonError::ApprovalNotPending { .. }
             | DaemonError::PtyNotFound { .. }
             | DaemonError::CallNotRunning { .. } => ErrorCode::NotFound,

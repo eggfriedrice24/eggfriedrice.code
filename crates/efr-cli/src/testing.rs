@@ -255,6 +255,10 @@ pub(crate) fn exit_record(line: &str, facts: ExitFacts) -> ExitRecord {
             grants: Vec::new(),
             source: ExitSource::Predicted,
             edit: None,
+            background: false,
+            max_minutes: None,
+            watch: false,
+            wake_turn: false,
         },
         facts,
     }

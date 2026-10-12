@@ -46,6 +46,8 @@ mod conversation_subscribe;
 mod conversations_list;
 mod hello;
 mod input_respond;
+mod jobs_list;
+mod jobs_stop;
 mod lease_report;
 mod models_list;
 mod presence_set;
@@ -116,6 +118,8 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationCompact(_) => ScopeName::Operate,
         Method::PresenceSet(_) => ScopeName::Operate,
         Method::TurnUndo(_) => ScopeName::Operate,
+        Method::JobsList(_) => ScopeName::Read,
+        Method::JobsStop(_) => ScopeName::Operate,
     }
 }
 
@@ -152,6 +156,17 @@ impl Input {
             Method::SandboxSurfaceRespond(params) => Some(params.conversation_id),
             Method::ConversationCompact(params) => Some(params.conversation_id),
             Method::TurnUndo(params) => params.conversation_id,
+            // NOTE: a stop is the user's input; without a conversation it is the
+            // terminal's active one, as for a prompt.
+            Method::JobsStop(params) => match params.conversation_id {
+                Some(conversation_id) => Some(conversation_id),
+                None => {
+                    return state
+                        .connections
+                        .tty(context.conn_id())
+                        .map_or(Input::None, Input::Terminal);
+                }
+            },
             Method::PtyWrite(params) => state.ptys.conversation(params.pty_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
@@ -172,7 +187,8 @@ impl Input {
             | Method::SandboxExplain(_)
             | Method::AdminSandboxCheck(_)
             | Method::ConversationDiff(_)
-            | Method::PresenceSet(_) => None,
+            | Method::PresenceSet(_)
+            | Method::JobsList(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -395,6 +411,10 @@ impl Dispatcher for Methods {
                 }
                 Method::TurnUndo(params) => {
                     turn_undo::handle(state, &context, params, &responder).await
+                }
+                Method::JobsList(params) => jobs_list::handle(state, params, &responder).await,
+                Method::JobsStop(params) => {
+                    jobs_stop::handle(state, &context, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

@@ -1,0 +1,6 @@
+{
+  "kind": "job_watch_matched",
+  "job_id": "j3",
+  "line": "error: listen EADDRINUSE: address already in use :::3000",
+  "wakes_left": 2
+}

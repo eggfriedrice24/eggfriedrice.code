@@ -7,8 +7,9 @@ use serde_json::{Map, Value, json};
 
 use crate::{
     CallId, CommandId, Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, InputWait, Mode, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq,
-    ShellContext, SnapshotPhase, StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
+    EventEnvelope, HeldReason, InputWait, JobId, JobState, Mode, NoticeKind, Origin,
+    OverriddenSettings, PromptSend, PtyId, Scope, Seq, ShellContext, SnapshotPhase, StopReason,
+    TurnId, TurnSettings, TurnStop, UndoId, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -324,6 +325,66 @@ fn undo_applied_has_no_turn_id() {
         ms: 12,
     };
     assert_eq!(snapshot.turn_id(), Some(turn()));
+}
+
+#[test]
+fn job_notice_has_its_turn_id() {
+    let notice = Event::JobNotice {
+        conversation_id: ConversationId::from_str(CONVERSATION).unwrap(),
+        turn_id: turn(),
+        job_id: JobId::nth(3),
+        notice_kind: NoticeKind::Exited,
+        woke: true,
+        source_seq: Seq::new(40),
+        not_user_input: true,
+        text: "<job id=\"j3\" state=\"exited\" exit=\"0\" command=\"make\">\n</job>".to_owned(),
+    };
+    assert_eq!(notice.turn_id(), Some(turn()));
+    assert_eq!(notice.kind(), "job_notice");
+    let wire = serde_json::to_value(&notice).unwrap();
+    assert_eq!(wire["kind"], json!("job_notice"));
+    assert_eq!(wire["notice_kind"], json!("exited"));
+    assert_eq!(wire["not_user_input"], json!(true));
+}
+
+#[test]
+fn job_ended_has_no_turn_id() {
+    let ended = Event::JobEnded {
+        job_id: JobId::nth(2),
+        state: JobState::Exited,
+        exit_code: Some(0),
+        stopped_by: None,
+        output_bytes: 12,
+        ran_secs: 3,
+        tail: "done\n".to_owned(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+    };
+    assert_eq!(ended.turn_id(), None);
+    assert_eq!(
+        serde_json::to_value(&ended).unwrap(),
+        json!({
+            "kind": "job_ended", "job_id": "j2", "state": "exited", "exit_code": 0,
+            "output_bytes": 12, "ran_secs": 3, "tail": "done\n"
+        })
+    );
+    let matched =
+        Event::JobWatchMatched { job_id: JobId::nth(2), line: "error".to_owned(), wakes_left: 0 };
+    assert_eq!(matched.turn_id(), None);
+    let held = Event::JobNoticeHeld {
+        job_id: JobId::nth(2),
+        source_seq: Seq::new(9),
+        reason: HeldReason::NotAuto,
+    };
+    assert_eq!(held.turn_id(), None);
+    let later = json!({
+        "kind": "job_ended", "job_id": "j2", "state": "paused", "output_bytes": 0, "tail": ""
+    });
+    let read: Event = serde_json::from_value(later).unwrap();
+    assert!(matches!(read, Event::JobEnded { state: JobState::Unknown, .. }));
 }
 
 #[test]

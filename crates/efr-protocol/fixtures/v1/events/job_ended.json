@@ -1,0 +1,24 @@
+{
+  "kind": "job_ended",
+  "job_id": "j3",
+  "state": "stopped",
+  "exit_code": 143,
+  "stopped_by": "guard",
+  "output_bytes": 48213,
+  "ran_secs": 1920,
+  "tail": "ready in 412 ms\nGET / 200\n",
+  "surface_changes": [
+    {
+      "path": "/home/me/p/app/.git/commondir",
+      "rule": "commondir_in_main_git_dir",
+      "key": "core.fsmonitor",
+      "quarantined": true
+    }
+  ],
+  "quarantined": true,
+  "survivors": [
+    "node"
+  ],
+  "launcher_lost": true,
+  "output_truncated": true
+}

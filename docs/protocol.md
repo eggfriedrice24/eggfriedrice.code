@@ -379,3 +379,29 @@ No protocol version has shipped yet.
   `events/snapshot_taken.json`, `events/undo_applied.json`, `undo_actions.json`,
   `undo_reasons.json` and `undo_refusals.json`; `events/turn_completed.json`,
   `events/turn_failed.json` and `events/turn_interrupted.json` now set the new members.
+- Version 1, additive: background jobs (phase C). New wire types: `job_id` (a string
+  `j1`, `j2`, ... per conversation; any other string is refused), `job_state`
+  (`running`, `exited`, `stopped`, `timed_out`, `failed`), `job_stop_by` (`model`,
+  `user`, `time_limit`, `daemon_stop`, `daemon_restart`, `guard`), `notice_kind`
+  (`exited`, `watch`) and `held_reason` (`not_auto`, `wake_limit`, `wake_turn_job`,
+  `daemon_restart`, `wakes_off`). A reader takes a value of these enums that it does
+  not know as `unknown`. A `job_info` has `id`, `conversation_id`, `turn_id`, `call_id`,
+  `command`, `launch`, `state`, `started_at`, `ends_by`, the optional `ended_at`,
+  `exit_code`, `stopped_by` and `watch` (`pattern`, `max_wakes`), `output`,
+  `output_bytes` and `wakes` (0 when absent). New method `jobs.list` (scope `read`,
+  unary, an optional `conversation_id`; the result's `jobs` are newest first, at most
+  200, absent when none) and `jobs.stop` (scope `operate`, unary, with a command id, an
+  optional `conversation_id` and a `job_id`; the result has the `job`). New event kinds
+  `job_started` (`turn_id`, `call_id`, `job`, `launcher_pid`, `launcher_start`),
+  `job_watch_matched` (`job_id`, `line`, `wakes_left`), `job_ended` (`job_id`, `state`,
+  the optional `exit_code` and `stopped_by`, `output_bytes`, `ran_secs`, `tail`, and the
+  optional `surface_changes`, `quarantined`, `survivors`, `launcher_lost` and
+  `output_truncated`), `job_notice` (`conversation_id`, `turn_id`, `job_id`,
+  `notice_kind`, `woke`, `source_seq`, `not_user_input`, always true, and `text`) and
+  `job_notice_held` (`job_id`, `source_seq`, `reason`). `job_started` and `job_notice`
+  belong to their turn; the other three belong to no turn. In the exit record, `action`
+  gains `background`, `watch` and `wake_turn` (false when absent) and `max_minutes`
+  (absent when the call starts no job). New fixtures `jobs_list_params.json`,
+  `jobs_list_result.json`, `jobs_stop_params.json`, `jobs_stop_result.json`, the five
+  `events/job_*.json`, `job_states.json`, `job_stop_causes.json`, `held_reasons.json`
+  and `notice_kinds.json`; `events/exit_requested.json` now sets the new members.
