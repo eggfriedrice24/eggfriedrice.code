@@ -15,12 +15,14 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
-    CallId, ConversationId, FileChanges, InputWait, Launch, Origin, ReportedFile, SandboxSummary,
-    Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoId,
-    UndoReason, UndoRefused,
+    CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Origin, ReportedFile,
+    SandboxSummary, Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo, TurnUndoInfo,
+    TurnUndoResult, UndoId, UndoReason, UndoRefused,
 };
 use efr_provider::{EditTool, ToolDefinition};
 use serde_json::Value;
+
+use crate::UndoBusyReason;
 
 /// The tools a conversation offers the model.
 ///
@@ -150,6 +152,32 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
     /// default runs no such call.
     fn call_runs(&self, _conversation_id: ConversationId) -> bool {
         false
+    }
+
+    /// The background jobs of the conversation, newest first: the ones that run and
+    /// the ones that ended lately (phase C), for the fresh context block after a
+    /// compaction. The default runs no job.
+    async fn background_jobs(&self, _conversation_id: ConversationId) -> Vec<JobInfo> {
+        Vec::new()
+    }
+
+    /// Why an undo of the turn `turn_id` must wait for a background job: a job of the
+    /// conversation runs, or a job of another conversation writes in a root of the
+    /// turn ([`UndoBusyReason::Job`]). `None` when no job is in the way. The default
+    /// runs no job.
+    async fn job_blocks_undo(
+        &self,
+        _conversation_id: ConversationId,
+        _turn_id: TurnId,
+    ) -> Option<UndoBusyReason> {
+        None
+    }
+
+    /// True when the daemon-wide limit of turns that job notices start per hour lets
+    /// one more start now (`jobs.max_wakes_per_hour_daemon`). The limit of each
+    /// conversation is the actor's own. The default has no daemon-wide limit.
+    fn wake_allowed(&self, _conversation_id: ConversationId) -> bool {
+        true
     }
 }
 
@@ -343,6 +371,10 @@ pub struct ToolOutcome {
     /// before the call, for `home_file_changed` and the line at the end of the turn. A
     /// file that the call did not change has no entry.
     pub backups: Vec<FileBackup>,
+    /// The background job that the call started (a `shell` call with
+    /// `background: true`). The toolbox recorded its `job_started` before it answered;
+    /// the actor keeps the turn's origin and settings for the job's notices.
+    pub job: Option<JobInfo>,
 }
 
 impl ToolOutcome {
@@ -357,6 +389,7 @@ impl ToolOutcome {
             changes: None,
             diff: None,
             backups: Vec::new(),
+            job: None,
         }
     }
 
@@ -404,6 +437,13 @@ impl ToolOutcome {
     #[must_use]
     pub fn with_backups(mut self, backups: Vec<FileBackup>) -> Self {
         self.backups = backups;
+        self
+    }
+
+    /// Sets the background job that the call started.
+    #[must_use]
+    pub fn with_job(mut self, job: JobInfo) -> Self {
+        self.job = Some(job);
         self
     }
 }

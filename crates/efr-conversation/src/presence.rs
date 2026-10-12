@@ -29,10 +29,18 @@ pub trait PresenceReader: Send + Sync + fmt::Debug {
     /// Sends the question of `call_id` to the user's paired phones, once per question.
     /// No phone client exists yet, so the default does nothing.
     fn push(&self, _conversation_id: ConversationId, _call_id: CallId) {}
+
+    /// True while a client that can answer input follows `conversation_id`. A turn
+    /// that a job notice started, not a prompt, counts the user as away unless one
+    /// does (phase C). The default does not know, and a reader that does not know
+    /// counts nobody there.
+    fn followed(&self, _conversation_id: ConversationId) -> bool {
+        false
+    }
 }
 
-/// A reader that counts a person present at every conversation, so every question
-/// waits for an answer, as before phase A.
+/// A reader that counts a person present at every conversation, and every conversation
+/// followed, so every question waits for an answer, as before phase A.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AlwaysPresent;
 
@@ -40,4 +48,11 @@ impl PresenceReader for AlwaysPresent {
     fn presence(&self, _conversation_id: ConversationId) -> Presence {
         Presence::Present
     }
+
+    fn followed(&self, _conversation_id: ConversationId) -> bool {
+        true
+    }
 }
+
+#[cfg(test)]
+mod tests;

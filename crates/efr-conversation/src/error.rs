@@ -270,6 +270,14 @@ pub enum UndoBusyReason {
     Undo,
     /// A call of the conversation still runs after its tool answered.
     CallRuns,
+    /// A background job runs that can write in a root of the turn.
+    Job {
+        /// The number of the job's id: 3 for `j3`.
+        number: u32,
+        /// True for a job of the same conversation; false for a job of another
+        /// conversation that writes in a root of the turn.
+        same_conversation: bool,
+    },
 }
 
 /// The message of [`ConversationError::InvalidSetting`]: what does not fit, and the

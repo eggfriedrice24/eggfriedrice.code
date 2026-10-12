@@ -68,8 +68,8 @@ use crate::settings;
 use crate::steer::Reservation;
 use crate::turn::{self, Control, Shared, TurnEnd, TurnSpec};
 use crate::{
-    ConfigSource, ConversationDeps, ConversationError, ConversationStart, UndoBusyReason,
-    UndoCandidate,
+    ConfigSource, ConversationDeps, ConversationError, ConversationStart, JobNoticeInput,
+    UndoBusyReason, UndoCandidate,
 };
 
 /// Requests waiting for the actor; senders wait when it is full.
@@ -287,6 +287,11 @@ enum Request {
     State {
         reply: oneshot::Sender<ConversationState>,
     },
+    // NOTE: boxed for the same reason as a prompt: a notice carries a job and its text.
+    Notice {
+        notice: Box<JobNoticeInput>,
+        reply: Reply<()>,
+    },
 }
 
 impl ConversationActor {
@@ -403,6 +408,12 @@ impl ConversationActor {
             }
             Request::State { reply } => {
                 let _ = reply.send(self.state());
+            }
+            // NOTE: until the actor delivers notices (phase C, wake turns), it keeps
+            // none; no job runs before the job runtime either.
+            Request::Notice { notice, reply } => {
+                tracing::debug!(job = %notice.job.id, "a job notice was dropped");
+                let _ = reply.send(Ok(()));
             }
         }
     }
@@ -1392,6 +1403,12 @@ impl ConversationHandle {
         origin: Origin,
     ) -> Result<TurnUndoResult, ConversationError> {
         self.request(|reply| Request::Undo { params, candidates, origin, reply }).await
+    }
+
+    /// Hands the conversation a job notice: a background job ended, or a line of its
+    /// output matched its watch pattern. The notice is never the user's input.
+    pub async fn notice(&self, notice: JobNoticeInput) -> Result<(), ConversationError> {
+        self.request(|reply| Request::Notice { notice: Box::new(notice), reply }).await
     }
 
     /// What the conversation is doing.

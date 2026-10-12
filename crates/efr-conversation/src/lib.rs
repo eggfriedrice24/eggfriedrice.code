@@ -39,6 +39,10 @@
 //!   without a working sandbox runs as `cautious`. [`ExitJudge`] ([`JudgeInput`],
 //!   [`JudgeOutcome`]) is the seam of the classifier (phase A), and [`PresenceReader`]
 //!   ([`AlwaysPresent`]) says whether a person is there to answer a question.
+//! - Background jobs (phase C): a [`ToolOutcome`] names the job that a call started,
+//!   the daemon hands each job notice to [`ConversationHandle::notice`]
+//!   ([`JobNoticeInput`]), and [`notice_text`] writes a notice with the line
+//!   [`NOT_USER_INPUT`], escaped so that the job's output cannot end it.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`,
 //! `efr-sandbox` (only `secret_like`), `efr-protocol` and `efr-stdx`. Not `efr-tools`:
@@ -60,6 +64,7 @@ mod gap;
 mod history;
 mod interrupt;
 mod judge;
+mod notice;
 mod preamble;
 mod presence;
 mod questions;
@@ -85,6 +90,10 @@ pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::{ConversationError, UndoBusyReason};
 pub use history::HistoryLimits;
 pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
+pub use notice::{
+    JobNoticeInput, NOT_USER_INPUT, NOTICE_LINE_BYTES, NOTICE_TAIL_BYTES, NOTICE_TAIL_LINES,
+    NoticeBody, job_lifetime_fact, notice_text,
+};
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
 pub use toolbox::{
