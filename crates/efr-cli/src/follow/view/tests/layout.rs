@@ -1381,6 +1381,23 @@ fn turn_line_counts_home_files_and_names_undo() {
 }
 
 #[test]
+fn a_home_file_with_its_own_line_is_not_counted_again() {
+    let line = "echo 'alias k=kubectl' >> ~/.zshrc";
+    let info = exit_info(&[ExitKind::Persistence], Launch::Unsandboxed);
+    let undo = undo_info(&[], 1, &[], 0);
+    let err = piped(&[
+        Sent(0, turn_started()),
+        Sent(10, shell(1, line)),
+        Sent(20, exit_requested(1, line, ExitFacts::default(), &info)),
+        Sent(1_000, ended(1, Some(0), None)),
+        Sent(1_010, home_copied(1, "/home/user/.zshrc", true, true)),
+        Sent(1_500, turn_undone(None, undo)),
+    ]);
+    assert!(err.contains("changed ~/.zshrc; efr undo reverts it\n"), "{err}");
+    assert!(!err.contains("in ~; efr undo reverts this turn"), "{err}");
+}
+
+#[test]
 fn turn_line_lists_not_covered_paths() {
     let names = ["target/ (ignored, large)", ".env.large (over 10 MiB)", "a", "b", "c", "d", "e"];
     let undo = undo_info(&[("app", 3)], 0, &names, 4);

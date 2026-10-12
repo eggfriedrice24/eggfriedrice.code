@@ -2506,6 +2506,16 @@ impl TurnView {
         let mut not_covered =
             ended.as_ref().map(|ended| ended.1.not_covered.clone()).unwrap_or_default();
         let mut lines = Vec::new();
+        // NOTE: a covered file that has a line of its own (`changed ~/.zshrc; efr undo
+        // reverts it`) does not count again in the line of the turn, which then shows
+        // only when something else changed.
+        let own: u32 = self
+            .home_changes
+            .iter()
+            .filter(|change| change.backup.is_none() && change.covered && change.floor)
+            .count()
+            .try_into()
+            .unwrap_or(u32::MAX);
         for change in std::mem::take(&mut self.home_changes) {
             let real = change.real.as_deref();
             if let Some(backup) = change.backup.as_deref() {
@@ -2526,7 +2536,10 @@ impl TurnView {
                 home,
             ));
         }
-        if let Some((changes, undo)) = ended.map(|ended| *ended).filter(|(_, undo)| undo.undoable) {
+        if let Some((changes, mut undo)) =
+            ended.map(|ended| *ended).filter(|(_, undo)| undo.undoable)
+        {
+            undo.home_files = undo.home_files.saturating_sub(own);
             lines.extend(format::changes::undo_line(changes.as_ref(), &undo));
             lines.extend(format::changes::not_covered_line(&not_covered, undo.not_covered_more));
         }

@@ -15,7 +15,7 @@ I added the alias.
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot\e[0m
   \e[2mrevert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts\e[0m
   \e[2mthis turn\e[0m
 \e[2mdone in 1.5s, 18.2k tokens in, 1.1k out…\e[0m
 
@@ -31,7 +31,7 @@ I added the alias.
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot\e[0m
   \e[2mrevert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts\e[0m
   \e[2mthis turn\e[0m
 \e[2mdone in 1.5s, 18.2k tokens in, 1.1k out…\e[0m
 
@@ -45,7 +45,7 @@ I added the alias.
 
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts this turn\e[0m
 \e[2mdone in 1.5s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
@@ -58,7 +58,7 @@ I added the alias.
 
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts this turn\e[0m
 \e[2mdone in 1.5s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
@@ -72,7 +72,7 @@ reviewer allowed: persistence for this call (low risk; you named your zshrc)
 
 changed ~/.zshrc; efr undo reverts it
 changed ~/.aws/config; efr undo cannot revert it (masked)
-changed 2 files in ~; efr undo reverts this turn
+changed 1 file in ~; efr undo reverts this turn
 
 ### failed
 === 40 columns, colour
@@ -85,7 +85,7 @@ changed 2 files in ~; efr undo reverts this turn
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot\e[0m
   \e[2mrevert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts\e[0m
   \e[2mthis turn\e[0m
 
 === 40 columns, NO_COLOR
@@ -98,7 +98,7 @@ changed 2 files in ~; efr undo reverts this turn
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot\e[0m
   \e[2mrevert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts\e[0m
   \e[2mthis turn\e[0m
 
 === 80 columns, colour
@@ -109,7 +109,7 @@ changed 2 files in ~; efr undo reverts this turn
 
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts this turn\e[0m
 
 === 80 columns, NO_COLOR
 [end]
@@ -119,7 +119,7 @@ changed 2 files in ~; efr undo reverts this turn
 
 \e[2mchanged ~/.zshrc; efr undo reverts it\e[0m
 \e[2mchanged ~/.aws/config; efr undo cannot revert it (masked)\e[0m
-\e[2mchanged 2 files in ~; efr undo reverts this turn\e[0m
+\e[2mchanged 1 file in ~; efr undo reverts this turn\e[0m
 
 === not a terminal
 [end]
@@ -131,4 +131,4 @@ reviewer allowed: persistence for this call (low risk; you named your zshrc)
 
 changed ~/.zshrc; efr undo reverts it
 changed ~/.aws/config; efr undo cannot revert it (masked)
-changed 2 files in ~; efr undo reverts this turn
+changed 1 file in ~; efr undo reverts this turn
