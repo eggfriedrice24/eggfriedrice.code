@@ -199,3 +199,17 @@ async fn a_unit_source_reads_its_also_units_and_the_links_on_the_way() {
         Timestamp::UNIX_EPOCH
     ));
 }
+
+/// A job can set the change time of a program back (`touch -d`), but not its status
+/// time: the program still counts as changed.
+#[test]
+fn program_with_mtime_set_back_counts_as_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = dir.path().join("tool");
+    std::fs::write(&program, "#!/bin/sh\n").unwrap();
+    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800);
+    std::fs::File::options().write(true).open(&program).unwrap().set_modified(old).unwrap();
+    let hour = jiff::SignedDuration::from_hours(1);
+    assert!(super::changed_since(&program, Timestamp::now() - hour));
+    assert!(!super::changed_since(&program, Timestamp::now() + hour));
+}

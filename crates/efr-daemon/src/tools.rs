@@ -434,6 +434,13 @@ impl DaemonToolbox {
                 .with_needs(declared.needs.as_ref(), command_dir, engine.locations());
         let rebuildable = self.settings.borrow().sandbox.rebuildable.clone();
         let turn_start = sandbox.turns().started(call.context.turn_id, self.clock.now());
+        let turn_start = match &self.jobs {
+            Some(jobs) => {
+                let (conversation, turn) = (call.context.conversation_id, call.context.turn_id);
+                jobs.changed_from(conversation, turn, turn_start).await
+            }
+            None => turn_start,
+        };
         let shell_path = sandbox.shell_path(call.context.conversation_id);
         let masks = self.masks();
         let input = facts::FactInput {

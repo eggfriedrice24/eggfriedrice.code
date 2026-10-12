@@ -1,7 +1,9 @@
 //! The facts about a shell line's files and programs that the engine reads in `auto`
 //! (efr's auto spec, section 7.2): whether each target exists and what it is, how many
 //! files git tracks below each `rm -r` directory, and where each program word leads and
-//! whether that file changed in this turn. A word that the shell runs itself, a zsh
+//! whether that file changed in this turn: its change or status time at or after the
+//! turn's start, or the start of a background job of the conversation that ran since
+//! the previous turn started (`jobs/since.rs`). A word that the shell runs itself, a zsh
 //! builtin or reserved word such as `:` or `cd` ([`FactRequest::builtins`]), leads to
 //! [`BUILTIN`], not to a file. `efr-permissions` reads no file, so efrd collects them
 //! before the engine decides.
@@ -57,8 +59,9 @@ pub(crate) struct FactInput<'a> {
     /// The names of directories that builds make again, which hold no tracked file
     /// that matters (`sandbox.rebuildable`).
     pub(crate) rebuildable: &'a [String],
-    /// When the turn's first call was judged; a program changed after it changed in
-    /// this turn.
+    /// When the turn's first call was judged, or a background job of the conversation
+    /// that ran since the previous turn started, if earlier (`jobs/since.rs`); a
+    /// program changed after it changed in this turn.
     pub(crate) turn_start: Timestamp,
     /// The secrets and masks that efrd never reads for a source.
     pub(crate) masks: &'a [PathBuf],
@@ -174,11 +177,13 @@ pub(crate) fn resolve_program(word: &str, dir: Option<&Path>, path: &str) -> Opt
         .map(|found| std::fs::canonicalize(&found).unwrap_or(found))
 }
 
-/// True when `path` was changed at or after `since`.
-fn changed_since(path: &Path, since: Timestamp) -> bool {
+/// True when `path` was changed at or after `since`: its change time or its status
+/// time. A process can set the change time of a file it wrote back (`touch -d`), but
+/// no process without privilege can set its status time.
+pub(crate) fn changed_since(path: &Path, since: Timestamp) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return true };
     match meta.modified().ok().and_then(|time| Timestamp::try_from(time).ok()) {
-        Some(modified) => modified >= since,
+        Some(modified) => modified >= since || status_changed_since(&meta, since),
         None => true,
     }
 }
