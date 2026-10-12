@@ -143,6 +143,17 @@ impl CallSnapshots {
     }
 
     /// The turn's project and `$SCRATCH`, then `named`.
+    /// The roots that efrd snapshots before every call of `call`: the turn's project and
+    /// `$SCRATCH`. Empty when snapshots are off.
+    pub(crate) fn base_roots(&self, call: &CallContext) -> Vec<PathBuf> {
+        if self.limits().is_none() {
+            return Vec::new();
+        }
+        let mut paths: Vec<PathBuf> = self.turn_project(call).into_iter().collect();
+        paths.push(call.scratch.clone());
+        paths
+    }
+
     async fn call_roots(&self, call: &CallContext, named: &[PathBuf]) -> Vec<Root> {
         let mut paths: Vec<PathBuf> = self.turn_project(call).into_iter().collect();
         paths.push(call.scratch.clone());

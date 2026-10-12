@@ -110,6 +110,17 @@ pub(crate) fn targets(exits: &[ExitNeed]) -> Vec<Target> {
     targets
 }
 
+/// True when the home ask `ask` names a path strictly inside one of `roots`, whose
+/// snapshot covers it.
+pub(crate) fn inside(ask: &CoverAsk, roots: &[PathBuf]) -> bool {
+    match ask {
+        CoverAsk::Home(path) | CoverAsk::HomeDir(path) => {
+            roots.iter().any(|root| path.starts_with(root) && path != root)
+        }
+        _ => false,
+    }
+}
+
 /// The entries of one copy, before efrd reads the bytes of their files.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Prepared {
