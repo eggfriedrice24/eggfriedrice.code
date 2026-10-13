@@ -447,7 +447,8 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   only `-D`, `--df`, `-I` or `--dfi` it prints the snapshot's sizes through
   `DIR/efr-sbx mounts findmnt-df`; arguments that pick a table of their own (`-F`,
   `-N`, `-k`, `-s`, `-p`, `-x`, `-m` and their long forms) run the real `findmnt`.
-  The records never report these two functions.
+  The records report one of these two functions only when the line defines it again,
+  and never its removal.
 - Ctrl+C (SIGINT) and Ctrl+\ (SIGQUIT) stop the child's line, also before it starts.
   Until the line starts, a trap of `efr-child.zsh` notes the signal: a zsh that is not
   interactive ignores SIGQUIT, and a `TRAPINT` or `TRAPQUIT` function can catch a

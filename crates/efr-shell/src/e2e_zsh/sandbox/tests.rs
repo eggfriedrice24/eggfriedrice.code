@@ -788,10 +788,20 @@ async fn mount_view_functions_not_in_records() {
         return;
     };
     let (child, dir) = mount_view_child(&zsh, "records").await;
-    let line = "df -h; findmnt -D; unfunction df; findmnt() { print -r -- mine }; mine() { :; }";
+    let line = "df -h; findmnt -D; unfunction df; mine() { :; }";
     let (out, records) = run_mount_line(&child, &dir, line).await;
     assert_eq!(out, "snapshot df -h\nsnapshot findmnt-df -D\n");
     let functions: Vec<&str> = records.functions.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(functions, ["mine"], "the view's two functions are never reported");
+    assert_eq!(functions, ["mine"], "the view's own functions are not reported");
+    assert_eq!(records.removed_functions, Vec::<String>::new());
+    // A function of that name that the line defines is the model's: the next call
+    // gets it.
+    let line = "df -h; findmnt() { print -r -- mine }; unfunction df; df() { print -r -- my df }";
+    let (out, records) = run_mount_line(&child, &dir, line).await;
+    assert_eq!(out, "snapshot df -h\n");
+    let mut functions: Vec<(&str, &str)> =
+        records.functions.iter().map(|(name, body)| (name.as_str(), body.trim())).collect();
+    functions.sort_unstable();
+    assert_eq!(functions, [("df", "print -r -- my df"), ("findmnt", "print -r -- mine")]);
     assert_eq!(records.removed_functions, Vec::<String>::new());
 }
