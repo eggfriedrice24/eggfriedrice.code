@@ -1060,12 +1060,88 @@ fn exits_bus_reads_are_routine_with_the_bus_proxy_and_coredump_list_needs_no_bus
 #[rstest]
 #[case::ss("ss -tlnp")]
 #[case::ip("ip addr")]
-#[case::nmcli("nmcli device")]
 #[case::netstat("netstat -tlnp")]
 fn exits_ss_is_host_view(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::HostView], "{line:?}");
     assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork]);
+}
+
+/// The one `bus` exit of `line`, which asks for the system bus.
+fn system_bus_exit(line: &str) -> ExitNeed {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
+    let need = decision.exits().next().unwrap().clone();
+    assert_eq!(need.grants, [Grant::Bus { bus: BusKind::System }], "{line:?}");
+    assert!(!need.runs_unsandboxed(), "{line:?}");
+    need
+}
+
+#[rstest]
+#[case::alone("nmcli")]
+#[case::general("nmcli general")]
+#[case::general_status("nmcli general status")]
+#[case::permissions("nmcli general permissions")]
+#[case::hostname("nmcli general hostname")]
+#[case::device("nmcli device")]
+#[case::device_status("nmcli device status")]
+#[case::device_show("nmcli device show")]
+#[case::connection("nmcli connection")]
+#[case::connection_show("nmcli connection show")]
+#[case::radio("nmcli radio")]
+#[case::radio_wifi("nmcli radio wifi")]
+#[case::terse("nmcli -t -f DEVICE,STATE device status")]
+#[case::get_values("nmcli -g GENERAL.STATE -p general")]
+#[case::colors("nmcli -c no connection show")]
+fn nmcli_read_forms_are_classifier_bus_exits(#[case] line: &str) {
+    assert_eq!(system_bus_exit(line).approver, Approver::Classifier, "{line:?}");
+}
+
+#[rstest]
+#[case::radio_off("nmcli radio wifi off")]
+#[case::modify("nmcli connection modify X ipv4.dns 1.1.1.1")]
+#[case::set_hostname("nmcli general hostname box")]
+#[case::connect("nmcli device wifi connect home password x")]
+#[case::down("nmcli connection down home")]
+#[case::show_secrets("nmcli --show-secrets connection show home")]
+#[case::abbreviation("nmcli d")]
+#[case::shell_word("nmcli $CMD")]
+fn nmcli_write_forms_are_user_only(#[case] line: &str) {
+    assert_eq!(system_bus_exit(line).approver, Approver::User, "{line:?}");
+}
+
+#[rstest]
+#[case::devices("iwctl device list")]
+#[case::adapters("iwctl adapter list")]
+#[case::known("iwctl known-networks list")]
+#[case::station("iwctl station wlan0 show")]
+#[case::networks("iwctl station wlan0 get-networks")]
+fn iwctl_read_forms_are_classifier_bus_exits(#[case] line: &str) {
+    assert_eq!(system_bus_exit(line).approver, Approver::Classifier, "{line:?}");
+}
+
+#[rstest]
+#[case::connect("iwctl station wlan0 connect home")]
+#[case::passphrase("iwctl --passphrase x station wlan0 connect home")]
+#[case::forget("iwctl known-networks home forget")]
+#[case::power("iwctl device wlan0 set-property Powered off")]
+#[case::shell("iwctl")]
+fn iwctl_connect_is_user_only(#[case] line: &str) {
+    assert_eq!(system_bus_exit(line).approver, Approver::User, "{line:?}");
+}
+
+#[test]
+fn iw_stays_host_view() {
+    for support in [AutoSupport::default(), AutoSupport { netview: true, ..AutoSupport::default() }]
+    {
+        let engine = engine().with_support(support);
+        for line in ["iw dev", "iw dev wlan0 link", "ifconfig", "netstat -tlnp"] {
+            let decision = engine.decide(&in_auto(shell(line)));
+            assert_eq!(kinds(&decision), [ExitKind::HostView], "{line:?} {support:?}");
+            assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork]);
+            assert_eq!(decision.view_grants().count(), 0, "{line:?}");
+        }
+    }
 }
 
 /// The one approver of the exits of `line`, which must all agree.

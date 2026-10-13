@@ -258,6 +258,11 @@ into the GitHub release notes, and it stops when the section is missing.
   changed in the meantime stays with that turn. Snapshots leave `$SCRATCH/jobs` out.
   When the wake turn of a job's end changed nothing, `efr undo` with no `--turn` passes
   over it and takes back the job's turn.
+- `nmcli` and `iwctl` now go to the reviewer as a request for the system bus.
+  Read forms such as `nmcli device status` go to the automatic reviewer; changes such
+  as `nmcli radio wifi off` always ask you. Before, the reviewer could allow them with
+  the network only, and they then failed. A background job that runs `nmcli` or
+  `iwctl` is now refused, as every job that needs the bus is.
 
 ### Fixed
 

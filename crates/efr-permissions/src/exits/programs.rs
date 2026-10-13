@@ -51,6 +51,16 @@ impl Found {
             desktop_kind(program).map(|desktop| Grant::Desktop { desktop }).into_iter().collect();
         Found { approver, grants, ..Found::of(ExitKind::DesktopIpc) }
     }
+
+    /// A `bus` exit of `nmcli` or `iwctl` with `args`, which talk to NetworkManager and
+    /// iwd on the system bus: the classifier judges a read form of [`is_bus_read`], the
+    /// user every other form. The grant binds the raw system bus until the bus proxy of
+    /// phase E, so a "yes" lets the program change the network.
+    fn bus_form(program: &str, args: &[String]) -> Self {
+        let approver =
+            if is_bus_read(program, args) { Approver::Classifier } else { Approver::User };
+        Found { approver, ..Found::bus(BusKind::System) }
+    }
 }
 
 /// A program that runs another one named among its words: the options that take a
@@ -527,6 +537,7 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
             network.host()
         }),
         "ssh" | "mosh" | "autossh" => found.extend(network.remote_shell()),
+        "nmcli" | "iwctl" => found.push(Found::bus_form(program, args)),
         program if NETWORK_PROGRAMS.contains(&program) => found.extend(network.host()),
         program if HOST_VIEW.contains(&program) => {
             found.push(Found { grants: vec![Grant::OpenNetwork], ..Found::of(ExitKind::HostView) });
@@ -619,8 +630,81 @@ const NETWORK_PROGRAMS: &[&str] = &[
     "yt-dlp",
 ];
 
-/// Programs that show the host's network, which only the host's namespace has.
-const HOST_VIEW: &[&str] = &["ss", "ip", "nmcli", "iw", "netstat", "ifconfig", "iwctl"];
+/// Programs that show the host's network, which only the host's namespace has. `nmcli`
+/// and `iwctl` are not here: they ask NetworkManager and iwd on the system bus, so they
+/// are `bus` exits ([`Found::bus_form`]).
+const HOST_VIEW: &[&str] = &["ss", "ip", "iw", "netstat", "ifconfig"];
+
+/// The options of `nmcli` before its object that only change the format of the answer:
+/// alone, and with a value as the next word.
+const NMCLI_FORMAT: &[&str] = &["-t", "--terse", "-p", "--pretty"];
+
+/// The options of `nmcli` before its object that take the next word as a value and
+/// only change the format of the answer.
+const NMCLI_FORMAT_VALUES: &[&str] = &["-f", "--fields", "-g", "--get-values", "-c", "--colors"];
+
+/// The forms of `nmcli` that only read, after the options of [`NMCLI_FORMAT`] and
+/// [`NMCLI_FORMAT_VALUES`]: its words exactly. `nmcli general hostname NAME` and
+/// `nmcli radio wifi off` change the machine, so a value after these words is no read.
+const NMCLI_READ: &[&[&str]] = &[
+    &[],
+    &["general"],
+    &["general", "status"],
+    &["general", "permissions"],
+    &["general", "hostname"],
+    &["device"],
+    &["device", "status"],
+    &["device", "show"],
+    &["connection"],
+    &["connection", "show"],
+    &["radio"],
+    &["radio", "all"],
+    &["radio", "wifi"],
+    &["radio", "wwan"],
+];
+
+/// The forms of `iwctl` that only read: its words exactly, where `*` stands for one
+/// device name. `iwctl` alone starts its interactive shell.
+const IWCTL_READ: &[&[&str]] = &[
+    &["device", "list"],
+    &["adapter", "list"],
+    &["known-networks", "list"],
+    &["station", "*", "show"],
+    &["station", "*", "get-networks"],
+];
+
+/// True when `program` with `args` is a read form of `nmcli` ([`NMCLI_READ`]) or
+/// `iwctl` ([`IWCTL_READ`]). Any other form, an option that the lists do not name, and
+/// a word that only the shell knows are no read.
+fn is_bus_read(program: &str, args: &[String]) -> bool {
+    if args.iter().any(|word| word.contains([OPAQUE, '$'])) {
+        return false;
+    }
+    let same = |form: &[&str], words: &[String]| {
+        form.len() == words.len()
+            && form.iter().zip(words).all(|(want, word)| match *want {
+                "*" => !word.starts_with('-') && !word.is_empty(),
+                want => want == word,
+            })
+    };
+    match program {
+        "nmcli" => {
+            let mut rest = args;
+            loop {
+                match rest.first().map(String::as_str) {
+                    Some(word) if NMCLI_FORMAT.contains(&word) => rest = &rest[1..],
+                    Some(word) if NMCLI_FORMAT_VALUES.contains(&word) && rest.len() > 1 => {
+                        rest = &rest[2..];
+                    }
+                    _ => break,
+                }
+            }
+            NMCLI_READ.iter().any(|form| same(form, rest))
+        }
+        "iwctl" => IWCTL_READ.iter().any(|form| same(form, args)),
+        _ => false,
+    }
+}
 
 /// Programs that talk to the desktop's display server or compositor, which can type
 /// into the desktop or run commands there.
