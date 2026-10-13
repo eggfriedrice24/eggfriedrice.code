@@ -200,3 +200,14 @@ fn jobs_tool_needs_no_question(#[case] mode: Mode) {
         assert_eq!(decision.effect(), Effect::Allow, "{mode} from {origin:?}");
     }
 }
+
+#[test]
+fn nmcli_job_is_refused() {
+    // `nmcli` asks NetworkManager on the raw system bus, which no job may hold, also in
+    // a read form that the classifier could judge in the foreground.
+    for line in ["nmcli device status", "nmcli radio wifi off", "iwctl station wlan0 show"] {
+        let decision = decide(job(line));
+        assert_eq!(decision.effect(), Effect::Deny, "{line:?}");
+        assert_eq!(refused(&decision), [ExitKind::Bus], "{line:?}");
+    }
+}

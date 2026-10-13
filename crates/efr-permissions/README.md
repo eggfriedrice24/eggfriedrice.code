@@ -157,7 +157,11 @@ Modules:
   `wlr-randr`, `wtype` and `wl-copy` Wayland, `xrandr`, `xdotool` and the other X
   tools X11); efrd finds the socket. `ydotool` talks to its own daemon and gets no
   grant. A desktop socket that the model names in `needs.sockets` gets the grant of
-  its desktop, never its path, and only the user approves it.
+  its desktop, never its path, and only the user approves it. `nmcli` and `iwctl` ask
+  NetworkManager and iwd on the system bus, so they are `bus` exits with
+  `Grant::Bus { bus: System }`: the classifier judges their read forms, such as
+  `nmcli device status` and `iwctl station wlan0 show`, and only the user approves
+  every other form, such as `nmcli radio wifi off`.
   `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
   runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`
