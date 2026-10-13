@@ -402,6 +402,8 @@ pub(crate) fn grant_samples() -> Vec<Grant> {
         Grant::Bus { bus: BusKind::System },
         Grant::Device { path: "/dev/nvme0n1".into() },
         Grant::Unmask { path: "/home/me/p/app/.env".into() },
+        Grant::NetView,
+        Grant::Unknown,
     ];
     grants.extend(DesktopKind::ALL.map(|desktop| Grant::Desktop { desktop }));
     grants
@@ -413,6 +415,9 @@ pub(crate) fn launch_samples() -> Vec<Launch> {
         Launch::Direct,
         Launch::contained(),
         Launch::Contained { grants: vec![Grant::OpenNetwork] },
+        Launch::Contained {
+            grants: vec![Grant::NetView, Grant::Write { path: "/home/me/notes".into() }],
+        },
         Launch::Unsandboxed,
     ]
 }
@@ -433,6 +438,7 @@ fn sandbox_status() -> SandboxStatus {
             "the registered project ~ is your home directory; auto runs its turns as cautious"
                 .into(),
         ],
+        netview: true,
     }
 }
 
@@ -1095,6 +1101,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     available: false,
                     reason: Some("bubblewrap is setuid; efr needs the unprivileged build".into()),
                     fix: Some("install the non-setuid build of bubblewrap".into()),
+                    netview: false,
                     ..sandbox_status()
                 },
                 checks: vec![

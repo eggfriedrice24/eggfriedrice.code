@@ -87,6 +87,40 @@ fn grants_are_tagged_by_kind() {
 }
 
 #[test]
+fn net_view_grant_round_trip() {
+    assert_eq!(serde_json::to_value(Grant::NetView).unwrap(), json!({ "kind": "net_view" }));
+    let back: Grant = serde_json::from_value(json!({ "kind": "net_view" })).unwrap();
+    assert_eq!(back, Grant::NetView);
+    assert_eq!(Grant::NetView.path(), None);
+}
+
+#[test]
+fn unknown_grant_kind_reads_as_unknown() {
+    let later: Grant = serde_json::from_value(json!({ "kind": "listen", "port": 3000 })).unwrap();
+    assert_eq!(later, Grant::Unknown);
+    assert_eq!(later.path(), None);
+    let launch: Launch = serde_json::from_value(json!({
+        "kind": "contained",
+        "grants": [{ "kind": "net_view" }, { "kind": "listen", "port": 3000 }],
+    }))
+    .unwrap();
+    assert_eq!(launch.grants(), [Grant::NetView, Grant::Unknown]);
+    assert!(serde_json::from_value::<Grant>(json!({ "path": "/p" })).is_err(), "no kind");
+}
+
+#[test]
+fn sandbox_status_without_netview_reads_false() {
+    let status: SandboxStatus = serde_json::from_value(json!({
+        "available": true,
+        "cache_mode": "overlay",
+        "network_mode": "none",
+    }))
+    .unwrap();
+    assert!(status.available);
+    assert!(!status.netview);
+}
+
+#[test]
 fn desktop_grant_wire_shape() {
     assert_eq!(
         serde_json::to_value(Grant::Desktop { desktop: DesktopKind::Hyprland }).unwrap(),
@@ -218,6 +252,7 @@ fn a_status_before_the_first_probe_is_unavailable_with_a_reason() {
             "reason": "the sandbox was not probed yet",
             "cache_mode": "overlay",
             "network_mode": "none",
+            "netview": false,
         })
     );
     assert_eq!(CacheMode::Readonly.as_str(), "readonly");

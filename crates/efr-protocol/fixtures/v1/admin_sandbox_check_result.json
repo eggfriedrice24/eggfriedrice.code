@@ -11,7 +11,8 @@
     "network_mode": "none",
     "warnings": [
       "the registered project ~ is your home directory; auto runs its turns as cautious"
-    ]
+    ],
+    "netview": false
   },
   "checks": [
     {

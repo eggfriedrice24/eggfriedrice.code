@@ -32,6 +32,12 @@
     "path": "/home/me/p/app/.env"
   },
   {
+    "kind": "net_view"
+  },
+  {
+    "kind": "unknown"
+  },
+  {
     "kind": "desktop",
     "desktop": "wayland"
   },

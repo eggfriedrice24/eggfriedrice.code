@@ -20,11 +20,11 @@ Where things are:
 | `src/scope.rs` | `Scope`, `ProjectId`, `Origin`, `ScopeName` |
 | `src/shell_context.rs` | `ShellContext`, the zsh plugin's observed state, and `DesktopEnv`, the desktop variables of the shell and whether it has `$XAUTHORITY` |
 | `src/settings.rs` | `Mode`, `TurnSettings` (what a prompt asks for), `EffectiveSettings` and `OverriddenSettings` (what a turn runs with) |
-| `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant`, `BusKind`, `DesktopKind` (with the variable that names its socket and its name for a person), `CacheMode`, `NetworkMode`, `ModeFallback` |
+| `src/sandbox.rs` | the `auto` sandbox: `Launch`, `Grant` (it reads a grant kind that it does not know as `Unknown`; `NetView` is the host's network view of phase D1), `BusKind`, `DesktopKind` (with the variable that names its socket and its name for a person), `CacheMode`, `NetworkMode`, `ModeFallback` |
 | `src/sandbox/exit.rs` | `ExitKind`, `ExitSource`, `Needs` (the shell tool's `needs` input and its schema), `ExitInfo` |
 | `src/sandbox/record.rs` | the classifier's `ExitRecord` and its facts, `PathClassName`, `Judgement`, `Verdict`, `Risk`, `UserAuthorization`, `JudgeKind`, `ChainStep` (the step of the classifier's chain that judged), `PauseReason` (why the classifier stops for the rest of a turn) |
 | `src/presence.rs` | `Presence` (whether a person is at a conversation to answer its questions) and `PresenceSource` (what changed it) |
-| `src/sandbox/status.rs` | the probe's `SandboxStatus`, `SandboxCheck`, `CheckOutcome`, `SandboxPaths` |
+| `src/sandbox/status.rs` | the probe's `SandboxStatus` (with `netview`, the result of the network view self-test), `SandboxCheck`, `CheckOutcome`, `SandboxPaths` |
 | `src/sandbox/summary.rs` | what a call reports back: `SandboxSummary` (with the paths that it deleted in a private cache layer), `Blocked`, `BlockReason`, `SurfaceChange`, `ReportedFile` |
 | `src/screen.rs` | `ScreenSnapshot`, `RowCells`, `Cell`, `Color`, `Cursor`, `Size` |
 | `src/capabilities.rs` | `Capabilities`: known keys plus extras |

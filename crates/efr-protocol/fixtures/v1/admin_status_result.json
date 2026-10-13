@@ -70,7 +70,8 @@
     "network_mode": "none",
     "warnings": [
       "the registered project ~ is your home directory; auto runs its turns as cautious"
-    ]
+    ],
+    "netview": true
   },
   "sandbox_paths": {
     "launcher": "/run/user/1000/efr/bin/efr-sbx",

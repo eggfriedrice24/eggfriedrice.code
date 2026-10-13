@@ -235,6 +235,7 @@ async fn status_shows_sandbox_line() {
         cache_mode: CacheMode::Overlay,
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
+        netview: false,
     };
     let down = SandboxStatus {
         fix: Some("a newer kernel".to_owned()),

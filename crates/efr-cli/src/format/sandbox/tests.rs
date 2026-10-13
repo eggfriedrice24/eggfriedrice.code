@@ -37,6 +37,7 @@ fn ready() -> SandboxStatus {
         cache_mode: CacheMode::Overlay,
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
+        netview: false,
     }
 }
 
@@ -399,6 +400,20 @@ fn every_kind_has_words_and_a_line_never_breaks_out_of_its_row() {
     // of the question.
     assert!(heading[1..].iter().all(|line| line.starts_with("  ")), "{heading:?}");
     insta::assert_snapshot!(format!("{}\n{}", heading.join("\n"), lines.join("\n")));
+}
+
+#[test]
+fn net_view_has_words() {
+    let write = Grant::Write { path: PathBuf::from("/home/u/notes") };
+    let both = info(&[ExitKind::Write], Launch::Contained { grants: vec![write, Grant::NetView] });
+    assert_eq!(
+        exit_summary(&both, Some(&record("ss -tln > ~/notes/ss.txt")), home()),
+        "leaves the sandbox: write ~/notes; runs in the sandbox with ~/notes writable, \
+         host network view (no sending) for this call"
+    );
+    let later = info(&[ExitKind::Write], Launch::Contained { grants: vec![Grant::Unknown] });
+    let summary = exit_summary(&later, None, home());
+    assert!(summary.contains("with unknown grant for this call"), "{summary}");
 }
 
 #[test]
