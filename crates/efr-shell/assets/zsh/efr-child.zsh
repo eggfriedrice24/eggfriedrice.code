@@ -157,8 +157,9 @@ _efr_child_note_signals
 # The mount view: when efrd wrote the snapshot of the host's mounts for this call, df
 # and findmnt print the host's mounts. A function of that name from the snapshot or the
 # state wins. The `function` form takes the name with no alias of the snapshot, and
-# the bodies above were read before the snapshot's aliases. The records never report
-# these two functions.
+# the bodies above were read before the snapshot's aliases. The start lists below hold
+# their bodies, so the records report one only when the line defines it again, and
+# never its removal.
 builtin typeset -ga _efr_child_own_fns
 if [[ -n $_efr_child_dir && -r $_efr_child_dir/mounts ]]; then
   if (( ! $+functions[df] )); then
@@ -227,7 +228,6 @@ _efr_child_records() {
     was=("${(@)_efr_child_fn0}")
     now=("${(@)list}")
     for name in ${(k)now:#_efr_*}; do
-      (( ${_efr_child_own_fns[(Ie)$name]} )) && continue
       [[ ${+was[$name]} == 1 && $was[$name] == "$now[$name]" ]] ||
         out+=(func "$name" "$now[$name]")
     done
