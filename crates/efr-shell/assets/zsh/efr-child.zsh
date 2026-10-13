@@ -7,6 +7,8 @@
 #   state.zsh     what earlier contained calls left; the exit child's DIR has none,
 #                 because it never runs anything that the sandbox made
 #   line          the model's command line
+#   mounts        the host's mount table, with mounts.json, its sizes: efrd writes
+#                 them for a line that runs df or findmnt (the mount view)
 #
 # A file that is missing skips that step. The script replays the snapshot and the state,
 # notes the exported variables, functions and aliases, evaluates the line, and then
@@ -56,6 +58,88 @@ _efr_child_gate() {
   return 0
 }
 
+# df with the host's mounts: the snapshot's table, printed by the launcher next to this
+# script, for a line of options only. An operand, `--`, or an option that the table
+# does not follow (the launcher then exits 2 with no output) runs the real df, which
+# shows the sandbox's own file system: for a path, that is where a write really goes.
+_efr_child_df() {
+  builtin emulate -L zsh
+  builtin local arg
+  for arg in "$@"; do
+    [[ $arg == -- ]] && { command df "$@"; return }
+  done
+  "$_efr_child_dir/efr-sbx" mounts df "$@"
+  builtin local -i st=$?
+  (( st == 2 )) && { command df "$@"; return }
+  return st
+}
+
+# Returns 0 when findmnt's arguments pick a table of their own: a file, another task,
+# the kernel, fstab, the poll mode or the verify mode. A long option counts in any
+# abbreviation of these.
+_efr_child_findmnt_own_table() {
+  builtin emulate -L zsh
+  builtin local arg name letters letter
+  builtin local -a own takes
+  own=(tab-file task kernel fstab poll verify mtab)
+  takes=(direction mountpoint options output filter source target types timeout id uniq-id)
+  builtin integer skip=0
+  for arg in "$@"; do
+    if (( skip )); then
+      skip=0
+      continue
+    fi
+    case $arg in
+      (--) return 1 ;;
+      (--?*)
+        name=${${arg#--}%%=*}
+        for letters in $own; do
+          [[ $letters == ${name}* ]] && return 0
+        done
+        if [[ $arg != *=* ]]; then
+          for letters in $takes; do
+            [[ $letters == ${name}* ]] && skip=1
+          done
+        fi
+        ;;
+      (-?*)
+        letters=${arg#-}
+        while [[ -n $letters ]]; do
+          letter=${letters[1]}
+          letters=${letters[2,-1]}
+          case $letter in
+            ([FNkspxm]) return 0 ;;
+            ([dMOoQSTtw])
+              [[ -z $letters ]] && skip=1
+              break
+              ;;
+          esac
+        done
+        ;;
+    esac
+  done
+  return 1
+}
+
+# findmnt with the host's mounts: the snapshot's table as findmnt's tab file, and for
+# -D, -I and their long forms alone, the sizes of the snapshot. Arguments that pick a
+# table of their own run the real findmnt as they are.
+_efr_child_findmnt() {
+  builtin emulate -L zsh
+  _efr_child_findmnt_own_table "$@" && { command findmnt "$@"; return }
+  builtin local arg
+  builtin integer sizes=$#
+  for arg in "$@"; do
+    [[ $arg == (-D|--df|-I|--dfi) ]] || sizes=0
+  done
+  if (( sizes )); then
+    "$_efr_child_dir/efr-sbx" mounts findmnt-df "$@"
+    builtin local -i st=$?
+    (( st == 2 )) || return st
+  fi
+  command findmnt --tab-file "$_efr_child_dir/mounts" "$@"
+}
+
 _efr_child_note_signals
 
 builtin typeset -g _efr_child_dir=${1-}
@@ -69,6 +153,23 @@ builtin zmodload zsh/parameter
 # NOTE: again after the snapshot and the state, which can define TRAPINT or TRAPQUIT,
 # and before the start lists below, so the records do not report those as removed.
 _efr_child_note_signals
+
+# The mount view: when efrd wrote the snapshot of the host's mounts for this call, df
+# and findmnt print the host's mounts. A function of that name from the snapshot or the
+# state wins. The `function` form takes the name with no alias of the snapshot, and
+# the bodies above were read before the snapshot's aliases. The records never report
+# these two functions.
+builtin typeset -ga _efr_child_own_fns
+if [[ -n $_efr_child_dir && -r $_efr_child_dir/mounts ]]; then
+  if (( ! $+functions[df] )); then
+    function df { _efr_child_df "$@" }
+    _efr_child_own_fns+=(df)
+  fi
+  if (( ! $+functions[findmnt] )); then
+    function findmnt { _efr_child_findmnt "$@" }
+    _efr_child_own_fns+=(findmnt)
+  fi
+fi
 
 # Names that change in every shell or that efr sets; they are never reported.
 builtin typeset -ga _efr_child_skip
@@ -126,10 +227,12 @@ _efr_child_records() {
     was=("${(@)_efr_child_fn0}")
     now=("${(@)list}")
     for name in ${(k)now:#_efr_*}; do
+      (( ${_efr_child_own_fns[(Ie)$name]} )) && continue
       [[ ${+was[$name]} == 1 && $was[$name] == "$now[$name]" ]] ||
         out+=(func "$name" "$now[$name]")
     done
     for name in ${(k)was:#_efr_*}; do
+      (( ${_efr_child_own_fns[(Ie)$name]} )) && continue
       (( ${+now[$name]} )) || out+=(unfunc "$name")
     done
   fi
