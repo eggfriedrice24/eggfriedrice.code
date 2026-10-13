@@ -1,18 +1,25 @@
 //! The mount view on the real launcher: `efr-sbx statvfs`, which efrd runs outside the
-//! sandbox, and the `mounts` tables, which read the snapshot next to the launcher. They
+//! sandbox, and the `mounts` tables, which read the snapshot next to the launcher. These
 //! need no sandbox, so they run with the launcher that cargo built when
-//! `EFR_TEST_SBX_BIN` is unset.
+//! `EFR_TEST_SBX_BIN` is unset. The `mount_view_` tests run `df` and `findmnt` in a real
+//! contained call, with the snapshot of the test's own mount namespace in its call dir,
+//! as efrd writes it, and so need the sandbox.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt as _;
+use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 
 use efr_sandbox::{
-    MountSizes, MountSnapshot, StatvfsLine, parse_mountinfo, render_df, render_findmnt_df,
+    MOUNTS_FILE, MountSizes, MountSnapshot, SIZES_FILE, StatvfsLine, is_dummy, parse_mountinfo,
+    render_df, render_findmnt_df,
 };
 
-use crate::support::{command, env_var, target_tmp};
+use crate::support::{
+    Fixture, Run, command, env_var, require, run_with_timeout, sandbox_or_skip, target_tmp,
+};
 
 /// The launcher of `EFR_TEST_SBX_BIN`, else the one cargo built with this test binary.
 fn launcher() -> PathBuf {
@@ -147,4 +154,159 @@ fn mounts_df_leaves_operands_and_units_of_the_environment_to_the_real_df() {
     assert_runs_real(&inside.run(&["findmnt-df"], &[]), "no sizes");
     std::fs::write(inside.dir.join("mounts.json"), "not json").unwrap();
     assert_runs_real(&inside.run(&["df"], &[]), "sizes that do not read");
+}
+
+/// What `efr-sbx statvfs` answers for `paths`, by path.
+fn statvfs(paths: &[String]) -> BTreeMap<String, StatvfsLine> {
+    let mut child = command(launcher())
+        .arg("statvfs")
+        .env_clear()
+        .current_dir("/")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for path in paths {
+        stdin.write_all(path.as_bytes()).unwrap();
+        stdin.write_all(b"\0").unwrap();
+    }
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<StatvfsLine>(line).unwrap())
+        .map(|line| (line.path.clone(), line))
+        .collect()
+}
+
+/// Writes the snapshot of the test's own mount namespace into `call_dir`, as efrd does:
+/// the table of `/proc/self/mountinfo`, verbatim, and the sizes from a real
+/// `efr-sbx statvfs` (no masks: the test has no efrd). Returns what it wrote.
+fn write_snapshot(call_dir: &Path) -> (Vec<u8>, MountSnapshot) {
+    let table = std::fs::read("/proc/self/mountinfo").unwrap();
+    let entries = parse_mountinfo(&table);
+    let targets: Vec<String> = entries
+        .iter()
+        .filter(|entry| !is_dummy(&entry.fstype))
+        .filter_map(|entry| entry.target.to_str().map(str::to_owned))
+        .collect();
+    let answers = statvfs(&targets);
+    let mut sizes = BTreeMap::new();
+    let mut devices = BTreeMap::new();
+    for entry in &entries {
+        let answer = entry.target.to_str().and_then(|target| answers.get(target));
+        let sized = match answer {
+            _ if is_dummy(&entry.fstype) => MountSizes::Dummy,
+            Some(line) => line.sizes(),
+            None => MountSizes::Failed { errno: 0 },
+        };
+        sizes.insert(entry.id, sized);
+        if let Some(device) = answer.and_then(|line| line.device) {
+            devices.insert(entry.id, device);
+        }
+    }
+    let snapshot = MountSnapshot::new(1, sizes).with_devices(devices);
+    for (name, bytes) in [(MOUNTS_FILE, table.clone()), (SIZES_FILE, snapshot.to_json().unwrap())] {
+        let path = call_dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    (table, snapshot)
+}
+
+/// Runs `line` contained, with the snapshot in its call dir.
+fn call_with_snapshot(fixture: &Fixture, line: &str) -> (Run, Vec<u8>, MountSnapshot) {
+    let call_dir = fixture.prepare(line);
+    let (table, snapshot) = write_snapshot(&call_dir);
+    let command = fixture.command(&call_dir, &fixture.project);
+    let run = fixture.collect(&call_dir, run_with_timeout(command));
+    (run, table, snapshot)
+}
+
+/// The output of `program` with `args` in the test's own mount namespace.
+fn host(program: &str, args: &[&str]) -> String {
+    let output = command(program)
+        .args(args)
+        .env_clear()
+        .env("PATH", env_var("PATH").unwrap_or_default())
+        .env("LANG", "C.UTF-8")
+        .current_dir("/")
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// The lines of `text` as a set, each without the spaces at its end.
+fn line_set(text: &str) -> BTreeSet<String> {
+    text.lines().map(|line| line.trim_end().to_owned()).collect()
+}
+
+#[test]
+fn mount_view_df_shows_host_mounts() {
+    let ready = sandbox_or_skip!();
+    require!("df");
+    let fixture = Fixture::new(&ready);
+    let (run, table, snapshot) = call_with_snapshot(&fixture, "df --output=target; df -h");
+    run.expect_status(0);
+    let (targets, human) = run.stdout.split_at(run.stdout.find("Filesystem").unwrap());
+    let inside = line_set(targets);
+    assert_eq!(inside, line_set(&host("df", &["--output=target"])), "{}", run.stdout);
+    let base = fixture.base.to_string_lossy().into_owned();
+    assert!(!inside.iter().any(|target| target.starts_with(&base)), "{inside:?}");
+    let entries = parse_mountinfo(&table);
+    let expected = render_df(&entries, &snapshot, &[OsString::from("-h")]).unwrap();
+    assert_eq!(human, expected);
+}
+
+#[test]
+fn mount_view_df_path_is_sandbox_view() {
+    let ready = sandbox_or_skip!();
+    require!("df");
+    let fixture = Fixture::new(&ready);
+    // A path: the real df, which shows where a write to /tmp goes in the call.
+    let (run, _, _) = call_with_snapshot(&fixture, "df --output=source,fstype /tmp");
+    run.expect_status(0);
+    let private = fixture.private_tmp().to_string_lossy().into_owned();
+    let outside = host("df", &["--output=source,fstype", &private]);
+    assert_eq!(line_set(&run.stdout), line_set(&outside), "{run:#?}");
+}
+
+#[test]
+fn mount_view_findmnt_uses_tab_file() {
+    let ready = sandbox_or_skip!();
+    require!("findmnt");
+    let fixture = Fixture::new(&ready);
+    let (run, _, _) = call_with_snapshot(&fixture, "findmnt -rn -o TARGET");
+    run.expect_status(0);
+    let inside = line_set(&run.stdout);
+    assert_eq!(inside, line_set(&host("findmnt", &["-rn", "-o", "TARGET"])), "{run:#?}");
+    let base = fixture.base.to_string_lossy().into_owned();
+    assert!(!inside.iter().any(|target| target.starts_with(&base)), "{inside:?}");
+}
+
+#[test]
+fn mount_view_findmnt_df_uses_snapshot_sizes() {
+    let ready = sandbox_or_skip!();
+    require!("findmnt");
+    let fixture = Fixture::new(&ready);
+    let (run, table, snapshot) = call_with_snapshot(&fixture, "findmnt -D; findmnt --dfi");
+    run.expect_status(0);
+    let entries = parse_mountinfo(&table);
+    let expected = render_findmnt_df(&entries, &snapshot, false)
+        + &render_findmnt_df(&entries, &snapshot, true);
+    assert_eq!(run.stdout, expected);
+}
+
+#[test]
+fn mount_view_missing_snapshot_runs_real_df() {
+    let ready = sandbox_or_skip!();
+    require!("df");
+    let fixture = Fixture::new(&ready);
+    // No snapshot: the call's own mounts, the fixture's masks among them.
+    let run = fixture.run("df --output=target");
+    run.expect_status(0);
+    let base = fixture.base.to_string_lossy().into_owned();
+    assert!(run.stdout.lines().any(|target| target.starts_with(&base)), "{run:#?}");
 }

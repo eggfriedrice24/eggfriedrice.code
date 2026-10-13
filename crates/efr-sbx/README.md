@@ -46,6 +46,8 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make. With `--net-view` it runs the network view's checks: `tcp4` first, and when it does not get `EAFNOSUPPORT` no other check runs; then the other families, the netlink protocols, `listen`, `pidfd_getfd`, the host's live abstract names and a Unix socket, each with its exact errno |
 | `bridge` (hidden) | the seam of phase 2; it refuses in phase 1 |
 | `landlock-abi` (hidden) | prints the kernel's Landlock ABI from a rule set that restricts nothing |
+| `statvfs` (hidden) | efrd's helper of the mount view, outside the sandbox: the paths on stdin (NUL-separated, at most 4096), one thread each, one JSON line per path as each answers (`{"path", "ok"}` or `{"path", "errno"}`, with the device of `stat`); efrd kills it at its deadline |
+| `mounts df ARGS`, `mounts findmnt-df ARGS` (hidden) | inside a call: the `df` or `findmnt --df` table of the snapshot next to the launcher (`mounts`, `mounts.json`), for the child shell's `df` and `findmnt`; the arguments are raw, so `-h` is `df`'s; exit status 2 with no output means "run the real command" |
 
 | File | Holds |
 |---|---|
@@ -69,6 +71,8 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `src/os.rs` | the process, environment and time calls that `efr-stdx` routes elsewhere |
 | `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored; whether SIGINT or SIGQUIT stopped the call; for a job, SIGTERM and SIGHUP caught through a pipe for the stop thread |
 | `src/bridge.rs` | the phase 2 seam |
+| `src/statvfs.rs` | `statvfs`: the sizes of the host's mounts for efrd |
+| `src/mounts.rs` | `mounts`: the tables of the mount view; a variable that changes `df`'s units (`DF_BLOCK_SIZE` and the like) leaves them to the real `df` |
 
 What the launcher writes, in order:
 
@@ -98,7 +102,9 @@ calls only) and `line`; the records go to fd 3 in the format of the spec's secti
 SIGINT or SIGQUIT at any time before the line ends the child with 128 plus the signal,
 and the line does not run; during the line, either signal ends the child.
 Contained calls get `DIR = $XDG_RUNTIME_DIR/efr-sbx` inside the sandbox; the exit child
-gets `$CALL/exit-child` with copies of the snapshot and the line.
+gets `$CALL/exit-child` with copies of the snapshot and the line. For a line with `df` or
+`findmnt`, a contained call's `DIR` also holds `mounts` and `mounts.json`, the snapshot
+of the host's mounts, next to the launcher itself (`DIR/efr-sbx`).
 
 ## Tier
 

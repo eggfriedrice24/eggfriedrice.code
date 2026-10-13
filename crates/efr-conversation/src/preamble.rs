@@ -262,7 +262,7 @@ fn mode_rule(mode: Mode) -> &'static str {
              or a push, must be alone in its call. For long work, such as a server or a \
              monitor, call shell with background: true; you get a notice when it ends, so do \
              not poll. If efr refuses an action, do not try it another way. In the sandbox, \
-             tty, $$ and df can differ from the host."
+             tty and $$ can differ from the host."
         }
         _ => "calls it does not allow ask the user.",
     }

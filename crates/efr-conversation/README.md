@@ -272,7 +272,9 @@ request:
    that only the user changes a terminal's mode, model and effort (`,mode`, `,model`,
    `,effort`, or a bare `mode auto` line in sticky mode) while the settings tool
    changes only the defaults in `config.toml` after an approval, so the model never
-   claims to have switched one. These rules ride in the preamble, not the system
+   claims to have switched one. The `auto` line ends with what can differ in the
+   sandbox, `tty` and `$$`; `df` and `findmnt` show the host's mounts there (the
+   mount view of efrd). These rules ride in the preamble, not the system
    prompt, so a system prompt replaced in `config.toml` cannot drop them. The turn
    saves the prompt with its preamble, and later requests send both again unchanged
    (see "The history only grows");

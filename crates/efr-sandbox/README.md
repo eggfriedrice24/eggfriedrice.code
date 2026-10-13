@@ -31,6 +31,7 @@ tested without a kernel.
 | `src/git_config.rs` | the git and cargo config keys that run a program, and a small git config reader |
 | `src/worktree.rs` | `WorktreeRecord`: the git dirs of a worktree project, read once at registration |
 | `src/probe.rs` | `ProbeReport`, `ProbeFailure` with the reason and fix texts, the Landlock and bwrap checks |
+| `src/mounts.rs`, `src/mounts/` | the mount view: `parse_mountinfo` (with the kernel's octal escapes), `MountSnapshot` (the sizes that efrd measured, `mounts.json`), `StatvfsLine` (one answer of `efr-sbx statvfs`), the rules of the sizes (`is_dummy`, `is_other_users`, `is_masked`), and the `df` and `findmnt --df` tables of a snapshot in GNU's and util-linux's format (`render_df`, `render_findmnt_df`); the plan binds `mounts` and `mounts.json` of the call dir next to the launcher when efrd wrote them |
 | `src/names.rs`, `src/paths.rs` | name patterns with `*`, secret-like names, and lexical path helpers |
 
 ## Tier

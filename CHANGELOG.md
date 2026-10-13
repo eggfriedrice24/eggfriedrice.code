@@ -169,6 +169,11 @@ into the GitHub release notes, and it stops when the section is missing.
   its command. `--all` lists the jobs of every conversation with its title, and
   `--conversation` names another one. `efr jobs stop <id>` stops a job and shows how
   it ended and the last 10 lines of its output. An unknown job exits 1.
+- In `auto`, `df` and `findmnt` now run with no review and show your machine's
+  mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
+  reads the mounts outside the sandbox. A mount that does not answer in one second
+  shows `-`, so `df` never hangs on it. `df <path>` shows where a write in the sandbox
+  goes, for example the private `/tmp`. Mounts below a hidden path show no sizes.
 
 ### Changed
 
@@ -272,6 +277,12 @@ into the GitHub release notes, and it stops when the section is missing.
 - The model no longer answers a prompt that you cancelled. This also holds for a turn
   that efr stopped before this version. The first request of such a conversation
   then misses the prompt cache once.
+
+### Security
+
+- Every sandboxed command could already list the mounts of the machine through
+  `/proc/<pid>/mountinfo`. The mount view adds their sizes, except for mounts of other
+  users and below hidden paths.
 
 ## [0.0.3] - 2026-10-09
 

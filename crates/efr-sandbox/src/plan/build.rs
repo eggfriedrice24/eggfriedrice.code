@@ -11,6 +11,7 @@ use crate::desktop::{desktop_socket_path, is_desktop_socket};
 use crate::fs_view::{FileKind, FsView, Memo, Resolved, resolve};
 use crate::git_config::parse_config;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
+use crate::mounts::{MOUNTS_FILE, SIZES_FILE};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
 use crate::plan::{Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote};
 use crate::spec::{DesktopSocket, FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
@@ -553,7 +554,8 @@ impl Builder<'_> {
         Ok(())
     }
 
-    /// The launcher, the child script, the shell snapshot and state, the line and the
+    /// The launcher, the child script, the shell snapshot and state, the line, the
+    /// snapshot of the host's mounts (only for a line of the mount view) and the
     /// editor stub, read-only inside the masked runtime dirs.
     fn assets(&mut self) -> Result<(), SandboxError> {
         let runtime = &self.spec.runtime;
@@ -565,6 +567,8 @@ impl Builder<'_> {
             (runtime.shell_dir.join("snapshot.zsh.zwc"), inside.join("snapshot.zsh.zwc"), false),
             (runtime.shell_dir.join("state.zsh"), inside.join("state.zsh"), false),
             (runtime.call_dir.join(crate::result::LINE_FILE), inside.join("line"), true),
+            (runtime.call_dir.join(MOUNTS_FILE), inside.join(MOUNTS_FILE), false),
+            (runtime.call_dir.join(SIZES_FILE), inside.join(SIZES_FILE), false),
             (runtime.editor.clone(), runtime.editor.clone(), false),
         ];
         for (source, target, required) in assets {
