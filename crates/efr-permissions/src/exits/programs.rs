@@ -645,8 +645,8 @@ const NETWORK_PROGRAMS: &[&str] = &[
 /// are `bus` exits ([`Found::bus_form`]).
 const HOST_VIEW: &[&str] = &["ss", "ip", "iw", "netstat", "ifconfig"];
 
-/// The options of `nmcli` before its object that only change the format of the answer:
-/// alone, and with a value as the next word.
+/// The options of `nmcli` before its object that only change the format of the answer
+/// and take no value.
 const NMCLI_FORMAT: &[&str] = &["-t", "--terse", "-p", "--pretty"];
 
 /// The options of `nmcli` before its object that take the next word as a value and
