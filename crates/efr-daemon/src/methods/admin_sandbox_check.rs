@@ -16,7 +16,7 @@ pub(crate) async fn handle(
 ) -> Result<(), DaemonError> {
     let settings = Arc::clone(&state.settings.borrow());
     let report = state.sandbox.probe(&settings).await;
-    let status = state.sandbox.current();
+    let status = state.sandbox.reported(&settings);
     let mut checks = report.checks.clone();
     // NOTE: a status that a test set has no checks behind it; its reason stands as one.
     if checks.is_empty() {

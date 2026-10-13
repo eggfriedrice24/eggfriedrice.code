@@ -540,7 +540,8 @@ device such as `/dev/net/tun` could send frames with no `socket()` call. So
 
 `network.netview = false` turns the view off: these lines are `host_view` exits again.
 The view is also off when the probe's self-test of it failed (see "When the sandbox
-cannot run"). `efr status` shows `netview yes` or `netview no` with the reason. A
+cannot run"). `efr status` shows `netview yes`, `netview no` with the reason, or
+`netview off (network.netview = false)` when you turned the key off. A
 background job keeps its view up to its time limit, also after you turn the key off or
 a later probe fails: its seccomp filter is in place, and the kernel does not change
 under it. `job_stop` or `efr jobs stop` ends it.
@@ -922,7 +923,8 @@ auto: ready
 
 A failed check has a `fix:` line below it. The command exits with 1 when the sandbox
 is not available. `netview no (the warning above says why)` means that the self-test
-of the network view failed; `auto` still works.
+of the network view failed; `auto` still works. `netview off (network.netview = false)`
+means that you turned the view off.
 
 `efr sandbox explain PATH` tells what a contained command can do with one path, from
 the current directory:

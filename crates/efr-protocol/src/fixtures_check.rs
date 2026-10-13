@@ -439,6 +439,7 @@ fn sandbox_status() -> SandboxStatus {
                 .into(),
         ],
         netview: true,
+        netview_off: false,
     }
 }
 

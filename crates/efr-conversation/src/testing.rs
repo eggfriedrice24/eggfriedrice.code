@@ -594,6 +594,7 @@ pub(crate) fn ready() -> SandboxStatus {
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
         netview: false,
+        netview_off: false,
     }
 }
 

@@ -82,10 +82,14 @@ fn netview_warning(status: &SandboxStatus) -> Option<&str> {
     status.warnings.iter().map(String::as_str).find(|warning| warning.starts_with(NETVIEW_WARNING))
 }
 
-/// The value of the `netview` row of `efr status`: `yes` when the probe's network view
-/// self-test passed, so `ss` and `ip` read forms run in the sandbox with no review;
-/// else `no` with the reason.
+/// The value of the `netview` row of `efr status`: `off` when the user's
+/// `network.netview` is false; `yes` when the probe's network view self-test passed,
+/// so `ss` and `ip` read forms run in the sandbox with no review; else `no` with the
+/// reason.
 pub(crate) fn netview_words(status: &SandboxStatus) -> String {
+    if status.netview_off {
+        return "off (network.netview = false)".to_owned();
+    }
     if status.netview {
         return "yes".to_owned();
     }
@@ -165,9 +169,10 @@ pub(crate) fn check(result: &AdminSandboxCheckResult) -> String {
     }
     if result.status.available {
         // NOTE: a failed self-test of the network view printed its warning above.
-        let netview = match (result.status.netview, netview_warning(&result.status)) {
-            (false, Some(_)) => "no (the warning above says why)".to_owned(),
-            _ => netview_words(&result.status),
+        let status = &result.status;
+        let netview = match (status.netview, netview_warning(status)) {
+            (false, Some(_)) if !status.netview_off => "no (the warning above says why)".to_owned(),
+            _ => netview_words(status),
         };
         let _ = writeln!(out, "netview {netview}");
         out.push_str("auto: ready\n");

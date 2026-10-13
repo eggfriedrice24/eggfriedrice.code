@@ -463,6 +463,7 @@ fn probed(netview: bool) -> SandboxStatus {
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
         netview,
+        netview_off: false,
     }
 }
 
@@ -485,9 +486,16 @@ async fn reload_of_another_key_keeps_netview() {
     assert!(!Arc::ptr_eq(&before, &daemon.engine.borrow()), "a new engine was sent");
     assert!(daemon.engine.borrow().support().netview, "the new engine keeps the view");
 
+    let sandbox = status(&daemon.socket).await.sandbox.unwrap();
+    assert!(sandbox.netview && !sandbox.netview_off);
+
     std::fs::write(config_file(&dirs), "[network]\nnetview = false\n").unwrap();
     assert!(reload(&daemon.socket).await.applied);
     assert!(!daemon.engine.borrow().support().netview, "the key turns it off");
+    // `efr status` shows the key, not only the probe's result.
+    let sandbox = status(&daemon.socket).await.sandbox.unwrap();
+    assert!(sandbox.netview, "the probe's result stays");
+    assert!(sandbox.netview_off, "the status says the key turned the view off");
     daemon.stop().await;
 }
 

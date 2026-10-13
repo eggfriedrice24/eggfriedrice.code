@@ -38,6 +38,7 @@ fn ready() -> SandboxStatus {
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
         netview: false,
+        netview_off: false,
     }
 }
 
@@ -214,6 +215,21 @@ fn check_result() -> AdminSandboxCheckResult {
 #[test]
 fn check_lists_each_check_the_warnings_the_cost_and_the_verdict() {
     insta::assert_snapshot!(check(&check_result()));
+}
+
+#[test]
+fn check_names_the_netview_key_when_it_is_off() {
+    let netview_line = |status: SandboxStatus| {
+        let result = AdminSandboxCheckResult { status, ..check_result() };
+        check(&result).lines().find(|line| line.starts_with("netview ")).unwrap().to_owned()
+    };
+    let failed = check_result().status;
+    assert_eq!(netview_line(failed.clone()), "netview no (the warning above says why)");
+    // The key wins over the self-test's result, failed or passed.
+    let off = SandboxStatus { netview_off: true, ..failed };
+    assert_eq!(netview_line(off), "netview off (network.netview = false)");
+    let off = SandboxStatus { netview: true, netview_off: true, ..ready() };
+    assert_eq!(netview_line(off), "netview off (network.netview = false)");
 }
 
 #[test]
