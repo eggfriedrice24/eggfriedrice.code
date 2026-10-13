@@ -26,6 +26,7 @@ mod git_config;
 mod inner;
 mod landlock;
 mod layers;
+mod mounts;
 mod names;
 mod paths;
 mod plan;
@@ -57,6 +58,11 @@ pub use landlock::{
 pub use layers::{
     CacheDeletes, CacheLayer, CacheLayers, DeleteLimits, LayerEntry, LayerView, MAX_DELETE_ENTRIES,
     MAX_LAYERS_BYTES, STAGING_DIR,
+};
+pub use mounts::{
+    MAX_MOUNTS_BYTES, MAX_STATVFS_PATH_BYTES, MAX_STATVFS_PATHS, MOUNTS_FILE, MountEntry,
+    MountSizes, MountSnapshot, SIZES_FILE, StatvfsLine, StatvfsValues, is_dummy, is_masked,
+    is_other_users, parse_mountinfo, render_df, render_findmnt_df,
 };
 pub use names::{
     EFR_NAMES, PROXY_NAMES, SECRET_NAMES, SOCKET_NAMES, is_variable_name, matches as name_matches,
