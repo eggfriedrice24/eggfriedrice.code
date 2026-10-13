@@ -38,6 +38,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap \
     && rm -rf /var/lib/apt/lists/* \
     && bwrap --version && bwrap --help | grep -q -- '--bind-fd'
 
+# ss and ip for the network view tests of `just test-sandbox-ubuntu`, which require
+# them. The runner image has iproute2; the base image does not.
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ss --version && ip -V
+
 # The image's own user holds uid 1000; the runner user takes the host's ids instead,
 # so the files it writes into the mounted checkout and caches belong to the host user.
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi \

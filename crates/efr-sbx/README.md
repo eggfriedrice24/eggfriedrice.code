@@ -171,7 +171,10 @@ launcher with real bwrap, Landlock and seccomp. They read the launcher from
 probe says the sandbox cannot run here, each prints `skipped: <reason>` and passes.
 `just test-sandbox` builds the launcher, copies it to a private dir in the target dir,
 probes, sets `EFR_TEST_SBX_BIN` to the copy and `EFR_TEST_SBX_REQUIRE=1`, and then a
-skip fails. The tests run the copy, because another cargo command in the same target
+skip fails. A test that needs a tool skips without it (`need!`), except a tool that
+the gates and CI install: `require!` fails a test with `EFR_TEST_SBX_REQUIRE=1` when
+that tool is missing. `ss` and `ip` (iproute2), for the network view, are such tools.
+The tests run the copy, because another cargo command in the same target
 dir can link a new `target/debug/efr-sbx` while a test runs it. The probe tests take
 `EFR_TEST_SBX_BIN` too; without it they run the launcher that cargo built with them
 (`CARGO_BIN_EXE_efr-sbx`), and then no other cargo command may build in that target

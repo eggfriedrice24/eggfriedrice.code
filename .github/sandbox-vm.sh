@@ -43,16 +43,17 @@ as_root() {
     if [[ "$(id -u)" == 0 ]]; then "$@"; else sudo "$@"; fi
 }
 
-# The packages that boot the kernel, plus zsh and ripgrep for the tests. busybox and
-# zstd build the initramfs that carries the kernel's virtiofs and overlay modules,
-# virtme-ng reads the kernel version with file, and its init finds the serial port that
-# returns the exit status of the guest through udev. The corpus runs rg in its row 4.
-# Its cargo rows use the pinned Rust toolchain, which the job installs with rustup.
+# The packages that boot the kernel, plus zsh, ripgrep and iproute2 for the tests.
+# busybox and zstd build the initramfs that carries the kernel's virtiofs and overlay
+# modules, virtme-ng reads the kernel version with file, and its init finds the serial
+# port that returns the exit status of the guest through udev. The corpus runs rg in its
+# row 4. The network view tests require ss and ip (iproute2). Its cargo rows use the
+# pinned Rust toolchain, which the job installs with rustup.
 cmd_tools() {
     as_root apt-get update -q
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        busybox-static ca-certificates curl file kmod python3-argcomplete python3-requests \
-        python3-venv qemu-system-x86 ripgrep udev virtiofsd zsh zstd
+        busybox-static ca-certificates curl file iproute2 kmod python3-argcomplete \
+        python3-requests python3-venv qemu-system-x86 ripgrep udev virtiofsd zsh zstd
     # The wheel by its pinned hash, without pip's resolver: its two dependencies come
     # from apt.
     local dl wheel="virtme_ng-$virtme_ng-py3-none-any.whl"
@@ -234,7 +235,7 @@ cmd_tests() {
     local toolchain tool
     toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
     export RUSTUP_TOOLCHAIN="$toolchain"
-    for tool in cargo rustfmt rustup rg; do
+    for tool in cargo rustfmt rustup rg ss ip; do
         command -v "$tool" >/dev/null || fail "$tool is not on PATH in the guest"
     done
     cargo --version >/dev/null 2>&1 ||

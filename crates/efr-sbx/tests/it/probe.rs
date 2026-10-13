@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{CacheMode, CheckOutcome};
 use efr_sandbox::{ProbeFailure, ProbeReport};
 
-use crate::support::{command, sandbox_or_skip, target_tmp};
+use crate::support::{command, require, sandbox_or_skip, target_tmp};
 
 /// The launcher of `EFR_TEST_SBX_BIN`, else the one cargo built with this test binary.
 ///
@@ -124,4 +124,16 @@ fn escape_launcher_in_write_root_refuses_auto() {
     let expected = ProbeFailure::InWriteRoot { what: "efr-sbx".to_owned(), path: exe };
     assert_eq!(reason, expected.reason());
     assert!(reason.contains("writable project"), "{reason}");
+}
+
+/// The gates and CI install `ss` and `ip` (iproute2) for the network view tests, so
+/// with `EFR_TEST_SBX_REQUIRE=1` a missing one fails here by name.
+#[test]
+fn network_view_tools_are_installed() {
+    require!("ss");
+    require!("ip");
+    for (tool, flag) in [("ss", "--version"), ("ip", "-V")] {
+        let output = command(tool).arg(flag).output().unwrap();
+        assert!(output.status.success(), "{tool} {flag}: {output:?}");
+    }
 }

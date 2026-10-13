@@ -144,6 +144,23 @@ macro_rules! need {
 }
 pub(crate) use need;
 
+/// Skips the rest of a test with a `skipped:` line when `tool` is not on the `PATH`,
+/// or fails it when `EFR_TEST_SBX_REQUIRE=1`: the gates and CI install the tool, so
+/// there a missing one is a fault of the machine, not a reason to skip. The network
+/// view and mount view tests use it for `ss`, `ip`, `df` and `findmnt`, never `need!`.
+macro_rules! require {
+    ($tool:expr) => {
+        if !crate::support::have($tool) {
+            let required =
+                crate::support::env_var("EFR_TEST_SBX_REQUIRE").is_some_and(|value| value == "1");
+            assert!(!required, "{} is required here but not on PATH", $tool);
+            crate::support::say(&format!("skipped: {} is not on PATH", $tool));
+            return;
+        }
+    };
+}
+pub(crate) use require;
+
 /// The target dir's temp dir, where every fixture lives.
 pub(crate) fn target_tmp() -> PathBuf {
     // Short: the tests bind sockets below it, and a socket's path holds 107 bytes.
