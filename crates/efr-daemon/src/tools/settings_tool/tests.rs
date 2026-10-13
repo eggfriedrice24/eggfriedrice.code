@@ -827,6 +827,18 @@ fn loosens_ask_destructive_unless_undoable() {
 }
 
 #[test]
+fn loosens_network_rows() {
+    let on = Settings::default();
+    assert!(on.network.netview, "the network view is on by default");
+    let mut off = Settings::default();
+    off.network.netview = false;
+    assert!(super::loosens(&off, &on), "false to true runs more lines with no review");
+    assert!(super::network_loosens(&off.network, &on.network));
+    assert!(!super::loosens(&on, &off), "true to false sends them to the reviewer again");
+    assert!(!super::network_loosens(&on.network, &on.network));
+}
+
+#[test]
 fn loosens_undo_and_snapshot_enabled() {
     let mut off = Settings::default();
     off.undo.enabled = false;

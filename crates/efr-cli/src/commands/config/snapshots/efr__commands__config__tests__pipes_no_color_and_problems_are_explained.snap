@@ -59,6 +59,7 @@ sandbox.surface_files = ["Makefile", "build.rs", "package.json", ".envrc", "rust
 sandbox.offline_hints = true  # default
 sandbox.rebuildable = ["target", "node_modules", "dist", "build", ".venv"]  # default
 sandbox.ask_destructive = "unless_undoable"  # default
+network.netview = true  # default
 classifier.enabled = true  # default
 classifier.model = (unset)  # default
 classifier.fallback_to_turn_model = true  # default

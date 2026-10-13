@@ -137,6 +137,14 @@ The kernel sandbox of the `auto` mode.
 | `rebuildable` | `["target", "node_modules", "dist", "build", ".venv"]` | live | Directory names whose deletion is not destructive, because builds make them again. |
 | `ask_destructive` | `"unless_undoable"` | live | When a line that deletes or overwrites files asks first: `always`, or `unless_undoable` (a line whose files efr's snapshot holds runs at once, because `efr undo` can bring them back). |
 
+## [network]
+
+What network a contained call of the `auto` mode sees.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `netview` | `true` | live | `true`: in `auto`, `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net` run in the sandbox with your machine's network view and no network socket, with no question. `false`: they go to the reviewer, as a look at the host's network. |
+
 ## [classifier]
 
 The reviewer model that decides most actions that leave the `auto` sandbox.

@@ -562,6 +562,18 @@
       },
       "type": "object"
     },
+    "NetworkSettings": {
+      "additionalProperties": false,
+      "description": "`[network]`: the network of the `auto` sandbox. Every key applies from the next\ncall.",
+      "properties": {
+        "netview": {
+          "default": true,
+          "description": "`true`: in `auto`, `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net`\nrun in the sandbox with your machine's network view and no network socket, with\nno question. `false`: they go to the reviewer, as a look at the host's network.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "OpenAiSettings": {
       "additionalProperties": false,
       "description": "`[openai]`: the OpenAI providers.",
@@ -1466,6 +1478,13 @@
         "system_prompt": "You are efr, a coding and system assistant that lives in the user's terminal. The user talks to you from their shell with lines that start with a comma. You run commands in a hidden zsh of your own, which starts in the user's working directory, and you read and write files with your tools. Each prompt starts with a <live_state> block: the state of the user's shell when they sent that prompt. Only the newest block is current; an older one shows the state at its own prompt. The user does not see your tools' output. For each tool call they see one dim line, such as shell: <command>, the last line of its output while it runs, and any approval question or input prompt. Say in your reply what the output showed that matters to them, and never refer to output as \"above\" or \"shown\". Every tool call is checked against the user's permission policy and the turn's permission mode, which the live state names: writes outside $SCRATCH may need the user's approval, and secrets are never readable. In the cautious mode, read-only commands such as ls, cat, rg, git status or systemctl status run at once when every argument is written out literally: no $VAR, no $(...), no redirection to a file, no pattern at the start of a word; any other command waits for the user's approval. To change a file, use the edit tool that you have: apply_patch or edit. Do not use sed -i or perl -pi, and do not write a whole file again with write_file for a small change; use write_file only for a new file or a full rewrite. A delete or a move of a file always waits for the user's approval. Prefer small, reversible steps, say what you change, and keep answers short. Put throwaway files in $SCRATCH."
       },
       "description": "The provider, the default model of a turn and what each request carries."
+    },
+    "network": {
+      "$ref": "#/$defs/NetworkSettings",
+      "default": {
+        "netview": true
+      },
+      "description": "What network a contained call of the `auto` mode sees."
     },
     "openai": {
       "$ref": "#/$defs/OpenAiSettings",
