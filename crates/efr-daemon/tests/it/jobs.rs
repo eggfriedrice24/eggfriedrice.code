@@ -526,7 +526,16 @@ async fn job_ids_continue_after_restart() {
         ("done", Value::Null, None),
         ("shell", background("true"), None),
     ]);
-    let mut daemon = setup.builder(model).persistent().start().await.unwrap();
+    // NOTE: the end of `j1` finds the conversation idle. With wakes on, it starts a
+    // wake turn that races the restart: the wake turn can take the model's next
+    // step, or the restart can cancel it before its job starts.
+    let mut daemon = setup
+        .builder(model)
+        .config(|config| config.jobs.max_wakes_per_hour = 0)
+        .persistent()
+        .start()
+        .await
+        .unwrap();
     let (sent, events) = auto_turn(&daemon, "a quick job").await;
     assert_eq!(started(&events)[0].id, JobId::nth(1));
     ended(&daemon, sent.conversation_id, "j1").await;
