@@ -255,10 +255,13 @@ fn mount_view_df_shows_host_mounts() {
     assert_eq!(
         inside,
         line_set(&host("df", &["--output=target"])),
-        "{}\n--- mountinfo\n{}\n--- snapshot\n{snapshot:?}\n--- df -a outside\n{}",
+        "{}\n--- mountinfo\n{}\n--- snapshot\n{snapshot:?}\n--- df -a outside\n{}\n--- df outside\n{}{}\n--- stat outside\n{}",
         run.stdout,
         String::from_utf8_lossy(&table),
-        host("df", &["-a", "--output=source,fstype,target"]),
+        host("df", &["-a", "--output=source,fstype,size,target"]),
+        host("df", &["--version"]),
+        host("df", &["--output=source,fstype,size,target"]),
+        host("stat", &["-c", "%n %d %t:%T %F", "/dev", "/run", "/dev/shm", "/"]),
     );
     let base = fixture.base.to_string_lossy().into_owned();
     assert!(!inside.iter().any(|target| target.starts_with(&base)), "{inside:?}");
