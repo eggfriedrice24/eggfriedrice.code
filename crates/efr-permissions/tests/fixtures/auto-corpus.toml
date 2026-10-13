@@ -25,6 +25,9 @@
 #               (`undo`) and the home store: a destructive part that the snapshot
 #               covers runs with no exit, and a named unit, cron or linger change goes
 #               to the classifier when efrd can copy it and read what it installs
+#   pd          the phase D1 result, in the words of `pa`, on a machine with the phase B
+#               support, the network view and the mount view; only where it differs
+#               from `pb`: `df` and `findmnt` read the mount view in the sandbox
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
@@ -183,6 +186,7 @@ line = "df -hT"
 p1 = "R"
 pa = "K(outside)"
 pb = "K(outside)"
+pd = "R"
 exits = ["outside"]
 
 [[line]]
@@ -730,6 +734,7 @@ line = "df -i"
 p1 = "R"
 pa = "K(outside)"
 pb = "K(outside)"
+pd = "R"
 exits = ["outside"]
 
 [[line]]
