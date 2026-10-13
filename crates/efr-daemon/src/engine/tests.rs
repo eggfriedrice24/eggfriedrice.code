@@ -372,3 +372,19 @@ async fn engine_mount_view_follows_probed() {
     assert!(on.support().mount_view);
     assert_eq!(on.locations(), off.locations(), "the probe changes only the support");
 }
+
+#[tokio::test]
+async fn engine_netview_needs_setting_and_probe() {
+    let (_root, home) = home();
+    let parts = parts(&home, home.path().join("secrets"));
+    let probed = Probed { netview: true, ..Probed::default() };
+    let mut off = Settings::default();
+    off.network.netview = false;
+    let netview = async |settings: &Settings, probed: Probed| {
+        parts.engine(settings, probed).await.unwrap().support().netview
+    };
+    assert!(netview(&Settings::default(), probed).await, "the key and the self-test");
+    assert!(!netview(&Settings::default(), Probed::default()).await, "no passed self-test");
+    assert!(!netview(&off, probed).await, "network.netview = false");
+    assert!(!netview(&off, Probed::default()).await);
+}

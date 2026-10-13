@@ -130,7 +130,12 @@ turns.
   plain sandbox for a question of a user's `ask` rule or a `destructive` exit, the
   sandbox plus the union of the exits' grants (a write bind, the open network, a
   socket, a bus, a device, an unmask), or `Launch::Unsandboxed` (the exit child) when
-  an exit cannot run in the sandbox. `CallContext::exits` carries the approved exits,
+  an exit cannot run in the sandbox. The grants of the line's views
+  (`Decision::view_grants`, such as `Grant::NetView`, which needs no question) join
+  after the exits' grants by an allow list: `NetView` stays only beside `Write` and
+  `Unmask` grants, and drops beside any other grant (a network, host, socket, bus,
+  desktop or device grant); the exit child takes no view. The same rule gives a
+  routine call with a view and no exit its grant. `CallContext::exits` carries the approved exits,
   so the toolbox can make a write target first and copy a floor file first. The answer
   is recorded as `exit_judged` (judge `user`). Before it asks about a launch in the
   exit child, the check point applies the one-command rule
