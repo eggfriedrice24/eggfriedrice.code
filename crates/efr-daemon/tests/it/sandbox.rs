@@ -90,6 +90,11 @@ impl ScriptedModel {
             reviews: AtomicUsize::new(0),
         })
     }
+
+    /// How many reviews of an exit the model answered.
+    pub(crate) fn reviews(&self) -> usize {
+        self.reviews.load(Ordering::SeqCst)
+    }
 }
 
 #[async_trait]

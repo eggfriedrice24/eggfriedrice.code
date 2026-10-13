@@ -24,6 +24,7 @@ mod jobs;
 mod jobs_undo;
 mod jobs_wake;
 mod login;
+mod netview;
 mod presence;
 mod prompt_send;
 mod pty_attach;
