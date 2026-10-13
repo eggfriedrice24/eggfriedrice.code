@@ -51,6 +51,7 @@ pub(crate) mod gc;
 pub(crate) mod launcher;
 pub(crate) mod links;
 pub(crate) mod lock;
+pub(crate) mod mounts;
 pub(crate) mod peers;
 pub(crate) mod plan;
 pub(crate) mod probe;
@@ -73,6 +74,10 @@ const EXIT_CHILD_BWRAP: &str = "/usr/bin/bwrap";
 
 /// The directory of the probe's fake call below efr's state root.
 const PROBE_DIR: &str = "sandbox/probe";
+
+/// The note of a call whose line runs `df` or `findmnt` when efrd could not take the
+/// snapshot of the host's mounts (efr's auto spec, 13.7).
+pub(crate) const MOUNT_VIEW_FAILED: &str = "the mount view failed; df shows the sandbox's mounts";
 
 /// The file in a conversation's sandbox dir where its hidden shell writes its `PATH`.
 const PATH_FILE: &str = "path";
@@ -126,6 +131,10 @@ struct Inner {
     /// The desktop variables of the terminal of each conversation's last prompt that
     /// sent any, for its desktop grants.
     desktops: Mutex<HashMap<ConversationId, DesktopEnv>>,
+    /// True when efrd shares its parent's mount namespace, checked once at start.
+    mount_view: bool,
+    /// The snapshots of the host's mounts for the lines that run `df` or `findmnt`.
+    mounts: mounts::MountView,
     writer: WriterHandle,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
@@ -148,6 +157,9 @@ pub(crate) struct PrepareInput<'a> {
     pub(crate) engine: &'a Engine,
     /// The paths that the call names: its declared paths and where it starts.
     pub(crate) named_paths: Vec<PathBuf>,
+    /// True when the line runs `df` or `findmnt` (`exits::mount_view_line`): the call
+    /// gets the snapshot of the host's mounts.
+    pub(crate) mount_view: bool,
 }
 
 /// A prepared call: the run for the shell, the plan lock, and what the tool result says.
@@ -225,6 +237,10 @@ impl SandboxService {
             host.binaries.push(source.clone());
         }
         let (status, _) = watch::channel(SandboxStatus::unavailable(NOT_PROBED));
+        let mount_view =
+            tokio::task::spawn_blocking(mounts::same_mount_namespace).await.unwrap_or(false);
+        let helper = seams.statvfs_helper().map_or_else(|| copy.clone(), Path::to_path_buf);
+        let mounts = mounts::MountView::new(helper, Arc::clone(&clock));
         SandboxService {
             inner: Arc::new(Inner {
                 dirs,
@@ -242,6 +258,8 @@ impl SandboxService {
                 running: Mutex::new(HashMap::new()),
                 reported_path: Mutex::new(None),
                 desktops: Mutex::new(HashMap::new()),
+                mount_view,
+                mounts,
                 writer,
                 clock,
                 rng,
@@ -261,12 +279,10 @@ impl SandboxService {
     }
 
     /// True when efrd's mount namespace is the one of its parent, so the mounts that
-    /// efrd reads are the user's.
-    ///
-    /// NOTE: always false until the mount view exists: `df` and `findmnt` then stay
-    /// `outside` exits.
+    /// efrd reads are the user's: `df` and `findmnt` then run in the sandbox with the
+    /// snapshot. When false, they stay `outside` exits.
     pub(crate) fn mount_view(&self) -> bool {
-        false
+        self.inner.mount_view
     }
 
     /// The plan locks, which `write_file` takes for its own write.
@@ -672,6 +688,13 @@ impl SandboxService {
         };
         let roots: Vec<PathBuf> =
             plan::project_roots(&plan_input).into_iter().map(|root| root.path).collect();
+        // NOTE: the snapshot runs beside the plan lock and the plan, so a mount that
+        // hangs for its deadline never holds the lock of the call's projects.
+        let snapshot = (input.mount_view && self.mount_view() && launch != Launch::Unsandboxed)
+            .then(|| {
+                let view = self.inner.mounts.clone();
+                tokio::spawn(async move { view.snapshot().await })
+            });
         let watch = Stopwatch::start();
         let guard = self.inner.locks.lock(&roots).await;
         tracing::debug!(phase = "plan_lock", elapsed_ms = %watch, "phase=plan_lock elapsed_ms={}", watch);
@@ -681,6 +704,7 @@ impl SandboxService {
         let planned = plan::build(&plan_input);
         tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase=plan_build elapsed_ms={}", watch);
         let spec = planned.spec;
+        let mut notes = planned.notes;
         make_targets(&call.exits).await?;
         let call_dir = spec.runtime.call_dir.clone();
         let mut nonce = [0_u8; 16];
@@ -700,6 +724,9 @@ impl SandboxService {
         if let Some(job) = &job {
             files.push((efr_sandbox::LINE_FILE, job.line.as_bytes().to_vec()));
             files.push((efr_sandbox::ENV_FILE, job.env.to_vec()));
+        }
+        if let Some(snapshot) = snapshot {
+            files.extend(mount_files(snapshot, &spec, &mut notes).await);
         }
         let dir = call_dir.clone();
         let stamp = spec.runtime.sandbox_dir.join(gc::LAST_CALL_FILE);
@@ -739,7 +766,7 @@ impl SandboxService {
             guard,
             started: call_dir.join(efr_sandbox::STARTED_FILE),
             projects: roots,
-            notes: planned.notes,
+            notes,
             guard_roots: spec.guard_roots.clone(),
             write_roots: spec.write_roots.iter().map(|root| root.path.clone()).collect(),
             state_dir: spec.runtime.job_state_dir(call.call_id),
@@ -809,6 +836,83 @@ impl SandboxService {
         // The report is replaced whole, so a poisoned lock still holds a usable one.
         self.inner.last.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// The `mounts` and `mounts.json` of a call from the snapshot that `task` takes, with
+/// no sizes below the masks of `spec` ([`mount_masks`]). When the snapshot failed, no
+/// file and the note [`MOUNT_VIEW_FAILED`]: the call's `df` then shows the sandbox's
+/// mounts.
+async fn mount_files(
+    task: tokio::task::JoinHandle<Option<Arc<mounts::Taken>>>,
+    spec: &efr_sandbox::SandboxSpec,
+    notes: &mut Vec<&'static str>,
+) -> Vec<(&'static str, Vec<u8>)> {
+    match snapshot_files(task, spec).await {
+        Some((table, sizes)) => {
+            vec![(efr_sandbox::MOUNTS_FILE, table), (efr_sandbox::SIZES_FILE, sizes)]
+        }
+        None => {
+            tracing::warn!(call_id = %spec.call, "the mount view failed; df shows the sandbox's mounts");
+            notes.push(MOUNT_VIEW_FAILED);
+            Vec::new()
+        }
+    }
+}
+
+async fn snapshot_files(
+    task: tokio::task::JoinHandle<Option<Arc<mounts::Taken>>>,
+    spec: &efr_sandbox::SandboxSpec,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    let taken = task.await.ok()??;
+    let (masks, below) = mount_masks(spec);
+    tokio::task::spawn_blocking(move || {
+        // NOTE: the plan masks the real target of a link, and a mount's target is a
+        // real path, so each mask counts in both forms.
+        let real = |paths: Vec<PathBuf>| -> Vec<PathBuf> {
+            let mut all = Vec::with_capacity(paths.len());
+            for path in paths {
+                if let Ok(target) = std::fs::canonicalize(&path)
+                    && target != path
+                {
+                    all.push(target);
+                }
+                all.push(path);
+            }
+            all
+        };
+        taken.files(&real(masks), &real(below))
+    })
+    .await
+    .ok()?
+}
+
+/// The masks of the mount view of a call: its read masks but those that an `Unmask`
+/// grant opens, at or below which a mount gets no sizes; and the dirs that the sandbox
+/// replaces with its own (the runtime dirs, efr's data and state roots), strictly below
+/// which a mount gets none.
+fn mount_masks(spec: &efr_sandbox::SandboxSpec) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let unmasked: Vec<&PathBuf> = spec
+        .grants
+        .iter()
+        .filter_map(|grant| match grant {
+            Grant::Unmask { path } => Some(path),
+            _ => None,
+        })
+        .collect();
+    let masks = spec
+        .masks
+        .iter()
+        .filter(|mask| !unmasked.contains(&&mask.path))
+        .map(|mask| mask.path.clone())
+        .collect();
+    let runtime = &spec.runtime;
+    let below = vec![
+        runtime.user_runtime.clone(),
+        runtime.runtime.clone(),
+        runtime.data.clone(),
+        runtime.state.clone(),
+    ];
+    (masks, below)
 }
 
 /// Makes the targets that approved write grants bind and that their program would

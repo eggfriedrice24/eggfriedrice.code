@@ -378,7 +378,9 @@ impl DaemonToolbox {
         named_paths.extend(declared.command_dir.clone());
         named_paths.extend(self.covered_root_paths(&call.context));
         let engine = Arc::clone(&engine.borrow());
-        let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
+        // NOTE: a job gets the snapshot of its start and keeps it.
+        let mount_view = efr_permissions::exits::mount_view_line(&command);
+        let input = PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view };
         let limit_secs = u64::from(minutes) * 60;
         let job_input = JobInput {
             plan: JobPlan::new(limit_secs, settings.jobs.nice),

@@ -152,6 +152,8 @@ struct Launch {
     trusted_programs: Option<PathBuf>,
     /// The environment of every background job, in place of the hidden shell's.
     job_env: Option<BTreeMap<String, String>>,
+    /// The program that measures the host's mounts, in place of the launcher's copy.
+    statvfs_helper: Option<PathBuf>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -196,6 +198,7 @@ impl Default for TestDaemonBuilder {
                 probe_override: None,
                 trusted_programs: None,
                 job_env: None,
+                statvfs_helper: None,
             },
         }
     }
@@ -340,6 +343,16 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Runs `path statvfs` to measure the host's mounts for the mount view of a line
+    /// with `df` or `findmnt`, in place of the launcher's copy: a script that prints
+    /// fixed JSON lines (`{"path": P, "ok": {...}}` or `{"path": P, "errno": N}`), or
+    /// one that blocks, so efrd kills it at its deadline.
+    #[must_use]
+    pub fn statvfs_helper(mut self, path: impl Into<PathBuf>) -> Self {
+        self.settings.statvfs_helper = Some(path.into());
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -413,6 +426,9 @@ impl TestDaemon {
         }
         if let Some(env) = &settings.job_env {
             deps = deps.with_job_env(env.clone());
+        }
+        if let Some(helper) = &settings.statvfs_helper {
+            deps = deps.with_statvfs_helper(helper.clone());
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());

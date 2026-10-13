@@ -8,7 +8,8 @@
 //! launcher to copy, which an in-process daemon cannot find next to itself, and can
 //! replace the probe's result. For background jobs it can give every job a fixed
 //! environment, so a test needs no hidden zsh that writes its `env` file, and it can
-//! hand a test the side of a socket peer by pid ([`PeerProbe`]). `just install` refuses an `efrd` built with the feature
+//! hand a test the side of a socket peer by pid ([`PeerProbe`]), and it can name the
+//! program that measures the host's mounts. `just install` refuses an `efrd` built with the feature
 //! (`efrd --test-seams` prints `on`).
 
 use std::collections::BTreeMap;
@@ -43,6 +44,9 @@ pub(crate) struct Seams {
     /// Where a test asks for the side of a socket peer.
     #[cfg(feature = "test-sandbox-fake")]
     peer_probe: Option<PeerProbe>,
+    /// The program that measures the host's mounts, in place of the launcher's copy.
+    #[cfg(feature = "test-sandbox-fake")]
+    statvfs_helper: Option<PathBuf>,
 }
 
 /// The side of a socket peer as a test reads it: `user`, `model_side` or `unknown`.
@@ -108,6 +112,11 @@ impl Seams {
             probe.set(side);
         }
     }
+
+    /// The `statvfs` helper that a test named, in place of the launcher's copy.
+    pub(crate) fn statvfs_helper(&self) -> Option<&Path> {
+        self.statvfs_helper.as_deref()
+    }
 }
 
 #[cfg(not(feature = "test-sandbox-fake"))]
@@ -134,6 +143,11 @@ impl Seams {
 
     /// Without the feature no test asks for the side of a peer.
     pub(crate) fn fill_peer_probe(&self, _side: Arc<PeerSideFn>) {}
+
+    /// Without the feature the launcher's copy measures the mounts.
+    pub(crate) fn statvfs_helper(&self) -> Option<&Path> {
+        None
+    }
 }
 
 #[cfg(feature = "test-sandbox-fake")]
@@ -177,6 +191,15 @@ impl Deps {
     #[must_use]
     pub fn with_peer_probe(mut self, probe: PeerProbe) -> Self {
         self.seams.peer_probe = Some(probe);
+        self
+    }
+
+    /// Runs `helper statvfs` to measure the host's mounts for the mount view, in place
+    /// of the launcher's copy: a script that prints fixed answers, or one that blocks.
+    /// Only with the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_statvfs_helper(mut self, helper: impl Into<PathBuf>) -> Self {
+        self.seams.statvfs_helper = Some(helper.into());
         self
     }
 }

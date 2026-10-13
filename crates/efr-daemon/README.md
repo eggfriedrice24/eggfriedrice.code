@@ -500,6 +500,22 @@ spec; `docs/sandbox.md` for the user's view):
   Before `prepare`, the toolbox waits until the conversation's shell has no other run
   (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
   a command still running holds no lock while it waits.
+- The mount view (`sandbox/mounts.rs`): for a contained call or job whose line runs
+  `df` or `findmnt` (`efr_permissions::exits::mount_view_line`), `prepare` also writes
+  `mounts` (efrd's own `/proc/self/mountinfo`, verbatim) and `mounts.json` (the sizes
+  of each mount) into the call dir. efrd measures the sizes outside the sandbox with
+  one `efr-sbx statvfs` process from the launcher's copy, beside the plan lock and the
+  plan, never in its own threads: a FUSE or NFS mount that hangs holds a thread that
+  only SIGKILL stops. The deadline is 1 s; then efrd kills the helper, hands it to a
+  reaper task and does not wait for its exit. At most one helper lives at a time; a
+  mount that missed the deadline gets no sizes (`timeout`) and is not measured again
+  for 60 s; a snapshot serves every call for 2 s. No sizes for the dummy types, for
+  another user's runtime dir and FUSE mounts, and for a mount at or below a mask of
+  the call. A snapshot that fails writes nothing and adds a note. The view needs
+  efrd in the user's mount namespace: at start efrd compares its own with its
+  parent's (`ns/mnt`, else the mount ids of `mountinfo`, which every process may read;
+  the systemd user manager's link does not read), and with another namespace
+  `mount_view()` is false and `df` stays an `outside` exit.
 - Before the engine decides a shell call of an `auto` turn, the toolbox collects its
   facts (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
   directory through the hardened `git ls-files`, and where each program word leads
@@ -831,8 +847,9 @@ last event never hears about that turn.
 - `test-sandbox-fake`: the test seams of the `auto` sandbox in `sandbox/seams.rs`:
   `Deps::with_sandbox_launcher` names the `efr-sbx` to copy,
   `Deps::with_probe_override` replaces the probe's result, `Deps::with_job_env` gives
-  every background job a fixed environment, and `Deps::with_peer_probe` lets a test ask
-  for the side of a socket peer by pid. Only `efr-test-daemon`
+  every background job a fixed environment, `Deps::with_peer_probe` lets a test ask
+  for the side of a socket peer by pid, and `Deps::with_statvfs_helper` names the
+  program that measures the mounts of the mount view. Only `efr-test-daemon`
   turns it on; `just install` refuses an `efrd` whose hidden `--test-seams` says `on`.
 
 `cfg(feature = ...)` appears only in `screens.rs`, `shells.rs` and `sandbox/seams.rs`
