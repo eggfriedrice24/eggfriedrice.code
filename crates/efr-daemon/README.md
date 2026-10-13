@@ -1091,8 +1091,15 @@ user. Its child module `sandbox::review` follows a floor file edit through
 reviewer reads (the target's facts from efrd's own look, the payload of the edit), and,
 with a real zsh, deletes in a private cache layer that reach the real cache after the
 reviewer allows them and stay private after it refuses; under `just test-sandbox` one
-such delete runs in the real sandbox. The unit tests of `sandbox/` cover the plan, the
-probe with a fake launcher, the lock, the worktree record, the facts, the report, the
+such delete runs in the real sandbox. Its child modules `sandbox::netview` and
+`sandbox::mount_view` run the views of phase D1 on the real `efr-sbx` with a real zsh
+and efrd's own probe: `ss -Htln` runs with `Grant::NetView` and no review and lists a
+listener that the test bound; a function named `ss` from the sandbox state of an
+earlier call runs in a view call, and its TCP socket fails with `EAFNOSUPPORT` while
+the test's listener accepts nothing; a background job that watches the network starts
+with the view and no review, sees the test's connection and stops by `job_stop`; and
+`df` runs with no review and lists the host's mounts, not the sandbox's binds. The
+unit tests of `sandbox/` cover the plan, the probe with a fake launcher, the lock, the worktree record, the facts, the report, the
 quarantine and the peer check on real process trees.
 
 The `presence` module checks that a conversation goes away after the idle minutes and
@@ -1108,9 +1115,13 @@ the user decides, the verdict after the allow rule and the naming rule, one revi
 judged line, and that no record holds the text of a tool result. A second eval replays
 20 recorded answers to prompts for system work and checks that each request holds the
 auto rule and that no answer says that the model lacks permission before its first
-call. The answers are written for the verdicts of the spec, not taken from a live
-model, so the evals prove the replay and efr's rules; the real models are a manual
-check.
+call. The job eval of phase C replays five prompts that start a background job, and
+the view eval of phase D1 (`view_prompts.json`) six prompts: `ss`, `ip -s link`, a
+network watch job and `df -hT` run with no review (the first three with
+`Grant::NetView`), a read form of `nmcli` is a `bus` exit for the reviewer, and
+`nmcli radio wifi off` is a `bus` exit that only the user may allow. The answers are
+written for the verdicts of the spec, not taken from a live model, so the evals prove
+the replay and efr's rules; the real models are a manual check.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.

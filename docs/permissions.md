@@ -319,9 +319,9 @@ denied. Each exit has a kind:
 |---|---|
 | `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit. A path below such a node, such as `/dev/fd/3/x`, goes through an open file to a place that efr cannot see, so it is a write that only you approve |
 | `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
-| `host_view` | `ss`, `ip`, `nmcli`, `netstat` |
-| `outside` | `df`, `findmnt` (they show your real disks and mounts outside the sandbox); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read, such as `python3 -c`, `sh -c` or `node build.js`) |
-| `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions`. A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's agent) and a socket under a mask |
+| `host_view` | `iw`, `ifconfig`, `netstat`; `ss` and `ip` in a line that also does other work (`ss -tln; make test`), in a form that changes something (`ss -K`, `ip link set`), or with the network view off. A view line has no exit ("Views", below) |
+| `outside` | `df`, `findmnt` only when efrd runs in a mount namespace of its own, such as a hardened unit; else they run in the sandbox with the mount view and no exit (docs/sandbox.md, "The host's mounts"); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read, such as `python3 -c`, `sh -c` or `node build.js`) |
+| `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions`; `nmcli` and `iwctl` (the reviewer for a read form, such as `nmcli device status` or `iwctl station wlan0 show`; only you for every other form, such as `nmcli radio wifi off`, because the system bus has no filter yet). A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's agent) and a socket under a mask |
 | `desktop_ipc` | the read and reload forms `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_*`, `i3-msg -t get_*`, `xrandr` without a change, `wlr-randr`, `niri msg` (the reviewer); a form that types or starts programs, such as `hyprctl dispatch exec` or `xdotool type`, an unknown form and a desktop socket that the model names (only you approve). The call gets the one control socket of the program's desktop and its variable (docs/sandbox.md, "Desktop sockets") |
 | `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
 | `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |
@@ -332,6 +332,22 @@ denied. Each exit has a kind:
 | `synced_write` | a write to `~/Dropbox` and the other `sandbox.synced_dirs` (only you approve) |
 | `above_root` | a write at or above a write root or efr's config: `rm -rf ..`, `rm -rf ~/p/old-app` (the reviewer for one path that a message of yours names and that holds no floor; a project's own `.git` and protected names do not count; else only you, also for `~`, `/`, a system dir and a dir that holds more than one project) |
 | `secret`, `config` | a read or write of a secret, a write of efr's config, of efr's own programs or of efr's own dirs: denied |
+
+**Views.** A view is a read-only view of the host that a contained call gets with no
+exit, no review and no question. The engine gives it as a reason of its own
+(`Subject::View`), never as an exit. Phase D1 has one view, the host's network view
+(`Grant::NetView`). A line gets it when each simple command is one of these: `ss` (not
+`-K`, `-D` or `-N`), a read form of `ip` (not `-batch`, `-netns` or `-all`), `nstat`
+(not `-d`), a read of a file below `/proc/net`, or a simple text helper such as
+`grep`, `sort` or `sleep`. `watch`, `timeout` and a `while` loop around them are
+allowed. No interpreter, `find`, `git` or `xargs` can be part of such a line. The call
+then runs in the sandbox in your network namespace, where seccomp allows only Unix and
+netlink sockets (docs/sandbox.md, "The host's network view"). This rule only picks the
+lines that fit. It is not a security layer. With `network.netview = false`, or when
+the probe's self-test of the view failed, the same lines are `host_view` exits. When
+the line also has an exit, the launch keeps the view only beside `write` and `unmask`
+grants. With every other grant, such as the network, a device or a bus, the view
+drops, and the call gets only that grant.
 
 The engine reads every line, also one with a substitution or a group, and finds the
 exits that it can see. Text can only add a question; the sandbox holds what the text
@@ -650,7 +666,8 @@ The model reads and changes efr's settings with its `settings` tool, never with
   starts as.
 - A change that loosens permissions is marked "loosens permissions": a new `allow`
   rule, a removed `deny` or `ask` rule, a mode toward `auto`, `shell.sudo_cache` from
-  `per_call` to `keep`, or a removed secret path.
+  `per_call` to `keep`, `network.netview` from `false` to `true`, or a removed secret
+  path.
 - The tool refuses every rule that names secrets (the class `secrets`, or an `under`
   path at or below a secret location), to add and to remove. You write such rules by
   hand.

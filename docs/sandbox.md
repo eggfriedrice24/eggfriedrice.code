@@ -43,7 +43,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 |---|---|
 | Writes | only in the write roots (below). Everything else is read-only. |
 | Secrets | the paths of the read masks read as empty. Secret-like environment variables are removed. |
-| Network | none. Only loopback works, so a test can start a server and talk to it. |
+| Network | none. Only loopback works, so a test can start a server and talk to it. A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
 | Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. An approved exit opens one socket for one call (see "Desktop sockets"). |
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
@@ -51,8 +51,9 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 | Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"). |
 | `/tmp` | private to the conversation; you do not see it. Share files through `$SCRATCH`. |
 
-Some tools show the sandbox's view: `tty` prints `/dev/console`, `df` shows the
-sandbox's mounts, and `$$` differs from `/proc/self`.
+Some tools show the sandbox's view: `tty` prints `/dev/console`, and `$$` differs from
+`/proc/self`. `df` and `findmnt` show your real mounts, and `ss` and `ip` your real
+network (see "The host's network view and mounts").
 
 ## Write roots
 
@@ -311,14 +312,14 @@ across calls. An exit that runs outside the sandbox does not see them.
 |---|---|---|---|
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
 | `host` | `curl -LO https://example.com/x.tar.gz`, `npm ci` | the sandbox, with full network for this call | the reviewer, else you |
-| `host_view` | `ss -tlnp`, `ip addr` | the sandbox, with the host's network | the reviewer, else you |
+| `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
 | `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
-| `bus` | `hostnamectl`, `systemctl --failed` | the sandbox, with the bus socket | the reviewer, else you |
+| `bus` | `hostnamectl`, `systemctl --failed`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off` | the sandbox, with the bus socket | the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the system bus has no filter yet |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
-| `outside` | `df`, `findmnt`, `crontab -l`, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
@@ -478,6 +479,127 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 `efr history --verbose` shows the record of each exit: the line, its targets, hosts and
 programs, and how it was judged (by you, a floor or the reviewer). Without a conversation id, it shows the newest
 conversation of this terminal, else the newest of all, and says which.
+
+## The host's network view and mounts
+
+Some system work only reads your machine: what listens on a port, the traffic
+counters, how full the disks are. In the sandbox these tools would show the
+sandbox's own network and mounts. So efr gives such lines a view of the host, with no
+exit and no question. [`docs/adr/0011-netview-and-mount-view.md`](adr/0011-netview-and-mount-view.md)
+records the decision.
+
+### The host's network view
+
+A line that only reads your network runs in the sandbox with `Grant::NetView`. The
+call keeps your network namespace, so `ss`, `ip` and `/proc/net` show your real
+sockets, links, counters and routes. The call cannot send anything:
+
+| What | In a network view call |
+|---|---|
+| Sockets | seccomp allows only `AF_UNIX` and `AF_NETLINK`. Every other family fails at `socket()` with `EAFNOSUPPORT`: TCP, UDP, IPv6, packet, raw, Bluetooth, vsock and each family that a later kernel adds. So a DNS query fails too. |
+| Netlink | only `NETLINK_ROUTE` (for `ip`) and `NETLINK_SOCK_DIAG` (for `ss`). Every other protocol fails with `EPROTONOSUPPORT`, so `iw` stays a `host_view` exit. Without a capability, these two protocols cannot change a link, an address or a route. |
+| `listen`, `pidfd_getfd` | fail with `EPERM`, so a call cannot wait for a host program on an abstract socket name, or take a socket from another process. |
+| TCP | Landlock also refuses TCP bind and connect, a second layer behind seccomp. |
+| Unix sockets | as in every call: no connect to a socket path that the call did not make, and no connect or send to an abstract name outside the sandbox. |
+| `ss -p` | names only the processes of the call. Landlock hides the file descriptors of every other process. |
+| Package managers | get the offline hints, as in every call without the network. |
+
+Which lines get the view (`efr-permissions/src/exits/view.rs`): each simple command
+of the line is one of these:
+
+- `ss`, but not with `-K`, `--kill`, `-D`, `--diag`, `-N` or `--net`;
+- a read form of `ip` (`addr`, `link`, `route`, `neigh`, `rule`, `maddr`,
+  `addrlabel`, `netconf`, with no verb or `show`, `list`, `get`), but not with `-batch`,
+  `-netns` or `-all`, or a prefix of them;
+- `nstat`, but not with `-d` or `--scan`;
+- `cat`, `head`, `tail`, `grep` or `wc` of a file below `/proc/net` (also
+  `/proc/self/net` and `/proc/<pid>/net`);
+- a text helper: `grep`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`, `column`,
+  `cat`, `echo`, `printf`, `date`, `sleep`, `:`, `true`, `tee`.
+
+`watch`, `timeout` and a `while` loop around these are allowed, so `watch -n 5 ss -ti`
+and `while :; do ss -ti; sleep 5; done` get the view. No interpreter (`awk`, `python`),
+no `find`, `git` or `xargs`, and no `netstat`. A line that also does other work, such
+as `ss -tln; make test`, keeps the `host_view` exit.
+
+This rule only picks the lines that fit. It is not a security layer. A call with the
+view can still run any code: a function or an alias named `ss` that an earlier call
+defined, a zsh module such as `zsh/net/tcp`, a bug in a helper. The hidden shell
+drops a function of your rc files that has the name of a program that a rule trusts,
+such as `ss`, but the sandbox state of an earlier call can define one. seccomp,
+Landlock and the refusal of `listen` carry the whole load. The rule keeps lines that
+start local servers out of your network namespace, because such a call loses the
+sandbox's private loopback.
+
+When the line also has an exit, the launch gets the view only beside `write` and
+`unmask` grants, which do not depend on the network namespace. With every other
+grant, the view drops: the network grant needs sockets that the view refuses, and a
+device such as `/dev/net/tun` could send frames with no `socket()` call. So
+`ss -tln; curl https://x` is a `host` exit with the full network, and
+`cat /proc/net/dev /dev/net/tun` is a `device` exit with no view.
+
+`network.netview = false` turns the view off: these lines are `host_view` exits again.
+The view is also off when the probe's self-test of it failed (see "When the sandbox
+cannot run"). `efr status` shows `netview yes` or `netview no` with the reason. A
+background job keeps its view up to its time limit, also after you turn the key off or
+a later probe fails: its seccomp filter is in place, and the kernel does not change
+under it. `job_stop` or `efr jobs stop` ends it.
+
+`nmcli` and `iwctl` talk to NetworkManager and iwd over the system bus, not through
+netlink. They are `bus` exits: the reviewer decides a read form, such as
+`nmcli device status`, `nmcli general status` or `iwctl station wlan0 show`, and only
+you allow every other form, such as `nmcli radio wifi off` or
+`iwctl station wlan0 connect X`. A background job with `nmcli` or `iwctl` is refused,
+as every job that needs the bus is.
+
+### The host's mounts
+
+A line that runs `df` or `findmnt`, also behind `watch`, gets a snapshot
+of your mounts with no exit. efrd runs in your mount namespace, so it reads its own
+`/proc/self/mountinfo` and measures each mount outside the sandbox. It writes two
+files into the call's dir, `mounts` (the mount table) and `mounts.json` (the sizes),
+and the sandbox binds them read-only next to the launcher. In the call:
+
+- `df` with options only prints the snapshot in the format of GNU `df`. It knows `-a`,
+  `-B`, `-h`, `-H`, `-i`, `-k`, `-l`, `-P`, `-T`, `-t`, `-x`, `--total`, `--output`,
+  `--sync` and `--no-sync`. Any other option, `--`, or a path runs the real `df`,
+  which shows the sandbox's file system: `df -h /tmp` shows the call's private `/tmp`,
+  which is where a write really goes.
+- `findmnt` reads the snapshot as its table (`--tab-file`). `findmnt -D` and `-I`
+  print the snapshot's sizes. With an option that picks a table of its own (`-F`,
+  `-N`, `-k`, `-s`, `-p`, `-x`, `-m`), it runs the real `findmnt`.
+- A `df` or `findmnt` function of your shell wins over these. They exist only on the
+  line itself: a script, `watch df` or `sh -c 'df'` shows the sandbox's mounts.
+- `lsblk` shows your real devices; its `MOUNTPOINTS` column shows the sandbox's.
+
+The rules of the snapshot:
+
+- No sizes for the dummy file systems (`proc`, `sysfs`, `cgroup2`, `autofs` and the
+  others), so a `df` never mounts an automount share.
+- No sizes for the mounts of another user (below `/run/user/<uid>`, or a FUSE mount
+  with another `user_id`), and none for a mount at or below a mask or a secret of the
+  call, such as `$XDG_RUNTIME_DIR/doc` or an encrypted store. An `unmask` grant shows
+  the sizes of its path.
+- One helper process, `efr-sbx statvfs`, measures every other mount, one thread per
+  mount. After one second, efrd kills it and does not wait for it, so a hung NFS or
+  FUSE mount never holds `df`. Such a mount shows `-`, and efrd does not measure it
+  again for a minute. At most one helper runs at a time, and a snapshot serves calls
+  for two seconds.
+- A background job gets the snapshot of its start and keeps it.
+- When the snapshot fails, the call runs with the sandbox's mounts and the model reads
+  `the mount view failed; df shows the sandbox's mounts`.
+
+At start, efrd compares its mount namespace with the one of its parent, the systemd
+user manager. When they differ, for example because a unit drop-in sets
+`PrivateTmp`, `ProtectHome` or `ProtectSystem`, efrd's view of the mounts is not
+yours: the mount view is then off, and `df` and `findmnt` are `outside` exits, which
+show the true view after a review. A test of efr fails when `systemd/efrd.service`
+gets such a key.
+
+Every contained call could already list every mount of the machine through
+`/proc/<pid>/mountinfo`, also the mounts of other users and containers. A new procfs or
+`hidepid` would hide them, and both hide `ps`. The mount view adds the sizes of your
+own mounts.
 
 ## Background jobs
 
@@ -728,6 +850,19 @@ What you see:
 - `efr status` shows the `sandbox` line always: `ready (...)` or `unavailable:
   <reason>; auto runs as cautious`, with the fix.
 
+After the self-test passed, the probe runs a second launch with the network view and
+its own checks. Each check passes only on its exact error code. `tcp4` runs first: when
+a TCP socket does not fail with `EAFNOSUPPORT`, the profile is not in place, and the
+self-test stops before it opens any other socket. Then `tcp6`, `udp4`, `udp6`,
+`packet` and other families (`EAFNOSUPPORT`), the `ROUTE` and `SOCK_DIAG` netlink
+sockets (they must open), other netlink protocols (`EPROTONOSUPPORT`), `listen` on an
+unnamed Unix socket and `pidfd_getfd` (`EPERM`), a connect and a send to the probe's
+abstract sockets outside the sandbox (`EPERM` from Landlock), and a socket path
+(`EACCES`). A failure here is a warning, never a failure of the sandbox: `auto` still
+runs, the network view is off, and `ss` and `ip` go to the reviewer. The warning says
+`the network view's self-test failed, so ss and ip need a review: <check>`. efrd
+builds its engine again after each probe, so the view follows the newest result.
+
 | Failure | Reason | Fix |
 |---|---|---|
 | no bubblewrap | `bubblewrap is not installed` | Arch: `pacman -S bubblewrap`; Debian and Ubuntu: `apt install bubblewrap`; Fedora: `dnf install bubblewrap` |
@@ -777,11 +912,13 @@ ok    self-test: 16 checks passed
 warn  ~/dotfiles/bin is on PATH and inside the registered project ~/dotfiles; it stays read-only in the sandbox
 warn  the registered project ~ is your home directory; auto runs its turns as cautious
 launch 3.6 ms
+netview yes
 auto: ready
 ```
 
 A failed check has a `fix:` line below it. The command exits with 1 when the sandbox
-is not available.
+is not available. `netview no (the warning above says why)` means that the self-test
+of the network view failed; `auto` still works.
 
 `efr sandbox explain PATH` tells what a contained command can do with one path, from
 the current directory:
@@ -901,6 +1038,11 @@ when efr counts you away: `away_after_minutes`, `away_wait_secs` and `push` (no 
 client exists yet, so it does nothing today). Each key applies from the next
 question, and none needs a restart.
 
+`[network]` has one key in phase D1: `netview` (default `true`). `false` makes `ss`,
+`ip` read forms, `nstat` and reads of `/proc/net` `host_view` exits for the reviewer
+again. It applies from the next call, with no restart. The settings tool marks a
+change from `false` to `true` as "loosens permissions".
+
 ## Known limits
 
 | Limit | What can happen | What efr does |
@@ -915,7 +1057,16 @@ question, and none needs a restart.
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |
 | a `bus` or `host` grant opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so |
-| `tty` and `$$` show the sandbox's view | confusing output for system work | the prompt text says so; `df` and `findmnt` run outside the sandbox after a review; `host_view` exits for `ss` and `ip` |
+| `tty` and `$$` show the sandbox's view | confusing output for system work | the prompt text says so; `df`, `findmnt`, `ss` and `ip` show your machine through the views |
+| a call with the network view runs in your network namespace and can run any code | a gap in the seccomp profile would let it send from your machine | only Unix and netlink sockets, and only two netlink protocols; `listen` and `pidfd_getfd` refused; Landlock refuses TCP; the probe checks each refusal at every start; the view only beside `write` and `unmask` grants |
+| a host program can send a datagram to an abstract socket name that a network view call binds, also with a socket in it (`SCM_RIGHTS`) | the call could receive a connected socket from a host program and send through it | it needs a host program that sends to that name on purpose; `listen` fails, so no stream service; a job ends at its time limit |
+| a call with the network view sees your sockets, peers and routes | the model can learn the sites that you visit | the purpose of the view; before, the same output came after a review |
+| a running job keeps the network view after `network.netview = false` or a failed probe | the job reads your network until it ends | its filter is in place and the kernel does not change; `efr jobs stop` ends it |
+| every contained call can list every mount of the machine through `/proc/<pid>/mountinfo` | the call learns your mounts, also those of other users and containers | none: a new procfs or `hidepid` would hide `ps` too; the mount view adds sizes only for your own mounts outside masks |
+| the mount view shows how full your hidden tmpfs mounts are | the call learns numbers, not names or contents | no sizes below the masks and secrets of the call |
+| the `df` and `findmnt` of the mount view work only on the line | `watch df`, a script or `sh -c 'df'` shows the sandbox's mounts | that output is safe; it shows the sandbox |
+| a long job keeps the mount snapshot of its start | old sizes in a job's output | none |
+| a hung NFS or FUSE mount, an automount | `df` could hang or mount a share | the helper ends after one second, the mount shows `-` for a minute; no `statvfs` for `autofs` and the other dummy types |
 | an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege, upload and persistence are yours only |
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
 | no network | a build that must download fails | the network is an exit; `sandbox.offline_hints` tells package managers to use the cache |
