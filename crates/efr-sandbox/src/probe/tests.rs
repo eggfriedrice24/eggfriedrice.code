@@ -132,3 +132,19 @@ fn a_report_turns_into_the_status() {
     assert_eq!(status.fix.as_deref(), Some("sysctl kernel.unprivileged_userns_clone=1"));
     assert_eq!(ProbeReport::from_json(&failed.to_json().unwrap()).unwrap(), failed);
 }
+
+#[test]
+fn netview_status_needs_its_self_test_to_pass() {
+    let ready = ProbeReport::default();
+    assert!(!ready.status().netview, "it did not run");
+    let passed = ProbeReport { netview: Some(true), ..ProbeReport::default() };
+    assert!(passed.status().netview);
+    let refused = ProbeReport { netview: Some(false), ..ProbeReport::default() };
+    assert!(!refused.status().netview);
+    assert!(refused.status().available, "a failed network view never fails the probe");
+    let failed = ProbeReport { failure: Some(ProbeFailure::UsernsOff), ..passed.clone() };
+    assert!(!failed.status().netview);
+    // A report of an older launcher has no such field.
+    assert_eq!(ProbeReport::from_json(b"{}").unwrap().netview, None);
+    assert_eq!(ProbeReport::from_json(&passed.to_json().unwrap()).unwrap(), passed);
+}

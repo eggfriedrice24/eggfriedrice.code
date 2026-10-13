@@ -6,10 +6,10 @@ use std::fs;
 use std::os::fd::OwnedFd;
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-use std::os::unix::net::{SocketAddr, UnixListener};
+use std::os::unix::net::{SocketAddr, UnixDatagram, UnixListener};
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{CacheMode, CallId, ConversationId};
+use efr_protocol::{CacheMode, CallId, ConversationId, Grant};
 use efr_sandbox::{
     CacheOverlay, EnvPlan, LINE_FILE, Mask, MaskKind, NetworkPlan, RecordLimits, RuntimePaths,
     SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, is_within, normalize,
@@ -41,6 +41,7 @@ pub(crate) struct Fixture {
     cache: PathBuf,
     socket: PathBuf,
     abstract_name: String,
+    abstract_dgram_name: String,
     pts: Option<PathBuf>,
     landlock_only: PathBuf,
     socket_bound: bool,
@@ -48,6 +49,7 @@ pub(crate) struct Fixture {
     spec: SandboxSpec,
     // Held open for the life of the fixture: the self-test must see them exist.
     _listeners: Vec<UnixListener>,
+    _datagram: UnixDatagram,
     _pty: Option<OwnedFd>,
 }
 
@@ -156,6 +158,13 @@ impl Fixture {
         let abstract_listener = SocketAddr::from_abstract_name(abstract_name.as_bytes())
             .and_then(|address| UnixListener::bind_addr(&address))
             .map_err(|error| SbxError::os("bind an abstract socket", error))?;
+        // A live datagram name of the host: a network view call shares the host's
+        // abstract names, and its send there must fail with EPERM from the Landlock
+        // scope.
+        let abstract_dgram_name = format!("efr-sbx-probe-d-{}-{stamp}", std::process::id());
+        let datagram = SocketAddr::from_abstract_name(abstract_dgram_name.as_bytes())
+            .and_then(|address| UnixDatagram::bind_addr(&address))
+            .map_err(|error| SbxError::os("bind an abstract datagram socket", error))?;
         let (pty, pts) = match outside_pty() {
             Ok((pty, pts)) => (Some(pty), Some(pts)),
             Err(reason) => {
@@ -216,11 +225,13 @@ impl Fixture {
             cache,
             socket,
             abstract_name,
+            abstract_dgram_name,
             pts,
             spec,
             socket_bound: listener.is_some(),
             unavailable,
             _listeners: listener.into_iter().chain([abstract_listener]).collect(),
+            _datagram: datagram,
             _pty: pty,
         })
     }
@@ -253,6 +264,28 @@ impl Fixture {
         }
         if mode == CacheMode::Readonly {
             args.push("--cache-read-only".into());
+        }
+        args
+    }
+
+    /// The spec of the network view's self-test: the same call with `Grant::NetView`.
+    pub(crate) fn net_view_spec(&self, mode: CacheMode) -> SandboxSpec {
+        let mut spec = self.spec(mode);
+        spec.grants.push(Grant::NetView);
+        spec
+    }
+
+    /// The arguments of `efr-sbx self-test --net-view` for this fixture.
+    pub(crate) fn net_view_args(&self) -> Vec<OsString> {
+        let mut args: Vec<OsString> = vec!["--net-view".into()];
+        let mut add = |flag: &str, value: OsString| {
+            args.push(flag.into());
+            args.push(value);
+        };
+        add("--abstract-name", self.abstract_name.clone().into());
+        add("--abstract-dgram-name", self.abstract_dgram_name.clone().into());
+        if self.socket_bound {
+            add("--socket", self.socket.clone().into_os_string());
         }
         args
     }

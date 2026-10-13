@@ -42,8 +42,8 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `guard-check --call-dir DIR --state-dir SBXJOB` | compares a contained job's git surface with the record of its start, moves what breaks a rule to its quarantine, writes `guard.json`; exit status 0 with no change, 3 with a change, 1 on an error |
 | `inner --policy-fd N` (hidden) | inside bwrap: waits for the cache overlays, then Landlock, seccomp and the child shell |
 | `layers --pid N` (hidden) | enters the namespaces of the inner stage `N`, mounts the cache overlays of the plan on stdin, and sends the descriptors of their upper dirs back over its stdout, a Unix socket |
-| `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test |
-| `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make |
+| `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test; when it passes, a second launch with `Grant::NetView` runs the network view's self-test, whose result is the report's `netview` (a failure there is a warning, never a failed probe) |
+| `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make. With `--net-view` it runs the network view's checks: `tcp4` first, and when it does not get `EAFNOSUPPORT` no other check runs; then the other families, the netlink protocols, `listen`, `pidfd_getfd`, the host's live abstract names and a Unix socket, each with its exact errno |
 | `bridge` (hidden) | the seam of phase 2; it refuses in phase 1 |
 | `landlock-abi` (hidden) | prints the kernel's Landlock ABI from a rule set that restricts nothing |
 
