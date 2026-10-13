@@ -516,10 +516,9 @@ pub(crate) struct TurnView {
     traced: bool,
     /// A contained call of this turn had the network view: the end of the turn says so.
     traced_net_view: bool,
-    /// Calls that run in the sandbox, whose failure says so.
-    contained: HashSet<CallId>,
-    /// The contained calls with the network view (`Grant::NetView`).
-    net_viewed: HashSet<CallId>,
+    /// Calls that run in the sandbox, whose failure says so, each with true when it
+    /// has the network view (`Grant::NetView`).
+    contained: HashMap<CallId, bool>,
     /// The exit of each call, for the lines of its approval and of the reviewer.
     exits: HashMap<CallId, sandbox::Requested>,
     /// The row of what the reviewer thought of a call's exit before it handed the
@@ -612,8 +611,7 @@ impl TurnView {
             in_project: false,
             traced: false,
             traced_net_view: false,
-            contained: HashSet::new(),
-            net_viewed: HashSet::new(),
+            contained: HashMap::new(),
             exits: HashMap::new(),
             reviewed: HashMap::new(),
             commands: HashMap::new(),
@@ -1351,14 +1349,8 @@ impl TurnView {
                     running.takes_manual = true;
                     settled = replaced;
                 }
-                let contained = matches!(launch, Some(Launch::Contained { .. }));
-                if contained {
-                    self.contained.insert(*call_id);
-                }
-                if let Some(Launch::Contained { grants }) = launch
-                    && grants.contains(&Grant::NetView)
-                {
-                    self.net_viewed.insert(*call_id);
+                if let Some(Launch::Contained { grants }) = launch {
+                    self.contained.insert(*call_id, grants.contains(&Grant::NetView));
                 }
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
@@ -1399,15 +1391,16 @@ impl TurnView {
                 };
                 let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
-                let contained = self.contained.remove(call_id)
-                    || summary.as_ref().is_some_and(|summary| summary.confined);
+                let net_view = self.contained.remove(call_id);
+                let contained =
+                    net_view.is_some() || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
                 let denied = self.refused.contains(call_id);
                 // The end of the turn says once where the sandbox can write, when a call
                 // ran in it.
                 let ran = contained && !denied && refusal.is_none() && setup.is_none();
                 self.traced |= ran;
-                self.traced_net_view |= self.net_viewed.remove(call_id) && ran;
+                self.traced_net_view |= net_view == Some(true) && ran;
                 // The job that the call started, first: it runs on after the call.
                 let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
@@ -2225,7 +2218,7 @@ impl TurnView {
             }
             _ => return Step { settled, ..self.commit(String::new()) },
         };
-        if kind.hidden() && self.contained.contains(&call_id) {
+        if kind.hidden() && self.contained.contains_key(&call_id) {
             return Step { settled, ..self.note(HIDDEN_INPUT_SANDBOXED, size) };
         }
         if !can_ask {
@@ -2437,7 +2430,6 @@ impl TurnView {
         self.commit_question();
         self.question = None;
         let net_view = std::mem::take(&mut self.traced_net_view);
-        self.net_viewed.clear();
         if std::mem::take(&mut self.traced) {
             let trace = sandbox::contained_trace(self.in_project, net_view);
             // Whole, not cut to the width as a note is: it says where the calls wrote.
