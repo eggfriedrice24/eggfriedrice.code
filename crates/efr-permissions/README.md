@@ -181,7 +181,7 @@ Modules:
   and nothing but view commands and text helpers. View commands are `ss` without `-K`,
   `-D` or `-N` (and their long forms and abbreviations), the read forms of `ip` (an
   object such as `addr`, `link`, `route` or `neigh` with no verb or `show`, `list`,
-  `get`, and no option that is a prefix of `-batch`, `-netns` or `-all`), `nstat`
+  `ls`, `lst`, `get`, and no option that is a prefix of `-batch`, `-netns` or `-all`), `nstat`
   without `-d`, and `cat`, `head`, `tail`, `grep` or `wc` of a file below `/proc/net`,
   `/proc/self/net` or `/proc/<pid>/net`. The helpers are `grep`, `head`, `tail`, `wc`,
   `sort`, `uniq`, `cut`, `tr`, `column`, `cat`, `echo`, `printf`, `date`, `sleep`, `:`,
