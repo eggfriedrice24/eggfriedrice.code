@@ -514,7 +514,8 @@ spec; `docs/sandbox.md` for the user's view):
   (`ShellSessions::until_free`, up to the call's timeout), so a call that queues behind
   a command still running holds no lock while it waits.
 - The mount view (`sandbox/mounts.rs`): for a contained call or job whose line runs
-  `df` or `findmnt` (`efr_permissions::exits::mount_view_line`), `prepare` also writes
+  `df` or `findmnt` by bare name where the shell itself finds the program
+  (`efr_permissions::exits::mount_view_line`), `prepare` also writes
   `mounts` (efrd's own `/proc/self/mountinfo`, verbatim) and `mounts.json` (the sizes
   of each mount) into the call dir. efrd measures the sizes outside the sandbox with
   one `efr-sbx statvfs` process from the launcher's copy, beside the plan lock and the

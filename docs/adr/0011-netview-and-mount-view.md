@@ -107,8 +107,10 @@ machine for a call.
 - Every contained call could already list every mount of the machine through
   `/proc/<pid>/mountinfo`. A new procfs or `hidepid` would hide that, and both hide
   `ps`. The mount view adds the sizes of the user's own mounts outside the masks.
-- The mount view works only for `df` and `findmnt` on the line itself; a script shows
-  the sandbox's mounts. A job keeps the snapshot of its start.
+- The mount view works only for `df` and `findmnt` that the shell itself runs by bare
+  name on the line; a script shows the sandbox's mounts. A path or a wrapper, such as
+  `/bin/df`, `command df`, `timeout 10 df` or `watch df`, runs the real program, so
+  that line stays an `outside` exit. A job keeps the snapshot of its start.
 - `nmcli` and `iwctl` use the system bus, not netlink, so they are `bus` exits; the
   user decides each form that changes something until a filter of the bus exists.
 - The proxy of phase D2 must keep these rules: a call with the proxy keeps its private

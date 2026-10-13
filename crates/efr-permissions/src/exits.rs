@@ -416,11 +416,16 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             made.push((path.clone(), false));
             writes.push((path, part.clone()));
         }
-        for command in programs::commands(&segment.words) {
+        for (command, by_shell) in programs::placed_commands(&segment.words) {
             fetch = fetch.or_else(|| programs::package_fetch(command));
+            let mount_view =
+                input.support.mount_view && programs::runs_mount_view(command, by_shell);
             for exit in programs::classify(command, input.support) {
                 // NOTE: from phase E the filtered bus proxy decides a bus call.
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
+                    continue;
+                }
+                if exit.kind == ExitKind::Outside && mount_view {
                     continue;
                 }
                 if exit.kind == ExitKind::HostView && net_view {
@@ -1068,16 +1073,16 @@ fn naming_part(
         .map(part_text)
 }
 
-/// True when a simple command of `line` runs `df` or `findmnt`, also behind the
-/// wrappers that [`predict`] looks through, such as `watch -n 5 df -h`. efrd then gives
-/// the call a snapshot of the host's mounts.
+/// True when a simple command of `line` runs the zsh function `df` or `findmnt` of the
+/// mount view: by its bare name, where the shell itself finds the program, such as
+/// `df -h` or `time findmnt`. efrd then gives the call a snapshot of the host's mounts.
+/// A path or a wrapper, such as `/bin/df` or `watch -n 5 df -h`, runs the file, which
+/// reads no snapshot; [`predict`] gives that line an `outside` exit.
 pub fn mount_view_line(line: &str) -> bool {
     scan::scan(line).iter().any(|segment| {
-        programs::commands(&segment.words).into_iter().any(|command| {
-            command
-                .first()
-                .is_some_and(|program| matches!(programs::base_name(program), "df" | "findmnt"))
-        })
+        programs::placed_commands(&segment.words)
+            .into_iter()
+            .any(|(command, by_shell)| programs::runs_mount_view(command, by_shell))
     })
 }
 

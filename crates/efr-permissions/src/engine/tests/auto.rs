@@ -1428,6 +1428,23 @@ fn df_is_outside_exit_until_mount_view() {
             .decide(&in_auto(shell(line).with_facts(facts)));
         assert!(!kinds(&view).contains(&ExitKind::Outside), "{line:?}");
     }
+    // A path or a wrapper runs the file, which shows the sandbox's own mounts, so the
+    // line stays an `outside` exit with the mount view too.
+    for line in [
+        "timeout 10 df -h",
+        "env LC_ALL=C df -h",
+        "command df",
+        "exec df -h",
+        "/bin/df -h",
+        "nice findmnt",
+        "watch -n 5 df -h",
+        "xargs findmnt",
+    ] {
+        let view = engine()
+            .with_support(AutoSupport { mount_view: true, ..AutoSupport::default() })
+            .decide(&in_auto(shell(line)));
+        assert!(kinds(&view).contains(&ExitKind::Outside), "{line:?}: {:?}", kinds(&view));
+    }
     assert_eq!(kinds(&decide(shell("lsblk -o NAME,SIZE"))), []);
     // A `df` that the sandbox wrote never gets the user's full rights.
     let facts = programs(&[("./df", Some("/home/u/p/app/df"), false)]);

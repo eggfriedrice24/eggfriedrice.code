@@ -349,6 +349,15 @@ pub(super) fn placed_commands(words: &[String]) -> Vec<(&[String], bool)> {
     found
 }
 
+/// True when the zsh functions of the mount view run `command`, which `by_shell` places
+/// as [`placed_commands`] does: `df` or `findmnt` by its bare name, where the shell itself
+/// finds the program. A path such as `/bin/df`, `command df`, `exec df` and any other
+/// wrapper, such as `timeout`, `env` or `watch`, run the file, which shows the
+/// sandbox's own mounts.
+pub(super) fn runs_mount_view(command: &[String], by_shell: bool) -> bool {
+    by_shell && command.first().is_some_and(|program| matches!(program.as_str(), "df" | "findmnt"))
+}
+
 /// Reserved words that start a compound command, before the command it runs, such as
 /// `do` in `for f in *; do curl ...; done`.
 const KEYWORDS: &[&str] = &["do", "then", "else", "elif", "if", "while", "until", "!", "{"];
@@ -544,9 +553,10 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         }
         program if DESKTOP_IPC.contains(&program) => found.push(Found::desktop(program, args)),
         "niri" if verb(args, &[]) == Some("msg") => found.push(Found::desktop("niri", args)),
-        // NOTE: in the sandbox they show the sandbox's own mounts, so until the mount
-        // view exists (phase D) they run outside it.
-        "df" | "findmnt" if !support.mount_view => found.push(Found::of(ExitKind::Outside)),
+        // NOTE: in the sandbox they show the sandbox's own mounts, so they run outside
+        // it. With the mount view, the shell's own `df` and `findmnt` show the host's
+        // mounts and the caller drops this exit ([`runs_mount_view`]).
+        "df" | "findmnt" => found.push(Found::of(ExitKind::Outside)),
         // NOTE: `dd of=/dev/null` overwrites nothing; the sandbox has that node.
         "dd" if dd_targets(words).into_iter().any(|target| {
             !crate::path_class::normalize(Path::new(target))

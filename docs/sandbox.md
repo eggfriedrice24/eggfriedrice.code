@@ -319,7 +319,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
-| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
@@ -554,8 +554,9 @@ as every job that needs the bus is.
 
 ### The host's mounts
 
-A line that runs `df` or `findmnt`, also behind `watch`, gets a snapshot
-of your mounts with no exit. efrd runs in your mount namespace, so it reads its own
+A line that runs `df` or `findmnt` by its bare name, where the shell itself finds the
+program (`df -h`, `LC_ALL=C df`, `time findmnt`), gets a snapshot of your mounts with
+no exit. efrd runs in your mount namespace, so it reads its own
 `/proc/self/mountinfo` and measures each mount outside the sandbox. It writes two
 files into the call's dir, `mounts` (the mount table) and `mounts.json` (the sizes),
 and the sandbox binds them read-only next to the launcher. In the call:
@@ -569,7 +570,10 @@ and the sandbox binds them read-only next to the launcher. In the call:
   print the snapshot's sizes. With an option that picks a table of its own (`-F`,
   `-N`, `-k`, `-s`, `-p`, `-x`, `-m`), it runs the real `findmnt`.
 - A `df` or `findmnt` function of your shell wins over these. They exist only on the
-  line itself: a script, `watch df` or `sh -c 'df'` shows the sandbox's mounts.
+  line itself: a script or `sh -c 'df'` shows the sandbox's mounts.
+- A path or a wrapper runs the real program, which shows the sandbox's mounts. So
+  `/bin/df`, `command df`, `exec df`, `timeout 10 df`, `env LC_ALL=C df`, `watch df`
+  and `find -exec df` stay `outside` exits, which show the true view after a review.
 - `lsblk` shows your real devices; its `MOUNTPOINTS` column shows the sandbox's.
 
 The rules of the snapshot:
@@ -1064,7 +1068,7 @@ change from `false` to `true` as "loosens permissions".
 | a running job keeps the network view after `network.netview = false` or a failed probe | the job reads your network until it ends | its filter is in place and the kernel does not change; `efr jobs stop` ends it |
 | every contained call can list every mount of the machine through `/proc/<pid>/mountinfo` | the call learns your mounts, also those of other users and containers | none: a new procfs or `hidepid` would hide `ps` too; the mount view adds sizes only for your own mounts outside masks |
 | the mount view shows how full your hidden tmpfs mounts are | the call learns numbers, not names or contents | no sizes below the masks and secrets of the call |
-| the `df` and `findmnt` of the mount view work only on the line | `watch df`, a script or `sh -c 'df'` shows the sandbox's mounts | that output is safe; it shows the sandbox |
+| the `df` and `findmnt` of the mount view work only on the line | a script or `sh -c 'df'` shows the sandbox's mounts | that output is safe; it shows the sandbox; a path or a wrapper, such as `watch df`, is an `outside` exit |
 | a long job keeps the mount snapshot of its start | old sizes in a job's output | none |
 | a hung NFS or FUSE mount, an automount | `df` could hang or mount a share | the helper ends after one second, the mount shows `-` for a minute; no `statvfs` for `autofs` and the other dummy types |
 | an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege, upload and persistence are yours only |
