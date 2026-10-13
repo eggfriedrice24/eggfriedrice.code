@@ -10,6 +10,7 @@ mod corpus;
 mod cost;
 mod escape;
 mod job;
+mod mount_view;
 mod netview;
 mod probe;
 mod support;
