@@ -253,9 +253,11 @@ proptest property:
   `Cause::ExitDecides`, so a lost exit still asks). `tests/it/corpus.rs` runs the 110
   lines of the command corpus (`tests/fixtures/auto-corpus.toml`) and checks the phase
   A result of each (`pa`) and, on a machine with undo and the daemon's coverage
-  answers of the row, the phase B result (`pb`); the `p1` column keeps the phase 1
-  result. A phase B result differs only where the snapshot covers a destructive line,
-  which becomes routine.
+  answers of the row, the phase B result (`pb`), and on a machine with the network
+  view and the mount view too, the phase D1 result (`pd`, the `pb` result where a row
+  has none); the `p1` column keeps the phase 1 result. A phase B result differs only
+  where the snapshot covers a destructive line, which becomes routine, and a phase D1
+  result only for `df`, which reads the mount view in the sandbox.
 - Every exit starts with the approver of its kind (`ExitKind::user_only`), and only
   the places of spec 9.1 relax it: every `write` goes to the classifier, also one that
   runs in the exit child; an `upload`, an `above_root` path that holds no second

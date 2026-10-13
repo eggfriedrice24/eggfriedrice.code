@@ -1,7 +1,9 @@
 //! The command and attack corpus through the engine in the `auto` mode: every line
-//! gets the phase A result of its `pa` column and, on a machine with undo, the phase B
-//! result of its `pb` column (`tests/fixtures/auto-corpus.toml`). The `p1` column keeps
-//! the phase 1 result of spec Appendix A.
+//! gets the phase A result of its `pa` column, on a machine with undo the phase B
+//! result of its `pb` column, and on a machine with the network view and the mount view
+//! the phase D1 result of its `pd` column, which is the `pb` result where the line has
+//! none (`tests/fixtures/auto-corpus.toml`). The `p1` column keeps the phase 1 result
+//! of spec Appendix A.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -38,6 +40,9 @@ struct Line {
     engine: Option<String>,
     pa: String,
     pb: String,
+    /// The phase D1 result, when it differs from `pb`.
+    #[serde(default)]
+    pd: Option<String>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -93,6 +98,23 @@ fn engine() -> Engine {
 /// `sandbox.ask_destructive = "unless_undoable"`.
 fn undo_engine() -> Engine {
     machine(AutoSupport { floor_backup: true, undo: true, ..AutoSupport::default() })
+}
+
+/// The machine of the fixture's header in phase D1: undo and the home store as in phase
+/// B, the network view and the mount view.
+fn pd_engine() -> Engine {
+    machine(AutoSupport {
+        netview: true,
+        mount_view: true,
+        undo: true,
+        floor_backup: true,
+        ..AutoSupport::default()
+    })
+}
+
+/// The phase D1 result of `line`: its `pd` column, else its `pb` column.
+fn pd(line: &Line) -> &str {
+    line.pd.as_deref().unwrap_or(&line.pb)
 }
 
 /// The machine of the fixture's header, whose sandbox supports `support`.
@@ -348,6 +370,15 @@ fn every_line_has_the_phase_b_result() {
 }
 
 #[test]
+fn pd_corpus_rows_match() {
+    assert_eq!(mismatches(&pd_engine(), true, pd), Vec::<String>::new());
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let changed: Vec<u32> =
+        corpus.line.iter().filter(|line| line.pd.is_some()).map(|line| line.n).collect();
+    assert_eq!(changed, [13, 41], "only the df lines differ from phase B");
+}
+
+#[test]
 fn ask_destructive_always_keeps_every_destructive_exit() {
     // `sandbox.ask_destructive = "always"` (or `undo.enabled = false`) keeps the phase
     // A route of every line, whatever the snapshot covers.
@@ -409,6 +440,24 @@ fn routine_lines_stay_routine_in_phase_b() {
         } else if line.pb != line.pa {
             assert_eq!(line.pb, "R", "line {} {:?}", line.n, line.line);
             assert_eq!(line.pa, "K(destructive)", "line {} {:?}", line.n, line.line);
+        }
+    }
+}
+
+#[test]
+fn routine_lines_stay_routine_in_phase_d1() {
+    // A line that runs with no exit in phase B makes no exit in phase D1 either; phase D1
+    // only takes exits away: `df` and `findmnt` read the mount view in the sandbox, and a
+    // line that only reads the host's network gets the network view.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        if matches!(line.pb.as_str(), "R" | "C") {
+            assert_eq!(pd(line), line.pb, "line {} {:?}", line.n, line.line);
+        }
+        if let Some(pd) = &line.pd {
+            assert_ne!(pd, &line.pb, "line {}: a `pd` that equals `pb` says nothing", line.n);
+            assert_eq!(pd, "R", "line {} {:?}", line.n, line.line);
+            assert_eq!(line.pb, "K(outside)", "line {} {:?}", line.n, line.line);
         }
     }
 }
