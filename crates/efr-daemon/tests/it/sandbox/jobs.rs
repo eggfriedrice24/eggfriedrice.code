@@ -515,12 +515,18 @@ async fn shell_exit_child_job_orphan_after_launcher_kill_is_model_side() {
     // thread, cannot see the launcher's end: the window between the kill and efrd's
     // sweep stays open while the test asks for the orphan's side.
     std::fs::write(gate.join("kill"), "").unwrap();
+    // NOTE: the launcher has more than one thread. Its main thread can show `Z` while
+    // the others still exit, and until the last one is gone the kernel gives the
+    // orphan to one of them, which has the launcher's pid. So wait for both.
     let begin = Instant::now();
-    while process_state(launcher) != Some('Z') {
-        assert!(begin.elapsed() < Duration::from_secs(10), "the job did not kill its launcher");
+    while process_state(launcher) != Some('Z') || parent_of(child) == Some(launcher) {
+        assert!(
+            begin.elapsed() < Duration::from_secs(10),
+            "the job did not kill its launcher, or the orphan did not leave it: {:?}",
+            parent_of(child),
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert_ne!(parent_of(child), Some(launcher), "the orphan left its dead launcher");
     assert_eq!(daemon.peer_side(child), PeerSide::ModelSide, "the orphan of a lost launcher");
     let end = ended(&daemon, sent.conversation_id, "j1").await;
     assert!(end.launcher_lost, "{end:?}");
