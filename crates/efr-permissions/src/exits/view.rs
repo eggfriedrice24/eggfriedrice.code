@@ -20,10 +20,12 @@ use super::programs;
 use super::scan::{OPAQUE, Segment, is_assignment};
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
+use efr_protocol::Grant;
+
 use crate::{AutoSupport, CommandPattern};
 
 /// The wrappers that a view command may run behind: `watch` repeats it, `timeout` ends
-/// it. Any other wrapper (`env`, `sudo`, `xargs`, `find -exec`) leaves the rule.
+/// it. Any other wrapper, or a program that runs other programs, leaves the rule.
 const VIEW_WRAPPERS: &[&str] = &["watch", "timeout"];
 
 /// The programs that are a view command when an operand lies below a network dir of
@@ -32,7 +34,8 @@ const READERS: &[&str] = &["cat", "head", "tail", "grep", "wc"];
 
 /// The text helpers that a view line may hold. Each must match its row of the cautious
 /// read-only table where one exists, so its forbid list applies (`sort
-/// --compress-program` runs a program). No interpreter, no `find`, no `git`, no `xargs`.
+/// --compress-program` runs a program). No interpreter and no program that runs another
+/// one is here.
 const HELPERS: &[&str] = &[
     "grep", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "column", "cat", "echo", "printf",
     "date", "sleep", ":", "true", "tee",
@@ -81,8 +84,8 @@ const IP_REFUSED: &[&str] = &["-batch", "-netns", "-all"];
 /// of each. `-r` alone is `-resolve`, so `-rcvbuf` needs at least `-rc`.
 const IP_VALUES: &[(&str, usize)] = &[("-loops", 2), ("-family", 2), ("-rcvbuf", 3)];
 
-/// The characters that `sh -c` reads as more than a word. `watch` joins its words with
-/// spaces and gives them to `sh -c`, so a word behind it must hold none of them.
+/// The characters that a shell reads as more than a word. `watch` joins its words with
+/// spaces and gives them to a shell, so a word behind it must hold none of them.
 const SH_SPECIAL: &[char] = &[
     ';', '&', '|', '<', '>', '(', ')', '$', '`', '\\', '"', '\'', '*', '?', '[', ']', '{', '}',
     '~', '#', '!', '\n', OPAQUE,
@@ -95,6 +98,12 @@ enum Part {
     View,
     /// It only moves text, or runs nothing.
     Helper,
+}
+
+/// The grants of the views that the line of `segments` gets: `Grant::NetView` when
+/// [`net_view`] holds. A view is never an exit.
+pub(super) fn grants(segments: &[Segment], support: &AutoSupport) -> Vec<Grant> {
+    if net_view(segments, support) { vec![Grant::NetView] } else { Vec::new() }
 }
 
 /// True when the line of `segments` gets the host's network view: the machine runs
