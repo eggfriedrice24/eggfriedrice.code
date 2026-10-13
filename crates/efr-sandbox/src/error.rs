@@ -161,6 +161,12 @@ pub enum SandboxError {
     #[error("the sandbox spec has a grant that this build does not know")]
     UnknownGrant,
 
+    /// The spec holds `Grant::NetView` beside a grant other than `Write` or `Unmask`.
+    /// The call would keep the host's network namespace with that grant, such as a
+    /// device like `/dev/net/tun`, which can send with no `socket()` call.
+    #[error("the sandbox spec has the network view beside a grant other than write or unmask")]
+    NetViewMixed,
+
     /// In the `overlay` cache mode, a cache's upper and work dirs do not share a layer
     /// dir of their own: they lie in two dirs, or another cache uses the same one.
     #[error("the layer dir of the cache {cache:?} is not its own")]
