@@ -25,14 +25,22 @@
 //! Reloads run one at a time in one task ([`serve`]), so two triggers at once never
 //! interleave their sends; a trigger asks it through [`reload`] and waits for the
 //! outcome.
+//!
+//! The same task rebuilds the engine when a probe changed what the sandbox supports
+//! ([`Reloads::rebuild`]): [`follow_probes`] watches the probe's status and asks for a
+//! rebuild when the network view of its last result differs from the running engine's.
+//! A rebuild uses the running settings and the last probe; it never reads the file
+//! again and never starts a probe, so a probe and a rebuild cannot start each other in
+//! a loop. The task is the only one that sends on the engine watch after the start.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{CONFIG_FILE, ConfigError, FileState, Reloaded, Settings};
-use efr_protocol::{AdminConfigReloadResult, ConfigFileError, ConfigStatus, Mode};
+use efr_permissions::Engine;
+use efr_protocol::{AdminConfigReloadResult, ConfigFileError, ConfigStatus, Mode, SandboxStatus};
 use jiff::SignedDuration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
@@ -49,19 +57,31 @@ const PAGE: u32 = 256;
 /// Reload requests that may wait for the reload task.
 const REQUESTS: usize = 16;
 
-/// One request for a reload: what asked for it, and where the outcome goes.
+/// One request for the reload task.
 #[derive(Debug)]
-pub(crate) struct Request {
-    trigger: &'static str,
-    reply: oneshot::Sender<AdminConfigReloadResult>,
+pub(crate) enum Request {
+    /// Read the config file again and apply it: what asked for it, and where the
+    /// outcome goes.
+    Reload { trigger: &'static str, reply: oneshot::Sender<AdminConfigReloadResult> },
+    /// Build the engine again from the running settings and the last probe, and send it
+    /// when what the sandbox supports changed; the answer says whether it was sent.
+    Rebuild { reply: oneshot::Sender<bool> },
 }
 
 #[cfg(test)]
 impl Request {
-    /// Answers the request with `result`, as the reload task would.
+    /// Answers the request as the reload task would: a reload with `result`, a rebuild
+    /// with "nothing sent".
     pub(crate) fn answer(self, result: AdminConfigReloadResult) {
         // A trigger that stopped waiting needs no answer.
-        let _ = self.reply.send(result);
+        match self {
+            Request::Reload { reply, .. } => {
+                let _ = reply.send(result);
+            }
+            Request::Rebuild { reply } => {
+                let _ = reply.send(false);
+            }
+        }
     }
 }
 
@@ -102,7 +122,17 @@ impl Reloads {
     ) -> Result<AdminConfigReloadResult, DaemonError> {
         let (reply, answer) = oneshot::channel();
         let stopped = || DaemonError::ReloadStopped;
-        self.requests.send(Request { trigger, reply }).await.map_err(|_| stopped())?;
+        self.requests.send(Request::Reload { trigger, reply }).await.map_err(|_| stopped())?;
+        answer.await.map_err(|_| stopped())
+    }
+
+    /// Asks the reload task to build the engine again from the running settings and the
+    /// last probe, and returns whether it sent a new one. It reads no file and starts no
+    /// probe. Fails only when the task has stopped.
+    pub(crate) async fn rebuild(&self) -> Result<bool, DaemonError> {
+        let (reply, answer) = oneshot::channel();
+        let stopped = || DaemonError::ReloadStopped;
+        self.requests.send(Request::Rebuild { reply }).await.map_err(|_| stopped())?;
         answer.await.map_err(|_| stopped())
     }
 
@@ -156,12 +186,73 @@ pub(crate) async fn serve(
             () = stop.cancelled() => return,
             request = requests.recv() => request,
         };
-        let Some(Request { trigger, reply }) = request else {
-            return;
-        };
-        let result = reload_now(&state, trigger).await;
         // A trigger that stopped waiting needs no answer.
-        let _ = reply.send(result);
+        match request {
+            Some(Request::Reload { trigger, reply }) => {
+                let result = reload_now(&state, trigger).await;
+                let _ = reply.send(result);
+            }
+            Some(Request::Rebuild { reply }) => {
+                let sent = rebuild_now(&state).await;
+                let _ = reply.send(sent);
+            }
+            None => return,
+        }
+    }
+}
+
+/// Builds the engine again from the running settings and what the last probe found,
+/// and sends it when what the sandbox supports changed. Returns whether it sent one.
+///
+/// NOTE: it reads no file and starts no probe: a probe asks for it, so a probe here
+/// could ask for the next rebuild without end.
+#[tracing::instrument(skip_all)]
+async fn rebuild_now(state: &State) -> bool {
+    let settings = Arc::clone(&state.settings.borrow());
+    let current = Arc::clone(&state.engine.borrow());
+    match state.engine_parts.engine(&settings, Probed::of(&state.sandbox)).await {
+        Ok(engine) if engine.support() != current.support() => {
+            tracing::info!(netview = engine.support().netview, "the engine follows the probe");
+            state.engine.send_replace(Arc::new(engine));
+            true
+        }
+        Ok(_) => false,
+        Err(error) => {
+            tracing::warn!(error = %error, "the permission engine does not follow the probe");
+            false
+        }
+    }
+}
+
+/// Asks `reloads` for a rebuild of the engine each time the probe's status in `status`
+/// says other than the running engine in `engine` about the network view, until
+/// `stop`. The view needs both the user's `network.netview` of `settings` and a passed
+/// self-test, as the engine's build reads them.
+///
+/// NOTE: a probe never waits for the rebuild that it causes, and a rebuild never
+/// probes, so the two cannot start each other in a loop.
+pub(crate) async fn follow_probes(
+    reloads: Reloads,
+    mut status: watch::Receiver<SandboxStatus>,
+    settings: watch::Receiver<Arc<Settings>>,
+    engine: watch::Receiver<Arc<Engine>>,
+    stop: CancellationToken,
+) {
+    loop {
+        let wanted = settings.borrow().network.netview && status.borrow_and_update().netview;
+        if wanted != engine.borrow().support().netview && reloads.rebuild().await.is_err() {
+            return;
+        }
+        // NOTE: biased, so a status that came before the stop is still followed.
+        tokio::select! {
+            biased;
+            changed = status.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+            () = stop.cancelled() => return,
+        }
     }
 }
 
