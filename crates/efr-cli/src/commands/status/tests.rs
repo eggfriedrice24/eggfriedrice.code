@@ -278,6 +278,58 @@ async fn status_shows_sandbox_line() {
 }
 
 #[tokio::test]
+async fn status_shows_netview() {
+    let ready = SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(0xf),
+        bwrap: Some(PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        cache_mode: CacheMode::Overlay,
+        network_mode: NetworkMode::None,
+        warnings: Vec::new(),
+        netview: true,
+    };
+    let failed = SandboxStatus {
+        warnings: vec![
+            "the network view's self-test failed, so ss and ip need a review: tcp4: errno 1"
+                .to_owned(),
+        ],
+        netview: false,
+        ..ready.clone()
+    };
+    // A daemon from before the network view sends no `netview`, which reads as false.
+    let older = SandboxStatus { netview: false, ..ready.clone() };
+    let down = SandboxStatus::unavailable("bubblewrap is not installed");
+    let mut shown = Vec::new();
+    for sandbox in [ready, failed, older, down] {
+        let env = TestEnv::new();
+        let daemon = env.listen();
+        let ctx = env.context();
+        let (mut out, captured) = capture();
+        let status = AdminStatusResult { sandbox: Some(sandbox), ..result() };
+        let script = async {
+            let mut conn = daemon.accept().await;
+            let (id, _) = conn.request().await;
+            conn.reply(id, &status).await;
+            conn.until_closed().await;
+        };
+        let line = command(&["status"]);
+        let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+        assert_eq!(exit, Exit::Success);
+        let stdout = captured.stdout();
+        let rows: Vec<&str> = stdout
+            .lines()
+            .filter(|line| line.starts_with("sandbox") || line.starts_with("netview"))
+            .collect();
+        shown.push(rows.join("\n"));
+    }
+    insta::assert_snapshot!(shown.join("\n---\n"));
+}
+
+#[tokio::test]
 async fn status_without_a_daemon_exits_with_three() {
     let env = TestEnv::new();
     let ctx = env.context();

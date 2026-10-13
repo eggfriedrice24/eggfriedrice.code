@@ -74,6 +74,25 @@ pub(crate) fn status_line(status: &SandboxStatus) -> String {
     format!("ready ({})", parts.join(", "))
 }
 
+/// The start of the probe's warning when the network view's self-test failed.
+const NETVIEW_WARNING: &str = "the network view's self-test failed";
+
+/// The probe's warning about the network view, when its self-test failed.
+fn netview_warning(status: &SandboxStatus) -> Option<&str> {
+    status.warnings.iter().map(String::as_str).find(|warning| warning.starts_with(NETVIEW_WARNING))
+}
+
+/// The value of the `netview` row of `efr status`: `yes` when the probe's network view
+/// self-test passed, so `ss` and `ip` read forms run in the sandbox with no review;
+/// else `no` with the reason.
+pub(crate) fn netview_words(status: &SandboxStatus) -> String {
+    if status.netview {
+        return "yes".to_owned();
+    }
+    let reason = netview_warning(status).unwrap_or("the probe gave no result for it");
+    format!("no ({})", one_line(reason))
+}
+
 /// The note at the start of a turn whose mode fell back, such as `auto is not
 /// available here; this turn runs as cautious: Landlock ABI 6 found`.
 pub(crate) fn fallback_note(fallback: &ModeFallback, mode: Mode) -> String {
@@ -145,6 +164,12 @@ pub(crate) fn check(result: &AdminSandboxCheckResult) -> String {
         _ => {}
     }
     if result.status.available {
+        // NOTE: a failed self-test of the network view printed its warning above.
+        let netview = match (result.status.netview, netview_warning(&result.status)) {
+            (false, Some(_)) => "no (the warning above says why)".to_owned(),
+            _ => netview_words(&result.status),
+        };
+        let _ = writeln!(out, "netview {netview}");
         out.push_str("auto: ready\n");
     } else {
         let reason = result.status.reason.as_deref().unwrap_or("the probe gave no reason");

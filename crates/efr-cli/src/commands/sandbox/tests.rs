@@ -42,7 +42,7 @@ async fn sandbox_check_lists_checks() {
     let ctx = env.context();
     let (mut out, captured) = capture();
     let result = AdminSandboxCheckResult {
-        status: ready(),
+        status: SandboxStatus { netview: true, ..ready() },
         checks: vec![
             ok("landlock", "Landlock ABI 10, errata 0xf"),
             ok("bwrap", "bubblewrap /usr/bin/bwrap 0.13.0, not setuid"),
@@ -67,6 +67,7 @@ async fn sandbox_check_lists_checks() {
 ok    Landlock ABI 10, errata 0xf
 ok    bubblewrap /usr/bin/bwrap 0.13.0, not setuid
 launch 3.6 ms, with your rc snapshot 14.8 ms
+netview yes
 auto: ready
 "
     );
