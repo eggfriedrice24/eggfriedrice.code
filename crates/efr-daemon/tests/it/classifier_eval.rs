@@ -33,7 +33,9 @@
 //! record of a job holds its facts (`background`, `max_minutes`, `watch`). Its daemon
 //! starts jobs through the shared fake launcher of `efr-test-daemon`; a line that must
 //! not run on the test's machine (`gdb -p`) makes the fake fail its setup, and the spec
-//! that the fake kept tells the launch.
+//! that the fake kept tells the launch. Its probe passed the network view self-test
+//! (phase D1), so a job that only reads the host's network starts with
+//! `Grant::NetView` and no review.
 //!
 //! No live model runs. The reviewer's answers are those that a model must give for the
 //! verdicts of the spec. No line of the phase A and B evals runs either: the fake shell
@@ -894,7 +896,7 @@ async fn job_prompts_decide_as_expected() {
         .dirs(Arc::clone(&dirs))
         .clock(efr_test_support::TestClock::starting_at(start))
         .sandbox_launcher(fake.path())
-        .probe_override(ready())
+        .probe_override(SandboxStatus { netview: true, ..ready() })
         .job_env(env)
         .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
         .start()

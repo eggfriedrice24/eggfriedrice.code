@@ -21,18 +21,12 @@
       "background": true,
       "max_minutes": 180
     },
-    "reviewer": {
-      "verdict": "allow",
-      "risk": "low",
-      "user_authorization": "high",
-      "category": "fits the request",
-      "rationale": "The user asked to watch the network while they play; the loop only reads."
-    },
+    "reviewer": null,
     "expect": {
-      "judged": [["classifier", "allow"]],
+      "judged": [],
       "asked": false,
-      "launch": { "kind": "contained", "grants": [{ "kind": "open_network" }] },
-      "max_minutes": 180
+      "launch": { "kind": "contained", "grants": [{ "kind": "net_view" }] },
+      "max_minutes": null
     }
   },
   {
