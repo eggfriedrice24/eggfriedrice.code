@@ -1,6 +1,8 @@
 //! [`SeccompProfile`]: the fixed deny list that `efr-sbx inner` installs after
 //! Landlock, as data. The default action is allow; the list removes kernel surface that
-//! no build or test needs and stops typing into the shared terminal.
+//! no build or test needs and stops typing into the shared terminal. A call with
+//! `Grant::NetView` keeps the host's network namespace and gets
+//! [`SeccompProfile::net_view`], which also takes every network socket away.
 
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub const EPERM: u32 = 1;
 /// `ENOSYS`.
 pub const ENOSYS: u32 = 38;
+/// `EPROTONOSUPPORT`.
+pub const EPROTONOSUPPORT: u32 = 93;
 /// `EAFNOSUPPORT`.
 pub const EAFNOSUPPORT: u32 = 97;
 
@@ -24,6 +28,13 @@ pub const AF_INET: u64 = 2;
 pub const AF_INET6: u64 = 10;
 /// `AF_NETLINK`.
 pub const AF_NETLINK: u64 = 16;
+/// `AF_PACKET`, for the tests and the self-test.
+pub const AF_PACKET: u64 = 17;
+
+/// `NETLINK_ROUTE`: the links, addresses and routes that `ip` reads.
+pub const NETLINK_ROUTE: u64 = 0;
+/// `NETLINK_SOCK_DIAG`: the socket lists that `ss` reads.
+pub const NETLINK_SOCK_DIAG: u64 = 4;
 
 /// Every `CLONE_NEW*` flag: time, mount, cgroup, uts, ipc, user, pid and net.
 pub const CLONE_NEW_MASK: u64 = 0x0000_0080
@@ -83,6 +94,13 @@ pub enum SyscallRule {
         /// The families that stay allowed.
         allowed: Vec<u64>,
         /// The errno for every other family.
+        errno: u32,
+    },
+    /// `socket(AF_NETLINK, _, protocol)` with a protocol outside `allowed` fails.
+    AllowNetlinkProtocols {
+        /// The netlink protocols that stay allowed.
+        allowed: Vec<u64>,
+        /// The errno for every other protocol.
         errno: u32,
     },
     /// `clone` with any flag of `mask` fails.
@@ -157,6 +175,11 @@ const DENIED: &[&str] = &[
     "ioperm",
 ];
 
+/// The calls that also fail with `EPERM` in a `Grant::NetView` call. The call shares
+/// the host's abstract socket names, so without `listen` it cannot wait there for a
+/// host client. `pidfd_getfd` could take a socket of another process.
+const NET_VIEW_DENIED: &[&str] = &["listen", "pidfd_getfd"];
+
 impl SeccompProfile {
     /// The deny list of phase 1 (the spec's section 3.6).
     pub fn phase1() -> SeccompProfile {
@@ -183,6 +206,30 @@ impl SeccompProfile {
         }
     }
 
+    /// The profile of a `Grant::NetView` call, which keeps the host's network
+    /// namespace: phase 1 with only `AF_UNIX` and `AF_NETLINK` sockets, only the
+    /// `ROUTE` and `SOCK_DIAG` netlink protocols, and `listen` and `pidfd_getfd`
+    /// refused. It is an allow list, so a family or a protocol that a later kernel
+    /// adds fails too.
+    pub fn net_view() -> SeccompProfile {
+        let mut profile = SeccompProfile::phase1();
+        for rule in &mut profile.rules {
+            if let SyscallRule::AllowSocketFamilies { allowed, .. } = rule {
+                *allowed = vec![AF_UNIX, AF_NETLINK];
+            }
+        }
+        profile.rules.push(SyscallRule::AllowNetlinkProtocols {
+            allowed: vec![NETLINK_ROUTE, NETLINK_SOCK_DIAG],
+            errno: EPROTONOSUPPORT,
+        });
+        profile.rules.extend(
+            NET_VIEW_DENIED
+                .iter()
+                .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
+        );
+        profile
+    }
+
     /// The names of the calls that a rule names, each once.
     pub fn syscalls(&self) -> Vec<&str> {
         let mut names: Vec<&str> = Vec::new();
@@ -191,6 +238,7 @@ impl SeccompProfile {
                 SyscallRule::Deny { syscall, .. } => &[syscall.as_str()],
                 SyscallRule::DenyIoctl { .. } => &["ioctl"],
                 SyscallRule::AllowSocketFamilies { .. } => &["socket", "socketpair"],
+                SyscallRule::AllowNetlinkProtocols { .. } => &["socket"],
                 SyscallRule::DenyCloneFlags { .. } => &["clone"],
             };
             for name in named {

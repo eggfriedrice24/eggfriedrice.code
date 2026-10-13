@@ -8,10 +8,14 @@
 //! fails the call, except the x86-only port calls on aarch64. Each filter kills the
 //! process on another architecture; on x86_64 one more filter kills a call of the x32
 //! ABI, whose numbers the others would not match.
+//!
+//! The kernel truncates the family and the protocol of `socket` to an `int`, so every
+//! compare on them is a `dword`: a `qword` compare would let `16 | 1 << 32` pass as
+//! another family than the one the kernel sees.
 
 use std::collections::BTreeMap;
 
-use efr_sandbox::{SeccompAction, SeccompArch, SeccompProfile, SyscallRule};
+use efr_sandbox::{AF_NETLINK, SeccompAction, SeccompArch, SeccompProfile, SyscallRule};
 use seccompiler::{BpfProgram, TargetArch, sock_filter};
 use serde_json::{Value, json};
 
@@ -76,6 +80,17 @@ pub(crate) fn filters_json(profile: &SeccompProfile, arch: SeccompArch) -> Resul
                     add(*errno, json!({ "syscall": syscall, "args": args }));
                 }
             }
+            SyscallRule::AllowNetlinkProtocols { allowed, errno } => {
+                // One rule: its conditions all hold (seccompiler ANDs them) only for a
+                // netlink socket with a protocol outside the list.
+                let family = json!({ "index": 0, "type": "dword", "op": "eq", "val": AF_NETLINK });
+                let args: Vec<Value> = std::iter::once(family)
+                    .chain(allowed.iter().map(|protocol| {
+                        json!({ "index": 2, "type": "dword", "op": "ne", "val": protocol })
+                    }))
+                    .collect();
+                add(*errno, json!({ "syscall": "socket", "args": args }));
+            }
             SyscallRule::DenyCloneFlags { mask, errno } => {
                 for bit in (0..64).map(|shift| 1_u64 << shift).filter(|bit| mask & bit != 0) {
                     let op = json!({ "masked_eq": bit });
@@ -103,6 +118,15 @@ pub(crate) fn filters_json(profile: &SeccompProfile, arch: SeccompArch) -> Resul
 /// Compiles the profile into the programs to install, in order.
 pub(crate) fn compile(profile: &SeccompProfile) -> Result<Vec<BpfProgram>, SbxError> {
     let (target_arch, arch) = target(profile)?;
+    compile_for(profile, target_arch, arch)
+}
+
+/// Compiles the profile for `arch`, which need not be this machine's.
+fn compile_for(
+    profile: &SeccompProfile,
+    target_arch: TargetArch,
+    arch: SeccompArch,
+) -> Result<Vec<BpfProgram>, SbxError> {
     let json = filters_json(profile, arch)?;
     let bytes = serde_json::to_vec(&json).map_err(|source| SbxError::SeccompEncode { source })?;
     let map = seccompiler::compile_from_json(bytes.as_slice(), target_arch)
