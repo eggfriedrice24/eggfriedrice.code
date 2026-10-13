@@ -53,6 +53,9 @@ pub(crate) type Reap = Arc<dyn Fn(Child) -> Pin<Box<dyn Future<Output = ()> + Se
 /// A mount as the backoff and the last sizes know it: its device and its target.
 type Key = (u32, u32, PathBuf);
 
+/// What the helper gave for one mount: its sizes, and the device that `stat` gave.
+type Answer = (MountSizes, Option<(u32, u32)>);
+
 /// efrd's snapshots of the host's mounts. Cheap to clone; clones share the cache.
 #[derive(Clone)]
 pub(crate) struct MountView {
@@ -76,7 +79,7 @@ struct State {
     /// Until when (milliseconds since the epoch) a mount is not measured.
     backoff: HashMap<Key, i64>,
     /// The last sizes that each mount gave.
-    last: HashMap<Key, MountSizes>,
+    last: HashMap<Key, Answer>,
     /// The number of the helper that may still hang: one that efrd killed at the
     /// deadline and that has not ended yet, or one that runs now.
     live: Option<u64>,
@@ -96,6 +99,8 @@ pub(crate) struct Taken {
     table: Vec<u8>,
     entries: Vec<MountEntry>,
     sizes: BTreeMap<u32, MountSizes>,
+    /// The device that `stat` gave, where it differs from the table's.
+    devices: BTreeMap<u32, (u32, u32)>,
     taken_at: u64,
 }
 
@@ -110,7 +115,8 @@ impl Taken {
                 sizes.insert(entry.id, MountSizes::Masked);
             }
         }
-        let json = MountSnapshot::new(self.taken_at, sizes).to_json().ok()?;
+        let snapshot = MountSnapshot::new(self.taken_at, sizes).with_devices(self.devices.clone());
+        let json = snapshot.to_json().ok()?;
         Some((self.table.clone(), json))
     }
 
@@ -185,6 +191,7 @@ impl MountView {
         };
         let entries = parse_mountinfo(&table);
         let mut sizes = BTreeMap::new();
+        let mut devices = BTreeMap::new();
         let mut wanted: Vec<(u32, Key, String)> = Vec::new();
         {
             let state = self.state();
@@ -213,27 +220,28 @@ impl MountView {
             }
         }
         if !wanted.is_empty() {
-            self.measure_into(&wanted, &mut sizes, now).await;
+            let answers = self.measure(&wanted, now).await;
+            for ((id, key, _), (sized, device)) in wanted.iter().zip(answers) {
+                sizes.insert(*id, sized);
+                if let Some(device) = device.filter(|device| *device != (key.0, key.1)) {
+                    devices.insert(*id, device);
+                }
+            }
         }
         let taken = Arc::new(Taken {
             table,
             entries,
             sizes,
+            devices,
             taken_at: u64::try_from(now / 1000).unwrap_or_default(),
         });
         self.state().cached = Some((now, Arc::clone(&taken)));
         Some(taken)
     }
 
-    /// Measures `wanted` with one helper and puts each answer in `sizes`. While an
-    /// older helper lives, it starts none: each mount keeps its last sizes, or gets
-    /// `timeout`.
-    async fn measure_into(
-        &self,
-        wanted: &[(u32, Key, String)],
-        sizes: &mut BTreeMap<u32, MountSizes>,
-        now: i64,
-    ) {
+    /// Measures `wanted` with one helper: an answer for each, in order. While an older
+    /// helper lives, it starts none: each mount keeps its last sizes, or gets `timeout`.
+    async fn measure(&self, wanted: &[(u32, Key, String)], now: i64) -> Vec<Answer> {
         let started = {
             let mut state = self.state();
             if state.live.is_some() {
@@ -249,29 +257,30 @@ impl MountView {
             None => {
                 tracing::debug!("a statvfs helper still runs; the mounts keep their last sizes");
                 let state = self.state();
-                for (id, key, _) in wanted {
-                    let last = state.last.get(key).copied().unwrap_or(MountSizes::Timeout);
-                    sizes.insert(*id, last);
-                }
-                return;
+                return wanted
+                    .iter()
+                    .map(|(_, key, _)| {
+                        state.last.get(key).copied().unwrap_or((MountSizes::Timeout, None))
+                    })
+                    .collect();
             }
         };
         let mut state = self.state();
-        for (id, key, target) in wanted {
-            let sized = match answers.get(target) {
-                Some(sized) => {
+        wanted
+            .iter()
+            .map(|(_, key, target)| match answers.get(target) {
+                Some(answer) => {
                     state.backoff.remove(key);
-                    state.last.insert(key.clone(), *sized);
-                    *sized
+                    state.last.insert(key.clone(), *answer);
+                    *answer
                 }
                 None if timed_out => {
                     state.backoff.insert(key.clone(), now.saturating_add(millis(BACKOFF)));
-                    MountSizes::Timeout
+                    (MountSizes::Timeout, None)
                 }
-                None => MountSizes::Failed { errno: 0 },
-            };
-            sizes.insert(*id, sized);
-        }
+                None => (MountSizes::Failed { errno: 0 }, None),
+            })
+            .collect()
     }
 
     /// Runs the helper `number` for the targets of `wanted` until it ends or the
@@ -280,7 +289,7 @@ impl MountView {
         &self,
         wanted: &[(u32, Key, String)],
         number: u64,
-    ) -> (HashMap<String, MountSizes>, bool) {
+    ) -> (HashMap<String, Answer>, bool) {
         let mut answers = HashMap::new();
         let mut command = efr_stdx::process::command(&self.inner.helper, "/");
         command
@@ -318,7 +327,7 @@ impl MountView {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Ok(answer) = serde_json::from_str::<StatvfsLine>(&line) {
-                        answers.insert(answer.path.clone(), answer.sizes());
+                        answers.insert(answer.path.clone(), (answer.sizes(), answer.device));
                     }
                     if answers.len() >= targets.len() {
                         break;

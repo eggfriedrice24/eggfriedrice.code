@@ -257,6 +257,11 @@ pub struct StatvfsLine {
     /// The error number, when it failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub errno: Option<i32>,
+    /// The device (`major`, `minor`) that `stat` gives for the path. GNU `df` keeps one
+    /// row per such device; on btrfs it differs for each subvolume, while `mountinfo`
+    /// gives every subvolume the device of the file system.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<(u32, u32)>,
 }
 
 impl StatvfsLine {
@@ -285,12 +290,28 @@ pub struct MountSnapshot {
     pub taken_at: u64,
     /// The sizes, by mount id. A mount with no entry has no sizes.
     pub sizes: BTreeMap<u32, MountSizes>,
+    /// The device that `stat` gave for a mount's target, by mount id, where it differs
+    /// from the device of its `mountinfo` line ([`StatvfsLine::device`]).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub devices: BTreeMap<u32, (u32, u32)>,
 }
 
 impl MountSnapshot {
     /// A snapshot taken at `taken_at` with `sizes`.
     pub fn new(taken_at: u64, sizes: BTreeMap<u32, MountSizes>) -> MountSnapshot {
-        MountSnapshot { taken_at, sizes }
+        MountSnapshot { taken_at, sizes, devices: BTreeMap::new() }
+    }
+
+    /// The snapshot with the devices that `stat` gave, by mount id.
+    #[must_use]
+    pub fn with_devices(mut self, devices: BTreeMap<u32, (u32, u32)>) -> MountSnapshot {
+        self.devices = devices;
+        self
+    }
+
+    /// The device of `entry` as `df` counts it: what `stat` gave, else its line's.
+    pub fn device(&self, entry: &MountEntry) -> (u32, u32) {
+        self.devices.get(&entry.id).copied().unwrap_or(entry.device())
     }
 
     /// The sizes of the mount `id`, if efrd measured it.

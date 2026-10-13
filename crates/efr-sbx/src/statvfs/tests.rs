@@ -25,6 +25,9 @@ fn statvfs_reads_nul_separated_paths_within_its_limits() {
 fn statvfs_answers_with_sizes_or_the_error_number() {
     let root = measure("/".to_owned(), Path::new("/"));
     assert_eq!(root.path, "/");
+    let device = rustix::fs::stat("/").unwrap().st_dev;
+    let device = (rustix::fs::major(device), rustix::fs::minor(device));
+    assert_eq!(root.device, Some(device), "the device of stat, for df's one row per device");
     match root.sizes() {
         MountSizes::Measured { blocks, frsize, .. } => assert!(blocks > 0 && frsize > 0),
         other => panic!("the root file system has sizes: {other:?}"),
