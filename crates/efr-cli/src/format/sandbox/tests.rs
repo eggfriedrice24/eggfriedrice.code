@@ -185,6 +185,7 @@ fn check_result() -> AdminSandboxCheckResult {
             warnings: vec![
                 "~/dotfiles/bin is on PATH and inside the registered project ~/dotfiles; it stays read-only in the sandbox".to_owned(),
                 "the registered project ~ is your home directory; auto runs its turns as cautious".to_owned(),
+                "the network view's self-test failed, so ss and ip need a review: tcp4: errno 1".to_owned(),
             ],
             ..ready()
         },

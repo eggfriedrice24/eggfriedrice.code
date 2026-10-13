@@ -10,5 +10,7 @@ ok    overlay caches on ext4
 warn  ~/dotfiles/bin is on PATH and inside the registered project ~/dotfiles; it stays read-only in the sandbox
 ok    dev.tty.legacy_tiocsti = 0 (seccomp blocks TIOCSTI anyway)
 warn  the registered project ~ is your home directory; auto runs its turns as cautious
+warn  the network view's self-test failed, so ss and ip need a review: tcp4: errno 1
 launch 3.6 ms, with your rc snapshot 14.8 ms
+netview no (the warning above says why)
 auto: ready

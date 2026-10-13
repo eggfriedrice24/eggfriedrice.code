@@ -272,6 +272,9 @@ into the GitHub release notes, and it stops when the section is missing.
   as `nmcli radio wifi off` always ask you. Before, the reviewer could allow them with
   the network only, and they then failed. A background job that runs `nmcli` or
   `iwctl` is now refused, as every job that needs the bus is.
+- `efr status` and `efr sandbox check` show whether the network view works on this
+  machine: `netview yes`, or `netview no` with the reason. With `no`, `ss` and `ip` go
+  to the reviewer.
 
 ### Fixed
 

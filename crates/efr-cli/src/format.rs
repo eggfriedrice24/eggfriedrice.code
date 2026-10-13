@@ -1004,6 +1004,9 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         if let Some(fix) = sandbox.fix.as_deref().filter(|_| !sandbox.available) {
             row("sandbox fix", &one_line(fix));
         }
+        if sandbox.available {
+            row("netview", &sandbox::netview_words(sandbox));
+        }
     }
     out
 }
