@@ -53,6 +53,11 @@ Modules:
   `always` or `unless_undoable`, the default) says whether a line that deletes or
   overwrites files in `auto` asks first when efr's snapshot holds its files (phase B).
   The proxy and bus keys come with their phases.
+- `tables/network`: `[network]` (`NetworkSettings`): `netview` (default `true`, a
+  live key), whether `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net`
+  run in the sandbox with the host's network view and no network socket (phase D1).
+  Turning it on loosens permissions. The proxy keys (`mode`, `allow`, `deny`, `hosts`,
+  `max_upload_bytes`) come with phase D2.
 - `tables/undo`: `[undo]` (`UndoSettings`): `enabled` (default `true`), which
   switches `efr undo` alone (phase B). The snapshots that undo restores from are in
   `[snapshot]`.

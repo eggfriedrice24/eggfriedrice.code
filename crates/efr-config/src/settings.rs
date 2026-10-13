@@ -14,9 +14,9 @@ use crate::location::{key_at, location, span_of, span_of_rule};
 use crate::validate::{self, Invalid};
 use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ConversationSettings,
-    DEFAULT_LOG, JobsSettings, Location, ModelSettings, OpenAiSettings, PermissionSettings,
-    PresenceSettings, RenderSettings, SandboxSettings, ScreenChoice, ShellSettings,
-    SnapshotSettings, Source, UndoSettings,
+    DEFAULT_LOG, JobsSettings, Location, ModelSettings, NetworkSettings, OpenAiSettings,
+    PermissionSettings, PresenceSettings, RenderSettings, SandboxSettings, ScreenChoice,
+    ShellSettings, SnapshotSettings, Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -58,6 +58,8 @@ pub struct Settings {
     pub compaction: CompactionSettings,
     /// The kernel sandbox of the `auto` mode.
     pub sandbox: SandboxSettings,
+    /// What network a contained call of the `auto` mode sees.
+    pub network: NetworkSettings,
     /// The reviewer model that decides most actions that leave the `auto` sandbox.
     pub classifier: ClassifierSettings,
     /// `efr undo`, which takes back the changes of a turn from efr's snapshots.
@@ -90,6 +92,7 @@ impl Default for Settings {
             conversation: ConversationSettings::default(),
             compaction: CompactionSettings::default(),
             sandbox: SandboxSettings::default(),
+            network: NetworkSettings::default(),
             classifier: ClassifierSettings::default(),
             undo: UndoSettings::default(),
             snapshot: SnapshotSettings::default(),

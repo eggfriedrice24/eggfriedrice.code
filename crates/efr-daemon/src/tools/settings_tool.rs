@@ -35,8 +35,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
     Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, IgnoredFiles,
-    JobsSettings, Kind, SandboxSettings, Settings, SnapshotSettings, Source, SudoCache,
-    WriteProjects,
+    JobsSettings, Kind, NetworkSettings, SandboxSettings, Settings, SnapshotSettings, Source,
+    SudoCache, WriteProjects,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
@@ -623,8 +623,9 @@ fn ids(models: &[ModelInfo]) -> String {
 /// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, a secret
 /// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
 /// a model can allow exits that asked the user, undo turned on or covering more, so
-/// more destructive lines run without a question, or a `[jobs]` key that lets jobs run
-/// longer, more often or at a higher priority (efr's auto spec, section 13.1).
+/// more destructive lines run without a question, a `[jobs]` key that lets jobs run
+/// longer, more often or at a higher priority, or the network view turned on (efr's
+/// auto spec, section 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -645,6 +646,14 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
         || (next.undo.enabled && !before.undo.enabled)
         || snapshot_loosens(&before.snapshot, &next.snapshot)
         || jobs_loosens(&before.jobs, &next.jobs)
+        || network_loosens(&before.network, &next.network)
+}
+
+/// True when `next` lets more lines run without a question than `before`: the network
+/// view turned on, so `ss` and the read forms of `ip` run in the host's network
+/// namespace with no review.
+fn network_loosens(before: &NetworkSettings, next: &NetworkSettings) -> bool {
+    next.netview && !before.netview
 }
 
 /// True when `next` lets the model's background jobs do more than `before`: jobs

@@ -250,6 +250,12 @@
 # them back).
 # ask_destructive = "unless_undoable"
 
+[network]
+# true runs ss, the read forms of ip, nstat and reads of /proc/net in auto with your
+# machine's network view and no network socket, with no question. false sends them to
+# the reviewer.
+# netview = true
+
 [classifier]
 # true lets a reviewer model decide most actions that leave the sandbox in auto, and
 # hand the unsure ones to you. false asks you about every such action. Each review is

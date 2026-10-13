@@ -656,3 +656,31 @@ fn compaction_is_on_at_76_percent_unless_the_file_says_otherwise() {
     assert!(!settings.compaction.auto);
     assert_eq!(settings.compaction.auto_at, 60);
 }
+
+#[test]
+fn network_netview_defaults_to_true() {
+    assert!(Settings::default().network.netview);
+    assert!(Settings::parse(path(), None).unwrap().network.netview);
+    let off = parse("[network]\nnetview = false\n").unwrap();
+    assert!(!off.network.netview);
+    assert_eq!(off.source("network.netview"), Source::File);
+}
+
+#[test]
+fn network_table_refuses_unknown_keys() {
+    let error = parse("[network]\nnetview = true\nmode = \"proxy\"\n").unwrap_err();
+    match &error {
+        ConfigError::Parse { key, location, .. } => {
+            assert_eq!(key.as_deref(), Some("network.mode"));
+            assert_eq!(*location, Some(Location { line: 3, column: 1 }));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn network_netview_is_a_live_key() {
+    assert!(crate::keys().iter().any(|key| key == "network.netview"));
+    assert_eq!(crate::Applies::of("network.netview"), crate::Applies::Live);
+    assert!(!crate::RESTART_KEYS.contains(&"network.netview"));
+}
