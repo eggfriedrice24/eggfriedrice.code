@@ -52,6 +52,11 @@ impl MountPlan {
     /// reading the file system only through `fs`.
     pub fn build(spec: &SandboxSpec, fs: &dyn FsView) -> Result<MountPlan, SandboxError> {
         spec.check()?;
+        // A grant of a newer efr: this build cannot know what it widens, so the call
+        // fails closed.
+        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown)) {
+            return Err(SandboxError::UnknownGrant);
+        }
         // NOTE: one plan resolves each shared dir of its hundred paths once, not each
         // time; the plan cost the launcher 2 ms per call before.
         let memo = Memo::new(fs);
@@ -743,12 +748,15 @@ impl Builder<'_> {
             }
         }
         let write_dirs = outermost(dirs);
-        let unshare_net = match &spec.network {
-            NetworkPlan::Open => false,
-            NetworkPlan::None | NetworkPlan::Proxy { .. } => {
-                !spec.grants.iter().any(|grant| matches!(grant, Grant::OpenNetwork))
-            }
-        };
+        // NOTE: one predicate decides both: the host's network namespace comes only
+        // with an open network or with the network view's profile, never with the
+        // phase 1 profile alone. A network view with a proxy plan keeps the private
+        // namespace.
+        let open_grant = spec.grants.iter().any(|grant| matches!(grant, Grant::OpenNetwork));
+        let net_view = spec.grants.iter().any(|grant| matches!(grant, Grant::NetView))
+            && !open_grant
+            && matches!(spec.network, NetworkPlan::None);
+        let unshare_net = !(matches!(spec.network, NetworkPlan::Open) || open_grant || net_view);
         let runtime = &spec.runtime;
         let child_argv: Vec<OsString> = vec![
             runtime.zsh.clone().into_os_string(),
@@ -759,6 +767,7 @@ impl Builder<'_> {
             mounts: unique,
             notes,
             unshare_net,
+            net_view,
             write_dirs,
             write_files: files,
             resolve_unix,

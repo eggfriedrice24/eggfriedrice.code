@@ -156,6 +156,11 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// The spec holds a grant of a newer efr (`Grant::Unknown`): the launcher cannot
+    /// know what it widens.
+    #[error("the sandbox spec has a grant that this build does not know")]
+    UnknownGrant,
+
     /// In the `overlay` cache mode, a cache's upper and work dirs do not share a layer
     /// dir of their own: they lie in two dirs, or another cache uses the same one.
     #[error("the layer dir of the cache {cache:?} is not its own")]

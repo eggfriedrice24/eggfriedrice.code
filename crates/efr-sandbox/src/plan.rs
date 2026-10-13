@@ -195,6 +195,7 @@ pub struct MountPlan {
     pub(crate) mounts: Vec<Mount>,
     pub(crate) notes: Vec<PlanNote>,
     pub(crate) unshare_net: bool,
+    pub(crate) net_view: bool,
     pub(crate) write_dirs: Vec<PathBuf>,
     pub(crate) write_files: Vec<PathBuf>,
     pub(crate) resolve_unix: Vec<PathBuf>,
@@ -220,9 +221,16 @@ impl MountPlan {
     }
 
     /// True when the call gets a network namespace of its own (no
-    /// `Grant::OpenNetwork`).
+    /// `Grant::OpenNetwork` and no network view).
     pub fn unshares_network(&self) -> bool {
         self.unshare_net
+    }
+
+    /// True when the call keeps the host's network namespace for `Grant::NetView`
+    /// (no `Grant::OpenNetwork`, no proxy): the inner stage then installs
+    /// `SeccompProfile::net_view()`, and Landlock also handles the TCP rights.
+    pub fn net_view(&self) -> bool {
+        self.net_view
     }
 
     /// Variables the launcher sets after the environment filter: the address of a

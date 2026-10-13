@@ -59,11 +59,15 @@ pub struct LayersSync {
 }
 
 impl InnerPolicy {
-    /// The policy of `plan`, with the descriptors the launcher passes.
+    /// The policy of `plan`, with the descriptors the launcher passes. A call that
+    /// keeps the host's network namespace for its network view gets the network view's
+    /// seccomp profile; every other call gets phase 1's.
     pub fn new(plan: &MountPlan, records_fd: i32, terminal_fd: Option<i32>) -> InnerPolicy {
+        let seccomp =
+            if plan.net_view() { SeccompProfile::net_view() } else { SeccompProfile::phase1() };
         InnerPolicy {
             landlock: plan.landlock(),
-            seccomp: SeccompProfile::phase1(),
+            seccomp,
             records_fd,
             terminal_fd,
             argv: plan.child_argv().to_vec(),

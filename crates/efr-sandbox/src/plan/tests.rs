@@ -8,7 +8,7 @@ use crate::plan::{MountOp, MountOrigin, MountPlan, OpKind, PlanNote, StartDir};
 use crate::spec::{DesktopSocket, Floor, FloorKind, Mask, MaskKind, WriteRoot, WriteRootKind};
 use crate::state::SandboxCwd;
 use crate::testing::{FakeFs, PROJECT, spec, world};
-use crate::{SandboxError, SandboxSpec};
+use crate::{InnerPolicy, NetworkPlan, SandboxError, SandboxSpec, SeccompProfile};
 
 fn plan(spec: &SandboxSpec, fs: &FakeFs) -> MountPlan {
     MountPlan::build(spec, fs).unwrap()
@@ -966,4 +966,134 @@ fn job_plan_equals_call_plan_but_the_job_floors() {
     let pin = at("/home/u/p/app/.git", MountOrigin::Pin).unwrap();
     let floor = at("/home/u/p/app/.git", MountOrigin::Floor(FloorKind::JobGitDir)).unwrap();
     assert!(pin < floor, "{:?}", job.mounts());
+}
+
+/// The seccomp profile that the inner stage installs for `plan`.
+fn profile(plan: &MountPlan) -> SeccompProfile {
+    InnerPolicy::new(plan, 3, None).seccomp
+}
+
+#[test]
+fn netview_plan_keeps_write_roots() {
+    let mut spec = spec();
+    let mut fs = world();
+    fs.dir("/home/u/p/out").dir("/home/u/.secret-notes");
+    spec.masks.push(Mask { path: "/home/u/.secret-notes".into(), kind: MaskKind::SandboxMask });
+    spec.grants = vec![
+        Grant::NetView,
+        Grant::Write { path: "/home/u/p/out".into() },
+        Grant::Unmask { path: "/home/u/.secret-notes".into() },
+    ];
+    let viewed = plan(&spec, &fs);
+    assert!(viewed.net_view());
+    assert!(!viewed.unshares_network());
+    assert_eq!(profile(&viewed), SeccompProfile::net_view());
+    // The view changes only the network: the same mounts and writes as without it.
+    spec.grants.retain(|grant| *grant != Grant::NetView);
+    let contained = plan(&spec, &fs);
+    assert!(!contained.net_view());
+    assert!(contained.unshares_network());
+    assert_eq!(profile(&contained), SeccompProfile::phase1());
+    assert_eq!(viewed.mounts(), contained.mounts());
+    assert_eq!(viewed.write_dirs(), contained.write_dirs());
+    assert!(viewed.write_dirs().contains(&PathBuf::from("/home/u/p/out")));
+    assert!(viewed.write_dirs().contains(&PathBuf::from(PROJECT)));
+    assert!(!has_mount(
+        &viewed,
+        &MountOp::Tmpfs { target: "/home/u/.secret-notes".into(), perms: 0o500 }
+    ));
+}
+
+#[test]
+fn netview_with_open_network_uses_phase1_profile() {
+    for (grants, network) in [
+        (vec![Grant::NetView, Grant::OpenNetwork], NetworkPlan::None),
+        (vec![Grant::OpenNetwork, Grant::NetView], NetworkPlan::None),
+        (vec![Grant::NetView], NetworkPlan::Open),
+    ] {
+        let mut spec = spec();
+        spec.grants = grants;
+        spec.network = network;
+        let plan = plan(&spec, &world());
+        assert!(!plan.unshares_network(), "{:?}", spec.grants);
+        assert!(!plan.net_view(), "{:?}", spec.grants);
+        assert_eq!(profile(&plan), SeccompProfile::phase1(), "{:?}", spec.grants);
+    }
+}
+
+/// A proxy plan's socket, below efr's runtime dir.
+fn proxy() -> NetworkPlan {
+    NetworkPlan::Proxy { socket: "/run/user/1000/efr/proxy/call.sock".into() }
+}
+
+#[test]
+fn netview_with_proxy_plan_keeps_unshare_net() {
+    let mut spec = spec();
+    spec.grants = vec![Grant::NetView];
+    spec.network = proxy();
+    let plan = plan(&spec, &world());
+    assert!(plan.unshares_network());
+    assert!(!plan.net_view());
+    assert_eq!(profile(&plan), SeccompProfile::phase1());
+}
+
+#[test]
+fn host_namespace_implies_net_view_or_open() {
+    let grants = [
+        Grant::NetView,
+        Grant::OpenNetwork,
+        Grant::Write { path: "/home/u/p/out".into() },
+        Grant::Host { host: "example.com".to_owned(), port: 443 },
+        Grant::Bus { bus: BusKind::Session },
+        Grant::Device { path: "/dev/nvme0n1".into() },
+        Grant::Unmask { path: "/home/u/.secret-notes".into() },
+    ];
+    let mut fs = world();
+    fs.dir("/home/u/p/out").dir("/home/u/.secret-notes");
+    let mut built = 0;
+    for network in [NetworkPlan::None, NetworkPlan::Open, proxy()] {
+        for set in 0_u32..(1 << grants.len()) {
+            let mut spec = spec();
+            spec.masks
+                .push(Mask { path: "/home/u/.secret-notes".into(), kind: MaskKind::SandboxMask });
+            spec.network = network.clone();
+            spec.grants = grants
+                .iter()
+                .enumerate()
+                .filter(|(at, _)| set & (1 << at) != 0)
+                .map(|(_, grant)| grant.clone())
+                .collect();
+            let plan = MountPlan::build(&spec, &fs).unwrap();
+            built += 1;
+            let has = |wanted: &Grant| spec.grants.contains(wanted);
+            let open = network == NetworkPlan::Open || has(&Grant::OpenNetwork);
+            let what = format!("{network:?} {:?}", spec.grants);
+            if !plan.unshares_network() {
+                let viewed = plan.net_view() && profile(&plan) == SeccompProfile::net_view();
+                assert!(viewed || open, "{what}");
+            }
+            if plan.net_view() {
+                assert!(has(&Grant::NetView) && !open, "{what}");
+                assert!(!plan.unshares_network(), "{what}");
+                assert_eq!(profile(&plan), SeccompProfile::net_view(), "{what}");
+            } else {
+                assert_eq!(profile(&plan), SeccompProfile::phase1(), "{what}");
+            }
+        }
+    }
+    assert_eq!(built, 3 * (1 << grants.len()));
+}
+
+#[test]
+fn unknown_grant_fails_the_plan() {
+    let mut spec = spec();
+    spec.grants = vec![Grant::NetView, Grant::Unknown];
+    assert!(matches!(MountPlan::build(&spec, &world()), Err(SandboxError::UnknownGrant)));
+    // A spec on the wire with a grant kind of a newer efr reads as one and fails too.
+    let mut json: serde_json::Value =
+        serde_json::from_slice(&crate::testing::spec().to_json().unwrap()).unwrap();
+    json["grants"] = serde_json::json!([{ "kind": "teleport", "to": "/" }]);
+    let read = SandboxSpec::from_json(&serde_json::to_vec(&json).unwrap()).unwrap();
+    assert_eq!(read.grants, [Grant::Unknown]);
+    assert!(matches!(MountPlan::build(&read, &world()), Err(SandboxError::UnknownGrant)));
 }

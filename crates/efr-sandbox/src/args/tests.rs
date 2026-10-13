@@ -130,6 +130,28 @@ fn an_open_network_grant_drops_only_the_network_namespace() {
 }
 
 #[test]
+fn netview_args_have_no_unshare_net() {
+    let mut spec = spec();
+    spec.grants.push(Grant::NetView);
+    let fs = world();
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    let args =
+        strings(&plan.bwrap_args(&mut FdTable::new(&fs), &LAUNCH, Path::new(PROJECT)).unwrap());
+    assert!(!args.contains(&"--unshare-net".to_owned()));
+    // Every other namespace and the user namespace lock stay.
+    for flag in [
+        "--unshare-user",
+        "--disable-userns",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--unshare-uts",
+        "--unshare-cgroup",
+    ] {
+        assert!(args.contains(&flag.to_owned()), "{flag}");
+    }
+}
+
+#[test]
 fn a_bind_source_reached_through_a_link_is_refused() {
     let mut fs = world();
     let plan = MountPlan::build(&spec(), &fs).unwrap();
