@@ -693,6 +693,39 @@ fn plan_binds_the_launcher_files_and_refuses_a_missing_one() {
 }
 
 #[test]
+fn plan_binds_the_mount_snapshot_only_when_efrd_wrote_it() {
+    let spec = spec();
+    let inside = spec.runtime.inside_dir();
+    let snapshot = |plan: &MountPlan| -> Vec<MountOp> {
+        plan.mounts()
+            .iter()
+            .filter(|mount| mount.op.target().starts_with(&inside))
+            .filter(|mount| {
+                let name = mount.op.target().file_name().unwrap_or_default();
+                name == "mounts" || name == "mounts.json"
+            })
+            .map(|mount| mount.op.clone())
+            .collect()
+    };
+    // A line without df or findmnt gets no snapshot and no bind.
+    assert_eq!(snapshot(&plan(&spec, &world())), []);
+
+    let mut fs = world();
+    for name in ["mounts", "mounts.json"] {
+        fs.file(&spec.runtime.call_dir.join(name).to_string_lossy(), "");
+    }
+    let bound = snapshot(&plan(&spec, &fs));
+    assert_eq!(
+        bound,
+        ["mounts", "mounts.json"].map(|name| MountOp::Bind {
+            source: spec.runtime.call_dir.join(name),
+            target: inside.join(name),
+            writable: false,
+        })
+    );
+}
+
+#[test]
 fn a_call_starts_in_scratch_when_the_shell_is_hidden() {
     let spec = spec();
     let mut fs = world();

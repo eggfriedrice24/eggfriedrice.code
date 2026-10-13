@@ -270,7 +270,17 @@ fn prompt_auto_has_no_cannot_list() {
     // One short sentence about what differs in the sandbox, and nothing else of limits.
     let limits =
         rule.split(". ").filter(|sentence| sentence.contains("differ")).collect::<Vec<_>>();
-    assert_eq!(limits, vec!["In the sandbox, tty, $$ and df can differ from the host."]);
+    assert_eq!(limits, vec!["In the sandbox, tty and $$ can differ from the host."]);
+}
+
+#[test]
+fn auto_preamble_has_no_df_sentence() {
+    // df and findmnt show the host's mounts in the sandbox (the mount view), or run
+    // outside it when efrd cannot read the user's mounts: either way they show the host.
+    let rule = auto_rule();
+    for word in ["df", "findmnt", "mounts"] {
+        assert!(!rule.split([' ', ',', '.']).any(|token| token == word), "{word:?} in {rule}");
+    }
 }
 
 #[test]
