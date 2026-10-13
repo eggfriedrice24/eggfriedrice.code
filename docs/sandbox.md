@@ -567,7 +567,9 @@ and the sandbox binds them read-only next to the launcher. In the call:
   `-B`, `-h`, `-H`, `-i`, `-k`, `-l`, `-P`, `-T`, `-t`, `-x`, `--total`, `--output`,
   `--sync` and `--no-sync`. Any other option, `--`, or a path runs the real `df`,
   which shows the sandbox's file system: `df -h /tmp` shows the call's private `/tmp`,
-  which is where a write really goes.
+  which is where a write really goes. The rows follow upstream GNU `df`, which lists
+  `devtmpfs`. Some builds hide it: on Ubuntu 24.04, `df` in a call shows one more row,
+  `/dev`, than `df` outside.
 - `findmnt` reads the snapshot as its table (`--tab-file`). `findmnt -D` and `-I`
   print the snapshot's sizes. With an option that picks a table of its own (`-F`,
   `-N`, `-k`, `-s`, `-p`, `-x`, `-m`), it runs the real `findmnt`.

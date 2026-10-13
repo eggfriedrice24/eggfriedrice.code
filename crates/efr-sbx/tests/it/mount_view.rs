@@ -251,30 +251,32 @@ fn mount_view_df_shows_host_mounts() {
     let (run, table, snapshot) = call_with_snapshot(&fixture, "df --output=target; df -h");
     run.expect_status(0);
     let (targets, human) = run.stdout.split_at(run.stdout.find("Filesystem").unwrap());
-    let inside = line_set(targets);
+    let mut inside = line_set(targets);
+    let outside = line_set(&host("df", &["--output=target"]));
+    let entries = parse_mountinfo(&table);
+    // NOTE: the renderer follows upstream coreutils, where devtmpfs is a real file
+    // system. Some builds hide it as a dummy type: the df 9.4 of Ubuntu 24.04 (the CI
+    // VM) never stats `/dev`, while Arch's 9.12 lists it. Only that difference passes.
+    let devtmpfs: Vec<String> = entries
+        .iter()
+        .filter(|entry| entry.fstype == "devtmpfs")
+        .map(|entry| entry.target.to_string_lossy().into_owned())
+        .collect();
+    if devtmpfs.iter().all(|target| !outside.contains(target)) {
+        for target in &devtmpfs {
+            inside.remove(target);
+        }
+    }
     assert_eq!(
         inside,
-        line_set(&host("df", &["--output=target"])),
-        "{}\n--- mountinfo\n{}\n--- snapshot\n{snapshot:?}\n--- df -a outside\n{}\n--- df outside\n{}{}\n--- stat outside\n{}\n--- strace df outside\n{}",
+        outside,
+        "{}\n--- mountinfo\n{}\n--- snapshot\n{snapshot:?}\n--- df -a outside\n{}",
         run.stdout,
         String::from_utf8_lossy(&table),
         host("df", &["-a", "--output=source,fstype,size,target"]),
-        host("df", &["--version"]),
-        host("df", &["--output=source,fstype,size,target"]),
-        host("stat", &["-c", "%n %d %t:%T %F", "/dev", "/run", "/dev/shm", "/"]),
-        host(
-            "sh",
-            &[
-                "-c",
-                "command -v strace >/dev/null || { echo no strace; exit 0; }; \
-                 strace -f -e trace=openat,statfs,fstatfs,newfstatat,statx,stat \
-                 df --output=target 2>&1 | grep -v -e '/usr/lib/x86_64' -e locale",
-            ],
-        ),
     );
     let base = fixture.base.to_string_lossy().into_owned();
     assert!(!inside.iter().any(|target| target.starts_with(&base)), "{inside:?}");
-    let entries = parse_mountinfo(&table);
     let expected = render_df(&entries, &snapshot, &[OsString::from("-h")]).unwrap();
     assert_eq!(human, expected);
 }
