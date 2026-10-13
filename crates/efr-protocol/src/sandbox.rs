@@ -113,6 +113,14 @@ pub enum Grant {
         /// The masked path, absolute.
         path: PathBuf,
     },
+    /// The host's network view with no way to open a network socket: the call keeps
+    /// the host's network namespace, and seccomp allows only `AF_UNIX` and `AF_NETLINK`
+    /// sockets, and only the `ROUTE` and `SOCK_DIAG` netlink protocols (phase D1).
+    NetView,
+    /// A grant that this build does not know. efrd never makes one; the launcher
+    /// refuses a spec that holds one.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Grant {
@@ -123,9 +131,12 @@ impl Grant {
             | Grant::Socket { path }
             | Grant::Device { path }
             | Grant::Unmask { path } => Some(path),
-            Grant::Host { .. } | Grant::OpenNetwork | Grant::Bus { .. } | Grant::Desktop { .. } => {
-                None
-            }
+            Grant::Host { .. }
+            | Grant::OpenNetwork
+            | Grant::Bus { .. }
+            | Grant::Desktop { .. }
+            | Grant::NetView
+            | Grant::Unknown => None,
         }
     }
 }

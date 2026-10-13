@@ -405,3 +405,11 @@ No protocol version has shipped yet.
   `jobs_list_result.json`, `jobs_stop_params.json`, `jobs_stop_result.json`, the five
   `events/job_*.json`, `job_states.json`, `job_stop_causes.json`, `held_reasons.json`
   and `notice_kinds.json`; `events/exit_requested.json` now sets the new members.
+- Version 1, additive: the network view (phase D1). New grant kind `net_view` (no other
+  member): the call keeps the host's network namespace but can open only Unix and
+  netlink sockets. A reader takes a grant kind that it does not know as `unknown`; efrd
+  never sends one, and the launcher refuses a call that holds one. The sandbox status
+  gains `netview` (false when absent): true when the probe's network view self-test
+  passed. `grants.json` now holds `net_view` and `unknown`, `launches.json` a launch
+  with `net_view`, and `admin_status_result.json` and `admin_sandbox_check_result.json`
+  set `netview`.

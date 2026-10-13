@@ -530,6 +530,7 @@ fn ready() -> efr_protocol::SandboxStatus {
         cache_mode: efr_protocol::CacheMode::Tmp,
         network_mode: efr_protocol::NetworkMode::None,
         warnings: Vec::new(),
+        netview: false,
     }
 }
 

@@ -208,6 +208,8 @@ fn grant_words(grant: &Grant, home: Option<&Path>) -> String {
         Grant::Desktop { desktop } => desktop_words(*desktop),
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
+        Grant::NetView => "host network view (no sending)".to_owned(),
+        Grant::Unknown => "unknown grant".to_owned(),
         _ => "more access".to_owned(),
     }
 }

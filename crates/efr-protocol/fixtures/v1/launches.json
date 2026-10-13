@@ -14,6 +14,18 @@
     ]
   },
   {
+    "kind": "contained",
+    "grants": [
+      {
+        "kind": "net_view"
+      },
+      {
+        "kind": "write",
+        "path": "/home/me/notes"
+      }
+    ]
+  },
+  {
     "kind": "unsandboxed"
   }
 ]

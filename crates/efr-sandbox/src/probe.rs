@@ -374,6 +374,7 @@ impl ProbeReport {
             cache_mode: self.cache_mode,
             network_mode: NetworkMode::None,
             warnings: self.warnings.clone(),
+            netview: false,
         }
     }
 

@@ -40,6 +40,11 @@ pub struct SandboxStatus {
     /// Things that work but need the user's attention, one sentence each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// True when the probe's network view self-test gave every expected refusal, so a
+    /// contained call can get `Grant::NetView`. False before phase D1 and when a check
+    /// failed.
+    #[serde(default)]
+    pub netview: bool,
 }
 
 impl SandboxStatus {
@@ -56,6 +61,7 @@ impl SandboxStatus {
             cache_mode: CacheMode::default(),
             network_mode: NetworkMode::default(),
             warnings: Vec::new(),
+            netview: false,
         }
     }
 }
