@@ -410,6 +410,8 @@ No protocol version has shipped yet.
   netlink sockets. A reader takes a grant kind that it does not know as `unknown`; efrd
   never sends one, and the launcher refuses a call that holds one. The sandbox status
   gains `netview` (false when absent): true when the probe's network view self-test
-  passed. `grants.json` now holds `net_view` and `unknown`, `launches.json` a launch
+  passed. It also gains `netview_off` (false when absent, sent only when true): efrd
+  sets it in `admin.status` and `admin.sandbox_check` when the user's
+  `network.netview` is false. `grants.json` now holds `net_view` and `unknown`, `launches.json` a launch
   with `net_view`, and `admin_status_result.json` and `admin_sandbox_check_result.json`
   set `netview`.

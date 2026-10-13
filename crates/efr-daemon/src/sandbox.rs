@@ -278,6 +278,13 @@ impl SandboxService {
         self.inner.status.borrow().clone()
     }
 
+    /// The status now as `efr status` and `efr sandbox check` get it: with
+    /// `netview_off` when `settings` turn the network view off, so the client does not
+    /// show the view as on while the engine does not use it.
+    pub(crate) fn reported(&self, settings: &Settings) -> SandboxStatus {
+        SandboxStatus { netview_off: !settings.network.netview, ..self.current() }
+    }
+
     /// True when efrd's mount namespace is the one of its parent, so the mounts that
     /// efrd reads are the user's: `df` and `findmnt` then run in the sandbox with the
     /// snapshot. When false, they stay `outside` exits.

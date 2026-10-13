@@ -12,3 +12,6 @@ sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, networ
 netview        no (the probe gave no result for it)
 ---
 sandbox        unavailable: bubblewrap is not installed; auto runs as cautious
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+netview        off (network.netview = false)

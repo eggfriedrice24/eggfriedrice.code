@@ -45,6 +45,11 @@ pub struct SandboxStatus {
     /// failed.
     #[serde(default)]
     pub netview: bool,
+    /// True when the user's `network.netview` is false, so no call gets the network
+    /// view, whatever the self-test found. efrd sets it when it sends the status; the
+    /// probe leaves it false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub netview_off: bool,
 }
 
 impl SandboxStatus {
@@ -62,6 +67,7 @@ impl SandboxStatus {
             network_mode: NetworkMode::default(),
             warnings: Vec::new(),
             netview: false,
+            netview_off: false,
         }
     }
 }

@@ -118,6 +118,11 @@ fn sandbox_status_without_netview_reads_false() {
     .unwrap();
     assert!(status.available);
     assert!(!status.netview);
+    assert!(!status.netview_off);
+    // `netview_off` goes on the wire only when it is true.
+    let off = SandboxStatus { netview_off: true, ..status.clone() };
+    assert_eq!(serde_json::to_value(&off).unwrap()["netview_off"], json!(true));
+    assert!(serde_json::to_value(&status).unwrap().get("netview_off").is_none());
 }
 
 #[test]

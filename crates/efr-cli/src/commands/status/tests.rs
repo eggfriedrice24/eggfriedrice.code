@@ -236,6 +236,7 @@ async fn status_shows_sandbox_line() {
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
         netview: false,
+        netview_off: false,
     };
     let down = SandboxStatus {
         fix: Some("a newer kernel".to_owned()),
@@ -291,6 +292,7 @@ async fn status_shows_netview() {
         network_mode: NetworkMode::None,
         warnings: Vec::new(),
         netview: true,
+        netview_off: false,
     };
     let failed = SandboxStatus {
         warnings: vec![
@@ -303,8 +305,10 @@ async fn status_shows_netview() {
     // A daemon from before the network view sends no `netview`, which reads as false.
     let older = SandboxStatus { netview: false, ..ready.clone() };
     let down = SandboxStatus::unavailable("bubblewrap is not installed");
+    // The user's `network.netview = false` wins over a passed self-test.
+    let off = SandboxStatus { netview_off: true, ..ready.clone() };
     let mut shown = Vec::new();
-    for sandbox in [ready, failed, older, down] {
+    for sandbox in [ready, failed, older, down, off] {
         let env = TestEnv::new();
         let daemon = env.listen();
         let ctx = env.context();

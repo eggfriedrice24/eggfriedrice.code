@@ -531,6 +531,7 @@ fn ready() -> efr_protocol::SandboxStatus {
         network_mode: efr_protocol::NetworkMode::None,
         warnings: Vec::new(),
         netview: false,
+        netview_off: false,
     }
 }
 
