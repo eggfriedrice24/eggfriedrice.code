@@ -142,12 +142,12 @@ fn netview_offline_hints_stay() {
     for (name, value) in crate::env_filter::OFFLINE_HINTS {
         assert_eq!(get(&out, name), Some(*value), "{name}");
     }
-    // With an open network beside it, the call is no network view, and the hints go.
-    spec.grants.push(Grant::OpenNetwork);
+    // With an open network, the call is no network view, and the hints go.
+    spec.network = NetworkPlan::Open;
     let plan = MountPlan::build(&spec, &world()).unwrap();
     assert!(get(&EnvFilter::new(&spec, &plan).apply(&env(&[])).0, "CARGO_NET_OFFLINE").is_none());
     // The user's switch still turns them off.
-    spec.grants = vec![Grant::NetView];
+    spec.network = NetworkPlan::None;
     spec.env.offline_hints = false;
     let plan = MountPlan::build(&spec, &world()).unwrap();
     assert!(get(&EnvFilter::new(&spec, &plan).apply(&env(&[])).0, "UV_OFFLINE").is_none());

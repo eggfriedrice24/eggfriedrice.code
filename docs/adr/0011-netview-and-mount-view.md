@@ -54,7 +54,9 @@ machine for a call.
    beside `Write` and `Unmask`, which do not depend on the network namespace. Every
    other grant drops it: a network grant needs sockets that the view refuses, and a
    device such as `/dev/net/tun` can send frames with no `socket()` call. A later
-   grant drops it too, unless a later decision says otherwise with a test.
+   grant drops it too, unless a later decision says otherwise with a test. The
+   launcher's plan checks the same rule again: a spec with the view beside any other
+   grant fails, so no spec puts that grant into the host's network namespace.
 
 5. **The probe checks each refusal, and the engine follows the probe.** A second
    self-test launch with the view runs at each probe. Each check passes only on its

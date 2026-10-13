@@ -58,6 +58,17 @@ impl MountPlan {
         if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown)) {
             return Err(SandboxError::UnknownGrant);
         }
+        // NOTE: efrd adds the network view only beside `Write` and `Unmask` grants
+        // (efr-conversation's `view_fits`). The plan checks it again, so no spec puts
+        // another grant into the host's network namespace.
+        let net_view = spec.grants.iter().any(|grant| matches!(grant, Grant::NetView));
+        if net_view
+            && !spec.grants.iter().all(|grant| {
+                matches!(grant, Grant::NetView | Grant::Write { .. } | Grant::Unmask { .. })
+            })
+        {
+            return Err(SandboxError::NetViewMixed);
+        }
         // NOTE: one plan resolves each shared dir of its hundred paths once, not each
         // time; the plan cost the launcher 2 ms per call before.
         let memo = Memo::new(fs);

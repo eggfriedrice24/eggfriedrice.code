@@ -1039,19 +1039,15 @@ fn netview_plan_keeps_write_roots() {
 
 #[test]
 fn netview_with_open_network_uses_phase1_profile() {
-    for (grants, network) in [
-        (vec![Grant::NetView, Grant::OpenNetwork], NetworkPlan::None),
-        (vec![Grant::OpenNetwork, Grant::NetView], NetworkPlan::None),
-        (vec![Grant::NetView], NetworkPlan::Open),
-    ] {
-        let mut spec = spec();
-        spec.grants = grants;
-        spec.network = network;
-        let plan = plan(&spec, &world());
-        assert!(!plan.unshares_network(), "{:?}", spec.grants);
-        assert!(!plan.net_view(), "{:?}", spec.grants);
-        assert_eq!(profile(&plan), SeccompProfile::phase1(), "{:?}", spec.grants);
-    }
+    let mut spec = spec();
+    spec.grants = vec![Grant::NetView];
+    spec.network = NetworkPlan::Open;
+    let plan = plan(&spec, &world());
+    assert!(!plan.unshares_network());
+    assert!(!plan.net_view());
+    assert_eq!(profile(&plan), SeccompProfile::phase1());
+    // An `OpenNetwork` grant beside the view fails the plan
+    // (`netview_beside_another_grant_fails_the_plan`).
 }
 
 /// A proxy plan's socket, below efr's runtime dir.
@@ -1084,6 +1080,7 @@ fn host_namespace_implies_net_view_or_open() {
     let mut fs = world();
     fs.dir("/home/u/p/out").dir("/home/u/.secret-notes");
     let mut built = 0;
+    let mut refused = 0;
     for network in [NetworkPlan::None, NetworkPlan::Open, proxy()] {
         for set in 0_u32..(1 << grants.len()) {
             let mut spec = spec();
@@ -1096,7 +1093,18 @@ fn host_namespace_implies_net_view_or_open() {
                 .filter(|(at, _)| set & (1 << at) != 0)
                 .map(|(_, grant)| grant.clone())
                 .collect();
-            let plan = MountPlan::build(&spec, &fs).unwrap();
+            let mixed = spec.grants.contains(&Grant::NetView)
+                && spec.grants.iter().any(|grant| {
+                    !matches!(grant, Grant::NetView | Grant::Write { .. } | Grant::Unmask { .. })
+                });
+            let built_plan = MountPlan::build(&spec, &fs);
+            if mixed {
+                let what = format!("{network:?} {:?}", spec.grants);
+                assert!(matches!(built_plan, Err(SandboxError::NetViewMixed)), "{what}");
+                refused += 1;
+                continue;
+            }
+            let plan = built_plan.unwrap();
             built += 1;
             let has = |wanted: &Grant| spec.grants.contains(wanted);
             let open = network == NetworkPlan::Open || has(&Grant::OpenNetwork);
@@ -1114,7 +1122,25 @@ fn host_namespace_implies_net_view_or_open() {
             }
         }
     }
-    assert_eq!(built, 3 * (1 << grants.len()));
+    // NOTE: of the 64 sets with `NetView`, the 4 with only `Write` and `Unmask` beside
+    // it build.
+    assert_eq!(refused, 3 * 60);
+    assert_eq!(built + refused, 3 * (1 << grants.len()));
+}
+
+#[test]
+fn netview_beside_another_grant_fails_the_plan() {
+    let mut fs = world();
+    fs.dir("/home/u/p/out");
+    let mut spec = spec();
+    spec.grants = vec![Grant::NetView, Grant::Device { path: "/dev/net/tun".into() }];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::NetViewMixed)));
+    spec.grants = vec![Grant::NetView, Grant::OpenNetwork];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::NetViewMixed)));
+    // Beside a write grant, the network view stays.
+    spec.grants = vec![Grant::NetView, Grant::Write { path: "/home/u/p/out".into() }];
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    assert!(plan.net_view());
 }
 
 #[test]
