@@ -699,6 +699,15 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(notices::follow(Arc::clone(&state), stop.clone())),
         tokio::spawn(gc::collect(Arc::clone(&state), stop.clone())),
         tokio::spawn(reload::serve(Arc::clone(&state), reload_requests, stop.clone())),
+        // NOTE: every later probe (a reload, a failed launch, `efr sandbox check`)
+        // reaches the engine through the reload task, the one sender on its watch.
+        tokio::spawn(reload::follow_probes(
+            state.reloads.clone(),
+            state.sandbox.status(),
+            state.settings.subscribe(),
+            state.engine.subscribe(),
+            stop.clone(),
+        )),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
         tokio::spawn(state.providers.models().serve(stop.clone())),
@@ -748,6 +757,18 @@ impl Daemon {
     #[cfg(test)]
     pub(crate) fn engine(&self) -> watch::Sender<Arc<efr_permissions::Engine>> {
         self.state.engine.clone()
+    }
+
+    /// The way to the reload task, for the tests that ask it for a rebuild.
+    #[cfg(test)]
+    pub(crate) fn reloads(&self) -> Reloads {
+        self.state.reloads.clone()
+    }
+
+    /// The probe's status, for the tests that check that a rebuild never probes.
+    #[cfg(test)]
+    pub(crate) fn sandbox_status(&self) -> watch::Receiver<efr_protocol::SandboxStatus> {
+        self.state.sandbox.status()
     }
 
     /// Answers clients until `shutdown` is cancelled, then drains and stops.

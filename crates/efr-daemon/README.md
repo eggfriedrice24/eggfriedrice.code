@@ -75,7 +75,8 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    "The auto sandbox" below.
 6. The background tasks: the shells' lifecycle events, the notices (`notices.rs`), the
    idle shell collector (`gc.rs`, which reads `shell.idle_minutes` at each look), the
-   reload task (`reload.rs`), the config file watcher (`reload/watcher.rs`) and the
+   reload task (`reload.rs`), the task that follows the probe's status
+   (`reload::follow_probes`), the config file watcher (`reload/watcher.rs`) and the
    SIGHUP listener.
 7. The Unix socket (0600) and `daemon.json` (`discovery.rs`), then `READY=1` through
    `sd-notify`. The socket path is checked first of all: a path longer than the 107
@@ -133,6 +134,18 @@ the appliers take the new values:
   filter is an error of the file.
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
+
+The same task rebuilds the engine after a probe. `reload::follow_probes` watches the
+probe's status (`SandboxService::status`, which every probe sends: at start, after a
+reload, after a call whose sandbox could not start, before an `auto` prompt and for
+`admin.sandbox_check`). When `network.netview` and the last self-test say other than
+the running engine's `AutoSupport::netview`, it asks the reload task for a rebuild
+(`Reloads::rebuild`). A rebuild builds the engine with the running settings and
+`Probed::of` the sandbox, and sends it only when what the sandbox supports changed. It
+never reads `config.toml` and never starts a probe, so a probe and a rebuild cannot
+start each other in a loop. The reload task is the only sender on the engine watch
+after the start, and a reload also builds with `Probed::of`, so a reload of another
+key keeps the network view.
 
 ### The model catalog
 

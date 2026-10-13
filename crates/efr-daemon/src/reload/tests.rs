@@ -1,16 +1,19 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_permissions::{ConversationPolicy, DecisionInput, Effect, Requirements};
+use efr_permissions::{
+    AutoSupport, ConversationPolicy, DecisionInput, Effect, Engine, Locations, Requirements,
+};
 use efr_protocol::{
-    AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CommandId,
-    ConfigFileError, Method, Mode, Origin, PromptSend, PromptSendResult, RootSource, Scope,
-    ShellContext, TurnSettings,
+    AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CacheMode,
+    CommandId, ConfigFileError, Method, Mode, NetworkMode, Origin, PromptSend, PromptSendResult,
+    RootSource, SandboxStatus, Scope, ShellContext, TurnSettings,
 };
 use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
+use tokio::sync::watch;
 
-use super::{Outcome, notice};
+use super::{Outcome, Reloads, Request, follow_probes, notice};
 use crate::testing::{RawClient, Running, deps, logged, serve_with};
 use crate::{ScreenChoice, Settings};
 
@@ -339,12 +342,7 @@ async fn sighup_reloads() {
 }
 
 /// What `engine` decides for `requirements` in `mode`, for a turn on this machine.
-fn decide(
-    engine: &efr_permissions::Engine,
-    dirs: &TestDirs,
-    mode: Mode,
-    requirements: Requirements,
-) -> Effect {
+fn decide(engine: &Engine, dirs: &TestDirs, mode: Mode, requirements: Requirements) -> Effect {
     let input = DecisionInput {
         requirements,
         scope: Scope::Machine,
@@ -449,4 +447,117 @@ async fn a_prompt_gets_the_reloaded_mode_unless_it_names_its_own() {
     assert_eq!((own.mode, own.overridden.mode), (Mode::Manual, true));
     drop(terminal);
     daemon.stop().await;
+}
+
+/// A probe's status of a ready sandbox whose network view self-test gave `netview`.
+fn probed(netview: bool) -> SandboxStatus {
+    SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(0xf),
+        bwrap: Some(PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        cache_mode: CacheMode::Tmp,
+        network_mode: NetworkMode::None,
+        warnings: Vec::new(),
+        netview,
+    }
+}
+
+#[tokio::test]
+async fn reload_of_another_key_keeps_netview() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let deps = deps(&dirs, &clock).with_probe_override(probed(true));
+    let daemon = serve_with(Settings::default(), deps).await;
+    assert!(daemon.engine.borrow().support().netview, "the start follows the first probe");
+
+    std::fs::write(config_file(&dirs), "[shell]\nidle_minutes = 5\n").unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    assert!(daemon.engine.borrow().support().netview, "a reload keeps the probe's view");
+
+    let rule = "[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"cargo\" } }\neffect = \"allow\"\n";
+    std::fs::write(config_file(&dirs), rule).unwrap();
+    let before = Arc::clone(&daemon.engine.borrow());
+    assert!(reload(&daemon.socket).await.applied);
+    assert!(!Arc::ptr_eq(&before, &daemon.engine.borrow()), "a new engine was sent");
+    assert!(daemon.engine.borrow().support().netview, "the new engine keeps the view");
+
+    std::fs::write(config_file(&dirs), "[network]\nnetview = false\n").unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    assert!(!daemon.engine.borrow().support().netview, "the key turns it off");
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn rebuild_request_never_reprobes() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let deps = deps(&dirs, &clock).with_probe_override(probed(true));
+    let daemon = crate::start(Settings::default(), deps).await.unwrap();
+    let (reloads, engine) = (daemon.reloads(), daemon.engine());
+    let status = daemon.sandbox_status();
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let served = tokio::spawn(daemon.serve(shutdown.clone()));
+    assert!(engine.borrow().support().netview);
+
+    // NOTE: a file that turns the view off; a rebuild must not read it.
+    std::fs::write(config_file(&dirs), "[network]\nnetview = false\n").unwrap();
+    assert!(!reloads.rebuild().await.unwrap(), "nothing changed, so nothing is sent");
+    let before = Arc::clone(&engine.borrow());
+    let without = (*before).clone();
+    let support = AutoSupport { netview: false, ..*without.support() };
+    engine.send_replace(Arc::new(without.with_support(support)));
+    assert!(reloads.rebuild().await.unwrap(), "the engine follows the probe again");
+
+    assert!(engine.borrow().support().netview, "the running settings, not the file");
+    assert!(!status.has_changed().unwrap(), "no rebuild started a probe");
+    shutdown.cancel();
+    served.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn status_watch_task_asks_a_rebuild_on_change() {
+    let (reloads, mut requests) = Reloads::new();
+    let (status, status_receiver) = watch::channel(probed(false));
+    let (_settings, settings) = watch::channel(Arc::new(Settings::default()));
+    let locations = Locations::new("/home/u").unwrap();
+    let engine_of = |netview: bool| {
+        let support = AutoSupport { netview, ..AutoSupport::default() };
+        Arc::new(Engine::with_defaults(locations.clone()).with_support(support))
+    };
+    let (engine, engine_receiver) = watch::channel(engine_of(false));
+    let stop = tokio_util::sync::CancellationToken::new();
+    let task = tokio::spawn(follow_probes(
+        reloads,
+        status_receiver,
+        settings,
+        engine_receiver,
+        stop.clone(),
+    ));
+    let mut rebuilds = 0;
+    // The reload task's part: each rebuild sends the engine of the last status.
+    let mut answer = async |rebuilds: &mut usize| {
+        let Some(Request::Rebuild { reply }) = requests.recv().await else {
+            panic!("a rebuild request")
+        };
+        *rebuilds += 1;
+        engine.send_replace(engine_of(status.borrow().netview));
+        reply.send(true).unwrap();
+    };
+
+    status.send_replace(probed(true));
+    answer(&mut rebuilds).await;
+    // The same view again, as a reprobe gives it: the engine already follows it.
+    status.send_replace(SandboxStatus { warnings: vec!["slow".to_owned()], ..probed(true) });
+    status.send_replace(probed(false));
+    answer(&mut rebuilds).await;
+    status.send_replace(probed(false));
+    stop.cancel();
+    task.await.unwrap();
+
+    assert_eq!(rebuilds, 2);
+    assert!(requests.try_recv().is_err(), "no request for a status that changed nothing");
 }
