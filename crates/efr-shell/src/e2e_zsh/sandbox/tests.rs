@@ -649,3 +649,149 @@ async fn e2e_zsh_env_written_when_dir_made_before_spawn() {
     env_entries(&zsh, "PATH=/usr/bin:/bin").await;
     assert!(zsh.sandbox_dir().join("snapshot.zsh").exists());
 }
+
+/// The launcher next to the child script in a call of the mount view: it prints what
+/// it was asked, and like the real one it exits 2 for an operand, or for every call
+/// when the dir holds `refuse`.
+const MOUNTS_LAUNCHER: &str = r#"#!/bin/sh
+[ "$1" = mounts ] || exit 9
+[ -e "$(dirname "$0")/refuse" ] && exit 2
+for arg in "$@"; do
+  case $arg in -*|mounts|df|findmnt-df) ;; *) exit 2 ;; esac
+done
+shift
+echo "snapshot $*"
+"#;
+
+/// A dir for the child of a mount view call: the snapshot's two files, the launcher,
+/// and a `bin` dir with a `df` and a `findmnt` that print their arguments.
+fn mounts_dir(dir: &Path) {
+    std::fs::write(dir.join("mounts"), "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n").unwrap();
+    std::fs::write(dir.join("mounts.json"), r#"{"taken_at":0,"sizes":{}}"#).unwrap();
+    let executable = |path: &Path, text: &str| {
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    executable(&dir.join("efr-sbx"), MOUNTS_LAUNCHER);
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    for program in ["df", "findmnt"] {
+        executable(
+            &dir.join("bin").join(program),
+            &format!("#!/bin/sh\necho \"real {program} $*\"\n"),
+        );
+    }
+    std::fs::write(dir.join("snapshot.zsh"), "").unwrap();
+}
+
+/// Runs the child script on `dir` with `line`, with the fake programs first on the
+/// `PATH`; returns its output and its records.
+async fn run_mount_line(child: &Path, dir: &Path, line: &str) -> (String, Records) {
+    std::fs::write(dir.join("line"), line).unwrap();
+    let script = r#"exec zsh -f "$1" "$2" 3>"$3""#;
+    let output = efr_stdx::process::command(Path::new("/bin/sh"), dir)
+        .arg("-c")
+        .arg(script)
+        .arg("sh")
+        .arg(child)
+        .arg(dir)
+        .arg(dir.join("records"))
+        .env_clear()
+        .env("PATH", format!("{}:/usr/bin:/bin", dir.join("bin").display()))
+        .output()
+        .await
+        .unwrap();
+    let records = std::fs::read(dir.join("records")).unwrap();
+    let records = parse_records(&records, &RecordLimits::default()).unwrap();
+    (String::from_utf8_lossy(&output.stdout).into_owned(), records)
+}
+
+/// The child script that the shell installed, and a fresh dir for its calls.
+async fn mount_view_child(zsh: &Zsh, name: &str) -> (PathBuf, PathBuf) {
+    // The integration files are installed with the first shell.
+    zsh.run_plain("true").await;
+    let child = zsh.root.path().join("zsh").join(crate::integration::CHILD_FILE);
+    let dir = zsh.dir(name);
+    mounts_dir(&dir);
+    (child, dir)
+}
+
+#[tokio::test]
+async fn mount_view_df_and_findmnt_route_to_the_snapshot() {
+    let Some(zsh) = Zsh::start_sandboxed("mount_view_df_and_findmnt_route_to_the_snapshot") else {
+        return;
+    };
+    let (child, dir) = mount_view_child(&zsh, "mounts").await;
+    let table = dir.join("mounts");
+    let tab = format!("--tab-file {}", table.display());
+    let cases: Vec<(&str, String)> = vec![
+        ("df", "snapshot df".to_owned()),
+        ("df -hT --total", "snapshot df -hT --total".to_owned()),
+        // An operand: the call's own file system, where a write goes.
+        ("df -h /tmp", "real df -h /tmp".to_owned()),
+        ("df -- -h", "real df -- -h".to_owned()),
+        ("findmnt", format!("real findmnt {tab}")),
+        ("findmnt -D", "snapshot findmnt-df -D".to_owned()),
+        ("findmnt --dfi", "snapshot findmnt-df --dfi".to_owned()),
+        ("findmnt -D -t ext4", format!("real findmnt {tab} -D -t ext4")),
+        ("findmnt -o SOURCE,TARGET /home", format!("real findmnt {tab} -o SOURCE,TARGET /home")),
+        ("findmnt -oFSTYPE", format!("real findmnt {tab} -oFSTYPE")),
+        // A table of its own: the real findmnt, as it is.
+        ("findmnt -N 1", "real findmnt -N 1".to_owned()),
+        ("findmnt --tab-file /etc/fstab", "real findmnt --tab-file /etc/fstab".to_owned()),
+        ("findmnt --kern", "real findmnt --kern".to_owned()),
+        ("findmnt -ln -s", "real findmnt -ln -s".to_owned()),
+        ("findmnt -lp", "real findmnt -lp".to_owned()),
+        ("findmnt --poll=mount", "real findmnt --poll=mount".to_owned()),
+    ];
+    for (line, want) in &cases {
+        let (out, _) = run_mount_line(&child, &dir, line).await;
+        assert_eq!(out.trim_end(), want, "{line}");
+    }
+    // The launcher refuses an option: the real commands run.
+    std::fs::write(dir.join("refuse"), "").unwrap();
+    let (out, _) = run_mount_line(&child, &dir, "df --direct").await;
+    assert_eq!(out.trim_end(), "real df --direct");
+    let (out, _) = run_mount_line(&child, &dir, "findmnt -D").await;
+    assert_eq!(out.trim_end(), format!("real findmnt {tab} -D"));
+}
+
+#[tokio::test]
+async fn mount_view_missing_snapshot_runs_real_df() {
+    let Some(zsh) = Zsh::start_sandboxed("mount_view_missing_snapshot_runs_real_df") else {
+        return;
+    };
+    let (child, dir) = mount_view_child(&zsh, "no-mounts").await;
+    std::fs::remove_file(dir.join("mounts")).unwrap();
+    let (out, _) = run_mount_line(&child, &dir, "df -h; findmnt -D").await;
+    assert_eq!(out, "real df -h\nreal findmnt -D\n");
+}
+
+#[tokio::test]
+async fn mount_view_user_df_function_wins() {
+    let Some(zsh) = Zsh::start_sandboxed("mount_view_user_df_function_wins") else {
+        return;
+    };
+    let (child, dir) = mount_view_child(&zsh, "user-df").await;
+    std::fs::write(dir.join("snapshot.zsh"), "df() { print -r -- user df }\n").unwrap();
+    let (out, records) = run_mount_line(&child, &dir, "df -h; findmnt -I").await;
+    assert_eq!(out, "user df\nsnapshot findmnt-df -I\n");
+    assert_eq!(records.functions, []);
+    // An alias of the snapshot named df reaches the view's function.
+    std::fs::write(dir.join("snapshot.zsh"), "alias df='df -h'\n").unwrap();
+    let (out, _) = run_mount_line(&child, &dir, "df").await;
+    assert_eq!(out, "snapshot df -h\n");
+}
+
+#[tokio::test]
+async fn mount_view_functions_not_in_records() {
+    let Some(zsh) = Zsh::start_sandboxed("mount_view_functions_not_in_records") else {
+        return;
+    };
+    let (child, dir) = mount_view_child(&zsh, "records").await;
+    let line = "df -h; findmnt -D; unfunction df; findmnt() { print -r -- mine }; mine() { :; }";
+    let (out, records) = run_mount_line(&child, &dir, line).await;
+    assert_eq!(out, "snapshot df -h\nsnapshot findmnt-df -D\n");
+    let functions: Vec<&str> = records.functions.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(functions, ["mine"], "the view's two functions are never reported");
+    assert_eq!(records.removed_functions, Vec::<String>::new());
+}

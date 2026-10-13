@@ -437,6 +437,17 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   none), evaluates `DIR/line` at the top level, and its `EXIT` trap writes the records of
   `efr_sandbox::parse_records` on descriptor 3: the cwd, changed and removed exports,
   functions and aliases, and the status.
+- The mount view: when `DIR/mounts` exists (efrd wrote the snapshot of the host's
+  mounts for a line with `df` or `findmnt`), the child defines `df` and `findmnt`
+  after the snapshot and the state, unless one of them defined a function of that
+  name. `df` with options only runs `DIR/efr-sbx mounts df`, which prints the host's
+  mounts and sizes; with an operand, `--`, or exit status 2 from the launcher (an
+  option that its table does not follow), it runs the real `df`, which shows the
+  sandbox's own file system. `findmnt` runs with `--tab-file DIR/mounts`, and with
+  only `-D`, `--df`, `-I` or `--dfi` it prints the snapshot's sizes through
+  `DIR/efr-sbx mounts findmnt-df`; arguments that pick a table of their own (`-F`,
+  `-N`, `-k`, `-s`, `-p`, `-x`, `-m` and their long forms) run the real `findmnt`.
+  The records never report these two functions.
 - Ctrl+C (SIGINT) and Ctrl+\ (SIGQUIT) stop the child's line, also before it starts.
   Until the line starts, a trap of `efr-child.zsh` notes the signal: a zsh that is not
   interactive ignores SIGQUIT, and a `TRAPINT` or `TRAPQUIT` function can catch a
