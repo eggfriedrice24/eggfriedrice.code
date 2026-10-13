@@ -362,7 +362,8 @@ Replies:
 - The `auto` sandbox (`docs/sandbox.md`). A turn in which a call ran in the sandbox
   (`tool_call_started` with a contained `launch`, not refused) ends with one muted
   line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before
-  the end-of-turn line; a failed contained call ends `✗ exit 2 · 1.5s`, as any other. A
+  the end-of-turn line, with `; host network view (no sending)` at its end when a
+  contained call had `Grant::NetView`; a failed contained call ends `✗ exit 2 · 1.5s`, as any other. A
   call's `sandbox` summary adds muted rows under its result: `network: blocked
   <host>:<port> (<reason>)` and the background jobs that stopped. A sandbox that could
   not start is the call's result: `✗ the sandbox could not start: <reason>; efr checks

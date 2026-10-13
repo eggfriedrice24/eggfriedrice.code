@@ -129,7 +129,7 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
-    ExitInfo, FileChanges, InputWait, JobId, JobInfo, JudgeKind, Launch, Origin, Presence,
+    ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch, Origin, Presence,
     QuestionId, Risk, Scope, Seq, SurfaceChange, TurnId, TurnInterruptResult, TurnUndoInfo,
     Verdict, looks_secret,
 };
@@ -514,8 +514,12 @@ pub(crate) struct TurnView {
     /// A call of this turn runs in the sandbox: the end of the turn says where it can
     /// write.
     traced: bool,
+    /// A contained call of this turn had the network view: the end of the turn says so.
+    traced_net_view: bool,
     /// Calls that run in the sandbox, whose failure says so.
     contained: HashSet<CallId>,
+    /// The contained calls with the network view (`Grant::NetView`).
+    net_viewed: HashSet<CallId>,
     /// The exit of each call, for the lines of its approval and of the reviewer.
     exits: HashMap<CallId, sandbox::Requested>,
     /// The row of what the reviewer thought of a call's exit before it handed the
@@ -607,7 +611,9 @@ impl TurnView {
             home: None,
             in_project: false,
             traced: false,
+            traced_net_view: false,
             contained: HashSet::new(),
+            net_viewed: HashSet::new(),
             exits: HashMap::new(),
             reviewed: HashMap::new(),
             commands: HashMap::new(),
@@ -1349,6 +1355,11 @@ impl TurnView {
                 if contained {
                     self.contained.insert(*call_id);
                 }
+                if let Some(Launch::Contained { grants }) = launch
+                    && grants.contains(&Grant::NetView)
+                {
+                    self.net_viewed.insert(*call_id);
+                }
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
                 let before = self.finish_message();
@@ -1394,7 +1405,9 @@ impl TurnView {
                 let denied = self.refused.contains(call_id);
                 // The end of the turn says once where the sandbox can write, when a call
                 // ran in it.
-                self.traced |= contained && !denied && refusal.is_none() && setup.is_none();
+                let ran = contained && !denied && refusal.is_none() && setup.is_none();
+                self.traced |= ran;
+                self.traced_net_view |= self.net_viewed.remove(call_id) && ran;
                 // The job that the call started, first: it runs on after the call.
                 let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
@@ -2423,11 +2436,12 @@ impl TurnView {
         // A question that nobody answered stays in the scrollback.
         self.commit_question();
         self.question = None;
+        let net_view = std::mem::take(&mut self.traced_net_view);
+        self.net_viewed.clear();
         if std::mem::take(&mut self.traced) {
-            let trace =
-                if self.in_project { sandbox::CONTAINED_IN_PROJECT } else { sandbox::CONTAINED };
+            let trace = sandbox::contained_trace(self.in_project, net_view);
             // Whole, not cut to the width as a note is: it says where the calls wrote.
-            let noted = self.dim_block(&[trace.to_owned()], self.size);
+            let noted = self.dim_block(&[trace], self.size);
             step.out.push_str(&noted.out);
             step.err.push_str(&noted.err);
         }
