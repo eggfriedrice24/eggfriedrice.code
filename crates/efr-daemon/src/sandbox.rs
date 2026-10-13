@@ -260,6 +260,15 @@ impl SandboxService {
         self.inner.status.borrow().clone()
     }
 
+    /// True when efrd's mount namespace is the one of its parent, so the mounts that
+    /// efrd reads are the user's.
+    ///
+    /// NOTE: always false until the mount view exists: `df` and `findmnt` then stay
+    /// `outside` exits.
+    pub(crate) fn mount_view(&self) -> bool {
+        false
+    }
+
     /// The plan locks, which `write_file` takes for its own write.
     pub(crate) fn locks(&self) -> &lock::PlanLocks {
         &self.inner.locks

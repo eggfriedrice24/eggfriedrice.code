@@ -45,7 +45,7 @@ use crate::catalog::Vendor;
 use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
-use crate::engine::EngineParts;
+use crate::engine::{EngineParts, Probed};
 use crate::jobs::{JobParts, JobTable, SpawnEnv};
 use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
@@ -479,7 +479,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         state: dirs.state().to_path_buf(),
         launcher: exe.as_deref().and_then(launcher::find_source),
     };
-    let engine = Arc::new(engine_parts.engine(&settings).await?);
+    // NOTE: the probe has not run yet, so this engine supports neither view. The
+    // rebuild after the first probe below gives the views before the socket opens.
+    let engine = Arc::new(engine_parts.engine(&settings, Probed::default()).await?);
     let (engine_sender, engine_receiver) = watch::channel(engine);
     // NOTE: a reload (`reload.rs`) sends new settings here and, when `[permissions]`
     // or the links in the config directory changed, a new engine on the channel
@@ -514,6 +516,16 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     })
     .await;
     sandbox.probe(&settings).await;
+    // NOTE: the engine follows what the first probe found before any request can read
+    // it. A build that fails here keeps the engine of before, which supports less.
+    match engine_parts.engine(&settings, Probed::of(&sandbox)).await {
+        Ok(probed) => {
+            engine_sender.send_replace(Arc::new(probed));
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "the permission engine does not follow the first probe");
+        }
+    }
     // NOTE: the jobs that the last efrd left running end before anything can start a
     // new one, so a pid or a dir of the old job never meets a new one.
     let (jobs, job_notices) = JobTable::new(JobParts {

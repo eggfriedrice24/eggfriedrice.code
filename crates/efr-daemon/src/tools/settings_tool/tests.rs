@@ -14,7 +14,7 @@ use tempfile::TempDir;
 use tokio::sync::watch;
 
 use super::{CHANGED, SettingsTool};
-use crate::engine::{build, protected_config};
+use crate::engine::{Probed, build, protected_config};
 use crate::reload::Reloads;
 
 const COMMENTED: &str = "\
@@ -92,7 +92,16 @@ fn engine_for(home: &Path, config: &Path, settings: &Settings) -> Engine {
     let home = Home::new(home).unwrap();
     let secrets = home.path().join(".local/share/efr/secrets");
     let facts = crate::engine::SandboxFacts::default();
-    build(&home, &secrets, &protected_config(config), settings, &Registry::empty(), &facts).unwrap()
+    build(
+        &home,
+        &secrets,
+        &protected_config(config),
+        settings,
+        &Registry::empty(),
+        &facts,
+        Probed::default(),
+    )
+    .unwrap()
 }
 
 fn call(n: u128, input: Value, origin: Origin) -> ToolCall {

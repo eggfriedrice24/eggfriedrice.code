@@ -199,3 +199,18 @@ fn the_hosts_of_a_command_come_from_its_urls_and_remotes(
         segments.iter().flat_map(|segment| commands(&segment.words)).flat_map(line_hosts).collect();
     assert_eq!(found, words(expected), "{line}");
 }
+
+#[rstest]
+#[case::df("df -h", true)]
+#[case::watch("watch -n 5 df -h", true)]
+#[case::after_sudo("sudo -k; df", true)]
+#[case::findmnt("findmnt -D", true)]
+#[case::path("/usr/bin/df -hT", true)]
+#[case::pipe("df -h | sort", true)]
+#[case::lsblk("lsblk", false)]
+#[case::word("echo df", false)]
+#[case::longer_name("dfx", false)]
+#[case::empty("", false)]
+fn mount_view_line_finds_df_findmnt(#[case] line: &str, #[case] expected: bool) {
+    assert_eq!(super::mount_view_line(line), expected, "{line:?}");
+}

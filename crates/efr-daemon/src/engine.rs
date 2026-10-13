@@ -21,7 +21,7 @@ use efr_scope::{Home, Registry};
 
 use crate::DaemonError;
 use crate::sandbox::links::dotfile_links;
-use crate::sandbox::{HostFacts, launcher};
+use crate::sandbox::{HostFacts, SandboxService, launcher};
 use crate::state::SCRATCH_DIR;
 
 /// The places that every contained call may write besides the projects: the private
@@ -58,6 +58,24 @@ pub(crate) struct EfrPaths {
     pub(crate) binaries: Vec<PathBuf>,
 }
 
+/// What efrd found about this machine that the engine needs: whether a contained call
+/// can get the host's network view, and whether efrd sees the user's mounts. Both
+/// change only with a probe, never with the settings.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Probed {
+    /// The network view self-test of the last probe passed (`SandboxStatus::netview`).
+    pub(crate) netview: bool,
+    /// efrd shares the mount namespace of the user (`SandboxService::mount_view`).
+    pub(crate) mount_view: bool,
+}
+
+impl Probed {
+    /// The current values of `sandbox`: its last status and its mount check.
+    pub(crate) fn of(sandbox: &SandboxService) -> Probed {
+        Probed { netview: sandbox.status().borrow().netview, mount_view: sandbox.mount_view() }
+    }
+}
+
 /// What the engine is built from besides the settings. It does not change while the
 /// daemon runs.
 #[derive(Debug, Clone)]
@@ -84,8 +102,12 @@ pub(crate) struct EngineParts {
 
 impl EngineParts {
     /// Reads the project registry and the links in the config directory, and builds
-    /// the engine for `settings`.
-    pub(crate) async fn engine(&self, settings: &Settings) -> Result<Engine, DaemonError> {
+    /// the engine for `settings` and what the probe found.
+    pub(crate) async fn engine(
+        &self,
+        settings: &Settings,
+        probed: Probed,
+    ) -> Result<Engine, DaemonError> {
         let projects = load_registry(&self.registry).await;
         let config = self.config.clone();
         let protected = tokio::task::spawn_blocking(move || protected_config(&config))
@@ -97,7 +119,7 @@ impl EngineParts {
             .await
             .unwrap_or_default();
         let facts = SandboxFacts { host: self.host.clone(), links, efr: self.efr() };
-        build(&self.home, &self.secrets, &protected, settings, &projects, &facts)
+        build(&self.home, &self.secrets, &protected, settings, &projects, &facts, probed)
     }
 
     /// efr's own roots and programs.
@@ -169,7 +191,7 @@ pub(crate) fn protected_config(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// The engine for `settings` and `projects`, with `secrets` sealed and `protected`
-/// (from [`protected_config`]) write-sealed.
+/// (from [`protected_config`]) write-sealed, and the support that `probed` allows.
 ///
 /// NOTE: the user's rules belong to the engine, the machine policy, and not to
 /// `ConversationConfig::policy`: a conversation's rules may never open a secret or a
@@ -182,6 +204,7 @@ pub(crate) fn build(
     settings: &Settings,
     projects: &Registry,
     sandbox: &SandboxFacts,
+    probed: Probed,
 ) -> Result<Engine, DaemonError> {
     let invalid = |source| DaemonError::Locations { source };
     let mut locations = Locations::new(home.path()).map_err(invalid)?;
@@ -215,16 +238,17 @@ pub(crate) fn build(
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
     locations = with_efr(locations, sandbox)?;
-    // NOTE: no proxy (phase D), no bus proxy (phase E) yet, and the mount view of phase D
-    // sets `mount_view`. efrd keeps the home store while snapshots are on (`home.rs`),
-    // and a covered destructive part runs with no review only while undo is on too and
-    // `sandbox.ask_destructive` lets it (plan PB17). With snapshots off, a named floor
-    // file edit goes back to the user: stricter, never looser.
+    // NOTE: no proxy (phase D2) and no bus proxy (phase E) yet. The mount view follows
+    // efrd's own mount check (`Probed`). efrd keeps the home store while snapshots are
+    // on (`home.rs`), and a covered destructive part runs with no review only while
+    // undo is on too and `sandbox.ask_destructive` lets it (plan PB17). With snapshots
+    // off, a named floor file edit goes back to the user: stricter, never looser.
     let floor_backup = settings.snapshot.enabled;
     let undo = floor_backup
         && settings.undo.enabled
         && settings.sandbox.ask_destructive == AskDestructive::UnlessUndoable;
-    let support = AutoSupport { floor_backup, undo, mount_view: false, ..AutoSupport::default() };
+    let support =
+        AutoSupport { floor_backup, undo, mount_view: probed.mount_view, ..AutoSupport::default() };
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
 }
 

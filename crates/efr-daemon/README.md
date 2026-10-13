@@ -65,7 +65,11 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    A change of the mode needs no new engine: a turn passes its own.
    The sandbox service (`sandbox.rs`) copies the installed launcher (`efr-sbx` next to
    `efrd`, else in `../lib/efr/`) to `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` (mode 0500),
-   checks its SHA-256 and runs the probe once before the socket opens. The
+   checks its SHA-256 and runs the probe once before the socket opens. The engine is
+   built a second time right after that probe, with what the probe found
+   (`engine::Probed`: the network view self-test and efrd's mount check), so no
+   request sees the engine of before the probe; a reload builds with the same
+   `Probed`. The
    conversations read the probe's status from a `watch` of `SandboxStatus`; while it
    says unavailable, an `auto` turn runs as `cautious` with the probe's reason. See
    "The auto sandbox" below.
