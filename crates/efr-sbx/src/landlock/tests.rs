@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use efr_sandbox::FsAccess;
 use landlock::{ABI, AccessFs};
 
@@ -23,6 +25,59 @@ fn write_dir_rights_leave_out_devices_and_sockets() {
     {
         assert!(!write.contains(right), "{right:?}");
     }
+}
+
+/// A TCP connect to `address` from a new thread that first restricts itself with a
+/// policy that only reads `/`, with `deny_tcp`. Landlock acts on the calling thread
+/// alone, so the test's own threads keep their rights. No seccomp filter is in place:
+/// the result is Landlock's alone.
+fn connect_restricted(
+    address: std::net::SocketAddr,
+    deny_tcp: bool,
+) -> Result<io::Result<std::net::TcpStream>, SbxError> {
+    let policy: LandlockPolicy = serde_json::from_value(serde_json::json!({
+        "min_abi": 9,
+        "required_errata": 0,
+        "read_exec": ["/"],
+        "write": [],
+        "write_files": [],
+        "dev_rw": [],
+        "tty_fds": [],
+        "resolve_unix": [],
+        "devices": [],
+        "scopes": ["abstract_unix_socket", "signal"],
+        "deny_tcp": deny_tcp,
+    }))
+    .unwrap();
+    std::thread::spawn(move || {
+        restrict(&policy, &[])?;
+        Ok(std::net::TcpStream::connect(address))
+    })
+    .join()
+    .unwrap()
+}
+
+#[test]
+fn netview_tcp_landlock_layer() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let refused = match connect_restricted(address, true) {
+        Ok(connect) => connect,
+        Err(error) => {
+            let required = crate::os::var("EFR_TEST_SBX_REQUIRE").is_some_and(|value| value == "1");
+            assert!(!required, "Landlock ABI 9 is required here, but: {error:?}");
+            let _ = writeln!(io::stdout(), "skipped: no Landlock ABI 9 here: {error:?}");
+            return;
+        }
+    };
+    let error = refused.map(drop).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(rustix::io::Errno::ACCESS.raw_os_error()), "{error:?}");
+    assert!(listener.accept().is_err(), "the refused connect reached the listener");
+    // The control: the same rule set without deny_tcp connects, so the refusal above
+    // was Landlock's TCP right and nothing else.
+    let allowed = connect_restricted(address, false).unwrap();
+    assert!(allowed.is_ok(), "{allowed:?}");
 }
 
 #[test]
