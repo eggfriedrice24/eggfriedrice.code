@@ -174,6 +174,9 @@ into the GitHub release notes, and it stops when the section is missing.
   reads the mounts outside the sandbox. A mount that does not answer in one second
   shows `-`, so `df` never hangs on it. `df <path>` shows where a write in the sandbox
   goes, for example the private `/tmp`. Mounts below a hidden path show no sizes.
+  When efrd runs in a mount namespace of its own, for example because a unit drop-in
+  sets `ProtectHome`, `df` and `findmnt` go to the reviewer and run outside the
+  sandbox instead.
 - In `auto`, `ss`, `ip addr`, `ip -s link`, `ip route`, `nstat` and reads of
   `/proc/net` now run with no review and show your machine's real network: its
   sockets, links, counters and routes. The command runs in the sandbox with your
@@ -188,8 +191,6 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - In `auto`, `write_file` and `edit` outside the project and `$SCRATCH` are an exit
   that the reviewer decides, as a shell write there is.
-- In `auto`, `df` and `findmnt` run outside the sandbox after a review, so they show
-  your real disks and mounts.
 - In `auto`, a write that runs outside the sandbox, such as `mv src ~/x`, and an
   `outside` call go to the reviewer. An `outside` call whose program changed in this
   turn still asks you, and so does one that runs an interpreter on code that efr
