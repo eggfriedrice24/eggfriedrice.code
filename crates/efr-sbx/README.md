@@ -163,10 +163,14 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-sbx
 ```
 
-The unit tests need no sandbox. The integration tests (`tests/it/`: the escape suite,
-the behaviour tests, the jobs, the probe, the launch cost with the cost of a job's
-start, and the corpus run) drive the real
-launcher with real bwrap, Landlock and seccomp. They read the launcher from
+The unit tests need no sandbox; the seccomp tests run the compiled filters on a small
+BPF interpreter for both architectures, and the Landlock TCP test restricts one thread
+of its own. The integration tests (`tests/it/`: the escape suite, the network view's
+escape tests in `netview.rs`, the behaviour tests, the jobs, the probe, the launch cost
+with the cost of a job's start and of a network view call, and the corpus run) drive
+the real launcher with real bwrap, Landlock and seccomp. A network view test passes a
+refusal only on its exact errno, and targets only the test's own listeners and
+abstract names; its write checks change nothing even if they work. They read the launcher from
 `EFR_TEST_SBX_BIN` and run `efr-sbx probe` first; without the variable, or when the
 probe says the sandbox cannot run here, each prints `skipped: <reason>` and passes.
 `just test-sandbox` builds the launcher, copies it to a private dir in the target dir,

@@ -14,7 +14,8 @@ use efr_sandbox::{JobPlan, JobStop, MaskKind, SpecLaunch};
 use rustix::process::Signal;
 
 use crate::support::{
-    Fixture, Run, alive, need, pty, q, sandbox_or_skip, say, wait_until, which, with_fd_7, write,
+    Fixture, Run, alive, need, pty, q, require, sandbox_or_skip, say, wait_until, which, with_fd_7,
+    write,
 };
 
 /// The plan of a test's job: ten minutes, nice 19.
@@ -653,6 +654,34 @@ fn guard_check_works_from_the_state_dir_alone() {
     write(&fixture.project.join("late/.git/hooks/post-checkout"), "#!/bin/sh\n");
     assert_eq!(guard_check(&fixture, &call_dir).0, 3);
     assert!(!fixture.project.join("late/.git/hooks/post-checkout").exists());
+}
+
+#[test]
+fn netview_job_same_as_call() {
+    let ready = sandbox_or_skip!();
+    require!("ss");
+    let mut fixture = Fixture::new(&ready);
+    fixture.net_view();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = format!("127.0.0.1:{} ", listener.local_addr().unwrap().port());
+    let line = format!(
+        "ss -Htln; {} self-test --net-view --check packet --check listen",
+        inside_launcher(&fixture)
+    );
+    let call = fixture.run(&line);
+    let job = fixture.run_job(&line, plan());
+    for run in [&call, &job] {
+        run.expect_status(0);
+        assert!(run.stdout.contains(&address), "{run:#?}");
+        let checks: Vec<&str> =
+            run.stdout.lines().filter(|line| line.starts_with("{\"name\"")).collect();
+        assert_eq!(checks.len(), 3, "{run:#?}");
+        assert!(checks.iter().all(|line| line.contains("\"ok\":true")), "{run:#?}");
+    }
+    let checks = |run: &Run| -> Vec<String> {
+        run.stdout.lines().filter(|line| line.starts_with("{\"name\"")).map(str::to_owned).collect()
+    };
+    assert_eq!(checks(&job), checks(&call));
 }
 
 #[test]

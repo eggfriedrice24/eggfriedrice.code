@@ -393,6 +393,12 @@ impl Fixture {
         self.spec.grants.push(grant);
     }
 
+    /// Adds `Grant::NetView`: the calls keep the host's network namespace with the
+    /// network view's seccomp profile and Landlock's TCP rights.
+    pub(crate) fn net_view(&mut self) {
+        self.grant(Grant::NetView);
+    }
+
     /// Moves the fixture to a new conversation of the same home and project: new
     /// shell, sandbox and scratch dirs. Returns the spec of the old one.
     pub(crate) fn switch_conversation(&mut self) -> SandboxSpec {

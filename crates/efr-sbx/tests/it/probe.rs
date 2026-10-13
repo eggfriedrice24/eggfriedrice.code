@@ -126,6 +126,16 @@ fn escape_launcher_in_write_root_refuses_auto() {
     assert!(reason.contains("writable project"), "{reason}");
 }
 
+#[test]
+fn probe_reports_netview() {
+    let _ready = sandbox_or_skip!();
+    let report = probe(&[]);
+    assert_eq!(report.failure, None, "{report:#?}");
+    assert_eq!(report.netview, Some(true), "{report:#?}");
+    assert!(report.warnings.is_empty(), "{report:#?}");
+    assert!(report.status().netview);
+}
+
 /// The gates and CI install `ss` and `ip` (iproute2) for the network view tests, so
 /// with `EFR_TEST_SBX_REQUIRE=1` a missing one fails here by name.
 #[test]
