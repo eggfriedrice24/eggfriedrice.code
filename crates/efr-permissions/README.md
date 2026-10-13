@@ -108,14 +108,16 @@ Modules:
   unknown keys refused, and every rule is checked when a policy is built.
 - `decision`: `Effect` (`Allow < Contain < Ask < Deny`), `Decision` and `Reason`, whose
   `Display` is the one line that goes into a log, an approval summary or a denied tool
-  result. `Decision::exits` lists the exits of an `auto` call.
+  result. `Decision::exits` lists the exits of an `auto` call, and
+  `Decision::view_grants` the grants of its views (`Subject::View`), which need no
+  exit.
   The `Subject::Command` of a line of several simple commands that asks or is denied
   lists in `deciding` the words of each simple command that got the line's effect, in
   the order of the line, so an approval can name them.
 - `engine`: `Engine::decide` and `effective_mode`; `Engine::with_support` sets what the
   machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo with
   `sandbox.ask_destructive = "unless_undoable"`, the home store that copies each home
-  write, the mount view). With `undo`, a delete or a move of a file tool in `auto`
+  write, the mount view, the network view). With `undo`, a delete or a move of a file tool in `auto`
   asks no question when each path that it writes is covered: by the turn's snapshot
   in the turn's project and `$SCRATCH`, by the home store elsewhere.
   `Engine::path_facts` tells where a path stands for a call in `auto` (`PathFacts`: its
@@ -173,6 +175,24 @@ Modules:
   every place of the line, a zsh builtin or reserved word such as `:`, `cd` or
   `printf` (a fixed list, `exits/programs.rs`); behind `env`, `sudo`, `command`,
   `exec` or `find -exec` only a file runs.
+- `exits/view.rs` (phase D1): the network view rule. `exits::views` gives
+  `Grant::NetView` to a shell call whose line only reads the host's network, on a
+  machine that runs NetView calls (`AutoSupport::netview`): at least one view command
+  and nothing but view commands and text helpers. View commands are `ss` without `-K`,
+  `-D` or `-N` (and their long forms and abbreviations), the read forms of `ip` (an
+  object such as `addr`, `link`, `route` or `neigh` with no verb or `show`, `list`,
+  `get`, and no option that is a prefix of `-batch`, `-netns` or `-all`), `nstat`
+  without `-d`, and `cat`, `head`, `tail`, `grep` or `wc` of a file below `/proc/net`,
+  `/proc/self/net` or `/proc/<pid>/net`. The helpers are `grep`, `head`, `tail`, `wc`,
+  `sort`, `uniq`, `cut`, `tr`, `column`, `cat`, `echo`, `printf`, `date`, `sleep`, `:`,
+  `true` and `tee`, each matched by its row of the read-only table where one exists;
+  a view command may run behind `watch` or `timeout`, and in a `while`, `if` or `{ }`.
+  No interpreter, `find`, `git`, `xargs`, assignment or other wrapper. `predict` then
+  finds no `host_view` exit for the line; the engine adds one `Subject::View` reason
+  per grant, which is `Contain` and never an exit. The rule is a fit, not a security
+  layer: a NetView call can run any code, and its seccomp profile, Landlock rights and
+  the refusal of `listen` carry the whole load. `iw`, `ifconfig`, `netstat`, the
+  write forms of `ip` and any line that does more stay `host_view` exits.
 - `jobs` (phase C): `job_refusal` names the exits that no background job may hold, in
   every mode and whatever the user answers: `privilege`, `masked_read`, `persistence`,
   a `desktop_ipc` form that types or starts programs, the whole message bus, and the
@@ -279,6 +299,11 @@ proptest property:
   `Cause::JobAsks`), whatever the rules say, and a remote turn runs as `cautious`, so it
   asks too (`src/engine/tests/jobs.rs`, and the corpus table
   `background_flag_does_not_change_prediction`).
+- On a machine that runs NetView calls, a shell line in `auto` that only reads the
+  host's network (`exits/view.rs`) runs contained with `Grant::NetView` and no exit, so
+  no classifier and no question. A line that does anything else gets no view and keeps
+  its exits; `nmcli` and `iwctl` are `bus` exits in every phase
+  (`src/engine/tests/auto.rs`, `netview_rule_cases`).
 - `PRIVILEGED` holds the same six programs in every mode, so a user's `docker` rule
   keeps working in `cautious`; `auto` adds `exits::PRIVILEGE_EXITS`.
 - A write of the project's root itself is not a project write, so it asks.

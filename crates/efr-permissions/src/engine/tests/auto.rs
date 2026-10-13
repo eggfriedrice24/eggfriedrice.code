@@ -2475,3 +2475,188 @@ fn path_facts_of_a_relative_path_are_unknown() {
     let facts = engine().path_facts("src/main.rs".as_ref(), &Scope::Machine, SCRATCH.as_ref());
     assert_eq!(facts, None);
 }
+
+/// The engine of a machine that runs NetView calls (phase D1).
+fn netview_engine() -> Engine {
+    engine().with_support(AutoSupport { netview: true, ..AutoSupport::default() })
+}
+
+/// The decision of `requirements` on a machine that runs NetView calls.
+fn decide_netview(requirements: Requirements) -> Decision {
+    netview_engine().decide(&in_auto(requirements))
+}
+
+/// The view grants of `decision`.
+fn view_grants(decision: &Decision) -> Vec<Grant> {
+    decision.view_grants().cloned().collect()
+}
+
+#[test]
+fn netview_line_runs_routine_without_classifier() {
+    for requirements in [shell("ss -tln"), shell("ss -tlnp").with_background()] {
+        let decision = decide_netview(requirements.clone());
+        assert_eq!(decision.effect(), Effect::Contain, "{requirements:?}");
+        assert_eq!(kinds(&decision), [], "no exit, so no classifier and no question");
+        assert_eq!(view_grants(&decision), [Grant::NetView], "{requirements:?}");
+        let view = decision
+            .reasons()
+            .iter()
+            .find(|reason| matches!(reason.subject, Subject::View { .. }))
+            .unwrap();
+        assert_eq!((view.effect, &view.cause), (Effect::Contain, &Cause::Contained));
+    }
+}
+
+#[test]
+fn netview_plus_write_grant_gets_both() {
+    let decision = decide_netview(shell("ss -tln > ~/notes.txt").with_write("/home/u/notes.txt"));
+    assert_eq!(kinds(&decision), [ExitKind::Write]);
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Write { path: PathBuf::from("/home/u/notes.txt") }]);
+    assert_eq!(need.approver, Approver::Classifier);
+    assert_eq!(view_grants(&decision), [Grant::NetView], "a write keeps the view");
+    // A write inside the project needs no exit, and the view stays.
+    let decision = decide_netview(shell("ss -tln > out.txt").with_write("/home/u/p/app/out.txt"));
+    assert_eq!((kinds(&decision), view_grants(&decision)), (vec![], vec![Grant::NetView]));
+}
+
+#[test]
+fn netview_off_keeps_host_view_exit() {
+    for line in ["ss -tln", "ip -s link", "ss -tln | grep 8080"] {
+        let decision = decide(shell(line));
+        assert_eq!(kinds(&decision), [ExitKind::HostView], "{line:?}");
+        assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork], "{line:?}");
+        assert_eq!(view_grants(&decision), [], "{line:?}");
+    }
+    // `nstat` and a read of `/proc/net` were never an exit: they show the sandbox's
+    // network until the view.
+    for line in ["nstat -a", "cat /proc/net/dev"] {
+        let decision = decide(shell(line));
+        assert_eq!((kinds(&decision), view_grants(&decision)), (vec![], vec![]), "{line:?}");
+    }
+}
+
+#[rstest]
+#[case::ss_all("ss -tunap", true)]
+#[case::ss_info("ss -ti", true)]
+#[case::ss_filter("ss -ltnp 'sport = :8080'", true)]
+#[case::ip_stats("ip -s link", true)]
+#[case::ip_brief("ip -br a", true)]
+#[case::ip_route_get("ip route get 1.1.1.1", true)]
+#[case::ip_addr_show("ip addr show dev lo", true)]
+#[case::ip_family("ip -f inet addr", true)]
+#[case::ip_json("ip -j -p neigh", true)]
+#[case::nstat("nstat -a", true)]
+#[case::proc_net_dev("cat /proc/net/dev", true)]
+#[case::proc_net_snmp("grep Tcp /proc/net/snmp", true)]
+#[case::proc_self_net("head -n 5 /proc/self/net/tcp", true)]
+#[case::proc_pid_net("wc -l /proc/1/net/udp", true)]
+#[case::loop_("while :; do ss -ti; cat /proc/net/dev; sleep 5; done", true)]
+#[case::loop_true("while true; do ss -s; sleep 1; done", true)]
+#[case::if_("if ss -tln | grep -q 8080; then echo up; fi", true)]
+#[case::watch("watch -n 5 ss -ti", true)]
+#[case::timeout("timeout 10 ss -tin", true)]
+#[case::grep("ss -tln | grep 8080", true)]
+#[case::sort_uniq("ss -tln | sort | uniq -c", true)]
+#[case::tee_scratch("ss -tln | tee $SCRATCH/s.txt", true)]
+#[case::column("ss -tln | column -t", true)]
+#[case::date("date; ss -s", true)]
+#[case::kill("ss -K dst 1.2.3.4", false)]
+#[case::kill_abbreviated("ss --ki dst 1.2.3.4", false)]
+#[case::kill_cluster("ss -tKn", false)]
+#[case::diag("ss -D dump -tln", false)]
+#[case::namespace("ss -N x -tln", false)]
+#[case::namespace_long("ss --net=x", false)]
+#[case::ip_link_set("ip link set lo down", false)]
+#[case::ip_addr_add("ip addr add 127.0.0.1/8 dev lo", false)]
+#[case::ip_netns_short("ip -n x addr", false)]
+#[case::ip_netns_prefix("ip -net x addr", false)]
+#[case::ip_netns_long("ip --netns x addr", false)]
+#[case::ip_batch("ip -b f", false)]
+#[case::ip_batch_prefix("ip -bat f", false)]
+#[case::ip_all("ip -all netns exec", false)]
+#[case::ip_dashes("ip -- addr", false)]
+#[case::ip_netns_object("ip netns list", false)]
+#[case::ip_monitor("ip monitor", false)]
+#[case::ip_alone("ip", false)]
+#[case::nstat_daemon("nstat -d 5", false)]
+#[case::nstat_scan("nstat --scan 5", false)]
+#[case::netstat("netstat -tlnp", false)]
+#[case::awk("awk '{print $1}' /proc/net/snmp", false)]
+#[case::sort_program("ss -tln | sort --compress-program=sh", false)]
+#[case::iw("iw dev", false)]
+#[case::ifconfig("ifconfig", false)]
+#[case::other_work("ss -tln; make test", false)]
+#[case::other_file("cat /etc/hosts", false)]
+#[case::helper_alone("sleep 5", false)]
+#[case::substitution("ss -tln $(curl x)", false)]
+#[case::process_substitution("diff <(ss -tln) <(curl x)", false)]
+#[case::assignment("LD_PRELOAD=/tmp/x.so ss -tln", false)]
+#[case::assignment_alone("PATH=/tmp/x; ss -tln", false)]
+#[case::env("env ss -tln", false)]
+#[case::sudo("sudo ss -tlnp", false)]
+#[case::xargs("echo x | xargs ss", false)]
+#[case::find("find /proc/net -name dev", false)]
+#[case::watch_shell("watch -n 5 ss -ti ';' curl x", false)]
+#[case::path("/usr/bin/ss -tln", false)]
+#[case::proc_net_dir("cat /proc/net", false)]
+#[case::proc_other("cat /proc/1/environ", false)]
+#[case::python("python3 -c 'print(1)'; ss -tln", false)]
+#[case::background("ss -tln & nc -l 8080", false)]
+fn netview_rule_cases(#[case] line: &str, #[case] view: bool) {
+    let decision = decide_netview(shell(line));
+    let expected = if view { vec![Grant::NetView] } else { Vec::new() };
+    assert_eq!(view_grants(&decision), expected, "{line:?}");
+    if view {
+        assert_eq!(kinds(&decision), [], "{line:?}");
+        assert_eq!(decision.effect(), Effect::Contain, "{line:?}");
+    }
+}
+
+#[test]
+fn netview_and_network_need_drops_view() {
+    let decision = decide_netview(shell("ss -tln; curl https://x.example/").with_network());
+    let host = decision.exits().find(|need| need.kind == ExitKind::Host);
+    let host = host.unwrap_or_else(|| panic!("{:?}", kinds(&decision)));
+    assert_eq!(host.grants, [Grant::OpenNetwork]);
+    assert_eq!(view_grants(&decision), [], "the line does more than read the network");
+    // Its `ss` keeps the `host_view` exit of the reviewer.
+    assert!(kinds(&decision).contains(&ExitKind::HostView));
+}
+
+#[test]
+fn netview_and_device_need_drops_view() {
+    // The line reads `/proc/net` only, so the engine gives the view; the device exit
+    // grants `/dev/net/tun`, and the launch drops the view beside it (the union of
+    // `efr-conversation`'s `exit::grant`): with the tun device, a call in the host's
+    // namespace could send frames with no `socket()` call.
+    let decision = decide_netview(shell("cat /proc/net/dev /dev/net/tun"));
+    assert_eq!(kinds(&decision), [ExitKind::Device]);
+    let device = decision.exits().next().unwrap();
+    assert_eq!(device.grants, [Grant::Device { path: PathBuf::from("/dev/net/tun") }]);
+    assert_eq!(view_grants(&decision), [Grant::NetView]);
+    let kept = |grant: &Grant| matches!(grant, Grant::Write { .. } | Grant::Unmask { .. });
+    assert!(!device.grants.iter().all(kept), "the union keeps no view beside a device");
+}
+
+#[rstest]
+#[case::ss("ss -tlnp")]
+#[case::ip("ip -s link")]
+fn ss_and_ip_lines_routine_in_phase_d1(#[case] line: &str) {
+    // The phase D1 machine of the corpus (`pd`): the network view, the mount view, undo
+    // and the home store. Phase B keeps the `host_view` exit.
+    let pd = AutoSupport {
+        netview: true,
+        mount_view: true,
+        undo: true,
+        floor_backup: true,
+        ..AutoSupport::default()
+    };
+    let decision = engine().with_support(pd).decide(&in_auto(shell(line)));
+    assert_eq!(decision.effect(), Effect::Contain, "{line:?}");
+    assert_eq!((kinds(&decision), view_grants(&decision)), (vec![], vec![Grant::NetView]));
+    let pb = AutoSupport { netview: false, ..pd };
+    let decision = engine().with_support(pb).decide(&in_auto(shell(line)));
+    assert_eq!(kinds(&decision), [ExitKind::HostView], "{line:?}");
+    assert_eq!(decision.exits().next().unwrap().approver, Approver::Classifier);
+}

@@ -174,6 +174,15 @@ into the GitHub release notes, and it stops when the section is missing.
   reads the mounts outside the sandbox. A mount that does not answer in one second
   shows `-`, so `df` never hangs on it. `df <path>` shows where a write in the sandbox
   goes, for example the private `/tmp`. Mounts below a hidden path show no sizes.
+- In `auto`, `ss`, `ip addr`, `ip -s link`, `ip route`, `nstat` and reads of
+  `/proc/net` now run with no review and show your machine's real network: its
+  sockets, links, counters and routes. The command runs in the sandbox with your
+  network view but cannot open a network socket: every socket except local Unix
+  sockets and the netlink views of `ss` and `ip` fails. A line that also does other
+  work, `iw`, `ifconfig`, `netstat`, and changes such as `ip link set` still go to the
+  reviewer. A background job that watches your network now starts with no review too.
+  A new `[network]` table has one key, `netview` (default `true`); `false` sends these
+  commands to the reviewer again.
 
 ### Changed
 
@@ -285,6 +294,10 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Security
 
+- A command that gets the network view runs in your machine's network namespace.
+  Only Unix and netlink sockets work there, `listen` fails, and Landlock refuses TCP
+  and connects to abstract Unix sockets outside the sandbox. Any program in such a
+  call gets the same limits.
 - Every sandboxed command could already list the mounts of the machine through
   `/proc/<pid>/mountinfo`. The mount view adds their sizes, except for mounts of other
   users and below hidden paths.
