@@ -252,7 +252,14 @@ fn mount_view_df_shows_host_mounts() {
     run.expect_status(0);
     let (targets, human) = run.stdout.split_at(run.stdout.find("Filesystem").unwrap());
     let inside = line_set(targets);
-    assert_eq!(inside, line_set(&host("df", &["--output=target"])), "{}", run.stdout);
+    assert_eq!(
+        inside,
+        line_set(&host("df", &["--output=target"])),
+        "{}\n--- mountinfo\n{}\n--- snapshot\n{snapshot:?}\n--- df -a outside\n{}",
+        run.stdout,
+        String::from_utf8_lossy(&table),
+        host("df", &["-a", "--output=source,fstype,target"]),
+    );
     let base = fixture.base.to_string_lossy().into_owned();
     assert!(!inside.iter().any(|target| target.starts_with(&base)), "{inside:?}");
     let entries = parse_mountinfo(&table);
