@@ -36,6 +36,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
+use crate::engine::Probed;
 use crate::notices::{self, NOTICES_DIR};
 use crate::shells;
 use crate::state::State;
@@ -247,7 +248,7 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // `sandbox.ask_destructive`, plan PB17).
     let rules_changed = settings.permissions != running.permissions;
     let current = Arc::clone(&state.engine.borrow());
-    let engine = match state.engine_parts.engine(&settings).await {
+    let engine = match state.engine_parts.engine(&settings, Probed::of(&state.sandbox)).await {
         Ok(engine)
             if rules_changed
                 || engine.locations() != current.locations()

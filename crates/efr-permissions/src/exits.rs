@@ -1049,6 +1049,19 @@ fn naming_part(
 
 /// Why a line may not run outside the sandbox, or `None` when it may.
 ///
+/// True when a simple command of `line` runs `df` or `findmnt`, also behind the
+/// wrappers that [`predict`] looks through, such as `watch -n 5 df -h`. efrd then gives
+/// the call a snapshot of the host's mounts.
+pub fn mount_view_line(line: &str) -> bool {
+    scan::scan(line).iter().any(|segment| {
+        programs::commands(&segment.words).into_iter().any(|command| {
+            command
+                .first()
+                .is_some_and(|program| matches!(programs::base_name(program), "df" | "findmnt"))
+        })
+    })
+}
+
 /// The exit child runs the whole line with the user's full rights, so one approved
 /// exit must not carry other code with it. The line must be one that the engine can
 /// split, with no substitution, `eval`, group or function definition; redirections stay

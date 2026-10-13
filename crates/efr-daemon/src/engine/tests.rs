@@ -9,7 +9,7 @@ use efr_protocol::{Mode, Origin, ProjectId, Scope};
 use efr_scope::{Home, Registry};
 use pretty_assertions::assert_eq;
 
-use crate::engine::{EngineParts, build, load_registry, protected_config};
+use crate::engine::{EngineParts, Probed, build, load_registry, protected_config};
 
 fn parts(home: &Home, secrets: PathBuf) -> EngineParts {
     EngineParts {
@@ -50,7 +50,10 @@ async fn the_secret_paths_of_the_config_classify_as_secrets() {
     settings.permissions.secret_paths =
         vec![PathBuf::from("~/.config/rclone/rclone.conf"), PathBuf::from("/srv/vault")];
 
-    let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+    let engine = parts(&home, home.path().join("secrets"))
+        .engine(&settings, Probed::default())
+        .await
+        .unwrap();
 
     let scratch = home.path().join("scratch");
     let class = |path: PathBuf| engine.locations().classify(&path, &scratch);
@@ -70,7 +73,10 @@ async fn each_mode_decides_by_its_built_in_rules_then_the_users() {
     let mut settings = Settings::default();
     settings.permissions.rules = Policy::new(vec![rule.clone()]).unwrap();
 
-    let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+    let engine = parts(&home, home.path().join("secrets"))
+        .engine(&settings, Probed::default())
+        .await
+        .unwrap();
 
     for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
         let base = Policy::base(mode);
@@ -88,7 +94,7 @@ async fn no_rule_of_the_users_opens_the_daemons_own_secrets() {
     settings.permissions.rules = Policy::new(vec![every_secret]).unwrap();
     let secrets = home.path().join(".local/share/efr/secrets");
 
-    let engine = parts(&home, secrets.clone()).engine(&settings).await.unwrap();
+    let engine = parts(&home, secrets.clone()).engine(&settings, Probed::default()).await.unwrap();
 
     let read = |path: PathBuf| Requirements::none().with_read(path);
     let key = read(home.path().join(".ssh/id_ed25519"));
@@ -102,7 +108,7 @@ async fn no_tool_writes_efrs_own_programs_and_roots_but_scratch_and_trash_stay_o
     let (_root, home) = home();
     let mut parts = parts(&home, home.path().join(".local/share/efr/secrets"));
     parts.host.binaries = vec![home.path().join(".local/bin/efrd")];
-    let engine = parts.engine(&Settings::default()).await.unwrap();
+    let engine = parts.engine(&Settings::default(), Probed::default()).await.unwrap();
 
     let write = |path: PathBuf| Requirements::none().with_write(path);
     let data = home.path().join(".local/share/efr");
@@ -137,7 +143,7 @@ async fn only_the_user_approves_the_socket_of_the_environments_ssh_agent() {
         ("GPG_AGENT_INFO".to_owned(), "/run/user/1000/pgp.sock:0:1".to_owned()),
     ];
     parts.host = crate::sandbox::HostFacts::from_env(&env.into_iter().collect(), None);
-    let engine = parts.engine(&Settings::default()).await.unwrap();
+    let engine = parts.engine(&Settings::default(), Probed::default()).await.unwrap();
     for (socket, user_only) in [
         ("/run/user/1000/vault.sock", true),
         ("/run/user/1000/pgp.sock", true),
@@ -166,8 +172,10 @@ async fn only_the_user_approves_the_socket_of_the_environments_ssh_agent() {
 #[tokio::test]
 async fn the_engine_marks_caches_and_efrs_trash_as_rebuildable() {
     let (_root, home) = home();
-    let engine =
-        parts(&home, home.path().join("secrets")).engine(&Settings::default()).await.unwrap();
+    let engine = parts(&home, home.path().join("secrets"))
+        .engine(&Settings::default(), Probed::default())
+        .await
+        .unwrap();
     let rebuild = |path: PathBuf| {
         engine.path_facts(&path, &Scope::Machine, &home.path().join("scratch")).unwrap().rebuild
     };
@@ -196,6 +204,7 @@ async fn a_registered_project_is_writable_and_a_missing_registry_registers_none(
         &Settings::default(),
         &projects,
         &crate::engine::SandboxFacts::default(),
+        Probed::default(),
     )
     .unwrap();
 
@@ -264,7 +273,10 @@ async fn no_tool_writes_the_config_or_the_file_behind_its_link_in_any_mode() {
         Policy::new(vec![Rule::new(Action::Write, Resource::Under("~".into()), Effect::Allow)])
             .unwrap();
 
-    let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+    let engine = parts(&home, home.path().join("secrets"))
+        .engine(&settings, Probed::default())
+        .await
+        .unwrap();
 
     let write = |path: &Path| Requirements::none().with_write(path);
     for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
@@ -308,10 +320,13 @@ async fn the_file_that_efr_config_set_writes_is_sealed_and_the_writer_still_writ
     assert_eq!(linked.target(), dotfiles.join("config.toml"));
     // The engine protects what the writer wrote, behind the link or created new.
     let settings = Settings::default();
-    let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+    let engine = parts(&home, home.path().join("secrets"))
+        .engine(&settings, Probed::default())
+        .await
+        .unwrap();
     let mut created = parts(&home, home.path().join("secrets"));
     created.config.clone_from(&other);
-    let created = created.engine(&settings).await.unwrap();
+    let created = created.engine(&settings, Probed::default()).await.unwrap();
     for mode in Mode::ALL {
         for path in [linked.path(), linked.target()] {
             let write = Requirements::none().with_write(path);
@@ -328,7 +343,10 @@ async fn the_auto_support_follows_snapshot_undo_and_ask_destructive() {
     let support = async |change: fn(&mut Settings)| {
         let mut settings = Settings::default();
         change(&mut settings);
-        let engine = parts(&home, home.path().join("secrets")).engine(&settings).await.unwrap();
+        let engine = parts(&home, home.path().join("secrets"))
+            .engine(&settings, Probed::default())
+            .await
+            .unwrap();
         let support = *engine.support();
         (support.floor_backup, support.undo)
     };
@@ -340,4 +358,17 @@ async fn the_auto_support_follows_snapshot_undo_and_ask_destructive() {
         settings.sandbox.ask_destructive = efr_config::AskDestructive::Always;
     };
     assert_eq!(support(always).await, (true, false), "always keeps every destructive exit");
+}
+
+#[tokio::test]
+async fn engine_mount_view_follows_probed() {
+    let (_root, home) = home();
+    let parts = parts(&home, home.path().join("secrets"));
+    let settings = Settings::default();
+    let off = parts.engine(&settings, Probed::default()).await.unwrap();
+    assert!(!off.support().mount_view, "no mount view before efrd checked its namespace");
+    let probed = Probed { mount_view: true, ..Probed::default() };
+    let on = parts.engine(&settings, probed).await.unwrap();
+    assert!(on.support().mount_view);
+    assert_eq!(on.locations(), off.locations(), "the probe changes only the support");
 }
