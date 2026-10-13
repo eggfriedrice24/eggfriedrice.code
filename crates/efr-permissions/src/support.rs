@@ -5,7 +5,7 @@
 /// engine must know which parts run.
 ///
 /// The default is phase 1: no network, no bus proxy, no undo, no home store, no mount
-/// view.
+/// view, no network view.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct AutoSupport {
     /// How a contained call reaches the network.
@@ -26,6 +26,10 @@ pub struct AutoSupport {
     /// True when a contained call sees the host's mounts (phase D). Until then `df`
     /// and `findmnt` show the sandbox's mounts, so they are an `outside` exit.
     pub mount_view: bool,
+    /// True when the machine runs `NetView` calls (phase D1): a line of the network
+    /// view rule then runs routine with `Grant::NetView`. Until then it is a
+    /// `host_view` exit.
+    pub netview: bool,
 }
 
 /// How a contained call reaches the network.

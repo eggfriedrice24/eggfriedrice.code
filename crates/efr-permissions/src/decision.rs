@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::{ExitKind, Origin};
+use efr_protocol::{ExitKind, Grant, Origin};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -89,6 +89,15 @@ impl Decision {
             _ => None,
         })
     }
+
+    /// The grants of the views of the call, in the order the engine found them: what
+    /// the launch gets with no exit and no question, such as `Grant::NetView`.
+    pub fn view_grants(&self) -> impl Iterator<Item = &Grant> {
+        self.reasons.iter().filter_map(|reason| match &reason.subject {
+            Subject::View { grant } => Some(grant),
+            _ => None,
+        })
+    }
 }
 
 /// Why one requirement got its effect.
@@ -156,6 +165,13 @@ pub enum Subject {
         part: String,
         /// The kind of its exit.
         kind: ExitKind,
+    },
+    /// A read-only view of the host that the call gets with no exit and no question,
+    /// such as `Grant::NetView` (phase D1). It never raises the effect: its reason is
+    /// `Contain`, and it is never an exit.
+    View {
+        /// The grant of the view.
+        grant: Grant,
     },
     /// The call declared no requirement.
     Nothing,
@@ -432,6 +448,8 @@ impl fmt::Display for Subject {
             Subject::NestedShell => f.write_str("a nested shell"),
             Subject::Job => f.write_str("start a background job"),
             Subject::JobPart { part, kind } => write!(f, "run {part:?} as a job ({kind})"),
+            Subject::View { grant: Grant::NetView } => f.write_str("the host's network view"),
+            Subject::View { .. } => f.write_str("a view of the host"),
             Subject::Nothing => f.write_str("no requirements"),
         }
     }

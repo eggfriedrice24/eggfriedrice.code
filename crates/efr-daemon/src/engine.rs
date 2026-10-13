@@ -242,13 +242,20 @@ pub(crate) fn build(
     // efrd's own mount check (`Probed`). efrd keeps the home store while snapshots are
     // on (`home.rs`), and a covered destructive part runs with no review only while
     // undo is on too and `sandbox.ask_destructive` lets it (plan PB17). With snapshots
-    // off, a named floor file edit goes back to the user: stricter, never looser.
+    // off, a named floor file edit goes back to the user: stricter, never looser. The
+    // network view needs both the user's `network.netview` and a probe whose self-test
+    // gave every refusal.
     let floor_backup = settings.snapshot.enabled;
     let undo = floor_backup
         && settings.undo.enabled
         && settings.sandbox.ask_destructive == AskDestructive::UnlessUndoable;
-    let support =
-        AutoSupport { floor_backup, undo, mount_view: probed.mount_view, ..AutoSupport::default() };
+    let support = AutoSupport {
+        floor_backup,
+        undo,
+        mount_view: probed.mount_view,
+        netview: settings.network.netview && probed.netview,
+        ..AutoSupport::default()
+    };
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
 }
 

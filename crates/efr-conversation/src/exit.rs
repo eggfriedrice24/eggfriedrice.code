@@ -124,9 +124,21 @@ const FETCH_WORDS: &[&str] = &[
 /// serves) runs the whole line in the exit child. Every other exit adds its grants for
 /// this one call; a `desktop_ipc` grant names the desktop, and the daemon finds its one
 /// control socket for the terminal of the prompt.
+///
+/// The grants of the views of the line (`Decision::view_grants`) come after the grants
+/// of the exits, by the union rule of [`view_fits`]: a view that does not fit the
+/// other grants drops, and that part of the line then sees the sandbox's view.
 pub(crate) fn grant(decision: &Decision) -> Launch {
+    launch(decision.exits(), decision.view_grants())
+}
+
+/// The launch of [`grant`] for the exits `exits` and the view grants `views`.
+fn launch<'a>(
+    exits: impl Iterator<Item = &'a ExitNeed>,
+    views: impl Iterator<Item = &'a Grant>,
+) -> Launch {
     let mut grants: Vec<Grant> = Vec::new();
-    for need in decision.exits() {
+    for need in exits {
         // NOTE: a floor is refused before any question, so a decision that may run has
         // none; a floor still never opens anything here.
         if need.kind.is_floor() {
@@ -141,7 +153,28 @@ pub(crate) fn grant(decision: &Decision) -> Launch {
             }
         }
     }
+    let views: Vec<Grant> = views.filter(|view| view_fits(view, &grants)).cloned().collect();
+    for view in views {
+        if !grants.contains(&view) {
+            grants.push(view);
+        }
+    }
     Launch::Contained { grants }
+}
+
+/// True when the view `view` may join a launch with the exit grants `grants`, as an
+/// allow list. `NetView` stays only beside `Write` and `Unmask` grants, which do not
+/// depend on the network namespace. With any other grant it drops: the NetView seccomp
+/// profile would fail the `socket()` of a network grant, and a device such as
+/// `/dev/net/tun` could send frames from the host's namespace with no `socket()` call.
+/// A view that this build does not know never joins.
+fn view_fits(view: &Grant, grants: &[Grant]) -> bool {
+    match view {
+        Grant::NetView => {
+            grants.iter().all(|grant| matches!(grant, Grant::Write { .. } | Grant::Unmask { .. }))
+        }
+        _ => false,
+    }
 }
 
 /// The kinds of the exits of `decision`, each once, in the order the engine found them.
@@ -594,6 +627,7 @@ fn grant_words(grant: &Grant, home: &Path) -> Option<String> {
         Grant::Desktop { desktop } => format!("the {} socket", desktop.name()),
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
+        Grant::NetView => "the host's network view".to_owned(),
         _ => return None,
     })
 }

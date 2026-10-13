@@ -3,8 +3,8 @@ mod review;
 use std::path::{Path, PathBuf};
 
 use efr_permissions::{
-    Approver, CallFacts, ConversationPolicy, Decision, DecisionInput, Engine, Locations,
-    Requirements, TargetKind,
+    Approver, AutoSupport, CallFacts, ConversationPolicy, Decision, DecisionInput, Egress, Engine,
+    Locations, Requirements, TargetKind,
 };
 use efr_protocol::{
     BusKind, DesktopKind, Event, EventEnvelope, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant,
@@ -138,6 +138,125 @@ fn grant_keeps_desktop_grant_in_contained_launch() {
     };
     assert_eq!(grants, [hyprland, Grant::Desktop { desktop: DesktopKind::Wayland }]);
     assert_eq!(launch_of("ydotool type x"), Launch::Contained { grants: vec![] });
+}
+
+/// The launch of `decision` when the engine also gave the line the network view.
+fn with_net_view(decision: &Decision) -> Launch {
+    super::launch(decision.exits(), [Grant::NetView].iter())
+}
+
+/// The decision of a routine `make` with the exits that `needs` declares.
+fn needs_decision(engine: &Engine, needs: Needs) -> Decision {
+    decide(engine, shell("make").with_needs(needs))
+}
+
+#[test]
+fn grant_unions_view_and_exit_grants() {
+    // NOTE: the engine of this phase gives no view reason (the line rule comes later),
+    // so the views come in beside the exits of a line that the engine decided.
+    assert_eq!(
+        with_net_view(&decide(&engine(), shell("cat /proc/net/dev"))),
+        Launch::Contained { grants: vec![Grant::NetView] },
+        "a view alone runs routine with its grant"
+    );
+    assert_eq!(
+        super::launch(std::iter::empty(), [Grant::NetView, Grant::NetView].iter()),
+        Launch::Contained { grants: vec![Grant::NetView] },
+        "each grant once"
+    );
+    assert_eq!(
+        super::launch(std::iter::empty(), [Grant::Unknown].iter()),
+        Launch::contained(),
+        "a view that this build does not know never joins"
+    );
+    let decision = decide(&engine(), shell("cat /proc/net/dev"));
+    assert_eq!(decision.view_grants().count(), 0);
+    assert_eq!(grant(&decision), Launch::contained(), "no view reason, no view grant");
+}
+
+#[test]
+fn grant_keeps_net_view_with_write_grant() {
+    let decision = decide(&engine(), shell("cat /proc/net/dev >> /home/u/notes/dev.txt"));
+    assert_eq!(kinds(&decision), [ExitKind::Write]);
+    assert_eq!(
+        with_net_view(&decision),
+        Launch::Contained {
+            grants: vec![Grant::Write { path: "/home/u/notes".into() }, Grant::NetView]
+        }
+    );
+}
+
+#[test]
+fn grant_keeps_net_view_with_unmask_grant() {
+    let decision = needs_decision(
+        &engine(),
+        Needs { unmask: vec!["~/.zsh_history".to_owned()], ..Needs::default() },
+    );
+    let unmask = Grant::Unmask { path: "/home/u/.zsh_history".into() };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![unmask.clone()] });
+    assert_eq!(
+        with_net_view(&decision),
+        Launch::Contained { grants: vec![unmask, Grant::NetView] }
+    );
+}
+
+#[test]
+fn grant_drops_net_view_with_open_network() {
+    let decision = decide(&engine(), shell("cat /proc/net/dev && curl -LO https://example.com/x"));
+    assert_eq!(kinds(&decision), [ExitKind::Host]);
+    assert_eq!(with_net_view(&decision), Launch::Contained { grants: vec![Grant::OpenNetwork] });
+}
+
+#[test]
+fn grant_drops_net_view_with_host_grant() {
+    let proxy =
+        engine().with_support(AutoSupport { egress: Egress::Proxy, ..AutoSupport::default() });
+    let decision =
+        needs_decision(&proxy, Needs { hosts: vec!["crates.io".to_owned()], ..Needs::default() });
+    let host = Grant::Host { host: "crates.io".to_owned(), port: 443 };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![host.clone()] });
+    assert_eq!(with_net_view(&decision), Launch::Contained { grants: vec![host] });
+}
+
+#[test]
+fn grant_drops_net_view_with_device_grant() {
+    let decision = decide(&engine(), shell("nvme smart-log /dev/nvme0n1"));
+    let device = Grant::Device { path: "/dev/nvme0n1".into() };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![device.clone()] });
+    assert_eq!(
+        with_net_view(&decision),
+        Launch::Contained { grants: vec![device] },
+        "a device such as /dev/net/tun could send from the host's namespace"
+    );
+}
+
+#[test]
+fn grant_drops_net_view_with_socket_grant() {
+    let needs = Needs { sockets: vec!["/run/user/1000/app.sock".to_owned()], ..Needs::default() };
+    let decision = needs_decision(&engine(), needs);
+    let socket = Grant::Socket { path: "/run/user/1000/app.sock".into() };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![socket.clone()] });
+    assert_eq!(with_net_view(&decision), Launch::Contained { grants: vec![socket] });
+}
+
+#[test]
+fn grant_drops_net_view_with_bus_grant() {
+    let decision =
+        needs_decision(&engine(), Needs { bus: Some(BusKind::System), ..Needs::default() });
+    let bus = Grant::Bus { bus: BusKind::System };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![bus.clone()] });
+    assert_eq!(with_net_view(&decision), Launch::Contained { grants: vec![bus] });
+    let desktop = decide(&engine(), shell("hyprctl monitors"));
+    let hyprland = Grant::Desktop { desktop: DesktopKind::Hyprland };
+    assert_eq!(with_net_view(&desktop), Launch::Contained { grants: vec![hyprland] });
+}
+
+#[test]
+fn grant_unsandboxed_wins_over_net_view() {
+    for line in ["sudo ss -tlnp", "cat /proc/net/dev; git push"] {
+        let decision = decide(&engine(), shell(line));
+        assert_eq!(with_net_view(&decision), Launch::Unsandboxed, "{line}");
+    }
 }
 
 /// The record of a call whose line is `line`, with no facts and no messages.

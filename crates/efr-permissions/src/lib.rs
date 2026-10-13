@@ -19,6 +19,8 @@
 //! - The `auto` mode: a shell call runs contained in a kernel sandbox, and
 //!   [`exits::predict`] finds what leaves it, each an [`ExitNeed`] that asks, with the
 //!   [`AutoSupport`] of the machine and the [`CallFacts`] that the daemon collected.
+//!   A view of the host that needs no exit, such as the network view, is a reason with
+//!   [`Subject::View`]; [`Decision::view_grants`] gives its grants to the launch.
 //!   Each exit has an [`Approver`] and the words that name it; [`exits::names_match`]
 //!   decides whether a user message names it.
 //!   [`exits::unsandboxed_line_problem`] is the one-command rule of an exit that runs

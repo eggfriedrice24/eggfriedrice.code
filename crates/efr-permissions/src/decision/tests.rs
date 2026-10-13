@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use efr_protocol::Origin;
+use efr_protocol::{Grant, Origin};
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
@@ -112,4 +112,44 @@ fn a_decision_without_reasons_fails_closed() {
 )]
 fn reasons_read_as_one_line(#[case] reason: Reason, #[case] expected: &str) {
     assert_eq!(reason.to_string(), expected);
+}
+
+#[test]
+fn view_grants_lists_view_reasons() {
+    let view = reason(Subject::View { grant: Grant::NetView }, Effect::Contain, Cause::Contained);
+    let command = reason(
+        Subject::Command { line: "ss -tln".to_owned(), deciding: Vec::new() },
+        Effect::Contain,
+        Cause::Contained,
+    );
+    let decision = Decision::from_reasons(vec![command, view]);
+    assert_eq!(decision.view_grants().collect::<Vec<_>>(), [&Grant::NetView]);
+    assert_eq!(decision.exits().count(), 0, "a view is never an exit");
+    assert_eq!(
+        Decision::from_reasons(vec![reason(Subject::Network, Effect::Contain, Cause::Contained)])
+            .view_grants()
+            .count(),
+        0
+    );
+    assert_eq!(
+        reason(Subject::View { grant: Grant::NetView }, Effect::Contain, Cause::Contained)
+            .for_model()
+            .to_string(),
+        "the host's network view: contain, because the auto sandbox holds it"
+    );
+}
+
+#[test]
+fn view_reason_does_not_raise_effect() {
+    let view = reason(Subject::View { grant: Grant::NetView }, Effect::Contain, Cause::Contained);
+    let routine = reason(
+        Subject::Command { line: "ss -tln".to_owned(), deciding: Vec::new() },
+        Effect::Contain,
+        Cause::Contained,
+    );
+    let asks = reason(Subject::Interactive, Effect::Ask, Cause::Interactive);
+    assert_eq!(Decision::from_reasons(vec![routine, view.clone()]).effect(), Effect::Contain);
+    let decision = Decision::from_reasons(vec![asks.clone(), view]);
+    assert_eq!(decision.effect(), Effect::Ask);
+    assert_eq!(decision.deciding().cloned().collect::<Vec<_>>(), [asks]);
 }
