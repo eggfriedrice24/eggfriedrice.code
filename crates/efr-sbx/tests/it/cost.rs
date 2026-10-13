@@ -162,3 +162,16 @@ fn launch_cost_with_every_cache_overlay() {
         assert!(tmp_failures.is_empty(), "the tmp cache mode failed to start: {tmp_failures:?}");
     }
 }
+
+/// The cost of a call with the network view: no network namespace of its own, the
+/// network view's seccomp profile and Landlock's TCP rights. A report of 100 calls,
+/// not a gate.
+#[test]
+fn launch_cost_netview() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    fixture.net_view();
+    let (costs, failures) = launches(&fixture, 100);
+    assert!(failures.is_empty(), "{failures:?}");
+    report("launch cost netview", costs);
+}
