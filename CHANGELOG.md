@@ -176,7 +176,8 @@ into the GitHub release notes, and it stops when the section is missing.
   goes, for example the private `/tmp`. Mounts below a hidden path show no sizes.
   When efrd runs in a mount namespace of its own, for example because a unit drop-in
   sets `ProtectHome`, `df` and `findmnt` go to the reviewer and run outside the
-  sandbox instead.
+  sandbox instead. A path or a wrapper, such as `/bin/df`, `command df` or
+  `timeout 10 df`, also goes to the reviewer, because it runs the real `df`.
 - In `auto`, `ss`, `ip addr`, `ip -s link`, `ip route`, `nstat` and reads of
   `/proc/net` now run with no review and show your machine's real network: its
   sockets, links, counters and routes. The command runs in the sandbox with your
