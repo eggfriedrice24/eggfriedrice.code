@@ -567,11 +567,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
 /// the view beside any grant other than `write` and `unmask`, and the NetView call's
 /// seccomp profile and Landlock rights hold whatever code it runs.
 pub fn views(input: &ExitInput<'_>) -> Vec<Grant> {
-    if view::net_view(&scan::scan(input.line), input.support) {
-        vec![Grant::NetView]
-    } else {
-        Vec::new()
-    }
+    view::grants(&scan::scan(input.line), input.support)
 }
 
 /// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of
