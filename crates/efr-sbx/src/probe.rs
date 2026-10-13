@@ -12,8 +12,12 @@
 //! When an overlay of the `overlay` mode cannot mount, it tries the `tmp` cache mode
 //! and says so in a warning. Every check of the self-test
 //! must pass and print its line: a check that did not run (its fixture could not be
-//! made) fails the probe with the reason. It prints a `ProbeReport`; efrd turns it into
-//! the `SandboxStatus`.
+//! made) fails the probe with the reason. When all passed, a second launch with
+//! `Grant::NetView` runs `efr-sbx self-test --net-view`: every check there must give
+//! its exact errno, also the Landlock scope's EPERM for the fixture's live abstract
+//! names. Its result is `ProbeReport::netview`; a failure there adds a warning and
+//! never fails the probe. It prints a `ProbeReport`; efrd turns it into the
+//! `SandboxStatus`.
 
 mod fixture;
 
@@ -24,8 +28,8 @@ use std::process::{ExitCode, Stdio};
 
 use efr_protocol::{CacheMode, CheckOutcome, SandboxCheck};
 use efr_sandbox::{
-    BwrapFacts, EnvFilter, MountPlan, ProbeFailure, ProbeReport, check_bwrap, check_landlock,
-    is_within, parse_bwrap_version,
+    BwrapFacts, EnvFilter, MountPlan, ProbeFailure, ProbeReport, SandboxSpec, check_bwrap,
+    check_landlock, is_within, parse_bwrap_version,
 };
 use rustix::fs::Access;
 
@@ -33,7 +37,7 @@ use crate::error::SbxError;
 use crate::launch::{self, Ending, Launch};
 use crate::os;
 use crate::real_fs::RealFs;
-use crate::self_test::{CHECKS, CheckLine};
+use crate::self_test::{CHECKS, CheckLine, NET_VIEW_CHECKS};
 
 /// The arguments of `efr-sbx probe`.
 #[derive(Debug, Clone, clap::Args)]
@@ -332,6 +336,18 @@ fn self_test(checks: &mut Checks, args: &ProbeArgs, programs: &fixture::Programs
                 checks.pass("user_namespaces", "user namespaces: the probe sandbox starts");
                 checks.pass("self_test", format!("self-test: {} checks passed", lines.len()));
                 checks.report.launch_us = launch_cost(&fixture, mode);
+                // A failure here is a warning: auto still runs, and network view lines
+                // go to the reviewer.
+                match net_view_self_test(&fixture, mode) {
+                    Ok(()) => checks.report.netview = Some(true),
+                    Err(detail) => {
+                        checks.report.warnings.push(format!(
+                            "the network view's self-test failed, so ss and ip need a review: \
+                             {detail}"
+                        ));
+                        checks.report.netview = Some(false);
+                    }
+                }
             }
         }
         Err(Some(reason)) => checks.fail(setup_failure(&reason)),
@@ -387,14 +403,42 @@ fn run_self_test(
     fixture: &fixture::Fixture,
     mode: CacheMode,
 ) -> Result<Vec<CheckLine>, Option<String>> {
-    let spec = fixture.spec(mode);
-    let plan = MountPlan::build(&spec, &RealFs).map_err(|error| Some(error.to_string()))?;
-    let (env, _) = EnvFilter::new(&spec, &plan).apply(&launch::own_env());
+    launch_self_test(fixture, &fixture.spec(mode), fixture.self_test_args(mode))
+}
+
+/// The second launch: the network view's self-test, with `Grant::NetView`. Every check
+/// of [`NET_VIEW_CHECKS`] must print its line and pass; the error names the first that
+/// did not.
+fn net_view_self_test(fixture: &fixture::Fixture, mode: CacheMode) -> Result<(), String> {
+    let spec = fixture.net_view_spec(mode);
+    let lines = match launch_self_test(fixture, &spec, fixture.net_view_args()) {
+        Ok(lines) => lines,
+        Err(Some(reason)) => return Err(reason),
+        Err(None) => return Err("the self-test printed nothing".to_owned()),
+    };
+    if let Some(bad) = lines.iter().find(|line| !line.ok) {
+        return Err(format!("{}: {}", bad.name, bad.detail));
+    }
+    match NET_VIEW_CHECKS.iter().find(|name| !lines.iter().any(|line| line.name == **name)) {
+        Some(missing) => Err(format!("{missing}: it printed no line")),
+        None => Ok(()),
+    }
+}
+
+/// One launch of `efr-sbx self-test` with `args` in the call of `spec`: its lines, or
+/// the setup failure's reason (`None` when it printed nothing).
+fn launch_self_test(
+    fixture: &fixture::Fixture,
+    spec: &SandboxSpec,
+    args: Vec<std::ffi::OsString>,
+) -> Result<Vec<CheckLine>, Option<String>> {
+    let plan = MountPlan::build(spec, &RealFs).map_err(|error| Some(error.to_string()))?;
+    let (env, _) = EnvFilter::new(spec, &plan).apply(&launch::own_env());
     let (read, write) = rustix::pipe::pipe().map_err(|error| Some(error.to_string()))?;
     let mut argv = vec![plan.inside_launcher().as_os_str().to_owned(), "self-test".into()];
-    argv.extend(fixture.self_test_args(mode));
+    argv.extend(args);
     let launch = Launch {
-        spec: &spec,
+        spec,
         plan: &plan,
         cwd: &fixture.project,
         argv,

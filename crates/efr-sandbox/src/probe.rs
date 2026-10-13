@@ -357,10 +357,15 @@ pub struct ProbeReport {
     pub snapshot_launch_us: Option<u64>,
     /// Warnings, one sentence each.
     pub warnings: Vec<String>,
+    /// The network view's self-test, a second launch with `Grant::NetView`:
+    /// `Some(true)` when every check gave its expected errno, `Some(false)` when one
+    /// did not (a warning says which), `None` when it did not run.
+    pub netview: Option<bool>,
 }
 
 impl ProbeReport {
-    /// The status that efrd keeps and reports.
+    /// The status that efrd keeps and reports: `netview` is true only when the
+    /// network view's self-test passed.
     pub fn status(&self) -> SandboxStatus {
         let failure = self.failure.as_ref();
         SandboxStatus {
@@ -374,7 +379,7 @@ impl ProbeReport {
             cache_mode: self.cache_mode,
             network_mode: NetworkMode::None,
             warnings: self.warnings.clone(),
-            netview: false,
+            netview: failure.is_none() && self.netview == Some(true),
         }
     }
 
