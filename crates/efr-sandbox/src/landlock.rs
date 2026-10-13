@@ -162,6 +162,11 @@ pub struct LandlockPolicy {
     pub devices: Vec<PathBuf>,
     /// The scopes.
     pub scopes: Vec<LandlockScope>,
+    /// True for a `Grant::NetView` call: Landlock also handles the TCP bind and
+    /// connect rights with no rule, a second layer behind seccomp's socket families.
+    /// Every other call keeps TCP, so loopback servers in a call work.
+    #[serde(default)]
+    pub deny_tcp: bool,
 }
 
 impl LandlockPolicy {
@@ -201,6 +206,7 @@ impl MountPlan {
             resolve_unix: self.resolve_unix.clone(),
             devices,
             scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
+            deny_tcp: self.net_view,
         }
     }
 }

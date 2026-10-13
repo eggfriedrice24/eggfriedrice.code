@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::Grant;
 use pretty_assertions::assert_eq;
 
-use crate::landlock::{FsAccess, LandlockScope};
+use crate::landlock::{FsAccess, LandlockPolicy, LandlockScope};
 use crate::plan::MountPlan;
 use crate::testing::{PROJECT, spec, world};
 
@@ -21,6 +21,26 @@ fn landlock_policy_has_no_resolve_unix_in_phase1() {
     assert!(!FsAccess::WRITE_DIR.contains(&FsAccess::MakeBlock));
     assert_eq!(policy.scopes, [LandlockScope::AbstractUnixSocket, LandlockScope::Signal]);
     assert_eq!(policy.min_abi, 9);
+}
+
+#[test]
+fn netview_policy_has_deny_tcp() {
+    let contained = MountPlan::build(&spec(), &world()).unwrap().landlock();
+    assert!(!contained.deny_tcp, "phase 1 keeps TCP for loopback servers");
+    let mut viewed = spec();
+    viewed.grants.push(Grant::NetView);
+    let policy = MountPlan::build(&viewed, &world()).unwrap().landlock();
+    assert!(policy.deny_tcp);
+    // The rest of the rule set is the one of the call without the view.
+    assert_eq!(LandlockPolicy { deny_tcp: false, ..policy.clone() }, contained);
+    assert_eq!(policy.scopes, [LandlockScope::AbstractUnixSocket, LandlockScope::Signal]);
+    // An open network keeps TCP: the network view's layers do not apply there.
+    viewed.grants.push(Grant::OpenNetwork);
+    assert!(!MountPlan::build(&viewed, &world()).unwrap().landlock().deny_tcp);
+    // A policy of an older launcher, with no such field, reads as false.
+    let mut json = serde_json::to_value(&contained).unwrap();
+    json.as_object_mut().unwrap().remove("deny_tcp");
+    assert_eq!(serde_json::from_value::<LandlockPolicy>(json).unwrap(), contained);
 }
 
 #[test]

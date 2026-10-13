@@ -5,7 +5,8 @@
 //! kernel without one of them fails the call, a right is never dropped. The erratum
 //! for disconnected directories must be fixed, because the design binds many
 //! directories. A path rule whose path does not exist inside the sandbox is left out,
-//! which only takes rights away.
+//! which only takes rights away. A network view call (`deny_tcp`) also handles the TCP
+//! bind and connect rights, with no rule that grants them.
 
 use std::io;
 use std::os::fd::BorrowedFd;
@@ -13,8 +14,8 @@ use std::path::Path;
 
 use efr_sandbox::{FsAccess, LandlockPolicy, LandlockScope};
 use landlock::{
-    ABI, Access, AccessFs, BitFlags, CompatLevel, Compatible, Erratum, PathBeneath, PathFd,
-    Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope,
+    ABI, Access, AccessFs, AccessNet, BitFlags, CompatLevel, Compatible, Erratum, PathBeneath,
+    PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus, Scope,
 };
 
 use crate::error::SbxError;
@@ -97,11 +98,16 @@ pub(crate) fn restrict(
     let mut ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(handled)
-        .map_err(landlock_error)?
-        .scope(scope)
-        .map_err(landlock_error)?
-        .create()
         .map_err(landlock_error)?;
+    if policy.deny_tcp {
+        // No rule ever grants these, so a TCP bind or connect fails with EACCES even if
+        // a socket got past seccomp.
+        ruleset = ruleset
+            .handle_access(AccessNet::BindTcp | AccessNet::ConnectTcp)
+            .map_err(landlock_error)?;
+    }
+    let mut ruleset =
+        ruleset.scope(scope).map_err(landlock_error)?.create().map_err(landlock_error)?;
     for rule in policy.rules() {
         let Some(rights) = access(&rule.access) else { return Err(too_old()) };
         let Some(fd) = open_rule_path(&rule.path)? else { continue };
