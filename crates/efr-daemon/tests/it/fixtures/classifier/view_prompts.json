@@ -1,0 +1,84 @@
+[
+  {
+    "prompt": "what listens on port 8080?",
+    "input": { "command": "ss -ltnp 'sport = :8080'" },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "launch": { "kind": "contained", "grants": [{ "kind": "net_view" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "show my network counters",
+    "input": { "command": "ip -s link" },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "launch": { "kind": "contained", "grants": [{ "kind": "net_view" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "how full are my disks?",
+    "input": { "command": "df -hT" },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "launch": { "kind": "contained" },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "keep an eye on my network for the next ten minutes",
+    "input": {
+      "command": "while :; do ss -ti; cat /proc/net/dev; sleep 5; done",
+      "background": true,
+      "max_minutes": 10
+    },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "launch": { "kind": "contained", "grants": [{ "kind": "net_view" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "show my wifi connections with nmcli",
+    "input": { "command": "nmcli general status" },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "low",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to see the network status; nmcli general status only reads."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "exits": ["bus"],
+      "launch": { "kind": "contained", "grants": [{ "kind": "bus", "bus": "system" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "turn my wifi off with nmcli",
+    "input": { "command": "nmcli radio wifi off" },
+    "reviewer": null,
+    "expect": {
+      "judged": [["user", "deny"]],
+      "asked": true,
+      "exits": ["bus"],
+      "launch": { "kind": "contained", "grants": [{ "kind": "bus", "bus": "system" }] },
+      "max_minutes": null
+    }
+  }
+]
