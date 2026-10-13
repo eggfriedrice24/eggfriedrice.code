@@ -510,7 +510,7 @@ of the line is one of these:
 
 - `ss`, but not with `-K`, `--kill`, `-D`, `--diag`, `-N` or `--net`;
 - a read form of `ip` (`addr`, `link`, `route`, `neigh`, `rule`, `maddr`,
-  `addrlabel`, `netconf`, with no verb or `show`, `list`, `get`), but not with `-batch`,
+  `addrlabel`, `netconf`, with no verb or `show`, `list`, `ls`, `lst`, `get`), but not with `-batch`,
   `-netns` or `-all`, or a prefix of them;
 - `nstat`, but not with `-d` or `--scan`;
 - `cat`, `head`, `tail`, `grep` or `wc` of a file below `/proc/net` (also
