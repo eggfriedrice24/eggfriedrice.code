@@ -37,6 +37,14 @@
 //! (phase D1), so a job that only reads the host's network starts with
 //! `Grant::NetView` and no review.
 //!
+//! The view eval of phase D1 (16.6) replays `fixtures/classifier/view_prompts.json`, in
+//! the shape of the job eval, with the kinds of exit of each line: `ss`, `ip -s link`
+//! and a network watch job run with `Grant::NetView` and no review, `df -hT` runs with
+//! the mount view and no review, a read form of `nmcli` is a `bus` exit for the
+//! reviewer, and a change with `nmcli` is a `bus` exit that only the user may allow.
+//! Its probe passed the network view self-test, and efrd shares the mount namespace of
+//! the test, so the mount view is on.
+//!
 //! No live model runs. The reviewer's answers are those that a model must give for the
 //! verdicts of the spec. No line of the phase A and B evals runs either: the fake shell
 //! answers each typed line with status 0 at once, so the launcher never starts and an
@@ -51,8 +59,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, ApprovalDecision, ApprovalRespond,
-    ApprovalRespondResult, CacheMode, Event, EventEnvelope, ExitRecord, JudgeKind, Launch, Method,
-    Mode, NetworkMode, PromptSendResult, SandboxStatus, TurnSettings, Verdict,
+    ApprovalRespondResult, CacheMode, Event, EventEnvelope, ExitKind, ExitRecord, JudgeKind,
+    Launch, Method, Mode, NetworkMode, PromptSendResult, SandboxStatus, TurnSettings, Verdict,
 };
 use efr_provider::{
     ContentBlock, Message, Provider, ProviderError, ProviderEvent, ProviderId, ProviderStream,
@@ -778,6 +786,10 @@ struct JobExpect {
     refused: Option<String>,
     /// The time limit in the reviewer's record; `null` when no record exists.
     max_minutes: Option<u32>,
+    /// The view eval only: the kinds of exit of the line's record, empty for a line
+    /// that runs with no exit.
+    #[serde(default)]
+    exits: Option<Vec<ExitKind>>,
 }
 
 impl JobCase {
@@ -963,4 +975,85 @@ async fn job_prompts_decide_as_expected() {
     daemon.stop().await.unwrap();
     assert_eq!(problems, Vec::<String>::new());
     assert_eq!(seen, want);
+}
+
+/// How the call of `events` runs, as the fixtures write it, with `~` for the home dir
+/// `home`: the launch of its job, else the launch of its `tool_call_started`, which
+/// comes before any question and so says what a yes gives; `None` when the call never
+/// started.
+fn call_launch(events: &[EventEnvelope], home: &Path) -> Option<Value> {
+    let job = events.iter().find_map(|envelope| match &envelope.event {
+        Event::JobStarted { job, .. } => Some(job.launch.clone()),
+        _ => None,
+    });
+    let started = || {
+        events.iter().find_map(|envelope| match &envelope.event {
+            Event::ToolCallStarted { launch, .. } => launch.clone(),
+            _ => None,
+        })
+    };
+    let launch = serde_json::to_string(&job.or_else(started)?).unwrap();
+    serde_json::from_str(&launch.replace(&home.display().to_string(), "~")).unwrap()
+}
+
+/// What a view prompt showed: the prompt, the judgements, whether it asked, the kinds of
+/// exit of its record and the launch.
+type ViewSeen<'a> = (&'a str, Vec<(JudgeKind, Verdict)>, bool, Vec<ExitKind>, Option<Value>);
+
+#[tokio::test]
+async fn view_prompts_decide_as_expected() {
+    let path = Path::new(FIXTURES).join("view_prompts.json");
+    let cases: Vec<JobCase> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(cases.len(), 6, "the eval has the six view prompts of 16.6");
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let env = BTreeMap::from([
+        ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
+        ("HOME".to_owned(), dirs.home().display().to_string()),
+    ]);
+    let model = Arc::new(JobEvalModel {
+        id: ProviderId::new("test").unwrap(),
+        cases: cases.clone(),
+        reviews: Mutex::new(Vec::new()),
+    });
+    let holder = FakePtyHolder::new();
+    tokio::spawn(play_shells(Arc::clone(&holder)));
+    let daemon = TestDaemon::builder()
+        .dirs(Arc::clone(&dirs))
+        .fake_pty(holder)
+        .sandbox_launcher(fake.path())
+        .probe_override(SandboxStatus { netview: true, ..ready() })
+        .job_env(env)
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+    add_project(&daemon, &project).await;
+
+    let mut seen: Vec<ViewSeen<'_>> = Vec::new();
+    let mut want: Vec<ViewSeen<'_>> = Vec::new();
+    for (n, case) in cases.iter().enumerate() {
+        let events = run_prompt(&daemon, n as u128 + 1, &case.prompt).await;
+        let asked =
+            events.iter().any(|envelope| matches!(envelope.event, Event::ApprovalRequested { .. }));
+        let exits: Vec<ExitKind> =
+            records(&events).iter().flat_map(|record| record.action.exits.clone()).collect();
+        let launch = call_launch(&events, dirs.home());
+        seen.push((&case.prompt, judgements(&events), asked, exits, launch));
+        let expect = &case.expect;
+        let exits = expect.exits.clone().unwrap_or_else(|| panic!("{}: no exits", case.prompt));
+        want.push((
+            &case.prompt,
+            expect.judged.clone(),
+            expect.asked,
+            exits,
+            expect.launch.clone(),
+        ));
+    }
+    // NOTE: the daemon stops first, so a failed check leaves no job of the eval running.
+    daemon.stop().await.unwrap();
+    assert_eq!(seen, want);
+    let reviewed = cases.iter().filter(|case| case.reviewer.is_some()).count();
+    assert_eq!(model.reviews.lock().unwrap().len(), reviewed, "one review per reviewed line");
 }
