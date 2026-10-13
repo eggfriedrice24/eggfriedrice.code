@@ -14,13 +14,17 @@ use efr_protocol::{
     ProjectId, Scope, TurnId,
 };
 use efr_sandbox::{
-    DesktopSocket, ProbeFailure, ProbeReport, SandboxSpec, SpecLaunch, parse_nonce_hex,
+    DesktopSocket, JobPlan, Mask, MaskKind, MountSnapshot, ProbeFailure, ProbeReport, SandboxSpec,
+    SpecLaunch, parse_mountinfo, parse_nonce_hex,
 };
 use efr_scope::{Git, Home};
 use efr_stdx::paths::Dirs;
 use efr_test_support::{TestClock, TestRng, TestStore};
 
-use super::{HostFacts, NOT_PROBED, PrepareInput, SandboxService, Seams, ServiceParts};
+use super::{
+    HostFacts, JobInput, MOUNT_VIEW_FAILED, NOT_PROBED, PrepareInput, SandboxService, Seams,
+    ServiceParts,
+};
 
 struct Fixture {
     _dir: tempfile::TempDir,
@@ -152,11 +156,16 @@ async fn a_changed_launcher_is_refused_until_a_restart_copies_it() {
 }
 
 fn call(fixture: &Fixture, launch: Launch, exits: Vec<ExitNeed>) -> CallContext {
+    call_n(fixture, 3, launch, exits)
+}
+
+/// The call `n` of the conversation.
+fn call_n(fixture: &Fixture, n: u128, launch: Launch, exits: Vec<ExitNeed>) -> CallContext {
     let id = |n: u128| uuid::Uuid::from_u128(n);
     CallContext::new(
         ConversationId::from_uuid(id(1)),
         TurnId::from_uuid(id(2)),
-        CallId::from_uuid(id(3)),
+        CallId::from_uuid(id(n)),
         fixture.home.join("p/app"),
         fixture.dirs.data().join("scratch/x"),
     )
@@ -175,7 +184,12 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
         .with_project(ProjectId::from_uuid(uuid::Uuid::from_u128(9)), fixture.home.join("p/app"))
         .unwrap();
     let engine = Engine::with_defaults(locations);
-    let input = PrepareInput { settings: &settings, engine: &engine, named_paths: Vec::new() };
+    let input = PrepareInput {
+        settings: &settings,
+        engine: &engine,
+        named_paths: Vec::new(),
+        mount_view: false,
+    };
 
     let before = service.prepare(&call(&fixture, Launch::contained(), Vec::new()), &input).await;
     assert!(matches!(before, Err(crate::DaemonError::SandboxUnavailable { .. })), "{before:?}");
@@ -230,7 +244,12 @@ async fn a_desktop_grant_binds_the_socket_of_the_prompts_terminal() {
     let settings = Settings::default();
     service.probe(&settings).await;
     let engine = Engine::with_defaults(Locations::new(&fixture.home).unwrap());
-    let input = PrepareInput { settings: &settings, engine: &engine, named_paths: Vec::new() };
+    let input = PrepareInput {
+        settings: &settings,
+        engine: &engine,
+        named_paths: Vec::new(),
+        mount_view: false,
+    };
     let instance = fixture.root.join("xrt/hypr/abc_1760000000_1");
     std::fs::create_dir_all(&instance).unwrap();
     let _listener = std::os::unix::net::UnixListener::bind(instance.join(".socket.sock")).unwrap();
@@ -262,5 +281,154 @@ async fn a_desktop_grant_binds_the_socket_of_the_prompts_terminal() {
             path: instance.join(".socket.sock"),
             value: "abc_1760000000_1".to_owned(),
         }]
+    );
+}
+
+/// The engine of the fixture's project.
+fn project_engine(fixture: &Fixture) -> Engine {
+    let locations = Locations::new(&fixture.home)
+        .unwrap()
+        .with_project(ProjectId::from_uuid(uuid::Uuid::from_u128(9)), fixture.home.join("p/app"))
+        .unwrap();
+    Engine::with_defaults(locations)
+}
+
+/// The times that the fake launcher ran as the `statvfs` helper.
+fn statvfs_runs(fixture: &Fixture) -> usize {
+    let runs = std::fs::read_to_string(&fixture.probes).unwrap_or_default();
+    runs.lines().filter(|line| *line == "statvfs").count()
+}
+
+/// Checks the two files of the mount view in `dir`: private, the table of efrd's
+/// mount namespace, and the sizes.
+fn assert_mount_files(dir: &Path) {
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir.join("mounts")), 0o600);
+    assert_eq!(mode(&dir.join("mounts.json")), 0o600);
+    let table = parse_mountinfo(&std::fs::read(dir.join("mounts")).unwrap());
+    assert!(table.iter().any(|entry| entry.target == Path::new("/")), "{table:?}");
+    MountSnapshot::from_json(&std::fs::read(dir.join("mounts.json")).unwrap()).unwrap();
+}
+
+#[tokio::test]
+async fn mount_view_only_for_mount_lines() {
+    let fixture = Fixture::new().await;
+    let service = fixture.service().await;
+    assert!(service.mount_view(), "the test runs in the mount namespace of its parent");
+    let settings = Settings::default();
+    service.probe(&settings).await;
+    let engine = project_engine(&fixture);
+    let input = |mount_view| PrepareInput {
+        settings: &settings,
+        engine: &engine,
+        named_paths: Vec::new(),
+        mount_view,
+    };
+
+    let (no_df, with_df) = (input(false), input(true));
+    let first = call_n(&fixture, 3, Launch::contained(), Vec::new());
+    let plain = service.prepare(&first, &no_df).await.unwrap();
+    assert!(!plain.run.dir.join("mounts").exists());
+    assert!(!plain.run.dir.join("mounts.json").exists());
+    assert_eq!(statvfs_runs(&fixture), 0, "no snapshot for a line without df");
+    // The plan lock of the project goes with the prepared call.
+    drop(plain);
+
+    let second = call_n(&fixture, 4, Launch::contained(), Vec::new());
+    let df = service.prepare(&second, &with_df).await.unwrap();
+    assert_mount_files(&df.run.dir);
+    assert_eq!(statvfs_runs(&fixture), 1);
+    assert!(!df.notes.contains(&MOUNT_VIEW_FAILED));
+    drop(df);
+
+    // The exit child runs on the host, where df is already right.
+    let outside = call_n(&fixture, 5, Launch::Unsandboxed, Vec::new());
+    let outside = service.prepare(&outside, &with_df).await.unwrap();
+    assert!(!outside.run.dir.join("mounts").exists());
+}
+
+#[tokio::test]
+async fn mount_view_job_gets_snapshot_at_start() {
+    let fixture = Fixture::new().await;
+    let service = fixture.service().await;
+    let settings = Settings::default();
+    service.probe(&settings).await;
+    let engine = project_engine(&fixture);
+    let input = PrepareInput {
+        settings: &settings,
+        engine: &engine,
+        named_paths: Vec::new(),
+        mount_view: true,
+    };
+    let job = JobInput {
+        plan: JobPlan::new(60, 19),
+        line: "while :; do df -h; sleep 60; done",
+        env: b"",
+    };
+    let call = call_n(&fixture, 6, Launch::contained(), Vec::new());
+    let prepared = service.prepare_job(&call, &input, job).await.unwrap();
+    assert!(prepared.run.dir.starts_with(service.shell_dir(call.conversation_id).join("jobs")));
+    assert_mount_files(&prepared.run.dir);
+}
+
+#[tokio::test]
+async fn mount_view_failure_adds_a_note() {
+    let fixture = Fixture::new().await;
+    let service = fixture.service().await;
+    let settings = Settings::default();
+    service.probe(&settings).await;
+    let engine = project_engine(&fixture);
+    let input = PrepareInput {
+        settings: &settings,
+        engine: &engine,
+        named_paths: Vec::new(),
+        mount_view: false,
+    };
+    let first = call(&fixture, Launch::contained(), Vec::new());
+    let prepared = service.prepare(&first, &input).await.unwrap();
+    let spec = SandboxSpec::from_json(&std::fs::read(prepared.run.dir.join("spec.json")).unwrap());
+    let spec = spec.unwrap();
+
+    let failed = tokio::spawn(async { None });
+    let mut notes = Vec::new();
+    let files = super::mount_files(failed, &spec, &mut notes).await;
+    assert!(files.is_empty(), "no file: the call's df shows the sandbox's mounts");
+    assert_eq!(notes, [MOUNT_VIEW_FAILED]);
+}
+
+#[tokio::test]
+async fn an_unmask_grant_gives_the_mounts_below_its_path_their_sizes() {
+    let fixture = Fixture::new().await;
+    let service = fixture.service().await;
+    let settings = Settings::default();
+    service.probe(&settings).await;
+    let engine = project_engine(&fixture);
+    let input = PrepareInput {
+        settings: &settings,
+        engine: &engine,
+        named_paths: Vec::new(),
+        mount_view: false,
+    };
+    let first = call(&fixture, Launch::contained(), Vec::new());
+    let prepared = service.prepare(&first, &input).await.unwrap();
+    let mut spec =
+        SandboxSpec::from_json(&std::fs::read(prepared.run.dir.join("spec.json")).unwrap())
+            .unwrap();
+    let (vault, notes) = (fixture.home.join(".vault"), fixture.home.join("notes"));
+    spec.masks.push(Mask { path: vault.clone(), kind: MaskKind::User });
+    spec.masks.push(Mask { path: notes.clone(), kind: MaskKind::User });
+    spec.grants.push(Grant::Unmask { path: notes.clone() });
+
+    let (masks, below) = super::mount_masks(&spec);
+    assert!(masks.contains(&vault));
+    assert!(!masks.contains(&notes), "the unmasked path shows its sizes");
+    assert_eq!(
+        below,
+        [
+            spec.runtime.user_runtime.clone(),
+            spec.runtime.runtime.clone(),
+            spec.runtime.data.clone(),
+            spec.runtime.state.clone()
+        ]
     );
 }

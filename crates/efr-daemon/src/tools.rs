@@ -652,10 +652,13 @@ impl DaemonToolbox {
         let context = self.context(&call.context);
         let mut named_paths: Vec<PathBuf> = Vec::new();
         let mut timeout = None;
+        let mut mount_view = false;
         if let Ok(declared) = self.registry.requirements(&call.name, &context, &call.input) {
             named_paths.extend(declared.paths.iter().map(|access| access.path.clone()));
             named_paths.extend(declared.command_dir);
             timeout = declared.timeout;
+            mount_view =
+                declared.command.as_deref().is_some_and(efr_permissions::exits::mount_view_line);
         }
         // NOTE: a covered target names its root too, such as the other project of
         // `dd of=~/p/app/db.sqlite`: the plan locks it, takes its snapshot and lets the
@@ -677,7 +680,7 @@ impl DaemonToolbox {
             let fresh = matches!(error, ShellError::NotReady { fresh: true, .. });
             return ToolOutcome::error(not_ready_message(fresh, timeout));
         }
-        let input = PrepareInput { settings: &settings, engine: &engine, named_paths };
+        let input = PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view };
         let watch = Stopwatch::start();
         let prepared = sandbox.prepare(&call.context, &input).await;
         tracing::debug!(phase = "sandbox_prepare", elapsed_ms = %watch, "phase=sandbox_prepare elapsed_ms={}", watch);

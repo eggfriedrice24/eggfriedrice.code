@@ -25,7 +25,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `sandbox_launcher` names the `efr-sbx` to copy (the real one from
   `EFR_TEST_SBX_BIN`, or a fake script) and `probe_override` sets the probe's result;
   without them the daemon finds no launcher next to its test binary, and `auto` runs as
-  `cautious`. For background jobs, `job_env` gives every job a fixed environment in
+  `cautious`. `statvfs_helper` names the program that measures the host's mounts for
+  a line with `df` or `findmnt` (`path statvfs`, the paths on stdin): a script that
+  prints fixed answers, or one that blocks until efrd kills it at its deadline. For background jobs, `job_env` gives every job a fixed environment in
   place of the `env` file of a real hidden zsh, and `TestDaemon::peer_side` says where a
   process stands on the daemon's socket (`User`, `ModelSide` or `Unknown`), as the scope
   check decides it.

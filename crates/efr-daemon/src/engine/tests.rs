@@ -388,3 +388,67 @@ async fn engine_netview_needs_setting_and_probe() {
     assert!(!netview(&off, probed).await, "network.netview = false");
     assert!(!netview(&off, Probed::default()).await);
 }
+
+#[tokio::test]
+async fn df_routine_after_mount_view() {
+    use std::sync::Arc;
+
+    use efr_permissions::CallFacts;
+    use efr_protocol::ExitKind;
+    use efr_scope::Git;
+    use efr_stdx::paths::Dirs;
+    use efr_test_support::{TestClock, TestRng, TestStore};
+
+    use crate::sandbox::{SandboxService, Seams, ServiceParts};
+
+    let (root, home) = home();
+    let dirs = Dirs::new(
+        root.path().join("c"),
+        root.path().join("d"),
+        root.path().join("s"),
+        root.path().join("r"),
+    )
+    .unwrap();
+    let clock = TestClock::new().shared();
+    let store = TestStore::open(Arc::clone(&clock)).await.unwrap();
+    let service = SandboxService::new(ServiceParts {
+        dirs,
+        home: home.clone(),
+        host: crate::sandbox::HostFacts::default(),
+        source: None,
+        seams: Seams::default(),
+        registry: root.path().join("projects.toml"),
+        writer: store.writer().clone(),
+        clock: Arc::clone(&clock),
+        rng: Arc::new(TestRng::new(5)),
+        git: Git::new(clock).isolated(),
+    })
+    .await;
+    assert!(service.mount_view(), "the test runs in the mount namespace of its parent");
+    let parts = parts(&home, home.path().join("secrets"));
+    let settings = Settings::default();
+    let engine = parts.engine(&settings, Probed::of(&service)).await.unwrap();
+    assert!(engine.support().mount_view);
+
+    let df = |engine: &Engine| {
+        let facts = CallFacts {
+            programs: vec![("df".to_owned(), Some(PathBuf::from("/usr/bin/df")), false)],
+            ..CallFacts::default()
+        };
+        let requirements = Requirements::none()
+            .with_command("df -hT")
+            .with_command_dir(home.path())
+            .with_facts(facts);
+        let input = DecisionInput {
+            requirements,
+            scope: Scope::Machine,
+            origin: Origin::Shell,
+            mode: Mode::Auto,
+            conversation_policy: ConversationPolicy::new(home.path().join("scratch")),
+        };
+        engine.decide(&input).exits().map(|need| need.kind).collect::<Vec<ExitKind>>()
+    };
+    assert_eq!(df(&engine), [], "df runs routine in the sandbox with the mount view");
+    let before = parts.engine(&settings, Probed::default()).await.unwrap();
+    assert_eq!(df(&before), [ExitKind::Outside], "without it, df runs outside");
+}
