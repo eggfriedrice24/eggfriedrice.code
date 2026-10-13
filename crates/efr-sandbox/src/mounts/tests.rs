@@ -433,3 +433,30 @@ fn the_snapshot_reads_back_and_a_statvfs_line_gives_its_sizes() {
     assert_eq!(failed.sizes(), MountSizes::Failed { errno: 107 });
     assert_eq!(serde_json::to_string(&failed).unwrap(), r#"{"path":"/x","errno":107}"#);
 }
+
+#[test]
+fn render_df_counts_the_device_of_stat_as_gnu_df_does() {
+    // Two btrfs subvolumes share the device of their mountinfo lines; stat gives each
+    // one a device of its own.
+    let table = "\
+1 0 0:34 /@ / rw - btrfs /dev/sda2 rw,subvol=/@
+2 1 0:34 /@home /home rw - btrfs /dev/sda2 rw,subvol=/@home
+";
+    let sizes =
+        BTreeMap::from([(1, measured(1000, 500, 400, 0, 0)), (2, measured(1000, 500, 400, 0, 0))]);
+    let entries = parse_mountinfo(table.as_bytes());
+    let targets = |snapshot: &MountSnapshot| -> Vec<String> {
+        let args = [OsString::from("--output=target")];
+        let text = render_df(&entries, snapshot, &args).unwrap();
+        text.lines().skip(1).map(|line| line.trim_end().to_owned()).collect()
+    };
+    let plain = MountSnapshot::new(1, sizes.clone());
+    assert_eq!(targets(&plain), ["/"], "one device: the target nearer the root");
+    let devices = BTreeMap::from([(1, (0, 35)), (2, (0, 36))]);
+    let with_stat = MountSnapshot::new(1, sizes).with_devices(devices);
+    assert_eq!(targets(&with_stat), ["/", "/home"]);
+    assert_eq!(with_stat.device(&entries[1]), (0, 36));
+    let json = String::from_utf8(with_stat.to_json().unwrap()).unwrap();
+    assert!(json.contains(r#""devices":{"1":[0,35],"2":[0,36]}"#), "{json}");
+    assert_eq!(MountSnapshot::from_json(json.as_bytes()).unwrap(), with_stat);
+}

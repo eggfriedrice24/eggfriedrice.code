@@ -570,7 +570,7 @@ fn rows(entries: &[MountEntry], snapshot: &MountSnapshot, options: &Options) -> 
     let listed: Vec<&MountEntry> = if options.all {
         entries.iter().collect()
     } else {
-        one_per_device(entries, options, &selected)
+        one_per_device(entries, snapshot, options, &selected)
     };
     let mut rows = Vec::new();
     for entry in listed {
@@ -626,6 +626,7 @@ const EACCES: i32 = 13;
 /// mounts that a later step hides still take part, as in `df`.
 fn one_per_device<'a>(
     entries: &'a [MountEntry],
+    snapshot: &MountSnapshot,
     options: &Options,
     selected: &dyn Fn(&MountEntry) -> bool,
 ) -> Vec<&'a MountEntry> {
@@ -634,7 +635,8 @@ fn one_per_device<'a>(
     for entry in entries {
         let skip =
             (options.local && is_remote(entry)) || is_dummy(&entry.fstype) || !selected(entry);
-        if !skip && let Some(&at) = seen.get(&entry.device()) {
+        let device = snapshot.device(entry);
+        if !skip && let Some(&at) = seen.get(&device) {
             let kept = list[at];
             let nearer_root = kept.target.as_os_str().len() > entry.target.as_os_str().len();
             let source_below_root = kept.root.as_os_str().len() < entry.root.as_os_str().len();
@@ -661,7 +663,7 @@ fn one_per_device<'a>(
                 None => {}
             }
         }
-        seen.insert(entry.device(), list.len());
+        seen.insert(device, list.len());
         list.push(entry);
     }
     list

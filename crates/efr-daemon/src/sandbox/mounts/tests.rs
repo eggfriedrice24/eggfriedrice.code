@@ -3,6 +3,7 @@
 //! the root and then blocks; the clock is a `TestClock`, so no test waits for the
 //! deadline in real time.
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -369,4 +370,21 @@ fn efrd_unit_keeps_host_mount_namespace() {
 fn the_unit_check_reads_a_path_that_exists() {
     let unit = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../systemd/efrd.service");
     assert!(unit.is_file(), "{unit:?}");
+}
+
+#[tokio::test]
+async fn the_snapshot_keeps_the_device_of_stat_where_it_differs() {
+    let fixture = Fixture::new();
+    let answer = |path: &str, device: &str| {
+        format!(
+            "{{\"path\":\"{path}\",\"ok\":{{\"blocks\":1,\"bfree\":1,\"bavail\":1,\"frsize\":4096,\"files\":1,\"ffree\":1}},\"device\":{device}}}\n"
+        )
+    };
+    // The root's device is its line's; /tmp's differs, as a btrfs subvolume's does.
+    let lines = answer("/", "[8,1]") + &answer("/tmp", "[0,99]");
+    std::fs::write(fixture.dir.join("answers"), lines).unwrap();
+    let taken = fixture.view(None).snapshot().await.unwrap();
+    let (_, json) = taken.files(&[], &[]).unwrap();
+    let snapshot = MountSnapshot::from_json(&json).unwrap();
+    assert_eq!(snapshot.devices, BTreeMap::from([(2, (0, 99))]));
 }

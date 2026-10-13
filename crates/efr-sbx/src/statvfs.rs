@@ -32,7 +32,8 @@ pub(crate) fn main() -> ExitCode {
     let (answers, answered) = mpsc::channel::<StatvfsLine>();
     for path in paths {
         let name = path.to_string_lossy().into_owned();
-        let failed = StatvfsLine { path: name.clone(), ok: None, errno: Some(EAGAIN) };
+        let failed =
+            StatvfsLine { path: name.clone(), ok: None, errno: Some(EAGAIN), device: None };
         let sender = answers.clone();
         let started = std::thread::Builder::new()
             .name("statvfs".to_owned())
@@ -81,9 +82,14 @@ pub(crate) fn read_paths(input: impl std::io::Read) -> Result<Vec<PathBuf>, SbxE
     Ok(paths)
 }
 
-/// The line for `path`, which `name` prints.
+/// The line for `path`, which `name` prints: its sizes, and the device that `stat`
+/// gives for it.
 fn measure(name: String, path: &std::path::Path) -> StatvfsLine {
-    match rustix::fs::statvfs(path) {
+    let sizes = rustix::fs::statvfs(path);
+    let device = rustix::fs::stat(path)
+        .ok()
+        .map(|stat| (rustix::fs::major(stat.st_dev), rustix::fs::minor(stat.st_dev)));
+    match sizes {
         Ok(stat) => StatvfsLine {
             path: name,
             ok: Some(StatvfsValues {
@@ -95,8 +101,11 @@ fn measure(name: String, path: &std::path::Path) -> StatvfsLine {
                 ffree: stat.f_ffree,
             }),
             errno: None,
+            device,
         },
-        Err(errno) => StatvfsLine { path: name, ok: None, errno: Some(errno.raw_os_error()) },
+        Err(errno) => {
+            StatvfsLine { path: name, ok: None, errno: Some(errno.raw_os_error()), device: None }
+        }
     }
 }
 
