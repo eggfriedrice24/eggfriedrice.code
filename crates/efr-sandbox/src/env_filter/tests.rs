@@ -133,6 +133,27 @@ fn offline_hints_only_without_network_and_a_bus_grant_sets_its_address() {
 }
 
 #[test]
+fn netview_offline_hints_stay() {
+    let mut spec = spec();
+    spec.grants = vec![Grant::NetView];
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    assert!(plan.net_view() && !plan.unshares_network());
+    let (out, _) = EnvFilter::new(&spec, &plan).apply(&env(&[]));
+    for (name, value) in crate::env_filter::OFFLINE_HINTS {
+        assert_eq!(get(&out, name), Some(*value), "{name}");
+    }
+    // With an open network beside it, the call is no network view, and the hints go.
+    spec.grants.push(Grant::OpenNetwork);
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    assert!(get(&EnvFilter::new(&spec, &plan).apply(&env(&[])).0, "CARGO_NET_OFFLINE").is_none());
+    // The user's switch still turns them off.
+    spec.grants = vec![Grant::NetView];
+    spec.env.offline_hints = false;
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    assert!(get(&EnvFilter::new(&spec, &plan).apply(&env(&[])).0, "UV_OFFLINE").is_none());
+}
+
+#[test]
 fn a_build_cache_outside_the_overlays_moves_below_the_cache_dir() {
     let spec = spec();
     let plan = MountPlan::build(&spec, &world()).unwrap();

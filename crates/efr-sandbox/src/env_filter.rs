@@ -33,7 +33,8 @@ pub const HIDDEN_SHELL_SCRUB: &[&str] = &[
     "KONSOLE_*",
 ];
 
-/// The offline hints of phase 1: a build with a warm cache works with no network.
+/// The offline hints of phase 1 and of a network view call: a build with a warm cache
+/// works with no network.
 pub const OFFLINE_HINTS: &[(&str, &str)] = &[
     ("CARGO_NET_OFFLINE", "true"),
     ("npm_config_offline", "true"),
@@ -72,8 +73,10 @@ impl EnvFilter {
             ("SSH_ASKPASS_REQUIRE".to_owned(), "never".to_owned()),
             ("GCM_INTERACTIVE".to_owned(), "never".to_owned()),
         ];
+        // A network view call keeps the host's namespace, but no socket there reaches
+        // the network, so the hints hold for it too.
         let offline = spec.env.offline_hints
-            && plan.unshares_network()
+            && (plan.unshares_network() || plan.net_view())
             && matches!(spec.network, NetworkPlan::None);
         if offline {
             set.extend(
