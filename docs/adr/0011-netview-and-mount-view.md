@@ -101,6 +101,13 @@ machine for a call.
   then use with no `socket()` call. This needs a host program that sends to that name
   on purpose. `listen` fails, so the call offers no stream service, and a job ends at
   its time limit.
+- A NetView call can bind an abstract name of the host that no program holds now,
+  such as the name of a host service that restarts. It keeps that name until it ends,
+  up to the 480 minutes of a job. The service then fails with `EADDRINUSE`, and its
+  clients get `ECONNREFUSED` for a stream name, or send their datagrams into the
+  call. This is a denial of service and a way for data to come in, not a way to send
+  out. seccomp cannot read the address of `bind`, and `ss` and `ip` need `bind` on
+  their netlink sockets, so no cheap rule stops it. `efr jobs stop` ends such a job.
 - The model sees the host's sockets, peers and routes. Before, the same output reached
   it after a review.
 - A running NetView job keeps the view up to its time limit after the key goes off or a
