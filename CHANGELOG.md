@@ -186,7 +186,8 @@ into the GitHub release notes, and it stops when the section is missing.
   work, `iw`, `ifconfig`, `netstat`, and changes such as `ip link set` still go to the
   reviewer. A background job that watches your network now starts with no review too.
   A new `[network]` table has one key, `netview` (default `true`); `false` sends these
-  commands to the reviewer again.
+  commands to the reviewer again. The dim line at the end of such a turn says
+  `host network view (no sending)`.
 
 ### Changed
 

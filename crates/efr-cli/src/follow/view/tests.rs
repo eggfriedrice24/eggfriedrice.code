@@ -1506,6 +1506,42 @@ fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
 }
 
 #[test]
+fn a_turn_with_the_network_view_says_so_in_its_trace() {
+    let mut view = sandbox_view(false);
+    let viewed = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "ss -tln" }),
+        manual_input: true,
+        launch: Some(Launch::Contained { grants: vec![Grant::NetView] }),
+        freeform: false,
+    };
+    let (_, err, _) = feed(
+        &mut view,
+        &[started_in(Scope::Machine, None), viewed, contained_completed(0, None), turn_completed()],
+        true,
+    );
+    assert_eq!(
+        err,
+        "\u{b7} $ ss -tln\n  \u{2713}\n\nsandbox: writes in $SCRATCH, private /tmp; no network; \
+         host network view (no sending)\n"
+    );
+    // The next turn with no such call has the plain trace again.
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(Scope::Machine, None),
+            contained_started("ls"),
+            contained_completed(0, None),
+            turn_completed(),
+        ],
+        true,
+    );
+    assert!(err.ends_with("private /tmp; no network\n"), "{err:?}");
+}
+
+#[test]
 fn a_fallback_says_so_at_the_start_of_the_turn() {
     let mut view = sandbox_view(true);
     let fallback = ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() };

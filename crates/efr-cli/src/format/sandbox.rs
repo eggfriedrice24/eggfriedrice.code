@@ -38,6 +38,17 @@ pub(crate) const CONTAINED_IN_PROJECT: &str =
 /// The same trace for a turn outside a registered project.
 pub(crate) const CONTAINED: &str = "sandbox: writes in $SCRATCH, private /tmp; no network";
 
+/// What the trace adds when a contained call of the turn had the network view.
+const NET_VIEW_TRACE: &str = "host network view (no sending)";
+
+/// The dim trace at the end of a turn with a contained call: [`CONTAINED_IN_PROJECT`]
+/// in a registered project, else [`CONTAINED`], and the network view when a call of the
+/// turn had it (`Grant::NetView`), because that call saw the host's network.
+pub(crate) fn contained_trace(in_project: bool, net_view: bool) -> String {
+    let trace = if in_project { CONTAINED_IN_PROJECT } else { CONTAINED };
+    if net_view { format!("{trace}; {NET_VIEW_TRACE}") } else { trace.to_owned() }
+}
+
 /// The quarantine question in one line, for `efr history`.
 pub(crate) const SURFACE_QUESTION: &str =
     "question: the last command changed git settings that run programs";

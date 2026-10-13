@@ -472,7 +472,8 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   exit 2 · 1.5s`, and no word about the sandbox: every shell call of `auto` runs
   there. A turn in which a call ran in the sandbox ends with one dim line that says
   where the sandbox can write, such as `sandbox: writes in the project, $SCRATCH,
-  private /tmp; no network`.
+  private /tmp; no network`. When a call of the turn had the network view, the line
+  ends with `; host network view (no sending)`.
 - Three refusals in a row without a person (by a floor) stop the turn. A refusal of
   the reviewer does not count here; it has its own pause (above).
 
