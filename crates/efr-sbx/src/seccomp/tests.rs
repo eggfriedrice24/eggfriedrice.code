@@ -1,4 +1,7 @@
-use efr_sandbox::{EAFNOSUPPORT, ENOSYS, EPERM, TIOCSTI};
+use efr_sandbox::{
+    AF_INET, AF_INET6, AF_PACKET, AF_UNIX, EAFNOSUPPORT, ENOSYS, EPERM, EPROTONOSUPPORT,
+    NETLINK_ROUTE, NETLINK_SOCK_DIAG, TIOCSTI,
+};
 
 use super::*;
 
@@ -93,4 +96,229 @@ fn a_profile_this_build_cannot_install_names_what_it_asks_for() {
     let mut profile = SeccompProfile::phase1();
     profile.arches.clear();
     assert!(matches!(target(&profile), Err(SbxError::SeccompArchNotCovered { .. })));
+}
+
+#[test]
+fn netlink_protocol_rule_compiles() {
+    let profile = SeccompProfile::net_view();
+    for arch in [SeccompArch::X86_64, SeccompArch::Aarch64] {
+        let json = filters_json(&profile, arch).unwrap();
+        let rules = json[format!("errno_{EPROTONOSUPPORT}")]["filter"].as_array().unwrap();
+        assert_eq!(
+            rules,
+            &[json!({ "syscall": "socket", "args": [
+                { "index": 0, "type": "dword", "op": "eq", "val": AF_NETLINK },
+                { "index": 2, "type": "dword", "op": "ne", "val": NETLINK_ROUTE },
+                { "index": 2, "type": "dword", "op": "ne", "val": NETLINK_SOCK_DIAG },
+            ] })]
+        );
+        let families = json[format!("errno_{EAFNOSUPPORT}")]["filter"].as_array().unwrap();
+        for rule in families {
+            assert_eq!(
+                rule["args"],
+                json!([
+                    { "index": 0, "type": "dword", "op": "ne", "val": AF_UNIX },
+                    { "index": 0, "type": "dword", "op": "ne", "val": AF_NETLINK },
+                ])
+            );
+        }
+        let denied = json[format!("errno_{EPERM}")]["filter"].as_array().unwrap();
+        for syscall in ["listen", "pidfd_getfd"] {
+            assert!(denied.contains(&json!({ "syscall": syscall })), "{syscall}");
+        }
+    }
+    let programs = compile(&profile).unwrap();
+    let expected = if std::env::consts::ARCH == "x86_64" { 5 } else { 4 };
+    assert_eq!(programs.len(), expected);
+}
+
+/// `AUDIT_ARCH_*` of the architectures of the cases.
+const ARCH_X86_64: u32 = AUDIT_ARCH_X86_64;
+const ARCH_I386: u32 = 3 | 0x4000_0000;
+const ARCH_AARCH64: u32 = 183 | 0x8000_0000 | 0x4000_0000;
+const ARCH_ARM: u32 = 40 | 0x4000_0000;
+
+/// `SECCOMP_RET_ERRNO` with `errno`.
+fn errno(errno: u32) -> u32 {
+    0x0005_0000 | errno
+}
+
+/// A `struct seccomp_data`, little-endian like both architectures: `nr`, `arch`, the
+/// instruction pointer and six arguments.
+fn seccomp_data(nr: u32, arch: u32, args: [u64; 3]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(64);
+    bytes.extend(nr.to_le_bytes());
+    bytes.extend(arch.to_le_bytes());
+    bytes.extend(0_u64.to_le_bytes());
+    for arg in args.into_iter().chain([0; 3]) {
+        bytes.extend(arg.to_le_bytes());
+    }
+    bytes
+}
+
+/// Runs one classic BPF program on `data`, as the kernel's seccomp does.
+fn run_bpf(program: &[sock_filter], data: &[u8]) -> u32 {
+    let (mut a, mut x, mut mem, mut pc) = (0_u32, 0_u32, [0_u32; 16], 0_usize);
+    let word = |offset: u32| {
+        let at = offset as usize;
+        u32::from_le_bytes(data[at..at + 4].try_into().unwrap())
+    };
+    loop {
+        let op = &program[pc];
+        pc += 1;
+        let src = if op.code & 0x08 == 0 { op.k } else { x };
+        match op.code & 0x07 {
+            // LD and LDX: only words, by an absolute offset, a constant or the scratch.
+            class @ (0x00 | 0x01) => {
+                let value = match op.code & 0xe0 {
+                    0x00 => op.k,
+                    0x20 => word(op.k),
+                    0x60 => mem[op.k as usize],
+                    mode => panic!("load mode {mode:#x}"),
+                };
+                assert_eq!(op.code & 0x18, 0, "only word loads");
+                if class == 0 { a = value } else { x = value }
+            }
+            0x02 => mem[op.k as usize] = a,
+            0x03 => mem[op.k as usize] = x,
+            0x04 => {
+                a = match op.code & 0xf0 {
+                    0x00 => a.wrapping_add(src),
+                    0x10 => a.wrapping_sub(src),
+                    0x40 => a | src,
+                    0x50 => a & src,
+                    0x60 => a << src,
+                    0x70 => a >> src,
+                    0xa0 => a ^ src,
+                    alu => panic!("alu op {alu:#x}"),
+                }
+            }
+            0x05 => {
+                let taken = match op.code & 0xf0 {
+                    0x00 => {
+                        pc += op.k as usize;
+                        continue;
+                    }
+                    0x10 => a == src,
+                    0x20 => a > src,
+                    0x30 => a >= src,
+                    0x40 => a & src != 0,
+                    jump => panic!("jump op {jump:#x}"),
+                };
+                pc += usize::from(if taken { op.jt } else { op.jf });
+            }
+            0x06 => return if op.code & 0x18 == 0x10 { a } else { op.k },
+            _ => {
+                if op.code & 0xf8 == 0 {
+                    x = a
+                } else {
+                    a = x
+                }
+            }
+        }
+    }
+}
+
+/// The answer of every program for one call, as the kernel combines them: the last
+/// one installed runs first, and the strictest action wins.
+fn verdict(programs: &[BpfProgram], data: &[u8]) -> u32 {
+    let action = |ret: u32| (ret & 0xffff_0000).cast_signed();
+    programs.iter().rev().fold(RET_ALLOW, |ret, program| {
+        let this = run_bpf(program, data);
+        if action(this) < action(ret) { this } else { ret }
+    })
+}
+
+/// The system call numbers of the cases on one architecture.
+struct Numbers {
+    arch: SeccompArch,
+    target: TargetArch,
+    audit: u32,
+    socket: u32,
+    socketpair: u32,
+    listen: u32,
+    pidfd_getfd: u32,
+    getpid: u32,
+    /// The 32-bit architecture that the same CPU runs, and its socket call.
+    compat: (u32, u32),
+}
+
+#[test]
+fn net_view_filter_runs_on_bpf_cases() {
+    let x86_64 = Numbers {
+        arch: SeccompArch::X86_64,
+        target: TargetArch::x86_64,
+        audit: ARCH_X86_64,
+        socket: 41,
+        socketpair: 53,
+        listen: 50,
+        pidfd_getfd: 438,
+        getpid: 39,
+        // socketcall through int 0x80.
+        compat: (ARCH_I386, 102),
+    };
+    let aarch64 = Numbers {
+        arch: SeccompArch::Aarch64,
+        target: TargetArch::aarch64,
+        audit: ARCH_AARCH64,
+        socket: 198,
+        socketpair: 199,
+        listen: 201,
+        pidfd_getfd: 438,
+        getpid: 172,
+        compat: (ARCH_ARM, 281),
+    };
+    let high = 1_u64 << 32;
+    let (raw, stream, dgram) = (3, 1, 2);
+    for numbers in [x86_64, aarch64] {
+        let programs =
+            compile_for(&SeccompProfile::net_view(), numbers.target, numbers.arch).unwrap();
+        let call =
+            |nr: u32, args: [u64; 3]| verdict(&programs, &seccomp_data(nr, numbers.audit, args));
+        let what = format!("{:?}", numbers.arch);
+        // The families: only AF_UNIX and AF_NETLINK, also with garbage in the high word.
+        assert_eq!(call(numbers.socket, [AF_INET, stream, 0]), errno(EAFNOSUPPORT), "{what}");
+        assert_eq!(call(numbers.socket, [AF_INET6, dgram, 0]), errno(EAFNOSUPPORT), "{what}");
+        assert_eq!(call(numbers.socket, [AF_PACKET, raw, 0]), errno(EAFNOSUPPORT), "{what}");
+        assert_eq!(call(numbers.socket, [AF_INET | high, stream, 0]), errno(EAFNOSUPPORT));
+        assert_eq!(call(numbers.socketpair, [AF_INET, stream, 0]), errno(EAFNOSUPPORT));
+        for family in [31, 38, 40, 44, 45, 46, 200] {
+            assert_eq!(call(numbers.socket, [family, stream, 0]), errno(EAFNOSUPPORT), "{family}");
+        }
+        assert_eq!(call(numbers.socket, [AF_UNIX, stream, 0]), RET_ALLOW, "{what}");
+        assert_eq!(call(numbers.socketpair, [AF_UNIX, dgram, 0]), RET_ALLOW, "{what}");
+        // The netlink protocols: only ROUTE and SOCK_DIAG, compared as the kernel's int.
+        assert_eq!(call(numbers.socket, [AF_NETLINK, raw, NETLINK_ROUTE]), RET_ALLOW);
+        assert_eq!(call(numbers.socket, [AF_NETLINK, dgram, NETLINK_SOCK_DIAG]), RET_ALLOW);
+        assert_eq!(call(numbers.socket, [AF_NETLINK, raw, high]), RET_ALLOW, "{what}");
+        for protocol in [9, 15, 16, 31, 32] {
+            assert_eq!(
+                call(numbers.socket, [AF_NETLINK, raw, protocol]),
+                errno(EPROTONOSUPPORT),
+                "{what} {protocol}"
+            );
+        }
+        assert_eq!(call(numbers.socket, [AF_NETLINK | high, raw, 16]), errno(EPROTONOSUPPORT));
+        assert_eq!(call(numbers.socket, [AF_NETLINK, raw, 16 | high]), errno(EPROTONOSUPPORT));
+        // listen and pidfd_getfd, and a call that no rule names.
+        assert_eq!(call(numbers.listen, [3, 1, 0]), errno(EPERM), "{what}");
+        assert_eq!(call(numbers.pidfd_getfd, [3, 0, 0]), errno(EPERM), "{what}");
+        assert_eq!(call(numbers.getpid, [0, 0, 0]), RET_ALLOW, "{what}");
+        // Another architecture of the same CPU is killed, whatever the call.
+        let (arch, socket) = numbers.compat;
+        let other = verdict(&programs, &seccomp_data(socket, arch, [AF_INET, stream, 0]));
+        assert_eq!(other, RET_KILL_PROCESS, "{what}");
+        if numbers.arch == SeccompArch::X86_64 {
+            let x32 = numbers.socket | X32_SYSCALL_BIT;
+            assert_eq!(call(x32, [AF_UNIX, stream, 0]), RET_KILL_PROCESS);
+        }
+    }
+    // Phase 1 keeps TCP and the other netlink protocols, and listen.
+    let phase1 =
+        compile_for(&SeccompProfile::phase1(), TargetArch::x86_64, SeccompArch::X86_64).unwrap();
+    let call = |nr: u32, args: [u64; 3]| verdict(&phase1, &seccomp_data(nr, ARCH_X86_64, args));
+    assert_eq!(call(41, [AF_INET, stream, 0]), RET_ALLOW);
+    assert_eq!(call(41, [AF_NETLINK, raw, 16]), RET_ALLOW);
+    assert_eq!(call(50, [3, 1, 0]), RET_ALLOW);
+    assert_eq!(call(41, [AF_PACKET, raw, 0]), errno(EAFNOSUPPORT));
 }

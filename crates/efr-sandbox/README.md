@@ -19,7 +19,7 @@ tested without a kernel.
 | `src/layers.rs` | `CacheLayers`: the cache overlays that `efr-sbx layers` mounts after bwrap's setup, and the mounts inside each cache that move onto it |
 | `src/layers/deletes.rs` | `CacheDeletes`: the paths that a call deleted in its private cache layers (the whiteouts of each upper layer, read through `LayerView`), for `SandboxSummary::cache_deletes`, with the limits that keep `result.json` small |
 | `src/landlock.rs` | `LandlockPolicy` and `FsAccess` as data; no `RESOLVE_UNIX` rule without a socket grant |
-| `src/seccomp.rs` | `SeccompProfile`: the deny list as data |
+| `src/seccomp.rs` | `SeccompProfile`: the deny list as data. `phase1()` for every contained call; `net_view()` for a call with `Grant::NetView`: only `AF_UNIX` and `AF_NETLINK` sockets, only the `ROUTE` and `SOCK_DIAG` netlink protocols, and `listen` and `pidfd_getfd` refused |
 | `src/inner.rs` | `InnerPolicy`, what the launcher sends to `efr-sbx inner`, and `LayersSync`, the handshake while the overlays mount |
 | `src/env_filter.rs` | `EnvFilter`: the environment of a contained call |
 | `src/export_filter.rs` | `ExportFilter`: which exports return to the trusted shell; `OVERLAY_DENY` |

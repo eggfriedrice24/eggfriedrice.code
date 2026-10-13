@@ -76,8 +76,9 @@ pub use result::{
     TIMES_FILE, nonce_hex, parse_nonce_hex,
 };
 pub use seccomp::{
-    AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, CLONE_NEW_MASK, EAFNOSUPPORT, ENOSYS, EPERM,
-    SeccompAction, SeccompArch, SeccompProfile, SyscallRule, TIOCLINUX, TIOCSTI,
+    AF_INET, AF_INET6, AF_NETLINK, AF_PACKET, AF_UNIX, CLONE_NEW_MASK, EAFNOSUPPORT, ENOSYS, EPERM,
+    EPROTONOSUPPORT, NETLINK_ROUTE, NETLINK_SOCK_DIAG, SeccompAction, SeccompArch, SeccompProfile,
+    SyscallRule, TIOCLINUX, TIOCSTI,
 };
 pub use spec::{
     CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS, JOB_DIR,

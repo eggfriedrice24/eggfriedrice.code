@@ -1,8 +1,9 @@
 use pretty_assertions::assert_eq;
 
 use crate::seccomp::{
-    AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, EAFNOSUPPORT, ENOSYS, EPERM, SeccompAction,
-    SeccompArch, SeccompProfile, SyscallRule, TIOCLINUX, TIOCSTI,
+    AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, EAFNOSUPPORT, ENOSYS, EPERM, EPROTONOSUPPORT,
+    NETLINK_ROUTE, NETLINK_SOCK_DIAG, SeccompAction, SeccompArch, SeccompProfile, SyscallRule,
+    TIOCLINUX, TIOCSTI,
 };
 
 #[test]
@@ -81,4 +82,78 @@ fn the_profile_reads_back_from_json() {
     let text = serde_json::to_string(&profile).unwrap();
     assert_eq!(serde_json::from_str::<SeccompProfile>(&text).unwrap(), profile);
     assert!(text.contains("\"kind\":\"errno\"") || text.contains("\"allow\""), "{text}");
+}
+
+/// The socket family rules of `profile`.
+fn families(profile: &SeccompProfile) -> Vec<&SyscallRule> {
+    profile
+        .rules
+        .iter()
+        .filter(|rule| matches!(rule, SyscallRule::AllowSocketFamilies { .. }))
+        .collect()
+}
+
+#[test]
+fn net_view_profile_allows_unix_and_netlink_only() {
+    let profile = SeccompProfile::net_view();
+    assert_eq!(
+        families(&profile),
+        [&SyscallRule::AllowSocketFamilies {
+            allowed: vec![AF_UNIX, AF_NETLINK],
+            errno: EAFNOSUPPORT,
+        }]
+    );
+    // Every other rule of phase 1 stays: the profile only adds refusals.
+    let phase1 = SeccompProfile::phase1();
+    let phase1_families = families(&phase1);
+    for rule in phase1.rules.iter().filter(|rule| !phase1_families.contains(rule)) {
+        assert!(profile.rules.contains(rule), "{rule:?}");
+    }
+    assert_eq!(profile.default_action, phase1.default_action);
+    assert_eq!(profile.arches, phase1.arches);
+    assert_eq!(profile.other_arch_action, SeccompAction::KillProcess);
+    let text = serde_json::to_string(&profile).unwrap();
+    assert_eq!(serde_json::from_str::<SeccompProfile>(&text).unwrap(), profile);
+}
+
+#[test]
+fn net_view_profile_limits_netlink_protocols() {
+    let profile = SeccompProfile::net_view();
+    let rules: Vec<&SyscallRule> = profile
+        .rules
+        .iter()
+        .filter(|rule| matches!(rule, SyscallRule::AllowNetlinkProtocols { .. }))
+        .collect();
+    assert_eq!(
+        rules,
+        [&SyscallRule::AllowNetlinkProtocols {
+            allowed: vec![NETLINK_ROUTE, NETLINK_SOCK_DIAG],
+            errno: EPROTONOSUPPORT,
+        }]
+    );
+    assert_eq!((NETLINK_ROUTE, NETLINK_SOCK_DIAG, EPROTONOSUPPORT), (0, 4, 93));
+    assert!(
+        !SeccompProfile::phase1()
+            .rules
+            .iter()
+            .any(|rule| matches!(rule, SyscallRule::AllowNetlinkProtocols { .. }))
+    );
+}
+
+#[test]
+fn net_view_profile_refuses_listen_and_pidfd_getfd() {
+    let profile = SeccompProfile::net_view();
+    let phase1 = SeccompProfile::phase1();
+    for syscall in ["listen", "pidfd_getfd"] {
+        let rule = SyscallRule::Deny { syscall: syscall.to_owned(), errno: EPERM };
+        assert!(profile.rules.contains(&rule), "{syscall}");
+        assert!(!phase1.rules.contains(&rule), "phase 1 keeps {syscall}");
+        assert!(profile.syscalls().contains(&syscall));
+    }
+    let io_uring = SyscallRule::Deny { syscall: "io_uring_setup".to_owned(), errno: EPERM };
+    assert!(profile.rules.contains(&io_uring));
+    for rule in families(&profile) {
+        let SyscallRule::AllowSocketFamilies { allowed, .. } = rule else { unreachable!() };
+        assert!(!allowed.contains(&AF_INET) && !allowed.contains(&AF_INET6), "{rule:?}");
+    }
 }
