@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{ExitKind, ExitSource, Mode, Origin, Scope};
+use efr_protocol::{ExitKind, ExitSource, Grant, Mode, Origin, Scope};
 
 use crate::command::{self, SimpleCommand};
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
@@ -315,23 +315,21 @@ impl Engine {
         // counts as covered: a destructive part stays an exit for the classifier.
         let job = requirements.background && shell;
         let support = if job { AutoSupport { undo: false, ..self.support } } else { self.support };
-        let predicted = |line: &str| {
-            exits::predict(&ExitInput {
-                line,
-                command_dir: requirements.command_dir.as_deref(),
-                paths: &requirements.paths,
-                network: requirements.network,
-                needs: requirements.needs.as_ref(),
-                facts: requirements.facts.as_ref(),
-                locations: &self.locations,
-                project_root,
-                scratch: scratch.as_deref(),
-                support: &support,
-            })
-        };
+        let exit_input = requirements.command.as_deref().map(|line| ExitInput {
+            line,
+            command_dir: requirements.command_dir.as_deref(),
+            paths: &requirements.paths,
+            network: requirements.network,
+            needs: requirements.needs.as_ref(),
+            facts: requirements.facts.as_ref(),
+            locations: &self.locations,
+            project_root,
+            scratch: scratch.as_deref(),
+            support: &support,
+        });
         if auto {
-            let found = match &requirements.command {
-                Some(line) => predicted(line),
+            let found = match &exit_input {
+                Some(input) => exits::predict(input),
                 None => exits::link_names(
                     exits::named_targets(tool_found, self.locations.home()),
                     requirements.facts.as_ref(),
@@ -341,11 +339,17 @@ impl Engine {
                 reasons.extend(found.iter().filter(|need| job_refusal(need)).map(not_as_job));
             }
             reasons.extend(found.into_iter().map(exit_reason));
-        } else if let (true, Some(line)) = (job, &requirements.command) {
+            // NOTE: a view is no exit: no kind, no record, no classifier and no
+            // question. The launch unions its grant with the grants of the exits.
+            if let Some(input) = &exit_input {
+                reasons.extend(exits::views(input).into_iter().map(view_reason));
+            }
+        } else if let (true, Some(input)) = (job, &exit_input) {
             // NOTE: outside `auto` the user approves each job before it starts, and no
             // rule decides it. The kinds that no job may hold stay refused in every mode,
             // also after a "yes".
-            reasons.extend(predicted(line).iter().filter(|need| job_refusal(need)).map(not_as_job));
+            let found = exits::predict(input);
+            reasons.extend(found.iter().filter(|need| job_refusal(need)).map(not_as_job));
             reasons.push(Reason {
                 subject: Subject::Job,
                 effect: Effect::Ask,
@@ -509,6 +513,12 @@ fn not_as_job(need: &ExitNeed) -> Reason {
         effect: Effect::Deny,
         cause: Cause::NotAsJob,
     }
+}
+
+/// The reason of one view of the host, such as `Grant::NetView`: contained, so it never
+/// raises the effect of the call.
+fn view_reason(grant: Grant) -> Reason {
+    Reason { subject: Subject::View { grant }, effect: Effect::Contain, cause: Cause::Contained }
 }
 
 /// The reason of one exit: a question, or a denial for a floor.

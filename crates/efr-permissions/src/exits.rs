@@ -8,6 +8,9 @@
 //! few: text can only add a question, and the sandbox holds what it misses. It also
 //! turns the model's `needs` into exits.
 //!
+//! [`views`] gives the views of the host that a line gets with no exit: the network
+//! view for a line that only reads the host's network (`view.rs`).
+//!
 //! [`unsandboxed_line_problem`] is the one-command rule: a line that runs outside the
 //! sandbox must be one command plus read-only helpers, or a `sudo -k` that only forgets
 //! the cached password.
@@ -19,6 +22,7 @@ mod needs;
 mod persist;
 mod programs;
 mod scan;
+mod view;
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -373,6 +377,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let envelope = Envelope::new(input.locations, input.project_root, input.scratch);
     let start = input.command_dir.and_then(normalize);
     let segments = scan::scan(input.line);
+    // NOTE: a line of the network view rule runs in the host's network namespace with
+    // `Grant::NetView` ([`views`]), so its `ss` and `ip` need no `host_view` exit.
+    let net_view = view::net_view(&segments, input.support);
     let mut found = Found::default();
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
@@ -414,6 +421,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             for exit in programs::classify(command, input.support) {
                 // NOTE: from phase E the filtered bus proxy decides a bus call.
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
+                    continue;
+                }
+                if exit.kind == ExitKind::HostView && net_view {
                     continue;
                 }
                 if matches!(exit.kind, ExitKind::Host | ExitKind::Upload) {
@@ -547,6 +557,21 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     named_targets(found, input.locations.home())
+}
+
+/// The views of the host that the shell call of `input` gets with no exit, no
+/// classifier and no question (phase D1): `[Grant::NetView]` for a line that only reads
+/// the host's network, such as `ss -tln | grep 8080` or `cat /proc/net/dev`, on a machine
+/// that runs NetView calls ([`AutoSupport::netview`]). [`predict`] then finds no
+/// `host_view` exit for it. The rule is a fit, not a security layer: the launch drops
+/// the view beside any grant other than `write` and `unmask`, and the NetView call's
+/// seccomp profile and Landlock rights hold whatever code it runs.
+pub fn views(input: &ExitInput<'_>) -> Vec<Grant> {
+    if view::net_view(&scan::scan(input.line), input.support) {
+        vec![Grant::NetView]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of
