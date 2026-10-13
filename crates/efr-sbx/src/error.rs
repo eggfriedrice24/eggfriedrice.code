@@ -154,6 +154,13 @@ pub(crate) enum SbxError {
         /// What.
         what: &'static str,
     },
+
+    /// `statvfs` got paths on stdin that it does not take.
+    #[error("the paths to measure are not valid: {problem}")]
+    StatvfsInput {
+        /// What is wrong with them.
+        problem: &'static str,
+    },
 }
 
 /// What is wrong with a call dir.

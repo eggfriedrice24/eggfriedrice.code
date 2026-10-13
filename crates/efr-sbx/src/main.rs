@@ -7,7 +7,8 @@
 //! subreaper. `layers` mounts the cache overlays of a call after bwrap's setup. efrd
 //! runs `efr-sbx probe --json` to learn whether `auto` can run here. efrd starts a
 //! background job itself with `efr-sbx run --job`.
-//! `bridge` is the seam of phase 2.
+//! `bridge` is the seam of phase 2. efrd runs `statvfs` to measure the host's mounts
+//! outside the sandbox, and the `df` and `findmnt` of a call print them with `mounts`.
 //!
 //! Allowed dependencies: `efr-sandbox` and `efr-protocol`. No async runtime: the
 //! launcher is a small process in the foreground job of the hidden shell, and every
@@ -35,6 +36,7 @@ mod landlock;
 mod launch;
 mod layer_lock;
 mod layers;
+mod mounts;
 mod os;
 mod probe;
 mod real_fs;
@@ -42,10 +44,12 @@ mod run;
 mod seccomp;
 mod self_test;
 mod signals;
+mod statvfs;
 #[cfg(test)]
 mod testing;
 mod timings;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -114,6 +118,38 @@ pub(crate) enum Command {
     /// Prints the kernel's Landlock ABI after a rule set that restricts nothing.
     #[command(hide = true)]
     LandlockAbi,
+    /// Inside a call: prints the host's mounts from the snapshot next to the launcher,
+    /// as `df` or `findmnt --df` would. Exit status 2 with no output when it cannot.
+    #[command(hide = true)]
+    Mounts {
+        /// Which table.
+        #[command(subcommand)]
+        table: MountsTable,
+    },
+    /// Measures each path of stdin (NUL-separated) with `statvfs`, one thread per
+    /// path, and prints one JSON line per path as each answers. efrd runs it and kills
+    /// it at its deadline.
+    #[command(hide = true)]
+    Statvfs,
+}
+
+/// The tables of `mounts`. They take their arguments raw, so `-h` is `df`'s `-h`.
+#[derive(Debug, Subcommand)]
+pub(crate) enum MountsTable {
+    /// The `df` table, for `df`'s options.
+    #[command(disable_help_flag = true, disable_version_flag = true)]
+    Df {
+        /// `df`'s arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// The `findmnt --df` table; `-I` or `--dfi` for the inodes.
+    #[command(name = "findmnt-df", disable_help_flag = true, disable_version_flag = true)]
+    FindmntDf {
+        /// `findmnt`'s arguments: `-D`, `--df`, `-I` and `--dfi` only.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
 }
 
 fn main() -> ExitCode {
