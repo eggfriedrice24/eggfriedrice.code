@@ -16,8 +16,12 @@
 //! `Grant::NetView` runs `efr-sbx self-test --net-view`: every check there must give
 //! its exact errno, also the Landlock scope's EPERM for the fixture's live abstract
 //! names. Its result is `ProbeReport::netview`; a failure there adds a warning and
-//! never fails the probe. It prints a `ProbeReport`; efrd turns it into the
-//! `SandboxStatus`.
+//! never fails the probe. A third launch with a proxy plan runs `efr-sbx self-test
+//! --proxy` against a socket of the fixture that answers `CONNECT` with `200` and
+//! echoes: the tunnel through the bridge, the proxy socket out of the child's reach
+//! (EACCES), another address out of reach (ENETUNREACH) and the bridge out of the
+//! child's signals (EPERM). Its result is `ProbeReport::proxy`; a failure there adds a
+//! warning too. It prints a `ProbeReport`; efrd turns it into the `SandboxStatus`.
 
 mod fixture;
 
@@ -37,7 +41,7 @@ use crate::error::SbxError;
 use crate::launch::{self, Ending, Launch};
 use crate::os;
 use crate::real_fs::RealFs;
-use crate::self_test::{CHECKS, CheckLine, NET_VIEW_CHECKS};
+use crate::self_test::{CHECKS, CheckLine, NET_VIEW_CHECKS, PROBE_PROXY_CHECKS};
 
 /// The arguments of `efr-sbx probe`.
 #[derive(Debug, Clone, clap::Args)]
@@ -348,6 +352,18 @@ fn self_test(checks: &mut Checks, args: &ProbeArgs, programs: &fixture::Programs
                         checks.report.netview = Some(false);
                     }
                 }
+                // A failure here is a warning too: efrd then gives contained calls no
+                // network, and a network need goes to the reviewer.
+                match proxy_self_test(&fixture, mode) {
+                    Ok(()) => checks.report.proxy = Some(true),
+                    Err(detail) => {
+                        checks.report.warnings.push(format!(
+                            "the network proxy's self-test failed, so commands that need the \
+                             network need a review: {detail}"
+                        ));
+                        checks.report.proxy = Some(false);
+                    }
+                }
             }
         }
         Err(Some(reason)) => checks.fail(setup_failure(&reason)),
@@ -420,6 +436,25 @@ fn net_view_self_test(fixture: &fixture::Fixture, mode: CacheMode) -> Result<(),
         return Err(format!("{}: {}", bad.name, bad.detail));
     }
     match NET_VIEW_CHECKS.iter().find(|name| !lines.iter().any(|line| line.name == **name)) {
+        Some(missing) => Err(format!("{missing}: it printed no line")),
+        None => Ok(()),
+    }
+}
+
+/// The third launch: the proxy's self-test, with a proxy plan and the bridge. Every
+/// check of [`PROBE_PROXY_CHECKS`] must print its line and pass; the error names the
+/// first that did not.
+fn proxy_self_test(fixture: &fixture::Fixture, mode: CacheMode) -> Result<(), String> {
+    let spec = fixture.proxy_spec(mode).map_err(|error| error.chain())?;
+    let lines = match launch_self_test(fixture, &spec, fixture.proxy_args()) {
+        Ok(lines) => lines,
+        Err(Some(reason)) => return Err(reason),
+        Err(None) => return Err("the self-test printed nothing".to_owned()),
+    };
+    if let Some(bad) = lines.iter().find(|line| !line.ok) {
+        return Err(format!("{}: {}", bad.name, bad.detail));
+    }
+    match PROBE_PROXY_CHECKS.iter().find(|name| !lines.iter().any(|line| line.name == **name)) {
         Some(missing) => Err(format!("{missing}: it printed no line")),
         None => Ok(()),
     }

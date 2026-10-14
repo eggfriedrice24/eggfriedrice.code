@@ -479,7 +479,7 @@ fn bwrap_pids() -> (BTreeSet<i32>, BTreeSet<i32>) {
 
 /// The parent of `pid` from `/proc/<pid>/stat`, which a process that is not dumpable
 /// shows too.
-fn parent_pid(pid: i32) -> Option<i32> {
+pub(crate) fn parent_pid(pid: i32) -> Option<i32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // The state and the parent follow the name, which ends with the last `)`.
     let (_, rest) = stat.rsplit_once(')')?;

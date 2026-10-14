@@ -361,11 +361,15 @@ pub struct ProbeReport {
     /// `Some(true)` when every check gave its expected errno, `Some(false)` when one
     /// did not (a warning says which), `None` when it did not run.
     pub netview: Option<bool>,
+    /// The proxy self-test, a third launch with a proxy plan and the bridge:
+    /// `Some(true)` when every check gave its expected result, `Some(false)` when one
+    /// did not (a warning says which), `None` when it did not run.
+    pub proxy: Option<bool>,
 }
 
 impl ProbeReport {
     /// The status that efrd keeps and reports: `netview` is true only when the
-    /// network view's self-test passed.
+    /// network view's self-test passed, and `proxy` only when the proxy self-test did.
     pub fn status(&self) -> SandboxStatus {
         let failure = self.failure.as_ref();
         SandboxStatus {
@@ -381,7 +385,7 @@ impl ProbeReport {
             warnings: self.warnings.clone(),
             netview: failure.is_none() && self.netview == Some(true),
             netview_off: false,
-            proxy: false,
+            proxy: failure.is_none() && self.proxy == Some(true),
         }
     }
 
