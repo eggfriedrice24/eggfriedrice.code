@@ -12,7 +12,7 @@ pub(crate) fn run(command: Command) -> ExitCode {
         Command::GuardCheck { call_dir, state_dir } => guard_check::main(&call_dir, &state_dir),
         Command::Inner { policy_fd } => inner::main(policy_fd),
         Command::Layers { pid } => layers::main(pid),
-        Command::Bridge { listen_fd, socket } => bridge::main(listen_fd, &socket),
+        Command::Bridge(args) => bridge::main(&args),
         Command::Probe(args) => probe::main(&args),
         Command::SelfTest(args) => self_test::main(&args),
         Command::LandlockAbi => probe::abi_main(),

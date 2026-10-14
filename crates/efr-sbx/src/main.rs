@@ -7,8 +7,9 @@
 //! subreaper. `layers` mounts the cache overlays of a call after bwrap's setup. efrd
 //! runs `efr-sbx probe --json` to learn whether `auto` can run here. efrd starts a
 //! background job itself with `efr-sbx run --job`.
-//! `bridge` is the seam of phase 2. efrd runs `statvfs` to measure the host's mounts
-//! outside the sandbox, and the `df` and `findmnt` of a call print them with `mounts`.
+//! The inner stage of a proxy call starts `bridge`, which copies the call's TCP to its
+//! proxy socket. efrd runs `statvfs` to measure the host's mounts outside the sandbox,
+//! and the `df` and `findmnt` of a call print them with `mounts`.
 //!
 //! Allowed dependencies: `efr-sandbox` and `efr-protocol`. No async runtime: the
 //! launcher is a small process in the foreground job of the hidden shell, and every
@@ -90,16 +91,10 @@ pub(crate) enum Command {
         #[arg(long)]
         pid: u32,
     },
-    /// Phase 2: copies TCP from inside to the call's proxy socket.
+    /// The bridge of a proxy call: copies TCP from `127.0.0.1:3128` inside to the
+    /// call's proxy socket.
     #[command(hide = true)]
-    Bridge {
-        /// The listening descriptor inside.
-        #[arg(long)]
-        listen_fd: i32,
-        /// The call's proxy socket.
-        #[arg(long)]
-        socket: PathBuf,
-    },
+    Bridge(bridge::BridgeArgs),
     /// Compares a running contained job's git surface with the one of its start, and
     /// moves what breaks a rule to its quarantine. Exit status 3 when it found a change.
     GuardCheck {

@@ -8,7 +8,10 @@
 //!    layer helper mounts them, and enter the start dir (bwrap started in `/`).
 //! 2. Move the records pipe to fd 3 and the terminal copy to fd 4; close every
 //!    descriptor from 5 up, so nothing opened outside keeps its rights inside.
-//! 3. (Phase 2: start `efr-sbx bridge` here, in a Landlock domain of its own.)
+//! 3. For a proxy plan, bind `127.0.0.1:3128` and start the bridge (`bridge.rs`), which
+//!    applies a Landlock domain and a seccomp profile of its own. The stage waits at most
+//!    [`BRIDGE_WAIT`] for the starter, whose exit 0 says that the bridge runs confined;
+//!    anything else is a setup error. Its own copy of the listener closes then.
 //! 4. Apply Landlock, then seccomp.
 //! 5. Put the terminal copy on fd 2, so the child's stderr is the terminal again, and
 //!    run the child shell.
@@ -20,12 +23,16 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
+use std::net::{Ipv4Addr, TcpListener};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::ExitCode;
+use std::process::{ExitCode, Stdio};
+use std::time::Duration;
 
-use efr_sandbox::{InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD, SETUP_FAILURE_STATUS};
+use efr_sandbox::{
+    InnerPolicy, LayersSync, MAX_POLICY_BYTES, PROXY_PORT, RECORDS_FD, SETUP_FAILURE_STATUS,
+};
 
 use crate::error::SbxError;
 use crate::{fds, landlock, os, seccomp};
@@ -35,6 +42,14 @@ const TERMINAL_PARKED_FD: RawFd = 4;
 
 /// The lowest number the descriptors move to while 3 and 4 are filled.
 const SCRATCH_FD_MIN: RawFd = 10;
+
+/// How long the inner stage waits for the bridge's starter, which waits at most
+/// `bridge::READY_WAIT` for the server.
+pub(crate) const BRIDGE_WAIT: Duration = Duration::from_secs(2);
+
+/// How often the inner stage looks whether the starter ended. The stage has one
+/// thread, so it looks again after a short pause instead of a waiter thread.
+const BRIDGE_POLL: Duration = Duration::from_millis(1);
 
 /// The line the inner stage writes on the launcher's pipe before its error, so the
 /// launcher can tell it from bwrap's own messages.
@@ -78,7 +93,12 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
     };
     fds::close_from(TERMINAL_PARKED_FD + 1)
         .map_err(|error| SbxError::os("close the inherited descriptors", error))?;
-    // NOTE: phase 2 starts the bridge here, before this stage's own Landlock domain.
+    // NOTE: before this stage's own Landlock domain, which the bridge must not share: the
+    // child's domain has no rule for the proxy socket, and its scopes keep the child
+    // from signals to the bridge.
+    if let Some(socket) = &policy.proxy_socket {
+        start_bridge(socket)?;
+    }
     let (stdin, stdout) = (std::io::stdin(), std::io::stdout());
     let terminals: Vec<BorrowedFd<'_>> = policy
         .landlock
@@ -126,6 +146,51 @@ fn wait_for_layers(sync: LayersSync, cwd: Option<&Path>) -> Result<(), SbxError>
         None => Ok(()),
     }
 }
+
+/// Binds the bridge's port in the call's network namespace and runs the bridge's
+/// starter with the listener as stdin. Returns once the starter reported the server
+/// confined; a failure, an exit other than 0 or no exit within [`BRIDGE_WAIT`] is a
+/// setup error, and the call does not run.
+fn start_bridge(socket: &Path) -> Result<(), SbxError> {
+    // NOTE: std sets SO_REUSEADDR on the listener and never SO_REUSEPORT, so no other
+    // process of the call can bind the same port beside it.
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, PROXY_PORT))
+        .map_err(|error| SbxError::os("bind the bridge's port 127.0.0.1:3128", error))?;
+    let mut command = os::command(BRIDGE_PROGRAM);
+    command
+        .args(["bridge", "--listen-fd", "0", "--socket"])
+        .arg(socket)
+        .env_clear()
+        .stdin(Stdio::from(OwnedFd::from(listener)))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let spawned = command.spawn();
+    // This stage's copy of the listener closes here, before the child exists.
+    drop(command);
+    let mut starter =
+        spawned.map_err(|source| SbxError::Spawn { program: BRIDGE_PROGRAM.into(), source })?;
+    let start = os::now();
+    loop {
+        match starter.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(_)) => {
+                return Err(SbxError::BridgeStart {
+                    problem: "it did not report its own sandbox in place",
+                });
+            }
+            Ok(None) if start.elapsed() >= BRIDGE_WAIT => {
+                let _ = starter.kill();
+                let _ = starter.wait();
+                return Err(SbxError::BridgeStart { problem: "its starter did not end in 2 s" });
+            }
+            Ok(None) => os::sleep(BRIDGE_POLL),
+            Err(error) => return Err(SbxError::os("wait for the bridge's starter", error)),
+        }
+    }
+}
+
+/// The program of the bridge: this launcher, by the kernel's own link.
+const BRIDGE_PROGRAM: &str = "/proc/self/exe";
 
 /// Reads and closes the policy descriptor.
 fn read_policy(policy_fd: RawFd) -> Result<InnerPolicy, SbxError> {

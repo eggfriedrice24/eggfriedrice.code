@@ -157,3 +157,43 @@ fn net_view_profile_refuses_listen_and_pidfd_getfd() {
         assert!(!allowed.contains(&AF_INET) && !allowed.contains(&AF_INET6), "{rule:?}");
     }
 }
+
+#[test]
+fn bridge_profile_allows_unix_only() {
+    let profile = SeccompProfile::bridge();
+    assert_eq!(
+        families(&profile),
+        [&SyscallRule::AllowSocketFamilies { allowed: vec![AF_UNIX], errno: EAFNOSUPPORT }]
+    );
+    // Every other rule of phase 1 stays: the profile only adds refusals.
+    let phase1 = SeccompProfile::phase1();
+    let phase1_families = families(&phase1);
+    for rule in phase1.rules.iter().filter(|rule| !phase1_families.contains(rule)) {
+        assert!(profile.rules.contains(rule), "{rule:?}");
+    }
+    assert_eq!(profile.default_action, phase1.default_action);
+    assert_eq!(profile.arches, phase1.arches);
+    assert_eq!(profile.other_arch_action, SeccompAction::KillProcess);
+    let text = serde_json::to_string(&profile).unwrap();
+    assert_eq!(serde_json::from_str::<SeccompProfile>(&text).unwrap(), profile);
+}
+
+#[test]
+fn bridge_profile_refuses_bind_listen_exec() {
+    let profile = SeccompProfile::bridge();
+    for syscall in ["bind", "listen", "execve", "execveat", "ptrace", "pidfd_getfd"] {
+        let rule = SyscallRule::Deny { syscall: syscall.to_owned(), errno: EPERM };
+        assert_eq!(profile.rules.iter().filter(|known| **known == rule).count(), 1, "{syscall}");
+    }
+    // The bridge's threads still start: clone3 gives ENOSYS, and libc falls back to
+    // clone, whose flags seccomp can read.
+    assert!(
+        profile.rules.contains(&SyscallRule::Deny { syscall: "clone3".to_owned(), errno: ENOSYS })
+    );
+    for syscall in ["connect", "accept4", "clone", "socket"] {
+        let denied = profile.rules.iter().any(
+            |rule| matches!(rule, SyscallRule::Deny { syscall: named, .. } if named == syscall),
+        );
+        assert!(!denied, "{syscall}");
+    }
+}

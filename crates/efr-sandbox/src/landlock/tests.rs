@@ -88,3 +88,29 @@ fn a_file_grant_gets_file_rights_only() {
         .unwrap();
     assert_eq!(rule.access, FsAccess::WRITE_FILE);
 }
+
+#[test]
+fn bridge_landlock_policy_shape() {
+    let socket = Path::new("/run/user/1000/efr-proxy.sock");
+    let policy = LandlockPolicy::bridge(socket);
+    // One rule: RESOLVE_UNIX on the socket file itself; no read, write or exec right
+    // anywhere, no terminal, and TCP bind and connect handled with no rule.
+    let rules = policy.rules();
+    assert_eq!(rules.len(), 1, "{rules:?}");
+    assert_eq!(rules[0].path, socket);
+    assert_eq!(rules[0].access, [FsAccess::ResolveUnix]);
+    for rule in &rules {
+        for right in
+            [FsAccess::WriteFile, FsAccess::MakeReg, FsAccess::RemoveFile, FsAccess::Truncate]
+        {
+            assert!(!rule.access.contains(&right), "{rule:?}");
+        }
+    }
+    assert!(policy.read_exec.is_empty() && policy.tty_fds.is_empty());
+    assert!(policy.deny_tcp);
+    assert_eq!(policy.scopes, [LandlockScope::AbstractUnixSocket, LandlockScope::Signal]);
+    let call = MountPlan::build(&spec(), &world()).unwrap().landlock();
+    assert_eq!((policy.min_abi, policy.required_errata), (call.min_abi, call.required_errata));
+    let text = serde_json::to_string(&policy).unwrap();
+    assert_eq!(serde_json::from_str::<LandlockPolicy>(&text).unwrap(), policy);
+}

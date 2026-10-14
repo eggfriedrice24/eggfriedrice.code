@@ -40,11 +40,11 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `run --call-dir DIR` | one call, contained or in the exit child |
 | `run --call-dir DIR --job` | one background job that efrd started; the spec must have a job plan, and without `--job` it must not |
 | `guard-check --call-dir DIR --state-dir SBXJOB` | compares a contained job's git surface with the record of its start, moves what breaks a rule to its quarantine, writes `guard.json`; exit status 0 with no change, 3 with a change, 1 on an error |
-| `inner --policy-fd N` (hidden) | inside bwrap: waits for the cache overlays, then Landlock, seccomp and the child shell |
+| `inner --policy-fd N` (hidden) | inside bwrap: waits for the cache overlays, starts the bridge of a proxy call, then Landlock, seccomp and the child shell |
 | `layers --pid N` (hidden) | enters the namespaces of the inner stage `N`, mounts the cache overlays of the plan on stdin, and sends the descriptors of their upper dirs back over its stdout, a Unix socket |
 | `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test; when it passes, a second launch with `Grant::NetView` runs the network view's self-test, whose result is the report's `netview` (a failure there is a warning, never a failed probe) |
 | `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make. With `--net-view` it runs the network view's checks: `tcp4` first, and when it does not get `EAFNOSUPPORT` no other check runs; then the other families, the netlink protocols, `listen`, `pidfd_getfd`, the host's live abstract names and a Unix socket, each with its exact errno |
-| `bridge` (hidden) | the seam of phase 2; it refuses in phase 1 |
+| `bridge --listen-fd 0 --socket P` (hidden) | the bridge of a proxy call: the starter runs the server (`--serve --ready-fd 1`) and exits 0 on its ready byte, else 1; the server copies TCP from `127.0.0.1:3128` inside to the call's proxy socket. `--check-dumpable` runs the server's setup and checks it |
 | `landlock-abi` (hidden) | prints the kernel's Landlock ABI from a rule set that restricts nothing |
 | `statvfs` (hidden) | efrd's helper of the mount view, outside the sandbox: the paths on stdin (NUL-separated, at most 4096), one thread each, one JSON line per path as each answers (`{"path", "ok"}` or `{"path", "errno"}`, with the device of `stat`); efrd kills it at its deadline |
 | `mounts df ARGS`, `mounts findmnt-df ARGS` (hidden) | inside a call: the `df` or `findmnt --df` table of the snapshot next to the launcher (`mounts`, `mounts.json`), for the child shell's `df` and `findmnt`; the arguments are raw, so `-h` is `df`'s; exit status 2 with no output means "run the real command" |
@@ -70,7 +70,7 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `src/real_fs.rs` | `FsView` over `openat2(RESOLVE_NO_SYMLINKS)` |
 | `src/os.rs` | the process, environment and time calls that `efr-stdx` routes elsewhere |
 | `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored; whether SIGINT or SIGQUIT stopped the call; for a job, SIGTERM and SIGHUP caught through a pipe for the stop thread |
-| `src/bridge.rs` | the phase 2 seam |
+| `src/bridge.rs` | the bridge of a proxy call: the starter, the server with its own session, name (`efr-bridge`), no dump, Landlock domain (`LandlockPolicy::bridge`) and seccomp profile (`SeccompProfile::bridge`), and the copies, two threads per connection, at most 64 connections |
 | `src/statvfs.rs` | `statvfs`: the sizes of the host's mounts for efrd |
 | `src/mounts.rs` | `mounts`: the tables of the mount view; a variable that changes `df`'s units (`DF_BLOCK_SIZE` and the like) leaves them to the real `df` |
 
@@ -160,6 +160,12 @@ async runtime; it reads its own environment, which is the trusted shell's.
   `/dev/null`, and no descriptor of the launcher above 2 reaches it. It starts only
   after efrd's start byte, and it ends with efrd: the end of the lifeline stops it.
 - `unsafe` code exists only in `src/fds.rs` (`xtask/src/tidy.rs` holds the allowlist).
+- The bridge of a proxy call serves only in its own sandbox. Two `Command` spawns start
+  it (no `fork`): the starter waits at most 1 s for the server's ready byte, which the
+  server writes only after its own Landlock domain and seccomp profile are in place, and
+  the inner stage waits at most 2 s for the starter. Any other end is a setup failure,
+  and the call does not run. The child's domain has no rule for the proxy socket, and
+  its signal scope keeps it from the bridge.
 
 ## Tests
 

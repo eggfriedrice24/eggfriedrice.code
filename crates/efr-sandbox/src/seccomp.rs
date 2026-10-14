@@ -2,7 +2,8 @@
 //! Landlock, as data. The default action is allow; the list removes kernel surface that
 //! no build or test needs and stops typing into the shared terminal. A call with
 //! `Grant::NetView` keeps the host's network namespace and gets
-//! [`SeccompProfile::net_view`], which also takes every network socket away.
+//! [`SeccompProfile::net_view`], which also takes every network socket away. The bridge
+//! of a proxy call gets [`SeccompProfile::bridge`].
 
 use serde::{Deserialize, Serialize};
 
@@ -180,6 +181,10 @@ const DENIED: &[&str] = &[
 /// host client. `pidfd_getfd` could take a socket of another process.
 const NET_VIEW_DENIED: &[&str] = &["listen", "pidfd_getfd"];
 
+/// The calls that also fail with `EPERM` in the bridge; `ptrace` is in [`DENIED`]
+/// already.
+const BRIDGE_DENIED: &[&str] = &["bind", "listen", "execve", "execveat", "pidfd_getfd"];
+
 impl SeccompProfile {
     /// The deny list of phase 1 (the spec's section 3.6).
     pub fn phase1() -> SeccompProfile {
@@ -224,6 +229,26 @@ impl SeccompProfile {
         });
         profile.rules.extend(
             NET_VIEW_DENIED
+                .iter()
+                .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
+        );
+        profile
+    }
+
+    /// The profile of the bridge (`efr-sbx bridge`): phase 1 with only `AF_UNIX`
+    /// sockets, and `bind`, `listen`, `execve`, `execveat`, `ptrace` and `pidfd_getfd`
+    /// refused. The bridge accepts on the listener that the inner stage bound before,
+    /// and connects only to the proxy socket, so it needs none of them; code that took
+    /// it over could not open a port, a network socket or a program.
+    pub fn bridge() -> SeccompProfile {
+        let mut profile = SeccompProfile::phase1();
+        for rule in &mut profile.rules {
+            if let SyscallRule::AllowSocketFamilies { allowed, .. } = rule {
+                *allowed = vec![AF_UNIX];
+            }
+        }
+        profile.rules.extend(
+            BRIDGE_DENIED
                 .iter()
                 .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
         );
