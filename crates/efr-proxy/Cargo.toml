@@ -14,13 +14,23 @@ doctest = false
 [dependencies]
 efr-permissions.workspace = true
 efr-protocol.workspace = true
+efr-stdx.workspace = true
+# getifaddrs for the host's own addresses and their netmasks (the address guard). The
+# feature adds no crate: it turns on `socket`, which the workspace has already.
+nix = { workspace = true, features = ["net"] }
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
+efr-test-support.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 # Real ClientHello bytes from rustls::ClientConnection, written into a Vec: no server
 # and no network.
 rustls.workspace = true
+tempfile.workspace = true
+# The debug line of a call's close, read in a test.
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
