@@ -61,6 +61,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     // The config file's schema, shared by efrd and efr; efr-tools must never reach it,
     // because it reaches efr-permissions.
     ("efr-config", &["efr-permissions", "efr-protocol", "efr-stdx"]),
+    // The network proxy of the auto sandbox, a tokio task in efrd: the host list and
+    // the host syntax come from efr-permissions, the refusal reasons from efr-protocol.
+    ("efr-proxy", &["efr-protocol", "efr-stdx", "efr-permissions"]),
     // Tier 3
     (
         "efr-conversation",
@@ -110,6 +113,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-sandbox",
             "efr-snapshot",
             "efr-patch",
+            "efr-proxy",
         ],
     ),
     ("efr-cli", &["efr-client", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),
