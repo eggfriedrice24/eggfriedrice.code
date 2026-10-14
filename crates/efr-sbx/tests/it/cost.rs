@@ -172,13 +172,17 @@ fn child_shell(fixture: &Fixture) -> Vec<Duration> {
 
 /// The cost of a call with a proxy plan (DP34): the bridge's two spawns, its own
 /// Landlock domain and seccomp profile and its ready byte, before the child runs. A
-/// report of 100 calls of each series: with and without the plan, with no cache
-/// overlay and with the 9 caches in the `tmp` mode, the default. The gate line compares
-/// the p95 of the call with the caches and the plan, without the child shell, with the
-/// launch gate; a fail there is a stop for the integrator, not a failed test.
+/// report of four series: with and without the plan, with no cache overlay and with the
+/// 9 caches in the `tmp` mode, the default. The calls of the four series take turns, so
+/// the load of the machine weighs on each the same. 100 calls each, 1000 with
+/// `EFR_TEST_SBX_GATE=1`. The gate line compares the p95 of the call with the caches and
+/// the plan, without the child shell, with the launch gate; a fail there is a stop for
+/// the integrator, not a failed test.
 #[test]
 fn launch_cost_proxy() {
     let ready = sandbox_or_skip!();
+    let gate = env_var("EFR_TEST_SBX_GATE").is_some_and(|value| value == "1");
+    let calls = if gate { 1000 } else { 100 };
     let with_caches = |fixture: &mut Fixture| {
         for cache in CACHES {
             let path = fixture.home.join(cache);
@@ -187,7 +191,7 @@ fn launch_cost_proxy() {
         }
         fixture.spec.cache_mode = CacheMode::Tmp;
     };
-    let mut series = Vec::new();
+    let mut fixtures = Vec::new();
     for (caches, proxy) in [(false, false), (false, true), (true, false), (true, true)] {
         let mut fixture = Fixture::new(&ready);
         if caches {
@@ -196,9 +200,15 @@ fn launch_cost_proxy() {
         if proxy {
             fixture.proxy(ProxyAnswer::Tunnel);
         }
-        let (costs, failures) = launches(&fixture, 100);
-        assert!(failures.is_empty(), "{failures:?}");
-        series.push(costs);
+        fixtures.push(fixture);
+    }
+    let mut series: Vec<Vec<Duration>> = vec![Vec::with_capacity(calls); fixtures.len()];
+    for _ in 0..calls {
+        for (fixture, costs) in fixtures.iter().zip(&mut series) {
+            let (cost, failures) = launches(fixture, 1);
+            assert!(failures.is_empty(), "{failures:?}");
+            costs.extend(cost);
+        }
     }
     let children = child_shell(&Fixture::new(&ready));
     let mut p95s = Vec::new();
