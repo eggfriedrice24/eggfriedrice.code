@@ -65,11 +65,14 @@ pub use mounts::{
     is_other_users, parse_mountinfo, render_df, render_findmnt_df,
 };
 pub use names::{
-    EFR_NAMES, PROXY_NAMES, SECRET_NAMES, SOCKET_NAMES, is_variable_name, matches as name_matches,
-    secret_like,
+    EFR_NAMES, GIT_CONFIG_NAMES, PROXY_NAMES, SECRET_NAMES, SOCKET_NAMES, has_url_password,
+    is_variable_name, matches as name_matches, secret_like,
 };
 pub use paths::{depth, expand_home, is_normal, is_within, normalize, too_wide};
-pub use plan::{Explanation, Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote, StartDir};
+pub use plan::{
+    Explanation, Mount, MountOp, MountOrigin, MountPlan, NO_PROXY, NO_PROXY_VARIABLES, OpKind,
+    PROXY_PORT, PROXY_URL, PROXY_VARIABLES, PlanNote, StartDir,
+};
 pub use probe::{
     BWRAP_REQUIRED_FLAGS, BwrapFacts, HOME_PROJECT_FIX, ProbeFailure, ProbeReport,
     SELF_TEST_TCP_ADDR, bwrap_missing_flags, check_bwrap, check_landlock, parse_bwrap_version,
@@ -89,8 +92,8 @@ pub use seccomp::{
 pub use spec::{
     CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS, JOB_DIR,
     JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan,
-    RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
-    layer_name,
+    PROXY_SOCKET_FILE, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch,
+    WriteRoot, WriteRootKind, layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

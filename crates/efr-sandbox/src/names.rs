@@ -38,6 +38,7 @@ pub const SECRET_NAMES: &[&str] = &[
     "*_KEY_ID",
     "*CREDENTIAL*",
     "*_PAT",
+    "*_AUTH",
     "*SESSION_ID*",
     "AWS_*",
     "AZURE_*",
@@ -72,8 +73,34 @@ pub const SOCKET_NAMES: &[&str] = &[
     "KRB5CCNAME",
 ];
 
-/// The proxy variables; phase 2 sets its own.
+/// The proxy variables; a proxy call gets its own (`MountPlan::env_overrides`).
 pub const PROXY_NAMES: &[&str] = &["*_proxy", "*_PROXY", "NO_PROXY", "no_proxy"];
+
+/// git's config from the environment, which can carry a token
+/// (`http.extraHeader`) or a credential helper into every git of a call.
+pub const GIT_CONFIG_NAMES: &[&str] =
+    &["GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_*", "GIT_CONFIG_VALUE_*"];
+
+/// True when `value` holds a URL with a password, such as
+/// `https://user:token@registry.example/simple`: a scheme, `://`, then user info with a
+/// `:` before the `@` of the authority. A URL with a user and no password, such as
+/// `ssh://git@host/`, does not count.
+pub fn has_url_password(value: &str) -> bool {
+    let mut rest = value;
+    while let Some(at) = rest.find("://") {
+        let after = rest.get(at + 3..).unwrap_or_default();
+        let end = after.find(['/', '?', '#', ' ', '\t', '\n', ',', ';']).unwrap_or(after.len());
+        let authority = after.get(..end).unwrap_or_default();
+        if let Some((user_info, _host)) = authority.rsplit_once('@')
+            && let Some((user, password)) = user_info.split_once(':')
+            && !(user.is_empty() && password.is_empty())
+        {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
 
 /// efr's own variables.
 pub const EFR_NAMES: &[&str] = &["EFR_*", "_EFR_*"];

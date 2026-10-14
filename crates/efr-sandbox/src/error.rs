@@ -167,6 +167,19 @@ pub enum SandboxError {
     #[error("the sandbox spec has the network view beside a grant other than write or unmask")]
     NetViewMixed,
 
+    /// The spec holds a proxy plan and `Grant::OpenNetwork`. The call would keep the
+    /// host's network namespace, and the bridge would listen on the host's port.
+    #[error("the sandbox spec has a proxy plan beside a grant of the whole network")]
+    ProxyWithOpenNetwork,
+
+    /// The proxy socket of the spec is not the call dir's `proxy.sock`, or it is not a
+    /// socket.
+    #[error("the proxy socket {path:?} is not the socket of this call")]
+    ProxySocket {
+        /// The path.
+        path: PathBuf,
+    },
+
     /// In the `overlay` cache mode, a cache's upper and work dirs do not share a layer
     /// dir of their own: they lie in two dirs, or another cache uses the same one.
     #[error("the layer dir of the cache {cache:?} is not its own")]
