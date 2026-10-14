@@ -1009,6 +1009,13 @@ impl Turn {
                 Some(Judged::Ruled(ruling)) => ruling.planned_launch(),
                 _ => None,
             };
+            // NOTE: what the engine dropped from the call's `needs`, such as a host that
+            // the proxy's allow list holds (efr's auto spec, 7.3); the model reads it with
+            // the result.
+            let notes: Vec<String> = match &judged {
+                Some(Judged::Ruled(ruling)) => ruling.decision.notes().to_vec(),
+                _ => Vec::new(),
+            };
             let watch = Stopwatch::start();
             self.record(vec![Event::ToolCallStarted {
                 turn_id,
@@ -1111,6 +1118,9 @@ impl Turn {
                     outcome.output = format!("{}\n{note}", outcome.output);
                 }
                 interrupted |= stopped;
+            }
+            for note in notes {
+                outcome.output = format!("{}\n{note}", outcome.output);
             }
             let result = ContentBlock::ToolResult {
                 call_id: call.provider_call_id,

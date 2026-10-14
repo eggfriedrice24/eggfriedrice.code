@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{BusKind, DesktopKind, ExitKind, Grant};
 
-use super::needs::host_and_port;
 use super::scan::{OPAQUE, is_assignment};
 use super::{Approver, Ecosystem, PRIVILEGE_EXITS};
 use crate::command::PRIVILEGED;
+use crate::network::{HostList, HostVerdict, host_and_port, is_ip_literal};
 use crate::{AutoSupport, Egress};
 
 /// One exit that a simple command needs.
@@ -410,8 +410,9 @@ fn find_exec(words: &[String]) -> Vec<&[String]> {
     found
 }
 
-/// The exits of one command, its program first.
-pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
+/// The exits of one command, its program first. `hosts` is the host list of efr's
+/// proxy, which only [`Egress::Proxy`] reads.
+pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList) -> Vec<Found> {
     let Some((first, args)) = words.split_first() else {
         return Vec::new();
     };
@@ -420,7 +421,7 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
     if PRIVILEGED.contains(&program) || PRIVILEGE_EXITS.contains(&program) {
         found.push(Found::of(ExitKind::Privilege));
     }
-    let network = Network { support };
+    let network = Network { support, hosts, urls: line_urls(words) };
     match program {
         "systemctl" => found.extend(systemctl(args)),
         "loginctl" => found.push(match verb(args, &[]) {
@@ -518,7 +519,7 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
             {
                 let mut inner = vec![module.clone()];
                 inner.extend(rest.iter().cloned());
-                found.extend(classify(&inner, support));
+                found.extend(classify(&inner, support, hosts));
             }
         }
         "gem" => found.extend(match verb(args, &[]) {
@@ -550,7 +551,8 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
         }),
         "ssh" | "mosh" | "autossh" => found.extend(network.remote_shell()),
         "nmcli" | "iwctl" => found.push(Found::bus_form(program, args)),
-        program if NETWORK_PROGRAMS.contains(&program) => found.extend(network.host()),
+        program if RAW_NETWORK_PROGRAMS.contains(&program) => found.push(open_network()),
+        program if HTTP_NETWORK_PROGRAMS.contains(&program) => found.extend(network.host()),
         program if HOST_VIEW.contains(&program) => {
             found.push(Found { grants: vec![Grant::OpenNetwork], ..Found::of(ExitKind::HostView) });
         }
@@ -759,17 +761,39 @@ const LOGINCTL_READ: &[&str] = &[
 /// The host exits of a network need, which depend on the machine's egress.
 struct Network<'a> {
     support: &'a AutoSupport,
+    /// The host list of efr's proxy, which the engine reads under [`Egress::Proxy`].
+    hosts: &'a HostList,
+    /// The host and port of each URL of the command ([`line_urls`]).
+    urls: Vec<(String, u16)>,
 }
 
 impl Network<'_> {
-    /// A `host` exit with the whole network for one call in phase 1; nothing once the
-    /// proxy decides (phase D).
+    /// The `host` exit of a program that fetches over HTTP: the whole network for one
+    /// call when the machine has no proxy. Under the proxy (phase D2, DP20) a URL host
+    /// of the command that the list does not allow and does not deny gets a grant of
+    /// its one host and port, so the call does not fail with a 403 first; a host that
+    /// the list allows or denies needs nothing, because the proxy decides it. A host
+    /// that the proxy cannot serve ([`ProxyRoute::Open`]) gets the whole network. A
+    /// line with no URL host has no exit.
     fn host(&self) -> Option<Found> {
         match self.support.egress {
-            Egress::None => {
-                Some(Found { grants: vec![Grant::OpenNetwork], ..Found::of(ExitKind::Host) })
+            Egress::None => Some(open_network()),
+            Egress::Proxy => {
+                let mut grants: Vec<Grant> = Vec::new();
+                for (host, port) in &self.urls {
+                    match proxy_route(self.hosts, host, *port) {
+                        ProxyRoute::Listed | ProxyRoute::Denied => {}
+                        ProxyRoute::Open => return Some(open_network()),
+                        ProxyRoute::Grant => {
+                            let grant = Grant::Host { host: host.clone(), port: *port };
+                            if !grants.contains(&grant) {
+                                grants.push(grant);
+                            }
+                        }
+                    }
+                }
+                (!grants.is_empty()).then(|| Found { grants, ..Found::of(ExitKind::Host) })
             }
-            Egress::Proxy => None,
         }
     }
 
@@ -783,8 +807,48 @@ impl Network<'_> {
     }
 }
 
-/// Programs that reach the network whatever their words say.
-const NETWORK_PROGRAMS: &[&str] = &[
+/// A `host` exit with the whole network for one call.
+fn open_network() -> Found {
+    Found { grants: vec![Grant::OpenNetwork], ..Found::of(ExitKind::Host) }
+}
+
+/// How a host and a port reach the network under efr's proxy (DP20, DP21).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProxyRoute {
+    /// The list allows the host on this port: the proxy lets it through.
+    Listed,
+    /// The list denies the host: the proxy refuses it, and no grant opens it.
+    Denied,
+    /// The proxy cannot serve it: `localhost`, an IP address (the proxy refuses an IP
+    /// address that no `[[network.hosts]]` entry lists, and a local or private one in
+    /// every case) or a port other than 443 and 80. Such a host needs the whole network
+    /// for the call: a dev server that the user's browser must reach, a service on the
+    /// host or the LAN, a client that does not use `HTTPS_PROXY`.
+    Open,
+    /// A grant of this one host and port for the call.
+    Grant,
+}
+
+/// The route of `host:port` under the proxy's list `hosts`. `host` is in lower case
+/// with no trailing dot, as [`host_and_port`] gives it.
+pub(super) fn proxy_route(hosts: &HostList, host: &str, port: u16) -> ProxyRoute {
+    match hosts.decide(host, port) {
+        HostVerdict::Allowed { .. } => return ProxyRoute::Listed,
+        HostVerdict::Denied => return ProxyRoute::Denied,
+        HostVerdict::NotListed => {}
+    }
+    let local = host == "localhost" || host.ends_with(".localhost");
+    if local || is_ip_literal(host) || !matches!(port, 443 | 80) {
+        ProxyRoute::Open
+    } else {
+        ProxyRoute::Grant
+    }
+}
+
+/// Programs that reach the network with no HTTP, whatever their words say: DNS, ping,
+/// traceroute and raw sockets. The proxy carries only HTTP and TLS, so they keep the
+/// whole network for one call after a review in every phase (DP20 (d)).
+const RAW_NETWORK_PROGRAMS: &[&str] = &[
     "nslookup",
     "dig",
     "host",
@@ -800,15 +864,12 @@ const NETWORK_PROGRAMS: &[&str] = &[
     "socat",
     "telnet",
     "ftp",
-    "checkupdates",
-    "npx",
-    "bunx",
-    "pnpx",
-    "uvx",
-    "pipx",
-    "aria2c",
-    "yt-dlp",
 ];
+
+/// Programs that fetch over HTTP whatever their words say: package runners and
+/// downloaders. Under the proxy they follow the host list ([`Network::host`]).
+const HTTP_NETWORK_PROGRAMS: &[&str] =
+    &["checkupdates", "npx", "bunx", "pnpx", "uvx", "pipx", "aria2c", "yt-dlp"];
 
 /// Programs that show the host's network, which only the host's namespace has. `nmcli`
 /// and `iwctl` are not here: they ask NetworkManager and iwd on the system bus, so they
@@ -1462,6 +1523,24 @@ pub(super) fn line_hosts(words: &[String]) -> Vec<String> {
     // check.
     hosts.retain(|host| !host.contains([OPAQUE, '$']));
     super::names::dedup(hosts)
+}
+
+/// The host and port of each URL of the command `words` (an operand with `://`), each
+/// once, as [`host_and_port`] reads it: port 80 for `http://`, else 443 unless the URL
+/// names one. A URL host that only the shell knows, such as `$HOST`, names nothing.
+pub(super) fn line_urls(words: &[String]) -> Vec<(String, u16)> {
+    let mut urls: Vec<(String, u16)> = Vec::new();
+    for word in words.iter().skip(1).filter(|word| word.contains("://")) {
+        if word.contains([OPAQUE, '$']) {
+            continue;
+        }
+        if let Some(url) = host_and_port(word)
+            && !urls.contains(&url)
+        {
+            urls.push(url);
+        }
+    }
+    urls
 }
 
 /// The host of the destination of `ssh` with `args`: the first word after the options,

@@ -7,6 +7,7 @@ mod destructive;
 mod jobs;
 mod modes;
 mod protection;
+mod proxy;
 mod settings;
 
 use std::path::PathBuf;

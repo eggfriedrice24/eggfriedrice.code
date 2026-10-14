@@ -231,8 +231,22 @@ Modules:
   engine the list (`Engine::hosts`; empty by default). `FactRequest::remotes` names
   the directories of git commands that reach a remote, and `CallFacts` gets their
   remotes (`RemoteFact`, each URL a `RemoteUrl`) and `refused_hosts`, the hosts that
-  the proxy refused. Nothing reads the list, the scans or these facts yet; the
-  engine, the proxy and efrd use them later in phase D2.
+  the proxy refused.
+  Under `Egress::Proxy` the prediction reads the list (DP20, DP21): a program that
+  fetches over HTTP (a package manager, `curl`, `wget`, `git clone`, `npx` and the
+  other runners) has no exit when its URL hosts are on the list, or when its line names
+  no host; the proxy decides. A URL host that the list does not allow and does not deny
+  is a `host` exit with `Grant::Host` of that one host and port, so the call does not
+  fail with a 403 first (port 80, from `http://`, means plain `GET` and `HEAD`). A
+  denied host has no exit, because the proxy refuses it. `localhost`, an IP address and
+  a port other than 443 and 80 keep `Grant::OpenNetwork` (`ProxyRoute::Open`): the
+  proxy cannot serve a dev server, a service on the host or the LAN, or a client that
+  does not use `HTTPS_PROXY`. The raw network programs (`nslookup`, `dig`, `ping`,
+  `nc`, `socat` and the rest of `RAW_NETWORK_PROGRAMS`) keep `OpenNetwork` in every
+  phase. `needs.hosts` follows the same routes; a word that is no ASCII host name, a
+  host on the list and a denied host are dropped, and `Decision::notes` tells the model
+  why (the turn adds the notes to the tool result). With `Egress::None` every network
+  need is a `host` exit with `OpenNetwork`, as before.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each

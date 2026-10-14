@@ -54,6 +54,7 @@ impl fmt::Display for Effect {
 pub struct Decision {
     effect: Effect,
     reasons: Vec<Reason>,
+    notes: Vec<String>,
 }
 
 impl Decision {
@@ -61,7 +62,22 @@ impl Decision {
     /// engine, and the decision fails closed.
     pub(crate) fn from_reasons(reasons: Vec<Reason>) -> Self {
         let effect = reasons.iter().map(|reason| reason.effect).max().unwrap_or(Effect::Deny);
-        Decision { effect, reasons }
+        Decision { effect, reasons, notes: Vec::new() }
+    }
+
+    /// The decision with `notes` for the model.
+    #[must_use]
+    pub(crate) fn with_notes(mut self, notes: Vec<String>) -> Self {
+        self.notes = notes;
+        self
+    }
+
+    /// Notes for the model about what the engine dropped from the call's `needs`, one
+    /// sentence each in brackets, such as a host that the proxy's allow list already
+    /// holds (efr's auto spec, 7.3). The turn adds them to the tool result. Empty for
+    /// most calls.
+    pub fn notes(&self) -> &[String] {
+        &self.notes
     }
 
     /// What happens to the call.

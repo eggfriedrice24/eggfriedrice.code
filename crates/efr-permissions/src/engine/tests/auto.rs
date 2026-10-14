@@ -2204,15 +2204,22 @@ fn cautious_privileged_list_unchanged() {
 }
 
 #[test]
-fn auto_network_need_is_a_host_exit_in_phase1_and_none_with_the_proxy() {
+fn auto_network_need_is_a_host_exit_in_phase1_and_follows_the_list_with_the_proxy() {
     for line in ["npm ci", "cargo fetch", "git fetch origin", "curl https://x", "pip install x"] {
         let decision = decide(shell(line).with_network());
         assert_eq!(kinds(&decision), [ExitKind::Host], "{line:?}");
         assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork]);
+        // NOTE: the engine's list is empty here, so the URL host `x` gets a grant of its
+        // own; a line that names no host leaves the decision to the proxy (DP20).
         let proxy = engine()
             .with_support(AutoSupport { egress: Egress::Proxy, ..AutoSupport::default() })
             .decide(&in_auto(shell(line).with_network()));
-        assert_eq!((proxy.effect(), kinds(&proxy)), (Effect::Contain, vec![]), "{line:?}");
+        let grants: Vec<Grant> = proxy.exits().flat_map(|need| need.grants.clone()).collect();
+        if line.contains("://") {
+            assert_eq!(grants, [Grant::Host { host: "x".to_owned(), port: 443 }], "{line:?}");
+        } else {
+            assert_eq!((proxy.effect(), kinds(&proxy)), (Effect::Contain, vec![]), "{line:?}");
+        }
     }
     // A remote shell has no proxy route.
     let proxy = engine()
