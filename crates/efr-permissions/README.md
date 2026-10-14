@@ -247,6 +247,20 @@ Modules:
   host on the list and a denied host are dropped, and `Decision::notes` tells the model
   why (the turn adds the notes to the tool result). With `Egress::None` every network
   need is a `host` exit with `OpenNetwork`, as before.
+- `exits/remotes.rs` (phase D2, DP22): the git commands that reach a remote (`fetch`,
+  `pull`, `ls-remote`, `remote update`, `push`, `submodule update`). `fact_requests`
+  names the directory of each one in `FactRequest::remotes` (not for a line that sets a
+  `GIT_*` variable or a git command with `-c`, `--git-dir` or `--work-tree`: the facts
+  of the directory would be wrong), and the prediction picks the remotes that the
+  command uses from `CallFacts::remotes`: the named one, else every remote for `--all`
+  and `remote update`, else the current branch's remote, else `origin`; every
+  submodule URL for `submodule update`. Each fetch or push URL's host joins
+  `ExitNeed::hosts` of the line's `host` and `upload` exits, so the reviewer sees each
+  host behind a remote name. Under the proxy a fetch from an https remote follows the
+  list as a URL host does, and a fetch from an ssh remote is an `outside` exit with its
+  hosts as names (`ClassifierWhenNamed`); an ssh submodule URL comes from
+  `.gitmodules`, which the model can write, so only the user approves it. A directory
+  with no fact keeps the line's own hosts.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each
