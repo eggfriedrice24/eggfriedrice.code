@@ -741,6 +741,10 @@ pub struct FactRequest {
     /// `crontab <file>`, the sources of a `cp` or `ln` into a floor. The answers go to
     /// [`CallFacts::sources`]; the daemon never reads a mask or a secret for them.
     pub sources: Vec<Source>,
+    /// The directories of git commands that reach a remote (`fetch`, `pull`,
+    /// `ls-remote`, `remote update`, `push`, `submodule update`; phase D2, DP22). The
+    /// answers go to [`CallFacts::remotes`]. Empty until the engine of phase D2 fills it.
+    pub remotes: Vec<PathBuf>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the

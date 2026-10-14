@@ -32,7 +32,9 @@
 //! - The network proxy (phase D2): [`network`] holds the [`Preset`]s and the
 //!   [`HostList`] that the config check, the engine and the proxy share, the pacman
 //!   mirror parser, and [`network::tokens`], the scans for credentials in files that
-//!   the sandbox must read.
+//!   the sandbox must read. [`Engine::with_hosts`] gives the engine that list, and
+//!   [`CallFacts`] carries the git remotes ([`RemoteFact`], [`RemoteUrl`]) and the
+//!   hosts that the proxy refused.
 //!
 //! `efr-tools` declares what a call needs, this crate decides, and
 //! `efr-conversation/src/turn.rs` enforces; `xtask/src/deps.rs` forbids
@@ -72,7 +74,7 @@ pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{
     Access, CallFacts, ConversationPolicy, CoverAsk, Coverage, DecisionInput, PathAccess,
-    Requirements, SettingsChange, Source, SourceFact, TargetKind,
+    RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact, TargetKind,
 };
 pub use support::{AutoSupport, Egress};
 pub use tables::{

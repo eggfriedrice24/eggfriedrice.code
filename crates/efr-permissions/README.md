@@ -219,8 +219,12 @@ Modules:
   project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or cargo config and
   gives every host that the file names plus the ecosystem's registry hosts;
   `git_tokens` finds the remotes, `insteadOf` bases, `extraHeader`s and credential
-  helpers of the git config that carry a credential. Nothing reads the list or the
-  scans yet; the proxy and efrd use them later in phase D2.
+  helpers of the git config that carry a credential. `Engine::with_hosts` gives the
+  engine the list (`Engine::hosts`; empty by default). `FactRequest::remotes` names
+  the directories of git commands that reach a remote, and `CallFacts` gets their
+  remotes (`RemoteFact`, each URL a `RemoteUrl`) and `refused_hosts`, the hosts that
+  the proxy refused. Nothing reads the list, the scans or these facts yet; the
+  engine, the proxy and efrd use them later in phase D2.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each

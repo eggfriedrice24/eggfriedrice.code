@@ -216,6 +216,47 @@ pub struct CallFacts {
     /// whose bytes a persistence form installs, such as the source of a link into a
     /// unit dir (phase B). A source with no fact here never goes to the classifier.
     pub sources: Vec<SourceFact>,
+    /// The git remotes of each directory of
+    /// [`FactRequest::remotes`](crate::FactRequest), from one hardened git run per
+    /// repository (phase D2, DP22). A directory with no fact here has no remote hosts.
+    pub remotes: Vec<(PathBuf, Vec<RemoteFact>)>,
+    /// The hosts that efr's proxy refused in this conversation's last call and in its
+    /// jobs (phase D2, DP23). A fact for the reviewer, never a name: it shows only that
+    /// a command tried the host.
+    pub refused_hosts: Vec<String>,
+}
+
+/// One git remote of a directory, or one submodule URL of its `.gitmodules` (phase D2,
+/// DP22).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteFact {
+    /// The remote's name, such as `origin`, or the submodule's name.
+    pub name: String,
+    /// Every fetch URL, after `insteadOf`.
+    pub fetch: Vec<RemoteUrl>,
+    /// Every URL that git pushes to: each `pushurl`, else each `url`, after
+    /// `pushInsteadOf`.
+    pub push: Vec<RemoteUrl>,
+    /// A remote of a pinned project git dir whose URLs equal those of the
+    /// conversation's first fact request (DP22). Never for a submodule.
+    pub project: bool,
+    /// The remote of the current branch.
+    pub upstream: bool,
+    /// A `submodule.*.url` of `.gitmodules`, not a `remote.*`.
+    pub submodule: bool,
+}
+
+/// The host and port of one remote URL (phase D2, DP22).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteUrl {
+    /// The host, in lower case.
+    pub host: String,
+    /// The port: the URL's own, else the default of its scheme.
+    pub port: u16,
+    /// `ssh://`, `git@host:` or another form that git runs ssh for.
+    pub ssh: bool,
+    /// The URL holds a password or a token (DP25).
+    pub credentials: bool,
 }
 
 impl CallFacts {

@@ -169,6 +169,8 @@ fn requirements(line: &Line, text: &str) -> Requirements {
         links: Vec::new(),
         covered,
         sources: Vec::new(),
+        remotes: Vec::new(),
+        refused_hosts: Vec::new(),
     })
 }
 
