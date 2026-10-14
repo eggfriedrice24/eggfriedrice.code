@@ -426,10 +426,18 @@ fn check(args: &BridgeArgs) -> Result<(), SbxError> {
     )
     .and_then(|socket| rustix::net::bind(&socket, &rustix::net::SocketAddrUnix::new_unnamed()));
     lines.push(line("bind", bind == Err(Errno::PERM), format!("{bind:?}")));
-    let exec = os::command(SELF_EXE).arg("--version").stdin(Stdio::null()).output();
+    // NOTE: the standard streams stay this process's own: the bridge's domain cannot
+    // open /dev/null, which would refuse the spawn before its exec.
+    let exec = os::command(SELF_EXE)
+        .arg("--version")
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .and_then(|mut child| child.wait());
     let refused =
         exec.as_ref().is_err_and(|error| error.raw_os_error() == Some(Errno::PERM.raw_os_error()));
-    lines.push(line("exec", refused, format!("{:?}", exec.map(|out| out.status))));
+    lines.push(line("exec", refused, format!("{exec:?}")));
     drop(setup);
     let mut out = io::stdout().lock();
     let mut all = true;

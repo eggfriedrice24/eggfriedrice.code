@@ -698,3 +698,41 @@ fn exit_child_job_cannot_gain_privileges() {
         assert!(run.stdout.contains("CapEff:\t0000000000000000"), "{run:#?}");
     }
 }
+
+#[test]
+fn bridge_ends_with_job() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let proxy = fixture.proxy(crate::support::ProxyAnswer::Tunnel);
+    let run = fixture.run_job(crate::proxy::TUNNEL, plan());
+    run.expect_status(0);
+    assert!(run.stdout.contains("back ping"), "{run:#?}");
+    assert_eq!(proxy.connections(), [crate::proxy::TUNNEL_BYTES.to_vec()]);
+    assert!(!crate::proxy::bridge_alive(&fixture), "a bridge outlived its job");
+}
+
+#[test]
+fn bridge_not_in_background_stopped() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    fixture.proxy(crate::support::ProxyAnswer::Tunnel);
+    let started = fixture.project.join("started");
+    let line = format!("print ok > {}; sleep 9876.9", q(&started));
+    let call_dir = fixture.prepare_job(&line, plan());
+    let mut run = fixture.spawn_job(&call_dir);
+    run.start();
+    wait_until("the job's start", || started.exists());
+    wait_until("the job's sleep", || sleeping("9876.9"));
+    assert!(crate::proxy::bridge_alive(&fixture), "the job has no bridge");
+    run.signal(Signal::TERM);
+    let run = run.wait(&fixture);
+    assert_eq!(stopped_by(&run), Some(JobStop::Signal), "{run:#?}");
+    let stopped = &run.result().summary.background_stopped;
+    // The stop names the job's own processes and never the bridge, which ended with
+    // the namespace.
+    assert!(stopped.contains(&"sleep".to_owned()), "{run:#?}");
+    assert!(!stopped.contains(&"efr-bridge".to_owned()), "{run:#?}");
+    assert!(run.result().summary.survivors.is_empty(), "{run:#?}");
+    assert!(!alive("sleep 9876.9"));
+    assert!(!crate::proxy::bridge_alive(&fixture));
+}
