@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use clap::Parser;
 
-use super::{BRIDGE_CNAME, BridgeArgs, MAX_CONNECTIONS, READY_WAIT, Step, read_ready};
+use super::{BRIDGE_CNAME, BRIDGE_NAME, BridgeArgs, MAX_CONNECTIONS, READY_WAIT, Step, read_ready};
 use crate::{Cli, Command};
 
 fn parse(args: &[&str]) -> Result<BridgeArgs, clap::Error> {
@@ -71,7 +71,7 @@ fn ready_byte_or_its_absence() {
 
 #[test]
 fn bridge_limits() {
-    assert_eq!(BRIDGE_CNAME.to_bytes(), b"efr-bridge");
+    assert_eq!(BRIDGE_CNAME.to_bytes(), BRIDGE_NAME.as_bytes());
     // The kernel keeps 15 bytes of a process name.
     assert!(BRIDGE_CNAME.to_bytes().len() <= 15);
     assert_eq!(MAX_CONNECTIONS, 64);

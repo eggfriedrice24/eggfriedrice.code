@@ -23,7 +23,11 @@
 //!
 //! A stop sends SIGTERM to every process of the job but bwrap's own (the namespace's
 //! init ignores it, and bwrap's end would kill the rest at once), SIGKILL from 2 s, and
-//! gives up at 4 s. Then the normal end writes `result.json` with the stop's reason.
+//! gives up at 4 s. The bridge of a proxy job, a process named `efr-bridge` whose parent
+//! is the namespace's init, is spared like bwrap's own and never named in
+//! `background_stopped`: it ends with the namespace. This is a rule of the list, not of
+//! safety: a process of the job that renames itself so and leaves its parent still ends
+//! with the job's child. Then the normal end writes `result.json` with the stop's reason.
 //! No `apply`, no `state.json` and no `state.zsh`: a job changes no state of the hidden
 //! shell. There is no `PR_SET_PDEATHSIG`: it fires when the thread that forked ends, and
 //! efrd's blocking threads end when idle. The lifeline does the same job.
@@ -214,8 +218,9 @@ fn merge(into: &mut Vec<String>, names: Vec<String>) {
 /// the processes it found, without bwrap's own, and of those it could not end.
 fn stop_job<P: Processes>(procs: &mut JobProcesses<P>) -> Ending {
     let mut stopped = Vec::new();
-    let found: Vec<String> = procs
-        .descendants()
+    let first = procs.descendants();
+    procs.spare_bridges(&first);
+    let found: Vec<String> = first
         .into_iter()
         .filter(|(pid, _)| !procs.spared.contains(&pid.as_raw_nonzero().get()))
         .map(|(_, name)| name)
@@ -349,12 +354,16 @@ fn watch_lifeline(events: Sender<Event>) -> Result<(), SbxError> {
 pub(crate) struct JobProcesses<P: Processes> {
     procs: P,
     spared: BTreeSet<i32>,
+    /// The namespace's init of a contained job, the parent of its bridge.
+    inits: BTreeSet<i32>,
+    /// The parent of a process, as the host's `/proc` names it.
+    parent: fn(i32) -> Option<i32>,
 }
 
 impl JobProcesses<Live> {
     fn new(contained: bool) -> Self {
-        let spared = if contained { bwrap_pids() } else { BTreeSet::new() };
-        JobProcesses { procs: Live { start: os::now() }, spared }
+        let (spared, inits) = if contained { bwrap_pids() } else { Default::default() };
+        JobProcesses { procs: Live { start: os::now() }, spared, inits, parent: parent_pid }
     }
 }
 
@@ -362,8 +371,37 @@ impl JobProcesses<Live> {
 impl<P: Processes> JobProcesses<P> {
     /// `procs` with `spared` left out of SIGTERM.
     pub(crate) fn with(procs: P, spared: BTreeSet<i32>) -> Self {
-        JobProcesses { procs, spared }
+        JobProcesses { procs, spared, inits: BTreeSet::new(), parent: |_| None }
     }
+
+    /// The same with `inits`, the namespace's inits, and `parent` for the parents.
+    pub(crate) fn with_inits(
+        procs: P,
+        spared: BTreeSet<i32>,
+        inits: BTreeSet<i32>,
+        parent: fn(i32) -> Option<i32>,
+    ) -> Self {
+        JobProcesses { procs, spared, inits, parent }
+    }
+}
+
+impl<P: Processes> JobProcesses<P> {
+    /// Spares the bridge among `found`: like bwrap's own processes it gets no SIGTERM
+    /// and no line in `background_stopped`, and it ends with the namespace.
+    fn spare_bridges(&mut self, found: &[(Pid, String)]) {
+        for (pid, name) in found {
+            let pid = pid.as_raw_nonzero().get();
+            if is_bridge(name, (self.parent)(pid), &self.inits) {
+                self.spared.insert(pid);
+            }
+        }
+    }
+}
+
+/// True for the bridge of a proxy job: the name `efr-bridge` and the namespace's init
+/// as its parent. A process of the job with that name and another parent is not.
+pub(crate) fn is_bridge(name: &str, parent: Option<i32>, inits: &BTreeSet<i32>) -> bool {
+    name == crate::bridge::BRIDGE_NAME && parent.is_some_and(|parent| inits.contains(&parent))
 }
 
 impl<P: Processes> Processes for JobProcesses<P> {
@@ -423,17 +461,29 @@ fn zombie(pid: Pid) -> bool {
 }
 
 /// bwrap's own processes: each child of the launcher named `bwrap`, and its children,
-/// the namespace's init.
-fn bwrap_pids() -> BTreeSet<i32> {
+/// the namespace's init; and the inits alone.
+fn bwrap_pids() -> (BTreeSet<i32>, BTreeSet<i32>) {
     let mut pids = BTreeSet::new();
+    let mut inits = BTreeSet::new();
     for child in children(rustix::process::getpid().as_raw_nonzero().get()) {
         let name = std::fs::read_to_string(format!("/proc/{child}/comm")).unwrap_or_default();
         if name.trim() == "bwrap" {
             pids.insert(child);
-            pids.extend(children(child));
+            let below = children(child);
+            pids.extend(&below);
+            inits.extend(below);
         }
     }
-    pids
+    (pids, inits)
+}
+
+/// The parent of `pid` from `/proc/<pid>/stat`, which a process that is not dumpable
+/// shows too.
+fn parent_pid(pid: i32) -> Option<i32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The state and the parent follow the name, which ends with the last `)`.
+    let (_, rest) = stat.rsplit_once(')')?;
+    rest.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// The direct children of `pid`.

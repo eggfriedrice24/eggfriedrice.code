@@ -10,7 +10,7 @@ use efr_sandbox::JobStop;
 use pretty_assertions::assert_eq;
 use rustix::process::{Pid, Signal};
 
-use super::{Event, JobProcesses, monitor, parse_env};
+use super::{Event, JobProcesses, is_bridge, monitor, parse_env, stop_job};
 use crate::exit_child::{POLL, Processes, end_descendants};
 use crate::os;
 
@@ -126,4 +126,83 @@ fn the_env_file_gives_the_jobs_environment() {
             ("PATH".into(), "/usr/bin:/bin".into()),
         ]
     );
+}
+
+/// The parents of the processes of [`bridge_fake`]: bwrap (10) runs the namespace's
+/// init (11), which runs the job's shell (12) and the bridge (13); the shell runs a
+/// child that named itself `efr-bridge` (14).
+fn bridge_parents(pid: i32) -> Option<i32> {
+    match pid {
+        11 => Some(10),
+        12 | 13 => Some(11),
+        14 => Some(12),
+        _ => None,
+    }
+}
+
+fn bridge_fake() -> Fake {
+    Fake {
+        procs: vec![
+            (10, "bwrap", None, true),
+            (11, "bwrap", None, true),
+            (12, "zsh", Some(Signal::TERM), true),
+            (13, "efr-bridge", None, true),
+            (14, "efr-bridge", Some(Signal::TERM), true),
+        ],
+        sent: Vec::new(),
+        elapsed: Duration::ZERO,
+    }
+}
+
+#[test]
+fn job_stop_spares_bridge_by_name_and_parent() {
+    let inits = BTreeSet::from([11]);
+    assert!(is_bridge("efr-bridge", Some(11), &inits));
+    assert!(!is_bridge("efr-bridge", Some(12), &inits), "a child of the job's shell");
+    assert!(!is_bridge("efr-bridge", None, &inits), "a parent that /proc did not show");
+    assert!(!is_bridge("node", Some(11), &inits), "another child of the init");
+    assert!(!is_bridge("efr-bridge", Some(11), &BTreeSet::new()), "an exit child's job");
+    let mut fake = bridge_fake();
+    fake.procs.retain(|(pid, _, _, _)| *pid != 14);
+    let mut procs = JobProcesses::with_inits(fake, BTreeSet::from([10, 11]), inits, bridge_parents);
+    let ending = stop_job(&mut procs);
+    // The bridge (13) gets no SIGTERM and no name in the list; it ends with the
+    // namespace, which the fake's SIGKILL of bwrap stands for.
+    assert_eq!(terms(&procs.procs.sent), [12]);
+    assert_eq!(ending.stopped, ["zsh"], "{ending:?}");
+    assert!(procs.procs.sent.contains(&(13, Signal::KILL)));
+}
+
+/// The pids that got SIGTERM, in order.
+fn terms(sent: &[(i32, Signal)]) -> Vec<i32> {
+    sent.iter().filter(|(_, signal)| *signal == Signal::TERM).map(|(pid, _)| *pid).collect()
+}
+
+#[test]
+fn job_stop_does_not_spare_renamed_child_of_zsh() {
+    // The child of the shell (14) that named itself efr-bridge gets SIGTERM and its
+    // line, beside the real bridge (13), which gets neither.
+    let inits = BTreeSet::from([11]);
+    let mut procs =
+        JobProcesses::with_inits(bridge_fake(), BTreeSet::from([10, 11]), inits, bridge_parents);
+    let ending = stop_job(&mut procs);
+    assert_eq!(terms(&procs.procs.sent), [12, 14]);
+    assert_eq!(ending.stopped, ["zsh", "efr-bridge"], "{ending:?}");
+}
+
+#[test]
+fn a_job_without_bridge_lists_every_process_as_before() {
+    let mut procs = JobProcesses::with(bridge_fake(), BTreeSet::from([10, 11]));
+    let ending = stop_job(&mut procs);
+    // With no init known (an exit child's job), both names are listed.
+    assert_eq!(ending.stopped, ["zsh", "efr-bridge"], "{ending:?}");
+    assert_eq!(terms(&procs.procs.sent), [12, 13, 14]);
+}
+
+#[test]
+fn the_parent_comes_from_proc_stat() {
+    let own = rustix::process::getpid().as_raw_nonzero().get();
+    let parent = rustix::process::getppid().map(|pid| pid.as_raw_nonzero().get());
+    assert_eq!(super::parent_pid(own), parent);
+    assert_eq!(super::parent_pid(i32::MAX), None);
 }
