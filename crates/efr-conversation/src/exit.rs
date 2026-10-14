@@ -20,8 +20,8 @@ use std::path::{Component, Path, PathBuf};
 
 use efr_permissions::exits::{self, Ecosystem, REGISTRY_HOSTS};
 use efr_permissions::{
-    Approver, Cause, Decision, Engine, ExitNeed, PathClass, Rebuild, Requirements, TargetKind,
-    WriteBind,
+    Approver, Cause, Decision, Egress, Engine, ExitNeed, PathClass, Rebuild, Requirements,
+    TargetKind, WriteBind,
 };
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
@@ -483,9 +483,13 @@ fn named(record: &ExitRecord, fetch: Option<Ecosystem>) -> bool {
         }
         _ => &[],
     };
+    // NOTE: `refused_by_proxy` is never a name: it shows only that a command tried the
+    // host. A project's own remote counts as named; an upload still needs its verb in
+    // a user message, which its route checks.
     record.facts.hosts.iter().all(|host| {
         host.on_allow_list
             || host.named_in_user_messages
+            || host.project_remote
             || registries.contains(&host.host.as_str())
     })
 }
@@ -884,34 +888,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             masked: place.is_some_and(|place| place.masked),
         });
     }
-    let mut hosts: Vec<HostFact> = Vec::new();
-    let mut add_host = |host: String| {
-        if !host.is_empty() && !hosts.iter().any(|known| known.host == host) {
-            let named_in_user_messages = exits::names_match(std::slice::from_ref(&host), messages);
-            hosts.push(HostFact {
-                host,
-                on_allow_list: false,
-                named_in_user_messages,
-                refused_by_proxy: false,
-                project_remote: false,
-            });
-        }
-    };
-    for need in action.decision.exits() {
-        for grant in &need.grants {
-            if let Grant::Host { host, .. } = grant {
-                add_host(host.to_lowercase());
-            }
-        }
-        // NOTE: before the proxy a host exit opens the whole network, so its grant
-        // names no host; the hosts that the line names still need a name (spec 9.4).
-        for host in &need.hosts {
-            add_host(host.clone());
-        }
-    }
-    for host in action.requirements.needs.iter().flat_map(|needs| &needs.hosts) {
-        add_host(host.trim().to_lowercase());
-    }
+    let hosts = host_facts(action.decision, action.requirements, action.engine, messages);
     let programs = action
         .requirements
         .facts
@@ -985,6 +962,89 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             denials_this_turn: turn.denials_this_turn,
         },
     }
+}
+
+/// The host facts of the exits of `decision`, each host once (efr's auto spec, 9.4 and
+/// DP23): the hosts of the exits' `Grant::Host` grants and of
+/// [`ExitNeed::hosts`](efr_permissions::ExitNeed), which hold the hosts that the line
+/// names, the hosts behind a git remote name and the model's `needs.hosts` in their
+/// normal form.
+///
+/// `on_allow_list` holds only under efr's proxy, for a host that only `host` exits
+/// name, each with `Grant::Host` grants only (never `Grant::OpenNetwork`), on each of
+/// their ports, when no `upload` or `outside` exit names the host. So the list never
+/// lifts the name for an exit that opens the whole network, for an upload or for a run
+/// outside the sandbox, and never with no proxy. `project_remote` holds for a host of a
+/// remote of a pinned project git dir that did not change since the conversation's first
+/// call (`RemoteFact::project`), never for a submodule. `refused_by_proxy` holds for a
+/// host that the proxy refused in the conversation's last call or its jobs: a fact,
+/// never a name.
+fn host_facts(
+    decision: &Decision,
+    requirements: &Requirements,
+    engine: &Engine,
+    messages: &[String],
+) -> Vec<HostFact> {
+    let facts = requirements.facts.as_ref();
+    let proxy = engine.support().egress == Egress::Proxy;
+    let mut order: Vec<String> = Vec::new();
+    for need in decision.exits() {
+        let granted = need.grants.iter().filter_map(|grant| match grant {
+            Grant::Host { host, .. } => Some(host.to_lowercase()),
+            _ => None,
+        });
+        for host in granted.chain(need.hosts.iter().cloned()) {
+            if !host.is_empty() && !order.contains(&host) {
+                order.push(host);
+            }
+        }
+    }
+    let wide = |need: &ExitNeed| {
+        matches!(need.kind, ExitKind::Upload | ExitKind::Outside)
+            || need.grants.iter().any(|grant| !matches!(grant, Grant::Host { .. }))
+    };
+    let on_allow_list = |host: &str| {
+        let naming: Vec<&ExitNeed> = decision
+            .exits()
+            .filter(|need| {
+                need.hosts.iter().any(|known| known == host)
+                    || need.grants.iter().any(
+                        |grant| matches!(grant, Grant::Host { host: known, .. } if known == host),
+                    )
+            })
+            .collect();
+        proxy
+            && !naming.is_empty()
+            && naming.iter().all(|need| need.kind == ExitKind::Host && !wide(need))
+            && naming.iter().all(|need| {
+                need.grants.iter().all(|grant| match grant {
+                    Grant::Host { port, .. } => engine.hosts().allows(host, *port),
+                    _ => false,
+                })
+            })
+    };
+    let project_remote = |host: &str| {
+        facts.is_some_and(|facts| {
+            facts.remotes.iter().flat_map(|(_, remotes)| remotes).any(|remote| {
+                remote.project
+                    && !remote.submodule
+                    && remote.fetch.iter().chain(&remote.push).any(|url| url.host == host)
+            })
+        })
+    };
+    let refused = |host: &str| {
+        facts.is_some_and(|facts| facts.refused_hosts.iter().any(|known| known == host))
+    };
+    order
+        .into_iter()
+        .map(|host| HostFact {
+            on_allow_list: on_allow_list(&host),
+            named_in_user_messages: exits::names_match(std::slice::from_ref(&host), messages),
+            refused_by_proxy: refused(&host),
+            project_remote: project_remote(&host),
+            host,
+        })
+        .collect()
 }
 
 /// Whether efr copies every file of the exits of `decision` before the call, so that

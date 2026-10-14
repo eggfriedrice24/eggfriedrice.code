@@ -1583,6 +1583,16 @@ pub(super) fn line_hosts(words: &[String]) -> Vec<String> {
             );
         }
         "ssh" | "mosh" | "autossh" => hosts.extend(ssh_destination(program, args)),
+        // NOTE: a raw network program names its host as a plain operand, such as
+        // `nslookup github.com` or `dig @1.1.1.1 x.test`; a word with no dot, such as a
+        // port or a count, names none.
+        program if RAW_NETWORK_PROGRAMS.contains(&program) => hosts.extend(
+            args.iter()
+                .map(|arg| arg.trim_start_matches('@'))
+                .filter(|arg| !arg.starts_with(['-', '+']) && !arg.contains("://"))
+                .filter(|arg| arg.contains('.') || *arg == "localhost")
+                .filter_map(|arg| host_and_port(arg).map(|(host, _)| host)),
+        ),
         _ => {}
     }
     // NOTE: a host that only the shell knows, such as `$HOST`, names nothing efr can

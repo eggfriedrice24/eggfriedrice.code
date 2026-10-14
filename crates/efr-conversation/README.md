@@ -118,7 +118,17 @@ turns.
   write, a floor file edit or an `above_root` exit needs a user message that names
   each target outside a cache, build output, efr's trash and the write roots; a host
   needs one that names it, except the registries of a package manager's fetch when a
-  message asks to build, install, update or fetch (`exit::REGISTRY_EXCEPTION`). An
+  message asks to build, install, update or fetch (`exit::REGISTRY_EXCEPTION`). Under
+  efr's network proxy (phase D2, DP23) a host needs no name when it is `on_allow_list`:
+  only `host` exits with `Grant::Host` grants name it, the list allows it on each of
+  their ports, and no `upload` or `outside` exit names it. An exit that opens the whole
+  network, and every exit with no proxy, never sets it. A host with `project_remote`
+  (a remote of a pinned project git dir that did not change since the conversation's
+  first call, never a submodule) counts as named too; an upload still needs its verb
+  in a user message, which its route checks. `refused_by_proxy` (from
+  `CallFacts::refused_hosts`) is a fact, never a name. The host facts come from the
+  exits' grants and `ExitNeed::hosts`, so the model's `needs.hosts` words reach the
+  record in their normal form. An
   allow runs the call with its launch, never as `approved_interactive`. A deny gives
   the model the reviewer's text ("The auto reviewer refused this action ..."). Any
   other answer, and a judge that gave none (every step of its chain failed), asks the
@@ -1044,7 +1054,8 @@ deletes (`turn/tests/cache.rs`), the snapshots and the undo info at the end of a
 (`turn/tests/sandbox.rs`), and the routine lines of the command corpus of
 `efr-permissions`, which make no judge call (`turn/tests/corpus.rs`). `exit/tests.rs`
 checks `grant`, the question facts and the record against the real engine, and
-`exit/tests/review.rs` the route, the payload, the allow rule and the naming rule. The undo of the actor (busy, a call that
+`exit/tests/review.rs` the route, the payload, the allow rule and the naming rule,
+`exit/tests/naming.rs` the naming rule under the proxy. The undo of the actor (busy, a call that
 runs on, the queue, one record per apply, a phone) is in `actor/tests/undo.rs`. Job
 notices and wake turns (the wake limits, the mode, the chain rule, the call cap, the
 held notices, the presence of a wake turn) are in `actor/tests/jobs.rs` and the table
