@@ -198,6 +198,9 @@ pub(crate) struct Fixture {
     pub(crate) spec: SandboxSpec,
     /// The launcher's environment.
     pub(crate) env: BTreeMap<OsString, OsString>,
+    /// The test proxy of [`Fixture::proxy`]: each call then gets a proxy plan with its
+    /// own socket.
+    proxy: Option<TestProxy>,
 }
 
 /// One finished call.
@@ -350,7 +353,29 @@ impl Fixture {
             conversation,
             spec,
             env,
+            proxy: None,
         }
+    }
+
+    /// Gives every later call a proxy plan (`NetworkPlan::Proxy`), with its socket at
+    /// `$CALL/proxy.sock` served by a test listener that stands for efrd and answers
+    /// `answer`.
+    pub(crate) fn proxy(&mut self, answer: ProxyAnswer) -> TestProxy {
+        let proxy = TestProxy { answer, log: std::sync::Arc::default() };
+        self.proxy = Some(proxy.clone());
+        proxy
+    }
+
+    /// The spec of a call in `call_dir`: with the fixture's test proxy, a proxy plan with
+    /// the call's own socket, which the proxy serves from now on.
+    fn call_spec(&self, call: CallId, call_dir: &Path) -> SandboxSpec {
+        let mut spec = self.spec.clone();
+        spec.call = call;
+        spec.runtime.call_dir = call_dir.to_path_buf();
+        if let Some(proxy) = &self.proxy {
+            spec.network = NetworkPlan::Proxy { socket: proxy.serve(call_dir) };
+        }
+        spec
     }
 
     /// Makes the project a git repository with one commit.
@@ -445,9 +470,7 @@ impl Fixture {
         let call = CallId::from_uuid(new_id());
         let call_dir = self.spec.runtime.shell_dir.join(call.to_string());
         private_dir(&call_dir);
-        let mut spec = self.spec.clone();
-        spec.call = call;
-        spec.runtime.call_dir.clone_from(&call_dir);
+        let spec = self.call_spec(call, &call_dir);
         private_file(&call_dir.join(SPEC_FILE), &spec.to_json().unwrap(), 0o600);
         private_file(&call_dir.join(LINE_FILE), line.as_bytes(), 0o600);
         private_file(&call_dir.join(NONCE_FILE), b"0123456789abcdef0123456789abcdef", 0o600);
@@ -570,9 +593,7 @@ impl Fixture {
         private_dir(&jobs);
         let call_dir = jobs.join(call.to_string());
         private_dir(&call_dir);
-        let mut spec = self.spec.clone();
-        spec.call = call;
-        spec.runtime.call_dir.clone_from(&call_dir);
+        let mut spec = self.call_spec(call, &call_dir);
         spec.job = Some(job);
         let layers = spec.runtime.job_state_dir(call);
         for cache in &mut spec.caches {
@@ -789,4 +810,99 @@ pub(crate) fn write(path: &Path, text: &str) {
 /// A shell word for `path`, single-quoted.
 pub(crate) fn q(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
+/// What the test proxy answers to the head of each connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProxyAnswer {
+    /// `200 Connection established`, then every byte back as it comes.
+    Tunnel,
+    /// `403 Forbidden`, then the end of the connection.
+    Refuse,
+}
+
+/// The status lines of the test proxy's answers.
+pub(crate) const TUNNEL_LINE: &str = "HTTP/1.1 200 Connection established";
+pub(crate) const REFUSE_LINE: &str = "HTTP/1.1 403 Forbidden";
+
+/// A listener that stands for efrd's proxy: every call of the fixture gets one at
+/// `$CALL/proxy.sock`, 0600, as efrd binds it. It records the bytes of each connection,
+/// in the order the connections came, and answers a fixed status.
+#[derive(Debug, Clone)]
+pub(crate) struct TestProxy {
+    answer: ProxyAnswer,
+    log: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+impl TestProxy {
+    /// The bytes that each connection sent so far, in the order they came.
+    pub(crate) fn connections(&self) -> Vec<Vec<u8>> {
+        self.log.lock().unwrap().clone()
+    }
+
+    /// Binds `$CALL/proxy.sock` for `call_dir` through the dir's descriptor, so a deep
+    /// call dir still fits a socket address, and serves it on a thread of its own.
+    fn serve(&self, call_dir: &Path) -> PathBuf {
+        use std::os::fd::AsRawFd;
+        let socket = call_dir.join(efr_sandbox::PROXY_SOCKET_FILE);
+        let flags = rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY;
+        let dir = rustix::fs::open(call_dir, flags, rustix::fs::Mode::empty()).unwrap();
+        let short = PathBuf::from(format!("/proc/self/fd/{}", dir.as_raw_fd()))
+            .join(efr_sandbox::PROXY_SOCKET_FILE);
+        let listener = std::os::unix::net::UnixListener::bind(&short).unwrap();
+        drop(dir);
+        fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let proxy = self.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                let at = {
+                    let mut log = proxy.log.lock().unwrap();
+                    log.push(Vec::new());
+                    log.len() - 1
+                };
+                let proxy = proxy.clone();
+                std::thread::spawn(move || proxy.answer_one(stream, at));
+            }
+        });
+        socket
+    }
+
+    /// Reads the head of one connection, answers it and, for a tunnel, echoes.
+    fn answer_one(&self, mut stream: std::os::unix::net::UnixStream, at: usize) {
+        let mut chunk = [0_u8; 4096];
+        let mut head = Vec::new();
+        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => {
+                    let got = &chunk[..read];
+                    head.extend_from_slice(got);
+                    self.log.lock().unwrap()[at].extend_from_slice(got);
+                }
+            }
+        }
+        let end = head.windows(4).position(|window| window == b"\r\n\r\n").unwrap_or(0) + 4;
+        let rest = head.split_off(end);
+        match self.answer {
+            ProxyAnswer::Refuse => {
+                let _ = write!(stream, "{REFUSE_LINE}\r\nContent-Length: 0\r\n\r\n");
+            }
+            ProxyAnswer::Tunnel => {
+                let _ = write!(stream, "{TUNNEL_LINE}\r\n\r\n");
+                let _ = stream.write_all(&rest);
+                loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => {
+                            self.log.lock().unwrap()[at].extend_from_slice(&chunk[..read]);
+                            if stream.write_all(&chunk[..read]).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

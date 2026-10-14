@@ -5,7 +5,8 @@
 //! With `EFR_TEST_SBX_GATE=1` it runs 1000 calls per mode, reports the gate of each mode
 //! (p95 at most 10 ms, no setup failure; the default becomes `tmp` when `overlay` fails
 //! it), and fails when the `tmp` mode cannot start every call. A second test reports
-//! the cost of a job's start.
+//! the cost of a job's start. `launch cost proxy` reports the cost of a call with a
+//! proxy plan, whose bridge takes two more spawns and a ready byte per call.
 
 use std::fs;
 use std::process::Stdio;
@@ -15,7 +16,7 @@ use efr_protocol::CacheMode;
 use efr_sandbox::JobPlan;
 
 use crate::support::{
-    Fixture, command, env_var, run_with_timeout, sandbox_or_skip, say, wait_until,
+    Fixture, ProxyAnswer, command, env_var, run_with_timeout, sandbox_or_skip, say, wait_until,
 };
 
 /// The caches of the spec's section 5.2, made in the fake home.
@@ -117,20 +118,7 @@ fn launch_cost_with_every_cache_overlay() {
     let (overlay, overlay_failures) = launches(&fixture, calls);
     fixture.spec.cache_mode = CacheMode::Tmp;
     let (tmp, tmp_failures) = launches(&fixture, calls);
-    // The child shell alone, outside any sandbox; its records go nowhere.
-    let child_dir = fixture.base.join("child");
-    fs::create_dir(&child_dir).unwrap();
-    fs::write(child_dir.join("line"), "true").unwrap();
-    let script = fixture.spec.runtime.child_script.clone();
-    let mut children = Vec::with_capacity(100);
-    for _ in 0..100 {
-        let mut child = command("zsh");
-        child.arg("-f").arg(&script).arg(&child_dir).stdout(Stdio::null()).stderr(Stdio::null());
-        let start = Instant::now();
-        let (status, _, _) = run_with_timeout(child);
-        children.push(start.elapsed());
-        assert_eq!(status, 0);
-    }
+    let children = child_shell(&fixture);
     report("efr-sbx run without cache overlays", bare);
     let (_, overlay_p95) = report("efr-sbx run with 9 cache overlays", overlay);
     let (_, tmp_p95) = report("efr-sbx run with 9 tmp overlays (cache_mode = tmp)", tmp);
@@ -161,6 +149,83 @@ fn launch_cost_with_every_cache_overlay() {
         ));
         assert!(tmp_failures.is_empty(), "the tmp cache mode failed to start: {tmp_failures:?}");
     }
+}
+
+/// The wall time of 100 runs of the child shell alone, outside any sandbox; its records
+/// go nowhere.
+fn child_shell(fixture: &Fixture) -> Vec<Duration> {
+    let child_dir = fixture.base.join("child");
+    fs::create_dir_all(&child_dir).unwrap();
+    fs::write(child_dir.join("line"), "true").unwrap();
+    let script = fixture.spec.runtime.child_script.clone();
+    let mut children = Vec::with_capacity(100);
+    for _ in 0..100 {
+        let mut child = command("zsh");
+        child.arg("-f").arg(&script).arg(&child_dir).stdout(Stdio::null()).stderr(Stdio::null());
+        let start = Instant::now();
+        let (status, _, _) = run_with_timeout(child);
+        children.push(start.elapsed());
+        assert_eq!(status, 0);
+    }
+    children
+}
+
+/// The cost of a call with a proxy plan (DP34): the bridge's two spawns, its own
+/// Landlock domain and seccomp profile and its ready byte, before the child runs. A
+/// report of 100 calls of each series: with and without the plan, with no cache
+/// overlay and with the 9 caches in the `tmp` mode, the default. The gate line compares
+/// the p95 of the call with the caches and the plan, without the child shell, with the
+/// launch gate; a fail there is a stop for the integrator, not a failed test.
+#[test]
+fn launch_cost_proxy() {
+    let ready = sandbox_or_skip!();
+    let with_caches = |fixture: &mut Fixture| {
+        for cache in CACHES {
+            let path = fixture.home.join(cache);
+            fs::create_dir_all(&path).unwrap();
+            fixture.cache(&path);
+        }
+        fixture.spec.cache_mode = CacheMode::Tmp;
+    };
+    let mut series = Vec::new();
+    for (caches, proxy) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut fixture = Fixture::new(&ready);
+        if caches {
+            with_caches(&mut fixture);
+        }
+        if proxy {
+            fixture.proxy(ProxyAnswer::Tunnel);
+        }
+        let (costs, failures) = launches(&fixture, 100);
+        assert!(failures.is_empty(), "{failures:?}");
+        series.push(costs);
+    }
+    let children = child_shell(&Fixture::new(&ready));
+    let mut p95s = Vec::new();
+    for (name, costs) in [
+        "launch cost without proxy",
+        "launch cost proxy",
+        "launch cost with 9 tmp overlays without proxy",
+        "launch cost proxy with 9 tmp overlays",
+    ]
+    .into_iter()
+    .zip(series)
+    {
+        p95s.push(report(name, costs).1);
+    }
+    let (child_p50, _) = report("the child shell alone", children);
+    let p95 = |at: usize| p95s.get(at).copied().unwrap_or_default();
+    let ms = |cost: Duration| cost.as_secs_f64() * 1000.0;
+    let cost = p95(3).saturating_sub(child_p50);
+    say(&format!(
+        "launch cost proxy at p95 without the child shell: {:.2} ms with 9 tmp overlays, \
+         {:.2} ms without; the bridge adds {:.2} ms and {:.2} ms",
+        ms(cost),
+        ms(p95(1).saturating_sub(child_p50)),
+        ms(p95(3).saturating_sub(p95(2))),
+        ms(p95(1).saturating_sub(p95(0)))
+    ));
+    say(&format!("gate: proxy {}", if cost <= GATE { "passes" } else { "fails" }));
 }
 
 /// The cost of a call with the network view: no network namespace of its own, the

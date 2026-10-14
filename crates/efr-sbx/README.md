@@ -181,11 +181,15 @@ cargo nextest run -p efr-sbx
 The unit tests need no sandbox; the seccomp tests run the compiled filters on a small
 BPF interpreter for both architectures, and the Landlock TCP test restricts one thread
 of its own. The integration tests (`tests/it/`: the escape suite, the network view's
-escape tests in `netview.rs`, the behaviour tests, the jobs, the probe, the launch cost
-with the cost of a job's start and of a network view call, and the corpus run) drive
-the real launcher with real bwrap, Landlock and seccomp. A network view test passes a
-refusal only on its exact errno, and targets only the test's own listeners and
-abstract names; its write checks change nothing even if they work. They read the launcher from
+escape tests in `netview.rs`, the proxy plan's tests in `proxy.rs`, the behaviour
+tests, the jobs, the probe, the launch cost with the cost of a job's start, of a
+network view call and of a proxy call, and the corpus run) drive the real launcher
+with real bwrap, Landlock and seccomp. A network view test passes a refusal only on its
+exact errno, and targets only the test's own listeners and abstract names; its write
+checks change nothing even if they work. A proxy test gives each call a socket at
+`$CALL/proxy.sock` with a test listener that stands for efrd's proxy (`TestProxy`): it
+records the bytes of each connection and answers `200` and an echo, or `403`; no test
+reaches a real host, and the only fixed port is 3128 inside the call. They read the launcher from
 `EFR_TEST_SBX_BIN` and run `efr-sbx probe` first; without the variable, or when the
 probe says the sandbox cannot run here, each prints `skipped: <reason>` and passes.
 `just test-sandbox` builds the launcher, copies it to a private dir in the target dir,

@@ -13,4 +13,5 @@ mod job;
 mod mount_view;
 mod netview;
 mod probe;
+mod proxy;
 mod support;
