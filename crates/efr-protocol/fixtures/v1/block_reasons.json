@@ -1,0 +1,12 @@
+[
+  "not_allowed",
+  "private_address",
+  "sni_mismatch",
+  "upload_limit",
+  "method",
+  "ip_literal",
+  "not_tls",
+  "bad_request",
+  "limit",
+  "unknown"
+]

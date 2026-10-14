@@ -71,7 +71,8 @@
     "warnings": [
       "the registered project ~ is your home directory; auto runs its turns as cautious"
     ],
-    "netview": true
+    "netview": true,
+    "proxy": true
   },
   "sandbox_paths": {
     "launcher": "/run/user/1000/efr/bin/efr-sbx",

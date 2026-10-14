@@ -57,7 +57,8 @@
           "host": "example.com",
           "on_allow_list": false,
           "named_in_user_messages": false,
-          "refused_by_proxy": true
+          "refused_by_proxy": true,
+          "project_remote": false
         }
       ],
       "programs": [

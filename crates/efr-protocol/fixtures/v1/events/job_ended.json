@@ -20,5 +20,14 @@
     "node"
   ],
   "launcher_lost": true,
-  "output_truncated": true
+  "output_truncated": true,
+  "blocked": [
+    {
+      "host": "<invalid>",
+      "port": 443,
+      "reason": "bad_request",
+      "count": 4
+    }
+  ],
+  "blocked_more": 1
 }

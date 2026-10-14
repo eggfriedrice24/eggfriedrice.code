@@ -237,6 +237,7 @@ async fn status_shows_sandbox_line() {
         warnings: Vec::new(),
         netview: false,
         netview_off: false,
+        proxy: false,
     };
     let down = SandboxStatus {
         fix: Some("a newer kernel".to_owned()),
@@ -293,6 +294,7 @@ async fn status_shows_netview() {
         warnings: Vec::new(),
         netview: true,
         netview_off: false,
+        proxy: false,
     };
     let failed = SandboxStatus {
         warnings: vec![

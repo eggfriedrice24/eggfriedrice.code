@@ -26,6 +26,8 @@ fn job_ended(stopped_by: Option<JobStopBy>, survivors: &[&str]) -> Event {
         survivors: survivors.iter().map(|name| (*name).to_owned()).collect(),
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     }
 }
 

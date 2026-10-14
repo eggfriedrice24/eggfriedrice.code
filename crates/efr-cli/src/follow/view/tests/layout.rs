@@ -1472,6 +1472,8 @@ fn view_shows_job_start_and_end() {
         survivors: vec!["node".to_owned()],
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     };
     let matched = Event::JobWatchMatched {
         job_id: job.id.clone(),

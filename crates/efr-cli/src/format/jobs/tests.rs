@@ -28,6 +28,8 @@ fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStop
         survivors: Vec::new(),
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     }
 }
 

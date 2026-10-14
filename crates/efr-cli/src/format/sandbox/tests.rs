@@ -39,6 +39,7 @@ fn ready() -> SandboxStatus {
         warnings: Vec::new(),
         netview: false,
         netview_off: false,
+        proxy: false,
     }
 }
 
@@ -402,6 +403,7 @@ fn every_kind_has_words_and_a_line_never_breaks_out_of_its_row() {
         on_allow_list: false,
         named_in_user_messages: true,
         refused_by_proxy: false,
+        project_remote: false,
     }];
     record.facts.upload_patterns = vec!["git push".to_owned()];
     let mut lines = Vec::new();
@@ -458,6 +460,7 @@ fn the_verbose_record_names_every_fact_but_no_user_message() {
             on_allow_list: false,
             named_in_user_messages: false,
             refused_by_proxy: true,
+            project_remote: false,
         }],
         programs: vec![program("cp", "/usr/bin/cp")],
         upload_patterns: vec!["git push".to_owned()],
@@ -531,9 +534,24 @@ fn the_turn_end_report_lists_the_files_that_run_code() {
 
 #[test]
 fn blocked_hosts_and_stopped_jobs_get_a_line_each() {
-    let refused =
-        Blocked { host: "evil.example".to_owned(), port: 443, reason: BlockReason::NotAllowed };
+    let refused = Blocked {
+        host: "evil.example".to_owned(),
+        port: 443,
+        reason: BlockReason::NotAllowed,
+        count: 1,
+    };
     assert_eq!(blocked(&refused), "network: blocked evil.example:443 (not on the allow list)");
+    let words = [
+        (BlockReason::IpLiteral, "ip address"),
+        (BlockReason::NotTls, "not TLS"),
+        (BlockReason::BadRequest, "bad request"),
+        (BlockReason::Limit, "too many connections"),
+        (BlockReason::Unknown, "unknown reason"),
+    ];
+    for (reason, word) in words {
+        let line = blocked(&Blocked { reason, ..refused.clone() });
+        assert_eq!(line, format!("network: blocked evil.example:443 ({word})"));
+    }
     assert_eq!(background_stopped(&[]), None);
     assert_eq!(
         background_stopped(&["vite".to_owned(), "node".to_owned()]).unwrap(),

@@ -595,6 +595,7 @@ pub(crate) fn ready() -> SandboxStatus {
         warnings: Vec::new(),
         netview: false,
         netview_off: false,
+        proxy: false,
     }
 }
 

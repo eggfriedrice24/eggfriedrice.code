@@ -772,6 +772,8 @@ impl JobTable {
                 survivors,
                 launcher_lost,
                 output_truncated: true,
+                blocked: Vec::new(),
+                blocked_more: 0,
             };
             self.inner.writer.append(Batch::new().event(info.conversation_id, event)).await?;
             tracing::info!(conversation = %info.conversation_id, job = %info.id, "a job of the last efrd was recorded as stopped");
@@ -991,6 +993,8 @@ impl JobTask {
             survivors,
             launcher_lost,
             output_truncated: self.output.truncated(),
+            blocked: Vec::new(),
+            blocked_more: 0,
         };
         // NOTE: the launcher ended, so its pid leaves the model-side list before the
         // record: a reader that sees `JobEnded` sees the list without it. A session that

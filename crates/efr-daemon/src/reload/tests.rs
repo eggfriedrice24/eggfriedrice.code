@@ -464,6 +464,7 @@ fn probed(netview: bool) -> SandboxStatus {
         warnings: Vec::new(),
         netview,
         netview_off: false,
+        proxy: false,
     }
 }
 

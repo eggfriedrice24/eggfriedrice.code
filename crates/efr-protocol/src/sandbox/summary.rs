@@ -32,9 +32,16 @@ pub struct SandboxSummary {
     /// shell's terminal, so efr starts a new shell for the next call.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub survivors: Vec<String>,
-    /// Connections that the proxy refused (phase D).
+    /// Connections that the proxy refused (phase D), at most
+    /// [`MAX_BLOCKED`](Self::MAX_BLOCKED): one entry for each host, port and reason.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked: Vec<Blocked>,
+    /// The refusals that `blocked` leaves out (phase D2).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub blocked_more: u32,
+    /// True when the call ran with a proxy plan (phase D2). The CLI's trace reads it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub proxied: bool,
     /// Git settings and other files that run code, which the call changed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surface_changes: Vec<SurfaceChange>,
@@ -55,6 +62,8 @@ pub struct SandboxSummary {
 }
 
 impl SandboxSummary {
+    /// The most entries that [`blocked`](Self::blocked) lists.
+    pub const MAX_BLOCKED: usize = 32;
     /// The most paths that [`cache_deletes`](Self::cache_deletes) lists.
     pub const MAX_CACHE_DELETES: usize = 4096;
     /// The most bytes of paths that [`cache_deletes`](Self::cache_deletes) lists.
@@ -65,15 +74,27 @@ fn is_zero(count: &u32) -> bool {
     *count == 0
 }
 
+fn one() -> u32 {
+    1
+}
+
+fn is_one(count: &u32) -> bool {
+    *count == 1
+}
+
 /// A connection that the proxy refused (phase D).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Blocked {
-    /// The host.
+    /// The host, or `<invalid>` when the request named no valid host.
     pub host: String,
     /// The port.
     pub port: u16,
     /// Why.
     pub reason: BlockReason,
+    /// How many connections of the call the proxy refused for this host, port and
+    /// reason. 1 when absent.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub count: u32,
 }
 
 /// Why the proxy refused a connection (phase D).
@@ -91,6 +112,35 @@ pub enum BlockReason {
     UploadLimit,
     /// The request method is not allowed.
     Method,
+    /// The host is an IP address that no `[[network.hosts]]` entry lists.
+    IpLiteral,
+    /// The first bytes of a tunnel were no TLS ClientHello with a server name, or the
+    /// hello asked for Encrypted Client Hello.
+    NotTls,
+    /// The request head was malformed: control characters, a body on GET, a Host
+    /// header that differs, or not the absolute form.
+    BadRequest,
+    /// The call had too many open tunnels.
+    Limit,
+    /// A reason that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl BlockReason {
+    /// Every reason, in the order of the enum.
+    pub const ALL: [BlockReason; 10] = [
+        BlockReason::NotAllowed,
+        BlockReason::PrivateAddress,
+        BlockReason::SniMismatch,
+        BlockReason::UploadLimit,
+        BlockReason::Method,
+        BlockReason::IpLiteral,
+        BlockReason::NotTls,
+        BlockReason::BadRequest,
+        BlockReason::Limit,
+        BlockReason::Unknown,
+    ];
 }
 
 /// One change to a git setting or another file that runs code, found by the surface
