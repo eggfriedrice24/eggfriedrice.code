@@ -1,8 +1,52 @@
-//! The one public error type of the crate.
+//! The public error types of the crate: [`PermissionsError`] for the engine's inputs,
+//! and [`HostError`] for an entry of the network host list.
+
+// NOTE: HostError is a type of its own and not a variant of PermissionsError, because
+// the phase D2 plan fixes it as the error of `HostList::compile`: efr-config turns each
+// variant into its own message for `config.toml`, and the proxy compiles the same list.
 
 use std::path::PathBuf;
 
 use crate::policy::{Action, Check};
+
+/// Why an entry of `network.allow`, `network.deny` or `[[network.hosts]]` is refused
+/// (phase D2). Each variant holds the entry as the config wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum HostError {
+    /// The entry is `*`, which would allow every host.
+    #[error(
+        "the network host `*` allows every host; name the hosts or a suffix such as *.example.com"
+    )]
+    BareStar,
+
+    /// A `*.suffix` entry has fewer than two labels after `*.`, such as `*.com`.
+    #[error("the network host {0:?} needs at least two labels after `*.`, such as *.example.com")]
+    ShortSuffix(String),
+
+    /// The entry has a character outside ASCII.
+    #[error("the network host {0:?} is not ASCII; write the ASCII (xn--) form")]
+    NotAscii(String),
+
+    /// The entry is not a host name: a label is empty, longer than 63 bytes or has a
+    /// character other than `a-z`, `0-9` and `-`, or the name is longer than 253 bytes.
+    #[error("the network host {0:?} is not a valid host name")]
+    BadName(String),
+
+    /// An `@name` entry names no preset.
+    #[error(
+        "the network preset {0:?} is not known; the presets are @crates, @npm, @pypi, @go, @github-read and @pacman-mirrors"
+    )]
+    UnknownPreset(String),
+
+    /// The entry is an IP address outside `[[network.hosts]]`.
+    #[error("the network host {0:?} is an IP address; list it in [[network.hosts]]")]
+    IpLiteral(String),
+
+    /// A `[[network.hosts]]` entry has port 0.
+    #[error("the network host {0:?} has port 0; a port is 1 to 65535")]
+    BadPort(String),
+}
 
 /// Every way that building the engine's inputs can fail.
 ///
