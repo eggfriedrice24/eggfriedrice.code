@@ -322,3 +322,79 @@ fn net_view_filter_runs_on_bpf_cases() {
     assert_eq!(call(50, [3, 1, 0]), RET_ALLOW);
     assert_eq!(call(41, [AF_PACKET, raw, 0]), errno(EAFNOSUPPORT));
 }
+
+/// The system call numbers of the bridge's cases on one architecture.
+struct BridgeNumbers {
+    arch: SeccompArch,
+    target: TargetArch,
+    audit: u32,
+    socket: u32,
+    socketpair: u32,
+    /// bind, listen, execve, execveat, ptrace, pidfd_getfd.
+    denied: [u32; 6],
+    /// connect, accept4, read, write, getpid.
+    allowed: [u32; 5],
+    clone: u32,
+    clone3: u32,
+}
+
+#[test]
+fn bridge_filter_runs_on_bpf_cases() {
+    let x86_64 = BridgeNumbers {
+        arch: SeccompArch::X86_64,
+        target: TargetArch::x86_64,
+        audit: ARCH_X86_64,
+        socket: 41,
+        socketpair: 53,
+        denied: [49, 50, 59, 322, 101, 438],
+        allowed: [42, 288, 0, 1, 39],
+        clone: 56,
+        clone3: 435,
+    };
+    let aarch64 = BridgeNumbers {
+        arch: SeccompArch::Aarch64,
+        target: TargetArch::aarch64,
+        audit: ARCH_AARCH64,
+        socket: 198,
+        socketpair: 199,
+        denied: [200, 201, 221, 281, 117, 438],
+        allowed: [203, 242, 63, 64, 172],
+        clone: 220,
+        clone3: 435,
+    };
+    let high = 1_u64 << 32;
+    let (stream, dgram) = (1, 2);
+    // The flags of a thread that std starts: CLONE_VM, FS, FILES, SIGHAND, THREAD,
+    // SYSVSEM, SETTLS, PARENT_SETTID and CHILD_CLEARTID.
+    let thread_flags = 0x003d_0f00;
+    for numbers in [x86_64, aarch64] {
+        let programs =
+            compile_for(&SeccompProfile::bridge(), numbers.target, numbers.arch).unwrap();
+        let call =
+            |nr: u32, args: [u64; 3]| verdict(&programs, &seccomp_data(nr, numbers.audit, args));
+        let what = format!("{:?}", numbers.arch);
+        // Only Unix sockets, also with garbage in the high word.
+        assert_eq!(call(numbers.socket, [AF_UNIX, stream, 0]), RET_ALLOW, "{what}");
+        assert_eq!(call(numbers.socketpair, [AF_UNIX, dgram, 0]), RET_ALLOW, "{what}");
+        for family in [AF_INET, AF_INET6, AF_PACKET, AF_NETLINK, 40, AF_INET | high] {
+            let refused = errno(EAFNOSUPPORT);
+            assert_eq!(call(numbers.socket, [family, stream, 0]), refused, "{what} {family}");
+            assert_eq!(call(numbers.socketpair, [family, stream, 0]), refused, "{what}");
+        }
+        for nr in numbers.denied {
+            assert_eq!(call(nr, [3, 0, 0]), errno(EPERM), "{what} {nr}");
+        }
+        for nr in numbers.allowed {
+            assert_eq!(call(nr, [3, 0, 0]), RET_ALLOW, "{what} {nr}");
+        }
+        // Threads start: clone3 gives ENOSYS, and clone with a thread's flags runs; a
+        // new namespace does not.
+        assert_eq!(call(numbers.clone3, [0, 0, 0]), errno(ENOSYS), "{what}");
+        assert_eq!(call(numbers.clone, [thread_flags, 0, 0]), RET_ALLOW, "{what}");
+        assert_eq!(call(numbers.clone, [0x1000_0000, 0, 0]), errno(EPERM), "{what}");
+        if numbers.arch == SeccompArch::X86_64 {
+            let x32 = numbers.socket | X32_SYSCALL_BIT;
+            assert_eq!(call(x32, [AF_UNIX, stream, 0]), RET_KILL_PROCESS);
+        }
+    }
+}

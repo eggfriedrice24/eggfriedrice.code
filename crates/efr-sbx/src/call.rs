@@ -19,9 +19,9 @@ use std::process::ExitCode;
 use std::sync::mpsc::{Receiver, Sender};
 
 use efr_sandbox::{
-    APPLY_FILE, EnvFilter, ExportFilter, FsView, JobPlan, MAX_STATE_BYTES, MountPlan, NetworkPlan,
-    RESULT_FILE, Records, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE, SandboxResult,
-    SandboxState, SpecLaunch, StartDir, encode_apply, parse_records,
+    APPLY_FILE, EnvFilter, ExportFilter, FsView, JobPlan, MAX_STATE_BYTES, MountPlan, RESULT_FILE,
+    Records, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE, SandboxResult, SandboxState,
+    SpecLaunch, StartDir, encode_apply, parse_records,
 };
 
 use crate::call_dir::{CallDir, PrivateDir};
@@ -178,9 +178,6 @@ pub(crate) fn shell_pwd() -> Result<PathBuf, SbxError> {
 fn contained(call: &CallDir, job: Option<&Job>) -> Result<SandboxResult, SbxError> {
     let mut timings = Timings::start();
     let mut spec = call.spec.clone();
-    if let NetworkPlan::Proxy { .. } = spec.network {
-        return Err(SbxError::LaterPhase { what: "the network proxy" });
-    }
     // The launcher runs with the trusted shell's environment, so its PATH is the
     // hidden shell's PATH; efrd's copy only served its own check before the call. A
     // job's launcher runs with efrd's environment, and the shell's is in `$CALL/env`.

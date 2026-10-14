@@ -5,7 +5,7 @@
 //! never dropped. Writes outside the roots then fail twice, with `EACCES` from
 //! Landlock and `EROFS` from the read-only bind.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -170,6 +170,27 @@ pub struct LandlockPolicy {
 }
 
 impl LandlockPolicy {
+    /// The bridge's own domain (`efr-sbx bridge`): every file right handled and only
+    /// `RESOLVE_UNIX` on `socket`, the call's proxy socket inside. So the bridge reads
+    /// and writes no file, reaches no other socket and no bus, and makes no TCP bind or
+    /// connect; it only copies bytes between the connections it accepts and that
+    /// socket. The scopes keep it from signals and abstract sockets outside its domain.
+    pub fn bridge(socket: &Path) -> LandlockPolicy {
+        LandlockPolicy {
+            min_abi: MIN_LANDLOCK_ABI,
+            required_errata: ERRATUM_DISCONNECTED_DIRS,
+            read_exec: Vec::new(),
+            write: Vec::new(),
+            write_files: Vec::new(),
+            dev_rw: Vec::new(),
+            tty_fds: Vec::new(),
+            resolve_unix: vec![socket.to_path_buf()],
+            devices: Vec::new(),
+            scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
+            deny_tcp: true,
+        }
+    }
+
     /// Every path rule with its rights, in a fixed order. The descriptor rules of
     /// `tty_fds` are not in it.
     pub fn rules(&self) -> Vec<LandlockRule> {

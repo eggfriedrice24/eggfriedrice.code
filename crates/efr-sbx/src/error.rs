@@ -148,11 +148,18 @@ pub(crate) enum SbxError {
         problem: &'static str,
     },
 
-    /// Something that a later phase builds.
-    #[error("{what} comes in a later phase of the auto sandbox")]
-    LaterPhase {
-        /// What.
-        what: &'static str,
+    /// The bridge of a proxy call did not report that it runs in its own sandbox.
+    #[error("the network bridge did not start: {problem}")]
+    BridgeStart {
+        /// What went wrong.
+        problem: &'static str,
+    },
+
+    /// `--fail-setup` ended the bridge's setup before this step (the tests only).
+    #[error("the bridge's setup stopped before the {step} step")]
+    BridgeSetupStopped {
+        /// The step.
+        step: &'static str,
     },
 
     /// `statvfs` got paths on stdin that it does not take.
