@@ -56,6 +56,7 @@ shipped binary.
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre`, `last` and `post` refs and the paths that its calls touched, the mirror of a project's refs and objects from the git dirs that efrd trusts, the check that a snapshot covers each file below a target, the changes of a call or a turn, the diff of a turn, the plan of an undo or a redo (pure: it writes no file of a root), the home store of the files outside the roots, the collector | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
+| `efr-proxy` | lib | 2 | the network proxy of the `auto` sandbox, as tokio tasks in efrd: one listener per contained call, the request head and ClientHello parsers, the allow and deny lists before any lookup, the call's host grants, the address guard, the SNI check, plain `GET` and `HEAD` for http hosts, the upload budget and the refusal records; the resolver, the connector and the host's addresses are seams | `efr-protocol`, `efr-stdx`, `efr-permissions` |
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
@@ -81,7 +82,7 @@ and `efr-daemon -> (everything)`.
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
    `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`,
-   `efr-patch -> tokio`;
+   `efr-patch -> tokio`, `efr-proxy -> efr-daemon`;
 3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, or any member
    other than `efr-store` reaches `rusqlite`, except through that owner;
 4. `efr-test-daemon` is a dev-dependency of anything except `efr-daemon` and
@@ -103,6 +104,8 @@ What each forbidden edge protects:
 - The sandbox logic and the launcher stay free of a runtime: the launcher is a small
   process that runs as a foreground job of the hidden shell, and every rule it applies
   is a pure function that tests run without a kernel.
+- The proxy is a library that efrd composes. It gets the host list, the call's grants
+  and its seams from efrd, and knows nothing of the daemon.
 - The patch engine stays pure: it computes every new content from texts that the
   caller read, so a patch over several files is checked whole before the tool writes
   one of them.
