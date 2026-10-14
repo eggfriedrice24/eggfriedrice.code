@@ -35,12 +35,12 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
     Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, IgnoredFiles,
-    JobsSettings, Kind, NetworkSettings, SandboxSettings, Settings, SnapshotSettings, Source,
-    SudoCache, WriteProjects,
+    JobsSettings, Kind, NetworkHost, NetworkSettings, SandboxSettings, Settings, SnapshotSettings,
+    Source, SudoCache, WriteProjects,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
-use efr_protocol::{AdminConfigReloadResult, CallId, ModelInfo};
+use efr_protocol::{AdminConfigReloadResult, CallId, ModelInfo, NetworkMode};
 use efr_provider::ToolDefinition;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -624,8 +624,8 @@ fn ids(models: &[ModelInfo]) -> String {
 /// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
 /// a model can allow exits that asked the user, undo turned on or covering more, so
 /// more destructive lines run without a question, a `[jobs]` key that lets jobs run
-/// longer, more often or at a higher priority, or the network view turned on (efr's
-/// auto spec, section 13.1).
+/// longer, more often or at a higher priority, or a `[network]` key that opens the
+/// network view or efr's proxy (efr's auto spec, section 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -651,9 +651,28 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
 
 /// True when `next` lets more lines run without a question than `before`: the network
 /// view turned on, so `ss` and the read forms of `ip` run in the host's network
-/// namespace with no review.
+/// namespace with no review; or, for efr's proxy (phase D2), `mode` to `proxy`, an
+/// added `allow` entry, a removed `deny` entry, a `[[network.hosts]]` entry that no
+/// entry of `before` covers (a new host or port, or `http` or `private` that becomes
+/// true), or a higher `max_upload_bytes`.
 fn network_loosens(before: &NetworkSettings, next: &NetworkSettings) -> bool {
-    next.netview && !before.netview
+    fn adds(before: &[String], next: &[String]) -> bool {
+        next.iter().any(|item| !before.contains(item))
+    }
+    let covered = |host: &NetworkHost| {
+        before.hosts.iter().any(|known| {
+            known.host == host.host
+                && known.port == host.port
+                && (known.http || !host.http)
+                && (known.private || !host.private)
+        })
+    };
+    (next.netview && !before.netview)
+        || (next.mode == NetworkMode::Proxy && before.mode != NetworkMode::Proxy)
+        || adds(&before.allow, &next.allow)
+        || adds(&next.deny, &before.deny)
+        || next.hosts.iter().any(|host| !covered(host))
+        || next.max_upload_bytes > before.max_upload_bytes
 }
 
 /// True when `next` lets the model's background jobs do more than `before`: jobs

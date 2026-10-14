@@ -668,10 +668,10 @@ fn network_netview_defaults_to_true() {
 
 #[test]
 fn network_table_refuses_unknown_keys() {
-    let error = parse("[network]\nnetview = true\nmode = \"proxy\"\n").unwrap_err();
+    let error = parse("[network]\nnetview = true\nlisten = true\n").unwrap_err();
     match &error {
         ConfigError::Parse { key, location, .. } => {
-            assert_eq!(key.as_deref(), Some("network.mode"));
+            assert_eq!(key.as_deref(), Some("network.listen"));
             assert_eq!(*location, Some(Location { line: 3, column: 1 }));
         }
         other => panic!("{other:?}"),
@@ -683,4 +683,145 @@ fn network_netview_is_a_live_key() {
     assert!(crate::keys().iter().any(|key| key == "network.netview"));
     assert_eq!(crate::Applies::of("network.netview"), crate::Applies::Live);
     assert!(!crate::RESTART_KEYS.contains(&"network.netview"));
+}
+
+/// The key and the value of the error that `text` gives at load.
+fn refused(text: &str) -> (&'static str, String) {
+    match parse(text).unwrap_err() {
+        ConfigError::Invalid { key, value, .. } => (key, value),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn network_proxy_keys_default_to_no_network_and_the_presets() {
+    use efr_permissions::Preset;
+    use efr_protocol::NetworkMode;
+
+    let settings = Settings::parse(path(), None).unwrap();
+    let network = &settings.network;
+
+    assert_eq!(network.mode, NetworkMode::None, "the proxy is off until the end of phase D2");
+    let presets: Vec<String> = Preset::ALL.iter().map(|preset| preset.name().to_owned()).collect();
+    assert_eq!(network.allow, presets);
+    assert!(network.deny.is_empty());
+    assert!(network.hosts.is_empty());
+    assert_eq!(network.max_upload_bytes, 4_194_304);
+    let list = network.host_list(&[]).unwrap();
+    assert!(list.allows("index.crates.io", 443));
+    assert!(!list.allows("index.crates.io", 80));
+    assert!(!list.allows("example.com", 443));
+}
+
+#[test]
+fn network_proxy_keys_read_from_the_file() {
+    use efr_protocol::NetworkMode;
+
+    let settings = parse(
+        "[network]\nmode = \"proxy\"\nallow = [\"@crates\", \"*.example.com\"]\n\
+         deny = [\"bad.example.com\"]\nmax_upload_bytes = 65536\n\n\
+         [[network.hosts]]\nhost = \"mirror.example.org\"\nhttp = true\n\n\
+         [[network.hosts]]\nhost = \"192.168.1.5\"\nport = 8080\nprivate = true\n",
+    )
+    .unwrap();
+    let network = &settings.network;
+
+    assert_eq!(network.mode, NetworkMode::Proxy);
+    assert_eq!(network.hosts.len(), 2);
+    assert_eq!(network.hosts[1].port, Some(8080));
+    assert!(network.hosts[1].private);
+    assert_eq!(settings.source("network.hosts"), Source::File);
+    assert_eq!(settings.source("network.mode"), Source::File);
+    let list = network.host_list(&[]).unwrap();
+    assert!(list.allows("a.example.com", 443));
+    assert!(!list.allows("bad.example.com", 443), "deny wins over a suffix");
+    assert!(list.allows("mirror.example.org", 80), "an http entry allows port 80");
+    assert!(list.allows("192.168.1.5", 8080));
+    assert!(!list.allows("192.168.1.5", 443), "an entry with a port allows only that port");
+}
+
+#[test]
+fn proxy_refuses_bare_star_at_load() {
+    for entry in ["*", "*.com", "*."] {
+        let text = format!("[network]\nallow = [\"{entry}\"]\n");
+        assert_eq!(refused(&text), ("network.allow", format!("\"{entry}\"")), "{entry}");
+    }
+    let deny = refused("[network]\ndeny = [\"*\"]\n");
+    assert_eq!(deny.0, "network.deny");
+    let hosts = refused("[[network.hosts]]\nhost = \"*.com\"\n");
+    assert_eq!(hosts, ("network.hosts", "\"*.com\"".to_owned()));
+
+    let accepted = parse("[network]\nallow = [\"*.example.com\"]\n").unwrap();
+    assert_eq!(accepted.network.allow, ["*.example.com"]);
+}
+
+#[test]
+fn network_host_entries_are_checked_at_load() {
+    let error = parse("[network]\nallow = [\"b\u{fc}cher.example\"]\n").unwrap_err();
+    assert!(error.to_string().contains("xn--"), "{error}");
+    assert_eq!(refused("[network]\nallow = [\"@crate\"]\n").0, "network.allow");
+    let ip = parse("[network]\nallow = [\"192.168.1.5\"]\n").unwrap_err();
+    assert!(ip.to_string().contains("[[network.hosts]]"), "{ip}");
+    assert_eq!(refused("[network]\ndeny = [\"bad host\"]\n").0, "network.deny");
+    assert_eq!(
+        refused("[[network.hosts]]\nhost = \"mirror.example.org\"\nport = 0\n"),
+        ("network.hosts", "\"mirror.example.org\"".to_owned())
+    );
+    let error = parse("[[network.hosts]]\nhost = \"a.example\"\nproxy = true\n").unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+    parse("[[network.hosts]]\nhost = \"[fd00::5]\"\nprivate = true\n").unwrap();
+}
+
+#[test]
+fn network_hosts_is_rules_kind() {
+    assert_eq!(crate::kind("network.hosts"), Some(crate::Kind::Rules));
+    assert_eq!(crate::kind("network.allow"), Some(crate::Kind::List));
+    assert_eq!(crate::kind("network.deny"), Some(crate::Kind::List));
+    assert_eq!(
+        crate::kind("network.mode"),
+        Some(crate::Kind::Choice(vec!["none".to_owned(), "proxy".to_owned()]))
+    );
+    assert_eq!(crate::kind("network.max_upload_bytes"), Some(crate::Kind::Integer));
+
+    // Only an editor writes the tables: a variable or a flag cannot set them.
+    let mut settings = Settings::default();
+    let from = Source::Env(Var::Log);
+    let error =
+        settings.apply_override("network.hosts", "[{ host = \"a.example\" }]", from).unwrap_err();
+    assert!(matches!(error, ConfigError::InvalidOverride { .. }), "{error:?}");
+    assert!(settings.network.hosts.is_empty());
+}
+
+#[test]
+fn max_upload_bytes_range() {
+    for (bytes, valid) in [
+        (65_535_u64, false),
+        (65_536, true),
+        (4_194_304, true),
+        (1_073_741_824, true),
+        (1_073_741_825, false),
+    ] {
+        let text = format!("[network]\nmax_upload_bytes = {bytes}\n");
+        match parse(&text) {
+            Ok(settings) => {
+                assert!(valid, "{bytes} must be refused");
+                assert_eq!(settings.network.max_upload_bytes, bytes);
+            }
+            Err(ConfigError::Invalid { key, .. }) => {
+                assert!(!valid, "{bytes} must be read");
+                assert_eq!(key, "network.max_upload_bytes");
+            }
+            Err(other) => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn network_mode_is_a_live_key() {
+    for key in ["network.mode", "network.allow", "network.deny", "network.hosts"] {
+        assert!(crate::keys().iter().any(|known| known == key), "{key}");
+        assert_eq!(crate::Applies::of(key), crate::Applies::Live, "{key}");
+    }
+    assert_eq!(crate::Applies::of("network.max_upload_bytes"), crate::Applies::Live);
+    assert!(!crate::RESTART_KEYS.iter().any(|key| key.starts_with("network.")));
 }

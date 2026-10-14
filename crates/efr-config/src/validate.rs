@@ -3,11 +3,14 @@
 
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
+use std::slice;
+
+use efr_permissions::{HostError, HostList};
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
-    ClassifierSettings, CompactionSettings, JobsSettings, ModelEntry, PROVIDERS, PresenceSettings,
-    RenderColors, SandboxSettings, Settings, SnapshotSettings,
+    ClassifierSettings, CompactionSettings, JobsSettings, ModelEntry, NetworkSettings, PROVIDERS,
+    PresenceSettings, RenderColors, SandboxSettings, Settings, SnapshotSettings,
 };
 
 /// A value outside its allowed set or range.
@@ -32,6 +35,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         conversation,
         compaction,
         sandbox,
+        network,
         classifier,
         snapshot,
         presence,
@@ -158,6 +162,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
 
     check_compaction(compaction)?;
     check_sandbox(sandbox)?;
+    check_network(network)?;
     check_classifier(classifier)?;
     check_snapshot(snapshot)?;
     check_presence(presence)?;
@@ -391,6 +396,62 @@ fn check_sandbox(sandbox: &SandboxSettings) -> Result<(), Invalid> {
         return Err(invalid("sandbox.rebuildable", text(name), "directory names such as target"));
     }
     Ok(())
+}
+
+/// The checks of `[network]`: the host list that efrd and the proxy compile, with the
+/// first entry it refuses in the order of the table (`allow`, `deny`, `hosts`), then
+/// the upload limit.
+fn check_network(network: &NetworkSettings) -> Result<(), Invalid> {
+    if let Err(error) = network.host_list(&[]) {
+        let refused = |result: Result<HostList, HostError>| result.err();
+        let first = network
+            .allow
+            .iter()
+            .find_map(|raw| {
+                refused(HostList::compile(slice::from_ref(raw), &[], &[], &[]))
+                    .map(|error| host_invalid("network.allow", raw, &error))
+            })
+            .or_else(|| {
+                network.deny.iter().find_map(|raw| {
+                    refused(HostList::compile(&[], slice::from_ref(raw), &[], &[]))
+                        .map(|error| host_invalid("network.deny", raw, &error))
+                })
+            })
+            .or_else(|| {
+                network.hosts.iter().find_map(|host| {
+                    refused(HostList::compile(&[], &[], &[host.table()], &[]))
+                        .map(|error| host_invalid("network.hosts", &host.host, &error))
+                })
+            });
+        // NOTE: the list refuses only single entries, so one of them is the cause.
+        return Err(first.unwrap_or_else(|| host_invalid("network.allow", "", &error)));
+    }
+    within(
+        "network.max_upload_bytes",
+        network.max_upload_bytes,
+        65_536..=1_073_741_824,
+        "between 65536 (64 KiB) and 1073741824 (1 GiB)",
+    )
+}
+
+/// The entry `raw` of `key`, which the host list refused with `error`.
+fn host_invalid(key: &'static str, raw: &str, error: &HostError) -> Invalid {
+    let expected = match error {
+        HostError::BareStar => {
+            "a host or a suffix such as *.example.com; * alone allows every host"
+        }
+        HostError::ShortSuffix(_) => {
+            "a suffix with at least two labels after *., such as *.example.com"
+        }
+        HostError::NotAscii(_) => "a host name in ASCII; write the ASCII (xn--) form",
+        HostError::UnknownPreset(_) => {
+            "a host or a preset: @crates, @npm, @pypi, @go, @github-read or @pacman-mirrors"
+        }
+        HostError::IpLiteral(_) => "a host name; an IP address goes in [[network.hosts]]",
+        HostError::BadPort(_) => "a host with a port from 1 to 65535",
+        _ => "a host name such as example.com, or *.example.com",
+    };
+    invalid(key, text(raw), expected)
 }
 
 /// Every path is absolute or starts with the `~` component.

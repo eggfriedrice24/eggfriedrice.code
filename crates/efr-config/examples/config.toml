@@ -256,6 +256,31 @@
 # the reviewer.
 # netview = true
 
+# How contained commands in auto reach the network: none (no network; each network
+# need is a review that opens the whole network for one command) or proxy (they reach
+# the hosts of allow through efr's proxy with no review). A change applies to new
+# commands.
+# mode = "none"
+
+# The hosts that contained commands reach through the proxy on port 443: presets, host
+# names, and *.suffix for the names below a suffix of at least two labels. Write a
+# name in its ASCII (xn--) form.
+# allow = ["@crates", "@npm", "@pypi", "@go", "@github-read", "@pacman-mirrors"]
+
+# Presets and hosts that no contained command reaches. The deny list wins over allow,
+# hosts and every host grant.
+# deny = ["tracker.example.com"]
+
+# More allowed hosts, also as [[network.hosts]] tables: host (a name, *.suffix or an IP
+# address), port (the one port; absent: 443, and also 80 with http), http (plain HTTP
+# GET and HEAD too) and private (it may resolve to an address of your LAN). Only an
+# editor changes them.
+# hosts = [{ host = "mirror.example.org", http = true }]
+
+# The bytes that a contained command may send through the proxy, from 65536 (64 KiB)
+# to 1073741824 (1 GiB).
+# max_upload_bytes = 4194304
+
 [classifier]
 # true lets a reviewer model decide most actions that leave the sandbox in auto, and
 # hand the unsure ones to you. false asks you about every such action. Each review is

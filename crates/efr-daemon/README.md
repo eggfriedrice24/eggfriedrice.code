@@ -245,7 +245,10 @@ offers it after the registry's tools, as `settings`.
   model, and nobody is asked.
 - A valid change declares a `SettingsChange` (a summary and whether it loosens
   permissions: a new allow rule, a removed deny or ask rule, a mode toward `auto`,
-  `per_call` to `keep`, a removed secret path). The engine asks about it in every mode
+  `per_call` to `keep`, a removed secret path, and the `[network]` rows of
+  `network_loosens`: `netview` on, `mode` to `proxy`, an added `allow` entry, a
+  removed `deny` entry, a `[[network.hosts]]` entry that no earlier entry covers, a
+  higher `max_upload_bytes`). The engine asks about it in every mode
   and whatever the rules say, and denies it for a remote turn. The approval shows the
   unified diff of the file (`efr_tools::unified_diff`, as for `write_file`; for a new
   file, the diff from the example), headed by "This change loosens permissions." when

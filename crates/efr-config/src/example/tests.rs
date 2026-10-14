@@ -159,6 +159,8 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "sandbox.env_deny",
         "sandbox.env_keep",
         "sandbox.export_deny",
+        "network.deny",
+        "network.hosts",
         "classifier.model",
         "render.theme",
         "render.palette",
