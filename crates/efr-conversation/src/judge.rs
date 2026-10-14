@@ -15,6 +15,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use efr_permissions::Egress;
 use efr_protocol::{CallId, ChainStep, ConversationId, ExitRecord, Judgement, TurnId};
 
 /// What the judge reads about one exit.
@@ -32,6 +33,9 @@ pub struct JudgeInput<'a> {
     pub turn_effort: Option<&'a str>,
     /// The record of the exit.
     pub record: &'a ExitRecord,
+    /// How contained commands of the call reach the network: the egress of the engine
+    /// that decided it, which picks the classifier prompt's variant (phase D2, DP28).
+    pub egress: Egress,
 }
 
 /// What the judge answers about one exit.

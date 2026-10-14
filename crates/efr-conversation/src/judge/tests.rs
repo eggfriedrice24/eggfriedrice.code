@@ -72,6 +72,7 @@ async fn judge_input_and_outcome_are_send() {
         turn_model: "gpt-5.5",
         turn_effort: Some("low"),
         record: &record,
+        egress: efr_permissions::Egress::None,
     };
     send(&input);
     let judge: Arc<dyn ExitJudge> = Arc::new(TurnModelAllows);

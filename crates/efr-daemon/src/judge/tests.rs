@@ -25,6 +25,7 @@ use super::{
 };
 use crate::catalog::Vendor;
 
+mod prompt;
 mod wire;
 
 /// The judgement in `text`, if it has one.
@@ -203,6 +204,7 @@ fn input<'a>(ids: &Ids, record: &'a ExitRecord) -> JudgeInput<'a> {
         turn_model: TURN,
         turn_effort: Some("high"),
         record,
+        egress: efr_permissions::Egress::None,
     }
 }
 

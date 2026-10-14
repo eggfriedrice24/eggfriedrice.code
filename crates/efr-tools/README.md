@@ -94,7 +94,9 @@ The tools:
   secrets read as empty, never a list of what it cannot do), the exports that stay in the
   sandbox or were dropped, the background processes that stopped (with the advice to
   start such a process with `background: true`), the hosts that the proxy
-  refused, the git settings that the launcher moved away, a shell directory that the
+  refused (`blocked_note`: one sentence per reason, with the hosts that got it, and one
+  for the refusals that the list leaves out; efrd uses it for a job's end too), the git
+  settings that the launcher moved away, a shell directory that the
   sandbox hides and a state that was not kept. A sandbox that could not start says
   why (`Completion::SandboxFailed`, from `setup_error` only), and a contained command
   that asked for a secret is told to ask with `needs.outside`. Names only, never values;

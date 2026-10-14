@@ -52,6 +52,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use efr_config::{ClassifierSettings, Settings};
 use efr_conversation::{ExitJudge, JudgeInput, JudgeOutcome};
+use efr_permissions::Egress;
 use efr_protocol::{ChainStep, ExitRecord, Judgement, Risk, UserAuthorization, Verdict};
 use efr_provider::{
     Completion, Message, ModelInfo, OutputSchema, Provider, ProviderError, Request, StopReason,
@@ -69,8 +70,22 @@ use crate::catalog::Vendor;
 
 mod memory;
 
-/// The static prompt of every classifier request (9.3), the system prompt.
+/// The static prompt of every classifier request (9.3), the system prompt, for a
+/// machine whose sandbox has no network.
 pub(crate) const PROMPT: &str = include_str!("judge/prompt.md");
+
+/// The prompt for a machine whose contained commands reach the network through efr's
+/// proxy (phase D2): the same text with the network lines of the proxy.
+pub(crate) const PROMPT_PROXY: &str = include_str!("judge/prompt-proxy.md");
+
+/// The classifier prompt for the network mode of the engine (DP28). Each text is
+/// static, so the prompt cache holds while the mode stays.
+pub(crate) fn prompt(egress: Egress) -> &'static str {
+    match egress {
+        Egress::Proxy => PROMPT_PROXY,
+        Egress::None => PROMPT,
+    }
+}
 
 /// The name of the verdict schema in a request.
 pub(crate) const SCHEMA_NAME: &str = "exit_verdict";
@@ -154,6 +169,7 @@ impl ClassifierJudge {
         settings: &ClassifierSettings,
         models: &[ModelInfo],
         record: &str,
+        egress: Egress,
     ) -> Result<Judgement, Failure> {
         let info = models.iter().find(|info| info.id == step.model);
         if step.check_list && !models.is_empty() && info.is_none() {
@@ -165,7 +181,7 @@ impl ClassifierJudge {
         let mut ask_again = step.chain_step == ChainStep::ClassifierModel;
         let requests = async {
             loop {
-                let request = request(&step.model, effort.clone(), record, with_format);
+                let request = request(&step.model, effort.clone(), record, with_format, egress);
                 match self.send(request).await {
                     Err(Failure::FormatRefused) if with_format => {
                         tracing::info!(model = %step.model, "the classifier model refused the output form; efrd sends it without the form from now on");
@@ -257,7 +273,7 @@ impl ExitJudge for ClassifierJudge {
                 skipped.push(format!("{}: {reason} earlier in this conversation", step.model));
                 continue;
             }
-            match self.run_step(&step, &settings, &models, &record).await {
+            match self.run_step(&step, &settings, &models, &record, input.egress).await {
                 Ok(judgement) => {
                     if let Some(key) = key
                         && matches!(judgement.verdict, Verdict::Allow | Verdict::Deny)
@@ -415,9 +431,15 @@ fn effort(settings: &ClassifierSettings, info: Option<&ModelInfo>) -> Option<Str
 }
 
 /// The request of one step.
-fn request(model: &str, effort: Option<String>, record: &str, with_format: bool) -> Request {
+fn request(
+    model: &str,
+    effort: Option<String>,
+    record: &str,
+    with_format: bool,
+    egress: Egress,
+) -> Request {
     let mut request = Request::new(model);
-    request.system = Some(PROMPT.to_owned());
+    request.system = Some(prompt(egress).to_owned());
     request.messages = vec![Message::user(record)];
     request.effort = effort;
     request.side_call = true;

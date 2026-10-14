@@ -1,4 +1,5 @@
 mod corpus;
+mod proxy;
 mod sandbox;
 
 use std::sync::{Arc, Mutex};

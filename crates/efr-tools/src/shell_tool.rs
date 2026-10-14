@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_protocol::{InputWait, Needs, SandboxSummary};
+use efr_protocol::{BlockReason, Blocked, InputWait, Needs, SandboxSummary};
 use efr_shell::{
     CommandResult, CommandRunner, Completion, OutputUpdate, RunMode, RunProgress, RunRequest,
     ShellError,
@@ -229,7 +229,12 @@ const NEEDS_MEMBERS: &[(&str, &str)] = &[
         "Paths to write outside the sandbox's write roots, such as one file in ~. A grant \
          opens only these paths.",
     ),
-    ("hosts", "Hosts to reach over the network, such as crates.io."),
+    (
+        "hosts",
+        "Hosts that the command needs, such as gitlab.com. For a server that the user's \
+         browser must reach, or a tool that does not use HTTPS_PROXY, such as psql, name \
+         localhost or the host with its port.",
+    ),
     ("sockets", "Unix sockets to connect to, such as a tool's own socket."),
     (
         "bus",
@@ -505,7 +510,8 @@ impl Tool for ShellTool {
              -m) or use write_file. In the auto permission mode the line runs in a \
              sandbox, and efr decides what leaves it. Run what the user asked; do not ask \
              the user for permission first. If the command fails for access (read-only \
-             file system, no network, permission denied), call shell again with the same \
+             file system, no network, a 403 from efr's proxy when it is on, permission \
+             denied), call shell again with the same \
              line and the narrowest needs that fits, and a short reason. needs.outside runs \
              the whole line with the user's full rights, so ask for it only when no \
              narrower member fits. A command that runs outside the sandbox does not see \
@@ -725,18 +731,8 @@ fn sandbox_notes(summary: &SandboxSummary, failed: bool) -> String {
             summary.survivors.join(", ")
         ));
     }
-    if !summary.blocked.is_empty() {
-        let hosts: Vec<String> = summary
-            .blocked
-            .iter()
-            .map(|blocked| format!("{}:{}", blocked.host, blocked.port))
-            .collect();
-        notes.push(format!(
-            "[efr: the network proxy refused: {}. To reach a host, call shell again with \
-             needs.hosts.]",
-            hosts.join(", ")
-        ));
-    }
+    // NOTE: the call's own limit is efrd's; the note names the key without the number.
+    notes.extend(blocked_note(&summary.blocked, summary.blocked_more, 0));
     let quarantined: Vec<String> = summary
         .surface_changes
         .iter()
@@ -751,6 +747,73 @@ fn sandbox_notes(summary: &SandboxSummary, failed: bool) -> String {
         ));
     }
     notes.join("\n")
+}
+
+/// The model's note for the refusals of efr's network proxy in a call or a job (phase
+/// D2, DP28): one sentence per reason, in the order in which the reasons first come,
+/// each with the hosts that got it, and one for the refusals that `blocked` leaves out
+/// (`more`). `max_upload_bytes` is the upload limit of the call; 0 leaves the number out.
+/// `None` when the proxy refused nothing.
+pub fn blocked_note(blocked: &[Blocked], more: u32, max_upload_bytes: u64) -> Option<String> {
+    if blocked.is_empty() && more == 0 {
+        return None;
+    }
+    let mut reasons: Vec<(BlockReason, Vec<String>)> = Vec::new();
+    for entry in blocked {
+        let host = format!("{}:{}", entry.host, entry.port);
+        match reasons.iter_mut().find(|(reason, _)| *reason == entry.reason) {
+            Some((_, hosts)) if !hosts.contains(&host) => hosts.push(host),
+            Some(_) => {}
+            None => reasons.push((entry.reason, vec![host])),
+        }
+    }
+    let mut lines: Vec<String> = reasons
+        .into_iter()
+        .map(|(reason, hosts)| block_sentence(reason, &hosts.join(", "), max_upload_bytes))
+        .collect();
+    if more > 0 {
+        let connections = if more == 1 { "connection" } else { "connections" };
+        lines.push(format!("[efr: the network proxy also refused {more} more {connections}.]"));
+    }
+    Some(lines.join("\n"))
+}
+
+/// The sentence of [`blocked_note`] for `reason` and the hosts `hosts`.
+fn block_sentence(reason: BlockReason, hosts: &str, max_upload_bytes: u64) -> String {
+    let refused = format!("[efr: the network proxy refused {hosts}:");
+    match reason {
+        BlockReason::NotAllowed => format!(
+            "{refused} not on the allow list. To reach a host, call shell again with \
+             needs.hosts.]"
+        ),
+        BlockReason::PrivateAddress => format!(
+            "{refused} it resolves to a local or private address. A host grant does not \
+             help.]"
+        ),
+        BlockReason::SniMismatch => format!(
+            "{refused} the TLS server name was not the host of the connection. Do not try \
+             another way.]"
+        ),
+        BlockReason::NotTls => format!(
+            "{refused} the connection sent no TLS hello with a server name, or it asked for \
+             Encrypted Client Hello. Do not try another way.]"
+        ),
+        BlockReason::IpLiteral => {
+            format!("{refused} the command named an IP address. Do not try another way.]")
+        }
+        BlockReason::UploadLimit if max_upload_bytes > 0 => format!(
+            "[efr: the network proxy cut {hosts}: the command sent more than \
+             {max_upload_bytes} bytes, the upload limit of a call (network.max_upload_bytes).]"
+        ),
+        BlockReason::UploadLimit => format!(
+            "[efr: the network proxy cut {hosts}: the command sent more than the upload limit \
+             of a call (network.max_upload_bytes).]"
+        ),
+        BlockReason::Method => format!("{refused} plain http allows only GET and HEAD.]"),
+        BlockReason::BadRequest => format!("{refused} the request was malformed.]"),
+        BlockReason::Limit => format!("{refused} the command had too many open connections.]"),
+        _ => format!("{refused} for a reason that this build does not know.]"),
+    }
 }
 
 /// Passes what a run hears on to the call's output sink.

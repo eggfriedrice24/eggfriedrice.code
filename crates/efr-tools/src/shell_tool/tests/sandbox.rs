@@ -182,8 +182,8 @@ async fn kept_out_dropped_stopped_and_surviving_names_follow_the_output() {
             "[efr: these processes of the command could not be ended: sudo. They may still \
              read the terminal, so the next call starts in a new hidden shell, in the user's \
              working directory, without the variables of this one.]",
-            "[efr: the network proxy refused: evil.example:443. To reach a host, call shell \
-             again with needs.hosts.]",
+            "[efr: the network proxy refused evil.example:443: not on the allow list. To \
+             reach a host, call shell again with needs.hosts.]",
             "[efr: the command changed git settings that run code; efr moved them out of the \
              way, and the user decides whether to keep them: /home/u/p/app/.git/commondir.]",
         ]
@@ -212,8 +212,8 @@ fn shell_tool_auto_text_says_try_first() {
     for sentence in [
         "In the auto permission mode the line runs in a sandbox, and efr decides what leaves it",
         "Run what the user asked; do not ask the user for permission first",
-        "If the command fails for access (read-only file system, no network, permission \
-         denied), call shell again with the same line and the narrowest needs that fits, and \
+        "If the command fails for access (read-only file system, no network, a 403 from \
+         efr's proxy when it is on, permission denied), call shell again with the same line and the narrowest needs that fits, and \
          a short reason",
         "needs.outside runs the whole line with the user's full rights, so ask for it only \
          when no narrower member fits",

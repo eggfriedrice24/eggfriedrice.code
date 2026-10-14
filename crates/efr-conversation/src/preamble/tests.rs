@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use efr_permissions::Egress;
 use efr_protocol::{Mode, ModeFallback};
 use efr_scope::Repo;
 use insta::assert_snapshot;
@@ -24,6 +25,7 @@ fn minimal() -> LiveState {
         fallback: None,
         model: "gpt-5.5".to_owned(),
         effort: None,
+        egress: Egress::None,
     }
 }
 
@@ -231,15 +233,32 @@ fn a_turn_that_fell_back_says_which_mode_it_runs_as_and_why() {
 
 #[test]
 fn the_auto_rule_promises_nothing_of_a_later_phase() {
+    // NOTE: with no proxy; the proxy's sentence comes only with `Egress::Proxy`.
     let text = minimal().render();
     for later in ["phase", "proxy", "undo", "registries"] {
         assert!(!text.contains(later), "{later:?} in {text}");
     }
 }
 
+#[test]
+fn auto_rule_has_proxy_sentence_only_with_proxy() {
+    let sentence = "Shell commands reach package registries and GitHub through efr's proxy; \
+                    for another host, efr asks its reviewer.";
+    let proxy = LiveState { egress: Egress::Proxy, ..minimal() }.render();
+    assert!(proxy.contains(sentence), "{proxy}");
+    assert!(
+        proxy.contains("a short reason. Shell commands reach package registries"),
+        "after the sentence about access failures: {proxy}"
+    );
+    let none = minimal().render();
+    assert!(!none.contains("proxy"), "{none}");
+    // The rest of the rule is the same in both.
+    assert_eq!(proxy.replacen(&format!(" {sentence}"), "", 1), none);
+}
+
 /// The rule of `auto` alone.
-fn auto_rule() -> &'static str {
-    super::mode_rule(Mode::Auto)
+fn auto_rule() -> String {
+    super::mode_rule(Mode::Auto, Egress::None)
 }
 
 #[test]
