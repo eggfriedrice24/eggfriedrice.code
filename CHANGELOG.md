@@ -310,6 +310,13 @@ into the GitHub release notes, and it stops when the section is missing.
   users and below hidden paths.
 - efr now uses rustls 0.23.46 for its connections to the provider. This version fixes
   four advisories of rustls 0.23.45 (RUSTSEC-2026-0346 to RUSTSEC-2026-0349).
+- efr now also treats `~/.config/git/credentials`, `~/.config/npm/npmrc`,
+  `~/.config/pnpm/rc`, `~/.config/pypoetry/auth.toml` and
+  `~/.config/composer/auth.json` as secrets, as it treats `~/.git-credentials` and
+  `~/.npmrc`. No mode reads them. The sandbox also hides `~/.gcm`,
+  `~/.config/glab-cli`, `~/.yarnrc.yml`, `~/.yarnrc`, `~/.bunfig.toml`,
+  `~/.config/pip/pip.conf` and `~/.pip/pip.conf`, because they can hold a token. In
+  `auto`, `read_file` of one of them asks you.
 
 ## [0.0.3] - 2026-10-09
 

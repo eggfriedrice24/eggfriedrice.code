@@ -170,9 +170,14 @@ fn scratch_outside_home_is_scratch() {
     "/home/u/.kube/config",
     "/home/u/.codex/auth.json",
     "/home/u/.git-credentials",
+    "/home/u/.config/git/credentials",
     "/home/u/.config/gh/hosts.yml",
     "/home/u/.npmrc",
+    "/home/u/.config/npm/npmrc",
+    "/home/u/.config/pnpm/rc",
     "/home/u/.pypirc",
+    "/home/u/.config/pypoetry/auth.toml",
+    "/home/u/.config/composer/auth.json",
     "/home/u/.cargo/credentials",
     "/home/u/.cargo/credentials.toml",
     "/home/u/.gem/credentials",
@@ -181,7 +186,15 @@ fn scratch_outside_home_is_scratch() {
     "/home/u/.local/share/efr/secrets",
 ])]
 #[case::aws("/home/u/.aws", &["/home/u/.aws/credentials", "/home/u/.aws/sso/cache"])]
-#[case::config("/home/u/.config", &["/home/u/.config/gcloud", "/home/u/.config/gh/hosts.yml"])]
+#[case::config("/home/u/.config", &[
+    "/home/u/.config/gcloud",
+    "/home/u/.config/git/credentials",
+    "/home/u/.config/gh/hosts.yml",
+    "/home/u/.config/npm/npmrc",
+    "/home/u/.config/pnpm/rc",
+    "/home/u/.config/pypoetry/auth.toml",
+    "/home/u/.config/composer/auth.json",
+])]
 #[case::local_share("/home/u/.local/share", &["/home/u/.local/share/keyrings", "/home/u/.local/share/efr/secrets"])]
 #[case::project("/home/u/p/app", &[])]
 #[case::a_secret_itself("/home/u/.ssh", &[])]

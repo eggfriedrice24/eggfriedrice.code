@@ -36,6 +36,15 @@ pub const SANDBOX_MASKS: &[&str] = &[
     ".config/Bitwarden",
     ".config/1Password",
     ".config/KeePassXC",
+    // Package tool and forge configs that can hold a registry token or a password in
+    // a URL: a contained call reaches the allowed hosts through efr's proxy.
+    ".gcm",
+    ".config/glab-cli",
+    ".yarnrc.yml",
+    ".yarnrc",
+    ".bunfig.toml",
+    ".config/pip/pip.conf",
+    ".pip/pip.conf",
     // Browser and messenger profiles.
     ".mozilla",
     ".librewolf",
