@@ -54,7 +54,10 @@ pub(crate) const READY_WAIT: Duration = Duration::from_secs(1);
 /// The byte that the server writes once its own sandbox is in place.
 const READY: u8 = b'R';
 
-/// The name of the server's process (`PR_SET_NAME`), which a job's stop spares.
+/// The name of the server's process, which a job's stop spares (`job.rs`).
+pub(crate) const BRIDGE_NAME: &str = "efr-bridge";
+
+/// [`BRIDGE_NAME`] for `PR_SET_NAME`.
 const BRIDGE_CNAME: &std::ffi::CStr = c"efr-bridge";
 
 /// The most connections that the bridge copies at once; it closes one more at once.

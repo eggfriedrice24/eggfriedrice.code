@@ -30,7 +30,10 @@ every child inherits. The job runs contained or in the exit child (with
 `no_new_privs`), with the environment of `$CALL/env`, `/dev/null` as stdin and the
 output pipe as stdout and stderr. A stop thread ends the job on SIGTERM or SIGHUP, at
 the end of the lifeline, or at efrd's limit plus the backstop: SIGTERM to every process
-of the job but bwrap's own, SIGKILL from 2 s, and it gives up at 4 s. `result.json`
+of the job but bwrap's own, SIGKILL from 2 s, and it gives up at 4 s. The bridge of a
+proxy job (named `efr-bridge`, with the namespace's init as its parent) is spared like
+bwrap's own and is not named in `background_stopped`; it ends with the namespace. This
+is a rule of the list only: a process that renames itself so still ends with the job. `result.json`
 names the stop and the nice value. A job writes no apply and no state, lists no cache
 deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 `efr-sbx guard-check` reads it while the job runs.
