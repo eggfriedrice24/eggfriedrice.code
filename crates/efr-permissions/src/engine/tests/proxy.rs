@@ -454,3 +454,63 @@ fn ssh_submodule_url_is_user_only() {
     assert_eq!(kinds(&decision), [ExitKind::Outside]);
     assert_eq!(decision.exits().next().unwrap().approver, Approver::User);
 }
+
+#[rstest]
+#[case::plain("ssh evil.example", "evil.example")]
+#[case::user("ssh -p 2222 deploy@Build.Test uptime", "build.test")]
+#[case::url("ssh ssh://u@box.test:2200", "box.test")]
+#[case::alias("ssh myalias", "myalias")]
+#[case::options("ssh -i ~/.ssh/k -o BatchMode=yes -J jump.test db.test", "db.test")]
+#[case::mosh("mosh shell.test", "shell.test")]
+#[case::autossh("autossh -M 0 tunnel.test", "tunnel.test")]
+fn ssh_outside_needs_named_host(#[case] line: &str, #[case] host: &str) {
+    let facts = CallFacts {
+        programs: ["ssh", "mosh", "autossh"]
+            .map(|word| (word.to_owned(), Some(PathBuf::from("/usr/bin").join(word)), false))
+            .to_vec(),
+        ..CallFacts::default()
+    };
+    let decision = decide(shell(line).with_facts(facts));
+    assert_eq!(kinds(&decision), [ExitKind::Outside], "{line:?}");
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
+    assert_eq!(need.hosts, [host], "{line:?}");
+    assert_eq!(need.names, [host], "{line:?}");
+    // A message must name the host; "run uptime on the server" does not.
+    assert!(!names_match(&need.names, &["run uptime on the server".to_owned()]));
+    assert!(names_match(&need.names, &[format!("ssh to {host} and look")]), "{line:?}");
+}
+
+#[rstest]
+#[case::variable("ssh $HOST uptime")]
+#[case::substitution("ssh \"$(cat host.txt)\"")]
+#[case::no_destination("ssh -V")]
+fn ssh_unreadable_destination_is_user_only(#[case] line: &str) {
+    let decision = decide(shell(line));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+}
+
+#[rstest]
+#[case::scp_form("git clone git@github.com:o/r.git", "github.com")]
+#[case::ssh_scheme("git clone ssh://git@git.test:2222/o/r.git", "git.test")]
+#[case::git_ssh("git clone --depth 1 git+ssh://code.test/r", "code.test")]
+#[case::fetch_url("git fetch git@mirror.test:o/r.git main", "mirror.test")]
+fn git_clone_ssh_url_is_outside_with_host(#[case] line: &str, #[case] host: &str) {
+    let facts = remote_facts(Vec::new());
+    let decision = decide(shell(line).with_facts(facts.clone()));
+    assert_eq!(kinds(&decision), [ExitKind::Outside], "{line:?}");
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
+    assert_eq!(need.hosts, [host], "{line:?}");
+    // With no proxy the clone keeps its `host` exit with the whole network.
+    let none = none_engine().decide(&in_auto(shell(line).with_facts(facts)));
+    assert_eq!(grants(&none), [Grant::OpenNetwork], "{line:?}");
+    // An https clone follows the list.
+    let decision = decide(shell("git clone https://gitlab.test/o/r.git"));
+    assert_eq!(grants(&decision), [host_grant("gitlab.test")]);
+}
+
+fn host_grant(name: &str) -> Grant {
+    host(name, 443)
+}

@@ -141,12 +141,14 @@ pub struct ExitNeed {
     /// ([`copies`](Self::copies) is not empty), while [`AutoSupport::floor_backup`] is
     /// true, whoever approves it.
     pub backup_before_write: bool,
-    /// The hosts that the line names for a `host` or `upload` exit: the host of each URL
-    /// of its command, of each remote operand of `scp`, `sftp` or `rsync`, and the
-    /// destination of `ssh`, in lower case. The grant can open more than these, such as
-    /// the whole network before the proxy, and a host that the line hides (a git remote
-    /// name, a package manager's registry) is not here. The naming rule of the
-    /// classifier's allow checks each one (spec 9.4).
+    /// The hosts that the exit reaches, in lower case: for a `host` or `upload` exit the
+    /// host of each URL of its command, of each remote operand of `scp`, `sftp` or
+    /// `rsync`, the destination of `ssh`, and the hosts behind a git remote name when
+    /// efrd's facts give them (phase D2); for an `outside` exit of `ssh`, `mosh`,
+    /// `autossh` or an ssh git URL or remote under the proxy, that host. The grant can
+    /// open more than these, such as the whole network, and a host that the line hides
+    /// (a package manager's registry, a remote with no fact) is not here. The naming
+    /// rule of the classifier's allow checks each one (spec 9.4).
     pub hosts: Vec<String>,
     /// The package ecosystem whose registry a `host` exit fetches from, when the line
     /// is a package manager's fetch such as `cargo fetch` or `npm ci`. The classifier's
@@ -466,7 +468,11 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 }
                 if matches!(exit.kind, ExitKind::Host | ExitKind::Upload) {
                     let mut need = predicted(exit, &part);
-                    need.hosts = programs::line_hosts(command);
+                    for host in programs::line_hosts(command) {
+                        if !need.hosts.contains(&host) {
+                            need.hosts.push(host);
+                        }
+                    }
                     for host in remote_hosts(need.kind) {
                         if !need.hosts.contains(&host) {
                             need.hosts.push(host);
@@ -1049,6 +1055,7 @@ fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
     need.target = exit.target;
     need.approver = exit.approver;
     need.names = exit.names;
+    need.hosts = exit.hosts;
     need
 }
 

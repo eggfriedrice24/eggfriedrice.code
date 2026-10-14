@@ -22,12 +22,38 @@ pub(super) struct Found {
     pub(super) approver: Approver,
     /// The words that name it in a user message.
     pub(super) names: Vec<String>,
+    /// The hosts that it reaches, for an `outside` exit of a remote shell or an ssh git
+    /// URL; the caller adds the line's hosts to a `host` or `upload` exit.
+    pub(super) hosts: Vec<String>,
 }
 
 impl Found {
     fn of(kind: ExitKind) -> Self {
         let approver = if kind.user_only() { Approver::User } else { Approver::Classifier };
-        Found { kind, grants: Vec::new(), target: None, approver, names: Vec::new() }
+        Found {
+            kind,
+            grants: Vec::new(),
+            target: None,
+            approver,
+            names: Vec::new(),
+            hosts: Vec::new(),
+        }
+    }
+
+    /// The `outside` exit of a program that reaches `host` over ssh with the user's ssh
+    /// agent and keys (DP20 (e), (f)): the classifier judges it only when a user message
+    /// names the host, as written on the line (an alias of `~/.ssh/config` counts as
+    /// written). A destination that efr cannot read, such as `$HOST`, is for the user.
+    fn remote_shell(host: Option<String>) -> Self {
+        match host {
+            Some(host) => Found {
+                approver: Approver::ClassifierWhenNamed,
+                names: vec![host.clone()],
+                hosts: vec![host],
+                ..Found::of(ExitKind::Outside)
+            },
+            None => Found { approver: Approver::User, ..Found::of(ExitKind::Outside) },
+        }
     }
 
     fn bus(bus: BusKind) -> Self {
@@ -549,7 +575,9 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
         } else {
             network.host()
         }),
-        "ssh" | "mosh" | "autossh" => found.extend(network.remote_shell()),
+        "ssh" | "mosh" | "autossh" => {
+            found.extend(network.remote_shell(ssh_destination(program, args)))
+        }
         "nmcli" | "iwctl" => found.push(Found::bus_form(program, args)),
         program if RAW_NETWORK_PROGRAMS.contains(&program) => found.push(open_network()),
         program if HTTP_NETWORK_PROGRAMS.contains(&program) => found.extend(network.host()),
@@ -797,12 +825,14 @@ impl Network<'_> {
         }
     }
 
-    /// A remote shell: a `host` exit in phase 1. The proxy carries no ssh, so from
-    /// phase D it runs only outside the sandbox.
-    fn remote_shell(&self) -> Option<Found> {
+    /// A remote shell to `host`, or an ssh git URL of `host`: a `host` exit with the
+    /// whole network when the machine has no proxy. The proxy carries no ssh, so under
+    /// it the command runs only outside the sandbox, and the host must be named
+    /// ([`Found::remote_shell`]).
+    fn remote_shell(&self, host: Option<String>) -> Option<Found> {
         match self.support.egress {
             Egress::None => self.host(),
-            Egress::Proxy => Some(Found::of(ExitKind::Outside)),
+            Egress::Proxy => Some(Found::remote_shell(host)),
         }
     }
 }
@@ -1365,7 +1395,14 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
             }
             vec![Found::upload(names)]
         }
-        "fetch" | "pull" | "clone" | "ls-remote" => network.host().into_iter().collect(),
+        "fetch" | "pull" | "clone" | "ls-remote" => {
+            // NOTE: an ssh URL on the line, such as `git clone git@host:o/r.git`; a
+            // remote name reads its URLs from the facts (remotes.rs).
+            match operands_of(rest).into_iter().find(|word| is_ssh_url(word)) {
+                Some(url) => network.remote_shell(ssh_url_host(url)).into_iter().collect(),
+                None => network.host().into_iter().collect(),
+            }
+        }
         "remote" if matches!(verb(rest, &[]), Some("update" | "prune" | "show")) => {
             network.host().into_iter().collect()
         }
@@ -1385,6 +1422,35 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
         "gc" if rest.iter().any(|word| word.starts_with("--prune")) => destructive(),
         _ => Vec::new(),
     }
+}
+
+/// The words of `rest` that are no option.
+fn operands_of(rest: &[String]) -> Vec<&str> {
+    rest.iter().map(String::as_str).filter(|word| !word.starts_with('-')).collect()
+}
+
+/// True when git reaches the URL `word` over ssh: `ssh://`, `git+ssh://`, `ssh+git://`,
+/// or the scp form `[user@]host:path`, with a `:` before any `/`.
+fn is_ssh_url(word: &str) -> bool {
+    match word.split_once("://") {
+        Some((scheme, _)) => matches!(scheme, "ssh" | "git+ssh" | "ssh+git"),
+        None => is_remote(word),
+    }
+}
+
+/// The host of the ssh URL `word`, in lower case; `None` when only the shell can read
+/// it.
+fn ssh_url_host(word: &str) -> Option<String> {
+    let host = match word.split_once("://") {
+        Some((_, rest)) => {
+            let authority = rest.split('/').next().unwrap_or_default();
+            let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+            host.rsplit_once(':').map_or(host, |(host, _)| host).to_owned()
+        }
+        None => host_of(word)?,
+    };
+    let host = host.trim_end_matches('.').to_lowercase();
+    (!host.is_empty() && !host.contains(['/', OPAQUE, '$'])).then_some(host)
 }
 
 /// True for `-f`, `--force`, or a cluster of short options that holds `f`.
@@ -1516,7 +1582,7 @@ pub(super) fn line_hosts(words: &[String]) -> Vec<String> {
                 args.iter().filter(|arg| !arg.contains("://")).filter_map(|arg| host_of(arg)),
             );
         }
-        "ssh" | "mosh" | "autossh" => hosts.extend(ssh_destination(args)),
+        "ssh" | "mosh" | "autossh" => hosts.extend(ssh_destination(program, args)),
         _ => {}
     }
     // NOTE: a host that only the shell knows, such as `$HOST`, names nothing efr can
@@ -1545,14 +1611,16 @@ pub(super) fn line_urls(words: &[String]) -> Vec<(String, u16)> {
 
 /// The host of the destination of `ssh` with `args`: the first word after the options,
 /// without a user or a port.
-fn ssh_destination(args: &[String]) -> Option<String> {
+fn ssh_destination(program: &str, args: &[String]) -> Option<String> {
+    // NOTE: `autossh -M port` takes a value; for ssh `-M` is a flag.
+    let values = if program == "autossh" { "BbcDEeFIiJLlMmOopQRSWw" } else { SSH_VALUE_LETTERS };
     let mut words = args.iter();
     while let Some(word) = words.next() {
         if word == "--" {
             return words.next().and_then(|word| destination_host(word));
         }
         if let Some(letters) = word.strip_prefix('-').filter(|letters| !letters.is_empty()) {
-            let takes = letters.char_indices().find(|(_, c)| SSH_VALUE_LETTERS.contains(*c));
+            let takes = letters.char_indices().find(|(_, c)| values.contains(*c));
             if takes.is_some_and(|(at, c)| at + c.len_utf8() == letters.len()) {
                 words.next();
             }
