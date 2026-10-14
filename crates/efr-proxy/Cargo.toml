@@ -1,0 +1,26 @@
+[package]
+name = "efr-proxy"
+description = "The network proxy of the efr sandbox: one listener per contained call, the allow list, the address guard, the SNI check and the upload budget"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+efr-permissions.workspace = true
+efr-protocol.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest.workspace = true
+# Real ClientHello bytes from rustls::ClientConnection, written into a Vec: no server
+# and no network.
+rustls.workspace = true
+
+[lints]
+workspace = true

@@ -1049,6 +1049,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "efr-proxy"
+version = "0.0.3"
+dependencies = [
+ "efr-permissions",
+ "efr-protocol",
+ "pretty_assertions",
+ "proptest",
+ "rustls",
+]
+
+[[package]]
 name = "efr-pty"
 version = "0.0.3"
 dependencies = [
