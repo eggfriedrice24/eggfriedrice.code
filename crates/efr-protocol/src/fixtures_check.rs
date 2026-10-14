@@ -121,6 +121,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("job_stop_causes.json", &JobStopBy::ALL.to_vec()));
     fixtures.push(fixture("held_reasons.json", &HeldReason::ALL.to_vec()));
     fixtures.push(fixture("notice_kinds.json", &NoticeKind::ALL.to_vec()));
+    fixtures.push(fixture("block_reasons.json", &BlockReason::ALL.to_vec()));
     fixtures
 }
 
@@ -440,6 +441,7 @@ fn sandbox_status() -> SandboxStatus {
         ],
         netview: true,
         netview_off: false,
+        proxy: true,
     }
 }
 
@@ -488,6 +490,7 @@ fn exit_record() -> ExitRecord {
                 on_allow_list: false,
                 named_in_user_messages: false,
                 refused_by_proxy: true,
+                project_remote: false,
             }],
             programs: vec![ProgramFact {
                 word: "cp".into(),
@@ -1103,6 +1106,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     reason: Some("bubblewrap is setuid; efr needs the unprivileged build".into()),
                     fix: Some("install the non-setuid build of bubblewrap".into()),
                     netview: false,
+                    proxy: false,
                     ..sandbox_status()
                 },
                 checks: vec![
@@ -1373,11 +1377,22 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 dropped: vec!["LD_PRELOAD".into()],
                 background_stopped: vec!["vite".into()],
                 survivors: vec!["sudo".into()],
-                blocked: vec![Blocked {
-                    host: "example.com".into(),
-                    port: 443,
-                    reason: BlockReason::NotAllowed,
-                }],
+                blocked: vec![
+                    Blocked {
+                        host: "example.com".into(),
+                        port: 443,
+                        reason: BlockReason::NotAllowed,
+                        count: 1,
+                    },
+                    Blocked {
+                        host: "files.example.org".into(),
+                        port: 443,
+                        reason: BlockReason::UploadLimit,
+                        count: 3,
+                    },
+                ],
+                blocked_more: 2,
+                proxied: true,
                 surface_changes: vec![surface_change()],
                 setup_error: Some("bwrap: Can't mount proc on /newroot/proc".into()),
                 cache_deletes: vec!["/home/me/.cache/go-build/3f".into()],
@@ -1608,6 +1623,13 @@ pub(crate) fn event_samples() -> Vec<Event> {
             survivors: vec!["node".into()],
             launcher_lost: true,
             output_truncated: true,
+            blocked: vec![Blocked {
+                host: "<invalid>".into(),
+                port: 443,
+                reason: BlockReason::BadRequest,
+                count: 4,
+            }],
+            blocked_more: 1,
         },
         Event::JobNotice {
             conversation_id: conversation_id(),

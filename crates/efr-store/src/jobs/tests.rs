@@ -58,6 +58,8 @@ fn job_ended(n: u32, state: JobState, stopped_by: Option<JobStopBy>) -> Event {
         survivors: Vec::new(),
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     }
 }
 

@@ -10,8 +10,8 @@ use super::{
     method_stem, models_list_sample, undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
-    DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource, RootSource,
-    UndoAction, UndoReason, UndoRefused, WithdrawTarget,
+    BlockReason, DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource,
+    RootSource, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -312,6 +312,24 @@ fn undo_refused_index(refused: &UndoRefused) -> usize {
 
 const UNDO_REFUSED_COUNT: usize = 7;
 
+/// The position of a block reason in the enum, for the same purpose as `method_index`.
+fn block_reason_index(reason: BlockReason) -> usize {
+    match reason {
+        BlockReason::NotAllowed => 0,
+        BlockReason::PrivateAddress => 1,
+        BlockReason::SniMismatch => 2,
+        BlockReason::UploadLimit => 3,
+        BlockReason::Method => 4,
+        BlockReason::IpLiteral => 5,
+        BlockReason::NotTls => 6,
+        BlockReason::BadRequest => 7,
+        BlockReason::Limit => 8,
+        BlockReason::Unknown => 9,
+    }
+}
+
+const BLOCK_REASON_COUNT: usize = 10;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -443,6 +461,12 @@ fn every_draft_part_has_a_sample() {
 fn every_withdraw_target_has_a_sample() {
     let covered: Vec<usize> = withdraw_target_samples().iter().map(withdraw_target_index).collect();
     assert_eq!(covered, (0..WITHDRAW_TARGET_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_block_reason_has_a_sample() {
+    let covered: Vec<usize> = BlockReason::ALL.into_iter().map(block_reason_index).collect();
+    assert_eq!(covered, (0..BLOCK_REASON_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

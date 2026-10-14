@@ -232,6 +232,8 @@ fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStop
         survivors: Vec::new(),
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     }
 }
 
@@ -274,6 +276,8 @@ fn job_ended_notice_line() {
         survivors: vec!["sleep".to_owned(), "node".to_owned()],
         launcher_lost: true,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     };
     assert_eq!(
         line(&lost, title).as_deref(),

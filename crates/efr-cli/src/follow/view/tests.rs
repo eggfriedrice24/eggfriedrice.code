@@ -1438,6 +1438,7 @@ fn a_failure_in_the_sandbox_names_its_exit_and_the_turn_says_once_where_it_ran()
                         host: "evil.example".to_owned(),
                         port: 443,
                         reason: BlockReason::NotAllowed,
+                        count: 1,
                     }],
                     background_stopped: vec!["vite".to_owned()],
                     ..SandboxSummary::default()

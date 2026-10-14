@@ -414,6 +414,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
                     host: "index.crates.io".to_owned(),
                     port: 443,
                     reason: BlockReason::NotAllowed,
+                    count: 1,
                 }],
                 ..SandboxSummary::default()
             }),
@@ -1207,6 +1208,8 @@ fn job_events() -> Vec<EventEnvelope> {
             survivors: Vec::new(),
             launcher_lost: false,
             output_truncated: false,
+            blocked: Vec::new(),
+            blocked_more: 0,
         },
         notice(4),
         notice(4),

@@ -12,7 +12,8 @@
     "warnings": [
       "the registered project ~ is your home directory; auto runs its turns as cautious"
     ],
-    "netview": false
+    "netview": false,
+    "proxy": false
   },
   "checks": [
     {

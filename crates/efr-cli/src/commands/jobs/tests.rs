@@ -38,6 +38,8 @@ fn stopped_by_you(n: u32, tail: &str, survivors: &[&str]) -> Event {
         survivors: survivors.iter().map(|name| (*name).to_owned()).collect(),
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     }
 }
 

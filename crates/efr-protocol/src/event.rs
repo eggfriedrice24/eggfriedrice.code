@@ -9,14 +9,14 @@ use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use crate::compaction::is_zero_u64;
+use crate::compaction::{is_zero_u32, is_zero_u64};
 use crate::{
-    CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId, EffectiveSettings,
-    ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant, HeldReason, JobId,
-    JobInfo, JobState, JobStopBy, JudgeKind, Launch, NoticeKind, Origin, PauseReason, Presence,
-    PresenceSource, PtyId, QuestionId, RefChange, ReportedFile, Risk, SandboxSummary, Scope, Seq,
-    ShellContext, SnapshotPhase, SurfaceChange, TurnId, TurnSettings, TurnUndoInfo, UndoId,
-    UserAuthorization, Verdict,
+    Blocked, CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId,
+    EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant,
+    HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind, Launch, NoticeKind, Origin,
+    PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange, ReportedFile, Risk,
+    SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase, SurfaceChange, TurnId, TurnSettings,
+    TurnUndoInfo, UndoId, UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -799,6 +799,13 @@ pub enum Event {
         /// on a full disk; the tail is whole. False when absent.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         output_truncated: bool,
+        /// The connections that efr's proxy refused while the job ran, at most
+        /// [`SandboxSummary::MAX_BLOCKED`]. Absent when none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        blocked: Vec<Blocked>,
+        /// The refusals that `blocked` leaves out. 0 when absent.
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        blocked_more: u32,
     },
 
     /// A job notice entered the conversation: a turn took it into its first message.

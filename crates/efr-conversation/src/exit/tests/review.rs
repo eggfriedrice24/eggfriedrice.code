@@ -462,6 +462,7 @@ fn host(host: &str, named: bool) -> HostFact {
         on_allow_list: false,
         named_in_user_messages: named,
         refused_by_proxy: false,
+        project_remote: false,
     }
 }
 

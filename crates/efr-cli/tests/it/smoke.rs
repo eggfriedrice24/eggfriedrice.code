@@ -532,6 +532,7 @@ fn ready() -> efr_protocol::SandboxStatus {
         warnings: Vec::new(),
         netview: false,
         netview_off: false,
+        proxy: false,
     }
 }
 

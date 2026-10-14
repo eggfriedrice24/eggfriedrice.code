@@ -6,10 +6,10 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    CallId, CommandId, Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, HeldReason, InputWait, JobId, JobState, Mode, NoticeKind, Origin,
-    OverriddenSettings, PromptSend, PtyId, Scope, Seq, ShellContext, SnapshotPhase, StopReason,
-    TurnId, TurnSettings, TurnStop, UndoId, Usage,
+    BlockReason, Blocked, CallId, CommandId, Compaction, ConversationId, EffectiveSettings,
+    ErrorBody, ErrorCode, Event, EventEnvelope, HeldReason, InputWait, JobId, JobState, Mode,
+    NoticeKind, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq, ShellContext,
+    SnapshotPhase, StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -362,6 +362,8 @@ fn job_ended_has_no_turn_id() {
         survivors: Vec::new(),
         launcher_lost: false,
         output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
     };
     assert_eq!(ended.turn_id(), None);
     assert_eq!(
@@ -385,6 +387,40 @@ fn job_ended_has_no_turn_id() {
     });
     let read: Event = serde_json::from_value(later).unwrap();
     assert!(matches!(read, Event::JobEnded { state: JobState::Unknown, .. }));
+}
+
+#[test]
+fn job_ended_without_blocked_reads_empty() {
+    let old = json!({
+        "kind": "job_ended", "job_id": "j2", "state": "exited", "exit_code": 0,
+        "output_bytes": 12, "ran_secs": 3, "tail": "done\n"
+    });
+    let read: Event = serde_json::from_value(old.clone()).unwrap();
+    let Event::JobEnded { blocked, blocked_more, .. } = &read else {
+        panic!("not a job end: {read:?}");
+    };
+    assert!(blocked.is_empty());
+    assert_eq!(*blocked_more, 0);
+    assert_eq!(serde_json::to_value(&read).unwrap(), old, "and writes neither");
+
+    let mut with = old;
+    with["blocked"] = json!([{ "host": "a.test", "port": 443, "reason": "upload_limit" }]);
+    with["blocked_more"] = json!(2);
+    let read: Event = serde_json::from_value(with.clone()).unwrap();
+    let Event::JobEnded { blocked, blocked_more, .. } = &read else {
+        panic!("not a job end: {read:?}");
+    };
+    assert_eq!(
+        blocked.as_slice(),
+        [Blocked {
+            host: "a.test".to_owned(),
+            port: 443,
+            reason: BlockReason::UploadLimit,
+            count: 1
+        }]
+    );
+    assert_eq!(*blocked_more, 2);
+    assert_eq!(serde_json::to_value(&read).unwrap(), with);
 }
 
 #[test]

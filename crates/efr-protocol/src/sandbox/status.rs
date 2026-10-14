@@ -50,6 +50,10 @@ pub struct SandboxStatus {
     /// probe leaves it false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub netview_off: bool,
+    /// True when the probe's proxy self-test gave every expected result, so a contained
+    /// call can reach the network through efr's proxy (phase D2). False when absent.
+    #[serde(default)]
+    pub proxy: bool,
 }
 
 impl SandboxStatus {
@@ -68,6 +72,7 @@ impl SandboxStatus {
             warnings: Vec::new(),
             netview: false,
             netview_off: false,
+            proxy: false,
         }
     }
 }

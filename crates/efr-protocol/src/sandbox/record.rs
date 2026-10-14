@@ -205,6 +205,10 @@ pub struct HostFact {
     pub named_in_user_messages: bool,
     /// True when the proxy refused it in this conversation's last call (phase D).
     pub refused_by_proxy: bool,
+    /// True when the host is the host of a remote of a pinned project git dir whose
+    /// URLs did not change since the conversation's first call (phase D2).
+    #[serde(default)]
+    pub project_remote: bool,
 }
 
 /// A program word of the line.

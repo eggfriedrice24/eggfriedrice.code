@@ -381,6 +381,7 @@ impl ProbeReport {
             warnings: self.warnings.clone(),
             netview: failure.is_none() && self.netview == Some(true),
             netview_off: false,
+            proxy: false,
         }
     }
 

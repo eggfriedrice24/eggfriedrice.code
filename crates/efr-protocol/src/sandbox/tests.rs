@@ -2,10 +2,92 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    ActionFacts, BusKind, CacheMode, DesktopKind, EffectiveSettings, Event, ExitFacts, ExitKind,
-    Grant, Launch, Mode, ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus,
-    SandboxSummary,
+    ActionFacts, BlockReason, Blocked, BusKind, CacheMode, DesktopKind, EffectiveSettings, Event,
+    ExitFacts, ExitKind, Grant, HostFact, Launch, Mode, ModeFallback, Needs, NetworkMode,
+    ProtocolError, SandboxStatus, SandboxSummary,
 };
+
+#[test]
+fn block_reason_unknown_reads_as_unknown() {
+    for reason in BlockReason::ALL {
+        let wire = serde_json::to_value(reason).unwrap();
+        assert_eq!(serde_json::from_value::<BlockReason>(wire).unwrap(), reason);
+    }
+    assert_eq!(serde_json::to_value(BlockReason::IpLiteral).unwrap(), json!("ip_literal"));
+    assert_eq!(serde_json::to_value(BlockReason::NotTls).unwrap(), json!("not_tls"));
+    assert_eq!(serde_json::to_value(BlockReason::BadRequest).unwrap(), json!("bad_request"));
+    assert_eq!(serde_json::to_value(BlockReason::Limit).unwrap(), json!("limit"));
+    let later: BlockReason = serde_json::from_value(json!("rate_limited")).unwrap();
+    assert_eq!(later, BlockReason::Unknown);
+    let blocked: Blocked =
+        serde_json::from_value(json!({ "host": "a.test", "port": 443, "reason": "dns_rebind" }))
+            .unwrap();
+    assert_eq!(blocked.reason, BlockReason::Unknown);
+    assert!(serde_json::from_value::<BlockReason>(json!(3)).is_err(), "a number is no reason");
+}
+
+#[test]
+fn blocked_count_defaults_to_one() {
+    let old = json!({ "host": "a.test", "port": 443, "reason": "not_allowed" });
+    let read: Blocked = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(read.count, 1);
+    assert_eq!(serde_json::to_value(&read).unwrap(), old, "a count of 1 stays off the wire");
+    let many = Blocked { count: 7, ..read };
+    assert_eq!(serde_json::to_value(&many).unwrap()["count"], json!(7));
+    assert_eq!(
+        serde_json::from_value::<Blocked>(serde_json::to_value(&many).unwrap()).unwrap(),
+        many
+    );
+}
+
+#[test]
+fn summary_without_proxied_reads_false() {
+    let read: SandboxSummary = serde_json::from_value(json!({
+        "confined": true,
+        "blocked": [{ "host": "a.test", "port": 443, "reason": "not_allowed" }],
+    }))
+    .unwrap();
+    assert!(!read.proxied);
+    assert_eq!(read.blocked_more, 0);
+    assert_eq!(read.blocked.len(), 1);
+    let wire = serde_json::to_value(&read).unwrap();
+    assert!(wire.get("proxied").is_none() && wire.get("blocked_more").is_none());
+    let proxied = SandboxSummary { proxied: true, blocked_more: 4, ..read };
+    let wire = serde_json::to_value(&proxied).unwrap();
+    assert_eq!(wire["proxied"], json!(true));
+    assert_eq!(wire["blocked_more"], json!(4));
+    assert_eq!(serde_json::from_value::<SandboxSummary>(wire).unwrap(), proxied);
+}
+
+#[test]
+fn host_fact_without_project_remote_reads_false() {
+    let read: HostFact = serde_json::from_value(json!({
+        "host": "github.com",
+        "on_allow_list": false,
+        "named_in_user_messages": true,
+        "refused_by_proxy": false,
+    }))
+    .unwrap();
+    assert!(!read.project_remote);
+    let remote = HostFact { project_remote: true, ..read };
+    assert_eq!(serde_json::to_value(&remote).unwrap()["project_remote"], json!(true));
+}
+
+#[test]
+fn sandbox_status_without_proxy_reads_false() {
+    let status: SandboxStatus = serde_json::from_value(json!({
+        "available": true,
+        "cache_mode": "tmp",
+        "network_mode": "none",
+        "netview": true,
+    }))
+    .unwrap();
+    assert!(!status.proxy);
+    assert!(status.netview);
+    let proxy = SandboxStatus { proxy: true, ..status };
+    assert_eq!(serde_json::to_value(&proxy).unwrap()["proxy"], json!(true));
+    assert!(!SandboxStatus::unavailable("no bwrap").proxy);
+}
 
 #[test]
 fn action_facts_without_job_fields_reads_as_before() {
@@ -258,6 +340,7 @@ fn a_status_before_the_first_probe_is_unavailable_with_a_reason() {
             "cache_mode": "overlay",
             "network_mode": "none",
             "netview": false,
+            "proxy": false,
         })
     );
     assert_eq!(CacheMode::Readonly.as_str(), "readonly");

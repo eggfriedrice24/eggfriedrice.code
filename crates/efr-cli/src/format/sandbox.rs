@@ -1216,6 +1216,11 @@ pub(crate) fn blocked(blocked: &Blocked) -> String {
         BlockReason::SniMismatch => "the TLS name differs from the host",
         BlockReason::UploadLimit => "over the upload limit",
         BlockReason::Method => "a method that is not allowed",
+        BlockReason::IpLiteral => "ip address",
+        BlockReason::NotTls => "not TLS",
+        BlockReason::BadRequest => "bad request",
+        BlockReason::Limit => "too many connections",
+        BlockReason::Unknown => "unknown reason",
         _ => "refused",
     };
     format!("network: blocked {}:{} ({reason})", one_line(&blocked.host), blocked.port)

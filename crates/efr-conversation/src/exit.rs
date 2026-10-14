@@ -893,6 +893,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
                 on_allow_list: false,
                 named_in_user_messages,
                 refused_by_proxy: false,
+                project_remote: false,
             });
         }
     };

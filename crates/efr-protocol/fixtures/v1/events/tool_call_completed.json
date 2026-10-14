@@ -29,8 +29,16 @@
         "host": "example.com",
         "port": 443,
         "reason": "not_allowed"
+      },
+      {
+        "host": "files.example.org",
+        "port": 443,
+        "reason": "upload_limit",
+        "count": 3
       }
     ],
+    "blocked_more": 2,
+    "proxied": true,
     "surface_changes": [
       {
         "path": "/home/me/p/app/.git/commondir",
