@@ -164,6 +164,14 @@ Modules:
   `Grant::Bus { bus: System }`: the classifier judges their read forms, such as
   `nmcli device status` and `iwctl station wlan0 show`, and only the user approves
   every other form, such as `nmcli radio wifi off`.
+  The `rustup` forms that install (`toolchain install`, `install`, `update`,
+  `target add`, `component add`, `self update`) are `outside` exits, because in the
+  sandbox they write only the private layer of `~/.rustup`. The install puts programs
+  on the user's `PATH`, so the classifier judges only a release channel (`stable`,
+  `beta`, `nightly`, `1.N` or `1.N.M`, with an optional date and target triple) with
+  plain target and component names, and only when a user message names `rustup`,
+  `toolchain` or the channel. A line that sets `RUSTUP_*` or `CARGO_HOME`, a path, a
+  custom toolchain, an unknown option and `rustup toolchain link` are for the user.
   `PRIVILEGE_EXITS` holds the programs that only `auto` treats as
   a privilege exit. `unsandboxed_line_problem` is the one-command rule of an exit that
   runs outside the sandbox. `fact_requests` tells the daemon which paths, `rm -r`
