@@ -706,6 +706,7 @@ impl Setup {
             fallback: None,
             model: MODEL.to_owned(),
             effort: None,
+            egress: efr_permissions::Egress::None,
         }
     }
 

@@ -59,7 +59,8 @@ pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
 pub use shell_tool::{
-    JobRequest, ShellTool, WatchInput, job_request, job_started_text, not_ready_message,
+    JobRequest, ShellTool, WatchInput, blocked_note, job_request, job_started_text,
+    not_ready_message,
 };
 pub use tool::{
     AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,

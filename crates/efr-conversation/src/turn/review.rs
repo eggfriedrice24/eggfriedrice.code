@@ -104,6 +104,7 @@ impl Turn {
             turn_model: &model,
             turn_effort: effort.as_deref(),
             record,
+            egress: ruling.engine.support().egress,
         };
         let mut judging = judge.judge(input);
         let requested = Event::ExitRequested {

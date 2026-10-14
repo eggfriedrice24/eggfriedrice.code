@@ -270,7 +270,10 @@ request:
    the saved turn messages, else rebuilt from its events, within the byte limit of
    `HistoryLimits` (512 KiB of message JSON, scaled to the model's window, see
    "Context" and "The history only grows");
-3. the newest prompt, whose first block is the live-state preamble regenerated every
+3. the newest prompt (the rule of `auto` in its preamble has one more sentence when the
+   engine's egress is efr's proxy: shell commands reach package registries and GitHub
+   through the proxy, and the reviewer decides another host), whose first block is the
+   live-state preamble regenerated every
    turn: first the rule that only the newest live-state block is current, then the
    shell's directory and previous directory, the last command and its exit
    status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden

@@ -19,6 +19,7 @@ mod secrets;
 use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
+use efr_permissions::Egress;
 use efr_protocol::{Mode, ModeFallback};
 use efr_scope::Repo;
 
@@ -65,6 +66,9 @@ pub(crate) struct LiveState {
     pub(crate) model: String,
     /// The turn's reasoning effort; `None` leaves it to the backend.
     pub(crate) effort: Option<String>,
+    /// How contained commands reach the network: the egress of the engine that decides
+    /// the turn's calls, which the rule of `auto` names (phase D2).
+    pub(crate) egress: Egress,
 }
 
 impl fmt::Debug for LiveState {
@@ -193,7 +197,7 @@ impl LiveState {
         }
         text.push_str("efr has three permission modes and no others:\n");
         for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
-            let _ = writeln!(text, "- {mode}: {}", mode_rule(mode));
+            let _ = writeln!(text, "- {mode}: {}", mode_rule(mode, self.egress));
         }
         text.push_str(SETTINGS_RULES);
         text.push_str("</live_state>");
@@ -236,9 +240,38 @@ fn mode_line(mode: Mode) -> String {
     }
 }
 
-/// What runs without a question in `mode`, as `docs/permissions.md` states it.
-fn mode_rule(mode: Mode) -> &'static str {
-    match mode {
+/// The rule of `auto` up to its sentence about access failures (efr's auto spec, 13.7),
+/// without its leading "In auto, ", because the list prints `- auto: <rule>`.
+const AUTO_RULE_HEAD: &str = "do what the user asks. The request is the permission. Never \
+                              tell the user that you lack permission before you try. Run the \
+                              command, and efr decides: it runs it in a sandbox, or it asks \
+                              its reviewer or the user. efr reads sudo, a push or systemctl \
+                              in the line itself, so run such commands as they are. Shell \
+                              commands read files as the user does, and secrets read as \
+                              empty. They write in the turn's project (when there is one), \
+                              $SCRATCH, /tmp and tool caches; /tmp and the caches are private \
+                              to this conversation, so share files with the user through \
+                              $SCRATCH. When a command fails for access, call shell again \
+                              with the narrowest needs and a short reason.";
+
+/// The sentence of the rule of `auto` when contained commands reach the network
+/// through efr's proxy (phase D2, DP28).
+const AUTO_RULE_PROXY: &str = " Shell commands reach package registries and GitHub through \
+                               efr's proxy; for another host, efr asks its reviewer.";
+
+/// The rest of the rule of `auto`.
+const AUTO_RULE_TAIL: &str = " A command that runs outside the sandbox, such as sudo or a \
+                              push, must be alone in its call. For long work, such as a \
+                              server or a monitor, call shell with background: true; you get \
+                              a notice when it ends, so do not poll. If efr refuses an \
+                              action, do not try it another way. In the sandbox, tty and $$ \
+                              can differ from the host.";
+
+/// What runs without a question in `mode`, as `docs/permissions.md` states it. The rule
+/// of `auto` says how contained commands reach the network: nothing with no proxy
+/// (`egress`), the proxy's sentence with it.
+fn mode_rule(mode: Mode, egress: Egress) -> String {
+    let rule = match mode {
         Mode::Manual => {
             "every read, write, command and network access asks the user, except what the \
              user's own rules allow."
@@ -247,25 +280,13 @@ fn mode_rule(mode: Mode) -> &'static str {
             "reads outside secrets, the read-only commands, and writes in $SCRATCH and in \
              the turn's registered project run at once; other calls ask the user."
         }
-        // NOTE: efr's auto spec, section 13.7, without its leading "In auto, ", because
-        // the list prints `- auto: <rule>`.
         Mode::Auto => {
-            "do what the user asks. The request is the permission. Never tell the user that \
-             you lack permission before you try. Run the command, and efr decides: it runs it \
-             in a sandbox, or it asks its reviewer or the user. efr reads sudo, a push or \
-             systemctl in the line itself, so run such commands as they are. Shell commands \
-             read files as the user does, and secrets read as empty. They write in the turn's \
-             project (when there is one), $SCRATCH, /tmp and tool caches; /tmp and the caches \
-             are private to this conversation, so share files with the user through \
-             $SCRATCH. When a command fails for access, call shell again with the narrowest \
-             needs and a short reason. A command that runs outside the sandbox, such as sudo \
-             or a push, must be alone in its call. For long work, such as a server or a \
-             monitor, call shell with background: true; you get a notice when it ends, so do \
-             not poll. If efr refuses an action, do not try it another way. In the sandbox, \
-             tty and $$ can differ from the host."
+            let proxy = if egress == Egress::Proxy { AUTO_RULE_PROXY } else { "" };
+            return format!("{AUTO_RULE_HEAD}{proxy}{AUTO_RULE_TAIL}");
         }
         _ => "calls it does not allow ask the user.",
-    }
+    };
+    rule.to_owned()
 }
 
 /// The line or block that shows the last command and its status. The secrets go

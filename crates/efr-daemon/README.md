@@ -662,7 +662,10 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
 - The judge (`judge.rs`): `ClassifierJudge` implements `efr_conversation::ExitJudge`.
   One judge serves every conversation, over the provider of the conversations. Each
   step of the chain is one request: the prompt of `judge/prompt.md` as the system
-  prompt, the record as the one user message, no tools, no output limit, the verdict
+  prompt (`judge/prompt-proxy.md` when the engine's egress is efr's proxy, phase D2:
+  the same text with the network lines of the proxy and the rules about
+  `on_allow_list`, `project_remote` and `refused_by_proxy`; `JudgeInput::egress` picks
+  it), the record as the one user message, no tools, no output limit, the verdict
   schema as the output form, `one_shot`, and no cache key. The chain is the classifier
   model (`classifier.model`, else `Vendor::classifier_model` in `catalog/list.rs`, the
   small model of the provider's company), then the turn's model, then the user. A step

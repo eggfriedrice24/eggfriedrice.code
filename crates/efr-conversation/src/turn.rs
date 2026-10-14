@@ -941,6 +941,7 @@ impl Turn {
                 .settings
                 .as_ref()
                 .map_or_else(|| self.config.effort.clone(), |settings| settings.effort.clone()),
+            egress: self.shared.deps.engine.borrow().support().egress,
         }
     }
 
