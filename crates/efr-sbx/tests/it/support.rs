@@ -16,6 +16,7 @@ use std::os::fd::OwnedFd;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use efr_protocol::{CacheMode, CallId, ConversationId, Grant};
@@ -361,7 +362,11 @@ impl Fixture {
     /// `$CALL/proxy.sock` served by a test listener that stands for efrd and answers
     /// `answer`.
     pub(crate) fn proxy(&mut self, answer: ProxyAnswer) -> TestProxy {
-        let proxy = TestProxy { answer, log: std::sync::Arc::default() };
+        let proxy = TestProxy {
+            answer,
+            log: std::sync::Arc::default(),
+            serving: std::sync::Arc::default(),
+        };
         self.proxy = Some(proxy.clone());
         proxy
     }
@@ -499,6 +504,9 @@ impl Fixture {
             .ok()
             .map(|bytes| SandboxResult::from_json(&bytes).unwrap());
         let apply = fs::read(call_dir.join("apply")).ok();
+        if let Some(proxy) = &self.proxy {
+            proxy.close(call_dir);
+        }
         Run { status, stdout, stderr, result, apply, call_dir: call_dir.to_path_buf() }
     }
 }
@@ -832,6 +840,8 @@ pub(crate) const REFUSE_LINE: &str = "HTTP/1.1 403 Forbidden";
 pub(crate) struct TestProxy {
     answer: ProxyAnswer,
     log: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+    /// The call dirs whose listener still serves, with the flag that ends it.
+    serving: std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, std::sync::Arc<AtomicBool>)>>>,
 }
 
 impl TestProxy {
@@ -852,9 +862,14 @@ impl TestProxy {
         let listener = std::os::unix::net::UnixListener::bind(&short).unwrap();
         drop(dir);
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        self.serving.lock().unwrap().push((call_dir.to_path_buf(), stop.clone()));
         let proxy = self.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
+                if stop.load(Ordering::SeqCst) {
+                    break;
+                }
                 let Ok(stream) = stream else { continue };
                 let at = {
                     let mut log = proxy.log.lock().unwrap();
@@ -866,6 +881,23 @@ impl TestProxy {
             }
         });
         socket
+    }
+
+    /// Ends the listener of `call_dir` once its call ended, so a long series of calls
+    /// holds no descriptor per call: the flag, then one connection that wakes the
+    /// accept.
+    fn close(&self, call_dir: &Path) {
+        use std::os::fd::AsRawFd;
+        let mut serving = self.serving.lock().unwrap();
+        let Some(at) = serving.iter().position(|(dir, _)| dir == call_dir) else { return };
+        let (_, stop) = serving.swap_remove(at);
+        stop.store(true, Ordering::SeqCst);
+        let flags = rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY;
+        if let Ok(dir) = rustix::fs::open(call_dir, flags, rustix::fs::Mode::empty()) {
+            let short = PathBuf::from(format!("/proc/self/fd/{}", dir.as_raw_fd()))
+                .join(efr_sandbox::PROXY_SOCKET_FILE);
+            let _ = std::os::unix::net::UnixStream::connect(short);
+        }
     }
 
     /// Reads the head of one connection, answers it and, for a tunnel, echoes.
