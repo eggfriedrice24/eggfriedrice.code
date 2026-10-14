@@ -308,6 +308,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - Every sandboxed command could already list the mounts of the machine through
   `/proc/<pid>/mountinfo`. The mount view adds their sizes, except for mounts of other
   users and below hidden paths.
+- efr now uses rustls 0.23.46 for its connections to the provider. This version fixes
+  four advisories of rustls 0.23.45 (RUSTSEC-2026-0346 to RUSTSEC-2026-0349).
 
 ## [0.0.3] - 2026-10-09
 
