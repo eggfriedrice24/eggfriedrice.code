@@ -231,11 +231,12 @@ cmd_tests() {
     cd "$workspace"
     # The corpus skips a row whose tool is not installed. These tools exist on Ubuntu, so
     # here a missing one is a fault of the job. The fixture projects of the corpus lie
-    # outside the workspace, so the pinned toolchain is named here.
+    # outside the workspace, so the pinned toolchain is named here. The proxy tests use
+    # git, and they make their test CA with openssl; the runner and the image have both.
     local toolchain tool
     toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
     export RUSTUP_TOOLCHAIN="$toolchain"
-    for tool in cargo rustfmt rustup rg ss ip; do
+    for tool in cargo rustfmt rustup rg ss ip git openssl; do
         command -v "$tool" >/dev/null || fail "$tool is not on PATH in the guest"
     done
     cargo --version >/dev/null 2>&1 ||
