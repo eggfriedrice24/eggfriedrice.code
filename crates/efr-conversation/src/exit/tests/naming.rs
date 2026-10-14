@@ -13,8 +13,8 @@ use efr_protocol::{
 };
 use pretty_assertions::assert_eq;
 
-use super::super::{Action, TurnExits, effective, grant, package_fetch, record};
-use super::{APP, HOME, SCRATCH, app, decide, shell};
+use super::super::{Action, TurnExits, effective, grant, package_fetch};
+use super::{APP, HOME, SCRATCH, app, decide, record, shell};
 
 /// The default allow list of spec 8.3.
 fn default_list() -> HostList {
@@ -78,24 +78,6 @@ fn verdict(decision: &Decision, record: &ExitRecord) -> Verdict {
     effective(record, &allow(), package_fetch(decision))
 }
 
-/// No record of an engine test may say `on_allow_list` for a host of an exit that
-/// opens the whole network, or with no proxy (the check of the wave 2 integration).
-fn assert_list_holds_only_for_host_grants(
-    engine: &Engine,
-    decision: &Decision,
-    record: &ExitRecord,
-) {
-    for fact in record.facts.hosts.iter().filter(|fact| fact.on_allow_list) {
-        assert_eq!(engine.support().egress, Egress::Proxy, "{fact:?}");
-        for need in decision.exits().filter(|need| need.hosts.contains(&fact.host)) {
-            assert!(
-                need.grants.iter().all(|grant| matches!(grant, Grant::Host { .. })),
-                "{fact:?} in {need:?}"
-            );
-        }
-    }
-}
-
 fn remote(name: &str, host: &str, ssh: bool, project: bool) -> RemoteFact {
     let url = RemoteUrl {
         host: host.to_owned(),
@@ -137,7 +119,6 @@ fn allow_list_names_host_exit() {
     assert!(host_fact(&record, "crates.io").on_allow_list);
     assert!(!host_fact(&record, "extra.test").on_allow_list);
     assert_eq!(verdict(&decision, &record), Verdict::Allow, "crates.io needs no name");
-    assert_list_holds_only_for_host_grants(&engine, &decision, &record);
 }
 
 #[test]
@@ -148,7 +129,6 @@ fn allow_list_does_not_name_upload_host() {
     let fact = host_fact(&record, "github.com");
     assert!(!fact.on_allow_list);
     assert_eq!(verdict(&decision, &record), Verdict::AskUser);
-    assert_list_holds_only_for_host_grants(&engine, &decision, &record);
 }
 
 #[test]
@@ -172,7 +152,6 @@ fn allow_list_does_not_name_open_network_exit() {
         let fact = host_fact(&record, "github.com");
         assert!(!fact.on_allow_list, "{requirements:?}");
         assert_eq!(verdict(&decision, &record), Verdict::AskUser, "{requirements:?}");
-        assert_list_holds_only_for_host_grants(&engine, &decision, &record);
     }
 }
 
@@ -183,7 +162,6 @@ fn allow_list_ignored_under_egress_none() {
     let (decision, record) = record_on(&engine, &requirements, &["clone the repo"]);
     assert!(!host_fact(&record, "github.com").on_allow_list);
     assert_eq!(verdict(&decision, &record), Verdict::AskUser, "the name is still needed");
-    assert_list_holds_only_for_host_grants(&engine, &decision, &record);
 }
 
 #[test]

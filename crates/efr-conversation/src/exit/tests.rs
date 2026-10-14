@@ -18,8 +18,8 @@ use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
 
 use super::{
-    Action, TurnExits, bounded, change_names, floor_kinds, grant, info, kinds, quarantined, record,
-    route, source, tilde, user_messages,
+    Action, TurnExits, bounded, change_names, floor_kinds, grant, info, kinds, quarantined, route,
+    source, tilde, user_messages,
 };
 
 const HOME: &str = "/home/u";
@@ -42,6 +42,23 @@ fn engine() -> Engine {
         .with_envelope_root("/tmp")
         .unwrap();
     Engine::with_defaults(locations)
+}
+
+/// The record of `action`, as [`super::record`] makes it. Every record of these tests
+/// also passes the check of the wave 2 integration: `on_allow_list` holds only under
+/// efr's proxy, and only for a host whose exits have `Grant::Host` grants only.
+fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) -> ExitRecord {
+    let made = super::record(action, messages, turn);
+    for fact in made.facts.hosts.iter().filter(|fact| fact.on_allow_list) {
+        assert_eq!(action.engine.support().egress, Egress::Proxy, "{fact:?}");
+        for need in action.decision.exits().filter(|need| need.hosts.contains(&fact.host)) {
+            assert!(
+                need.grants.iter().all(|grant| matches!(grant, Grant::Host { .. })),
+                "{fact:?} in {need:?}"
+            );
+        }
+    }
+    made
 }
 
 /// A shell call of `line` in the project root.
