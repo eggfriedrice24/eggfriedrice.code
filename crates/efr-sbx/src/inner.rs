@@ -3,15 +3,17 @@
 //!
 //! It is trusted code in an untrusted place. In order:
 //!
-//! 1. Read the `InnerPolicy` from the policy descriptor and close it. When the call
-//!    has cache overlays, tell the launcher that bwrap's setup is done, wait while its
-//!    layer helper mounts them, and enter the start dir (bwrap started in `/`).
+//! 1. Read the `InnerPolicy` from the policy descriptor and close it. For a proxy plan,
+//!    bind `127.0.0.1:3128` and start the bridge's starter (`bridge.rs`) with the
+//!    listener, whose own copy here closes at once; the bridge applies a Landlock domain
+//!    and a seccomp profile of its own. When the call has cache overlays, tell the
+//!    launcher that bwrap's setup is done, wait while its layer helper mounts them (the
+//!    bridge starts meanwhile), and enter the start dir (bwrap started in `/`).
 //! 2. Move the records pipe to fd 3 and the terminal copy to fd 4; close every
 //!    descriptor from 5 up, so nothing opened outside keeps its rights inside.
-//! 3. For a proxy plan, bind `127.0.0.1:3128` and start the bridge (`bridge.rs`), which
-//!    applies a Landlock domain and a seccomp profile of its own. The stage waits at most
-//!    [`BRIDGE_WAIT`] for the starter, whose exit 0 says that the bridge runs confined;
-//!    anything else is a setup error. Its own copy of the listener closes then.
+//! 3. Compile the seccomp profile. Then wait at most [`BRIDGE_WAIT`] from its start for
+//!    the bridge's starter, whose exit 0 says that the bridge runs confined; anything
+//!    else is a setup error.
 //! 4. Apply Landlock, then seccomp.
 //! 5. Put the terminal copy on fd 2, so the child's stderr is the terminal again, and
 //!    run the child shell.
@@ -49,7 +51,7 @@ pub(crate) const BRIDGE_WAIT: Duration = Duration::from_secs(2);
 
 /// How often the inner stage looks whether the starter ended. The stage has one
 /// thread, so it looks again after a short pause instead of a waiter thread.
-const BRIDGE_POLL: Duration = Duration::from_millis(1);
+const BRIDGE_POLL: Duration = Duration::from_micros(100);
 
 /// The line the inner stage writes on the launcher's pipe before its error, so the
 /// launcher can tell it from bwrap's own messages.
@@ -77,6 +79,14 @@ struct Child {
 
 fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
     let policy = read_policy(policy_fd)?;
+    // NOTE: before this stage's own Landlock domain, which the bridge must not share: the
+    // child's domain has no rule for the proxy socket, and its scopes keep the child
+    // from signals to the bridge. It starts first, so that its start runs while the
+    // layer helper mounts the overlays and while this stage compiles its filter.
+    let bridge = match &policy.proxy_socket {
+        Some(socket) => Some(spawn_bridge(socket)?),
+        None => None,
+    };
     if let Some(sync) = policy.layers_sync {
         wait_for_layers(sync, policy.cwd.as_deref())?;
     }
@@ -93,11 +103,9 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
     };
     fds::close_from(TERMINAL_PARKED_FD + 1)
         .map_err(|error| SbxError::os("close the inherited descriptors", error))?;
-    // NOTE: before this stage's own Landlock domain, which the bridge must not share: the
-    // child's domain has no rule for the proxy socket, and its scopes keep the child
-    // from signals to the bridge.
-    if let Some(socket) = &policy.proxy_socket {
-        start_bridge(socket)?;
+    let filters = seccomp::compile(&policy.seccomp)?;
+    if let Some(bridge) = bridge {
+        wait_for_bridge(bridge)?;
     }
     let (stdin, stdout) = (std::io::stdin(), std::io::stdout());
     let terminals: Vec<BorrowedFd<'_>> = policy
@@ -112,7 +120,7 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
         })
         .collect();
     landlock::restrict(&policy.landlock, &terminals)?;
-    seccomp::install(&policy.seccomp)?;
+    seccomp::apply(&filters)?;
     if policy.argv.is_empty() {
         return Err(SbxError::os("run the child", std::io::ErrorKind::InvalidInput.into()));
     }
@@ -147,11 +155,15 @@ fn wait_for_layers(sync: LayersSync, cwd: Option<&Path>) -> Result<(), SbxError>
     }
 }
 
+/// The bridge's starter while it runs, and when it started.
+struct Starter {
+    child: std::process::Child,
+    start: std::time::Instant,
+}
+
 /// Binds the bridge's port in the call's network namespace and runs the bridge's
-/// starter with the listener as stdin. Returns once the starter reported the server
-/// confined; a failure, an exit other than 0 or no exit within [`BRIDGE_WAIT`] is a
-/// setup error, and the call does not run.
-fn start_bridge(socket: &Path) -> Result<(), SbxError> {
+/// starter with the listener as stdin.
+fn spawn_bridge(socket: &Path) -> Result<Starter, SbxError> {
     // NOTE: std sets SO_REUSEADDR on the listener and never SO_REUSEPORT, so no other
     // process of the call can bind the same port beside it.
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, PROXY_PORT))
@@ -167,9 +179,16 @@ fn start_bridge(socket: &Path) -> Result<(), SbxError> {
     let spawned = command.spawn();
     // This stage's copy of the listener closes here, before the child exists.
     drop(command);
-    let mut starter =
+    let child =
         spawned.map_err(|source| SbxError::Spawn { program: BRIDGE_PROGRAM.into(), source })?;
-    let start = os::now();
+    Ok(Starter { child, start: os::now() })
+}
+
+/// Waits for the bridge's starter. Returns once it reported the server confined; a
+/// failure, an exit other than 0 or no exit within [`BRIDGE_WAIT`] of its start is a
+/// setup error, and the call does not run.
+fn wait_for_bridge(starter: Starter) -> Result<(), SbxError> {
+    let Starter { child: mut starter, start } = starter;
     loop {
         match starter.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
