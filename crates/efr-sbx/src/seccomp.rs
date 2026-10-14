@@ -160,8 +160,13 @@ fn x32_filter() -> BpfProgram {
 
 /// Installs the profile on this thread, which is the inner stage's only one.
 pub(crate) fn install(profile: &SeccompProfile) -> Result<(), SbxError> {
-    for program in compile(profile)? {
-        seccompiler::apply_filter(&program).map_err(|source| SbxError::Seccomp { source })?;
+    apply(&compile(profile)?)
+}
+
+/// Installs `programs`, which [`compile`] made, on this thread, in order.
+pub(crate) fn apply(programs: &[BpfProgram]) -> Result<(), SbxError> {
+    for program in programs {
+        seccompiler::apply_filter(program).map_err(|source| SbxError::Seccomp { source })?;
     }
     Ok(())
 }
