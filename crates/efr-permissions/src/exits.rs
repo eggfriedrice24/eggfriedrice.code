@@ -38,6 +38,7 @@ pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
 pub use self::programs::DESKTOP_IPC_READ;
 use self::scan::{OPAQUE, Segment, is_assignment};
 use crate::command;
+use crate::network::Preset;
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
 use crate::{
@@ -69,19 +70,21 @@ pub enum Ecosystem {
     Pacman,
 }
 
-/// The registry hosts of each ecosystem, from the network presets of spec 8.3. The
-/// pacman mirrors depend on the machine, so they are not here: the daemon reads them
-/// from the mirror list when it needs them.
+/// The registry hosts of each ecosystem: a view of the network presets of spec 8.3
+/// ([`Preset::hosts`]), so the presets are the one source of these hosts. The pacman
+/// mirrors depend on the machine, so this table has none: the mirror list parser is
+/// [`crate::network::parse_pacman`], and until efrd reads the files (phase D2) the
+/// `Pacman` exception has no hosts.
 ///
 /// The classifier's naming rule lets a `host` exit of a package manager's fetch reach
 /// these hosts without a user message that names them, when a user message asks to
 /// build, install, update or fetch (spec 9.4, a proposal behind this table). An empty
 /// table turns the exception off.
 pub const REGISTRY_HOSTS: &[(Ecosystem, &[&str])] = &[
-    (Ecosystem::Crates, &["crates.io", "index.crates.io", "static.crates.io"]),
-    (Ecosystem::Npm, &["registry.npmjs.org", "registry.yarnpkg.com"]),
-    (Ecosystem::Pypi, &["pypi.org", "files.pythonhosted.org"]),
-    (Ecosystem::Go, &["proxy.golang.org", "sum.golang.org"]),
+    (Ecosystem::Crates, Preset::Crates.hosts()),
+    (Ecosystem::Npm, Preset::Npm.hosts()),
+    (Ecosystem::Pypi, Preset::Pypi.hosts()),
+    (Ecosystem::Go, Preset::Go.hosts()),
 ];
 
 /// What the model reads, and the user never sees, when a line that would run outside

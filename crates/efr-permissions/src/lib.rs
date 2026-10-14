@@ -29,6 +29,10 @@
 //!   sandbox share.
 //! - Background jobs (phase C): [`job_refusal`] names the exits that no job may hold,
 //!   in every mode; outside `auto` a job asks the user before it starts.
+//! - The network proxy (phase D2): [`network`] holds the [`Preset`]s and the
+//!   [`HostList`] that the config check, the engine and the proxy share, the pacman
+//!   mirror parser, and [`network::tokens`], the scans for credentials in files that
+//!   the sandbox must read.
 //!
 //! `efr-tools` declares what a call needs, this crate decides, and
 //! `efr-conversation/src/turn.rs` enforces; `xtask/src/deps.rs` forbids
@@ -50,6 +54,7 @@ mod engine;
 mod error;
 pub mod exits;
 mod jobs;
+pub mod network;
 mod path_class;
 mod policy;
 mod request;
@@ -59,9 +64,10 @@ mod tables;
 pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
-pub use error::PermissionsError;
+pub use error::{HostError, PermissionsError};
 pub use exits::{Approver, ExitNeed, FactRequest, Installed, PathFacts, Rebuild, WriteBind};
 pub use jobs::{JOB_REFUSAL, SERVICE_SOCKETS, job_refusal, service_socket};
+pub use network::{HostList, HostRule, HostTable, HostVerdict, MirrorHost, PacmanFile, Preset};
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{

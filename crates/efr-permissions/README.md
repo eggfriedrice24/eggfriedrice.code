@@ -199,6 +199,28 @@ Modules:
   socket of a service manager or a container engine (`SERVICE_SOCKETS`). The engine
   denies such a part of a job's line with `Cause::NotAsJob` (`JOB_REFUSAL`: run that
   part in the foreground, and the rest as a job).
+- `network` (phase D2): the host list of efr's network proxy, which the config check,
+  the engine and the proxy share. `Preset` holds the six presets of spec 8.3 and their
+  hosts (`@github-read` also has `release-assets.githubusercontent.com`; no preset has
+  `api.github.com`, which takes writes with a token); `REGISTRY_HOSTS` is a view of
+  them. `HostList::compile` reads `network.allow`, `network.deny`, the
+  `[[network.hosts]]` tables (`HostTable`) and the pacman mirror hosts, and refuses an
+  entry with a `HostError`: `*` alone, a `*.suffix` with fewer than two labels, a name
+  outside ASCII (write the `xn--` form), a bad label, an unknown `@preset`, an IP
+  address outside `[[network.hosts]]`, port 0. `HostList::decide` gives `Allowed` (with
+  `http` and `private`), `Denied` or `NotListed` for a host and a port: deny wins over
+  every allow; a plain entry allows 443, an `http` entry also 80, an entry with a port
+  only that port; `*.example.com` matches the names below `example.com`, not
+  `example.com` itself. `host_and_port` reads a host word of the model or of a URL
+  (port 80 for `http://`; `None` outside ASCII), and `is_ip_literal` finds every form
+  of an IP address that getaddrinfo reads. `parse_pacman` reads the `Server =` and
+  `Include =` lines of the pacman files that efrd reads. `network/tokens.rs` holds the
+  line scans of DP25: `token_hosts` finds a token key or a URL with a password in a
+  project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or cargo config and
+  gives every host that the file names plus the ecosystem's registry hosts;
+  `git_tokens` finds the remotes, `insteadOf` bases, `extraHeader`s and credential
+  helpers of the git config that carry a credential. Nothing reads the list or the
+  scans yet; the proxy and efrd use them later in phase D2.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each
