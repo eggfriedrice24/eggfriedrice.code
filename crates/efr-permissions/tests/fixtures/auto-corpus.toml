@@ -28,6 +28,13 @@
 #   pd          the phase D1 result, in the words of `pa`, on a machine with the phase B
 #               support, the network view and the mount view; only where it differs
 #               from `pb`: `df` and `findmnt` read the mount view in the sandbox
+#   pd2         the phase D2 result, in the words of `pa`, on the phase D1 machine with
+#               efr's network proxy (`Egress::Proxy`) and the default allow list; only
+#               where it differs from `pd` (else `pb`): a package fetch, a fetch from a
+#               git remote with no remote fact, and a URL of a listed host run with no
+#               exit, because the proxy decides them. The column holds the result word;
+#               the grants of a `host` exit under the proxy (`OpenNetwork` for line 67,
+#               `Grant::Host` for line 99) are asserted by named engine tests
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
@@ -279,6 +286,7 @@ line = "checkupdates"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 
 [[line]]
@@ -436,6 +444,7 @@ line = "cargo update"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/update"]
 
@@ -445,6 +454,7 @@ line = "go mod tidy"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/mod", "/home/u/p/efr/tidy"]
 
@@ -454,6 +464,7 @@ line = "npm ci"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/ci"]
 network = true
@@ -500,6 +511,7 @@ line = "git fetch origin"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/fetch", "/home/u/p/efr/origin"]
 network = true
@@ -510,6 +522,7 @@ line = "git pull"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/pull"]
 network = true
@@ -637,6 +650,7 @@ line = "uv sync"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/sync"]
 
@@ -1016,6 +1030,7 @@ line = "curl https://registry.npmjs.org/left-pad"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/https:/registry.npmjs.org/left-pad"]
 network = true
@@ -1450,6 +1465,7 @@ line = "npm install"
 p1 = "X(host)"
 pa = "K(host)"
 pb = "K(host)"
+pd2 = "C"
 exits = ["host"]
 reads = ["/home/u/p/efr/install"]
 network = true

@@ -7,12 +7,13 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
     Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, CoverAsk, Coverage, Decision,
-    DecisionInput, Effect, Engine, Locations, Policy, Requirements, SettingsChange, Source,
-    SourceFact, TargetKind,
+    DecisionInput, Effect, Egress, Engine, HostList, Locations, Policy, Preset, Requirements,
+    SettingsChange, Source, SourceFact, TargetKind,
 };
 use efr_protocol::{ExitKind, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
@@ -43,6 +44,9 @@ struct Line {
     /// The phase D1 result, when it differs from `pb`.
     #[serde(default)]
     pd: Option<String>,
+    /// The phase D2 result, when it differs from the phase D1 result.
+    #[serde(default)]
+    pd2: Option<String>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -115,6 +119,27 @@ fn pd_engine() -> Engine {
 /// The phase D1 result of `line`: its `pd` column, else its `pb` column.
 fn pd(line: &Line) -> &str {
     line.pd.as_deref().unwrap_or(&line.pb)
+}
+
+/// The machine of phase D2: the phase D1 machine with efr's network proxy and the
+/// default allow list of spec 8.3 (the six presets, no pacman mirror).
+fn pd2_engine() -> Engine {
+    let allow: Vec<String> = Preset::ALL.iter().map(|preset| preset.name().to_owned()).collect();
+    let hosts = HostList::compile(&allow, &[], &[], &[]).unwrap();
+    machine(AutoSupport {
+        egress: Egress::Proxy,
+        netview: true,
+        mount_view: true,
+        undo: true,
+        floor_backup: true,
+        ..AutoSupport::default()
+    })
+    .with_hosts(Arc::new(hosts))
+}
+
+/// The phase D2 result of `line`: its `pd2` column, else its phase D1 result.
+fn pd2(line: &Line) -> &str {
+    line.pd2.as_deref().unwrap_or_else(|| pd(line))
 }
 
 /// The machine of the fixture's header, whose sandbox supports `support`.
@@ -378,6 +403,32 @@ fn pd_corpus_rows_match() {
     let changed: Vec<u32> =
         corpus.line.iter().filter(|line| line.pd.is_some()).map(|line| line.n).collect();
     assert_eq!(changed, [13, 41], "only the df lines differ from phase B");
+}
+
+#[test]
+fn pd2_corpus_rows_match() {
+    assert_eq!(mismatches(&pd2_engine(), true, pd2), Vec::<String>::new());
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let changed: BTreeSet<u32> =
+        corpus.line.iter().filter(|line| line.pd2.is_some()).map(|line| line.n).collect();
+    assert_eq!(changed, BTreeSet::from([18, 25, 28, 35, 66, 101]));
+}
+
+#[test]
+fn routine_lines_stay_routine_in_phase_d2() {
+    // A line that runs with no exit in phase D1 makes no exit in phase D2 either; phase D2
+    // only takes `host` exits away, where the proxy decides the fetch.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        if matches!(pd(line), "R" | "C") {
+            assert_eq!(pd2(line), pd(line), "line {} {:?}", line.n, line.line);
+        }
+        if let Some(pd2) = &line.pd2 {
+            assert_ne!(pd2, pd(line), "line {}: a `pd2` that equals `pd` says nothing", line.n);
+            assert!(matches!(pd2.as_str(), "R" | "C"), "line {} {:?}", line.n, line.line);
+            assert_eq!(pd(line), "K(host)", "line {} {:?}", line.n, line.line);
+        }
+    }
 }
 
 #[test]

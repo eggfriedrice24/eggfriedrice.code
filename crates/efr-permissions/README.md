@@ -323,7 +323,10 @@ proptest property:
   A result of each (`pa`) and, on a machine with undo and the daemon's coverage
   answers of the row, the phase B result (`pb`), and on a machine with the network
   view and the mount view too, the phase D1 result (`pd`, the `pb` result where a row
-  has none); the `p1` column keeps the phase 1 result. A phase B result differs only
+  has none), and on that machine with efr's proxy and the default allow list the phase
+  D2 result (`pd2`, the phase D1 result where a row has none: the package fetches,
+  `git fetch` and `git pull` with no remote fact, and a URL of a listed host run with
+  no exit); the `p1` column keeps the phase 1 result. A phase B result differs only
   where the snapshot covers a destructive line, which becomes routine, and a phase D1
   result only for `df`, which reads the mount view in the sandbox.
 - Every exit starts with the approver of its kind (`ExitKind::user_only`), and only
