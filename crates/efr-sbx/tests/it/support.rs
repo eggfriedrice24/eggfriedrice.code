@@ -841,8 +841,11 @@ pub(crate) struct TestProxy {
     answer: ProxyAnswer,
     log: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
     /// The call dirs whose listener still serves, with the flag that ends it.
-    serving: std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, std::sync::Arc<AtomicBool>)>>>,
+    serving: std::sync::Arc<std::sync::Mutex<Vec<Serving>>>,
 }
+
+/// The call dir of a listener of the test proxy, and the flag that ends it.
+type Serving = (PathBuf, std::sync::Arc<AtomicBool>);
 
 impl TestProxy {
     /// The bytes that each connection sent so far, in the order they came.
