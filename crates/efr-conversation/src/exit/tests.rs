@@ -1,3 +1,4 @@
+mod naming;
 mod review;
 
 use std::path::{Path, PathBuf};

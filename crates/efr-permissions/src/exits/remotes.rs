@@ -234,8 +234,13 @@ pub(super) fn proxy_fetch_exit(
     let hosts = hosts(&urls);
     if urls.iter().any(|url| url.ssh) {
         let mut need = ExitNeed::new(ExitKind::Outside, part, ExitSource::Predicted);
+        // NOTE: a remote of a pinned project git dir that did not change since the
+        // conversation's first call counts as named (DP23); a submodule never does.
+        let project = remotes.iter().all(|remote| remote.project && !remote.submodule);
         need.approver = if kind == RemoteUse::Submodules {
             Approver::User
+        } else if project {
+            Approver::Classifier
         } else {
             Approver::ClassifierWhenNamed
         };
