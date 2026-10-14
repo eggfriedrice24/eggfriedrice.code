@@ -38,7 +38,7 @@ pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
 pub use self::programs::DESKTOP_IPC_READ;
 use self::scan::{OPAQUE, Segment, is_assignment};
 use crate::command;
-use crate::network::Preset;
+use crate::network::{HostList, Preset};
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
 use crate::{
@@ -369,6 +369,9 @@ pub struct ExitInput<'a> {
     pub scratch: Option<&'a Path>,
     /// What the machine's sandbox supports.
     pub support: &'a AutoSupport,
+    /// The host list of efr's proxy, which the prediction reads under
+    /// [`Egress::Proxy`] (phase D2).
+    pub hosts: &'a HostList,
 }
 
 /// The exits of one shell call: the ones efr finds in the line, its declared paths and
@@ -425,7 +428,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             let mount_view =
                 input.support.mount_view && programs::runs_mount_view(command, by_shell);
             let rustup = command.first().is_some_and(|word| programs::base_name(word) == "rustup");
-            for mut exit in programs::classify(command, input.support) {
+            for mut exit in programs::classify(command, input.support, input.hosts) {
                 if exit.kind == ExitKind::Outside && rustup && rustup_env {
                     exit.approver = Approver::User;
                 }
@@ -557,7 +560,8 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     }
     if let Some(asked) = input.needs {
         let dir = start.as_deref();
-        for need in needs::exits(asked, &envelope, dir, input.facts, &made, input.support) {
+        let cx = needs::NeedsContext { support: input.support, hosts: input.hosts };
+        for need in needs::exits(asked, &envelope, dir, input.facts, &made, &cx) {
             found.push(need);
         }
     }
@@ -574,6 +578,14 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     named_targets(found, input.locations.home())
+}
+
+/// The notes for the model about the entries of the call's `needs` that [`predict`]
+/// dropped: a host that is no host name in ASCII, and under efr's proxy a host that the
+/// allow list holds or the user's config denies (spec 7.3, DP21).
+pub fn notes(input: &ExitInput<'_>) -> Vec<String> {
+    let cx = needs::NeedsContext { support: input.support, hosts: input.hosts };
+    input.needs.map(|asked| needs::host_notes(asked, &cx)).unwrap_or_default()
 }
 
 /// The views of the host that the shell call of `input` gets with no exit, no
@@ -800,9 +812,10 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             }
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
-            let destroys = programs::classify(command, &AutoSupport::default())
-                .iter()
-                .any(|found| found.kind == ExitKind::Destructive);
+            let destroys =
+                programs::classify(command, &AutoSupport::default(), &HostList::default())
+                    .iter()
+                    .any(|found| found.kind == ExitKind::Destructive);
             if destroys {
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
             }

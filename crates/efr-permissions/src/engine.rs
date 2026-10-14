@@ -345,6 +345,7 @@ impl Engine {
             project_root,
             scratch: scratch.as_deref(),
             support: &support,
+            hosts: &self.hosts,
         });
         if auto {
             let found = match &exit_input {
@@ -380,7 +381,11 @@ impl Engine {
                 clamp_remote(Effect::Allow, Cause::NoRequirements, None, input.origin);
             reasons.push(Reason { subject: Subject::Nothing, effect, cause });
         }
-        Decision::from_reasons(reasons)
+        let notes = match (&exit_input, auto) {
+            (Some(input), true) => exits::notes(input),
+            _ => Vec::new(),
+        };
+        Decision::from_reasons(reasons).with_notes(notes)
     }
 
     /// True when `efr undo` can bring back every file that a file tool call of

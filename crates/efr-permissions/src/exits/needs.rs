@@ -5,22 +5,39 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
-use super::programs::is_host_device;
+use super::programs::{ProxyRoute, is_host_device, proxy_route};
 use super::{Approver, ExitNeed, WriteFacts, write_need};
+use crate::network::{HostList, host_and_port};
 use crate::path_class::normalize;
 use crate::{AutoSupport, CallFacts, Egress};
+
+/// What the exits of `needs` read about the machine: its sandbox's support and the
+/// host list of efr's proxy.
+pub(super) struct NeedsContext<'a> {
+    pub(super) support: &'a AutoSupport,
+    pub(super) hosts: &'a HostList,
+}
 
 /// The exits that `needs` asks for, each list cut at its limit. A write that the
 /// envelope already allows is dropped, and so is a device that every contained call
 /// has; a read of a secret is a floor.
+///
+/// A host goes through [`host_and_port`]: a word that is no host name in ASCII is
+/// dropped. With no proxy each host opens the whole network for the call. Under the
+/// proxy (DP21) a host that the list allows on its port, or that the list denies, is
+/// dropped ([`host_notes`] says why); `localhost`, an IP address and a port other than
+/// 443 and 80 open the whole network ([`ProxyRoute::Open`]); every other host gets a
+/// grant of its one host and port. Port 80, from `http://`, means plain `GET` and
+/// `HEAD`.
 pub(super) fn exits(
     needs: &Needs,
     envelope: &Envelope<'_>,
     dir: Option<&Path>,
     facts: Option<&CallFacts>,
     made: &[(PathBuf, bool)],
-    support: &AutoSupport,
+    machine: &NeedsContext<'_>,
 ) -> Vec<ExitNeed> {
+    let support = machine.support;
     let source = ExitSource::Needs;
     let locations = envelope.locations();
     let mut found = Vec::new();
@@ -39,11 +56,17 @@ pub(super) fn exits(
     }
     for word in needs.hosts.iter().take(Needs::MAX_HOSTS) {
         let Some((host, port)) = host_and_port(word) else { continue };
-        let mut need = ExitNeed::new(ExitKind::Host, format!("needs.hosts {host}"), source);
-        need.grants = match support.egress {
-            Egress::None => vec![Grant::OpenNetwork],
-            Egress::Proxy => vec![Grant::Host { host, port }],
+        let grant = match support.egress {
+            Egress::None => Grant::OpenNetwork,
+            Egress::Proxy => match proxy_route(machine.hosts, &host, port) {
+                ProxyRoute::Listed | ProxyRoute::Denied => continue,
+                ProxyRoute::Open => Grant::OpenNetwork,
+                ProxyRoute::Grant => Grant::Host { host: host.clone(), port },
+            },
         };
+        let mut need = ExitNeed::new(ExitKind::Host, format!("needs.hosts {host}"), source);
+        need.grants = vec![grant];
+        need.hosts = vec![host];
         found.push(need);
     }
     for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
@@ -192,30 +215,43 @@ pub(super) fn is_credential_agent(path: &Path, locations: &crate::Locations) -> 
     })
 }
 
-/// A host the model names, in lower case, without a scheme, user info or path, and
-/// its port: 443 unless given.
-// NOTE: names outside ASCII stay as written; the proxy of phase 2 converts them with
-// IDNA, which this crate has no dependency for.
-pub(super) fn host_and_port(word: &str) -> Option<(String, u16)> {
-    let word = word.trim();
-    let rest = word.split_once("://").map_or(word, |(_, rest)| rest);
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let authority = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
-        let (host, after) = bracketed.split_once(']')?;
-        (host, after.strip_prefix(':'))
-    } else {
-        match authority.rsplit_once(':') {
-            Some((host, port)) => (host, Some(port)),
-            None => (authority, None),
+/// The most characters of a model's word that a note repeats.
+const NOTE_WORD_CHARS: usize = 80;
+
+/// The notes for the model about the hosts of `needs` that [`exits`] dropped, one
+/// sentence each: a word that is no host name in ASCII, and under the proxy a host that
+/// the list allows on its port or that the list denies.
+pub(super) fn host_notes(needs: &Needs, machine: &NeedsContext<'_>) -> Vec<String> {
+    let mut notes: Vec<String> = Vec::new();
+    for word in needs.hosts.iter().take(Needs::MAX_HOSTS) {
+        let note = match host_and_port(word) {
+            None if !word.is_ascii() => {
+                let shown: String = word.trim().chars().take(NOTE_WORD_CHARS).collect();
+                format!(
+                    "[efr: needs.hosts {shown:?} is not ASCII; write the host in its ASCII \
+                     (xn--) form.]"
+                )
+            }
+            None => {
+                let shown: String = word.trim().chars().take(NOTE_WORD_CHARS).collect();
+                format!("[efr: needs.hosts {shown:?} is not a host name, so efr ignored it.]")
+            }
+            Some(_) if machine.support.egress == Egress::None => continue,
+            Some((host, port)) => match proxy_route(machine.hosts, &host, port) {
+                ProxyRoute::Listed => format!(
+                    "[efr: {host}:{port} is on the allow list of efr's proxy, so the command \
+                     reaches it with no needs.hosts entry.]"
+                ),
+                ProxyRoute::Denied => format!(
+                    "[efr: the user's config denies {host}; efr's proxy refuses it, and no \
+                     grant opens it.]"
+                ),
+                ProxyRoute::Open | ProxyRoute::Grant => continue,
+            },
+        };
+        if !notes.contains(&note) {
+            notes.push(note);
         }
-    };
-    let port = match port {
-        Some(port) => port.parse().ok()?,
-        None => 443,
-    };
-    let host = host.trim_end_matches('.').to_lowercase();
-    let valid =
-        !host.is_empty() && host.chars().all(|c| !c.is_whitespace() && !c.is_control() && c != '@');
-    valid.then_some((host, port))
+    }
+    notes
 }

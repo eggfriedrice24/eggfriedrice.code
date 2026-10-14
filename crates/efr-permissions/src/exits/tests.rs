@@ -4,11 +4,11 @@
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::needs::host_and_port;
 use super::programs::{
     commands, line_hosts, made_paths, recursive_rm_operands, sed_in_place_targets,
 };
 use super::scan::{OPAQUE, Redirect, scan};
+use crate::network::host_and_port;
 
 fn words(segment: &[&str]) -> Vec<String> {
     segment.iter().map(|word| (*word).to_owned()).collect()
