@@ -1789,6 +1789,72 @@ fn auto_read_file_of_sandbox_mask_asks() {
     assert_eq!(decision.effect(), Effect::Contain);
 }
 
+/// A credential file that is an engine secret: denied in `auto` and in `cautious`.
+fn assert_secret(path: &str) {
+    let decision = tool(Requirements::none().with_read(path));
+    assert_eq!(decision.effect(), Effect::Deny, "{path}");
+    let cautious = engine().decide(&DecisionInput {
+        mode: Mode::Cautious,
+        ..in_auto(Requirements::none().with_read(path))
+    });
+    assert_eq!(cautious.effect(), Effect::Deny, "{path}");
+    assert_eq!(
+        auto_locations().classify(path.as_ref(), SCRATCH.as_ref()),
+        Some(PathClass::Secrets)
+    );
+}
+
+/// A config file that can hold a token: a contained call reads it as empty, and
+/// `read_file` in `auto` asks the user (a `masked_read` exit). Other modes read it.
+fn assert_masked(path: &str) {
+    let decision = tool(Requirements::none().with_read(path));
+    assert_eq!(kinds(&decision), [ExitKind::MaskedRead], "{path}");
+    assert!(decision.exits().all(|need| need.user_only()), "{path}");
+    let cautious = engine().decide(&DecisionInput {
+        mode: Mode::Cautious,
+        ..in_auto(Requirements::none().with_read(path))
+    });
+    assert_eq!(cautious.effect(), Effect::Allow, "{path}");
+}
+
+#[test]
+fn xdg_git_credentials_masked() {
+    // git reads the XDG store besides `~/.git-credentials`.
+    assert_secret("/home/u/.config/git/credentials");
+    assert_secret("/home/u/.git-credentials");
+    // The rest of git's XDG config stays readable.
+    let decision = tool(Requirements::none().with_read("/home/u/.config/git/config"));
+    assert_eq!(decision.effect(), Effect::Allow);
+}
+
+#[test]
+fn gcm_store_masked() {
+    // git-credential-manager keeps a plaintext store below `~/.gcm/store`.
+    assert_masked("/home/u/.gcm/store/git/https/github.com/u.credential");
+    assert_masked("/home/u/.config/glab-cli/config.yml");
+}
+
+#[test]
+fn yarnrc_masked() {
+    // yarn berry keeps `npmAuthToken` in `~/.yarnrc.yml`.
+    assert_masked("/home/u/.yarnrc.yml");
+    // The npm and pnpm configs of the XDG dirs hold tokens as `~/.npmrc` does.
+    assert_secret("/home/u/.config/npm/npmrc");
+    assert_secret("/home/u/.config/pnpm/rc");
+    assert_secret("/home/u/.npmrc");
+}
+
+#[rstest]
+#[case::yarn1("/home/u/.yarnrc")]
+#[case::bunfig("/home/u/.bunfig.toml")]
+#[case::pip_xdg("/home/u/.config/pip/pip.conf")]
+#[case::pip_old("/home/u/.pip/pip.conf")]
+fn yarn1_bunfig_poetry_pip_masked(#[case] path: &str) {
+    assert_masked(path);
+    assert_secret("/home/u/.config/pypoetry/auth.toml");
+    assert_secret("/home/u/.config/composer/auth.json");
+}
+
 #[test]
 fn auto_write_file_to_git_hooks_asks() {
     for path in [
