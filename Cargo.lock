@@ -1054,9 +1054,16 @@ version = "0.0.3"
 dependencies = [
  "efr-permissions",
  "efr-protocol",
+ "efr-stdx",
+ "efr-test-support",
+ "nix",
  "pretty_assertions",
  "proptest",
  "rustls",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
