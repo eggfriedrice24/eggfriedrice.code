@@ -1050,9 +1050,16 @@ fn netview_with_open_network_uses_phase1_profile() {
     // (`netview_beside_another_grant_fails_the_plan`).
 }
 
-/// A proxy plan's socket, below efr's runtime dir.
+/// A proxy plan with the call's own socket, `$CALL/proxy.sock`.
 fn proxy() -> NetworkPlan {
-    NetworkPlan::Proxy { socket: "/run/user/1000/efr/proxy/call.sock".into() }
+    NetworkPlan::Proxy { socket: crate::testing::runtime().proxy_socket() }
+}
+
+/// [`world`] with efrd's socket of the call in its call dir.
+fn proxy_world() -> FakeFs {
+    let mut fs = world();
+    fs.socket(&crate::testing::runtime().proxy_socket().to_string_lossy());
+    fs
 }
 
 #[test]
@@ -1060,7 +1067,7 @@ fn netview_with_proxy_plan_keeps_unshare_net() {
     let mut spec = spec();
     spec.grants = vec![Grant::NetView];
     spec.network = proxy();
-    let plan = plan(&spec, &world());
+    let plan = plan(&spec, &proxy_world());
     assert!(plan.unshares_network());
     assert!(!plan.net_view());
     assert_eq!(profile(&plan), SeccompProfile::phase1());
@@ -1077,10 +1084,11 @@ fn host_namespace_implies_net_view_or_open() {
         Grant::Device { path: "/dev/nvme0n1".into() },
         Grant::Unmask { path: "/home/u/.secret-notes".into() },
     ];
-    let mut fs = world();
+    let mut fs = proxy_world();
     fs.dir("/home/u/p/out").dir("/home/u/.secret-notes");
     let mut built = 0;
     let mut refused = 0;
+    let mut proxied = 0;
     for network in [NetworkPlan::None, NetworkPlan::Open, proxy()] {
         for set in 0_u32..(1 << grants.len()) {
             let mut spec = spec();
@@ -1098,6 +1106,13 @@ fn host_namespace_implies_net_view_or_open() {
                     !matches!(grant, Grant::NetView | Grant::Write { .. } | Grant::Unmask { .. })
                 });
             let built_plan = MountPlan::build(&spec, &fs);
+            let proxy_open = network == proxy() && spec.grants.contains(&Grant::OpenNetwork);
+            if proxy_open {
+                let what = format!("{network:?} {:?}", spec.grants);
+                assert!(matches!(built_plan, Err(SandboxError::ProxyWithOpenNetwork)), "{what}");
+                proxied += 1;
+                continue;
+            }
             if mixed {
                 let what = format!("{network:?} {:?}", spec.grants);
                 assert!(matches!(built_plan, Err(SandboxError::NetViewMixed)), "{what}");
@@ -1113,6 +1128,9 @@ fn host_namespace_implies_net_view_or_open() {
                 let viewed = plan.net_view() && profile(&plan) == SeccompProfile::net_view();
                 assert!(viewed || open, "{what}");
             }
+            if plan.proxy_socket().is_some() {
+                assert!(plan.unshares_network() && !plan.net_view(), "{what}");
+            }
             if plan.net_view() {
                 assert!(has(&Grant::NetView) && !open, "{what}");
                 assert!(!plan.unshares_network(), "{what}");
@@ -1123,9 +1141,11 @@ fn host_namespace_implies_net_view_or_open() {
         }
     }
     // NOTE: of the 64 sets with `NetView`, the 4 with only `Write` and `Unmask` beside
-    // it build.
-    assert_eq!(refused, 3 * 60);
-    assert_eq!(built + refused, 3 * (1 << grants.len()));
+    // it build. A proxy plan refuses the 64 sets with `OpenNetwork` first, 32 of them
+    // with `NetView`.
+    assert_eq!(refused, 2 * 60 + 28);
+    assert_eq!(proxied, 64);
+    assert_eq!(built + refused + proxied, 3 * (1 << grants.len()));
 }
 
 #[test]
@@ -1155,4 +1175,117 @@ fn unknown_grant_fails_the_plan() {
     let read = SandboxSpec::from_json(&serde_json::to_vec(&json).unwrap()).unwrap();
     assert_eq!(read.grants, [Grant::Unknown]);
     assert!(matches!(MountPlan::build(&read, &world()), Err(SandboxError::UnknownGrant)));
+}
+
+#[test]
+fn proxy_plan_binds_the_socket() {
+    let mut spec = spec();
+    spec.network = proxy();
+    let plan = plan(&spec, &proxy_world());
+    let runtime = crate::testing::runtime();
+    let inside = PathBuf::from("/run/user/1000/efr-proxy.sock");
+    assert_eq!(runtime.inside_proxy_socket(), inside);
+    assert_eq!(plan.proxy_socket(), Some(inside.as_path()));
+    let binds: Vec<_> =
+        plan.mounts().iter().filter(|mount| mount.op.target() == inside.as_path()).collect();
+    assert_eq!(binds.len(), 1, "{binds:?}");
+    assert_eq!(
+        binds[0].op,
+        MountOp::Bind { source: runtime.proxy_socket(), target: inside.clone(), writable: false }
+    );
+    assert_eq!(binds[0].origin, MountOrigin::Asset);
+    // The bind lands in the empty runtime dir of the call, after its tmpfs.
+    let tmpfs = plan
+        .mounts()
+        .iter()
+        .position(|mount| mount.op.target() == Path::new("/run/user/1000"))
+        .unwrap();
+    let bind = plan.mounts().iter().position(|mount| mount.op.target() == inside.as_path());
+    assert!(bind.is_some_and(|bind| bind > tmpfs), "{:?}", plan.mounts());
+    assert_eq!(InnerPolicy::new(&plan, 3, None).proxy_socket, Some(inside));
+    // No other call gets the bind or starts a bridge.
+    let none = plan_of(&crate::testing::spec(), &proxy_world());
+    assert_eq!(none.proxy_socket(), None);
+    assert_eq!(InnerPolicy::new(&none, 3, None).proxy_socket, None);
+    assert!(!none.mounts().iter().any(|mount| mount.op.target() == runtime.inside_proxy_socket()));
+}
+
+#[test]
+fn proxy_plan_keeps_unshare_net() {
+    let mut spec = spec();
+    spec.network = proxy();
+    let plan = plan(&spec, &proxy_world());
+    assert!(plan.unshares_network());
+    assert!(!plan.net_view());
+    assert_eq!(profile(&plan), SeccompProfile::phase1());
+}
+
+#[test]
+fn proxy_plan_child_has_no_socket_rule() {
+    let mut spec = spec();
+    spec.network = proxy();
+    let plan = plan(&spec, &proxy_world());
+    let runtime = crate::testing::runtime();
+    let policy = plan.landlock();
+    assert!(policy.resolve_unix.is_empty(), "{:?}", policy.resolve_unix);
+    for rule in policy.rules() {
+        assert!(!rule.access.contains(&crate::FsAccess::ResolveUnix), "{rule:?}");
+        assert!(!rule.path.starts_with(&runtime.runtime), "{rule:?}");
+        assert_ne!(rule.path, runtime.inside_proxy_socket(), "{rule:?}");
+    }
+    // With a bus grant beside it, the child's one socket rule is the granted bus.
+    spec.grants.push(Grant::Bus { bus: BusKind::System });
+    let policy = plan_of(&spec, &proxy_world()).landlock();
+    assert_eq!(policy.resolve_unix, [PathBuf::from("/run/dbus/system_bus_socket")]);
+}
+
+fn plan_of(spec: &SandboxSpec, fs: &FakeFs) -> MountPlan {
+    MountPlan::build(spec, fs).unwrap()
+}
+
+#[test]
+fn proxy_socket_only_with_unshare_net() {
+    for network in [NetworkPlan::None, NetworkPlan::Open] {
+        let mut spec = spec();
+        spec.network = network;
+        assert_eq!(plan(&spec, &proxy_world()).proxy_socket(), None);
+    }
+    let mut spec = spec();
+    spec.network = proxy();
+    spec.grants = vec![Grant::OpenNetwork];
+    assert!(matches!(
+        MountPlan::build(&spec, &proxy_world()),
+        Err(SandboxError::ProxyWithOpenNetwork)
+    ));
+    spec.grants = vec![Grant::NetView];
+    let plan = plan(&spec, &proxy_world());
+    assert!(plan.proxy_socket().is_some() && plan.unshares_network());
+}
+
+#[test]
+fn proxy_plan_refuses_a_socket_that_is_missing_or_not_a_socket() {
+    let mut spec = spec();
+    spec.network = proxy();
+    assert!(MountPlan::build(&spec, &world()).is_err());
+    let mut fs = world();
+    fs.file(&crate::testing::runtime().proxy_socket().to_string_lossy(), "not a socket");
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ProxySocket { .. })));
+}
+
+#[test]
+fn proxy_plan_sets_the_bridge_variables() {
+    let mut spec = spec();
+    spec.network = proxy();
+    let plan = plan(&spec, &proxy_world());
+    let env = plan.env_overrides();
+    for name in crate::PROXY_VARIABLES {
+        assert!(env.contains(&((*name).to_owned(), crate::PROXY_URL.to_owned())), "{name}");
+    }
+    for name in ["NO_PROXY", "no_proxy"] {
+        assert!(env.contains(&(name.to_owned(), crate::NO_PROXY.to_owned())), "{name}");
+    }
+    assert!(env.contains(&("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned())));
+    assert_eq!(crate::PROXY_URL, format!("http://127.0.0.1:{}", crate::PROXY_PORT));
+    let none = plan_of(&crate::testing::spec(), &world());
+    assert!(none.env_overrides().is_empty(), "{:?}", none.env_overrides());
 }

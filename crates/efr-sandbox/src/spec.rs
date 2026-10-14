@@ -36,6 +36,10 @@ pub const JOB_OOM_SCORE_ADJ: i32 = 1000;
 /// holds the job outputs that efrd writes.
 pub const JOB_DIR: &str = "jobs";
 
+/// The name of a call's proxy socket in its call dir: efrd binds `$CALL/proxy.sock`,
+/// and [`NetworkPlan::Proxy`] must name exactly that file.
+pub const PROXY_SOCKET_FILE: &str = "proxy.sock";
+
 /// The highest nice value.
 const MAX_NICE: u8 = 19;
 
@@ -303,9 +307,11 @@ pub enum NetworkPlan {
     None,
     /// The host's network: an approved `host` or `host_view` exit.
     Open,
-    /// The bridge to this call's proxy socket (phase 2).
+    /// The bridge to this call's proxy socket (phase D2): a network namespace with
+    /// loopback only, and the bridge on `127.0.0.1:3128` inside.
     Proxy {
-        /// The call's proxy socket, outside the sandbox.
+        /// The call's proxy socket, outside the sandbox: `$CALL/proxy.sock`
+        /// ([`RuntimePaths::proxy_socket`]).
         socket: PathBuf,
     },
 }
@@ -418,6 +424,18 @@ impl RuntimePaths {
         self.inside_dir().join("child.zsh")
     }
 
+    /// The call's proxy socket outside, `$CALL/proxy.sock`, which efrd binds and the
+    /// spec of a proxy plan names.
+    pub fn proxy_socket(&self) -> PathBuf {
+        self.call_dir.join(PROXY_SOCKET_FILE)
+    }
+
+    /// `$XRT/efr-proxy.sock`: where the bridge finds the call's proxy socket inside. The
+    /// plan binds it read-only, and the child gets no rule to connect to it.
+    pub fn inside_proxy_socket(&self) -> PathBuf {
+        self.user_runtime.join("efr-proxy.sock")
+    }
+
     /// The private tmp's directory outside, `$SBX/tmp`.
     pub fn private_tmp(&self) -> PathBuf {
         self.sandbox_dir.join("tmp")
@@ -464,8 +482,9 @@ impl SandboxSpec {
 
     /// Checks the version, that every path is absolute and in normal form, that the
     /// call and shell dirs name this call and conversation, that the call dir lies in
-    /// the shell dir (in its `jobs` dir for a job) and nowhere else, and the limits of
-    /// a job.
+    /// the shell dir (in its `jobs` dir for a job) and nowhere else, the limits of a
+    /// job, and that a proxy plan names the call's own socket and comes with no grant
+    /// of the whole network.
     pub fn check(&self) -> Result<(), SandboxError> {
         if self.version != SPEC_VERSION {
             return Err(SandboxError::SpecVersion { found: self.version, expected: SPEC_VERSION });
@@ -546,6 +565,17 @@ impl SandboxSpec {
             && (job.max_seconds == 0 || job.nice > MAX_NICE || job.fsize_bytes == 0)
         {
             return Err(SandboxError::SpecJob);
+        }
+        if let NetworkPlan::Proxy { socket } = &self.network {
+            // NOTE: the launcher's own check, not only efrd's: with the whole network the
+            // plan keeps the host's namespace, and the bridge would listen on the host's
+            // 127.0.0.1:3128.
+            if self.grants.iter().any(|grant| matches!(grant, Grant::OpenNetwork)) {
+                return Err(SandboxError::ProxyWithOpenNetwork);
+            }
+            if *socket != runtime.proxy_socket() {
+                return Err(SandboxError::ProxySocket { path: socket.clone() });
+            }
         }
         Ok(())
     }

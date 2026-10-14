@@ -1,16 +1,22 @@
 //! [`EnvFilter`]: the environment of a contained call (the spec's section 3.9).
 //!
 //! The launcher starts from its own environment, which is the trusted shell's, and
-//! removes sockets, sessions, secret-like names, proxies and efr's own variables. It
-//! then sets the private `/tmp`, an empty runtime dir, `EFR_SANDBOX=1`, the variables
-//! that stop credential prompts, and the offline hints while there is no network.
+//! removes sockets, sessions, secret-like names, git's config from the environment,
+//! proxies, efr's own variables, and each variable whose value is a URL with a
+//! password unless `sandbox.env_keep` names it. It then sets the private `/tmp`, an
+//! empty runtime dir, `EFR_SANDBOX=1`, the variables that stop credential prompts, the
+//! offline hints while there is no network, and for a proxy plan the variables that
+//! point every tool at the bridge.
 //! `result.json` lists the removed names, never a value.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-use crate::names::{EFR_NAMES, PROXY_NAMES, SOCKET_NAMES, any_matches, secret_like};
+use crate::names::{
+    EFR_NAMES, GIT_CONFIG_NAMES, PROXY_NAMES, SOCKET_NAMES, any_matches, has_url_password,
+    secret_like,
+};
 use crate::paths::is_within;
 use crate::plan::MountPlan;
 use crate::spec::{NetworkPlan, SandboxSpec};
@@ -102,14 +108,23 @@ impl EnvFilter {
         }
     }
 
-    /// True when the filter removes `name`.
+    /// True when the filter removes `name` whatever its value.
     pub fn removes(&self, name: &str) -> bool {
         any_matches(EFR_NAMES, name)
             || any_matches(SOCKET_NAMES, name)
             || any_matches(HIDDEN_SHELL_SCRUB, name)
             || any_matches(PROXY_NAMES, name)
+            || any_matches(GIT_CONFIG_NAMES, name)
             || any_matches(&self.deny, name)
             || (secret_like(name) && !any_matches(&self.keep, name))
+    }
+
+    /// True when the filter removes `name` with `value`: [`removes`](Self::removes), or
+    /// a value with a URL that holds a password, such as `PIP_INDEX_URL`, unless
+    /// `sandbox.env_keep` names the variable.
+    pub fn removes_value(&self, name: &str, value: &OsStr) -> bool {
+        self.removes(name)
+            || (has_url_password(&value.to_string_lossy()) && !any_matches(&self.keep, name))
     }
 
     /// The environment of the call, and the names removed from `env` in order.
@@ -121,7 +136,7 @@ impl EnvFilter {
         let mut removed = Vec::new();
         for (name, value) in env {
             let text = name.to_string_lossy();
-            if name.to_str().is_none() || self.removes(&text) {
+            if name.to_str().is_none() || self.removes_value(&text, value) {
                 removed.push(text.into_owned());
             } else {
                 out.insert(name.clone(), value.clone());

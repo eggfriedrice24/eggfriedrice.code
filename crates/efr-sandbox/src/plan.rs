@@ -28,6 +28,9 @@
 //!   A cache with another mount at its own path gets no overlay: that mount covers it.
 //!   Nor does a cache in `/tmp`, `/var/tmp` or `/dev`, which are private inside.
 //!   In the `overlay` mode two caches never share a layer dir.
+//! - A proxy plan binds the call's socket read-only at `$XRT/efr-proxy.sock` for the
+//!   bridge, with no `RESOLVE_UNIX` rule for the child, and sets the proxy variables. It
+//!   always keeps the private network namespace.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -39,6 +42,37 @@ mod build;
 mod explain;
 
 pub use explain::{Explanation, StartDir};
+
+/// The port of the bridge inside a call with a proxy plan, on `127.0.0.1` of the call's
+/// own network namespace.
+pub const PROXY_PORT: u16 = 3128;
+
+/// The proxy address that the variables of a proxy call name: the bridge.
+pub const PROXY_URL: &str = "http://127.0.0.1:3128";
+
+/// The hosts that tools reach directly in a proxy call: servers of the call itself.
+pub const NO_PROXY: &str = "localhost,127.0.0.1,::1";
+
+/// The variables that a proxy call gets, so that every tool uses the bridge: the
+/// generic names in both cases and the names of cargo, npm, yarn and pip, which win
+/// over a proxy in the user's own tool config.
+pub const PROXY_VARIABLES: &[&str] = &[
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "CARGO_HTTP_PROXY",
+    "npm_config_proxy",
+    "npm_config_https_proxy",
+    "YARN_HTTP_PROXY",
+    "YARN_HTTPS_PROXY",
+    "PIP_PROXY",
+];
+
+/// The variables that a proxy call gets for the hosts that skip the proxy.
+pub const NO_PROXY_VARIABLES: &[&str] = &["NO_PROXY", "no_proxy"];
 
 /// The order of mounts at one depth: a mask first, a floor last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -206,6 +240,7 @@ pub struct MountPlan {
     pub(crate) private_tmp: PathBuf,
     pub(crate) layers: Option<CacheLayers>,
     pub(crate) layer_sources: Vec<PathBuf>,
+    pub(crate) proxy_socket: Option<PathBuf>,
 }
 
 impl MountPlan {
@@ -234,7 +269,8 @@ impl MountPlan {
     }
 
     /// Variables the launcher sets after the environment filter: the address of a
-    /// granted bus.
+    /// granted bus, and for a proxy plan [`PROXY_VARIABLES`], [`NO_PROXY_VARIABLES`]
+    /// and `NODE_USE_ENV_PROXY`.
     pub fn env_overrides(&self) -> &[(String, String)] {
         &self.env
     }
@@ -277,6 +313,13 @@ impl MountPlan {
     /// staging dir; empty in the other modes.
     pub fn layer_dirs(&self) -> &[PathBuf] {
         &self.layer_sources
+    }
+
+    /// The inside path of the proxy socket of a `NetworkPlan::Proxy` call,
+    /// `$XRT/efr-proxy.sock`: the inner stage starts the bridge on it. `None` for every
+    /// other call, and never for a call that keeps the host's network namespace.
+    pub fn proxy_socket(&self) -> Option<&Path> {
+        self.proxy_socket.as_deref()
     }
 }
 

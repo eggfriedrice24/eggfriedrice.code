@@ -3,10 +3,11 @@
 //! The inner stage runs inside bwrap's namespaces as trusted code in an untrusted
 //! place. It reads this policy, moves the terminal copy to fd 2 and the records pipe
 //! to fd 3, closes every other descriptor, applies Landlock, then seccomp, and executes
-//! the child shell. It reports its own failure as a `setup-error` record on fd 3.
+//! the child shell. It reports its own failure as a `setup-error` record on fd 3. For a
+//! proxy plan it starts the bridge first, before its own Landlock domain.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +44,11 @@ pub struct InnerPolicy {
     /// The start dir, which the inner stage enters after the overlays are in place:
     /// with overlays, bwrap starts in `/`.
     pub cwd: Option<PathBuf>,
+    /// The bridge's socket inside the call, `$XRT/efr-proxy.sock`: `Some` starts the
+    /// bridge (`efr-sbx bridge`) before the inner stage's own Landlock domain, on
+    /// `127.0.0.1:3128` of the call's network namespace. Only a proxy plan sets it.
+    #[serde(default)]
+    pub proxy_socket: Option<PathBuf>,
 }
 
 /// The two pipes between the inner stage and the launcher while the launcher's helper
@@ -73,6 +79,7 @@ impl InnerPolicy {
             argv: plan.child_argv().to_vec(),
             layers_sync: None,
             cwd: None,
+            proxy_socket: plan.proxy_socket().map(Path::to_path_buf),
         }
     }
 

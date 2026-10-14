@@ -164,3 +164,136 @@ fn a_build_cache_outside_the_overlays_moves_below_the_cache_dir() {
     assert_eq!(get(&out, "CCACHE_DIR"), Some("/home/u/.cache/ccache"));
     assert_eq!(get(&out, "SCCACHE_DIR"), Some("/home/u/.cargo/sccache"));
 }
+
+/// The spec and the machine of a proxy call.
+fn proxy_call() -> (crate::SandboxSpec, crate::testing::FakeFs) {
+    let mut spec = spec();
+    spec.network = NetworkPlan::Proxy { socket: spec.runtime.proxy_socket() };
+    let mut fs = world();
+    fs.socket(&spec.runtime.proxy_socket().to_string_lossy());
+    (spec, fs)
+}
+
+#[test]
+fn proxy_env_only_for_proxy_plan() {
+    let (spec, fs) = proxy_call();
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    // The trusted shell's own proxy goes, and the bridge's comes.
+    let (out, removed) = EnvFilter::new(&spec, &plan)
+        .apply(&env(&[("https_proxy", "http://corp.example:8080"), ("NO_PROXY", "corp.example")]));
+    for name in crate::PROXY_VARIABLES {
+        assert_eq!(get(&out, name), Some(crate::PROXY_URL), "{name}");
+    }
+    assert_eq!(get(&out, "NO_PROXY"), Some("localhost,127.0.0.1,::1"));
+    assert_eq!(get(&out, "no_proxy"), Some("localhost,127.0.0.1,::1"));
+    assert_eq!(get(&out, "NODE_USE_ENV_PROXY"), Some("1"));
+    assert_eq!(removed, ["NO_PROXY", "https_proxy"]);
+    // A proxy call has a network: no offline hint.
+    for (name, _) in crate::env_filter::OFFLINE_HINTS {
+        assert!(get(&out, name).is_none(), "{name}");
+    }
+    // No other call gets a proxy variable.
+    for network in [NetworkPlan::None, NetworkPlan::Open] {
+        let mut spec = spec.clone();
+        spec.network = network;
+        let plan = MountPlan::build(&spec, &fs).unwrap();
+        let (out, _) = EnvFilter::new(&spec, &plan).apply(&env(&[]));
+        for name in crate::PROXY_VARIABLES.iter().chain(crate::NO_PROXY_VARIABLES) {
+            assert!(get(&out, name).is_none(), "{name}");
+        }
+        assert!(get(&out, "NODE_USE_ENV_PROXY").is_none());
+    }
+}
+
+#[test]
+fn proxy_names_never_exported() {
+    let (spec, fs) = proxy_call();
+    let plan = MountPlan::build(&spec, &fs).unwrap();
+    let mut promote_all = spec.clone();
+    promote_all.env.promote = vec!["*".to_owned()];
+    let filter = crate::ExportFilter::from_spec(
+        &promote_all,
+        &plan,
+        std::path::Path::new(crate::testing::PROJECT),
+    );
+    let names = crate::PROXY_VARIABLES.iter().chain(crate::NO_PROXY_VARIABLES);
+    for name in names.chain(&["NODE_USE_ENV_PROXY"]) {
+        assert!(
+            !matches!(filter.check(name, crate::PROXY_URL), crate::ExportVerdict::Promote),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn auth_names_scrubbed() {
+    let spec = spec();
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    let (out, removed) = EnvFilter::new(&spec, &plan).apply(&env(&[
+        ("npm_config__auth", "dXNlcjpwYXNz"),
+        ("NPM_CONFIG__AUTH", "dXNlcjpwYXNz"),
+        ("REGISTRY_AUTH", "x"),
+        ("AUTHOR", "efr"),
+        ("SSH_AUTH_SOCK", "/s"),
+    ]));
+    assert_eq!(removed, ["NPM_CONFIG__AUTH", "REGISTRY_AUTH", "SSH_AUTH_SOCK", "npm_config__auth"]);
+    assert_eq!(get(&out, "AUTHOR"), Some("efr"));
+    // env_keep opens a name that ends in _AUTH, as for every secret-like name.
+    let mut kept = spec.clone();
+    kept.env.keep = vec!["REGISTRY_AUTH".to_owned()];
+    let (out, _) = EnvFilter::new(&kept, &plan).apply(&env(&[("REGISTRY_AUTH", "x")]));
+    assert_eq!(get(&out, "REGISTRY_AUTH"), Some("x"));
+}
+
+#[test]
+fn userinfo_values_scrubbed_unless_kept() {
+    let spec = spec();
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    let input = env(&[
+        ("PIP_INDEX_URL", "https://user:tok3n@pypi.corp.example/simple"),
+        ("PIP_EXTRA_INDEX_URL", "https://pypi.org/simple https://:tok@x.example/s"),
+        ("DATABASE_URL", "postgres://app:pw@db.example:5432/app"),
+        ("REPO_URL", "ssh://git@git.example/r.git"),
+        ("HOMEPAGE", "https://example.com/a:b@c"),
+        ("MIRROR", "https://mirror.example/"),
+    ]);
+    let (out, removed) = EnvFilter::new(&spec, &plan).apply(&input);
+    assert_eq!(removed, ["DATABASE_URL", "PIP_EXTRA_INDEX_URL", "PIP_INDEX_URL"]);
+    for name in ["REPO_URL", "HOMEPAGE", "MIRROR"] {
+        assert!(get(&out, name).is_some(), "{name}");
+    }
+    let mut kept = spec.clone();
+    kept.env.keep = vec!["DATABASE_URL".to_owned()];
+    let (out, removed) = EnvFilter::new(&kept, &plan).apply(&input);
+    assert_eq!(get(&out, "DATABASE_URL"), Some("postgres://app:pw@db.example:5432/app"));
+    assert_eq!(removed, ["PIP_EXTRA_INDEX_URL", "PIP_INDEX_URL"]);
+}
+
+#[test]
+fn git_config_names_scrubbed() {
+    let mut spec = spec();
+    // env_keep does not open git's config: it can carry a header with a token.
+    spec.env.keep = vec!["GIT_CONFIG_*".to_owned()];
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    let (out, removed) = EnvFilter::new(&spec, &plan).apply(&env(&[
+        ("GIT_CONFIG_PARAMETERS", "'http.extraheader'='Authorization: Bearer x'"),
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "http.extraHeader"),
+        ("GIT_CONFIG_VALUE_0", "Authorization: Bearer x"),
+        ("GIT_CONFIG_KEY_12", "credential.helper"),
+        ("GIT_CONFIG_NOSYSTEM", "1"),
+        ("GIT_AUTHOR_NAME", "efr"),
+    ]));
+    assert_eq!(
+        removed,
+        [
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_KEY_12",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_VALUE_0"
+        ]
+    );
+    assert_eq!(get(&out, "GIT_CONFIG_NOSYSTEM"), Some("1"));
+    assert_eq!(get(&out, "GIT_AUTHOR_NAME"), Some("efr"));
+}

@@ -327,6 +327,11 @@ into the GitHub release notes, and it stops when the section is missing.
   `~/.config/glab-cli`, `~/.yarnrc.yml`, `~/.yarnrc`, `~/.bunfig.toml`,
   `~/.config/pip/pip.conf` and `~/.pip/pip.conf`, because they can hold a token. In
   `auto`, `read_file` of one of them asks you.
+- A sandboxed command no longer gets `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_KEY_*` or `GIT_CONFIG_VALUE_*`, which can give git a token or a
+  credential helper. It also no longer gets a name that ends in `_AUTH`, such as
+  `npm_config__auth`, or a variable whose value is a URL with a password, such as
+  `PIP_INDEX_URL=https://user:token@...`, unless `sandbox.env_keep` keeps it.
 
 ## [0.0.3] - 2026-10-09
 

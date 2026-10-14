@@ -13,7 +13,10 @@ use crate::git_config::parse_config;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
 use crate::mounts::{MOUNTS_FILE, SIZES_FILE};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
-use crate::plan::{Mount, MountOp, MountOrigin, MountPlan, OpKind, PlanNote};
+use crate::plan::{
+    Mount, MountOp, MountOrigin, MountPlan, NO_PROXY, NO_PROXY_VARIABLES, OpKind, PROXY_URL,
+    PROXY_VARIABLES, PlanNote,
+};
 use crate::spec::{DesktopSocket, FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
 use crate::surface::{ScanLimits, scan_git_dirs};
 
@@ -46,6 +49,7 @@ struct Builder<'a> {
     resolve_unix: Vec<PathBuf>,
     devices: Vec<PathBuf>,
     env: Vec<(String, String)>,
+    proxy_socket: Option<PathBuf>,
 }
 
 impl MountPlan {
@@ -87,6 +91,7 @@ impl MountPlan {
             resolve_unix: Vec::new(),
             devices: Vec::new(),
             env: Vec::new(),
+            proxy_socket: None,
         };
         builder.masks()?;
         builder.roots()?;
@@ -103,6 +108,7 @@ impl MountPlan {
         builder.job_floors()?;
         builder.assets()?;
         builder.sockets_and_devices()?;
+        builder.proxy()?;
         Ok(builder.finish())
     }
 }
@@ -598,6 +604,43 @@ impl Builder<'_> {
         Ok(())
     }
 
+    /// The bridge's view of a proxy plan: the call's socket bound read-only at
+    /// `$XRT/efr-proxy.sock`, and the variables that point every tool at the bridge.
+    ///
+    /// The child gets no `RESOLVE_UNIX` rule for the socket: only the bridge, in a
+    /// Landlock domain of its own, connects to it. The bind is read-only, so the child
+    /// cannot `chmod` the host's inode (Landlock has no right for that); `connect()`
+    /// needs no writable mount. A grant of the whole network refuses the plan: the call
+    /// would keep the host's network namespace (`SandboxSpec::check` refuses it too).
+    fn proxy(&mut self) -> Result<(), SandboxError> {
+        let spec = self.spec;
+        let NetworkPlan::Proxy { socket } = &spec.network else { return Ok(()) };
+        if spec.grants.iter().any(|grant| matches!(grant, Grant::OpenNetwork)) {
+            return Err(SandboxError::ProxyWithOpenNetwork);
+        }
+        if *socket != spec.runtime.proxy_socket() {
+            return Err(SandboxError::ProxySocket { path: socket.clone() });
+        }
+        // efrd's call dir lies in efr's runtime root, out of the sandbox's reach, so a
+        // link on the way is followed, as for the launcher's other files.
+        let resolved = self.resolve(socket)?;
+        if resolved.kind != Some(FileKind::Other) {
+            return Err(SandboxError::ProxySocket { path: socket.clone() });
+        }
+        let target = spec.runtime.inside_proxy_socket();
+        let op = MountOp::Bind { source: resolved.path, target: target.clone(), writable: false };
+        self.push(op, OpKind::Floor, MountOrigin::Asset);
+        self.proxy_socket = Some(target);
+        for name in PROXY_VARIABLES {
+            self.env.push(((*name).to_owned(), PROXY_URL.to_owned()));
+        }
+        for name in NO_PROXY_VARIABLES {
+            self.env.push(((*name).to_owned(), NO_PROXY.to_owned()));
+        }
+        self.env.push(("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()));
+        Ok(())
+    }
+
     /// Socket, bus, desktop and device grants, and the network.
     fn sockets_and_devices(&mut self) -> Result<(), SandboxError> {
         let spec = self.spec;
@@ -722,6 +765,7 @@ impl Builder<'_> {
             resolve_unix,
             devices,
             env,
+            proxy_socket,
             ..
         } = self;
         mounts.sort_by_key(|mount| (depth(mount.op.target()), mount.kind));
@@ -772,6 +816,9 @@ impl Builder<'_> {
             && !open_grant
             && matches!(spec.network, NetworkPlan::None);
         let unshare_net = !(matches!(spec.network, NetworkPlan::Open) || open_grant || net_view);
+        // NOTE: the bridge starts only in the call's own network namespace; `proxy()`
+        // refused the one plan that keeps the host's.
+        let proxy_socket = proxy_socket.filter(|_| unshare_net);
         let runtime = &spec.runtime;
         let child_argv: Vec<OsString> = vec![
             runtime.zsh.clone().into_os_string(),
@@ -793,6 +840,7 @@ impl Builder<'_> {
             private_tmp: runtime.private_tmp(),
             layers,
             layer_sources,
+            proxy_socket,
         }
     }
 }

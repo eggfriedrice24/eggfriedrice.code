@@ -135,3 +135,48 @@ fn the_inside_paths_live_below_the_masked_runtime_dir() {
     assert_eq!(spec.runtime.private_tmp(), spec.runtime.sandbox_dir.join("tmp"));
     assert!(spec.runtime.quarantine(spec.call).starts_with(&spec.runtime.sandbox_dir));
 }
+
+#[test]
+fn spec_check_refuses_proxy_with_open_network() {
+    let mut spec = spec();
+    spec.network = crate::NetworkPlan::Proxy { socket: spec.runtime.proxy_socket() };
+    assert!(spec.check().is_ok());
+    spec.grants.push(efr_protocol::Grant::OpenNetwork);
+    assert!(matches!(spec.check(), Err(SandboxError::ProxyWithOpenNetwork)));
+    // The launcher reads the spec from its file and refuses it there.
+    assert!(matches!(
+        SandboxSpec::from_json(&spec.to_json().unwrap()),
+        Err(SandboxError::ProxyWithOpenNetwork)
+    ));
+    // A host grant narrows the network and stays.
+    spec.grants = vec![efr_protocol::Grant::Host { host: "extra.test".to_owned(), port: 443 }];
+    assert!(spec.check().is_ok());
+}
+
+#[test]
+fn spec_check_refuses_foreign_proxy_socket() {
+    let base = spec();
+    let call_dir = base.runtime.call_dir.clone();
+    assert_eq!(base.runtime.proxy_socket(), call_dir.join(crate::PROXY_SOCKET_FILE));
+    let foreign = [
+        call_dir.join("other.sock"),
+        call_dir.parent().unwrap().join("proxy.sock"),
+        PathBuf::from("/run/user/1000/bus"),
+        base.runtime.user_runtime.join("efr-proxy.sock"),
+    ];
+    for socket in foreign {
+        let mut spec = base.clone();
+        spec.network = crate::NetworkPlan::Proxy { socket: socket.clone() };
+        assert!(
+            matches!(spec.check(), Err(SandboxError::ProxySocket { path }) if path == socket),
+            "{socket:?}"
+        );
+    }
+    // A job's socket lies in the job's own call dir.
+    let mut job = base;
+    let call = job.call.to_string();
+    job.runtime.call_dir = job.runtime.shell_dir.join(JOB_DIR).join(call);
+    job.job = Some(JobPlan::new(60, 19));
+    job.network = crate::NetworkPlan::Proxy { socket: job.runtime.proxy_socket() };
+    assert!(job.check().is_ok());
+}
