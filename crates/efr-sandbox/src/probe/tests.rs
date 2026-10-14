@@ -148,3 +148,18 @@ fn netview_status_needs_its_self_test_to_pass() {
     assert_eq!(ProbeReport::from_json(b"{}").unwrap().netview, None);
     assert_eq!(ProbeReport::from_json(&passed.to_json().unwrap()).unwrap(), passed);
 }
+
+#[test]
+fn proxy_status_needs_its_self_test_to_pass() {
+    assert!(!ProbeReport::default().status().proxy, "it did not run");
+    let passed = ProbeReport { proxy: Some(true), ..ProbeReport::default() };
+    assert!(passed.status().proxy);
+    let refused = ProbeReport { proxy: Some(false), ..ProbeReport::default() };
+    assert!(!refused.status().proxy);
+    assert!(refused.status().available, "a failed proxy self-test never fails the probe");
+    let failed = ProbeReport { failure: Some(ProbeFailure::UsernsOff), ..passed.clone() };
+    assert!(!failed.status().proxy);
+    // A report of an older launcher has no such field.
+    assert_eq!(ProbeReport::from_json(b"{}").unwrap().proxy, None);
+    assert_eq!(ProbeReport::from_json(&passed.to_json().unwrap()).unwrap(), passed);
+}

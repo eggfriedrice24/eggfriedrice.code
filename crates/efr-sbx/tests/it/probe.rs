@@ -147,3 +147,18 @@ fn network_view_tools_are_installed() {
         assert!(output.status.success(), "{tool} {flag}: {output:?}");
     }
 }
+
+#[test]
+fn probe_reports_proxy() {
+    let _ready = sandbox_or_skip!();
+    let report = probe(&[]);
+    assert_eq!(report.failure, None, "{report:#?}");
+    assert_eq!(report.proxy, Some(true), "{report:#?}");
+    assert!(report.warnings.is_empty(), "{report:#?}");
+    assert!(report.status().proxy);
+    // In every cache mode the third launch passes too.
+    for flag in ["overlay", "readonly"] {
+        let report = probe(&["--cache-mode", flag]);
+        assert_eq!(report.proxy, Some(true), "{flag}: {report:#?}");
+    }
+}

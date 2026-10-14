@@ -90,3 +90,31 @@ fn check_lines_round_trip() {
     let text = serde_json::to_string(&line).unwrap();
     assert_eq!(serde_json::from_str::<CheckLine>(&text).unwrap(), line);
 }
+
+#[test]
+fn proxy_checks_stay_apart_and_the_probe_runs_four() {
+    for name in PROXY_CHECKS {
+        assert!(!CHECKS.contains(name) && !NET_VIEW_CHECKS.contains(name), "{name}");
+    }
+    assert_eq!(
+        PROBE_PROXY_CHECKS,
+        ["proxy_tcp", "proxy_socket_direct", "proxy_tcp_other", "proxy_bridge_signal"]
+    );
+    assert!(PROBE_PROXY_CHECKS.iter().all(|name| PROXY_CHECKS.contains(name)));
+    // A check without its argument is skipped, as in the other lists.
+    let args = SelfTestArgs { proxy: true, ..SelfTestArgs::default() };
+    for name in ["proxy_socket_direct", "proxy_udp"] {
+        assert_eq!(proxy_check(name, &args), None, "{name}");
+    }
+    assert_eq!(proxy_check("no_such_check", &args), None);
+}
+
+#[test]
+fn the_pid_of_a_process_in_its_own_namespace_and_no_bridge_here() {
+    // Outside a sandbox the host's pid is the namespace's pid.
+    let own: i32 = fs::read_link("/proc/self").unwrap().to_str().unwrap().parse().unwrap();
+    assert_eq!(inner_pid(own), Some(rustix::process::getpid().as_raw_nonzero().get()));
+    assert_eq!(inner_pid(i32::MAX), None);
+    // No process named efr-bridge is a child of an ancestor of this test.
+    assert_eq!(bridge_pid(), None);
+}

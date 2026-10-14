@@ -290,6 +290,33 @@ impl Fixture {
         args
     }
 
+    /// The spec of the proxy's self-test: the same call with a proxy plan, and its
+    /// socket at `$CALL/proxy.sock`, served from now on by a thread that stands for
+    /// efrd's proxy: it answers the head of each connection with `200` and echoes.
+    pub(crate) fn proxy_spec(&self, mode: CacheMode) -> Result<SandboxSpec, SbxError> {
+        let mut spec = self.spec(mode);
+        let socket = spec.runtime.proxy_socket();
+        if !socket.exists() {
+            serve_tunnels(&socket)?;
+        }
+        spec.network = NetworkPlan::Proxy { socket };
+        Ok(spec)
+    }
+
+    /// The arguments of `efr-sbx self-test --proxy` for this fixture: the probe's checks
+    /// only.
+    pub(crate) fn proxy_args(&self) -> Vec<OsString> {
+        let mut args: Vec<OsString> = vec!["--proxy".into()];
+        for check in crate::self_test::PROBE_PROXY_CHECKS {
+            args.extend(["--check".into(), (*check).into()]);
+        }
+        args.push("--proxy-socket".into());
+        args.push(self.spec.runtime.inside_proxy_socket().into_os_string());
+        args.push("--tcp".into());
+        args.push(efr_sandbox::SELF_TEST_TCP_ADDR.into());
+        args
+    }
+
     /// The checks that the fixture could not set up, each with the reason.
     pub(crate) fn unavailable(&self) -> &[(&'static str, String)] {
         &self.unavailable
@@ -305,6 +332,51 @@ impl Fixture {
     pub(crate) fn remove(self) {
         open_up(&self.root);
         let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Binds `socket` (0600, through its dir's descriptor when the path is long) and serves
+/// it on a thread: each connection gets `200 Connection established` after its head,
+/// then its own bytes back. The thread ends with the probe.
+fn serve_tunnels(socket: &Path) -> Result<(), SbxError> {
+    let failed = |error| SbxError::io("serve the probe's proxy socket", socket, error);
+    let listener = crate::self_test::socket_path(socket)
+        .and_then(|(_dir, path)| UnixListener::bind(path))
+        .map_err(failed)?;
+    fs::set_permissions(socket, fs::Permissions::from_mode(0o600)).map_err(failed)?;
+    std::thread::Builder::new()
+        .name("efr-sbx-probe-proxy".to_owned())
+        .spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let _ = std::thread::Builder::new()
+                    .name("efr-sbx-probe-tunnel".to_owned())
+                    .spawn(move || tunnel(stream));
+            }
+        })
+        .map(drop)
+        .map_err(failed)
+}
+
+/// One connection of the probe's proxy socket: the head, `200`, then an echo.
+fn tunnel(mut stream: std::os::unix::net::UnixStream) {
+    use std::io::{Read, Write};
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+    let mut head = Vec::new();
+    let mut byte = [0_u8; 1];
+    while !head.ends_with(b"\r\n\r\n") {
+        match stream.read(&mut byte) {
+            Ok(1) if head.len() < 8192 => head.push(byte[0]),
+            _ => return,
+        }
+    }
+    if stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").is_err() {
+        return;
+    }
+    let mut chunk = [0_u8; 4096];
+    while let Ok(read) = stream.read(&mut chunk) {
+        if read == 0 || stream.write_all(chunk.get(..read).unwrap_or_default()).is_err() {
+            break;
+        }
     }
 }
 
