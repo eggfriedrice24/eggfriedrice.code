@@ -5,7 +5,8 @@
 //!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
 //!   [`CompactionSettings`],
-//!   [`SandboxSettings`] with [`AskDestructive`], [`NetworkSettings`],
+//!   [`SandboxSettings`] with [`AskDestructive`], [`NetworkSettings`] with
+//!   [`NetworkHost`],
 //!   [`ClassifierSettings`],
 //!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`JobsSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
@@ -32,8 +33,9 @@
 //!   layout, writes the file behind a symlink, refuses a file that changed since it was
 //!   read, and adds and removes rules for the settings tool.
 //!
-//! Allowed dependencies: `efr-permissions` (rules), `efr-protocol` (the `Mode` and
-//! `CacheMode` wire types and `ConfigFileError`) and `efr-stdx` (variables, atomic
+//! Allowed dependencies: `efr-permissions` (rules and the network host list),
+//! `efr-protocol` (the `Mode`, `CacheMode` and `NetworkMode` wire types and
+//! `ConfigFileError`) and `efr-stdx` (variables, atomic
 //! writes). What does not belong here: async code, the network, reading the
 //! environment, and applying a setting; the daemon and the CLI do that. `efr-tools`
 //! must never depend on this crate, because it reaches `efr-permissions`.
@@ -70,7 +72,7 @@ pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
 pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
 pub use tables::jobs::JobsSettings;
-pub use tables::network::NetworkSettings;
+pub use tables::network::{NetworkHost, NetworkSettings};
 pub use tables::presence::PresenceSettings;
 pub use tables::render::{
     AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,

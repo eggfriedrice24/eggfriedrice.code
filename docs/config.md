@@ -144,6 +144,11 @@ What network a contained call of the `auto` mode sees.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `netview` | `true` | live | `true`: in `auto`, `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net` run in the sandbox with your machine's network view and no network socket, with no question. `false`: they go to the reviewer, as a look at the host's network. |
+| `mode` | `"none"` | live | `"proxy"`: contained commands reach the hosts of `allow` through efr's proxy, and a network need is no review. `"none"`: no network; every network need is a review that opens the whole network for one call. A change applies to new calls; a running background job keeps its network until it ends. |
+| `allow` | `["@crates", "@npm", "@pypi", "@go", "@github-read", "@pacman-mirrors"]` | live | The hosts that contained commands reach through the proxy on port 443: presets (`@crates`, `@npm`, `@pypi`, `@go`, `@github-read`, `@pacman-mirrors`), host names, and `*.suffix` for the names below a suffix of at least two labels. Write a name in its ASCII (xn--) form. An IP address goes in `[[network.hosts]]`. |
+| `deny` | `[]` | live | Presets, hosts and `*.suffix` entries that no contained command reaches. The deny list wins over `allow`, `[[network.hosts]]` and every host grant. |
+| `hosts` | `[]` | live | More allowed hosts, each a table: `host` (a name, `*.suffix` or an IP address), `port` (the one port that the entry allows; absent: 443, and also 80 with `http`), `http` (plain HTTP GET and HEAD too, such as for a mirror) and `private` (the host may resolve to an address of your LAN). Only an editor changes them. |
+| `max_upload_bytes` | `4194304` | live | The bytes that a contained call may send through the proxy, counted from the first byte after the CONNECT head; 65536 to 1073741824. A background job counts for its whole life. |
 
 ## [classifier]
 

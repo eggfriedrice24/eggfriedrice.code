@@ -836,6 +836,75 @@ fn loosens_network_rows() {
     assert!(super::network_loosens(&off.network, &on.network));
     assert!(!super::loosens(&on, &off), "true to false sends them to the reviewer again");
     assert!(!super::network_loosens(&on.network, &on.network));
+
+    // The proxy keys of phase D2.
+    use efr_config::{NetworkHost, NetworkSettings};
+    use efr_protocol::NetworkMode;
+
+    let mirror = |port: Option<u16>, http: bool, private: bool| NetworkHost {
+        host: "mirror.example.org".to_owned(),
+        port,
+        http,
+        private,
+    };
+    let mut base = NetworkSettings::default();
+    base.deny.push("tracker.example.com".to_owned());
+    base.hosts.push(mirror(None, false, false));
+    let changed = |change: &dyn Fn(&mut NetworkSettings)| {
+        let mut next = base.clone();
+        change(&mut next);
+        next
+    };
+    let opening: Vec<(&str, NetworkSettings)> = vec![
+        ("network.mode proxy", changed(&|n| n.mode = NetworkMode::Proxy)),
+        ("network.allow added", changed(&|n| n.allow.push("gitlab.com".to_owned()))),
+        ("network.allow added suffix", changed(&|n| n.allow.push("*.example.com".to_owned()))),
+        ("network.deny removed", changed(&|n| n.deny.clear())),
+        (
+            "network.hosts added",
+            changed(&|n| {
+                n.hosts.push(NetworkHost {
+                    host: "192.168.1.5".to_owned(),
+                    port: Some(8080),
+                    http: false,
+                    private: true,
+                });
+            }),
+        ),
+        ("network.hosts http true", changed(&|n| n.hosts[0].http = true)),
+        ("network.hosts private true", changed(&|n| n.hosts[0].private = true)),
+        ("network.hosts new port", changed(&|n| n.hosts[0].port = Some(8443))),
+        ("network.max_upload_bytes higher", changed(&|n| n.max_upload_bytes += 1)),
+    ];
+    for (row, next) in &opening {
+        assert!(super::network_loosens(&base, next), "{row} must loosen");
+        let mut before = Settings::default();
+        before.network = base.clone();
+        let mut after = Settings::default();
+        after.network = next.clone();
+        assert!(super::loosens(&before, &after), "{row} must loosen the whole file");
+    }
+
+    let mut wide = base.clone();
+    wide.mode = NetworkMode::Proxy;
+    wide.hosts[0] = mirror(Some(8443), true, true);
+    let narrowing = |change: &dyn Fn(&mut NetworkSettings)| {
+        let mut next = wide.clone();
+        change(&mut next);
+        next
+    };
+    let closing: Vec<(&str, NetworkSettings)> = vec![
+        ("network.mode none", narrowing(&|n| n.mode = NetworkMode::None)),
+        ("network.allow removed", narrowing(&|n| n.allow.clear())),
+        ("network.deny added", narrowing(&|n| n.deny.push("github.com".to_owned()))),
+        ("network.hosts removed", narrowing(&|n| n.hosts.clear())),
+        ("network.hosts http false", narrowing(&|n| n.hosts[0].http = false)),
+        ("network.hosts private false", narrowing(&|n| n.hosts[0].private = false)),
+        ("network.max_upload_bytes lower", narrowing(&|n| n.max_upload_bytes = 65_536)),
+    ];
+    for (row, next) in &closing {
+        assert!(!super::network_loosens(&wide, next), "{row} must not loosen");
+    }
 }
 
 #[test]

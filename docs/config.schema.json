@@ -562,10 +562,102 @@
       },
       "type": "object"
     },
+    "NetworkHost": {
+      "additionalProperties": false,
+      "description": "One `[[network.hosts]]` table: a host that contained commands may reach through the\nproxy, with its options.",
+      "properties": {
+        "host": {
+          "description": "The host: a name, `*.suffix`, or an IP address such as `192.168.1.5`.",
+          "type": "string"
+        },
+        "http": {
+          "default": false,
+          "description": "Plain HTTP GET and HEAD are allowed too, such as for a mirror.",
+          "type": "boolean"
+        },
+        "port": {
+          "description": "The one port that the entry allows. Absent: 443, and also 80 with `http`.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "private": {
+          "default": false,
+          "description": "The host may resolve to a private address, such as a mirror on your LAN; never\nto a loopback, link-local or own address.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "type": "object"
+    },
+    "NetworkMode": {
+      "description": "What network a contained call has.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Loopback only (phase 1). A network need is a `host` exit.",
+          "type": "string"
+        },
+        {
+          "const": "proxy",
+          "description": "TCP through the efr proxy to the hosts of the allow list (phase D).",
+          "type": "string"
+        }
+      ]
+    },
     "NetworkSettings": {
       "additionalProperties": false,
       "description": "`[network]`: the network of the `auto` sandbox. Every key applies from the next\ncall.",
       "properties": {
+        "allow": {
+          "default": [
+            "@crates",
+            "@npm",
+            "@pypi",
+            "@go",
+            "@github-read",
+            "@pacman-mirrors"
+          ],
+          "description": "The hosts that contained commands reach through the proxy on port 443: presets\n(`@crates`, `@npm`, `@pypi`, `@go`, `@github-read`, `@pacman-mirrors`), host\nnames, and `*.suffix` for the names below a suffix of at least two labels. Write\na name in its ASCII (xn--) form. An IP address goes in `[[network.hosts]]`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deny": {
+          "default": [],
+          "description": "Presets, hosts and `*.suffix` entries that no contained command reaches. The\ndeny list wins over `allow`, `[[network.hosts]]` and every host grant.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "hosts": {
+          "default": [],
+          "description": "More allowed hosts, each a table: `host` (a name, `*.suffix` or an IP address),\n`port` (the one port that the entry allows; absent: 443, and also 80 with\n`http`), `http` (plain HTTP GET and HEAD too, such as for a mirror) and `private`\n(the host may resolve to an address of your LAN). Only an editor changes them.",
+          "items": {
+            "$ref": "#/$defs/NetworkHost"
+          },
+          "type": "array"
+        },
+        "max_upload_bytes": {
+          "default": 4194304,
+          "description": "The bytes that a contained call may send through the proxy, counted from the\nfirst byte after the CONNECT head; 65536 to 1073741824. A background job counts\nfor its whole life.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mode": {
+          "$ref": "#/$defs/NetworkMode",
+          "default": "none",
+          "description": "`\"proxy\"`: contained commands reach the hosts of `allow` through efr's proxy,\nand a network need is no review. `\"none\"`: no network; every network need is a\nreview that opens the whole network for one call. A change applies to new calls;\na running background job keeps its network until it ends."
+        },
         "netview": {
           "default": true,
           "description": "`true`: in `auto`, `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net`\nrun in the sandbox with your machine's network view and no network socket, with\nno question. `false`: they go to the reviewer, as a look at the host's network.",
@@ -1482,6 +1574,18 @@
     "network": {
       "$ref": "#/$defs/NetworkSettings",
       "default": {
+        "allow": [
+          "@crates",
+          "@npm",
+          "@pypi",
+          "@go",
+          "@github-read",
+          "@pacman-mirrors"
+        ],
+        "deny": [],
+        "hosts": [],
+        "max_upload_bytes": 4194304,
+        "mode": "none",
         "netview": true
       },
       "description": "What network a contained call of the `auto` mode sees."

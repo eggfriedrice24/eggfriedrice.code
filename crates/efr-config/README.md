@@ -56,8 +56,15 @@ Modules:
 - `tables/network`: `[network]` (`NetworkSettings`): `netview` (default `true`, a
   live key), whether `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net`
   run in the sandbox with the host's network view and no network socket (phase D1).
-  Turning it on loosens permissions. The proxy keys (`mode`, `allow`, `deny`, `hosts`,
-  `max_upload_bytes`) come with phase D2.
+  Turning it on loosens permissions. The keys of efr's proxy (phase D2): `mode`
+  (`efr_protocol::NetworkMode`: `none`, the default during the build of phase D2, or
+  `proxy`), `allow` (default: the six presets of `efr_permissions::Preset`), `deny`,
+  `hosts` (`[[network.hosts]]`, each a `NetworkHost` with `host`, `port`, `http` and
+  `private`; `Kind::Rules`, so only an editor writes them) and `max_upload_bytes`
+  (65536 to 1073741824, default 4194304). `NetworkSettings::host_list` compiles them
+  with the pacman mirror hosts that efrd reads into one
+  `efr_permissions::HostList`. Every key is live. Nothing reads them before efrd's
+  proxy exists.
 - `tables/undo`: `[undo]` (`UndoSettings`): `enabled` (default `true`), which
   switches `efr undo` alone (phase B). The snapshots that undo restores from are in
   `[snapshot]`.
@@ -97,7 +104,10 @@ Modules:
   (one lowercase word; the daemon checks it against the model), numeric ranges,
   absolute paths, `~/` secret and sandbox paths (never `~` or `/` as an extra write
   root), variable names and patterns, relative name patterns, http and https URLs,
-  non-empty names.
+  non-empty names, and the host list of `[network]`: the error names the first entry
+  of `allow`, `deny` or `hosts` that `HostList::compile` refuses (`*` alone, a suffix
+  of one label, a name outside ASCII, an unknown preset, an IP address outside
+  `[[network.hosts]]`, port 0).
 - `keys`: `keys()`, every dotted key in the order the tables declare them; `kind()`,
   what a key holds, and `description()`, its doc comment, both from the JSON schema;
   `json_schema()`; `RESTART_KEYS`, the keys a change applies to only after a restart;
