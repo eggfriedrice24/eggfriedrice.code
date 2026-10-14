@@ -1412,6 +1412,100 @@ fn crontab_list_is_an_outside_read() {
     }
 }
 
+/// The facts of a line that runs the real `rustup` and `env`.
+fn rustup_facts() -> CallFacts {
+    programs(&[("rustup", Some("/usr/bin/rustup"), false), ("env", Some("/usr/bin/env"), false)])
+}
+
+/// The `outside` exit of a `rustup` line, with the facts of [`rustup_facts`].
+fn rustup_exit(line: &str) -> ExitNeed {
+    let decision = decide(shell(line).with_facts(rustup_facts()));
+    assert_eq!(kinds(&decision), [ExitKind::Outside], "{line:?}");
+    decision.exits().next().unwrap().clone()
+}
+
+#[rstest]
+#[case::toolchain_install("rustup toolchain install stable")]
+#[case::install("rustup install nightly")]
+#[case::update("rustup update")]
+#[case::update_channel("rustup update stable")]
+#[case::target_add("rustup target add wasm32-unknown-unknown")]
+#[case::component_add("rustup component add rust-src --toolchain nightly")]
+#[case::self_update("rustup self update")]
+fn rustup_toolchain_install_is_outside(#[case] line: &str) {
+    let need = rustup_exit(line);
+    assert!(need.runs_unsandboxed(), "{line:?}");
+    assert!(need.grants.is_empty(), "{line:?}");
+    // The other forms only read, or write the private layer of the call.
+    for line in ["rustup show", "rustup toolchain list", "rustup which cargo", "rustup --version"] {
+        assert_eq!(kinds(&decide(shell(line))), [], "{line:?}");
+    }
+}
+
+#[rstest]
+#[case::stable("rustup toolchain install stable", "stable")]
+#[case::version("rustup toolchain install 1.90", "1.90")]
+#[case::patch_version("rustup install 1.90.1", "1.90.1")]
+#[case::dated("rustup toolchain install nightly-2026-10-01", "nightly")]
+#[case::with_target("rustup toolchain install nightly-x86_64-unknown-linux-gnu", "nightly")]
+#[case::dated_with_target(
+    "rustup toolchain install nightly-2026-10-01-x86_64-unknown-linux-gnu --profile minimal",
+    "nightly"
+)]
+#[case::components("rustup toolchain install stable -c rust-src,clippy -t wasm32-wasip1", "stable")]
+#[case::plus("rustup +nightly component add miri", "nightly")]
+fn rustup_channel_install_is_classifier_when_named(#[case] line: &str, #[case] channel: &str) {
+    let need = rustup_exit(line);
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
+    for name in ["rustup", "toolchain", channel] {
+        assert!(need.names.iter().any(|known| known == name), "{line:?}: {name}");
+    }
+    assert!(names_match(&need.names, &["install the nightly toolchain".to_owned()]));
+    assert!(names_match(&need.names, &["update rustup".to_owned()]));
+}
+
+#[rstest]
+#[case::assignment("RUSTUP_DIST_SERVER=https://x.example rustup toolchain install stable")]
+#[case::env("env RUSTUP_DIST_SERVER=https://x.example rustup toolchain install stable")]
+#[case::home("CARGO_HOME=/tmp/c rustup update")]
+#[case::rustup_home("env RUSTUP_HOME=/tmp/r rustup target add wasm32-wasip1")]
+#[case::earlier_segment("RUSTUP_UPDATE_ROOT=https://x.example; rustup self update")]
+fn rustup_install_with_dist_server_is_user_only(#[case] line: &str) {
+    assert_eq!(rustup_exit(line).approver, Approver::User, "{line:?}");
+}
+
+#[rstest]
+#[case::link("rustup toolchain link mine ~/rust/build/host/stage1")]
+#[case::link_relative("rustup toolchain link mine build")]
+fn rustup_toolchain_link_is_user_only(#[case] line: &str) {
+    assert_eq!(rustup_exit(line).approver, Approver::User, "{line:?}");
+}
+
+#[rstest]
+#[case::custom_name("rustup toolchain install mine")]
+#[case::path("rustup toolchain install ./rust")]
+#[case::url("rustup toolchain install https://x.example/rust.tar.gz")]
+#[case::old_major("rustup install 0.9")]
+#[case::unknown_option("rustup toolchain install stable --dist-server=https://x.example")]
+#[case::path_component("rustup component add ../x")]
+#[case::shell_word("rustup toolchain install $CHANNEL")]
+#[case::custom_toolchain_option("rustup target add wasm32-wasip1 --toolchain mine")]
+fn rustup_custom_toolchain_is_user_only(#[case] line: &str) {
+    assert_eq!(rustup_exit(line).approver, Approver::User, "{line:?}");
+}
+
+#[rstest]
+#[case::check("twine check dist/*")]
+#[case::help("twine --help")]
+fn twine_check_has_network_grant(#[case] line: &str) {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::Host], "{line:?}");
+    assert_eq!(decision.exits().next().unwrap().grants, [Grant::OpenNetwork], "{line:?}");
+    // An upload stays an upload.
+    let decision = decide(shell("twine upload dist/*"));
+    assert_eq!(kinds(&decision), [ExitKind::Upload]);
+}
+
 #[test]
 fn df_is_outside_exit_until_mount_view() {
     for line in ["df -hT", "df -i", "findmnt", "sudo -k; df"] {

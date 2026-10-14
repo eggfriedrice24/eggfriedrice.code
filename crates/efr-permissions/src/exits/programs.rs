@@ -526,10 +526,13 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
             Some("install" | "update" | "fetch") => network.host(),
             _ => None,
         }),
-        "twine" => found.push(match verb(args, &[]) {
-            Some(verb @ ("upload" | "register")) => Found::upload(vec![verb.to_owned()]),
-            _ => Found::of(ExitKind::Host),
+        // NOTE: `twine check` and the other forms that do not upload still reach PyPI,
+        // so they get the network of a fetch.
+        "twine" => found.extend(match verb(args, &[]) {
+            Some(verb @ ("upload" | "register")) => Some(Found::upload(vec![verb.to_owned()])),
+            _ => network.host(),
         }),
+        "rustup" => found.extend(rustup(args)),
         "gh" => found.extend(gh(args, &network)),
         "scp" | "sftp" => found.push(Found::upload(remote_names(program, args))),
         "rsync" if args.iter().any(|arg| is_remote(arg)) => {
@@ -571,6 +574,173 @@ pub(super) fn classify(words: &[String], support: &AutoSupport) -> Vec<Found> {
     }
     found.extend(device_operands(args).into_iter().map(device_exit));
     found
+}
+
+/// The `outside` exit of a `rustup` form that installs a toolchain, a target or a
+/// component, or updates rustup itself (DP26): in the sandbox it would write only the
+/// private layer of `~/.rustup`, and the toolchain would be gone after the call. The
+/// install puts programs on the user's `PATH` (`~/.cargo/bin`), which every later build
+/// runs, so the line must not steer it: the classifier judges only a form whose
+/// toolchains are release channels and whose targets and components are plain names,
+/// and only when a user message names `rustup`, `toolchain` or the channel. Every other
+/// form, such as a path, a custom toolchain name, a URL or `rustup toolchain link`, is
+/// for the user. A line that sets a `RUSTUP_*` variable or `CARGO_HOME` is for the user
+/// too ([`sets_rustup_env`]). Any other `rustup` form runs contained.
+fn rustup(args: &[String]) -> Option<Found> {
+    let form = rustup_install(args)?;
+    let safe = !form.link
+        && form.toolchains.iter().all(|word| rustup_channel(word))
+        && form.operands.iter().all(|word| plain_name(word));
+    let mut names = vec!["rustup".to_owned(), "toolchain".to_owned()];
+    for word in form.toolchains.iter().filter(|word| rustup_channel(word)) {
+        let channel = word.split('-').next().unwrap_or(word);
+        if !names.iter().any(|name| name == channel) {
+            names.push(channel.to_owned());
+        }
+    }
+    let approver = if safe { Approver::ClassifierWhenNamed } else { Approver::User };
+    Some(Found { approver, names, ..Found::of(ExitKind::Outside) })
+}
+
+/// The options of `rustup` that take the next word as their value, each with true when
+/// that value is a toolchain (else a list of plain names).
+const RUSTUP_VALUES: &[(&str, bool)] = &[
+    ("--toolchain", true),
+    ("--profile", false),
+    ("-c", false),
+    ("--component", false),
+    ("--components", false),
+    ("-t", false),
+    ("--target", false),
+    ("--targets", false),
+];
+
+/// The options of `rustup` that take no value and name no file, server or toolchain.
+const RUSTUP_FLAGS: &[&str] = &[
+    "--no-self-update",
+    "--force",
+    "--force-non-host",
+    "--allow-downgrade",
+    "--no-update-default",
+    "-v",
+    "--verbose",
+    "-q",
+    "--quiet",
+    "-y",
+];
+
+/// A `rustup` form that installs, as [`rustup_install`] reads it.
+struct RustupInstall {
+    /// The toolchain words: the operands of `toolchain install` and `update`, a
+    /// `+toolchain` word, the value of `--toolchain`.
+    toolchains: Vec<String>,
+    /// Every other word: targets, components, the values of the other options, and an
+    /// option that efr does not know, which then fails [`plain_name`].
+    operands: Vec<String>,
+    /// True for `rustup toolchain link`, which installs a toolchain from a path.
+    link: bool,
+}
+
+/// The words of a `rustup` form that installs (`toolchain install`, `install`, `update`,
+/// `target add`, `component add`, `self update`, and `toolchain link`), or `None` for
+/// any other form.
+fn rustup_install(args: &[String]) -> Option<RustupInstall> {
+    let mut form = RustupInstall { toolchains: Vec::new(), operands: Vec::new(), link: false };
+    let mut verbs: Vec<&str> = Vec::new();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if let Some(toolchain) = word.strip_prefix('+') {
+            form.toolchains.push(toolchain.to_owned());
+            continue;
+        }
+        if word.starts_with('-') {
+            let (option, inline) = match word.split_once('=') {
+                Some((option, value)) => (option, Some(value.to_owned())),
+                None => (word.as_str(), None),
+            };
+            match RUSTUP_VALUES.iter().find(|(name, _)| *name == option) {
+                Some((_, toolchain)) => {
+                    let value = inline.or_else(|| words.next().cloned()).unwrap_or_default();
+                    let list = if *toolchain { &mut form.toolchains } else { &mut form.operands };
+                    list.extend(value.split(',').map(str::to_owned));
+                }
+                None if inline.is_none() && RUSTUP_FLAGS.contains(&option) => {}
+                // NOTE: an option that efr does not know may name a file or a URL.
+                None => form.operands.push(word.clone()),
+            }
+            continue;
+        }
+        let installs = matches!(
+            verbs.as_slice(),
+            ["toolchain", "install" | "add" | "update"] | ["install" | "update"]
+        );
+        if installs {
+            form.toolchains.push(word.clone());
+        } else if verbs.len() < 2 {
+            verbs.push(word);
+        } else {
+            form.operands.push(word.clone());
+        }
+    }
+    match verbs.as_slice() {
+        ["toolchain", "install" | "add" | "update"]
+        | ["install" | "update"]
+        | ["target" | "component", "add"]
+        | ["self", "update"] => Some(form),
+        ["toolchain", "link"] => Some(RustupInstall { link: true, ..form }),
+        _ => None,
+    }
+}
+
+/// True when `word` is a release channel of rustup: `stable`, `beta`, `nightly`, `1.N`
+/// or `1.N.M`, with an optional date `-YYYY-MM-DD` and an optional target triple of
+/// plain names. A path or a custom toolchain name is no channel.
+fn rustup_channel(word: &str) -> bool {
+    if !plain_name(word) {
+        return false;
+    }
+    let mut parts = word.split('-');
+    let channel = parts.next().unwrap_or_default();
+    let numbered = || {
+        let numbers: Vec<&str> = channel.split('.').collect();
+        numbers.first() == Some(&"1")
+            && (2..=3).contains(&numbers.len())
+            && numbers.iter().all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    if !matches!(channel, "stable" | "beta" | "nightly") && !numbered() {
+        return false;
+    }
+    let rest: Vec<&str> = parts.collect();
+    let digits =
+        |part: &&str, len: usize| part.len() == len && part.chars().all(|c| c.is_ascii_digit());
+    let dated =
+        rest.len() >= 3 && digits(&rest[0], 4) && digits(&rest[1], 2) && digits(&rest[2], 2);
+    let triple = if dated { &rest[3..] } else { &rest[..] };
+    triple.iter().all(|part| !part.is_empty() && !part.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// True when `word` is a plain name of rustup, such as `rust-src` or
+/// `wasm32-unknown-unknown`: letters, digits, `-`, `_` and `.`, not empty and not
+/// starting with `.` or `-`. A path, a URL, an option and a word that only the shell
+/// reads are no plain name.
+fn plain_name(word: &str) -> bool {
+    !word.is_empty()
+        && !word.starts_with(['.', '-'])
+        && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// True when `words`, one segment of a line, set a `RUSTUP_*` variable or `CARGO_HOME`:
+/// an assignment word before a program or behind `env`, or the operand of `export`.
+/// `rustup` would then read its toolchains, its server or its home from where the line
+/// says (DP26).
+pub(super) fn sets_rustup_env(words: &[String]) -> bool {
+    words.iter().any(|word| {
+        let word = word.trim_start_matches(['\'', '"']);
+        word.split_once('=').is_some_and(|(name, _)| {
+            let name = name.strip_suffix('+').unwrap_or(name);
+            name.starts_with("RUSTUP_") || name == "CARGO_HOME"
+        })
+    })
 }
 
 /// The verbs of `loginctl` that only report.

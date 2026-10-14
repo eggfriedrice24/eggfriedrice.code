@@ -279,6 +279,16 @@ into the GitHub release notes, and it stops when the section is missing.
   machine: `netview yes`, or `netview no` with the reason. With `no`, `ss` and `ip` go
   to the reviewer. With `network.netview = false`, they show
   `netview off (network.netview = false)`.
+- In `auto`, `rustup toolchain install`, `rustup install`, `rustup update`,
+  `rustup target add`, `rustup component add` and `rustup self update` now run outside
+  the sandbox. The reviewer decides a release channel such as `stable`, `nightly` or
+  `1.90` (with a date and a target if you like) when a message of yours names
+  `rustup`, the toolchain or the channel. A line that sets `RUSTUP_*` or `CARGO_HOME`,
+  names a toolchain path or a custom toolchain, or runs `rustup toolchain link` asks
+  you, because the install puts programs on your `PATH`. Before, they wrote into efr's
+  private layer, and the toolchain was gone after the command.
+- In `auto`, `twine check` and the other `twine` forms that do not upload now get the
+  network after a review. Before, they ran with none.
 
 ### Fixed
 

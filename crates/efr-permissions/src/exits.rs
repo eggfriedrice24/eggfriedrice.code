@@ -383,6 +383,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     // NOTE: a line of the network view rule runs in the host's network namespace with
     // `Grant::NetView` ([`views`]), so its `ss` and `ip` need no `host_view` exit.
     let net_view = view::net_view(&segments, input.support);
+    let rustup_env = segments.iter().any(|segment| programs::sets_rustup_env(&segment.words));
     let mut found = Found::default();
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
@@ -423,7 +424,11 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             fetch = fetch.or_else(|| programs::package_fetch(command));
             let mount_view =
                 input.support.mount_view && programs::runs_mount_view(command, by_shell);
-            for exit in programs::classify(command, input.support) {
+            let rustup = command.first().is_some_and(|word| programs::base_name(word) == "rustup");
+            for mut exit in programs::classify(command, input.support) {
+                if exit.kind == ExitKind::Outside && rustup && rustup_env {
+                    exit.approver = Approver::User;
+                }
                 // NOTE: from phase E the filtered bus proxy decides a bus call.
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
                     continue;
@@ -559,7 +564,11 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut found = found.0;
     for need in &mut found {
         match need.kind {
-            ExitKind::Outside => need.approver = outside_approver(input, &envelope),
+            // NOTE: the stricter of the form's approver and the rule of the program
+            // words, so a `rustup` form that must be named stays so.
+            ExitKind::Outside => {
+                need.approver = need.approver.max(outside_approver(input, &envelope));
+            }
             ExitKind::Host => need.package_fetch = fetch,
             _ => {}
         }
