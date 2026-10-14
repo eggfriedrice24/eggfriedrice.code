@@ -403,8 +403,9 @@ fn parse_pacman_reads_at_most_max_lines() {
     assert_eq!(hosts, ["last.example.org"]);
 }
 
-/// Phase D2 stubs: the engine keeps the host list, and neither the list nor the
-/// remote and refused host facts change a decision before the engine reads them.
+/// The engine keeps the host list. With no proxy (`Egress::None`) neither the list nor
+/// the refused host facts change a decision; the remote facts only add the hosts behind
+/// the remote names (phase D2).
 #[test]
 fn engine_keeps_the_host_list_and_decides_as_before() {
     use std::sync::Arc;
@@ -440,11 +441,10 @@ fn engine_keeps_the_host_list_and_decides_as_before() {
         upstream: true,
         submodule: false,
     };
-    let facts = CallFacts {
-        remotes: vec![(PathBuf::from("/home/u/p"), vec![remote])],
-        refused_hosts: vec!["evil.example".to_owned()],
-        ..CallFacts::default()
-    };
+    let refused =
+        CallFacts { refused_hosts: vec!["evil.example".to_owned()], ..CallFacts::default() };
+    let facts =
+        CallFacts { remotes: vec![(PathBuf::from("/home/u/p"), vec![remote])], ..refused.clone() };
     let input = |requirements: Requirements| DecisionInput {
         requirements,
         scope: Scope::Machine,
@@ -454,15 +454,17 @@ fn engine_keeps_the_host_list_and_decides_as_before() {
     };
     for line in ["git fetch", "git push", "curl -sSf https://index.crates.io/config.json"] {
         let requirements = Requirements::none().with_command(line).with_command_dir("/home/u/p");
-        assert!(
-            crate::exits::fact_requests(line, Some(Path::new("/home/u/p")), &locations)
-                .remotes
-                .is_empty(),
-            "{line}: no remote request before the engine of phase D2"
-        );
+        let request = crate::exits::fact_requests(line, Some(Path::new("/home/u/p")), &locations);
+        assert_eq!(request.remotes.is_empty(), !line.starts_with("git"), "{line}");
         let before = plain.decide(&input(requirements.clone()));
-        let after = engine.decide(&input(requirements.with_facts(facts.clone())));
+        let after = engine.decide(&input(requirements.clone().with_facts(refused.clone())));
         assert_eq!(before, after, "{line}");
+        let remotes = engine.decide(&input(requirements.with_facts(facts.clone())));
+        let hosts: Vec<&str> =
+            remotes.exits().flat_map(|need| need.hosts.iter().map(String::as_str)).collect();
+        if line.starts_with("git") {
+            assert_eq!(hosts, ["github.com"], "{line}");
+        }
     }
 }
 

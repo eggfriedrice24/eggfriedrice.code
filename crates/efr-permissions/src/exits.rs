@@ -21,6 +21,7 @@ mod names;
 mod needs;
 mod persist;
 mod programs;
+mod remotes;
 mod scan;
 mod view;
 
@@ -36,6 +37,7 @@ use self::envelope::{WriteExit, read_exit, resolve};
 pub(crate) use self::names::floor_names;
 pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
 pub use self::programs::DESKTOP_IPC_READ;
+use self::remotes::RemoteUse;
 use self::scan::{OPAQUE, Segment, is_assignment};
 use crate::command;
 use crate::network::{HostList, Preset};
@@ -428,6 +430,26 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             let mount_view =
                 input.support.mount_view && programs::runs_mount_view(command, by_shell);
             let rustup = command.first().is_some_and(|word| programs::base_name(word) == "rustup");
+            // NOTE: the hosts behind the remote names of a git command (DP22); `None`
+            // when no fact describes them, which keeps the line's own hosts only.
+            let remote = remotes::remote_command(command)
+                .filter(|_| !remotes::steers_git(&segment.words))
+                .and_then(|remote| {
+                    let git_dir = remotes::remote_dir(command, dir, &at)?;
+                    let chosen = remotes::selected(&remote, &git_dir, input.facts)?;
+                    Some((remote.kind, chosen))
+                });
+            let remote_hosts = |kind: ExitKind| -> Vec<String> {
+                match &remote {
+                    Some((RemoteUse::Push, chosen)) if kind == ExitKind::Upload => {
+                        remotes::hosts(&remotes::urls(RemoteUse::Push, chosen))
+                    }
+                    Some((use_kind, chosen)) if kind == ExitKind::Host => {
+                        remotes::hosts(&remotes::urls(*use_kind, chosen))
+                    }
+                    _ => Vec::new(),
+                }
+            };
             for mut exit in programs::classify(command, input.support, input.hosts) {
                 if exit.kind == ExitKind::Outside && rustup && rustup_env {
                     exit.approver = Approver::User;
@@ -445,6 +467,11 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 if matches!(exit.kind, ExitKind::Host | ExitKind::Upload) {
                     let mut need = predicted(exit, &part);
                     need.hosts = programs::line_hosts(command);
+                    for host in remote_hosts(need.kind) {
+                        if !need.hosts.contains(&host) {
+                            need.hosts.push(host);
+                        }
+                    }
                     found.push(need);
                     continue;
                 }
@@ -472,6 +499,12 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     );
                 }
                 found.push(need);
+            }
+            if let Some((kind, chosen)) = &remote
+                && *kind != RemoteUse::Push
+                && input.support.egress == Egress::Proxy
+            {
+                found.extend_from(remotes::proxy_fetch_exit(*kind, chosen, input.hosts, &part));
             }
             installs.extend(persist::installs(command, &at));
             for (word, dir_kind) in programs::made_paths(command) {
@@ -764,7 +797,9 @@ pub struct FactRequest {
     pub sources: Vec<Source>,
     /// The directories of git commands that reach a remote (`fetch`, `pull`,
     /// `ls-remote`, `remote update`, `push`, `submodule update`; phase D2, DP22). The
-    /// answers go to [`CallFacts::remotes`]. Empty until the engine of phase D2 fills it.
+    /// answers go to [`CallFacts::remotes`]. A line that sets a `GIT_*` variable, and a
+    /// git command with `-c`, `--git-dir` or `--work-tree`, asks for none: the facts of
+    /// the directory would not be the ones that the command uses.
     pub remotes: Vec<PathBuf>,
 }
 
@@ -820,6 +855,12 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
             }
             covers.extend(persist::covers(command));
+            if remotes::remote_command(command).is_some()
+                && !remotes::steers_git(&segment.words)
+                && let Some(git_dir) = remotes::remote_dir(command, dir, &at)
+            {
+                add(&mut request.remotes, git_dir);
+            }
             for source in persist::sources(command, &envelope, &at) {
                 if !request.sources.contains(&source) {
                     request.sources.push(source);

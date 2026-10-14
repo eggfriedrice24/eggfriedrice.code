@@ -2,6 +2,7 @@
 //! network needs the proxy decides alone, which get a grant of one host and port, and
 //! which keep the whole network (DP20, DP21).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{ExitKind, Grant, Mode, Needs, Origin, Scope};
@@ -10,9 +11,10 @@ use rstest::rstest;
 
 use super::auto::auto_locations;
 use super::{app, input};
+use crate::exits::{fact_requests, names_match};
 use crate::{
-    AutoSupport, Decision, DecisionInput, Effect, Egress, Engine, ExitNeed, HostList, HostTable,
-    Preset, Requirements,
+    Approver, AutoSupport, CallFacts, Decision, DecisionInput, Effect, Egress, Engine, ExitNeed,
+    HostList, HostTable, Preset, RemoteFact, RemoteUrl, Requirements,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -291,4 +293,164 @@ fn ss_and_ip_lines_routine_with_the_proxy(#[case] line: &str) {
     assert_eq!(decision.effect(), Effect::Contain, "{line:?}");
     assert_eq!(kinds(&decision), [], "{line:?}");
     assert_eq!(decision.view_grants().cloned().collect::<Vec<_>>(), [Grant::NetView]);
+}
+
+/// A remote of the facts, with each URL as `host`, `ssh://host` or `git@host:`.
+pub(super) fn remote(name: &str, fetch: &[&str], push: &[&str]) -> RemoteFact {
+    let url = |word: &&str| {
+        let ssh = word.contains('@') || word.starts_with("ssh://");
+        let host = word.trim_start_matches("ssh://").trim_start_matches("git@");
+        let host = host.split([':', '/']).next().unwrap_or(host);
+        RemoteUrl {
+            host: host.to_owned(),
+            port: if ssh { 22 } else { 443 },
+            ssh,
+            credentials: false,
+        }
+    };
+    RemoteFact {
+        name: name.to_owned(),
+        fetch: fetch.iter().map(url).collect(),
+        push: push.iter().map(url).collect(),
+        project: false,
+        upstream: false,
+        submodule: false,
+    }
+}
+
+/// The facts of a call in the project root with `remotes`, and the real `git`.
+pub(super) fn remote_facts(remotes: Vec<RemoteFact>) -> CallFacts {
+    CallFacts {
+        remotes: vec![(PathBuf::from(APP), remotes)],
+        programs: vec![("git".to_owned(), Some(PathBuf::from("/usr/bin/git")), false)],
+        ..CallFacts::default()
+    }
+}
+
+#[test]
+fn fact_requests_name_the_dirs_of_remote_commands() {
+    let locations = auto_locations();
+    let request = fact_requests(
+        "git fetch && git -C ../lib push && git status && cd x && git pull",
+        Some(APP.as_ref()),
+        &locations,
+    );
+    assert_eq!(request.remotes, [PathBuf::from(APP), PathBuf::from("/home/u/p/lib")]);
+    for line in ["git -c remote.origin.url=https://x.test/r fetch", "GIT_DIR=/x git fetch"] {
+        let request = fact_requests(line, Some(APP.as_ref()), &locations);
+        assert!(request.remotes.is_empty(), "{line:?}");
+    }
+}
+
+#[test]
+fn git_fetch_https_remote_listed_is_routine() {
+    let facts = remote_facts(vec![remote("origin", &["github.com"], &["github.com"])]);
+    for line in ["git fetch", "git pull --rebase", "git fetch origin main", "git remote update"] {
+        let decision = decide(shell(line).with_facts(facts.clone()));
+        assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]), "{line:?}");
+    }
+}
+
+#[test]
+fn git_fetch_https_remote_unlisted_predicts_host_grant() {
+    let facts = remote_facts(vec![
+        remote("origin", &["github.com"], &["github.com"]),
+        remote("work", &["gitlab.test"], &["gitlab.test"]),
+    ]);
+    let decision = decide(shell("git fetch work").with_facts(facts.clone()));
+    assert_eq!(grants(&decision), [host("gitlab.test", 443)]);
+    assert_eq!(decision.exits().next().unwrap().hosts, ["gitlab.test"]);
+    // `--all` reaches every remote; only the unlisted one needs a grant.
+    let decision = decide(shell("git fetch --all").with_facts(facts));
+    assert_eq!(grants(&decision), [host("gitlab.test", 443)]);
+    assert_eq!(decision.exits().next().unwrap().hosts, ["github.com", "gitlab.test"]);
+}
+
+#[test]
+fn git_fetch_ssh_remote_is_outside() {
+    let facts = remote_facts(vec![remote("origin", &["git@github.com:o/r.git"], &[])]);
+    let decision = decide(shell("git fetch").with_facts(facts.clone()));
+    assert_eq!(kinds(&decision), [ExitKind::Outside]);
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert!(need.runs_unsandboxed());
+    // With no proxy the fetch keeps its `host` exit, now with the remote's host.
+    let none = none_engine().decide(&in_auto(shell("git fetch").with_facts(facts)));
+    assert_eq!(grants(&none), [Grant::OpenNetwork]);
+    assert_eq!(none.exits().next().unwrap().hosts, ["github.com"]);
+}
+
+#[test]
+fn git_fetch_ssh_remote_outside_has_host_fact() {
+    let facts = remote_facts(vec![remote("origin", &["ssh://git.example.test/r.git"], &[])]);
+    let decision = decide(shell("git pull").with_facts(facts));
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.kind, ExitKind::Outside);
+    assert_eq!(need.hosts, ["git.example.test"]);
+    assert_eq!(need.names, ["git.example.test"]);
+    assert!(names_match(&need.names, &["pull from git.example.test".to_owned()]));
+    assert!(!names_match(&need.names, &["pull the latest".to_owned()]));
+}
+
+#[test]
+fn git_push_origin_names_remote_host() {
+    let facts = remote_facts(vec![remote("origin", &["github.com"], &["github.com"])]);
+    for engine in [proxy_engine(), none_engine()] {
+        let decision =
+            engine.decide(&in_auto(shell("git push origin HEAD").with_facts(facts.clone())));
+        assert_eq!(kinds(&decision), [ExitKind::Upload]);
+        let need = decision.exits().next().unwrap();
+        assert_eq!(need.hosts, ["github.com"]);
+        // The verb still names the upload; the host is a fact for the naming rule.
+        assert!(need.names.contains(&"push".to_owned()));
+    }
+}
+
+#[test]
+fn push_to_every_pushurl_names_each_host() {
+    let facts = remote_facts(vec![remote(
+        "origin",
+        &["github.com"],
+        &["github.com", "git@mirror.test:o/r.git", "codeberg.test"],
+    )]);
+    let decision = decide(shell("git push").with_facts(facts));
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.hosts, ["github.com", "mirror.test", "codeberg.test"]);
+}
+
+#[test]
+fn git_remote_fact_missing_keeps_today() {
+    // No fact for the directory: the fetch is the proxy's, and the push has no host.
+    let decision = decide(shell("git fetch origin"));
+    assert_eq!(kinds(&decision), []);
+    let decision = decide(shell("git push"));
+    assert_eq!(kinds(&decision), [ExitKind::Upload]);
+    assert!(decision.exits().next().unwrap().hosts.is_empty());
+    let none = none_engine().decide(&in_auto(shell("git fetch")));
+    assert_eq!(grants(&none), [Grant::OpenNetwork]);
+    assert!(none.exits().next().unwrap().hosts.is_empty());
+    // A line that steers git away from the facts of its directory reads none.
+    let facts = remote_facts(vec![remote("origin", &["git@github.com:o/r.git"], &[])]);
+    let decision = decide(shell("GIT_DIR=/tmp/x/.git git fetch").with_facts(facts));
+    assert_eq!(kinds(&decision), []);
+}
+
+#[test]
+fn submodule_update_reads_gitmodules() {
+    let mut lib = remote("lib", &["code.test"], &["code.test"]);
+    lib.submodule = true;
+    let facts = remote_facts(vec![remote("origin", &["github.com"], &["github.com"]), lib]);
+    let decision = decide(shell("git submodule update --init").with_facts(facts));
+    assert_eq!(grants(&decision), [host("code.test", 443)]);
+    assert_eq!(decision.exits().next().unwrap().hosts, ["code.test"]);
+}
+
+#[test]
+fn ssh_submodule_url_is_user_only() {
+    let mut lib = remote("lib", &["git@code.test:o/lib.git"], &[]);
+    lib.submodule = true;
+    let facts = remote_facts(vec![lib]);
+    let decision = decide(shell("git submodule update").with_facts(facts));
+    assert_eq!(kinds(&decision), [ExitKind::Outside]);
+    assert_eq!(decision.exits().next().unwrap().approver, Approver::User);
 }
