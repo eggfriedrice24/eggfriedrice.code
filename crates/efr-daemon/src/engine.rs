@@ -67,12 +67,20 @@ pub(crate) struct Probed {
     pub(crate) netview: bool,
     /// efrd shares the mount namespace of the user (`SandboxService::mount_view`).
     pub(crate) mount_view: bool,
+    /// The proxy self-test of the last probe passed (`SandboxStatus::proxy`, phase D2).
+    /// Nothing reads it yet: the engine's egress stays `Egress::None`.
+    pub(crate) proxy: bool,
 }
 
 impl Probed {
     /// The current values of `sandbox`: its last status and its mount check.
     pub(crate) fn of(sandbox: &SandboxService) -> Probed {
-        Probed { netview: sandbox.status().borrow().netview, mount_view: sandbox.mount_view() }
+        let status = sandbox.status();
+        let (netview, proxy) = {
+            let status = status.borrow();
+            (status.netview, status.proxy)
+        };
+        Probed { netview, mount_view: sandbox.mount_view(), proxy }
     }
 }
 

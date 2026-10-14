@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
@@ -401,6 +401,69 @@ fn parse_pacman_reads_at_most_max_lines() {
     text.push_str("Server = https://late.example.org/\n");
     let hosts: Vec<String> = parse_pacman(&text).mirrors.into_iter().map(|m| m.host).collect();
     assert_eq!(hosts, ["last.example.org"]);
+}
+
+/// Phase D2 stubs: the engine keeps the host list, and neither the list nor the
+/// remote and refused host facts change a decision before the engine reads them.
+#[test]
+fn engine_keeps_the_host_list_and_decides_as_before() {
+    use std::sync::Arc;
+
+    use efr_protocol::{Mode, Origin, Scope};
+
+    use crate::{
+        CallFacts, ConversationPolicy, DecisionInput, Engine, FactRequest, Locations, RemoteFact,
+        RemoteUrl, Requirements,
+    };
+
+    let locations = Locations::new("/home/u").unwrap();
+    let plain = Engine::with_defaults(locations.clone());
+    assert_eq!(plain.hosts(), &HostList::default(), "the default list is empty");
+    let list = allow(&["@crates", "@github-read"]).unwrap();
+    let engine = Engine::with_defaults(locations.clone()).with_hosts(Arc::new(list.clone()));
+    assert_eq!(engine.hosts(), &list);
+
+    assert!(CallFacts::default().remotes.is_empty());
+    assert!(CallFacts::default().refused_hosts.is_empty());
+    assert!(FactRequest::default().remotes.is_empty());
+    let url = |host: &str, ssh: bool| RemoteUrl {
+        host: host.to_owned(),
+        port: 443,
+        ssh,
+        credentials: false,
+    };
+    let remote = RemoteFact {
+        name: "origin".to_owned(),
+        fetch: vec![url("github.com", false)],
+        push: vec![url("github.com", true)],
+        project: true,
+        upstream: true,
+        submodule: false,
+    };
+    let facts = CallFacts {
+        remotes: vec![(PathBuf::from("/home/u/p"), vec![remote])],
+        refused_hosts: vec!["evil.example".to_owned()],
+        ..CallFacts::default()
+    };
+    let input = |requirements: Requirements| DecisionInput {
+        requirements,
+        scope: Scope::Machine,
+        origin: Origin::Shell,
+        mode: Mode::Auto,
+        conversation_policy: ConversationPolicy::new("/home/u/.local/share/efr/scratch/c"),
+    };
+    for line in ["git fetch", "git push", "curl -sSf https://index.crates.io/config.json"] {
+        let requirements = Requirements::none().with_command(line).with_command_dir("/home/u/p");
+        assert!(
+            crate::exits::fact_requests(line, Some(Path::new("/home/u/p")), &locations)
+                .remotes
+                .is_empty(),
+            "{line}: no remote request before the engine of phase D2"
+        );
+        let before = plain.decide(&input(requirements.clone()));
+        let after = engine.decide(&input(requirements.with_facts(facts.clone())));
+        assert_eq!(before, after, "{line}");
+    }
 }
 
 proptest! {

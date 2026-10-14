@@ -1,6 +1,7 @@
 //! `Engine::decide`: requirements in, one decision out.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use efr_protocol::{ExitKind, ExitSource, Grant, Mode, Origin, Scope};
 
@@ -11,8 +12,8 @@ use crate::jobs::job_refusal;
 use crate::path_class::normalize;
 use crate::policy::{MatchContext, Part, Target, expand};
 use crate::{
-    Access, AutoSupport, Construct, DecisionInput, Locations, PathAccess, PathClass, Policy,
-    Resource,
+    Access, AutoSupport, Construct, DecisionInput, HostList, Locations, PathAccess, PathClass,
+    Policy, Resource,
 };
 
 /// The permission engine: the machine's [`Locations`] and one machine [`Policy`] for
@@ -90,6 +91,8 @@ pub struct Engine {
     cautious: Machine,
     auto: Machine,
     support: AutoSupport,
+    /// The host list of efr's proxy (phase D2). Nothing reads it yet.
+    hosts: Arc<HostList>,
 }
 
 /// The machine policy of one mode, and how many of its rules are built in.
@@ -118,6 +121,7 @@ impl Engine {
             auto: Machine::new(Mode::Auto, &rules),
             locations,
             support: AutoSupport::default(),
+            hosts: Arc::default(),
         }
     }
 
@@ -134,6 +138,20 @@ impl Engine {
         &self.support
     }
 
+    /// The engine with the host list of efr's proxy (phase D2). The default list is
+    /// empty.
+    #[must_use]
+    pub fn with_hosts(mut self, hosts: Arc<HostList>) -> Self {
+        self.hosts = hosts;
+        self
+    }
+
+    /// The host list of efr's proxy: the global allow and deny lists that the engine
+    /// of phase D2 reads under `Egress::Proxy`.
+    pub fn hosts(&self) -> &HostList {
+        &self.hosts
+    }
+
     /// An engine that decides by `policy` alone in every mode, with no built-in rule,
     /// for tests of what happens when no rule matches.
     #[cfg(test)]
@@ -145,6 +163,7 @@ impl Engine {
             cautious: machine.clone(),
             auto: machine,
             support: AutoSupport::default(),
+            hosts: Arc::default(),
         }
     }
 

@@ -264,6 +264,8 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         links: Vec::new(),
         covered,
         sources,
+        remotes: Vec::new(),
+        refused_hosts: Vec::new(),
     })
 }
 
