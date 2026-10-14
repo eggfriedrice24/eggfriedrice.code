@@ -15,10 +15,8 @@ use efr_protocol::{
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::super::{
-    Action, Payload, TurnExits, effective, payload, record, reviewer_denied, route,
-};
-use super::{APP, HOME, SCRATCH, app, decide, shell};
+use super::super::{Action, Payload, TurnExits, effective, payload, reviewer_denied, route};
+use super::{APP, HOME, SCRATCH, app, decide, record, shell};
 
 /// The test machine with the backup store, the caches, the build output names and
 /// efr's trash.
