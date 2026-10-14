@@ -138,6 +138,7 @@ pub(crate) const FORBIDDEN: &[(&str, &str)] = &[
     ("efr-sandbox", "tokio"),
     ("efr-sbx", "tokio"),
     ("efr-patch", "tokio"),
+    ("efr-proxy", "efr-daemon"),
 ];
 
 /// Third-party crates that exactly one workspace crate may reach: (crate, owner).
