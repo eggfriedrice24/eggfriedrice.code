@@ -343,6 +343,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr status` and `efr sandbox check` show the network of a sandboxed command:
   `network proxy`, `network none`, or `network none (proxy self-test failed)` when
   `network.mode = "proxy"` but the proxy's self-test failed.
+- With `[dbus] proxy = true`, a background job can run read-only bus queries, such as
+  `systemctl --failed`, through the bus filter. The whole bus stays refused for jobs.
 
 ### Fixed
 
@@ -412,6 +414,13 @@ into the GitHub release notes, and it stops when the section is missing.
   socket (such as `systemd/private`), a container engine's socket or a desktop socket,
   also through a link. Before, one approved socket exit for a link to the session bus
   could reach it. Such a command now fails to start, and the sandbox says why.
+- In `auto`, the socket of a service manager, such as
+  `$XDG_RUNTIME_DIR/systemd/private`, is now a privilege exit that only you approve, as
+  a container engine's socket is. Before, the reviewer could allow it, and the command
+  could then start a unit outside the sandbox.
+- `~/.local/share/dbus-1` is now a floor: a sandboxed command cannot write it, and a
+  write there asks you. The bus starts the program of a service file there outside the
+  sandbox when a client calls its name.
 
 ## [0.0.3] - 2026-10-09
 

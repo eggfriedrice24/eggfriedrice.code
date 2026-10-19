@@ -230,7 +230,11 @@ Modules:
   a `desktop_ipc` form that types or starts programs, the whole message bus, and the
   socket of a service manager or a container engine (`SERVICE_SOCKETS`). The engine
   denies such a part of a job's line with `Cause::NotAsJob` (`JOB_REFUSAL`: run that
-  part in the foreground, and the rest as a job).
+  part in the foreground, and the rest as a job). In every mode a socket of
+  `SERVICE_SOCKETS` that the model names in `needs.sockets`, such as
+  `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit that only the user approves
+  (phase E), as a container engine's socket is: through it a call starts any unit
+  outside the sandbox.
 - `network` (phase D2): the host list of efr's network proxy, which the config check,
   the engine and the proxy share. `Preset` holds the six presets of spec 8.3 and their
   hosts (`@github-read` also has `release-assets.githubusercontent.com`; no preset has
@@ -301,7 +305,10 @@ Modules:
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each
-  floor its `FloorGroup`, which decides the phrases that name its files.
+  floor its `FloorGroup`, which decides the phrases that name its files. From phase E
+  `~/.local/share/dbus-1` is a floor (group `Autostart`): the bus starts the program of
+  a service file there outside the sandbox when a client calls its name, and the
+  filtered bus proxy lets a call reach a listed name.
 - `bus` (phase E): the rules of the filtered bus proxy. `DEFAULT_RULES` holds the read
   methods that the probe recorded for the read forms of `systemctl`, `loginctl`,
   `hostnamectl`, `timedatectl` and `localectl`, each an exact member at a path (no
