@@ -694,14 +694,14 @@ fn refused(text: &str) -> (&'static str, String) {
 }
 
 #[test]
-fn network_proxy_keys_default_to_no_network_and_the_presets() {
+fn network_proxy_keys_default_to_the_proxy_and_the_presets() {
     use efr_permissions::Preset;
     use efr_protocol::NetworkMode;
 
     let settings = Settings::parse(path(), None).unwrap();
     let network = &settings.network;
 
-    assert_eq!(network.mode, NetworkMode::None, "the proxy is off until the end of phase D2");
+    assert_eq!(network.mode, NetworkMode::Proxy, "the proxy is on from the end of phase D2");
     let presets: Vec<String> = Preset::ALL.iter().map(|preset| preset.name().to_owned()).collect();
     assert_eq!(network.allow, presets);
     assert!(network.deny.is_empty());

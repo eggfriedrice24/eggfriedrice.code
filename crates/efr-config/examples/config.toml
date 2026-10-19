@@ -262,11 +262,11 @@
 # the reviewer.
 # netview = true
 
-# How contained commands in auto reach the network: none (no network; each network
-# need is a review that opens the whole network for one command) or proxy (they reach
-# the hosts of allow through efr's proxy with no review). A change applies to new
-# commands.
-# mode = "none"
+# How contained commands in auto reach the network: proxy (the default; they reach
+# the hosts of allow through efr's proxy with no review) or none (no network; each
+# network need is a review that opens the whole network for one command). A change
+# applies to new commands.
+# mode = "proxy"
 
 # The hosts that contained commands reach through the proxy on port 443: presets, host
 # names, and *.suffix for the names below a suffix of at least two labels. Write a

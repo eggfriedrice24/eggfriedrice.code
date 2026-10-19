@@ -861,6 +861,8 @@ fn loosens_network_rows() {
         private,
     };
     let mut base = NetworkSettings::default();
+    // NOTE: the default is the proxy; the base has no network, so the mode can open.
+    base.mode = NetworkMode::None;
     base.deny.push("tracker.example.com".to_owned());
     base.hosts.push(mirror(None, false, false));
     let changed = |change: &dyn Fn(&mut NetworkSettings)| {
