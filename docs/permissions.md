@@ -490,8 +490,8 @@ a cache or a file tool.
 efrd checks each rule against the floors when it loads the file, and before it saves
 one. A rule of a bad shape stops efrd at start and makes a reload fail. A rule that
 crosses a floor stays in the file, disabled with its reason: efrd logs one warning,
-`efr status` shows `sandbox.allow[N] is disabled: <reason>`, and `efr sandbox allow`
-shows `disabled: <reason>`. A reload whose only change is in `[[sandbox.allow]]` sends
+`efr sandbox check` shows `sandbox.allow[N] is disabled: <reason>`, and
+`efr sandbox allow` shows `disabled: <reason>`. A reload whose only change is in `[[sandbox.allow]]` sends
 the new rules to the engine and starts no probe. `efr config check` checks only the
 shape. `efr sandbox allow remove N` takes a rule out.
 
