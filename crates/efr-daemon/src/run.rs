@@ -733,10 +733,15 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             stop.clone(),
         )),
         // NOTE: a reload's `[[dbus.allow]]` reaches the next call that starts a bus
-        // filter; a running call or job keeps the rules of its start (DE1).
-        tokio::spawn(sandbox::bus::follow_settings(
-            state.sandbox.bus().clone(),
+        // filter, and a running call or job keeps the rules of its start (DE1); a reload
+        // that turns `dbus.proxy` on runs the filter's self-test, and the engine follows
+        // the filter's state (DE8).
+        tokio::spawn(sandbox::bus::follow(
+            state.sandbox.clone(),
+            state.reloads.clone(),
             state.settings.subscribe(),
+            state.sandbox.status(),
+            state.engine.subscribe(),
             stop.clone(),
         )),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),

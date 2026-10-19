@@ -28,6 +28,12 @@
 //! - Each proxy's stderr, which holds its `--log` lines and its own errors, is kept
 //!   raw, at most [`MAX_LOG_BYTES`], for the refusals. A proxy that ended before its
 //!   call did (a crash) is reported as stopped.
+//! - [`BusService::self_test`] runs at start and after each probe while `dbus.proxy` is
+//!   true (DE8): `xdg-dbus-proxy --version` must report at least [`VERSION_FLOOR`], and
+//!   one proxy with the default system rules and an upstream that no client uses must
+//!   become ready and end cleanly when its sync pipe closes. [`follow`] runs it when a
+//!   reload turns `dbus.proxy` on, and asks the reload task for a new engine when the
+//!   filter's state differs from the engine's `AutoSupport::bus_proxy`.
 //!
 //! No `cfg` line is in this file.
 
@@ -62,6 +68,14 @@ pub(crate) const MAX_LOG_BYTES: usize = 256 * 1024;
 
 /// The byte that a proxy writes on its sync pipe when it is ready.
 const READY: u8 = b'x';
+
+/// The oldest `xdg-dbus-proxy` that efr accepts (DE8, check C4-3): 0.1.5, the version of
+/// Ubuntu 24.04 that CI tests. It has `--fd`, `--call=NAME=IFACE.MEMBER@PATH`, `@/path/*`
+/// and the `--log` lines that efr reads.
+pub(crate) const VERSION_FLOOR: (u32, u32, u32) = (0, 1, 5);
+
+/// The dir of the self-tests below the runtime root's `sbx`.
+pub(crate) const SELF_TEST_DIR: &str = "bus-test";
 
 /// The note of a call whose system bus view efrd dropped (DE8).
 pub(crate) const NO_SYSTEM_BUS: &str =
@@ -190,6 +204,11 @@ impl BusService {
         Arc::clone(&self.inner.rules.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
+    /// True when efrd found the trusted `xdg-dbus-proxy` (or a test named its fake).
+    pub(crate) fn has_program(&self) -> bool {
+        self.inner.programs.has(Program::XdgDbusProxy)
+    }
+
     /// Starts one proxy for each of `buses` in `call_dir/bus/` and waits for each ready
     /// byte. A failure ends the proxies that started.
     pub(crate) async fn start(
@@ -197,6 +216,71 @@ impl BusService {
         call_dir: &Path,
         buses: &[BusKind],
         upstream: &BusUpstream,
+    ) -> Result<BusCall, DaemonError> {
+        self.start_with(call_dir, buses, upstream, &self.rules()).await
+    }
+
+    /// The self-test of DE8 in `dir`, a fresh dir that it removes at its end: the
+    /// version floor, then one proxy with the default system rules and an upstream that
+    /// no client ever uses (the proxy connects upstream only when a client comes), its
+    /// ready byte, and its clean end when the sync pipe closes.
+    pub(crate) async fn self_test(&self, dir: &Path) -> Result<(), DaemonError> {
+        let result = self.self_test_in(dir).await;
+        let gone = dir.to_path_buf();
+        let removed = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(gone)).await;
+        if !matches!(removed, Ok(Ok(()))) {
+            tracing::debug!(dir = %dir.display(), "the bus filter's self-test dir could not be removed");
+        }
+        result
+    }
+
+    async fn self_test_in(&self, dir: &Path) -> Result<(), DaemonError> {
+        let failed = |problem| DaemonError::BusProxy { problem };
+        let programs = Arc::clone(&self.inner.programs);
+        let command =
+            tokio::task::spawn_blocking(move || programs.command(Program::XdgDbusProxy)).await;
+        let Ok(Some(mut command)) = command else {
+            return Err(failed(BusProxyProblem::NoProgram));
+        };
+        command.arg("--version");
+        let output = match self.inner.clock.timeout(READY_WAIT, command.output()).await {
+            Ok(Ok(output)) => output,
+            _ => return Err(failed(BusProxyProblem::SelfTest)),
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        match parse_version(&text) {
+            Some(version) if version >= VERSION_FLOOR => {}
+            found => {
+                tracing::warn!(version = ?found, floor = ?VERSION_FLOOR, "xdg-dbus-proxy is older than the oldest version that efr tested, or its version does not parse");
+                return Err(failed(BusProxyProblem::OldVersion));
+            }
+        }
+        let made = {
+            let dir = dir.to_path_buf();
+            tokio::task::spawn_blocking(move || {
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
+            })
+            .await
+        };
+        if !matches!(made, Ok(Ok(()))) {
+            return Err(failed(BusProxyProblem::StartFailed));
+        }
+        let upstream = BusUpstream { system: Some(dir.join("no-bus")), session: None };
+        let call = self.start_with(dir, &[BusKind::System], &upstream, &[]).await?;
+        let clean =
+            call.close().await.iter().all(|closed| {
+                !closed.early && closed.status.is_some_and(|status| status.success())
+            });
+        if clean { Ok(()) } else { Err(failed(BusProxyProblem::SelfTest)) }
+    }
+
+    /// [`start`](Self::start) with `rules` on top of the defaults.
+    async fn start_with(
+        &self,
+        call_dir: &Path,
+        buses: &[BusKind],
+        upstream: &BusUpstream,
+        rules: &[BusRule],
     ) -> Result<BusCall, DaemonError> {
         let failed = |problem| DaemonError::BusProxy { problem };
         let programs = Arc::clone(&self.inner.programs);
@@ -206,7 +290,6 @@ impl BusService {
                 .ok()
                 .flatten()
                 .ok_or(failed(BusProxyProblem::NoProgram))?;
-        let rules = self.rules();
         let dir = call_dir.join(BUS_FILTER_DIR);
         let call = call_dir.file_name().map(|name| name.to_string_lossy().into_owned());
         let mut started = BusCall {
@@ -219,7 +302,7 @@ impl BusService {
                 started.finish().await;
                 return Err(failed(BusProxyProblem::BadUpstream { bus }));
             };
-            let filter = match BusFilter::compile(bus, &rules) {
+            let filter = match BusFilter::compile(bus, rules) {
                 Ok(filter) => filter,
                 Err(error) => {
                     tracing::warn!(error = %error, "the bus rules do not compile");
@@ -365,20 +448,51 @@ impl BusService {
     }
 }
 
-/// Gives `bus` the `[[dbus.allow]]` of each settings that `settings` sends, until
-/// `stop`: a reload reaches the next call that starts a bus filter.
-pub(crate) async fn follow_settings(
-    bus: BusService,
+/// Follows the settings and the probe's status until `stop` (DE8): gives the bus
+/// service the `[[dbus.allow]]` of each settings, so a reload reaches the next call that
+/// starts a bus filter; runs the self-test when `dbus.proxy` is on and none ran yet,
+/// such as after a reload that turned it on; and asks `reloads` for a new engine when
+/// `dbus.proxy` and the filter's state say other than the engine's
+/// `AutoSupport::bus_proxy`.
+///
+/// NOTE: a self-test changes the status, which this loop then reads; a rebuild changes
+/// neither the settings nor the status, so the two never start each other in a loop.
+pub(crate) async fn follow(
+    sandbox: super::SandboxService,
+    reloads: crate::reload::Reloads,
     mut settings: tokio::sync::watch::Receiver<Arc<efr_config::Settings>>,
+    mut status: tokio::sync::watch::Receiver<efr_protocol::SandboxStatus>,
+    engine: tokio::sync::watch::Receiver<Arc<efr_permissions::Engine>>,
     stop: tokio_util::sync::CancellationToken,
 ) {
     loop {
-        let allow = settings.borrow_and_update().dbus.allow.clone();
-        if *bus.rules() != *allow {
-            bus.set_rules(Arc::from(allow));
+        let current = Arc::clone(&settings.borrow_and_update());
+        let bus = sandbox.bus();
+        if *bus.rules() != *current.dbus.allow {
+            bus.set_rules(Arc::from(current.dbus.allow.clone()));
         }
+        let (on, untested) = {
+            let status = status.borrow_and_update();
+            (status.bus_proxy, status.bus_proxy_off == Some(efr_protocol::BusProxyOff::Config))
+        };
+        if current.dbus.proxy && untested {
+            sandbox.bus_check(&current).await;
+        } else {
+            let wanted = current.dbus.proxy && on;
+            let running = engine.borrow().support().bus_proxy;
+            if wanted != running && reloads.rebuild().await.is_err() {
+                return;
+            }
+        }
+        // NOTE: biased, so a change that came before the stop is still followed.
         tokio::select! {
+            biased;
             changed = settings.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+            changed = status.changed() => {
                 if changed.is_err() {
                     return;
                 }
@@ -386,6 +500,14 @@ pub(crate) async fn follow_settings(
             () = stop.cancelled() => return,
         }
     }
+}
+
+/// The version of `xdg-dbus-proxy --version`'s output, such as `xdg-dbus-proxy 0.1.9`.
+fn parse_version(text: &str) -> Option<(u32, u32, u32)> {
+    let word = text.lines().next()?.split_whitespace().last()?;
+    let mut parts = word.split('.').map(|part| part.parse::<u32>().ok());
+    let version = (parts.next()??, parts.next()??, parts.next().flatten().unwrap_or(0));
+    parts.next().is_none().then_some(version)
 }
 
 /// Makes `dir` (0700) when it is missing, refuses a dir that is a link or not a dir,
@@ -404,6 +526,23 @@ fn make_dir_and_clear(dir: &Path, socket: &Path) -> std::io::Result<()> {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     }
+}
+
+/// The warning of `efr status` when `dbus.proxy` is true but the filter is off for
+/// `off` (DE8).
+pub(crate) fn off_warning(off: efr_protocol::BusProxyOff) -> String {
+    let reason = match off {
+        efr_protocol::BusProxyOff::NoProgram => "xdg-dbus-proxy is not installed",
+        efr_protocol::BusProxyOff::OldVersion => {
+            "the installed xdg-dbus-proxy is older than the oldest version that efr tested"
+        }
+        efr_protocol::BusProxyOff::Config => "dbus.proxy is false",
+        _ => "its self-test failed",
+    };
+    format!(
+        "efr's bus filter is off: {reason}; read-only system queries such as hostnamectl go to \
+         the reviewer"
+    )
 }
 
 /// The bus's name in the log.

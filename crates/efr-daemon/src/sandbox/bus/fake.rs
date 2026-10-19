@@ -7,8 +7,9 @@
 //! `report.json` of the fake's dir.
 //!
 //! The program prints `xdg-dbus-proxy 0.1.9` (or the text of `version`) for
-//! `--version`. Else it appends one line to `starts`: its working dir, each argument
-//! and the files of its working dir, joined by `|`. It prints two log lines, writes the
+//! `--version`, and counts each such call in `versions`. Else it appends one line to
+//! `starts`: its working dir, each argument and the files of its working dir, joined by
+//! `|`. It prints two log lines, writes the
 //! ready byte on fd 3, and then writes one byte there every 50 ms until the pipe
 //! closes; then it appends `ended` to `ended` and exits 0. Files in the fake's dir
 //! change what it does: `no-ready` (it exits 1 at once), `hold-ready` (it waits until
@@ -51,6 +52,7 @@ exec "$@"
 const PROGRAM: &str = r#"#!/bin/sh
 fake='@FAKE@'
 if [ "$1" = --version ]; then
+    echo version >> "$fake/versions"
     if [ -e "$fake/version" ]; then cat "$fake/version"; else echo 'xdg-dbus-proxy 0.1.9'; fi
     exit 0
 fi
@@ -140,6 +142,16 @@ impl FakeBus {
             .lines()
             .map(|line| line.split('|').map(str::to_owned).collect())
             .collect()
+    }
+
+    /// How many times efrd asked the program for its version.
+    pub(crate) fn versions(&self) -> usize {
+        std::fs::read_to_string(self.dir.join("versions")).unwrap_or_default().lines().count()
+    }
+
+    /// Writes `text` as the program's version line.
+    pub(crate) fn version(&self, text: &str) {
+        std::fs::write(self.dir.join("version"), format!("{text}\n")).unwrap();
     }
 
     /// How many proxies ended by themselves when their sync pipe closed.

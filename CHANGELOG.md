@@ -218,6 +218,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `config.toml` also accepts `[[sandbox.allow]]` rules (`kind` `host`, `write` or
   `socket`) and refuses a rule of a bad shape. Nothing reads these keys yet, and
   `dbus.proxy` is `false`.
+- With `[dbus] proxy = true` in `auto`, read-only system queries run with no review:
+  `hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
+  `systemctl status <unit>` and the other read forms, `systemctl --user --failed`,
+  `loginctl list-sessions`. The command reaches the system or session bus only through
+  a filter that allows read methods. efr turns the filter off when `xdg-dbus-proxy` is
+  missing, older than 0.1.5, or fails its self-test; `efr status` then shows a warning,
+  and these queries go to the reviewer as before.
 
 ### Changed
 

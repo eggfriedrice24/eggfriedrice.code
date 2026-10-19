@@ -29,8 +29,8 @@ use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{Engine, ExitNeed, WriteBind};
 use efr_protocol::{
-    BusKind, ConversationId, DesktopEnv, DesktopKind, Event, Grant, Launch, SandboxPaths,
-    SandboxStatus, Scope,
+    BusKind, BusProxyOff, ConversationId, DesktopEnv, DesktopKind, Event, Grant, Launch,
+    SandboxPaths, SandboxStatus, Scope,
 };
 use efr_sandbox::{
     DesktopSocket, JobPlan, NONCE_FILE, NetworkPlan, ProbeReport, SPEC_FILE, SpecLaunch,
@@ -320,9 +320,11 @@ impl SandboxService {
     /// The status now as `efr status` and `efr sandbox check` get it: with
     /// `netview_off` when `settings` turn the network view off, so the client does not
     /// show the view as on while the engine does not use it; with `network_mode` the
-    /// proxy when `network.mode = "proxy"` and the self-test passed (DP15); and with the
-    /// warnings of a proxy that is off because its self-test failed and of
-    /// `sandbox.env_keep` entries that look like secrets (DP25).
+    /// proxy when `network.mode = "proxy"` and the self-test passed (DP15); with
+    /// `bus_proxy` only when `dbus.proxy` is true and the bus filter's self-test passed,
+    /// else the reason in `bus_proxy_off` (DE8); and with the warnings of a proxy that is
+    /// off because its self-test failed, of a bus filter that is off while `dbus.proxy`
+    /// is true, and of `sandbox.env_keep` entries that look like secrets (DP25).
     pub(crate) fn reported(&self, settings: &Settings) -> SandboxStatus {
         let current = self.current();
         let network_mode = if proxy::proxy_on(settings, &current) {
@@ -335,7 +337,22 @@ impl SandboxService {
             warnings.push(proxy::PROXY_FALLBACK.to_owned());
         }
         warnings.extend(proxy::env_keep_warnings(settings));
-        SandboxStatus { netview_off: !settings.network.netview, network_mode, warnings, ..current }
+        let (bus_proxy, bus_proxy_off) = match (settings.dbus.proxy, current.bus_proxy) {
+            (false, _) => (false, Some(BusProxyOff::Config)),
+            (true, true) => (true, None),
+            (true, false) => (false, current.bus_proxy_off.or(Some(BusProxyOff::SelfTest))),
+        };
+        if let Some(off) = bus_proxy_off.filter(|_| settings.dbus.proxy) {
+            warnings.push(bus::off_warning(off));
+        }
+        SandboxStatus {
+            netview_off: !settings.network.netview,
+            network_mode,
+            warnings,
+            bus_proxy,
+            bus_proxy_off,
+            ..current
+        }
     }
 
     /// The network proxy and the sockets of the calls.
@@ -640,8 +657,12 @@ impl SandboxService {
         let _alone = self.inner.probing.acquire().await.ok();
         let report = self.run_probe(settings).await;
         let status = match self.inner.seams.probe() {
+            // NOTE: a seam's status sets the bus filter's state too; no self-test runs.
             Some(status) => status.clone(),
-            None => report.status(),
+            None => {
+                let (bus_proxy, bus_proxy_off) = self.bus_state(settings).await;
+                SandboxStatus { bus_proxy, bus_proxy_off, ..report.status() }
+            }
         };
         let had_report = self.lock_last().replace(report.clone()).is_some();
         let previous = self.inner.status.send_replace(status.clone());
@@ -662,6 +683,68 @@ impl SandboxService {
             }
         }
         report
+    }
+
+    /// Runs the bus filter's self-test alone and sends its state with the status, as
+    /// after a reload that turned `dbus.proxy` on (DE8). A seam's status stays.
+    pub(crate) async fn bus_check(&self, settings: &Settings) {
+        if self.inner.seams.probe().is_some() {
+            return;
+        }
+        // NOTE: the semaphore is never closed, as in `probe`.
+        let _alone = self.inner.probing.acquire().await.ok();
+        let (bus_proxy, bus_proxy_off) = self.bus_state(settings).await;
+        self.inner.status.send_if_modified(|status| {
+            let changed = (status.bus_proxy, status.bus_proxy_off) != (bus_proxy, bus_proxy_off);
+            status.bus_proxy = bus_proxy;
+            status.bus_proxy_off = bus_proxy_off;
+            changed
+        });
+    }
+
+    /// The bus filter's state for `settings` (DE8): off with `config` while
+    /// `dbus.proxy` is false, with no self-test; else the self-test's answer in a fresh
+    /// dir below `$R/sbx/bus-test`.
+    async fn bus_state(&self, settings: &Settings) -> (bool, Option<BusProxyOff>) {
+        if !settings.dbus.proxy {
+            return (false, Some(BusProxyOff::Config));
+        }
+        let bus = &self.inner.bus;
+        if !bus.has_program() {
+            tracing::warn!(
+                "dbus.proxy is true, but xdg-dbus-proxy is not installed as a trusted program; the bus filter is off"
+            );
+            return (false, Some(BusProxyOff::NoProgram));
+        }
+        let id = efr_stdx::id::uuid_v7(&*self.inner.clock, &*self.inner.rng);
+        let dir = self
+            .inner
+            .dirs
+            .runtime()
+            .join(plan::SHELL_DIR)
+            .join(bus::SELF_TEST_DIR)
+            .join(id.simple().to_string());
+        match bus.self_test(&dir).await {
+            Ok(()) => {
+                tracing::info!(
+                    "the bus filter passed its self-test; read-only bus queries run through it"
+                );
+                (true, None)
+            }
+            Err(error) => {
+                let off = match &error {
+                    DaemonError::BusProxy { problem: crate::BusProxyProblem::NoProgram } => {
+                        BusProxyOff::NoProgram
+                    }
+                    DaemonError::BusProxy { problem: crate::BusProxyProblem::OldVersion } => {
+                        BusProxyOff::OldVersion
+                    }
+                    _ => BusProxyOff::SelfTest,
+                };
+                tracing::warn!(error = %error, "the bus filter's self-test failed; the bus filter is off");
+                (false, Some(off))
+            }
+        }
     }
 
     async fn run_probe(&self, settings: &Settings) -> ProbeReport {

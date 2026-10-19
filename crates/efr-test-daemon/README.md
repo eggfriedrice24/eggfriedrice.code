@@ -39,6 +39,10 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   address of its own: the name resolves to that address, and port 443 or 80 of it
   reaches the server. Without it the proxy refuses every name and every address, so a
   test daemon never reaches the internet.
+- `TestDaemonBuilder::bus_proxy(system, session)` turns the bus filter on with the
+  test's own bus sockets, and `bus_proxy_program` names the `xdg-dbus-proxy` to run.
+  Without them the daemon keeps `dbus.proxy = false` across reloads and has no bus at
+  all, so it never reaches the machine's buses.
 - `fake_launcher`: `FakeLauncher`, one `/bin/sh` script in place of `efr-sbx` for the
   tests of `efr-daemon`, `efr-cli` and the eval. `run --call-dir D` runs a call's line
   with `/bin/sh`; `run --call-dir D --job` runs a job as the real launcher's contract
