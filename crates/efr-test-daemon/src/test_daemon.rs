@@ -31,6 +31,7 @@ use std::sync::Arc;
 use efr_client::{Client, ConnectOptions, ItemStream};
 use efr_daemon::{
     DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice, Settings,
+    Source,
 };
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
@@ -363,7 +364,8 @@ impl TestDaemonBuilder {
     /// Sets `network.mode`; the builder has `"none"`, so a test that wants efr's network
     /// proxy says so with [`NetworkMode::Proxy`]. The proxy runs only with a probe whose
     /// proxy self-test passed ([`probe_override`](Self::probe_override) with `proxy:
-    /// true`).
+    /// true`). With `"none"` the mode stays across a reload of `config.toml`, whatever
+    /// the file says; with `"proxy"` a reload can change it.
     #[must_use]
     pub fn network_mode(mut self, mode: NetworkMode) -> Self {
         self.settings.config.network.mode = mode;
@@ -430,6 +432,13 @@ impl TestDaemon {
         let (cwd, redactor) = working_dir(&dirs)?;
         let home = dirs.home().to_path_buf();
         let mut config = settings.config.clone();
+        // NOTE: a reload reads `config.toml` again over the built-in defaults, where
+        // `network.mode` is "proxy" (also the reload of `admin.project_add`). A source
+        // of its own keeps "none" across reloads, so a test that did not ask for the
+        // proxy never gets it (DP30).
+        if config.network.mode == NetworkMode::None {
+            config.set_source("network.mode", Source::Flag("TestDaemon"));
+        }
         let shell_env = settings.shell_env.clone().unwrap_or_else(|| default_shell_env(&home));
         // NOTE: a later start draws other ids, so a restarted daemon never mints an id
         // that the first one stored.

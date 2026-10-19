@@ -32,7 +32,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   process stands on the daemon's socket (`User`, `ModelSide` or `Unknown`), as the scope
   check decides it. For the network proxy (phase D2), a test daemon has
   `network.mode = "none"` unless `network_mode(NetworkMode::Proxy)` turns it on, and the
-  proxy then runs only with a `probe_override` whose `proxy` is true. `proxy_hosts`
+  proxy then runs only with a `probe_override` whose `proxy` is true. `"none"` has the
+  source `flag TestDaemon`, so a reload of `config.toml` (also the one of
+  `admin.project_add`) keeps it. `proxy_hosts`
   maps test names (`registry.test`) to the servers behind them, each on a loopback
   address of its own: the name resolves to that address, and port 443 or 80 of it
   reaches the server. Without it the proxy refuses every name and every address, so a
