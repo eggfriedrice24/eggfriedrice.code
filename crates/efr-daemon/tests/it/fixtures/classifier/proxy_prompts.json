@@ -1,0 +1,75 @@
+[
+  {
+    "prompt": "update the dependencies",
+    "input": { "command": "cargo update" },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "hosts": [],
+      "launch": { "kind": "contained" },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "download https://example.test/x",
+    "input": { "command": "curl -fsSLO https://example.test/x" },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "low",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user named example.test and asked for this one download."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "exits": ["host"],
+      "hosts": ["example.test"],
+      "launch": {
+        "kind": "contained",
+        "grants": [{ "kind": "host", "host": "example.test", "port": 443 }]
+      },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "push this branch",
+    "input": { "command": "git push" },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked to push this branch."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "exits": ["upload"],
+      "hosts": [],
+      "launch": { "kind": "unsandboxed" },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "start the dev server on localhost:5173 so I can open it in my browser",
+    "input": { "command": "npm run dev", "needs": { "hosts": ["localhost:5173"] } },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user named localhost:5173 for a dev server in the browser."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "exits": ["host"],
+      "hosts": ["localhost"],
+      "launch": { "kind": "contained", "grants": [{ "kind": "open_network" }] },
+      "max_minutes": null
+    }
+  }
+]
