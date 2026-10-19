@@ -334,14 +334,28 @@ impl SandboxService {
             self.pinned_git_dirs().await
         };
         if !snapshots.has(conversation) {
-            let (pinned, home) = (pinned.clone(), home.clone());
+            let (stamped, home) = (pinned.clone(), home.clone());
             let service = self.clone();
             let begun = tokio::task::spawn_blocking(move || {
-                service.inner.remotes.begin(conversation, &pinned, &home);
+                service.inner.remotes.begin(conversation, &stamped, &home);
             })
             .await;
             if begun.is_err() {
                 tracing::warn!("the snapshot of the project remotes panicked");
+            }
+            // NOTE: the URLs of each pinned project now, after the stamps: a change
+            // through a file that has no stamp, such as an `[include]` file, must not
+            // become the project's own URLs at a later first read (DP22).
+            let reads = pinned.iter().map(|(root, _)| async move {
+                let entries =
+                    facts::remotes::config_entries(&self.inner.git, &self.inner.home, root).await;
+                (root, entries)
+            });
+            for (root, entries) in futures::future::join_all(reads).await {
+                if let Some(entries) = entries {
+                    let remotes = facts::remotes::remotes(&entries, None, &[]);
+                    snapshots.baseline(conversation, root, &remotes);
+                }
             }
         }
         let git = &self.inner.git;

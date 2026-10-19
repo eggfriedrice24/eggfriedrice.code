@@ -12,7 +12,8 @@
 //! A remote is the project's own ([`RemoteFact::project`]) only for the top `.git` dir
 //! of a registered project, or the git dir of its worktree record, whose config files
 //! did not change since the conversation's first fact request, and whose URLs equal
-//! the ones that efrd read first in the conversation. The snapshot lives in memory
+//! the ones that efrd read at that request (also through an `[include]` file or the
+//! system config, which have no stamp). The snapshot lives in memory
 //! (check C5-7): after an efrd restart, the first fact request of a conversation takes
 //! it again.
 
@@ -314,7 +315,7 @@ pub(crate) struct Snapshots {
 }
 
 /// One conversation's snapshot: the stamps of the config files of every pinned git dir
-/// at its first fact request, and the remotes of each one that a line read since.
+/// at its first fact request, and the remotes that efrd read for each one then.
 #[derive(Debug, Default)]
 struct Snapshot {
     /// When it was taken, in the order of the conversations.
@@ -358,17 +359,14 @@ impl Snapshots {
         }
     }
 
-    /// Sets [`RemoteFact::project`] on each remote of `remotes` (never a submodule) of
-    /// the pinned git dir `git_dir` whose URLs equal the conversation's snapshot: the
-    /// first read of a git dir whose config files did not change since the
-    /// conversation's first fact request takes it. It blocks.
-    pub(crate) fn mark(
+    /// Keeps `remotes`, the remotes of the pinned project at `root` that efrd read at
+    /// the first fact request of `conversation`, as the project's own. A later call for
+    /// the same root changes nothing.
+    pub(crate) fn baseline(
         &self,
         conversation: ConversationId,
         root: &Path,
-        git_dir: &Path,
-        home: &Path,
-        remotes: &mut [RemoteFact],
+        remotes: &[RemoteFact],
     ) {
         let mut conversations = self.lock();
         let Some(snapshot) = conversations.get_mut(&conversation) else { return };
@@ -377,16 +375,31 @@ impl Snapshots {
             .filter(|remote| !remote.submodule)
             .map(|remote| (remote.name.clone(), remote.fetch.clone(), remote.push.clone()))
             .collect();
-        if !snapshot.repos.contains_key(root) {
-            let unchanged = config_files(git_dir, home).iter().all(|file| {
-                snapshot.stamps.get(file).is_some_and(|stamp| *stamp == stamp_of(file))
-            });
-            if !unchanged {
-                return;
-            }
-            snapshot.repos.insert(root.to_path_buf(), signatures);
-        }
+        snapshot.repos.entry(root.to_path_buf()).or_insert(signatures);
+    }
+
+    /// Sets [`RemoteFact::project`] on each remote of `remotes` (never a submodule) of
+    /// the pinned git dir `git_dir` whose URLs equal the ones that efrd read at the
+    /// conversation's first fact request ([`baseline`](Self::baseline)), while the git
+    /// dir's config files did not change since then. A git dir with no baseline has no
+    /// project remote. It blocks.
+    pub(crate) fn mark(
+        &self,
+        conversation: ConversationId,
+        root: &Path,
+        git_dir: &Path,
+        home: &Path,
+        remotes: &mut [RemoteFact],
+    ) {
+        let conversations = self.lock();
+        let Some(snapshot) = conversations.get(&conversation) else { return };
         let Some(first) = snapshot.repos.get(root) else { return };
+        let unchanged = config_files(git_dir, home)
+            .iter()
+            .all(|file| snapshot.stamps.get(file).is_some_and(|stamp| *stamp == stamp_of(file)));
+        if !unchanged {
+            return;
+        }
         for remote in remotes.iter_mut().filter(|remote| !remote.submodule) {
             remote.project = first.iter().any(|(name, fetch, push)| {
                 *name == remote.name && *fetch == remote.fetch && *push == remote.push
