@@ -139,6 +139,7 @@ fn all_lists_every_variant() {
         Var::OpenBrowser,
         Var::TestZsh,
         Var::TestSbxBin,
+        Var::TestProxyHosts,
         Var::BenchProject,
         Var::Mode,
         Var::Model,
@@ -161,6 +162,7 @@ fn all_lists_every_variant() {
             | Var::OpenBrowser
             | Var::TestZsh
             | Var::TestSbxBin
+            | Var::TestProxyHosts
             | Var::BenchProject
             | Var::Mode
             | Var::Model
