@@ -5,6 +5,8 @@
 //! (a script that runs the child shell directly, as the fake bwrap of efr's auto spec,
 //! section 16.1) or, under `just test-sandbox`, the real `efr-sbx`.
 
+mod always;
+mod dbus;
 mod jobs;
 mod jobs_guard;
 mod mount_view;

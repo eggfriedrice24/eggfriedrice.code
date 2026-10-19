@@ -261,7 +261,7 @@ jobs:
   sandbox:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
     steps:
