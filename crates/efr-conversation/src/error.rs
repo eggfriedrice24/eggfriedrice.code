@@ -132,6 +132,27 @@ pub enum ConversationError {
         call_id: CallId,
     },
 
+    /// An `a` (always) answer saves a standing rule, so only the user's own machine
+    /// gives it (phase E): an answer from a phone leaves the question open.
+    #[error(
+        "an answer from {origin:?} cannot save an always rule for the call {call_id}: only \
+         the user's own terminal answers `a`"
+    )]
+    RemoteAlwaysAnswer {
+        /// The surface that answered.
+        origin: Origin,
+        /// The call.
+        call_id: CallId,
+    },
+
+    /// An `a` (always) answer to a question that offers no rule (phase E); the question
+    /// stays open.
+    #[error("the question of the call {call_id} offers no always rule")]
+    NoAlwaysOffer {
+        /// The call.
+        call_id: CallId,
+    },
+
     /// The prompt queue is full; the prompt was not recorded.
     #[error("the conversation {conversation_id} already has {limit} queued prompts")]
     QueueFull {

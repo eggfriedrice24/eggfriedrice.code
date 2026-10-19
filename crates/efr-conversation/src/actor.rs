@@ -41,13 +41,13 @@ mod notices;
 mod undo;
 
 use efr_protocol::{
-    ApprovalRespond, ApprovalRespondResult, CallId, CommandId, ConversationCompact,
-    ConversationCompactResult, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    LateSteer, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
-    QuestionId, ResentSteers, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq,
-    ShellContext, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnUndo, TurnUndoResult, UndoRefused, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, CommandId,
+    ConversationCompact, ConversationCompactResult, ConversationId, EffectiveSettings, ErrorBody,
+    ErrorCode, Event, LateSteer, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, QuestionId, ResentSteers, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult, UndoRefused,
+    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -866,6 +866,17 @@ impl ConversationActor {
             && approvals.local_only(call_id)
         {
             return Err(ConversationError::RemotePrivilegeAnswer { origin, call_id });
+        }
+        // NOTE: an `a` answer saves a standing rule, so only the user's own terminal
+        // gives it, and only to a question that offers one; both refusals leave the
+        // question open, never a "yes" in its place (phase E).
+        if params.decision == ApprovalDecision::AllowAlways {
+            if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto {
+                return Err(ConversationError::RemoteAlwaysAnswer { origin, call_id });
+            }
+            if !approvals.offers_always(call_id) {
+                return Err(ConversationError::NoAlwaysOffer { call_id });
+            }
         }
         let event = Event::ApprovalResolved { turn_id, call_id, decision: params.decision, origin };
         let result = ApprovalRespondResult { seq: Seq::ZERO };

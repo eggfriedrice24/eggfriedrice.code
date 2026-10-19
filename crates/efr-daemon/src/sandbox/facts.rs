@@ -15,6 +15,12 @@
 //! For a git command that reaches a remote, it reads the repository's remotes
 //! (`remotes.rs`, phase D2): one hardened git run per repository.
 //!
+//! For the always-allow rules (phase E, DE40), it gives the real path of each path of
+//! [`FactRequest::real_paths`]: the path after every link, or for a path that does not
+//! exist, the real path of its nearest existing parent with the rest joined. A path
+//! with a link that leads nowhere on its way, or one that efrd cannot look at, gets no
+//! fact, so no rule covers it.
+//!
 //! For a persistence form whose content is another file (plan PB19a), it also reads
 //! each source that the engine names ([`FactRequest::sources`]): the real file behind
 //! every link, whether it changed in this turn (its mtime or ctime at or after the
@@ -80,9 +86,13 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
     let command_dir = input.command_dir.map(Path::to_path_buf);
     let turn_start = input.turn_start;
     let sources = input.request.sources.clone();
+    let real = input.request.real_paths.clone();
     let (masks, home_dir) = (input.masks.to_vec(), home.path().to_path_buf());
     let read = tokio::task::spawn_blocking(move || {
         sources.iter().map(|source| source_fact(source, &home_dir, &masks, turn_start)).collect()
+    });
+    let resolved = tokio::task::spawn_blocking(move || {
+        real.iter().filter_map(|path| Some((path.clone(), real_path(path)?))).collect()
     });
     let looked = tokio::task::spawn_blocking(move || {
         let mut found: Vec<(PathBuf, Option<TargetKind>)> = Vec::new();
@@ -113,6 +123,7 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
         facts.programs = programs;
     }
     facts.sources = read.await.unwrap_or_default();
+    facts.real_paths = resolved.await.unwrap_or_default();
     let git = git.clone().with_timeout(GIT_TIMEOUT);
     for dir in &input.request.tracked {
         let rebuildable = dir
@@ -126,6 +137,32 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
         }
     }
     facts
+}
+
+/// The real path of the absolute `path` after every link: for a path that does not
+/// exist, the real path of its nearest existing parent with the rest joined. `None` when
+/// a part that exists cannot be resolved (a link that leads nowhere, or no right to look
+/// at it): a write there may land anywhere.
+pub(crate) fn real_path(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut missing: Vec<&std::ffi::OsStr> = Vec::new();
+    let mut at = path;
+    loop {
+        match std::fs::symlink_metadata(at) {
+            Ok(_) => {
+                let mut real = std::fs::canonicalize(at).ok()?;
+                real.extend(missing.iter().rev());
+                return Some(real);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(at.file_name()?);
+                at = at.parent()?;
+            }
+            Err(_) => return None,
+        }
+    }
 }
 
 /// `target` with its kind, then each parent up to the first one that exists.

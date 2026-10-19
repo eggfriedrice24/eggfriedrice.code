@@ -140,6 +140,17 @@ fn conversation_errors_map_by_what_failed() {
             ErrorCode::Forbidden,
         ),
         (
+            ConversationError::RemoteAlwaysAnswer {
+                origin: Origin::Phone,
+                call_id: CallId::from_uuid(id(7)),
+            },
+            ErrorCode::Forbidden,
+        ),
+        (
+            ConversationError::NoAlwaysOffer { call_id: CallId::from_uuid(id(8)) },
+            ErrorCode::Invalid,
+        ),
+        (
             ConversationError::Store {
                 source: StoreError::ApprovalNotPending {
                     conversation_id,

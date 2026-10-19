@@ -82,7 +82,9 @@ mod unoffered;
 mod wake;
 
 pub use actor::{ConversationActor, ConversationHandle, ConversationState, completed_result};
-pub use config::{ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo};
+pub use config::{
+    AllowWriter, ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo,
+};
 pub use context::{
     BREAKER_TRIES, BYTES_PER_TOKEN, CompactionConfig, ContextLimits, DEFAULT_AUTO_AT,
     DEFAULT_CONTEXT_WINDOW, HARD_CAP_PERCENT, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS,

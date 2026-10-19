@@ -292,9 +292,13 @@ pub(crate) fn build(
         bus_proxy: settings.dbus.proxy && probed.bus_proxy,
     };
     let hosts = host_list(settings, &probed.mirrors);
+    // NOTE: the always rules come last: their floor checks read the locations and the
+    // host list above (DE23 to DE25). A rule that fails one stays in the list, disabled,
+    // and never stops efrd (DE44); the shape check of the config refused a bad shape.
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone())
         .with_support(support)
-        .with_hosts(Arc::new(hosts)))
+        .with_hosts(Arc::new(hosts))
+        .with_allow(settings.sandbox.allow.clone()))
 }
 
 /// The proxy's global list of `settings` with the pacman mirror hosts `mirrors` (DP2 to

@@ -7,6 +7,7 @@
 //! The review of an exit has its own fakes ([`FakeJudge`], [`FakePresence`]) and a
 //! model that follows a script of calls ([`Script`]).
 
+mod always;
 mod review;
 
 use std::collections::HashMap;
@@ -40,6 +41,7 @@ use jiff::civil::date;
 use serde_json::{Map, Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
+pub(crate) use self::always::FakeAllowWriter;
 pub(crate) use self::review::{
     DONE, FakeJudge, FakePresence, Script, allows, denies, judged, unanswered,
 };
@@ -639,6 +641,9 @@ pub(crate) struct Setup {
     pub(crate) drafts: broadcast::Sender<ConversationDraft>,
     /// The judge of an exit before the user; none unless a test gives one.
     pub(crate) judge: Option<Arc<FakeJudge>>,
+    /// Where an `a` answer saves its rule; none unless a test gives one, so a question
+    /// offers no rule.
+    pub(crate) allow_writer: Option<Arc<FakeAllowWriter>>,
     /// Whether the user is there; present unless a test says otherwise.
     pub(crate) presence: Arc<FakePresence>,
     /// The permission engine, when a test needs another machine than the plain one of
@@ -672,6 +677,7 @@ impl Setup {
             sandbox: ready(),
             drafts: draft_channel(),
             judge: None,
+            allow_writer: None,
             presence: Arc::default(),
             engine: None,
             rng_seed: 7,
@@ -790,6 +796,10 @@ impl Setup {
             judge: self.judge.clone().map(|judge| judge as Arc<dyn crate::ExitJudge>),
             presence: Arc::clone(&self.presence) as Arc<dyn crate::PresenceReader>,
             drafts: self.drafts.clone(),
+            allow_writer: self
+                .allow_writer
+                .clone()
+                .map(|writer| writer as Arc<dyn crate::AllowWriter>),
         };
         let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));
         let handle =
@@ -873,6 +883,7 @@ impl Harness {
             sandbox: self.sandbox.borrow().clone(),
             drafts: draft_channel(),
             judge: self.judge,
+            allow_writer: None,
             presence: self.presence,
             engine: None,
             rng_seed: 8,
