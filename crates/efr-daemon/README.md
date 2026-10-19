@@ -590,6 +590,32 @@ spec; `docs/sandbox.md` for the user's view):
   build with the test seams, `Seams::proxy_deps` gives the proxy a table of test names
   (`Deps::with_proxy_hosts`, `EFR_TEST_PROXY_HOSTS` for the smoke's `efrd`), or refuses
   every name and address with no table, and the pacman files are `/dev/null`.
+- The filtered bus (phase E, `sandbox/bus.rs`). A call whose launch holds
+  `Grant::BusFilter { bus }` gets one `xdg-dbus-proxy` for that bus, started by
+  `BusService::start` after the call dir and before the launcher: the trusted program
+  of `trusted_programs.rs` (its inode checked again at each start), run through the
+  launcher's copy as `efr-sbx dbus-proxy --dir $CALL/bus --upstream <bus> -- <program>
+  --fd=3 unix:path=<bus> <bus>.sock --filter --log --call=...`, with a clean
+  environment, the sync pipe as stdout and a pipe as stderr. `$CALL/bus/` is 0700, a
+  stale socket goes first, and the socket name is relative. One byte `x` within 2 s
+  (on the injected clock) means ready; else the call fails with a setup error and
+  never runs with the real bus. The rules are the defaults of `efr_permissions::bus`
+  plus `[[dbus.allow]]`, which reaches the next call after a reload
+  (`bus::follow_settings`). The upstream is a bus that `BusUpstream::check` accepts:
+  resolved, a socket, never in efr's dirs or a write root. Before the spec is written,
+  efrd drops a view of a bus that the machine lacks and adds the note `[efr: no
+  session bus on this machine; the bus filter did not run.]` (or the system one). The
+  proxies live in `Prepared::bus`: a foreground call finishes them after its result,
+  a call past its timeout leaves them to `BusService::sweep` (the gc pass and the next
+  bus call's prepare), and a job keeps them in its table entry until it ends. A proxy
+  ends at once when its sync pipe closes; one that ended before (a crash) is reported
+  as stopped. Each proxy logs `phase=bus_proxy call=<id> bus=<bus> ready_ms=N` at its
+  end and keeps at most 256 KiB of its stderr for the refusals. In a build with the
+  test seams both buses come only from `Deps::with_system_bus` and
+  `Deps::with_session_bus` (`EFR_TEST_SYSTEM_BUS` and `EFR_TEST_SESSION_BUS` for the
+  smoke's `efrd`), for the filter and for a whole bus grant alike: with no seam the
+  system bus is a path that never exists and there is no session bus.
+  `Deps::with_bus_proxy_program` names a test's fake program.
 
 ### Background jobs
 
@@ -989,6 +1015,9 @@ conventions that `efr_stdx::env::Var` does not name.
   `network.mode = "proxy"` and a passed proxy self-test; its socket lives no longer
   than its call or its job, and a test build of efrd never resolves a name or connects
   to an address that a test did not map.
+- A call reaches a bus through the filter only by its own proxy, which lives no longer
+  than its call or its job; a proxy that cannot start fails the call, and never gives
+  it the real bus. A test build of efrd never reaches the machine's buses.
 
 ## Tests
 
@@ -1141,6 +1170,15 @@ real zsh, a foreground call's refusals reach the tool result. Unit tests
 `sandbox/proxy/tokens/tests.rs`) cover the bind in a deep call dir, the sweep of a call
 past its timeout, the live list, the mirror read, the remote facts and the project
 snapshot, and the credential deny.
+
+The bus filter's supervisor (phase E) has unit tests below the turn
+(`sandbox/bus/tests.rs`, with the fake program and launcher of `sandbox/bus/fake.rs`
+and two stand-in bus sockets): the arguments that reach the program, the ready wait,
+a start failure that fails the call, the end with the call, the sweep of a call past
+its timeout, a relative socket in a deep call dir, a stale socket, the upstream check,
+a crash reported as stopped, a reload's rules for the next call, the dropped views,
+and a test build without a seam. `jobs/tests.rs` checks that a job's filter lives with
+the job.
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project

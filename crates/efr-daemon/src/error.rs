@@ -475,6 +475,12 @@ pub enum DaemonError {
         #[source]
         source: efr_sandbox::SandboxError,
     },
+    /// The filtered bus of a call could not start, or its self-test failed (phase E).
+    #[error("the bus filter failed: {problem}")]
+    BusProxy {
+        /// What went wrong.
+        problem: BusProxyProblem,
+    },
     /// The conversation has no finished turn whose changes a client can ask for.
     #[error("the conversation {conversation_id} has no finished turn")]
     NoFinishedTurn {
@@ -512,6 +518,50 @@ pub enum DaemonError {
         /// The method.
         method: &'static str,
     },
+}
+
+/// Why the filtered bus of a call did not start, or its self-test failed (phase E).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BusProxyProblem {
+    /// efrd found no trusted `xdg-dbus-proxy`, or the file changed since efrd started.
+    NoProgram,
+    /// The launcher's `dbus-proxy` wrapper could not be started.
+    StartFailed,
+    /// The proxy did not write its ready byte in time, or it ended first.
+    NoReadyByte,
+    /// The bus is missing, is not a socket, or lies in efr's dirs or a write root.
+    BadUpstream {
+        /// The bus.
+        bus: efr_protocol::BusKind,
+    },
+    /// The installed `xdg-dbus-proxy` is older than the oldest version that efr tested.
+    OldVersion,
+    /// The proxy of the self-test did not end cleanly when its sync pipe closed.
+    SelfTest,
+    /// The bus rules do not compile.
+    Rules,
+}
+
+impl fmt::Display for BusProxyProblem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            BusProxyProblem::NoProgram => "xdg-dbus-proxy is not installed as a trusted program",
+            BusProxyProblem::StartFailed => "the filter program could not start",
+            BusProxyProblem::NoReadyByte => "the filter did not become ready",
+            BusProxyProblem::BadUpstream { bus: efr_protocol::BusKind::System } => {
+                "the system bus is missing or not one that efr accepts"
+            }
+            BusProxyProblem::BadUpstream { .. } => {
+                "the session bus is missing or not one that efr accepts"
+            }
+            BusProxyProblem::OldVersion => {
+                "xdg-dbus-proxy is older than the oldest version that efr tested"
+            }
+            BusProxyProblem::SelfTest => "the filter did not end cleanly in its self-test",
+            BusProxyProblem::Rules => "the bus rules do not compile",
+        })
+    }
 }
 
 /// What is wrong with an API key that efrd refuses before any check.
@@ -612,6 +662,7 @@ impl DaemonError {
             | DaemonError::EncodeResult { .. }
             | DaemonError::Snapshot { .. }
             | DaemonError::NoModelList { .. }
+            | DaemonError::BusProxy { .. }
             | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }

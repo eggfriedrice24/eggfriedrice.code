@@ -745,6 +745,7 @@ impl DaemonToolbox {
         let started = prepared.started.clone();
         let notes = prepared.notes.clone();
         let proxy = prepared.proxy;
+        let bus = prepared.bus;
         let mut sink = CallSink {
             out,
             connections: &self.connections,
@@ -809,6 +810,15 @@ impl DaemonToolbox {
                 }
             } else {
                 sandbox.proxy().keep_timed_out(proxy, prepared.run.dir.clone());
+            }
+        }
+        if let Some(bus) = bus {
+            // NOTE: as the proxy socket: a call that runs on past its timeout keeps its
+            // filtered bus until its launcher wrote the result (DE1).
+            if ended {
+                bus.finish().await;
+            } else {
+                sandbox.bus().keep_timed_out(bus, prepared.run.dir.clone());
             }
         }
         let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(!ended), limits));

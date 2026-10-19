@@ -18,6 +18,12 @@
 //! reaches only those servers; with no table, every name and every address is refused.
 //! The pacman files of `@pacman-mirrors` are `/dev/null` in a test build, so a test
 //! daemon never reads the machine's mirror list.
+//!
+//! The filtered bus (phase E, DE14): in a test build both buses come only from here,
+//! for the bus proxy's upstream and for an approved whole bus alike. With no seam the
+//! system bus is a path that cannot exist and there is no session bus, so a test daemon
+//! never reaches the machine's buses. A test names its fake `xdg-dbus-proxy` here too,
+//! because an in-process daemon finds no trusted program on a `PATH`.
 
 use std::collections::BTreeMap;
 #[cfg(feature = "test-sandbox-fake")]
@@ -58,7 +64,21 @@ pub(crate) struct Seams {
     /// The test names of the proxy and the server behind each.
     #[cfg(feature = "test-sandbox-fake")]
     proxy_hosts: Option<BTreeMap<String, SocketAddr>>,
+    /// The test's own system bus socket.
+    #[cfg(feature = "test-sandbox-fake")]
+    system_bus: Option<PathBuf>,
+    /// The test's own session bus socket.
+    #[cfg(feature = "test-sandbox-fake")]
+    session_bus: Option<PathBuf>,
+    /// The test's own `xdg-dbus-proxy`.
+    #[cfg(feature = "test-sandbox-fake")]
+    bus_proxy_program: Option<PathBuf>,
 }
+
+/// The system bus of a test build without the seam: a path below `/proc`, where no
+/// process can make a file, so it never exists.
+#[cfg(feature = "test-sandbox-fake")]
+const NO_TEST_SYSTEM_BUS: &str = "/proc/efr-test-no-system-bus";
 
 /// The side of a socket peer as a test reads it: `user`, `model_side` or `unknown`.
 type PeerSideFn = dyn Fn(u32) -> &'static str + Send + Sync;
@@ -151,16 +171,50 @@ impl Seams {
         [PathBuf::from("/dev/null"), PathBuf::from("/dev/null")]
     }
 
-    /// These seams with the test names of `EFR_TEST_PROXY_HOSTS`, for the `efrd` of the
-    /// smoke. A value that does not parse names no host and costs a warning.
+    /// The system bus of a test build: the test's own socket, or a path that never
+    /// exists (DE14).
+    pub(crate) fn system_bus(&self) -> PathBuf {
+        self.system_bus.clone().unwrap_or_else(|| PathBuf::from(NO_TEST_SYSTEM_BUS))
+    }
+
+    /// The session bus of a test build: the test's own socket, never the one of the
+    /// shells' environment `_host` (DE14).
+    pub(crate) fn session_bus(&self, _host: Option<PathBuf>) -> Option<PathBuf> {
+        self.session_bus.clone()
+    }
+
+    /// The `xdg-dbus-proxy` that a test named, in place of a trusted program.
+    pub(crate) fn bus_proxy_program(&self) -> Option<&Path> {
+        self.bus_proxy_program.as_deref()
+    }
+
+    /// These seams with the test names of `EFR_TEST_PROXY_HOSTS` and the test buses of
+    /// `EFR_TEST_SYSTEM_BUS` and `EFR_TEST_SESSION_BUS`, for the `efrd` of the smoke. A
+    /// value that does not parse names nothing and costs a warning.
     pub(crate) fn with_process_env(mut self) -> Self {
-        match efr_stdx::env::var(efr_stdx::env::Var::TestProxyHosts) {
+        use efr_stdx::env::Var;
+        match efr_stdx::env::var(Var::TestProxyHosts) {
             Ok(Some(value)) => match parse_proxy_hosts(&value) {
                 Some(hosts) => self.proxy_hosts = Some(hosts),
                 None => tracing::warn!("EFR_TEST_PROXY_HOSTS does not parse; it names no host"),
             },
             Ok(None) => {}
             Err(error) => tracing::warn!(%error, "EFR_TEST_PROXY_HOSTS cannot be read"),
+        }
+        for (var, slot) in [
+            (Var::TestSystemBus, &mut self.system_bus),
+            (Var::TestSessionBus, &mut self.session_bus),
+        ] {
+            match efr_stdx::env::var(var) {
+                Ok(Some(value)) if Path::new(&value).is_absolute() => {
+                    *slot = Some(PathBuf::from(value));
+                }
+                Ok(Some(_)) => {
+                    tracing::warn!(%var, "the test bus is not an absolute path; it names no bus")
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%var, %error, "the test bus cannot be read"),
+            }
         }
         self
     }
@@ -277,9 +331,24 @@ impl Seams {
         [PathBuf::from("/etc/pacman.conf"), PathBuf::from("/etc/pacman.d/mirrorlist")]
     }
 
-    /// Without the feature no variable names test hosts.
+    /// Without the feature no variable names test hosts or buses.
     pub(crate) fn with_process_env(self) -> Self {
         self
+    }
+
+    /// Without the feature the system bus is the machine's.
+    pub(crate) fn system_bus(&self) -> PathBuf {
+        PathBuf::from(efr_sandbox::SYSTEM_BUS_SOCKET)
+    }
+
+    /// Without the feature the session bus is the one of the shells' environment.
+    pub(crate) fn session_bus(&self, host: Option<PathBuf>) -> Option<PathBuf> {
+        host
+    }
+
+    /// Without the feature efrd runs only the trusted `xdg-dbus-proxy` of its `PATH`.
+    pub(crate) fn bus_proxy_program(&self) -> Option<&Path> {
+        None
     }
 }
 
@@ -343,6 +412,33 @@ impl Deps {
     #[must_use]
     pub fn with_proxy_hosts(mut self, hosts: BTreeMap<String, SocketAddr>) -> Self {
         self.seams.proxy_hosts = Some(hosts);
+        self
+    }
+
+    /// Uses `socket` as the system bus: the upstream of the bus filter and the socket
+    /// of an approved whole bus. Without it a test daemon has no system bus. Only with
+    /// the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_system_bus(mut self, socket: impl Into<PathBuf>) -> Self {
+        self.seams.system_bus = Some(socket.into());
+        self
+    }
+
+    /// Uses `socket` as the session bus, in place of the one of the shells'
+    /// environment. Without it a test daemon has no session bus. Only with the feature
+    /// `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_session_bus(mut self, socket: impl Into<PathBuf>) -> Self {
+        self.seams.session_bus = Some(socket.into());
+        self
+    }
+
+    /// Runs `program` as `xdg-dbus-proxy`, a test's fake that the test owns, in place
+    /// of the trusted program on efrd's `PATH`. Only with the feature
+    /// `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_bus_proxy_program(mut self, program: impl Into<PathBuf>) -> Self {
+        self.seams.bus_proxy_program = Some(program.into());
         self
     }
 }

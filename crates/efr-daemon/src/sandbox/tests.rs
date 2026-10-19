@@ -93,6 +93,7 @@ impl Fixture {
             clock: Arc::clone(&clock),
             rng: Arc::new(TestRng::new(3)),
             git: Git::new(clock).isolated(),
+            programs: Default::default(),
         })
         .await
     }

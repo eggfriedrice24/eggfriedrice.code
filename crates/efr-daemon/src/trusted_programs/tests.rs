@@ -131,6 +131,18 @@ fn xdg_dbus_proxy_is_found_and_checked_like_the_others() {
 }
 
 #[test]
+fn a_test_program_counts_only_by_the_rule_of_a_test_dir() {
+    let (_temp, root) = root();
+    let program = fake(&root.join("fake"), "proxy");
+    let programs = TrustedPrograms::none().with_test_program(Program::XdgDbusProxy, &program);
+    assert_eq!(programs.checked_path(Program::XdgDbusProxy), Some(program.clone()));
+
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let open = TrustedPrograms::none().with_test_program(Program::XdgDbusProxy, &program);
+    assert!(!open.has(Program::XdgDbusProxy), "a file that others can write never counts");
+}
+
+#[test]
 fn the_installed_xdg_dbus_proxy_passes_the_real_rule() {
     use std::os::unix::fs::MetadataExt as _;
     // Check C4-5 of the phase E plan: a root-owned `/usr/bin/xdg-dbus-proxy` passes the

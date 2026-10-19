@@ -20,6 +20,11 @@
 //!   daemon leaves no process of the job. It keeps a copy of the job's `env` file
 //!   as `env-<call>` in the fake's dir.
 //!
+//! - `dbus-proxy --dir D [--upstream U]... -- PROGRAM ARGS...`: the bus filter's
+//!   wrapper without its Landlock domain. It closes the descriptors from 4 to 9, changes
+//!   to `D`, moves its stdout (efrd's sync pipe) to fd 3 and its stderr to fd 1, and runs
+//!   the program.
+//!
 //! Files in the fake's dir change what it does: `fail` (the setup fails),
 //! `ignore-term` (a job ignores SIGTERM, so efrd must kill it), `stop-self` (a job's
 //! launcher stops itself with SIGSTOP once it started), `no-result` (it writes no
@@ -36,6 +41,22 @@ fake='@FAKE@'
 case "$1" in
 probe) echo probe >> "$fake/probes"; cat "$fake/report.json" 2>/dev/null; exit 0 ;;
 run) ;;
+dbus-proxy)
+    shift
+    dir=''
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --dir) dir=$2; shift 2 ;;
+        --upstream) shift 2 ;;
+        --) shift; break ;;
+        *) echo "efr-sbx dbus-proxy: an unknown argument" >&2; exit 125 ;;
+        esac
+    done
+    for fd in 4 5 6 7 8 9; do eval "exec $fd>&-"; done
+    cd "$dir" || exit 125
+    exec 3>&1 1>&2
+    exec "$@"
+    ;;
 *) exit 2 ;;
 esac
 dir=$3

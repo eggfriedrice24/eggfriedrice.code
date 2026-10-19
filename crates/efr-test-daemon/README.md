@@ -46,7 +46,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   the line with stdin `/dev/null` and its output on stdout, `D/term-marker` and the end
   of the job at SIGTERM or SIGHUP, the end of the job at the end of its stdin, and
   `D/result.json` last. It closes the descriptors from 3 to 9 that it inherited, and it
-  keeps each spec and each job's `env` in its own dir. Marker files there make it fail,
+  keeps each spec and each job's `env` in its own dir. `dbus-proxy --dir D -- PROGRAM`
+  is the bus filter's wrapper without its Landlock domain: it changes to `D`, moves
+  efrd's sync pipe from stdout to fd 3, and runs the program. Marker files there make it fail,
   ignore SIGTERM, stop itself, write no result or name a survivor. A test passes its
   path to `sandbox_launcher`; there is no second launcher seam.
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers

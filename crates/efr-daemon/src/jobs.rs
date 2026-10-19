@@ -45,6 +45,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
+use crate::sandbox::bus::BusCall;
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::sandbox::proxy::ProxyCall;
 
@@ -151,6 +152,9 @@ pub(crate) struct NewJob {
     /// The job's proxy socket, served for its whole life (DP14); `None` without a proxy
     /// plan.
     pub(crate) proxy: Option<ProxyCall>,
+    /// The job's filtered bus proxies, for its whole life with the rules of its start
+    /// (DE1, DE12); `None` without a bus view.
+    pub(crate) bus: Option<BusCall>,
 }
 
 /// A launcher that efrd spawned and that waits for its start byte, with the reader of
@@ -253,6 +257,8 @@ struct Entry {
     guard: Vec<SurfaceChange>,
     /// The job's proxy socket until the job ends; dropping it closes the socket.
     proxy: Option<ProxyCall>,
+    /// The job's filtered bus proxies until the job ends; dropping them kills them.
+    bus: Option<BusCall>,
 }
 
 impl JobTable {
@@ -424,6 +430,7 @@ impl JobTable {
     ) -> Result<JobInfo, DaemonError> {
         let Spawned { process, output, matches } = spawned;
         let proxy = job.proxy.take();
+        let bus = job.bus.take();
         let mut info = job.info.clone();
         let now = self.inner.clock.now();
         info.started_at = now;
@@ -463,6 +470,7 @@ impl JobTable {
             kept,
             guard: Vec::new(),
             proxy,
+            bus,
         };
         self.lock().running.insert(key, entry);
         let watching = (job.matcher.is_some() && job.wakes > 0)
@@ -953,7 +961,7 @@ impl JobTask {
     async fn finish(mut self, stopped_by: Option<JobStopBy>) {
         let table = &self.table;
         let clock = Arc::clone(&table.inner.clock);
-        let (lifeline, kept, guarded, info, proxy) = {
+        let (lifeline, kept, guarded, info, proxy, bus) = {
             let mut guard = table.lock();
             match guard.running.get_mut(&self.key) {
                 Some(entry) => (
@@ -962,8 +970,9 @@ impl JobTask {
                     std::mem::take(&mut entry.guard),
                     Some(entry.info.clone()),
                     entry.proxy.take(),
+                    entry.bus.take(),
                 ),
-                None => (None, None, Vec::new(), None, None),
+                None => (None, None, Vec::new(), None, None, None),
             }
         };
         drop(lifeline);
@@ -996,6 +1005,10 @@ impl JobTask {
             }
             None => (Vec::new(), 0, None),
         };
+        // NOTE: the bus filters end with the job, before its dirs go (DE1).
+        if let Some(bus) = bus {
+            bus.finish().await;
+        }
         let result = read_result(&self.call_dir).await;
         let launcher_lost = result.is_none();
         let ended = end_of(result.as_ref(), stopped_by);

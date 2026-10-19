@@ -501,8 +501,16 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     );
     let git = Git::new(Arc::clone(&clock));
     let git = if isolated_git { git.isolated() } else { git };
-    let programs =
+    let mut programs =
         trusted_programs(&dirs, home.path(), programs_path, seams.trusted_programs()).await;
+    if let Some(fake) = seams.bus_proxy_program().map(Path::to_path_buf) {
+        let found = programs.clone();
+        programs = tokio::task::spawn_blocking(move || {
+            found.with_test_program(crate::trusted_programs::Program::XdgDbusProxy, &fake)
+        })
+        .await
+        .unwrap_or_else(|_| TrustedPrograms::none());
+    }
     let job_seams = seams.clone();
     let sandbox = SandboxService::new(ServiceParts {
         dirs: dirs.clone(),
@@ -515,8 +523,11 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         clock: Arc::clone(&clock),
         rng: Arc::clone(&rng),
         git: git.clone(),
+        programs: Arc::new(programs.clone()),
     })
     .await;
+    // NOTE: the config check refused a bad `[[dbus.allow]]` before efrd started.
+    sandbox.bus().set_rules(Arc::from(settings.dbus.allow.clone()));
     sandbox.probe(&settings).await;
     sandbox.proxy().read_mirrors(true).await;
     sandbox.proxy().warn_fallback(&settings, &sandbox.current());
@@ -719,6 +730,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(reload::follow_mirrors(
             state.reloads.clone(),
             state.sandbox.proxy().mirror_changes(),
+            stop.clone(),
+        )),
+        // NOTE: a reload's `[[dbus.allow]]` reaches the next call that starts a bus
+        // filter; a running call or job keeps the rules of its start (DE1).
+        tokio::spawn(sandbox::bus::follow_settings(
+            state.sandbox.bus().clone(),
+            state.settings.subscribe(),
             stop.clone(),
         )),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
