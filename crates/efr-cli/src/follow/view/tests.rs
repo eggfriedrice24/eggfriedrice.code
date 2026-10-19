@@ -1780,7 +1780,7 @@ fn a_call_of_a_command_of_several_lines_shows_each_line() {
 
 #[test]
 fn an_exit_question_shows_each_line_of_a_command_of_several() {
-    let grants = vec![Grant::Bus { bus: efr_protocol::BusKind::System }];
+    let grants = vec![Grant::Bus { bus: BusKind::System }];
     let info = exit_info(&[ExitKind::Bus], Launch::Contained { grants });
     let mut view = sandbox_view(false);
     let (_, err, _) =
