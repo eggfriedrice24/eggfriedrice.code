@@ -14,8 +14,18 @@ final-status-level = "slow"
 # The corpus run of efr-sbx compares about 40 routine lines in the sandbox with the same
 # lines outside it, cargo builds among them. Under nested virtualization in the same VM
 # it takes more than a minute too.
+#
+# The cost tests run one at a time: each one measures launch times, so a cost test that
+# runs beside another one measures that one's load too. With EFR_TEST_SBX_GATE=1, the
+# proxy and the downloads cost tests make 4000 and 3000 launches; in the CI VM, at about
+# 80 ms per launch, one of them needs more than five minutes.
 [[profile.default.overrides]]
-filter = 'binary_id(efr-sbx::it) & test(/^(cost|corpus)::/)'
+filter = 'binary_id(efr-sbx::it) & test(/^cost::/)'
+test-group = "sbx-cost"
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.default.overrides]]
+filter = 'binary_id(efr-sbx::it) & test(/^corpus::/)'
 slow-timeout = { period = "60s", terminate-after = 5 }
 
 # The cost test of efr-snapshot builds a fixture of this repository's size with a
@@ -27,6 +37,7 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 
 [test-groups]
 shell = { max-threads = 1 }
+sbx-cost = { max-threads = 1 }
 
 # Tests that drive a real zsh share terminal state and run one at a time: efr-shell's
 # e2e_ tests, the shell_ tests over a TestDaemon, and efr-daemon's own e2e_ test. The
