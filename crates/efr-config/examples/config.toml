@@ -299,7 +299,7 @@
 # localectl in auto with no question, through a filtered bus that lets through only
 # read methods. false sends them to the reviewer. efrd turns the filter off when
 # xdg-dbus-proxy is missing or fails its self-test.
-# proxy = false
+# proxy = true
 
 # More bus methods that the filter lets through, also as [[dbus.allow]] tables: bus
 # (system or session), name (the service) and call (IFACE.MEMBER or

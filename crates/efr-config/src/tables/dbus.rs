@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// `[dbus]`: the filtered message bus of the `auto` sandbox. Every key applies from the
 /// next call.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DbusSettings {
@@ -26,4 +26,12 @@ pub struct DbusSettings {
     /// machine, such as `Start` or `Set`, but it cannot tell every read from a write:
     /// you own each method that you add. Only an editor changes them.
     pub allow: Vec<BusRule>,
+}
+
+impl Default for DbusSettings {
+    /// The filter is on, with no added methods: from the end of phase E (DE17), after
+    /// its tests passed on this machine and in CI's VM.
+    fn default() -> Self {
+        DbusSettings { proxy: true, allow: Vec::new() }
+    }
 }

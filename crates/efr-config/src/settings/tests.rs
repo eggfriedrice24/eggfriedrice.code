@@ -827,9 +827,9 @@ fn network_mode_is_a_live_key() {
 }
 
 #[test]
-fn dbus_table_defaults_to_no_proxy_and_no_entries() {
+fn dbus_table_defaults_to_the_proxy_and_no_entries() {
     let settings = Settings::parse(path(), None).unwrap();
-    assert!(!settings.dbus.proxy);
+    assert!(settings.dbus.proxy);
     assert!(settings.dbus.allow.is_empty());
     assert!(settings.sandbox.allow.is_empty());
     for key in ["dbus.proxy", "dbus.allow", "sandbox.allow"] {

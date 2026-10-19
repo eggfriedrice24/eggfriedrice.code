@@ -195,6 +195,10 @@ impl Default for TestDaemonBuilder {
         // NOTE: no network proxy unless a test asks for it, whatever the default, so the
         // tests of the phases before D2 keep their results.
         config.network.mode = NetworkMode::None;
+        // NOTE: the same for the bus filter, which is on by default from the end of
+        // phase E: a test turns it on with `bus_proxy`, so no test daemon starts a
+        // filter that it did not ask for.
+        config.dbus.proxy = false;
         TestDaemonBuilder {
             dirs: None,
             clock: None,

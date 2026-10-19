@@ -631,9 +631,11 @@ impl Fixture {
             .with_project(ProjectId::from_uuid(uuid::Uuid::from_u128(9)), home.join("p/app"))
             .unwrap();
         let engine = Engine::with_defaults(locations);
-        // NOTE: no network, so no note of the network proxy's fallback.
+        // NOTE: no network, so no note of the network proxy's fallback; and no bus
+        // filter, whatever the default: each test turns it on itself.
         let mut settings = Settings::default();
         settings.network.mode = efr_protocol::NetworkMode::None;
+        settings.dbus.proxy = false;
         let service = service(&dirs, &home, &fake, &store, buses, &settings, fake.programs()).await;
         Fixture { _dir: dir, home, dirs, store, fake, buses, service, settings, engine }
     }

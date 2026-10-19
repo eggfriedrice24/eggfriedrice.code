@@ -25,9 +25,8 @@ decision.
   bus for `systemctl`, and `outside` only when nothing narrower fits.
 - Reads work as they do for you, except for secrets. So `journalctl` shows in the
   sandbox the journal that you can read, with no grant.
-- With `dbus.proxy = true`, read-only system queries, such as `hostnamectl`,
-  `systemctl --failed` and `loginctl list-sessions`, run in the sandbox with no
-  question. They reach the system
+- Read-only system queries, such as `hostnamectl`, `systemctl --failed` and
+  `loginctl list-sessions`, run in the sandbox with no question. They reach the system
   or the session bus only through efr's bus filter, which lets through only read
   methods (see "The bus filter").
 - An `a` (always) answer at some exit questions saves a rule, so the same exit asks
@@ -874,7 +873,8 @@ Read-only system queries run in the sandbox with no question. Examples:
 `systemctl status nginx.service`, `systemctl --user --failed` and
 `loginctl list-sessions`. Such a command reaches the system or the session bus only
 through efr's bus filter, `xdg-dbus-proxy`, which lets through only a fixed list of
-read methods. The filter runs while `dbus.proxy` is `true`.
+read methods. The filter runs while `dbus.proxy` is `true`, the default;
+`dbus.proxy = false` turns it off, and these queries go to the reviewer again.
 [`docs/adr/0013-bus-proxy-and-always-allow.md`](adr/0013-bus-proxy-and-always-allow.md)
 records the decision.
 
@@ -1586,7 +1586,7 @@ marks each change that opens more as "loosens permissions": `netview` from `fals
 `[[network.hosts]]` entry, and a higher `max_upload_bytes`. Only an editor changes
 `[[network.hosts]]`.
 
-`[dbus]` holds `proxy` (default `false`), which turns the bus filter on, and
+`[dbus]` holds `proxy` (default `true`), which turns the bus filter on, and
 `[[dbus.allow]]`, more bus methods for the filter (see "The bus filter").
 `[[sandbox.allow]]` holds the always rules (see "Always-allow rules"). Each applies from
 the next call, with no restart; a running job keeps the bus rules of its start. The

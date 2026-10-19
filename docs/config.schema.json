@@ -445,7 +445,7 @@
           "type": "array"
         },
         "proxy": {
-          "default": false,
+          "default": true,
           "description": "`true`: in `auto`, the read forms of `systemctl`, `loginctl`, `hostnamectl`,\n`timedatectl` and `localectl` run in the sandbox with no question, through a\nfiltered bus that lets through only read methods. `false`: they go to the\nreviewer, as a look at the whole bus. efrd turns the filter off when\n`xdg-dbus-proxy` is missing or fails its self-test. A change applies to new\ncalls; a running background job keeps the bus rules of its start.",
           "type": "boolean"
         }
@@ -1699,7 +1699,7 @@
       "$ref": "#/$defs/DbusSettings",
       "default": {
         "allow": [],
-        "proxy": false
+        "proxy": true
       },
       "description": "The filtered message bus of the `auto` mode."
     },
