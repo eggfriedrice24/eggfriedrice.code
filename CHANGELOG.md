@@ -225,6 +225,10 @@ into the GitHub release notes, and it stops when the section is missing.
   a filter that allows read methods. efr turns the filter off when `xdg-dbus-proxy` is
   missing, older than 0.1.5, or fails its self-test; `efr status` then shows a warning,
   and these queries go to the reviewer as before.
+- Answer `a` (always), then `y`, at an exit question to save a rule in
+  `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
+  no question and no review. Rules cover one host and port, one write dir, or one
+  socket. efr keeps the comments of the file.
 
 ### Changed
 
@@ -437,6 +441,12 @@ into the GitHub release notes, and it stops when the section is missing.
   command's bus dir. Each command gets its own filter, which ends with the command. A
   filter that cannot start fails the command; the command never gets the whole bus
   instead. A bug in the filter itself still reaches your bus rights.
+- An always rule never covers a privilege, persistence, upload, desktop, masked-read or
+  synced-folder exit, never runs a command outside the sandbox, never names a floor,
+  efr's own dirs or a secret, never covers a dir above a floor or a path through a
+  link, and never beats a `deny` or `ask` rule or `network.deny`. Only an answer in
+  your own terminal saves a rule; efr never writes one for a phone or the model. Any
+  program of yours that can write `config.toml` can still add one.
 
 ## [0.0.3] - 2026-10-09
 

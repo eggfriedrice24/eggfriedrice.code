@@ -622,6 +622,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         models,
     );
     let drafts = draft_channel();
+    // NOTE: an `a` answer saves its rule through the reload task, so the next call reads
+    // the engine with the rule (phase E).
+    let allow_writer = crate::always::RuleWriter::new(
+        dirs.config(),
+        engine_receiver.clone(),
+        reloads.clone(),
+        Arc::clone(&clock),
+    );
     let conversation_deps = ConversationDeps {
         provider: providers.active(),
         toolbox: Arc::new(toolbox),
@@ -636,7 +644,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         judge: Some(judge),
         presence: Arc::clone(&presence) as Arc<dyn PresenceReader>,
         drafts: drafts.clone(),
-        allow_writer: None,
+        allow_writer: Some(Arc::new(allow_writer)),
     };
     let ttys = conversations::load_ttys(&readers).await?;
     let roots = roots(&dirs, root_sources);

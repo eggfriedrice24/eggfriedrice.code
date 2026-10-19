@@ -548,7 +548,10 @@ spec; `docs/sandbox.md` for the user's view):
   directory through the hardened `git ls-files`, and where each program word leads
   and whether it changed in the turn. A word that the shell runs itself
   (`FactRequest::builtins`) leads to `builtin`, never to a file of its name on the
-  `PATH`.
+  `PATH`. For the always-allow rules (phase E), each path of `FactRequest::real_paths`
+  gets its real path after every link (`CallFacts::real_paths`): for a path that does
+  not exist, the real path of its nearest existing parent with the rest joined. A path
+  with a link that leads nowhere on its way gets no fact, so no rule covers it.
 - After a call, the quarantine question's "keep" moves the changes back
   (`sandbox/quarantine.rs`), and at the end of the turn the report lists the files
   that run code later outside the sandbox (`sandbox/report.rs`, from the hardened
@@ -834,6 +837,35 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   `RESOLVE_NO_SYMLINKS`, so a link never leads the delete out of the cache. Before the
   deletes, efrd copies what they remove into the home store within the same limits;
   over them the deletes run with no copy, and the end of the turn names them.
+
+### Always-allow rules
+
+Phase E, efr's auto spec 11.2. `engine.rs` builds the engine with the rules of
+`sandbox.allow` last (`Engine::with_allow`), after the locations and the host list that
+their floor checks read. A rule that fails a floor check stays in the list, disabled,
+and never covers a call; only a rule of a bad shape, which the config check refuses,
+stops efrd or a reload.
+
+`always.rs` (`RuleWriter`) is the `AllowWriter` of the conversations: it saves the rule
+of an `a` answer. It runs `Engine::check_allow` on the running engine first, so it
+never writes a rule that the next load would disable (`NotSaved { load_check }`). Then
+it opens `config.toml` through a link, as `efr config set` does, adds the rule to
+`sandbox.allow` in the form that the file uses (`Edit::add_table_entry`, which keeps
+every comment) and writes the file. When the file changed under it, it plans the
+change again, at most 3 times (`changed`). A rule that the list already holds keeps its
+old index. A file without the owner's write bit is `read_only`, and so is a write that
+the system refuses; the atomic write would replace a read-only file, but the user made
+it so. Then it asks the reload task for a reload and waits for it, at most 5 seconds on
+the injected clock (`reload_timeout`), so the next call reads the engine with the rule.
+The writer never fails with an error: the turn runs the call as a "yes" whatever the
+outcome, and records `always_rule_saved`. The writer and `efr sandbox allow remove` are
+the only paths of efr that write `sandbox.allow`.
+
+`approval.respond` refuses `allow_always` from a phone with `forbidden` before the
+conversation sees it, and the conversation checks it again (`RemoteAlwaysAnswer`). An
+`allow_always` to a question that offers no rule is `invalid` (`NoAlwaysOffer`). No
+receipt keeps either refusal, so the question stays open for the user's own terminal.
+A model-side peer holds no `approve` scope at all.
 
 ### What a call changed
 
