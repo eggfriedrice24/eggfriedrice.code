@@ -867,7 +867,8 @@ lies below it, so each reload checks every rule again. Each disabled rule gives 
 (`always::warn_disabled`), and the warning `sandbox.allow[N] is disabled: <reason>` in
 `SandboxStatus::warnings` of `admin.status` and `admin.sandbox_check`
 (`always::disabled_warnings`). The answer of `admin.config_reload` has no field for
-it, so `efr config reload` does not show it; `efr status` does.
+it, so `efr config reload` does not show it; `efr sandbox check` and
+`efr sandbox allow` do.
 
 `always.rs` (`RuleWriter`) is the `AllowWriter` of the conversations: it saves the rule
 of an `a` answer. It runs `Engine::check_allow` on the running engine first, so it
