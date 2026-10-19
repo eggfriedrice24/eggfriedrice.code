@@ -15,6 +15,10 @@
 //! turn runs the call as a "yes" all the same. A file without the owner's write bit
 //! counts as read-only: the atomic write would replace it, but the user made it so.
 //!
+//! A rule that fails a floor check when the rules load stays in the list, disabled:
+//! [`disabled_warnings`] gives its warning for `efr status`, and [`warn_disabled`] logs
+//! it once (DE44).
+//!
 //! The other path that writes `sandbox.allow` is `efr sandbox allow remove` in efr-cli.
 //! Any program of the user's that writes `config.toml` can add a rule too; the reload
 //! watcher reads it.
@@ -41,6 +45,39 @@ pub(crate) const RELOAD_WAIT: Duration = Duration::from_secs(5);
 
 /// The key of the always rules in `config.toml`.
 const KEY: &str = "sandbox.allow";
+
+/// The warning of each disabled rule of `engine`, as `efr status` shows it in
+/// `SandboxStatus::warnings`, such as `sandbox.allow[1] is disabled: it names a git
+/// dir` (DE44).
+pub(crate) fn disabled_warnings(engine: &Engine) -> Vec<String> {
+    engine
+        .allow_rules()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, disabled))| {
+            disabled.as_ref().map(|floor| format!("{KEY}[{index}] is disabled: {floor}"))
+        })
+        .collect()
+}
+
+/// Logs one warning for each rule that `engine` disables, unless `before` disabled the
+/// same rule at the same place for the same reason: at the start (`before` is `None`)
+/// and when a reload sends a new engine. A disabled rule never stops efrd (DE44).
+pub(crate) fn warn_disabled(engine: &Engine, before: Option<&Engine>) {
+    let known = before.map(Engine::allow_rules).unwrap_or_default();
+    for (index, entry) in engine.allow_rules().iter().enumerate() {
+        let (rule, Some(floor)) = entry else { continue };
+        if known.get(index) == Some(entry) {
+            continue;
+        }
+        tracing::warn!(
+            index,
+            rule = %rule.describe(),
+            reason = %floor,
+            "{KEY}[{index}] is disabled: {floor}; it covers no call"
+        );
+    }
+}
 
 /// Saves the rule of an `a` answer: see the module doc.
 #[derive(Debug, Clone)]

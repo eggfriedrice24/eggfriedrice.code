@@ -228,7 +228,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - Answer `a` (always), then `y`, at an exit question to save a rule in
   `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
   no question and no review. Rules cover one host and port, one write dir, or one
-  socket. efr keeps the comments of the file.
+  socket. efr keeps the comments of the file. A rule that no longer passes the floor
+  checks is disabled with a warning; efrd still starts.
 
 ### Changed
 

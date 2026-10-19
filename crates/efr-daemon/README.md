@@ -127,7 +127,9 @@ the appliers take the new values:
 - the permission engine, built again on every reload (with the project registry and
   the links in the config directory) and sent when `[permissions]` or what it protects
   changed, so a `config.toml` link that points elsewhere is write-sealed from the next
-  tool call on; and, when `[permissions]` changed, the hidden shells' trusted
+  tool call on, or when the always rules of `sandbox.allow` or their disabled marks
+  changed (phase E), so the rule of an `a` answer counts from the next call on; and,
+  when `[permissions]` changed, the hidden shells' trusted
   programs: a running zsh with the old set restarts in its directory before its next
   command (`efr-shell`);
 - `shell.program` and `shell.login` for the hidden shells started from then on;
@@ -135,6 +137,9 @@ the appliers take the new values:
   filter is an error of the file.
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
+A reload runs the sandbox probe again when `[sandbox]` changed in any key but `allow`,
+or when the new engine has other projects or another support (`reload::probes_again`);
+a change of the always rules alone, as an `a` answer makes, starts no probe.
 
 The same task rebuilds the engine after a probe. `reload::follow_probes` watches the
 probe's status (`SandboxService::status`, which every probe sends: at start, after a
@@ -844,7 +849,13 @@ Phase E, efr's auto spec 11.2. `engine.rs` builds the engine with the rules of
 `sandbox.allow` last (`Engine::with_allow`), after the locations and the host list that
 their floor checks read. A rule that fails a floor check stays in the list, disabled,
 and never covers a call; only a rule of a bad shape, which the config check refuses,
-stops efrd or a reload.
+stops efrd or a reload. A rule can turn bad with no edit, such as when a new project
+lies below it, so each reload checks every rule again. Each disabled rule gives one
+`WARN` in the log at the start and when a reload sends an engine that disables it
+(`always::warn_disabled`), and the warning `sandbox.allow[N] is disabled: <reason>` in
+`SandboxStatus::warnings` of `admin.status` and `admin.sandbox_check`
+(`always::disabled_warnings`). The answer of `admin.config_reload` has no field for
+it, so `efr config reload` does not show it; `efr status` does.
 
 `always.rs` (`RuleWriter`) is the `AllowWriter` of the conversations: it saves the rule
 of an `a` answer. It runs `Engine::check_allow` on the running engine first, so it

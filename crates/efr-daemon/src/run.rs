@@ -484,6 +484,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // NOTE: the probe has not run yet, so this engine supports neither view. The
     // rebuild after the first probe below gives the views before the socket opens.
     let engine = Arc::new(engine_parts.engine(&settings, Probed::default()).await?);
+    // NOTE: a disabled always rule costs one warning and never stops efrd (DE44).
+    crate::always::warn_disabled(&engine, None);
     let (engine_sender, engine_receiver) = watch::channel(engine);
     // NOTE: a reload (`reload.rs`) sends new settings here and, when `[permissions]`
     // or the links in the config directory changed, a new engine on the channel
