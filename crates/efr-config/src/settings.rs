@@ -10,13 +10,13 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{Document, Item};
 
 use crate::keys::{self, Kind};
-use crate::location::{key_at, location, span_of, span_of_rule};
-use crate::validate::{self, Invalid};
+use crate::location::{key_at, location, span_of, span_of_entry, span_of_rule};
+use crate::validate::{self, BadEntry, Invalid};
 use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ConversationSettings,
-    DEFAULT_LOG, JobsSettings, Location, ModelSettings, NetworkSettings, OpenAiSettings,
-    PermissionSettings, PresenceSettings, RenderSettings, SandboxSettings, ScreenChoice,
-    ShellSettings, SnapshotSettings, Source, UndoSettings,
+    DEFAULT_LOG, DbusSettings, JobsSettings, Location, ModelSettings, NetworkSettings,
+    OpenAiSettings, PermissionSettings, PresenceSettings, RenderSettings, SandboxSettings,
+    ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -60,6 +60,8 @@ pub struct Settings {
     pub sandbox: SandboxSettings,
     /// What network a contained call of the `auto` mode sees.
     pub network: NetworkSettings,
+    /// The filtered message bus of the `auto` mode.
+    pub dbus: DbusSettings,
     /// The reviewer model that decides most actions that leave the `auto` sandbox.
     pub classifier: ClassifierSettings,
     /// `efr undo`, which takes back the changes of a turn from efr's snapshots.
@@ -93,6 +95,7 @@ impl Default for Settings {
             compaction: CompactionSettings::default(),
             sandbox: SandboxSettings::default(),
             network: NetworkSettings::default(),
+            dbus: DbusSettings::default(),
             classifier: ClassifierSettings::default(),
             undo: UndoSettings::default(),
             snapshot: SnapshotSettings::default(),
@@ -119,7 +122,8 @@ impl Settings {
     }
 
     /// The settings of the file at `path` with contents `text`, `None` when it does not
-    /// exist. Every key is checked: unknown keys, types, sets, ranges and rules.
+    /// exist. Every key is checked: unknown keys, types, sets, ranges, rules, and the
+    /// shape of each `dbus.allow` and `sandbox.allow` entry.
     pub fn parse(path: &Path, text: Option<&str>) -> Result<Settings, ConfigError> {
         let Some(text) = text else {
             return Ok(Settings { path: path.to_path_buf(), ..Settings::default() });
@@ -148,6 +152,13 @@ impl Settings {
                 .and_then(|document| span_of(document, key))
                 .map(|span| location(text, span.start));
             ConfigError::Invalid { path: path.to_path_buf(), key, value, expected, location }
+        })?;
+        validate::entries(&settings).map_err(|BadEntry { key, index, source }| {
+            let location = document
+                .as_ref()
+                .and_then(|document| span_of_entry(document, key, index))
+                .map(|span| location(text, span.start));
+            ConfigError::InvalidEntry { path: path.to_path_buf(), key, index, location, source }
         })?;
         Ok(settings)
     }

@@ -5,8 +5,9 @@
 //!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
 //!   [`CompactionSettings`],
-//!   [`SandboxSettings`] with [`AskDestructive`], [`NetworkSettings`] with
-//!   [`NetworkHost`],
+//!   [`SandboxSettings`] with [`AskDestructive`] and the always-allow rules
+//!   ([`AllowRule`], re-exported from `efr-permissions`), [`NetworkSettings`] with
+//!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
 //!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`JobsSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
@@ -31,7 +32,8 @@
 //!   ([`Settings::foreign_model`]).
 //! - [`ConfigFile`] and [`Edit`]: the format-preserving writer, which keeps comments and
 //!   layout, writes the file behind a symlink, refuses a file that changed since it was
-//!   read, and adds and removes rules for the settings tool.
+//!   read, adds and removes rules for the settings tool, and adds and removes the
+//!   entries of an array of tables such as `sandbox.allow`.
 //!
 //! Allowed dependencies: `efr-permissions` (rules and the network host list),
 //! `efr-protocol` (the `Mode`, `CacheMode` and `NetworkMode` wire types and
@@ -59,7 +61,10 @@ mod theme_file;
 mod validate;
 mod writer;
 
+// NOTE: efr-cli names the always-allow rule through this crate (`efr sandbox allow`),
+// so it needs no edge to efr-permissions.
 pub use effective::{Entry, Source};
+pub use efr_permissions::AllowRule;
 pub use error::{ConfigError, Location};
 pub use example::EXAMPLE;
 pub use file::FileState;
@@ -71,6 +76,7 @@ pub use settings::{CONFIG_FILE, Settings};
 pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
 pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
+pub use tables::dbus::DbusSettings;
 pub use tables::jobs::JobsSettings;
 pub use tables::network::{NetworkHost, NetworkSettings};
 pub use tables::presence::PresenceSettings;

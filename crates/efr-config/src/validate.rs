@@ -1,11 +1,11 @@
-//! The checks that the types alone do not make: sets of names, ranges and the form of
-//! paths and URLs.
+//! The checks that the types alone do not make: sets of names, ranges, the form of
+//! paths and URLs, and the entries of `sandbox.allow` and `dbus.allow`.
 
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::slice;
 
-use efr_permissions::{HostError, HostList};
+use efr_permissions::{HostError, HostList, PermissionsError, check_rules};
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
@@ -20,6 +20,38 @@ pub(crate) struct Invalid {
     /// The value as TOML.
     pub(crate) value: String,
     pub(crate) expected: &'static str,
+}
+
+/// An entry of an array of tables that `efr-permissions` refuses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BadEntry {
+    /// The dotted key of the array, such as `sandbox.allow`.
+    pub(crate) key: &'static str,
+    /// The entry's place in the array, counted from 0.
+    pub(crate) index: usize,
+    pub(crate) source: PermissionsError,
+}
+
+/// The first entry of `sandbox.allow` or `dbus.allow` that `efr-permissions` refuses, in
+/// the order of the file: an always-allow rule of a bad shape
+/// ([`AllowRule::check_shape`](efr_permissions::AllowRule::check_shape)), or a bus rule
+/// that [`check_rules`] refuses. The floor checks of an always-allow rule need the
+/// machine; efrd runs them.
+pub(crate) fn entries(settings: &Settings) -> Result<(), BadEntry> {
+    for (index, rule) in settings.sandbox.allow.iter().enumerate() {
+        rule.check_shape(index).map_err(|source| BadEntry {
+            key: "sandbox.allow",
+            index,
+            source,
+        })?;
+    }
+    check_rules(&settings.dbus.allow).map_err(|source| {
+        let index = match &source {
+            PermissionsError::BusRule { index, .. } => *index,
+            _ => 0,
+        };
+        BadEntry { key: "dbus.allow", index, source }
+    })
 }
 
 /// The first value of `settings` that is outside its allowed set or range, in the

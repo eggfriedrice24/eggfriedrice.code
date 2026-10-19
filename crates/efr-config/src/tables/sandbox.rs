@@ -1,7 +1,9 @@
-//! `[sandbox]`: the kernel sandbox of the `auto` mode (phase 1 keys).
+//! `[sandbox]`: the kernel sandbox of the `auto` mode (phase 1 keys, and the
+//! always-allow rules of phase E).
 
 use std::path::PathBuf;
 
+use efr_permissions::AllowRule;
 use efr_protocol::CacheMode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -200,6 +202,14 @@ pub struct SandboxSettings {
     /// `unless_undoable` (a line whose files efr's snapshot holds runs at once, because
     /// `efr undo` can bring them back).
     pub ask_destructive: AskDestructive,
+    /// Always-allow rules, each a table with a `kind`: `host` (`host`, and `port`,
+    /// default 443), `write` (`under`, a directory, and an optional `project`) or
+    /// `socket` (`path`). In `auto`, a later exit of that kind and resource runs with
+    /// no review and no question, with the same widening that a "yes" gives. The
+    /// floors still hold: efrd checks them when it loads a rule, and turns off a rule
+    /// that crosses one. Only an editor and the `a` answer of an exit question change
+    /// them.
+    pub allow: Vec<AllowRule>,
 }
 
 impl Default for SandboxSettings {
@@ -235,6 +245,7 @@ impl Default for SandboxSettings {
             offline_hints: true,
             rebuildable: names(DEFAULT_REBUILDABLE),
             ask_destructive: AskDestructive::UnlessUndoable,
+            allow: Vec::new(),
         }
     }
 }

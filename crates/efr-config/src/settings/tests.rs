@@ -825,3 +825,187 @@ fn network_mode_is_a_live_key() {
     assert_eq!(crate::Applies::of("network.max_upload_bytes"), crate::Applies::Live);
     assert!(!crate::RESTART_KEYS.iter().any(|key| key.starts_with("network.")));
 }
+
+#[test]
+fn dbus_table_defaults_to_no_proxy_and_no_entries() {
+    let settings = Settings::parse(path(), None).unwrap();
+    assert!(!settings.dbus.proxy);
+    assert!(settings.dbus.allow.is_empty());
+    assert!(settings.sandbox.allow.is_empty());
+    for key in ["dbus.proxy", "dbus.allow", "sandbox.allow"] {
+        assert!(crate::keys().iter().any(|known| known == key), "{key}");
+        assert_eq!(crate::Applies::of(key), crate::Applies::Live, "{key}");
+        assert!(!crate::RESTART_KEYS.contains(&key), "{key}");
+    }
+    assert_eq!(crate::kind("dbus.proxy"), Some(crate::Kind::Boolean));
+    assert_eq!(crate::kind("dbus.allow"), Some(crate::Kind::Rules));
+    assert_eq!(crate::kind("sandbox.allow"), Some(crate::Kind::Rules));
+}
+
+#[test]
+fn dbus_table_reads_the_proxy_and_the_entries() {
+    use efr_permissions::BusRule;
+    use efr_protocol::BusKind;
+
+    let text = "\
+[dbus]
+proxy = true
+
+[[dbus.allow]]
+bus = \"system\"
+name = \"org.freedesktop.timedate1\"
+call = [\"org.freedesktop.DBus.Properties.GetAll\"]
+
+[[dbus.allow]]
+bus = \"session\"
+name = \"org.freedesktop.Notifications\"
+call = [\"org.freedesktop.Notifications.GetServerInformation\", \"org.freedesktop.Notifications.GetCapabilities@/org/freedesktop/Notifications\"]
+";
+    let settings = parse(text).unwrap();
+    assert!(settings.dbus.proxy);
+    assert_eq!(
+        settings.dbus.allow,
+        [
+            BusRule {
+                bus: BusKind::System,
+                name: "org.freedesktop.timedate1".to_owned(),
+                call: vec!["org.freedesktop.DBus.Properties.GetAll".to_owned()],
+            },
+            BusRule {
+                bus: BusKind::Session,
+                name: "org.freedesktop.Notifications".to_owned(),
+                call: vec![
+                    "org.freedesktop.Notifications.GetServerInformation".to_owned(),
+                    "org.freedesktop.Notifications.GetCapabilities@/org/freedesktop/Notifications"
+                        .to_owned(),
+                ],
+            },
+        ]
+    );
+    assert_eq!(settings.source("dbus.proxy"), Source::File);
+    assert_eq!(settings.source("dbus.allow"), Source::File);
+}
+
+#[test]
+fn a_refused_dbus_entry_is_named_by_its_place_and_reason() {
+    let text = "\
+[[dbus.allow]]
+bus = \"system\"
+name = \"org.freedesktop.timedate1\"
+call = [\"org.freedesktop.DBus.Properties.GetAll\"]
+
+[[dbus.allow]]
+bus = \"system\"
+name = \"org.freedesktop.systemd1\"
+call = [\"org.freedesktop.systemd1.Manager.StartUnit\"]
+";
+    let error = parse(text).unwrap_err();
+    assert_eq!(error.to_string(), format!("dbus.allow[1] in {PATH} is invalid"));
+    assert_eq!(error.key().as_deref(), Some("dbus.allow[1]"));
+    assert_eq!(error.location().map(|at| at.line), Some(6));
+    let message = error.file_error().message;
+    assert!(
+        message.contains("org.freedesktop.systemd1.Manager.StartUnit is not a read method"),
+        "{message}"
+    );
+
+    for (entry, word) in [
+        ("bus = \"session\"\nname = \"org.example.Foo\"\ncall = [\"*\"]", "`*`"),
+        (
+            "bus = \"session\"\nname = \"org.freedesktop.secrets\"\ncall = [\"org.freedesktop.Secret.Service.GetSecrets\"]",
+            "protected",
+        ),
+        ("bus = \"session\"\nname = \"org.example.Foo\"\ncall = []", "empty"),
+        (
+            "bus = \"system\"\nname = \"org.example.Power\"\ncall = [\"org.example.Power.kexec\"]",
+            "change the machine",
+        ),
+    ] {
+        let error = parse(&format!("[[dbus.allow]]\n{entry}\n")).unwrap_err();
+        assert!(
+            matches!(error, ConfigError::InvalidEntry { key: "dbus.allow", index: 0, .. }),
+            "{error:?}"
+        );
+        let message = error.file_error().message;
+        assert!(message.contains(word), "{word}: {message}");
+    }
+    // An unknown key or bus is a parse error at its place.
+    let error = parse(
+        "[[dbus.allow]]\nbus = \"system\"\nname = \"a.b\"\ncall = [\"a.b.Get\"]\ntalk = true\n",
+    )
+    .unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+    let error = parse("[[dbus.allow]]\nbus = \"user\"\nname = \"a.b\"\ncall = [\"a.b.Get\"]\n")
+        .unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+}
+
+#[test]
+fn sandbox_allow_reads_each_kind() {
+    use efr_permissions::AllowRule;
+
+    let text = "\
+[sandbox]
+cache_days = 7
+
+[[sandbox.allow]]
+kind = \"host\"
+host = \"download.example.org\"
+
+[[sandbox.allow]]
+kind = \"write\"
+under = \"~/notes\"
+project = \"~/p/app\"
+
+[[sandbox.allow]]
+kind = \"socket\"
+path = \"/run/user/1000/mpd/socket\"
+";
+    let settings = parse(text).unwrap();
+    assert_eq!(
+        settings.sandbox.allow,
+        [
+            AllowRule::Host { host: "download.example.org".to_owned(), port: 443 },
+            AllowRule::Write { under: "~/notes".to_owned(), project: Some("~/p/app".to_owned()) },
+            AllowRule::Socket { path: "/run/user/1000/mpd/socket".to_owned() },
+        ]
+    );
+    assert_eq!(settings.source("sandbox.allow"), Source::File);
+    assert_eq!(settings.sandbox.cache_days, 7);
+}
+
+#[test]
+fn a_refused_sandbox_allow_rule_is_named_by_its_place_and_reason() {
+    let text = "\
+[[sandbox.allow]]
+kind = \"write\"
+under = \"~/notes\"
+
+[[sandbox.allow]]
+kind = \"host\"
+host = \"*.example.org\"
+";
+    let error = parse(text).unwrap_err();
+    assert_eq!(error.to_string(), format!("sandbox.allow[1] in {PATH} is invalid"));
+    assert_eq!(error.key().as_deref(), Some("sandbox.allow[1]"));
+    assert_eq!(error.location().map(|at| at.line), Some(5));
+    let message = error.file_error().message;
+    assert!(message.contains("is a pattern"), "{message}");
+
+    let inline = "[sandbox]\nallow = [{ kind = \"socket\", path = \"run/x.sock\" }]\n";
+    let error = parse(inline).unwrap_err();
+    assert!(
+        matches!(error, ConfigError::InvalidEntry { key: "sandbox.allow", index: 0, .. }),
+        "{error:?}"
+    );
+    assert_eq!(error.location().map(|at| at.line), Some(2));
+
+    for text in [
+        "[[sandbox.allow]]\nkind = \"dbus\"\nbus = \"system\"\n",
+        "[[sandbox.allow]]\nkind = \"write\"\nunder = \"~/notes\"\nhost = \"a.example.org\"\n",
+        "[[sandbox.allow]]\nunder = \"~/notes\"\n",
+    ] {
+        let error = parse(text).unwrap_err();
+        assert!(matches!(error, ConfigError::Parse { .. }), "{text}: {error:?}");
+    }
+}

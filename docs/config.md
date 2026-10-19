@@ -137,6 +137,7 @@ The kernel sandbox of the `auto` mode.
 | `offline_hints` | `true` | live | Tell package managers to work offline while the sandbox has no network (`CARGO_NET_OFFLINE`, `npm_config_offline`, `UV_OFFLINE`, `GOPROXY=off`). |
 | `rebuildable` | `["target", "node_modules", "dist", "build", ".venv"]` | live | Directory names whose deletion is not destructive, because builds make them again. |
 | `ask_destructive` | `"unless_undoable"` | live | When a line that deletes or overwrites files asks first: `always`, or `unless_undoable` (a line whose files efr's snapshot holds runs at once, because `efr undo` can bring them back). |
+| `allow` | `[]` | live | Always-allow rules, each a table with a `kind`: `host` (`host`, and `port`, default 443), `write` (`under`, a directory, and an optional `project`) or `socket` (`path`). In `auto`, a later exit of that kind and resource runs with no review and no question, with the same widening that a "yes" gives. The floors still hold: efrd checks them when it loads a rule, and turns off a rule that crosses one. Only an editor and the `a` answer of an exit question change them. |
 
 ## [network]
 
@@ -150,6 +151,15 @@ What network a contained call of the `auto` mode sees.
 | `deny` | `[]` | live | Presets, hosts and `*.suffix` entries that no contained command reaches. The deny list wins over `allow`, `[[network.hosts]]` and every host grant. |
 | `hosts` | `[]` | live | More allowed hosts, each a table: `host` (a name, `*.suffix` or an IP address), `port` (the one port that the entry allows; absent: 443, and also 80 with `http`), `http` (plain HTTP GET and HEAD too, such as for a mirror) and `private` (the host may resolve to an address of your LAN). Only an editor changes them. |
 | `max_upload_bytes` | `4194304` | live | The bytes that a contained call may send through the proxy, counted from the first byte after the CONNECT head; 65536 to 1073741824. A background job counts for its whole life. |
+
+## [dbus]
+
+The filtered message bus of the `auto` mode.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `proxy` | `false` | live | `true`: in `auto`, the read forms of `systemctl`, `loginctl`, `hostnamectl`, `timedatectl` and `localectl` run in the sandbox with no question, through a filtered bus that lets through only read methods. `false`: they go to the reviewer, as a look at the whole bus. efrd turns the filter off when `xdg-dbus-proxy` is missing or fails its self-test. A change applies to new calls; a running background job keeps the bus rules of its start. |
+| `allow` | `[]` | live | More bus methods that the filter lets through, each a table: `bus` (`system` or `session`), `name` (the service, such as `org.freedesktop.timedate1`) and `call` (a list of `IFACE.MEMBER` or `IFACE.MEMBER@PATH`; a PATH may end in `/*`). They add to the built-in read methods. For systemd, logind, hostnamed, timedated, localed and timesyncd a method must start with `Get`, `List`, `Can` or `Lookup`. For other services efr refuses a method that starts with a word that changes the machine, such as `Start` or `Set`, but it cannot tell every read from a write: you own each method that you add. Only an editor changes them. |
 
 ## [classifier]
 

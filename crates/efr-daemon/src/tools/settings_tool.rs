@@ -34,9 +34,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
-    Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, IgnoredFiles,
-    JobsSettings, Kind, NetworkHost, NetworkSettings, SandboxSettings, Settings, SnapshotSettings,
-    Source, SudoCache, WriteProjects,
+    Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, DbusSettings, Edit, FileState,
+    IgnoredFiles, JobsSettings, Kind, NetworkHost, NetworkSettings, SandboxSettings, Settings,
+    SnapshotSettings, Source, SudoCache, WriteProjects,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
@@ -463,6 +463,9 @@ fn apply(
             if key == "permissions.rules" {
                 return Err(rules_key());
             }
+            if efr_config::kind(key) == Some(Kind::Rules) {
+                return Err(tables_key(key));
+            }
             set(edit, key, value).map_err(refused)?;
             let shown = shown_value(edit, key);
             Ok((key.to_owned(), format!("set {key} = {shown}")))
@@ -471,6 +474,9 @@ fn apply(
             let key = needed(input.key.as_deref(), "key", "unset")?;
             if key == "permissions.rules" {
                 return Err(rules_key());
+            }
+            if efr_config::kind(key) == Some(Kind::Rules) {
+                return Err(tables_key(key));
             }
             if !edit.unset(key).map_err(refused)? {
                 return Err(format!(
@@ -624,8 +630,9 @@ fn ids(models: &[ModelInfo]) -> String {
 /// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
 /// a model can allow exits that asked the user, undo turned on or covering more, so
 /// more destructive lines run without a question, a `[jobs]` key that lets jobs run
-/// longer, more often or at a higher priority, or a `[network]` key that opens the
-/// network view or efr's proxy (efr's auto spec, section 13.1).
+/// longer, more often or at a higher priority, a `[network]` key that opens the
+/// network view or efr's proxy, or a `[dbus]` key that opens the filtered bus (efr's
+/// auto spec, section 13.1).
 fn loosens(before: &Settings, next: &Settings) -> bool {
     let old = before.permissions.rules.rules();
     let new = next.permissions.rules.rules();
@@ -647,6 +654,24 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
         || snapshot_loosens(&before.snapshot, &next.snapshot)
         || jobs_loosens(&before.jobs, &next.jobs)
         || network_loosens(&before.network, &next.network)
+        || dbus_loosens(&before.dbus, &next.dbus)
+}
+
+/// True when `next` lets more bus calls run without a question than `before` (phase
+/// E): the filtered bus turned on, or a `[[dbus.allow]]` method that no entry of
+/// `before` names on the same bus and service.
+fn dbus_loosens(before: &DbusSettings, next: &DbusSettings) -> bool {
+    let known = |bus, name: &str, call: &String| {
+        before
+            .allow
+            .iter()
+            .any(|entry| entry.bus == bus && entry.name == name && entry.call.contains(call))
+    };
+    (next.proxy && !before.proxy)
+        || next
+            .allow
+            .iter()
+            .any(|entry| entry.call.iter().any(|call| !known(entry.bus, &entry.name, call)))
 }
 
 /// True when `next` lets more lines run without a question than `before`: the network
@@ -708,8 +733,8 @@ fn snapshot_loosens(before: &SnapshotSettings, next: &SnapshotSettings) -> bool 
 
 /// True when `next` opens the sandbox more than `before`: another bwrap, all projects
 /// writable, a new write root, cache, kept or promoted variable or rebuildable dir, a
-/// mask glob or synced folder less, or `ask_destructive` from `always` to
-/// `unless_undoable`.
+/// mask glob or synced folder less, `ask_destructive` from `always` to
+/// `unless_undoable`, or a new always-allow rule (`sandbox.allow`).
 fn sandbox_loosens(before: &SandboxSettings, next: &SandboxSettings) -> bool {
     fn adds<T: PartialEq>(before: &[T], next: &[T]) -> bool {
         next.iter().any(|item| !before.contains(item))
@@ -726,6 +751,7 @@ fn sandbox_loosens(before: &SandboxSettings, next: &SandboxSettings) -> bool {
         || adds(&before.rebuildable, &next.rebuildable)
         || (next.ask_destructive == AskDestructive::UnlessUndoable
             && before.ask_destructive != AskDestructive::UnlessUndoable)
+        || adds(&before.allow, &next.allow)
 }
 
 /// The rules of `rules` that `other` does not hold, each counted as often as it occurs.
@@ -843,6 +869,14 @@ fn missing(field: &str, operation: &str) -> String {
 
 fn rules_key() -> String {
     "permissions.rules holds tables; change it with add_rule and remove_rule".to_owned()
+}
+
+/// The answer for an array of tables other than the rules, such as `sandbox.allow`:
+/// this tool never writes one (efr's auto spec 11.2).
+fn tables_key(key: &str) -> String {
+    format!(
+        "{key} holds tables that only the user changes, in an editor; this tool cannot change it"
+    )
 }
 
 /// A config error with its causes, for the model.

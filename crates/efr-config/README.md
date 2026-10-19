@@ -12,7 +12,7 @@ Modules:
 - `tables`: one struct per table (`ModelSettings`, `OpenAiSettings`,
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
-  `SandboxSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
+  `SandboxSettings`, `DbusSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
   `JobsSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
   `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
@@ -55,7 +55,17 @@ Modules:
   `keep_downloads` (phase D2) keeps the private layer of the caches of
   `DOWNLOAD_CACHES` for the conversation in the `tmp` cache mode; it is not a loosening
   key, because it keeps the same private layer that the `overlay` mode keeps and opens
-  nothing of the host. The proxy and bus keys come with their phases.
+  nothing of the host. `allow` (phase E) holds the always-allow rules,
+  `[[sandbox.allow]]`, each an `efr_permissions::AllowRule` (`host`, `write` or
+  `socket`; this crate re-exports the type for `efr-cli`). It is `Kind::Rules`, so only
+  an editor and the entry operations of the writer change it. The load checks the shape
+  of each rule; efrd checks the floors.
+- `tables/dbus`: `[dbus]` (`DbusSettings`, phase E): `proxy` (default `false` while
+  phase E is built), whether the read forms of `systemctl`, `loginctl`, `hostnamectl`,
+  `timedatectl` and `localectl` run through efr's filtered bus, and `allow`
+  (`[[dbus.allow]]`, each an `efr_permissions::BusRule` with `bus`, `name` and `call`;
+  `Kind::Rules`), more bus methods on top of the built-in read methods. The load refuses
+  an entry that `efr_permissions::check_rules` refuses. Both keys are live.
 - `tables/network`: `[network]` (`NetworkSettings`): `netview` (default `true`, a
   live key), whether `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net`
   run in the sandbox with the host's network view and no network socket (phase D1).
@@ -110,7 +120,10 @@ Modules:
   non-empty names, and the host list of `[network]`: the error names the first entry
   of `allow`, `deny` or `hosts` that `HostList::compile` refuses (`*` alone, a suffix
   of one label, a name outside ASCII, an unknown preset, an IP address outside
-  `[[network.hosts]]`, port 0).
+  `[[network.hosts]]`, port 0). `validate::entries` checks each entry of
+  `sandbox.allow` (`AllowRule::check_shape`) and `dbus.allow` (`check_rules`), and the
+  error (`ConfigError::InvalidEntry`) names the entry's place, such as
+  `sandbox.allow[1]`, and the reason.
 - `keys`: `keys()`, every dotted key in the order the tables declare them; `kind()`,
   what a key holds, and `description()`, its doc comment, both from the JSON schema;
   `json_schema()`; `RESTART_KEYS`, the keys a change applies to only after a restart;
@@ -155,7 +168,13 @@ Modules:
   rule after the rules of the file (`[[permissions.rules]]` right below
   `[permissions]`, or the inline array the file already uses) and
   `Edit::remove_rule` removes one by its place; only the settings tool calls them, and
-  `efr config set` never changes rules.
+  `efr config set` never changes rules. Both use `Edit::add_table_entry` and
+  `Edit::remove_table_entry`, which change any array of tables of the file
+  (`permissions.rules`, `sandbox.allow`, `network.hosts`, `dbus.allow`) and keep the
+  form that the file uses: tables, an inline array, an inline parent table or a dotted
+  key. `add_table_entry` returns the new entry's index; `remove_table_entry` fails with
+  `ConfigError::NoEntry` for an index that the file does not have. The settings tool
+  never writes `sandbox.allow` or `dbus.allow`.
 
 `permissions.mode` is the mode of a turn whose prompt names none;
 `PermissionSettings::policy(mode)` is that mode's built-in policy followed by the
