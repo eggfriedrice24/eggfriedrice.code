@@ -118,6 +118,27 @@ pub(super) fn remote_command(words: &[String]) -> Option<RemoteCommand<'_>> {
     Some(RemoteCommand { kind, named, all })
 }
 
+/// The words after the subcommand of the git push `words` (`push` or `send-pack`,
+/// whatever the options before it), or `None` for any other command. A push runs
+/// outside the sandbox with the user's credentials.
+pub(super) fn git_push(words: &[String]) -> Option<&[String]> {
+    let (first, args) = words.split_first()?;
+    if base_name(first) != "git" {
+        return None;
+    }
+    let mut at = 0;
+    while let Some(word) = args.get(at) {
+        if GIT_VALUES.contains(&word.as_str()) {
+            at += 2;
+        } else if word.starts_with('-') {
+            at += 1;
+        } else {
+            return matches!(word.as_str(), "push" | "send-pack").then(|| &args[at + 1..]);
+        }
+    }
+    None
+}
+
 /// The words of `rest` that are no option and no option's value.
 fn operands(rest: &[String]) -> Vec<&str> {
     let mut found = Vec::new();

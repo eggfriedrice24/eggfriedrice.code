@@ -326,7 +326,12 @@ into the GitHub release notes, and it stops when the section is missing.
   the reviewer. A remote of your project that did not change since the conversation
   started counts as named by you. With the proxy, a fetch from an ssh remote, `ssh`,
   `mosh` and `autossh` run outside the sandbox with your ssh keys, and only after a
-  message of yours names the host (or the remote is your project's).
+  message of yours names the host (or the remote is your project's). A line that can
+  send ssh to another host first or run a command on your machine, such as `ssh -J`,
+  `ssh -F`, `ssh -o ProxyCommand=...`, `mosh --ssh`, `git -c core.sshCommand=...` or
+  `GIT_SSH_COMMAND=...`, always asks you. A `git push` whose host efr cannot tell,
+  such as `git --git-dir=... push`, a push after a `cd` or a push to a local path,
+  also asks you.
 - With the proxy, tools that send an Encrypted Client Hello, such as headless Chrome,
   Electron and Playwright, cannot fetch through the proxy.
 - `efr status` and `efr sandbox check` show the network of a sandboxed command:

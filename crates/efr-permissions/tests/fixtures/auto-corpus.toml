@@ -903,6 +903,7 @@ pb = "N(upload)"
 exits = ["upload"]
 reads = ["/home/u/p/efr/push", "/home/u/p/efr/origin", "/home/u/p/efr/main"]
 network = true
+remotes = ["origin=github.com"]
 
 [[line]]
 n = 57

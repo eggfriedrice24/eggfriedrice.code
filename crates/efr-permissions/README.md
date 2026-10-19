@@ -260,13 +260,20 @@ Modules:
   list as a URL host does, and a fetch from an ssh remote is an `outside` exit with its
   hosts as names (`ClassifierWhenNamed`); an ssh submodule URL comes from
   `.gitmodules`, which the model can write, so only the user approves it. A directory
-  with no fact keeps the line's own hosts.
+  with no fact keeps the line's own hosts. A `git push` with no host at all (its facts
+  dropped, a `cd` first, a local path, a URL that efrd could not read) is for the user:
+  the naming rule would have nothing to check.
   Under the proxy `ssh`, `mosh`, `autossh` and a git command with an ssh URL on its
   line (`git clone git@host:o/r.git`, `ssh://`) are `outside` exits too (the proxy
   carries no ssh): each carries its host in `ExitNeed::hosts` and as its name, so the
   classifier judges it only when a user message names that host (DP20 (e), (f)). A
-  destination that efr cannot read, such as `$HOST`, is for the user. With no proxy
-  they stay `host` exits with the whole network.
+  destination that efr cannot read, such as `$HOST`, is for the user, and so is a form
+  that the line steers (`ssh_steered`, `git_steers_ssh`, `sets_ssh_env`): `ssh -F`,
+  `-J`, `-W`, an `-o` that can reach another host or run a local command, `mosh --ssh`
+  or `--client`, a git config value, exec path, template or submodule clone of the
+  line, and a line that sets a `GIT_*`, `SSH_*` or `AUTOSSH_*` variable (which also
+  sends a `git push` to the user). With no proxy they stay `host` exits with the whole
+  network.
 - `tables`: `SANDBOX_MASKS`, `PROTECTED_NAMES` and `PERSISTENCE_FLOORS`, which the
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each

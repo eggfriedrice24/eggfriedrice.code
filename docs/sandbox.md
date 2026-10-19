@@ -776,9 +776,18 @@ it.
   outside the sandbox with your ssh keys. The record names the host, and the reviewer
   may allow it only when a message of yours names the host, or when the remote belongs
   to your registered project and did not change since the conversation started. An ssh
-  URL of `.gitmodules`, which a command can write, always asks you.
+  URL of `.gitmodules`, which a command can write, always asks you. A line that can
+  send ssh to another host first or run a command on your machine always asks you too:
+  `ssh -F`, `-J` or `-W`; `ssh -o` with `ProxyCommand`, `ProxyJump`, `HostName`,
+  `LocalCommand`, `PermitLocalCommand`, `KnownHostsCommand`, `Match` or `Include`;
+  `mosh --ssh` or `--client`; `git -c`, `--config-env` or `--exec-path`; `git clone
+  -c`, `--config`, `--template` or `--recurse-submodules`; and a line that sets a
+  `GIT_*`, `SSH_*` or `AUTOSSH_*` variable, such as `GIT_SSH_COMMAND`.
 - `git push` and the other uploads stay `upload` exits outside the sandbox, as before.
-  The reviewer now sees every host behind the remote name.
+  The reviewer now sees every host behind the remote name. A `git push` whose host efr
+  cannot tell, such as `git --git-dir=... push`, a push after a `cd`, or a push to a
+  local path, asks you, and so does a push in a line that sets a `GIT_*` or `SSH_*`
+  variable.
 - A line that also reads your network, such as `ss -tln; curl https://x`, keeps the
   `host_view` exit with the whole network: the network view never joins a proxy call.
 
