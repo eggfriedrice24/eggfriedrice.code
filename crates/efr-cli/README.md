@@ -662,6 +662,24 @@ a named thread puts the terminal into non-canonical mode without echo, discards 
 typed before the question, and restores the terminal before the command goes on or
 exits. Without a terminal on stdin, the question waits for another client (the phone).
 
+An exit question whose daemon offers an always rule (`ExitInfo.always`, phase E) also
+takes `a`: its keys row is `y allow · n deny · a always: write under ~/notes`, with the
+rule through `format::one_line`. `a` does not answer at once. The keys row becomes the
+confirm `save rule "write under ~/notes"? y/n`, and the reader takes a new mark
+(`KeyReader::mark`): a key typed before the confirm showed answers nothing and goes
+nowhere. Then `y` sends `allow_always`, and any other key, Esc too, shows the question
+again with no answer. The answer goes before the card gives its place: when efrd
+refuses it (`forbidden`, `invalid`), the question stays open, a note says why, and the
+keys row is `y allow · n deny` again. A question that offers no rule, and the
+quarantine question, ignore `a`. The answer line is `✓ allowed always`. Then one dim
+line says what came of the rule (`always_rule_saved`): `saved as sandbox.allow[2]:
+write under ~/notes`, `rule not saved: config.toml is read-only; the command ran once`,
+or, when efrd wrote the rule but did not read the file again in time, that a later
+command can ask once more. When stdout is not a terminal, the first rows of the call
+wait for that line. A call that an always rule covers asks nothing: one dim line,
+`allowed by your rule sandbox.allow[2]: write under ~/notes`, comes before its rows, as
+a reviewer's allow does, and `efr history` shows the same line.
+
 Answers to a running command work the same way. `conversation.subscribe` sends
 `answers_input: true` exactly when stdin is a terminal, so the daemon knows that a
 person here can type. When `tool_call_input_changed` says that the running call waits

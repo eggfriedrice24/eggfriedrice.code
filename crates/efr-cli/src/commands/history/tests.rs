@@ -1067,6 +1067,78 @@ fn history_shows_reviewer_and_backup_lines() {
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
+/// A turn of `auto` in phase E: the user answers `a` to a write question, the rule is
+/// saved, and a later call runs by that rule with no question.
+fn always_events() -> Vec<EventEnvelope> {
+    let second: efr_protocol::CallId = "019a9b1c-3d00-7a10-8b20-0000000000b2".parse().unwrap();
+    let write = efr_protocol::Grant::Write { path: PathBuf::from("/home/user/notes") };
+    let events = vec![
+        Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "write ~/notes/a".to_owned(),
+            diff_preview: None,
+            interactive: false,
+            exit: Some(ExitInfo {
+                always: Some("write under ~/notes".to_owned()),
+                ..exit_info(&[ExitKind::Write], Launch::Contained { grants: vec![write] })
+            }),
+        },
+        Event::ApprovalResolved {
+            turn_id: turn(),
+            call_id: call(),
+            decision: ApprovalDecision::AllowAlways,
+            origin: Origin::Shell,
+        },
+        Event::AlwaysRuleSaved {
+            turn_id: turn(),
+            call_id: call(),
+            outcome: efr_protocol::AlwaysSaved::Saved {
+                index: 2,
+                rule: "write under ~/notes".to_owned(),
+            },
+        },
+        Event::ExitJudged {
+            turn_id: turn(),
+            call_id: second,
+            judge: JudgeKind::Always,
+            verdict: Verdict::Allow,
+            model: None,
+            latency_ms: None,
+            risk: None,
+            user_authorization: None,
+            category: Some("sandbox.allow[2]".to_owned()),
+            rationale: Some("write under ~/notes".to_owned()),
+            record_sha256: None,
+            cached: false,
+            chain_step: None,
+            skipped: Vec::new(),
+        },
+    ];
+    events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+}
+
+#[test]
+fn history_shows_judge_always_with_the_rule() {
+    let page = ConversationHistoryResult { events: always_events(), next_cursor: None };
+    let options = RenderOptions::new(80).with_terminal(false);
+    let home = Some(Path::new("/home/user"));
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    assert!(plain.contains("allowed always from the shell\n"), "{plain}");
+    assert!(plain.contains("saved as sandbox.allow[2]: write under ~/notes\n"), "{plain}");
+    assert!(
+        plain.contains("allowed by your rule sandbox.allow[2]: write under ~/notes\n"),
+        "{plain}"
+    );
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    assert!(
+        verbose.contains("exit allowed by an always-allow rule: sandbox.allow[2]\n"),
+        "{verbose}"
+    );
+}
+
 /// A turn of `auto` in phase B: efr copies a floor file into its home store, takes a
 /// snapshot before and after, and a later `efr undo` takes the turn back.
 fn undo_events() -> Vec<EventEnvelope> {

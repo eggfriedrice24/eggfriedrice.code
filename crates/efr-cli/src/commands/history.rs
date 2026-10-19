@@ -23,7 +23,7 @@ use efr_client::Client;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin,
-    PageCursor, Seq, TurnId, TurnUndoInfo,
+    PageCursor, Seq, TurnId, TurnUndoInfo, Verdict,
 };
 use efr_render::{RenderOptions, render, render_trace};
 
@@ -472,6 +472,11 @@ impl<'a> Transcript<'a> {
                 {
                     self.note(&line);
                 }
+                // NOTE: a call that an always rule covered had no question: the line
+                // names the rule, as the follow view does.
+                if *judge == JudgeKind::Always && *verdict == Verdict::Allow {
+                    self.note(&format::always::covered(category.as_deref(), rationale.as_deref()));
+                }
                 if self.verbose {
                     self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));
                     let details = sandbox::judge_details(
@@ -514,6 +519,7 @@ impl<'a> Transcript<'a> {
                     format!("{} from {}", format::decision(*decision), format::origin(*origin));
                 self.note(&line);
             }
+            Event::AlwaysRuleSaved { outcome, .. } => self.note(&format::always::saved(outcome)),
             Event::ApprovalExpired { away: true, .. } => self.note(sandbox::AWAY_EXPIRED),
             Event::ApprovalExpired { .. } => self.note("the approval expired"),
             Event::ClassifierPaused { reason, denials, .. } => {

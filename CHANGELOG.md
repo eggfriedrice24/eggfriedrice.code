@@ -229,7 +229,12 @@ into the GitHub release notes, and it stops when the section is missing.
   `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
   no question and no review. Rules cover one host and port, one write dir, or one
   socket. efr keeps the comments of the file. A rule that no longer passes the floor
-  checks is disabled with a warning; efrd still starts.
+  checks is disabled with a warning; efrd still starts. The question shows the rule
+  next to its keys, such as `a always: write under ~/notes`, and `a` first asks
+  `save rule "write under ~/notes"? y/n`: any key but `y` goes back to the question.
+  Then one line says `saved as sandbox.allow[2]: write under ~/notes`, or why efr did
+  not save it. A command that a rule covers shows `allowed by your rule
+  sandbox.allow[2]: write under ~/notes`, also in `efr history`.
 - With `[dbus] proxy = true`, a bus call that the filter refuses fails in the command,
   and efr tells the model which call the filter refused and how to ask for the whole
   bus for one command. The record of a command or a job keeps the refused calls. When

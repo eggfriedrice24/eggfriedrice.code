@@ -1,7 +1,7 @@
 use efr_render::{ColourMode, RenderOptions, WidthMethod, display_width};
 use pretty_assertions::assert_eq;
 
-use super::{ALLOW_KEYS, Card, Footer, Row, approval};
+use super::{ALLOW_KEYS, Card, Footer, Row, approval, footer_row};
 use crate::format::{CommandRow, RowEnd, Tone, WORD_MARK, WRAP_MARK, wrap_command, wrap_spans};
 use crate::testing::readable;
 
@@ -132,7 +132,7 @@ const LONG_ECHO: &str = "echo \"built $HOME/p/eggfriedrice.code/target/debug/bui
 fn a_cut_inside_a_word_shows_no_space_that_the_command_does_not_have() {
     let card = approval(&format!("shell: run {LONG_ECHO:?}"), Some("shell"), Some(LONG_ECHO));
     for columns in [24_u16, 40, 80] {
-        let shown = card.render(Some(Footer::Keys(ALLOW_KEYS)), &plain(columns));
+        let shown = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &plain(columns));
         let rows: Vec<String> = bare(&shown).lines().map(str::to_owned).collect();
         for (at, row) in rows.iter().enumerate() {
             assert!(display_width(row, WidthMethod::CodePoint) <= usize::from(columns), "{row:?}");
@@ -151,7 +151,7 @@ fn a_cut_inside_a_word_shows_no_space_that_the_command_does_not_have() {
         }
         assert_eq!(command_of(&shown), LONG_ECHO, "{columns}: {shown}");
     }
-    let shown = card.render(Some(Footer::Keys(ALLOW_KEYS)), &plain(40));
+    let shown = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &plain(40));
     insta::assert_snapshot!(bare(&shown));
 }
 
@@ -207,7 +207,7 @@ fn command_card() -> Card {
 fn every_row_of_a_card_fits_the_screen_and_the_command_shows_whole() {
     let card = command_card();
     for columns in [24_u16, 40, 80] {
-        let shown = card.render(Some(Footer::Keys(ALLOW_KEYS)), &plain(columns));
+        let shown = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &plain(columns));
         for row in bare(&shown).lines() {
             let width = display_width(row, WidthMethod::CodePoint);
             assert!(width <= usize::from(columns), "{columns}: {row:?}");
@@ -228,11 +228,11 @@ fn a_card_at_40_and_80_columns_with_colour_and_without() {
         for (name, options) in
             [("colour", RenderOptions::new(columns)), ("NO_COLOR", plain(columns))]
         {
-            let text = card.render(Some(Footer::Keys(ALLOW_KEYS)), &options);
+            let text = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &options);
             shown.push(format!("{columns} columns, {name}:\n{}", readable(&text)));
         }
     }
-    let piped = card.render(Some(Footer::Waiting), &RenderOptions::new(40).with_terminal(false));
+    let piped = card.render(Some(&Footer::Waiting), &RenderOptions::new(40).with_terminal(false));
     shown.push(format!("not a terminal:\n{piped}"));
     insta::assert_snapshot!(shown.join("\n"));
 }
@@ -274,4 +274,32 @@ fn a_command_keeps_its_control_and_format_characters_as_stand_ins() {
     let card =
         approval("shell: run \"echo a\\u{202e}b\\r\"", Some("shell"), Some("echo a\u{202e}b\r"));
     assert_eq!(card.rows, [Row::Command("echo a\u{fffd}b\u{240d}".to_owned())]);
+}
+
+#[test]
+fn the_always_key_and_its_confirm_follow_the_keys_and_wrap_after_the_bar() {
+    let always = Footer::Always("write under ~/notes".to_owned());
+    assert_eq!(
+        bare(&footer_row(&always, &plain(80))),
+        "\u{2502} y allow \u{b7} n deny \u{b7} a always: write under ~/notes\n"
+    );
+    let confirm = Footer::Confirm("write under ~/notes".to_owned());
+    assert_eq!(
+        bare(&footer_row(&confirm, &plain(80))),
+        "\u{2502} save rule \"write under ~/notes\"? y/n\n"
+    );
+    // A long rule goes on in the next row after the bar, indented, never past the screen.
+    let long = Footer::Always("write under ~/projects/a-rather-long-name/notes".to_owned());
+    let rows = bare(&footer_row(&long, &plain(30)));
+    assert!(rows.lines().count() > 1, "{rows}");
+    for line in rows.lines() {
+        assert!(line.starts_with('\u{2502}'), "{rows}");
+        assert!(display_width(line, WidthMethod::Grapheme) <= 30, "{rows}");
+    }
+    // Without a rule, the keys paint as they always did.
+    let painted = footer_row(&Footer::Keys(ALLOW_KEYS), &RenderOptions::new(40));
+    let card = Card { title: "t".to_owned(), rows: Vec::new() };
+    let whole = card.render(Some(&Footer::Keys(ALLOW_KEYS)), &RenderOptions::new(40));
+    assert!(whole.ends_with(&painted), "{whole:?}");
+    assert_eq!(bare(&painted), "\u{2502} y allow \u{b7} n deny\n");
 }

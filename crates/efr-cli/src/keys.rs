@@ -67,6 +67,17 @@ pub(crate) fn decision(key: u8) -> Option<ApprovalDecision> {
     }
 }
 
+/// The answer a key gives to an exit question: `y` allows and `n` denies, as
+/// [`decision`] says, and `a` gives [`ApprovalDecision::AllowAlways`] when the question
+/// offers a rule (`offered`). An `a` never answers at once: the caller asks for the
+/// confirm first. Anything else is ignored.
+pub(crate) fn decision_with_always(key: u8, offered: bool) -> Option<ApprovalDecision> {
+    match key {
+        b'a' | b'A' if offered => Some(ApprovalDecision::AllowAlways),
+        _ => decision(key),
+    }
+}
+
 /// One key from the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Key {

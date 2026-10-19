@@ -1857,4 +1857,5 @@ async fn drafts_reach_the_screen_before_the_persisted_text_and_show_once() {
     assert!(!out.contains("The disk isThe"), "{}", readable(&out));
 }
 
+mod always;
 mod row;

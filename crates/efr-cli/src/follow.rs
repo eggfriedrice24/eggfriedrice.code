@@ -370,6 +370,10 @@ type Stopping<'a> = Pin<Box<dyn Future<Output = Result<JobsStopResult, ClientErr
 enum Asking {
     /// An approval, with one key.
     Approval(CallId),
+    /// The confirm of an `a` answer to the approval of a call (phase E): `y` saves the
+    /// rule that its question offers and runs the call, any other key asks the question
+    /// again. The keys typed before the confirm showed never answer it.
+    Always(CallId),
     /// The input that a running call waits for, with a line.
     Input { call_id: CallId, kind: AnswerKind, line: AnswerLine },
     /// Nothing: the keys are thrown away until the call that asked for a hidden answer
@@ -420,7 +424,11 @@ enum Seed {
 /// so the rest of a password neither shows nor reaches the user's shell.
 async fn stop(keys: KeyReader, asking: &Asking) {
     match asking {
-        Asking::Approval(_) | Asking::Surface(_) | Asking::StopJob | Asking::Row => {
+        Asking::Approval(_)
+        | Asking::Always(_)
+        | Asking::Surface(_)
+        | Asking::StopJob
+        | Asking::Row => {
             keys.stop().await;
         }
         Asking::Input { .. } | Asking::Discard | Asking::Pending { .. } => {
@@ -928,7 +936,7 @@ impl Follower<'_> {
         out: &mut Output,
         view: &mut TurnView,
     ) -> Result<(), CliError> {
-        let Some((reader, asking)) = self.keys.take() else {
+        let Some((mut reader, asking)) = self.keys.take() else {
             return Ok(());
         };
         let Some(key) = key else {
@@ -938,6 +946,12 @@ impl Follower<'_> {
         if matches!(asking, Asking::Row) {
             self.keys = Some((reader, Asking::Row));
             return self.row_key(key, out, view).await;
+        }
+        // NOTE: a key typed after the question but before its confirm showed was typed
+        // for the question, so it answers nothing and goes nowhere.
+        if matches!(asking, Asking::Always(_)) && reader.before_mark() {
+            self.keys = Some((reader, asking));
+            return Ok(());
         }
         // NOTE: a key typed before the question appeared, or the rest of a paste that
         // it cut, is the row's: it never answers the question, and it never sends.
@@ -960,22 +974,48 @@ impl Follower<'_> {
                 Ok(())
             }
             Asking::Approval(call_id) => {
-                let Some(decision) = keys::decision(key) else {
+                let offered = view.offers_always(call_id);
+                let Some(decision) = keys::decision_with_always(key, offered) else {
                     self.keys = Some((reader, Asking::Approval(call_id)));
                     return Ok(());
                 };
-                let step = view.answered(call_id, decision, self.ctx.screen.size());
-                match step.ask {
-                    // The call may wait for input: the reader goes on, and the keys
-                    // typed after the `y` are kept for it.
-                    Some(Ask::Retain(kept)) => {
-                        let line = AnswerLine::new();
-                        self.keys = Some((reader, Asking::Pending { call_id: kept, line }));
-                    }
-                    _ => self.release(reader, &Asking::Approval(call_id), view).await,
+                if decision == ApprovalDecision::AllowAlways {
+                    // NOTE: `a` saves a standing rule, so it asks first. The keys typed
+                    // before the confirm showed come before the mark, and go.
+                    reader.discard_queued();
+                    reader.mark();
+                    self.keys = Some((reader, Asking::Always(call_id)));
+                    let step = view.confirm_always(call_id, self.ctx.screen.size());
+                    return self.show(out, view, &step);
                 }
-                self.show(out, view, &step)?;
-                self.respond(call_id, decision, out, view).await
+                self.settle_answer(reader, call_id, decision, out, view).await?;
+                let answer = self.send_answer(call_id, decision).await;
+                self.answer_sent(answer, out, view)
+            }
+            Asking::Always(call_id) => {
+                if !matches!(key, b'y' | b'Y') {
+                    self.keys = Some((reader, Asking::Approval(call_id)));
+                    let step = view.always_cancelled(call_id, self.ctx.screen.size());
+                    return self.show(out, view, &step);
+                }
+                // NOTE: the answer goes first: the daemon refuses an `a` from a client
+                // that may not save a rule, or for a question that offers none, and the
+                // question then stays open, so this client asks it again.
+                let decision = ApprovalDecision::AllowAlways;
+                match self.send_answer(call_id, decision).await {
+                    Err(ClientError::Server { body })
+                        if matches!(body.code, ErrorCode::Forbidden | ErrorCode::Invalid) =>
+                    {
+                        self.keys = Some((reader, Asking::Approval(call_id)));
+                        let size = self.ctx.screen.size();
+                        let step = view.always_refused(call_id, &body.message, size);
+                        self.show(out, view, &step)
+                    }
+                    answer => {
+                        self.settle_answer(reader, call_id, decision, out, view).await?;
+                        self.answer_sent(answer, out, view)
+                    }
+                }
             }
             Asking::StopJob => {
                 let stop = match key {
@@ -1522,20 +1562,54 @@ impl Follower<'_> {
         self.show(out, view, &step)
     }
 
-    async fn respond(
+    /// The approval `call_id` was answered here with `decision`: its card gives its place
+    /// to the answer line, and the keys go back, or stay for a call that may wait for
+    /// input.
+    async fn settle_answer(
         &mut self,
+        reader: KeyReader,
         call_id: CallId,
         decision: ApprovalDecision,
         out: &mut Output,
         view: &mut TurnView,
     ) -> Result<(), CliError> {
+        let step = view.answered(call_id, decision, self.ctx.screen.size());
+        match step.ask {
+            // The call may wait for input: the reader goes on, and the keys
+            // typed after the `y` are kept for it.
+            Some(Ask::Retain(kept)) => {
+                let line = AnswerLine::new();
+                self.keys = Some((reader, Asking::Pending { call_id: kept, line }));
+            }
+            _ => self.release(reader, &Asking::Approval(call_id), view).await,
+        }
+        self.show(out, view, &step)
+    }
+
+    /// Sends the answer `decision` to the approval `call_id`.
+    async fn send_answer(
+        &mut self,
+        call_id: CallId,
+        decision: ApprovalDecision,
+    ) -> Result<ApprovalRespondResult, ClientError> {
         let method = Method::ApprovalRespond(ApprovalRespond {
             command_id: self.ctx.command_id(),
             conversation_id: self.target.conversation,
             call_id,
             decision,
         });
-        match self.client().call::<ApprovalRespondResult>(method).await {
+        self.client().call::<ApprovalRespondResult>(method).await
+    }
+
+    /// What the daemon said to an answer: nothing to show when it took it, a note when
+    /// it was answered elsewhere first or expired.
+    fn answer_sent(
+        &mut self,
+        answer: Result<ApprovalRespondResult, ClientError>,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        match answer {
             Ok(_) => Ok(()),
             // Answered elsewhere first, or expired: the events say which.
             Err(ClientError::Server { body })

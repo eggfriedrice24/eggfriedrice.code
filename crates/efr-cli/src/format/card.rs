@@ -9,6 +9,11 @@
 //! │ y allow · n deny
 //! ```
 //!
+//! An exit question for which the daemon offers a rule (`ExitInfo::always`, phase E)
+//! gets the key `a` in its last row, with the rule: `y allow · n deny · a always: write
+//! under ~/notes`. After an `a`, the last row is the confirm, `save rule "write under
+//! ~/notes"? y/n`, until the next key.
+//!
 //! The title and what needs the user's care are in the `warning` role, the bar and the
 //! secondary facts are muted, and what runs is in the `code` role. Every line of a
 //! command shows, each on its own, and nothing of what runs is cut: a line wider than
@@ -40,6 +45,10 @@ const TEXT_INDENT: &str = "  ";
 /// The keys of an approval.
 pub(crate) const ALLOW_KEYS: &[(&str, &str)] = &[("y", "allow"), ("n", "deny")];
 
+/// The key that saves the rule that an exit question offers (phase E). It asks for a
+/// confirm first.
+pub(crate) const ALWAYS_KEY: &str = "a";
+
 /// The keys of the quarantine question.
 pub(crate) const KEEP_KEYS: &[(&str, &str)] = &[("y", "keep"), ("n", "leave in quarantine")];
 
@@ -68,10 +77,16 @@ impl Row {
 }
 
 /// What the last row of a card says.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Footer {
     /// The keys that answer it here.
     Keys(&'static [(&'static str, &'static str)]),
+    /// The keys of an approval and `a`, which saves the rule that the question offers:
+    /// `y allow · n deny · a always: write under ~/notes`. The rule is safe to print.
+    Always(String),
+    /// The confirm of an `a` answer: `save rule "write under ~/notes"? y/n`. The rule is
+    /// safe to print.
+    Confirm(String),
     /// Another client must answer it.
     Waiting,
 }
@@ -86,7 +101,7 @@ pub(crate) struct Card {
 impl Card {
     /// The card as lines, each with its newline, the last row `footer` when there is
     /// one: cut into rows of the screen's width on a terminal, as they are elsewhere.
-    pub(crate) fn render(&self, footer: Option<Footer>, options: &RenderOptions) -> String {
+    pub(crate) fn render(&self, footer: Option<&Footer>, options: &RenderOptions) -> String {
         let columns = columns(options);
         let mut out = String::new();
         let title = vec![(format!("{MARK}{}", self.title), Tone::Attention)];
@@ -107,16 +122,53 @@ impl Card {
     }
 }
 
-/// The last row of a card, with its newline: the keys, or that another client must
-/// answer.
-pub(crate) fn footer_row(footer: Footer, options: &RenderOptions) -> String {
-    let mut out = paint(BAR, Tone::Dim, options);
-    match footer {
-        Footer::Keys(keys) => out.push_str(&super::keys(keys, options)),
-        Footer::Waiting => out.push_str(&paint(WAITING, Tone::Dim, options)),
+/// The last row of a card, with its newline: the keys, the confirm of an `a` answer,
+/// or that another client must answer. A row with a rule that is wider than the screen
+/// goes on in the next row, indented, as a text row does.
+pub(crate) fn footer_row(footer: &Footer, options: &RenderOptions) -> String {
+    let bar = paint(BAR, Tone::Dim, options);
+    let pieces = match footer {
+        Footer::Keys(keys) => return format!("{bar}{}\n", super::keys(keys, options)),
+        Footer::Waiting => return format!("{bar}{}\n", paint(WAITING, Tone::Dim, options)),
+        Footer::Always(rule) => {
+            let mut pieces = key_pieces(ALLOW_KEYS);
+            pieces.push((" \u{b7} ".to_owned(), Tone::Dim));
+            pieces.push((ALWAYS_KEY.to_owned(), Tone::Bold));
+            pieces.push((format!(" always: {rule}"), Tone::Dim));
+            pieces
+        }
+        Footer::Confirm(rule) => vec![
+            (format!("save rule \"{rule}\"? "), Tone::Attention),
+            ("y".to_owned(), Tone::Bold),
+            ("/".to_owned(), Tone::Dim),
+            ("n".to_owned(), Tone::Bold),
+        ],
+    };
+    let mut out = String::new();
+    let rows = spans(&pieces, columns(options), BAR.chars().count(), TEXT_INDENT.len());
+    for (at, row) in rows.into_iter().enumerate() {
+        out.push_str(&bar);
+        if at > 0 {
+            out.push_str(TEXT_INDENT);
+        }
+        push_pieces(&mut out, &row, options);
+        out.push('\n');
     }
-    out.push('\n');
     out
+}
+
+/// `keys` as pieces of a row: each key in bold, what it does muted, a muted dot between
+/// them, as [`super::keys`] paints them.
+fn key_pieces(keys: &[(&str, &str)]) -> Vec<(String, Tone)> {
+    let mut pieces = Vec::new();
+    for (at, (key, what)) in keys.iter().enumerate() {
+        if at > 0 {
+            pieces.push((" \u{b7} ".to_owned(), Tone::Dim));
+        }
+        pieces.push(((*key).to_owned(), Tone::Bold));
+        pieces.push((format!(" {what}"), Tone::Dim));
+    }
+    pieces
 }
 
 /// Adds the screen rows of `row`, each after the bar, with their newlines.

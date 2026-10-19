@@ -22,6 +22,7 @@ use jiff::Timestamp;
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation as _;
 
+pub(crate) mod always;
 pub(crate) mod card;
 pub(crate) mod changes;
 pub(crate) mod context;
@@ -91,8 +92,9 @@ pub(crate) enum Block {
 }
 
 /// Separates blocks by a blank line, except consecutive notes, which read as one
-/// group, the answer right after the question it answers, and the call right after the
-/// answer that settled it.
+/// group, the answer right after the question it answers, the call right after the
+/// answer that settled it, and the line of what an `a` answer saved right after that
+/// answer.
 #[derive(Debug, Default)]
 pub(crate) struct Spacing {
     last: Option<Block>,
@@ -113,7 +115,7 @@ impl Spacing {
             (None, _)
             | (Some(Block::Note), Block::Note)
             | (Some(Block::Question), Block::Settled | Block::Answer)
-            | (Some(Block::Settled), Block::Call) => "",
+            | (Some(Block::Settled), Block::Call | Block::Settled) => "",
             _ => "\n",
         }
     }
@@ -755,9 +757,15 @@ pub(crate) fn turn_settings(settings: &EffectiveSettings, all: bool) -> Option<S
 pub(crate) fn decision(decision: ApprovalDecision) -> &'static str {
     match decision {
         ApprovalDecision::Allow => "allowed",
+        ApprovalDecision::AllowAlways => "allowed always",
         ApprovalDecision::Deny => "denied",
         _ => "answered",
     }
+}
+
+/// True when the answer runs the call: a "yes", also with an always rule.
+pub(crate) fn allows(decision: ApprovalDecision) -> bool {
+    matches!(decision, ApprovalDecision::Allow | ApprovalDecision::AllowAlways)
 }
 
 /// The surface that did something, as the user knows it.

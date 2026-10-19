@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/follow/view/tests/always.rs
+expression: err
+---
+? allow ~/notes writable for this call
+│ echo hi > ~/notes/x
+│ why: write ~/notes
+│ y allow · n deny · a always: write under ~/notes

@@ -1,0 +1,14 @@
+---
+source: crates/efr-cli/src/follow/tests/always.rs
+expression: err
+---
+? allow /home/user/notes writable for this call
+│ write ~/notes/x
+│ why: write /home/user/notes
+│ y allow · n deny · a always: write under ~/notes
+│ save rule "write under ~/notes"? y/n
+│ y allow · n deny · a always: write under ~/notes
+│ save rule "write under ~/notes"? y/n
+✓ allowed always
+
+saved as sandbox.allow[0]: write under ~/notes
