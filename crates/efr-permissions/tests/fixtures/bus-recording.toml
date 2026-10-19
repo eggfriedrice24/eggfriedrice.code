@@ -391,6 +391,12 @@ why = "the older form of ListUnitFilesByPatterns"
 [[kept]]
 bus = "system"
 name = "org.freedesktop.login1"
+call = "org.freedesktop.login1.Manager.ListSessions@/org/freedesktop/login1"
+why = "loginctl list-sessions of systemd 255 and older (Ubuntu 24.04, Debian 12); ListSessionsEx came in systemd 256"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.login1"
 call = "org.freedesktop.login1.Manager.GetUser@/org/freedesktop/login1"
 why = "loginctl show-user and user-status with a user name"
 

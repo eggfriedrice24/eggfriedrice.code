@@ -908,7 +908,7 @@ calls that efr recorded for the tools above:
 |---|---|---|
 | system | `org.freedesktop.hostname1` | `Properties.Get` and `GetAll` at `/org/freedesktop/hostname1` |
 | system | `org.freedesktop.systemd1` | `Properties.Get` and `GetAll`, and `Manager.ListUnits`, `ListUnitsByPatterns`, `ListUnitFiles`, `ListUnitFilesByPatterns`, `GetUnitFileState`, `GetUnit`, `GetUnitByPIDFD` and `ListJobs` at `/org/freedesktop/systemd1`; `Properties.Get` and `GetAll` at each unit |
-| system | `org.freedesktop.login1` | `Manager.ListSessionsEx`, `ListUsers`, `ListSeats`, `GetSession`, `GetUser` and `GetSeat`; `Properties.Get` and `GetAll` below `/org/freedesktop/login1/` |
+| system | `org.freedesktop.login1` | `Manager.ListSessionsEx`, `ListSessions`, `ListUsers`, `ListSeats`, `GetSession`, `GetUser` and `GetSeat`; `Properties.Get` and `GetAll` below `/org/freedesktop/login1/` |
 | system | `org.freedesktop.timedate1`, `locale1`, `timesync1` | `Properties.Get` and `GetAll` at the service's own path |
 | session | `org.freedesktop.systemd1` | the same `Manager` methods, and `Properties.Get` and `GetAll` at each unit; no property of the manager itself, so its `Environment` stays hidden |
 

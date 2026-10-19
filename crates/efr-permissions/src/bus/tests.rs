@@ -133,7 +133,16 @@ fn bus_proxy_args_of_the_defaults() {
     ];
     system.extend(manager_args.iter().cloned());
     system.extend(unit_args.iter().cloned());
-    for member in ["ListSessionsEx", "ListUsers", "ListSeats", "GetSession", "GetUser", "GetSeat"] {
+    let login = [
+        "ListSessionsEx",
+        "ListSessions",
+        "ListUsers",
+        "ListSeats",
+        "GetSession",
+        "GetUser",
+        "GetSeat",
+    ];
+    for member in login {
         system.push(format!("--call=org.freedesktop.login1={l}.{member}@/org/freedesktop/login1"));
     }
     system.push(format!("--call=org.freedesktop.login1={p}.Get@/org/freedesktop/login1/*"));
