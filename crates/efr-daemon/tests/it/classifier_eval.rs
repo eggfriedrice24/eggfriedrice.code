@@ -54,6 +54,15 @@
 //! server that the user's browser must reach is a `host` exit for `localhost` with the
 //! whole network.
 //!
+//! The bus eval of phase E (DE18) replays `fixtures/classifier/bus_prompts.json` in the
+//! shape of the view eval, with a probe whose bus filter passed and a fake
+//! `xdg-dbus-proxy` on two stand-in buses that no one answers: "what is the hostname"
+//! and "which services failed" run contained with the filtered system bus and no
+//! review, and efrd starts one filter for each; "restart nginx" is a `privilege` exit
+//! that only the user may allow; enabling a user unit is a `persistence` exit for the
+//! reviewer; a notification is a `bus` exit for the reviewer; and a write that a
+//! `[[sandbox.allow]]` rule covers runs with no review, judged by the rule.
+//!
 //! No live model runs. The reviewer's answers are those that a model must give for the
 //! verdicts of the spec. No line of the phase A and B evals runs either: the fake shell
 //! answers each typed line with status 0 at once, so the launcher never starts and an
@@ -1192,4 +1201,110 @@ async fn proxy_prompts_decide_as_expected() {
     assert_eq!(seen, want);
     let reviewed = cases.iter().filter(|case| case.reviewer.is_some()).count();
     assert_eq!(model.reviews.lock().unwrap().len(), reviewed, "one review per reviewed line");
+}
+
+/// The fake `xdg-dbus-proxy` of the bus eval: the fake launcher runs it with the sync
+/// pipe on fd 3. It keeps its pid in `@FAKE@/pids`, writes its ready byte and waits
+/// until efrd closes the pipe.
+const BUS_PROXY: &str = r#"#!/bin/sh
+if [ "$1" = --version ]; then echo 'xdg-dbus-proxy 0.1.9'; exit 0; fi
+echo $$ >> '@FAKE@/pids'
+trap '' PIPE
+printf x >&3 || exit 1
+while printf . >&3 2> /dev/null; do sleep 0.05; done
+exit 0
+"#;
+
+#[tokio::test]
+async fn bus_prompts_decide_as_expected() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = Path::new(FIXTURES).join("bus_prompts.json");
+    let cases: Vec<JobCase> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(cases.len(), 6, "the eval has the six bus and always prompts of phase E");
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    dirs.create_dir("home/notes").unwrap();
+    for (path, text) in cases.iter().flat_map(|case| &case.files) {
+        let path = dirs.home().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let buses = dirs.create_dir("buses").unwrap();
+    let (system, session) = (buses.join("sys.sock"), buses.join("sess.sock"));
+    let _listeners = [
+        std::os::unix::net::UnixListener::bind(&system).unwrap(),
+        std::os::unix::net::UnixListener::bind(&session).unwrap(),
+    ];
+    let program = dirs.root().join("xdg-dbus-proxy");
+    std::fs::write(&program, BUS_PROXY.replace("@FAKE@", &dirs.root().display().to_string()))
+        .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // NOTE: `admin.project_add` reloads `config.toml`, so the file holds the filter and
+    // the rule that the builder sets.
+    std::fs::write(
+        dirs.dirs().config().join("config.toml"),
+        "[dbus]\nproxy = true\n\n[[sandbox.allow]]\nkind = \"write\"\nunder = \"~/notes\"\n",
+    )
+    .unwrap();
+    let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let model = Arc::new(JobEvalModel {
+        id: ProviderId::new("test").unwrap(),
+        cases: cases.clone(),
+        reviews: Mutex::new(Vec::new()),
+    });
+    let holder = FakePtyHolder::new();
+    tokio::spawn(play_shells(Arc::clone(&holder)));
+    let rule = efr_config::AllowRule::Write { under: "~/notes".to_owned(), project: None };
+    // NOTE: the files of the fixtures exist before the turns start, so none of them
+    // changed in a turn.
+    let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
+    let daemon = TestDaemon::builder()
+        .dirs(Arc::clone(&dirs))
+        .clock(efr_test_support::TestClock::starting_at(start))
+        .fake_pty(holder)
+        .sandbox_launcher(fake.path())
+        .probe_override(SandboxStatus { netview: true, bus_proxy: true, ..ready() })
+        .bus_proxy(Some(system), Some(session))
+        .bus_proxy_program(&program)
+        .config(move |config| config.sandbox.allow.push(rule))
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+    add_project(&daemon, &project).await;
+
+    let mut seen: Vec<ViewSeen<'_>> = Vec::new();
+    let mut want: Vec<ViewSeen<'_>> = Vec::new();
+    for (n, case) in cases.iter().enumerate() {
+        let events = run_prompt(&daemon, n as u128 + 1, &case.prompt).await;
+        let asked =
+            events.iter().any(|envelope| matches!(envelope.event, Event::ApprovalRequested { .. }));
+        let exits: Vec<ExitKind> =
+            records(&events).iter().flat_map(|record| record.action.exits.clone()).collect();
+        let launch = call_launch(&events, dirs.home());
+        seen.push((&case.prompt, judgements(&events), asked, exits, launch));
+        let expect = &case.expect;
+        let exits = expect.exits.clone().unwrap_or_else(|| panic!("{}: no exits", case.prompt));
+        want.push((
+            &case.prompt,
+            expect.judged.clone(),
+            expect.asked,
+            exits,
+            expect.launch.clone(),
+        ));
+    }
+    daemon.stop().await.unwrap();
+    assert_eq!(seen, want);
+    let reviewed = cases.iter().filter(|case| case.reviewer.is_some()).count();
+    assert_eq!(model.reviews.lock().unwrap().len(), reviewed, "one review per reviewed line");
+    // One filter for each call with the filtered bus, and none for the others.
+    let filtered = want
+        .iter()
+        .filter(|(.., launch)| {
+            launch.as_ref().is_some_and(|l| l.to_string().contains("bus_filter"))
+        })
+        .count();
+    let pids = std::fs::read_to_string(dirs.root().join("pids")).unwrap_or_default();
+    assert_eq!(pids.lines().count(), filtered, "{pids}");
 }
