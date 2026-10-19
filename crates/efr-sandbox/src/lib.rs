@@ -52,8 +52,8 @@ pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
 pub use inner::{InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
 pub use landlock::{
-    ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy, LandlockRule, LandlockScope,
-    MIN_LANDLOCK_ABI,
+    BUS_PROXY_FILES, BUS_PROXY_READS, ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy,
+    LandlockRule, LandlockScope, MIN_LANDLOCK_ABI,
 };
 pub use layers::{
     CacheDeletes, CacheLayer, CacheLayers, DeleteLimits, LayerEntry, LayerView, MAX_DELETE_ENTRIES,

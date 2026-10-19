@@ -9,7 +9,8 @@
 //! background job itself with `efr-sbx run --job`.
 //! The inner stage of a proxy call starts `bridge`, which copies the call's TCP to its
 //! proxy socket. efrd runs `statvfs` to measure the host's mounts outside the sandbox,
-//! and the `df` and `findmnt` of a call print them with `mounts`.
+//! and the `df` and `findmnt` of a call print them with `mounts`. efrd runs
+//! `xdg-dbus-proxy` through `dbus-proxy`, which confines it first.
 //!
 //! Allowed dependencies: `efr-sandbox` and `efr-protocol`. No async runtime: the
 //! launcher is a small process in the foreground job of the hidden shell, and every
@@ -19,6 +20,7 @@
 mod bridge;
 mod call;
 mod call_dir;
+mod dbus_proxy;
 mod deletes;
 mod error;
 mod exit_child;
@@ -95,6 +97,10 @@ pub(crate) enum Command {
     /// call's proxy socket.
     #[command(hide = true)]
     Bridge(bridge::BridgeArgs),
+    /// Confines `xdg-dbus-proxy` (Landlock, seccomp, a descriptor limit) and runs it:
+    /// efrd's filtered bus of a call. The sync pipe on stdout moves to fd 3.
+    #[command(hide = true)]
+    DbusProxy(dbus_proxy::DbusProxyArgs),
     /// Compares a running contained job's git surface with the one of its start, and
     /// moves what breaks a rule to its quarantine. Exit status 3 when it found a change.
     GuardCheck {
@@ -109,7 +115,7 @@ pub(crate) enum Command {
     Probe(probe::ProbeArgs),
     /// The probe's checks from inside a sandbox.
     #[command(hide = true)]
-    SelfTest(self_test::SelfTestArgs),
+    SelfTest(Box<self_test::SelfTestArgs>),
     /// Prints the kernel's Landlock ABI after a rule set that restricts nothing.
     #[command(hide = true)]
     LandlockAbi,

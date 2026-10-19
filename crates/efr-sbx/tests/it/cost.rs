@@ -9,7 +9,8 @@
 //! proxy plan, whose bridge takes two more spawns and a ready byte per call.
 //! `launch cost downloads` reports the cost of the `tmp` mode when the download caches
 //! keep their layer for the conversation (`sandbox.keep_downloads`, DP27 of the phase
-//! D2 plan).
+//! D2 plan). `bus proxy wrapper start` reports the time of `efr-sbx dbus-proxy` to the
+//! ready byte of the program behind it (phase E).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -360,4 +361,30 @@ fn launch_cost_netview() {
     let (costs, failures) = launches(&fixture, 100);
     assert!(failures.is_empty(), "{failures:?}");
     report("launch cost netview", costs);
+}
+
+/// A report, no gate: the time from the spawn of `efr-sbx dbus-proxy` to the ready
+/// byte of the program behind it, with the launcher's bus proxy checks standing for
+/// `xdg-dbus-proxy` (which adds about 1.5 ms of its own, the phase E probe).
+#[test]
+fn bus_proxy_wrapper_start() {
+    use std::io::Read;
+    let ready = sandbox_or_skip!();
+    let dir =
+        tempfile::Builder::new().prefix("w").tempdir_in(crate::support::target_tmp()).unwrap();
+    let mut costs = Vec::with_capacity(100);
+    for _ in 0..100 {
+        // `--check none` names no check: the program writes its ready byte and exits.
+        let checks = ["--check".to_owned(), "none".to_owned()];
+        let mut command = crate::dbus::wrapper(&ready.bin, dir.path(), &[], &checks);
+        command.stderr(Stdio::null());
+        let start = Instant::now();
+        let mut child = command.spawn().unwrap();
+        let mut byte = [0_u8; 1];
+        let read = child.stdout.take().map(|mut pipe| pipe.read(&mut byte));
+        costs.push(start.elapsed());
+        assert!(matches!(read, Some(Ok(1))) && byte == *b"x", "{read:?}");
+        assert!(child.wait().unwrap().success());
+    }
+    report("bus proxy wrapper start", costs);
 }

@@ -92,6 +92,67 @@ fn a_file_grant_gets_file_rights_only() {
 }
 
 #[test]
+fn bus_proxy_landlock_policy_shape() {
+    let program = Path::new("/usr/bin/xdg-dbus-proxy");
+    let dir = Path::new("/run/user/1000/efr/sbx/c/call/bus");
+    let upstream =
+        [PathBuf::from("/run/dbus/system_bus_socket"), PathBuf::from("/run/user/1000/bus")];
+    let policy = LandlockPolicy::bus_proxy(program, dir, &upstream);
+    let rules = policy.rules();
+    // Read and run: the library dirs, the program and the loader's cache, each file
+    // with file rights only; never `/`.
+    let reads: Vec<(&Path, &[FsAccess])> = rules
+        .iter()
+        .filter(|rule| rule.access.contains(&FsAccess::ReadFile))
+        .map(|rule| (rule.path.as_path(), rule.access.as_slice()))
+        .collect();
+    assert_eq!(
+        reads,
+        [
+            (Path::new("/usr/lib"), &FsAccess::READ_EXEC[..]),
+            (Path::new("/usr/lib64"), &FsAccess::READ_EXEC[..]),
+            (Path::new("/lib"), &FsAccess::READ_EXEC[..]),
+            (Path::new("/lib64"), &FsAccess::READ_EXEC[..]),
+            (program, &FsAccess::READ_FILE[..]),
+            (Path::new("/etc/ld.so.cache"), &FsAccess::READ_FILE[..]),
+        ]
+    );
+    // Connect: the two buses; make, remove and connect: the socket dir only.
+    let sockets: Vec<(&Path, &[FsAccess])> = rules
+        .iter()
+        .filter(|rule| !rule.access.contains(&FsAccess::ReadFile))
+        .map(|rule| (rule.path.as_path(), rule.access.as_slice()))
+        .collect();
+    assert_eq!(
+        sockets,
+        [
+            (upstream[0].as_path(), &FsAccess::SOCKET[..]),
+            (upstream[1].as_path(), &FsAccess::SOCKET[..]),
+            (dir, &FsAccess::SOCKET_DIR[..]),
+        ]
+    );
+    for rule in &rules {
+        for right in [
+            FsAccess::WriteFile,
+            FsAccess::MakeReg,
+            FsAccess::MakeDir,
+            FsAccess::MakeSym,
+            FsAccess::Truncate,
+            FsAccess::IoctlDev,
+        ] {
+            assert!(!rule.access.contains(&right), "{rule:?}");
+        }
+    }
+    assert!(policy.deny_tcp && policy.tty_fds.is_empty() && policy.dev_rw.is_empty());
+    assert_eq!(policy.scopes, [LandlockScope::AbstractUnixSocket, LandlockScope::Signal]);
+    let text = serde_json::to_string(&policy).unwrap();
+    assert_eq!(serde_json::from_str::<LandlockPolicy>(&text).unwrap(), policy);
+    // No call gets a socket dir rule.
+    assert!(MountPlan::build(&spec(), &world()).unwrap().landlock().socket_dirs.is_empty());
+    assert!(LandlockPolicy::bridge(dir).socket_dirs.is_empty());
+}
+
+#[test]
 fn bridge_landlock_policy_shape() {
     let socket = Path::new("/run/user/1000/efr-proxy.sock");
     let policy = LandlockPolicy::bridge(socket);

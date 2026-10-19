@@ -179,6 +179,35 @@ fn bridge_profile_allows_unix_only() {
 }
 
 #[test]
+fn bus_proxy_profile_allows_unix_only() {
+    let profile = SeccompProfile::bus_proxy();
+    assert_eq!(
+        families(&profile),
+        [&SyscallRule::AllowSocketFamilies { allowed: vec![AF_UNIX], errno: EAFNOSUPPORT }]
+    );
+    let phase1 = SeccompProfile::phase1();
+    let phase1_families = families(&phase1);
+    for rule in phase1.rules.iter().filter(|rule| !phase1_families.contains(rule)) {
+        assert!(profile.rules.contains(rule), "{rule:?}");
+    }
+    for syscall in ["ptrace", "pidfd_getfd", "process_vm_readv", "io_uring_setup"] {
+        let rule = SyscallRule::Deny { syscall: syscall.to_owned(), errno: EPERM };
+        assert_eq!(profile.rules.iter().filter(|known| **known == rule).count(), 1, "{syscall}");
+    }
+    // The proxy binds, listens, accepts and starts GLib's threads; the wrapper's own
+    // exec of the program runs after the filter.
+    for syscall in ["bind", "listen", "accept4", "connect", "clone", "socket", "execve"] {
+        let denied = profile.rules.iter().any(
+            |rule| matches!(rule, SyscallRule::Deny { syscall: named, .. } if named == syscall),
+        );
+        assert!(!denied, "{syscall}");
+    }
+    assert_eq!(profile.other_arch_action, SeccompAction::KillProcess);
+    let text = serde_json::to_string(&profile).unwrap();
+    assert_eq!(serde_json::from_str::<SeccompProfile>(&text).unwrap(), profile);
+}
+
+#[test]
 fn bridge_profile_refuses_bind_listen_exec() {
     let profile = SeccompProfile::bridge();
     for syscall in ["bind", "listen", "execve", "execveat", "ptrace", "pidfd_getfd"] {

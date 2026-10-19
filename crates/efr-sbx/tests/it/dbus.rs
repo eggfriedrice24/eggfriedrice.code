@@ -5,10 +5,13 @@
 
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use efr_protocol::{BusKind, Grant};
 
-use crate::support::{Fixture, Run, bus_word, q, sandbox_or_skip, target_tmp};
+use crate::support::{
+    Fixture, Run, bus_word, command, q, run_with_timeout, sandbox_or_skip, target_tmp,
+};
 
 /// A stand-in bus at `path`: a listener that the test checks for connections.
 fn stand_in(path: &Path) -> UnixListener {
@@ -81,6 +84,143 @@ fn escape_socket_grant_link_to_bus_refused() {
     run.expect_status(efr_sandbox::SETUP_FAILURE_STATUS);
     assert!(!run.stdout.contains("reached"), "{run:#?}");
     assert!(!reached(&manager), "the stand-in manager got a connection");
+}
+
+/// The wrapper's command: `efr-sbx dbus-proxy --dir <dir> --upstream <each> -- <the
+/// launcher> self-test --bus-proxy --ready-fd 3 <checks>`. The launcher stands for
+/// `xdg-dbus-proxy`: the domain lets a program read only itself and the library dirs.
+pub(crate) fn wrapper(bin: &Path, dir: &Path, upstream: &[PathBuf], checks: &[String]) -> Command {
+    let mut command = command(bin);
+    command.arg("dbus-proxy").arg("--dir").arg(dir);
+    for path in upstream {
+        command.arg("--upstream").arg(path);
+    }
+    command
+        .arg("--")
+        .arg(bin)
+        .args(["self-test", "--bus-proxy", "--ready-fd", "3"])
+        .args(checks)
+        .current_dir("/")
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
+}
+
+/// The checks that the program behind the wrapper wrote after its ready byte.
+fn check_lines(stdout: &str) -> Vec<(String, bool, String)> {
+    stdout
+        .strip_prefix('x')
+        .unwrap_or_default()
+        .lines()
+        .map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            (
+                value["name"].as_str().unwrap_or_default().to_owned(),
+                value["ok"].as_bool().unwrap_or_default(),
+                value["detail"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn dbus_proxy_wrapper_moves_stdout_to_fd_3() {
+    let ready = sandbox_or_skip!();
+    let (_dir, base) = socket_dir();
+    let bus_dir = base.join("bus");
+    std::fs::create_dir(&bus_dir).unwrap();
+    // The wrapper's stdout, efrd's sync pipe, is the program's fd 3: the ready byte and
+    // the lines come there, and the program's own stdout is the wrapper's stderr.
+    let checks = ["--check".to_owned(), "stdout_is_stderr".to_owned()];
+    let (status, stdout, stderr) = run_with_timeout(wrapper(&ready.bin, &bus_dir, &[], &checks));
+    assert!(stdout.starts_with('x'), "no ready byte: {stdout:?} {stderr}");
+    let lines = check_lines(&stdout);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines.iter().all(|(_, ok, _)| *ok), "{lines:?}");
+    assert_eq!(status, 0, "{stderr}");
+    // A setup failure exits 125 with one line on stderr, before the program runs.
+    let mut relative = command(&ready.bin);
+    relative
+        .args(["dbus-proxy", "--dir"])
+        .arg(&bus_dir)
+        .args(["--", "efr-sbx", "self-test"])
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let (status, stdout, stderr) = run_with_timeout(relative);
+    assert_eq!(status, efr_sandbox::SETUP_FAILURE_STATUS, "{stderr}");
+    assert!(stdout.is_empty(), "{stdout:?}");
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    assert!(stderr.starts_with("efr-sbx dbus-proxy: "), "{stderr}");
+}
+
+#[test]
+fn dbus_proxy_wrapper_confines() {
+    let ready = sandbox_or_skip!();
+    let (_dir, base) = socket_dir();
+    let bus_dir = base.join("bus");
+    let others = base.join("o");
+    let home = base.join("h");
+    for dir in [&bus_dir, &others, &home] {
+        std::fs::create_dir(dir).unwrap();
+    }
+    // The bus that the program may reach, and sockets that it may not: another socket,
+    // efrd's own and a call's proxy socket, as stand-ins.
+    let upstream = stand_in(&base.join("up"));
+    let refused: Vec<PathBuf> =
+        ["other.sock", "daemon.sock", "proxy.sock"].iter().map(|name| others.join(name)).collect();
+    let listeners: Vec<UnixListener> = refused.iter().map(|path| stand_in(path)).collect();
+    std::fs::write(home.join("secret"), "token").unwrap();
+    let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    tcp.set_nonblocking(true).unwrap();
+    let mut args = vec![
+        "--bind".to_owned(),
+        "probe.sock".to_owned(),
+        "--upstream".to_owned(),
+        base.join("up").display().to_string(),
+        "--write-dir".to_owned(),
+        home.display().to_string(),
+        "--read".to_owned(),
+        home.join("secret").display().to_string(),
+        "--tcp".to_owned(),
+        tcp.local_addr().unwrap().to_string(),
+    ];
+    for path in &refused {
+        args.extend(["--refuse".to_owned(), path.display().to_string()]);
+    }
+    let (status, stdout, stderr) =
+        run_with_timeout(wrapper(&ready.bin, &bus_dir, &[base.join("up")], &args));
+    let lines = check_lines(&stdout);
+    let names: Vec<&str> = lines.iter().map(|(name, _, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "stdout_is_stderr",
+            "bind_in_dir",
+            "upstream",
+            "other_socket",
+            "write_outside",
+            "read_outside",
+            "tcp",
+            "fds"
+        ],
+        "{stdout:?} {stderr}"
+    );
+    for (name, ok, detail) in &lines {
+        assert!(ok, "{name}: {detail}");
+    }
+    assert_eq!(status, 0, "{stderr}");
+    assert!(reached(&upstream), "the bus got no connection");
+    assert!(!listeners.iter().any(reached), "a refused socket got a connection");
+    assert!(tcp.accept().is_err(), "the TCP listener got a connection");
+    assert!(!home.join(".efr-bus-proxy").exists());
+    // The socket that the program made in its dir is gone again.
+    assert!(!bus_dir.join("probe.sock").exists());
 }
 
 #[test]
