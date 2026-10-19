@@ -421,6 +421,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - `~/.local/share/dbus-1` is now a floor: a sandboxed command cannot write it, and a
   write there asks you. The bus starts the program of a service file there outside the
   sandbox when a client calls its name.
+- The git guard now also checks the git dirs below a dir that an approved write
+  opened. Before, a command that you or the reviewer allowed to write to a repository
+  that is not a project could plant git hooks there.
 - With `dbus.proxy = true`, the bus filter of a command runs in its own Landlock
   domain with no TCP, a seccomp filter and an fd limit: it reads only its program and
   libraries, connects only to the two real buses, and makes its sockets only in the
