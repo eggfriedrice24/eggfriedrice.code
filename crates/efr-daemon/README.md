@@ -565,8 +565,10 @@ spec; `docs/sandbox.md` for the user's view):
   grant (D1). `prepare` binds the socket after it wrote the call dir, through
   `/proc/self/fd/<dirfd>/proxy.sock` with an `O_PATH` descriptor of the dir (the path
   can be longer than a socket address holds), mode 0600, and serves it with the
-  call's frozen policy: its `Grant::Host` entries and `network.max_upload_bytes`. A
-  foreground call
+  call's frozen policy: its `Grant::Host` entries, `network.max_upload_bytes`, and the
+  hosts that a file of the call's projects holds a credential for (`proxy/tokens.rs`:
+  the registry files of each project root and the call's dir, and one hardened
+  `git config` run per repository; the call's output says why). A foreground call
   closes its socket after its launcher wrote the result (a grace of 200 ms for open
   tunnels) and merges the refusals into `sandbox.blocked` and the model's output; a
   call past its timeout keeps its socket until `result.json` appears or its dir goes
@@ -1133,9 +1135,10 @@ exit, `network.mode = "none"` and a failed self-test that keep the phase 1 behav
 reload whose list reaches a running job and a mode change that does not cut one,
 `sandbox.explain` with the proxy on, and a test name that reaches its server. With a
 real zsh, a foreground call's refusals reach the tool result. Unit tests
-(`sandbox/proxy/tests.rs`, `sandbox/facts/remotes/tests.rs`) cover the bind in a deep call dir, the sweep of a call
+(`sandbox/proxy/tests.rs`, `sandbox/facts/remotes/tests.rs`,
+`sandbox/proxy/tokens/tests.rs`) cover the bind in a deep call dir, the sweep of a call
 past its timeout, the live list, the mirror read, the remote facts and the project
-snapshot.
+snapshot, and the credential deny.
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project

@@ -365,6 +365,11 @@ into the GitHub release notes, and it stops when the section is missing.
   credential helper. It also no longer gets a name that ends in `_AUTH`, such as
   `npm_config__auth`, or a variable whose value is a URL with a password, such as
   `PIP_INDEX_URL=https://user:token@...`, unless `sandbox.env_keep` keeps it.
+- With the proxy, when your git config (also `~/.gitconfig` and its includes) or your
+  project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or `.cargo/config.toml`
+  holds a password or a token for a host, efr blocks that host for sandboxed commands
+  of that project and says why. Move the token to a file that the sandbox hides, such
+  as `~/.npmrc`.
 - With `network.mode = "proxy"`, `efr sandbox check` warns about each
   `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
   allowed hosts.
