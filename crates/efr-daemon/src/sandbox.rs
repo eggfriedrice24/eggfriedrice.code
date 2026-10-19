@@ -883,7 +883,15 @@ impl SandboxService {
                 // NOTE: at most once a minute, and only when a pacman file changed (DP4);
                 // other hosts reach the engine and the proxy through the reload task.
                 self.inner.proxy.read_mirrors(false).await;
-                let policy = call_policy(&spec, input.settings);
+                let mut policy = call_policy(&spec, input.settings);
+                // NOTE: a credential that a file of the call's projects holds would reach
+                // its host through the proxy (DP25).
+                let mut dirs = roots.clone();
+                dirs.push(call.shell_cwd.clone().unwrap_or_else(|| call.cwd.clone()));
+                let denied =
+                    proxy::tokens::denied(&self.inner.git, &self.inner.home, &dirs, &roots).await;
+                policy.deny = denied.hosts;
+                notes.extend(denied.notes);
                 let bound = self
                     .inner
                     .proxy
