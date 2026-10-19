@@ -2,7 +2,7 @@ use efr_protocol::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationCompact, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
+    ConversationsList, ErrorCode, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
     PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
     PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond,
     ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
@@ -10,6 +10,7 @@ use efr_protocol::{
 use pretty_assertions::assert_eq;
 
 use crate::DaemonError;
+use crate::methods::approval_respond::remote_always;
 use crate::methods::{authorize, cursor, granted, page_size, parse_cursor, scope};
 use crate::sandbox::peers::PeerSide;
 
@@ -399,6 +400,40 @@ fn a_model_side_peer_or_a_gone_one_may_only_read() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn always_allow_only_from_own_terminal() {
+    let call_id = CallId::from_uuid(id(40));
+    let answer = |decision| {
+        Method::ApprovalRespond(ApprovalRespond {
+            command_id: CommandId::from_uuid(id(41)),
+            conversation_id: ConversationId::from_uuid(id(42)),
+            call_id,
+            decision,
+        })
+    };
+    let always = answer(ApprovalDecision::AllowAlways);
+    // A phone holds `approve`, so efrd refuses its `a` itself, and the question stays
+    // open: no receipt keeps the refusal.
+    assert!(authorize(Origin::Phone, PeerSide::User, &always).is_ok());
+    let refused = remote_always(ApprovalDecision::AllowAlways, Origin::Phone, call_id);
+    assert!(
+        matches!(&refused, Some(DaemonError::Rejected { body }) if body.code == ErrorCode::Forbidden),
+        "{refused:?}"
+    );
+    // A "yes" from a phone is the conversation's to judge.
+    assert!(remote_always(ApprovalDecision::Allow, Origin::Phone, call_id).is_none());
+    // The user's own terminal gives it.
+    for surface in [Origin::Shell, Origin::Cli, Origin::Proxy] {
+        assert!(remote_always(ApprovalDecision::AllowAlways, surface, call_id).is_none());
+        assert!(authorize(surface, PeerSide::User, &always).is_ok());
+    }
+    // A model-side peer holds no `approve` at all, whatever it declares.
+    for surface in [Origin::Shell, Origin::Cli, Origin::Proxy, Origin::Phone] {
+        let allowed = authorize(surface, PeerSide::ModelSide, &always);
+        assert!(matches!(allowed, Err(DaemonError::ModelSidePeer { .. })), "{allowed:?}");
     }
 }
 

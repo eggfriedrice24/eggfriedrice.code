@@ -385,11 +385,14 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // mirror hosts.
     state.sandbox.proxy().read_mirrors(true).await;
     let engine = match state.engine_parts.engine(&settings, Probed::of(&state.sandbox)).await {
+        // NOTE: an `a` answer changes only `sandbox.allow`, and the next call must see
+        // its rule; a rule that a floor disables now, or no longer, counts too (DE28).
         Ok(engine)
             if rules_changed
                 || engine.locations() != current.locations()
                 || engine.support() != current.support()
-                || engine.hosts() != current.hosts() =>
+                || engine.hosts() != current.hosts()
+                || engine.allow_rules() != current.allow_rules() =>
         {
             Some(engine)
         }
