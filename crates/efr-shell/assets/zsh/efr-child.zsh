@@ -140,6 +140,24 @@ _efr_child_findmnt() {
   command findmnt --tab-file "$_efr_child_dir/mounts" "$@"
 }
 
+# systemctl --user on the session bus. While XDG_RUNTIME_DIR is set, systemd 262 looks
+# only for the user manager's private socket there, which a contained call never has;
+# with the variable unset it uses DBUS_SESSION_BUS_ADDRESS, the call's filtered or
+# granted session bus. Any other systemctl runs as it is. `--user` counts anywhere
+# before `--`, because systemctl takes its options after the verb too.
+_efr_child_systemctl() {
+  builtin emulate -L zsh
+  builtin local arg
+  for arg in "$@"; do
+    [[ $arg == -- ]] && break
+    if [[ $arg == --user ]]; then
+      ( builtin unset XDG_RUNTIME_DIR; command systemctl "$@" )
+      return
+    fi
+  done
+  command systemctl "$@"
+}
+
 _efr_child_note_signals
 
 builtin typeset -g _efr_child_dir=${1-}
@@ -170,6 +188,15 @@ if [[ -n $_efr_child_dir && -r $_efr_child_dir/mounts ]]; then
     function findmnt { _efr_child_findmnt "$@" }
     _efr_child_own_fns+=(findmnt)
   fi
+fi
+
+# A contained call with a session bus in its runtime dir (the filtered bus, or an
+# approved grant of the whole bus): systemctl --user reaches it. As for df, a function of
+# that name from the snapshot or the state wins. A script that runs systemctl itself
+# does not get the function.
+if [[ ${EFR_SANDBOX-} == 1 && -S ${XDG_RUNTIME_DIR-}/bus ]] && (( ! $+functions[systemctl] )); then
+  function systemctl { _efr_child_systemctl "$@" }
+  _efr_child_own_fns+=(systemctl)
 fi
 
 # Names that change in every shell or that efr sets; they are never reported.

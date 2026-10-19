@@ -449,6 +449,15 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   `-N`, `-k`, `-s`, `-p`, `-x`, `-m` and their long forms) run the real `findmnt`.
   The records report one of these two functions only when the line defines it again,
   and never its removal.
+- `systemctl --user` on the session bus: in a contained call (`EFR_SANDBOX=1`) whose
+  runtime dir holds a session bus socket (`$XDG_RUNTIME_DIR/bus`: the filtered bus of
+  phase E, or an approved grant of the whole bus), the child defines `systemctl`, unless
+  the snapshot or the state defined a function of that name. With `--user` among its
+  words before `--`, it runs `command systemctl` in a subshell with `XDG_RUNTIME_DIR`
+  unset, because systemd 262 then uses `DBUS_SESSION_BUS_ADDRESS` and not the user
+  manager's private socket, which a call never has; else it runs `command systemctl`
+  as it is. A script that runs `systemctl --user` itself fails as before. The records
+  treat it as `df` and `findmnt`.
 - Ctrl+C (SIGINT) and Ctrl+\ (SIGQUIT) stop the child's line, also before it starts.
   Until the line starts, a trap of `efr-child.zsh` notes the signal: a zsh that is not
   interactive ignores SIGQUIT, and a `TRAPINT` or `TRAPQUIT` function can catch a
