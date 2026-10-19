@@ -36,6 +36,10 @@
 //!   `$XRT/systemd/`, or the control socket of a desktop. The plan checks the path after
 //!   every link, so a link in a write root to the session bus binds nothing. Only a bus
 //!   grant binds a bus, and only a desktop grant binds a desktop's socket.
+//! - A filtered bus (`Grant::BusFilter`) binds the call's own socket read-only at
+//!   `/run/dbus/system_bus_socket`, over an empty tmpfs on `/run/dbus`, or at
+//!   `$XRT/bus`, with a `RESOLVE_UNIX` rule for the child on exactly that place. It
+//!   never joins `Grant::Bus` of the same bus or the network view.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

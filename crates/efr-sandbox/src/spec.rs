@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{CacheMode, CallId, ConversationId, DesktopKind, Grant};
+use efr_protocol::{BusKind, CacheMode, CallId, ConversationId, DesktopKind, Grant};
 use serde::{Deserialize, Serialize};
 
 use crate::SandboxError;
@@ -39,6 +39,19 @@ pub const JOB_DIR: &str = "jobs";
 /// The name of a call's proxy socket in its call dir: efrd binds `$CALL/proxy.sock`,
 /// and [`NetworkPlan::Proxy`] must name exactly that file.
 pub const PROXY_SOCKET_FILE: &str = "proxy.sock";
+
+/// The dir of a call's filtered bus sockets in its call dir: `$CALL/bus/` (phase E). It
+/// holds nothing else, and the bus proxy may make and remove files only there.
+pub const BUS_FILTER_DIR: &str = "bus";
+
+/// The file name of `bus`'s filtered socket in the bus dir: `system.sock` or
+/// `session.sock`. The names are relative, so the proxy binds them in its working
+/// dir, and a deep call dir never meets the 107 bytes of a socket address.
+pub fn bus_filter_file(bus: BusKind) -> &'static str {
+    // NOTE: `BusKind` has two buses; the plan refuses a bus that this build does not
+    // know before it asks for a path.
+    if bus == BusKind::System { "system.sock" } else { "session.sock" }
+}
 
 /// The highest nice value.
 const MAX_NICE: u8 = 19;
@@ -453,6 +466,29 @@ impl RuntimePaths {
         self.user_runtime.join("efr-proxy.sock")
     }
 
+    /// The dir of the call's filtered bus sockets, `$CALL/bus/` (0700, made by efrd):
+    /// the bus proxy's working dir and the only dir where it may make or remove a file.
+    pub fn bus_filter_dir(&self) -> PathBuf {
+        self.call_dir.join(BUS_FILTER_DIR)
+    }
+
+    /// The call's filtered bus socket outside: `$CALL/bus/system.sock` or
+    /// `$CALL/bus/session.sock`, which efrd's bus proxy serves.
+    pub fn bus_filter_socket(&self, bus: BusKind) -> PathBuf {
+        self.bus_filter_dir().join(bus_filter_file(bus))
+    }
+
+    /// Where the child finds `bus` inside: `/run/dbus/system_bus_socket` or `$XRT/bus`,
+    /// the places where a D-Bus client looks with no variable. The plan binds the
+    /// call's filtered socket there.
+    pub fn inside_bus_socket(&self, bus: BusKind) -> PathBuf {
+        if bus == BusKind::System {
+            PathBuf::from(crate::plan::SYSTEM_BUS_SOCKET)
+        } else {
+            self.user_runtime.join("bus")
+        }
+    }
+
     /// The private tmp's directory outside, `$SBX/tmp`.
     pub fn private_tmp(&self) -> PathBuf {
         self.sandbox_dir.join("tmp")
@@ -500,8 +536,9 @@ impl SandboxSpec {
     /// Checks the version, that every path is absolute and in normal form, that the
     /// call and shell dirs name this call and conversation, that the call dir lies in
     /// the shell dir (in its `jobs` dir for a job) and nowhere else, the limits of a
-    /// job, and that a proxy plan names the call's own socket and comes with no grant
-    /// of the whole network.
+    /// job, that a proxy plan names the call's own socket and comes with no grant of
+    /// the whole network, and that a filtered bus comes with no grant of the same whole
+    /// bus.
     pub fn check(&self) -> Result<(), SandboxError> {
         if self.version != SPEC_VERSION {
             return Err(SandboxError::SpecVersion { found: self.version, expected: SPEC_VERSION });
@@ -582,6 +619,16 @@ impl SandboxSpec {
             && (job.max_seconds == 0 || job.nice > MAX_NICE || job.fsize_bytes == 0)
         {
             return Err(SandboxError::SpecJob);
+        }
+        // NOTE: a filtered bus beside the whole bus of the same bus would bind two
+        // sockets at one place. efrd's `view_fits` drops the view first; the launcher
+        // checks it again, and no plan step skips it.
+        for grant in &self.grants {
+            if let Grant::BusFilter { bus } = grant
+                && self.grants.contains(&Grant::Bus { bus: *bus })
+            {
+                return Err(SandboxError::BusFilterWithBus { bus: *bus });
+            }
         }
         if let NetworkPlan::Proxy { socket } = &self.network {
             // NOTE: the launcher's own check, not only efrd's: with the whole network the

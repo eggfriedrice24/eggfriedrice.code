@@ -1539,3 +1539,212 @@ fn proxy_plan_sets_the_bridge_variables() {
     let none = plan_of(&crate::testing::spec(), &world());
     assert!(none.env_overrides().is_empty(), "{:?}", none.env_overrides());
 }
+
+/// The filtered buses of a call: both grants, and the world with the call's sockets.
+fn bus_filter_world() -> (SandboxSpec, FakeFs) {
+    let mut spec = spec();
+    spec.grants =
+        vec![Grant::BusFilter { bus: BusKind::System }, Grant::BusFilter { bus: BusKind::Session }];
+    let mut fs = world();
+    for bus in [BusKind::System, BusKind::Session] {
+        fs.socket(&spec.runtime.bus_filter_socket(bus).to_string_lossy());
+    }
+    (spec, fs)
+}
+
+#[test]
+fn bus_filter_binds_call_socket_read_only() {
+    let (spec, fs) = bus_filter_world();
+    let plan = plan(&spec, &fs);
+    let call = &spec.runtime.call_dir;
+    let binds: Vec<(&MountOp, MountOrigin, OpKind)> = plan
+        .mounts()
+        .iter()
+        .filter(|mount| {
+            matches!(&mount.op, MountOp::Bind { source, .. } if source.starts_with(call.join("bus")))
+        })
+        .map(|mount| (&mount.op, mount.origin, mount.kind))
+        .collect();
+    let system = MountOp::Bind {
+        source: call.join("bus/system.sock"),
+        target: "/run/dbus/system_bus_socket".into(),
+        writable: false,
+    };
+    let session = MountOp::Bind {
+        source: call.join("bus/session.sock"),
+        target: "/run/user/1000/bus".into(),
+        writable: false,
+    };
+    assert_eq!(
+        binds,
+        [
+            (&system, MountOrigin::Asset, OpKind::Floor),
+            (&session, MountOrigin::Asset, OpKind::Floor),
+        ]
+    );
+    // The paths of the contract.
+    assert_eq!(spec.runtime.bus_filter_dir(), call.join("bus"));
+    assert_eq!(crate::bus_filter_file(BusKind::System), "system.sock");
+    assert_eq!(crate::bus_filter_file(BusKind::Session), "session.sock");
+    assert_eq!(spec.runtime.inside_bus_socket(BusKind::Session), Path::new("/run/user/1000/bus"));
+    // The session bus lands in the runtime dir's tmpfs, after it; the real buses of the
+    // host are never bound.
+    let at = |target: &str| {
+        plan.mounts().iter().position(|mount| mount.op.target() == Path::new(target)).unwrap()
+    };
+    assert!(at("/run/user/1000") < at("/run/user/1000/bus"));
+    assert!(!has_mount(&plan, &rw("/run/user/1000/bus")));
+    assert!(!has_mount(&plan, &rw("/run/dbus/system_bus_socket")));
+    assert!(plan.unshares_network());
+    // A bus named twice binds once.
+    let mut twice = spec.clone();
+    twice.grants.push(Grant::BusFilter { bus: BusKind::System });
+    assert_eq!(plan_of(&twice, &fs).mounts(), plan.mounts());
+}
+
+#[test]
+fn bus_filter_resolve_unix_holds_only_the_target() {
+    let (spec, fs) = bus_filter_world();
+    let policy = plan(&spec, &fs).landlock();
+    assert_eq!(
+        policy.resolve_unix,
+        [PathBuf::from("/run/dbus/system_bus_socket"), PathBuf::from("/run/user/1000/bus")]
+    );
+    assert!(
+        !policy.resolve_unix.iter().any(|path| path.starts_with(&spec.runtime.runtime)),
+        "no rule below efr's runtime root: {:?}",
+        policy.resolve_unix
+    );
+    // One bus, one rule.
+    let mut one = spec.clone();
+    one.grants = vec![Grant::BusFilter { bus: BusKind::Session }];
+    assert_eq!(plan_of(&one, &fs).landlock().resolve_unix, [PathBuf::from("/run/user/1000/bus")]);
+    // No view, no rule.
+    assert!(plan_of(&crate::testing::spec(), &fs).landlock().resolve_unix.is_empty());
+}
+
+#[test]
+fn bus_filter_sets_the_bus_addresses() {
+    let (spec, fs) = bus_filter_world();
+    let plan = plan(&spec, &fs);
+    assert_eq!(
+        plan.env_overrides(),
+        [
+            (
+                "DBUS_SYSTEM_BUS_ADDRESS".to_owned(),
+                "unix:path=/run/dbus/system_bus_socket".to_owned()
+            ),
+            ("DBUS_SESSION_BUS_ADDRESS".to_owned(), "unix:path=/run/user/1000/bus".to_owned()),
+        ]
+    );
+    // The address of the trusted shell never reaches the call: the plan's wins.
+    let filter = crate::EnvFilter::new(&spec, &plan);
+    let host: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString> =
+        [("DBUS_SESSION_BUS_ADDRESS".into(), "unix:path=/run/user/1000/bus,guid=1".into())]
+            .into_iter()
+            .collect();
+    let (env, _) = filter.apply(&host);
+    assert_eq!(
+        env.get(std::ffi::OsStr::new("DBUS_SESSION_BUS_ADDRESS")),
+        Some(&std::ffi::OsString::from("unix:path=/run/user/1000/bus"))
+    );
+}
+
+#[test]
+fn bus_filter_beside_real_bus_refused() {
+    let (mut spec, fs) = bus_filter_world();
+    spec.grants.push(Grant::Bus { bus: BusKind::Session });
+    let error = MountPlan::build(&spec, &fs).unwrap_err();
+    assert!(matches!(error, SandboxError::BusFilterWithBus { bus: BusKind::Session }), "{error:?}");
+    assert!(matches!(spec.check(), Err(SandboxError::BusFilterWithBus { .. })));
+    // The filter of one bus beside the whole other bus is a plan of both.
+    let mut spec = crate::testing::spec();
+    spec.grants =
+        vec![Grant::BusFilter { bus: BusKind::System }, Grant::Bus { bus: BusKind::Session }];
+    let both = plan(&spec, &fs);
+    assert!(has_mount(&both, &rw("/run/user/1000/bus")));
+    let filtered = MountOp::Bind {
+        source: spec.runtime.bus_filter_socket(BusKind::System),
+        target: "/run/dbus/system_bus_socket".into(),
+        writable: false,
+    };
+    assert!(has_mount(&both, &filtered));
+    // The network view never joins a filtered bus (DE2).
+    let mut spec = crate::testing::spec();
+    spec.grants = vec![Grant::NetView, Grant::BusFilter { bus: BusKind::System }];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::NetViewMixed)));
+}
+
+#[test]
+fn bus_filter_masks_run_dbus() {
+    let (mut spec, fs) = bus_filter_world();
+    spec.grants = vec![Grant::BusFilter { bus: BusKind::System }];
+    let plan = plan(&spec, &fs);
+    let tmpfs = MountOp::Tmpfs { target: "/run/dbus".into(), perms: 0o755 };
+    let bind = MountOp::Bind {
+        source: spec.runtime.bus_filter_socket(BusKind::System),
+        target: "/run/dbus/system_bus_socket".into(),
+        writable: false,
+    };
+    let at = |op: &MountOp| plan.mounts().iter().position(|mount| mount.op == *op).unwrap();
+    assert!(at(&tmpfs) < at(&bind), "{:#?}", plan.mounts());
+    // The rest of /run/dbus is hidden; the socket there is the call's own, read-only.
+    assert_eq!(plan.explain(Path::new("/run/dbus/other")).role, SandboxPathRole::Masked);
+    let socket = plan.explain(Path::new("/run/dbus/system_bus_socket"));
+    assert_eq!((socket.role, socket.write), (SandboxPathRole::Floor, false));
+    // The session filter alone leaves /run/dbus as it is.
+    spec.grants = vec![Grant::BusFilter { bus: BusKind::Session }];
+    assert!(!has_mount(&plan_of(&spec, &fs), &tmpfs));
+}
+
+#[test]
+fn bus_filter_without_run_dbus_fails() {
+    let (mut spec, mut fs) = bus_filter_world();
+    fs.remove("/run/dbus");
+    let error = MountPlan::build(&spec, &fs).unwrap_err();
+    assert!(matches!(error, SandboxError::NoSystemBus), "{error:?}");
+    // A link in place of the dir fails the same way.
+    fs.dir("/run/other").link("/run/dbus", "/run/other");
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::NoSystemBus)));
+    // The session filter needs no /run/dbus.
+    spec.grants = vec![Grant::BusFilter { bus: BusKind::Session }];
+    assert!(MountPlan::build(&spec, &fs).is_ok());
+    // A call socket that efrd did not make, or that is not a socket, fails closed.
+    let (spec, mut fs) = bus_filter_world();
+    let session = spec.runtime.bus_filter_socket(BusKind::Session);
+    fs.remove(&session.to_string_lossy());
+    let error = MountPlan::build(&spec, &fs).unwrap_err();
+    assert!(matches!(&error, SandboxError::GrantTarget { path } if *path == session), "{error:?}");
+    fs.file(&session.to_string_lossy(), "not a socket");
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::GrantTarget { .. })));
+}
+
+#[test]
+fn always_allow_under_dir_keeps_floor_binds() {
+    // A write grant of `~/dotfiles`, the target of the `~/.zshrc` link: the floor's real
+    // file stays read-only after the widening.
+    let mut spec = spec();
+    spec.grants = vec![Grant::Write { path: "/home/u/dotfiles".into() }];
+    let mut fs = world();
+    fs.remove("/home/u/.zshrc")
+        .file("/home/u/dotfiles/zsh/.zshrc", "x")
+        .link("/home/u/.zshrc", "/home/u/dotfiles/zsh/.zshrc");
+    let plan = plan(&spec, &fs);
+    assert!(has_mount(&plan, &rw("/home/u/dotfiles")));
+    assert!(
+        floors(&plan).contains(&("/home/u/dotfiles/zsh/.zshrc".into(), FloorKind::ShellStartup)),
+        "{:#?}",
+        plan.mounts()
+    );
+    let at = |op: &MountOp| plan.mounts().iter().position(|mount| mount.op == *op).unwrap();
+    assert!(at(&rw("/home/u/dotfiles")) < at(&ro("/home/u/dotfiles/zsh/.zshrc")));
+    // A floor that does not exist below a dir grant gets no bind, only a note; the
+    // engine refuses an always rule for such a dir (DE20 (b)).
+    let mut spec = crate::testing::spec();
+    spec.grants = vec![Grant::Write { path: "/home/u/.config".into() }];
+    spec.floors
+        .push(Floor { path: "/home/u/.config/autostart".into(), kind: FloorKind::Autostart });
+    let missing = plan_of(&spec, &world());
+    assert!(missing.notes().contains(&PlanNote::MissingFloor("/home/u/.config/autostart".into())));
+    assert!(!floors(&missing).iter().any(|(path, _)| path.ends_with("autostart")));
+}

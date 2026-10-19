@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_protocol::DesktopKind;
+use efr_protocol::{BusKind, DesktopKind};
 
 /// Every way a sandbox spec, plan, record stream or result file can fail.
 ///
@@ -199,6 +199,20 @@ pub enum SandboxError {
         /// The cache.
         cache: PathBuf,
     },
+
+    /// The spec holds `Grant::BusFilter` beside `Grant::Bus` of the same bus: two
+    /// sockets for one place, and the filter would mean nothing.
+    #[error("the sandbox spec has the filtered {bus:?} bus beside a grant of that whole bus")]
+    BusFilterWithBus {
+        /// The bus.
+        bus: BusKind,
+    },
+
+    /// A filtered system bus, but this machine has no `/run/dbus`, where the plan
+    /// binds it. efrd drops the view first when the machine has no system bus; this is
+    /// the launcher's guard.
+    #[error("the filtered system bus needs /run/dbus, and this machine has none")]
+    NoSystemBus,
 
     /// A session bus grant, but the spec names no session bus.
     #[error("a session bus grant, but the user has no session bus")]
