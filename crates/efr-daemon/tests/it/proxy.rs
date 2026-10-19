@@ -409,6 +409,19 @@ async fn status_reports_the_proxy() {
     daemon.stop().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_daemon_keeps_network_mode_none_across_reload() {
+    let setup = Setup::new();
+    let daemon = setup.daemon_with(Vec::new(), NetworkMode::None, proxy_ready()).await;
+    assert_eq!(admin_status(&daemon).await.network_mode, NetworkMode::None);
+    // NOTE: a file with no `[network]` table: the built-in default is "proxy".
+    reload(&daemon, &setup.dirs, "[shell]\nidle_minutes = 0\n").await;
+    assert_eq!(admin_status(&daemon).await.network_mode, NetworkMode::None, "after a reload");
+    reload(&daemon, &setup.dirs, "[network]\nmode = \"proxy\"\n").await;
+    assert_eq!(admin_status(&daemon).await.network_mode, NetworkMode::None, "the file loses");
+    daemon.stop().await.unwrap();
+}
+
 /// Writes `config.toml` with `text` and reloads it.
 async fn reload(daemon: &TestDaemon, dirs: &TestDirs, text: &str) {
     std::fs::write(dirs.dirs().config().join("config.toml"), text).unwrap();
