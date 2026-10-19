@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::{ExitKind, Grant, Origin};
+use efr_protocol::{BusKind, ExitKind, Grant, Origin};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -183,8 +183,9 @@ pub enum Subject {
         kind: ExitKind,
     },
     /// A read-only view of the host that the call gets with no exit and no question,
-    /// such as `Grant::NetView` (phase D1). It never raises the effect: its reason is
-    /// `Contain`, and it is never an exit.
+    /// such as `Grant::NetView` (phase D1) or `Grant::BusFilter`, the call's own
+    /// filtered bus (phase E). It never raises the effect: its reason is `Contain`, and
+    /// it is never an exit.
     View {
         /// The grant of the view.
         grant: Grant,
@@ -465,6 +466,12 @@ impl fmt::Display for Subject {
             Subject::Job => f.write_str("start a background job"),
             Subject::JobPart { part, kind } => write!(f, "run {part:?} as a job ({kind})"),
             Subject::View { grant: Grant::NetView } => f.write_str("the host's network view"),
+            Subject::View { grant: Grant::BusFilter { bus: BusKind::System } } => {
+                f.write_str("the filtered system bus")
+            }
+            Subject::View { grant: Grant::BusFilter { bus: BusKind::Session } } => {
+                f.write_str("the filtered session bus")
+            }
             Subject::View { .. } => f.write_str("a view of the host"),
             Subject::Nothing => f.write_str("no requirements"),
         }

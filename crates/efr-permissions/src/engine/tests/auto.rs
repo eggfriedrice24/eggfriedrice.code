@@ -1037,24 +1037,165 @@ fn exits_systemctl_failed_is_bus(#[case] line: &str, #[case] bus: BusKind) {
     assert!(!need.user_only() && !need.runs_unsandboxed(), "{line:?}");
 }
 
+/// The machine of [`engine`] with the filtered bus proxy (phase E).
+fn bus_proxy_engine() -> Engine {
+    engine().with_support(AutoSupport { bus_proxy: true, ..AutoSupport::default() })
+}
+
+/// The views of `decision`, in order.
+fn views(decision: &Decision) -> Vec<Grant> {
+    decision.view_grants().cloned().collect()
+}
+
+#[rstest]
+#[case::hostnamectl("hostnamectl", BusKind::System)]
+#[case::hostnamectl_status("hostnamectl status", BusKind::System)]
+#[case::failed("systemctl --failed --no-pager", BusKind::System)]
+#[case::bare("systemctl", BusKind::System)]
+#[case::status("systemctl status nginx", BusKind::System)]
+#[case::status_pid("systemctl status 1234", BusKind::System)]
+#[case::list_units("systemctl list-units --type=service --state=failed", BusKind::System)]
+#[case::list_unit_files("systemctl list-unit-files", BusKind::System)]
+#[case::list_timers("systemctl list-timers --all", BusKind::System)]
+#[case::list_sockets("systemctl list-sockets", BusKind::System)]
+#[case::list_jobs("systemctl list-jobs", BusKind::System)]
+#[case::dependencies("systemctl list-dependencies sshd", BusKind::System)]
+#[case::is_active("systemctl is-active nginx", BusKind::System)]
+#[case::is_failed("systemctl is-failed nginx", BusKind::System)]
+#[case::is_enabled("systemctl is-enabled nginx", BusKind::System)]
+#[case::show("systemctl show -p ActiveState nginx", BusKind::System)]
+#[case::cat("systemctl cat nginx", BusKind::System)]
+#[case::user_failed("systemctl --user --failed", BusKind::Session)]
+#[case::user_status("systemctl --user status syncthing", BusKind::Session)]
+#[case::user_timers("systemctl --user list-timers", BusKind::Session)]
+#[case::sessions("loginctl list-sessions", BusKind::System)]
+#[case::loginctl("loginctl", BusKind::System)]
+#[case::users("loginctl list-users", BusKind::System)]
+#[case::show_session("loginctl show-session 2", BusKind::System)]
+#[case::user_status_login("loginctl user-status", BusKind::System)]
+#[case::timedatectl("timedatectl", BusKind::System)]
+#[case::timedatectl_show("timedatectl show", BusKind::System)]
+#[case::timesync("timedatectl timesync-status", BusKind::System)]
+#[case::show_timesync("timedatectl show-timesync", BusKind::System)]
+#[case::localectl("localectl", BusKind::System)]
+#[case::localectl_status("localectl status", BusKind::System)]
+#[case::path("/usr/bin/systemctl --failed", BusKind::System)]
+#[case::after_semicolon("cd /tmp; systemctl --failed", BusKind::System)]
+#[case::after_and("true && loginctl list-sessions", BusKind::System)]
+#[case::in_a_pipeline("systemctl list-units | grep failed", BusKind::System)]
+#[case::behind_a_wrapper("timeout 5 hostnamectl", BusKind::System)]
+fn exits_bus_read_forms_get_the_view_with_the_bus_proxy(#[case] line: &str, #[case] bus: BusKind) {
+    let decision = bus_proxy_engine().decide(&in_auto(shell(line)));
+    assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]), "{line:?}");
+    assert_eq!(views(&decision), [Grant::BusFilter { bus }], "{line:?}");
+    let view = decision
+        .reasons()
+        .iter()
+        .find(|reason| matches!(reason.subject, Subject::View { .. }))
+        .unwrap();
+    assert_eq!((view.effect, &view.cause), (Effect::Contain, &Cause::Contained), "{line:?}");
+}
+
 #[test]
-fn exits_bus_reads_are_routine_with_the_bus_proxy_and_coredump_list_needs_no_bus() {
-    let support = AutoSupport { bus_proxy: true, ..AutoSupport::default() };
-    let engine = engine().with_support(support);
-    assert_eq!(engine.support(), &support);
-    for line in ["systemctl --failed", "hostnamectl", "loginctl list-sessions"] {
-        let decision = engine.decide(&in_auto(shell(line)));
-        assert_eq!((decision.effect(), kinds(&decision)), (Effect::Contain, vec![]), "{line:?}");
-    }
-    // A change stays a privilege exit, and the model may still ask for the bus itself.
+fn exits_bus_read_forms_of_both_buses_get_both_views() {
+    let line = "systemctl --failed; systemctl --user --failed";
+    let decision = bus_proxy_engine().decide(&in_auto(shell(line)));
+    assert_eq!(kinds(&decision), []);
+    assert_eq!(
+        views(&decision),
+        [Grant::BusFilter { bus: BusKind::System }, Grant::BusFilter { bus: BusKind::Session }]
+    );
+    // A read form beside a script: the script gets the same filtered bus (a fit, not a
+    // security layer), and the line asks nothing.
+    let decision = bus_proxy_engine().decide(&in_auto(shell("systemctl --failed; ./x.sh")));
+    assert_eq!(decision.effect(), Effect::Contain);
+    assert_eq!(views(&decision), [Grant::BusFilter { bus: BusKind::System }]);
+}
+
+#[rstest]
+#[case::user_restart("systemctl --user restart x", ExitKind::Bus, BusKind::Session)]
+#[case::user_start("systemctl --user start x", ExitKind::Bus, BusKind::Session)]
+#[case::nmcli_off("nmcli radio wifi off", ExitKind::Bus, BusKind::System)]
+#[case::nmcli_read("nmcli device status", ExitKind::Bus, BusKind::System)]
+#[case::iwctl("iwctl station wlan0 show", ExitKind::Bus, BusKind::System)]
+#[case::notify("notify-send done", ExitKind::Bus, BusKind::Session)]
+#[case::resolvectl_flush("resolvectl flush-caches", ExitKind::Bus, BusKind::System)]
+#[case::resolvectl_status("resolvectl status", ExitKind::Bus, BusKind::System)]
+#[case::busctl("busctl list", ExitKind::Bus, BusKind::System)]
+#[case::gdbus("gdbus introspect --session -d org.x -o /", ExitKind::Bus, BusKind::Session)]
+#[case::coredump("coredumpctl info 1234", ExitKind::Bus, BusKind::System)]
+#[case::host("systemctl -H host status x", ExitKind::Bus, BusKind::System)]
+#[case::host_long("systemctl --host=box status x", ExitKind::Bus, BusKind::System)]
+#[case::host_prefix("systemctl --ho=box status x", ExitKind::Bus, BusKind::System)]
+#[case::host_cluster("systemctl -qHbox status x", ExitKind::Bus, BusKind::System)]
+#[case::machine("systemctl -M box status x", ExitKind::Bus, BusKind::System)]
+#[case::machine_long("systemctl --machine box status x", ExitKind::Bus, BusKind::System)]
+#[case::root("systemctl --root=/mnt list-units", ExitKind::Bus, BusKind::System)]
+#[case::image("systemctl --image=/x.raw list-units", ExitKind::Bus, BusKind::System)]
+#[case::image_policy("systemctl --image-policy=x status", ExitKind::Bus, BusKind::System)]
+#[case::host_after_the_verb("loginctl list-sessions -H box", ExitKind::Bus, BusKind::System)]
+#[case::machine_hostnamectl("hostnamectl -M box", ExitKind::Bus, BusKind::System)]
+#[case::shell_word("systemctl status $UNIT", ExitKind::Bus, BusKind::System)]
+#[case::other_read_verb("systemctl list-machines", ExitKind::Bus, BusKind::System)]
+#[case::environment("systemctl --user show-environment", ExitKind::Bus, BusKind::Session)]
+#[case::running("systemctl is-system-running", ExitKind::Bus, BusKind::System)]
+#[case::hostname("hostnamectl hostname", ExitKind::Bus, BusKind::System)]
+fn exits_bus_change_forms_keep_their_exit_with_the_bus_proxy(
+    #[case] line: &str,
+    #[case] kind: ExitKind,
+    #[case] bus: BusKind,
+) {
+    let with_proxy = bus_proxy_engine().decide(&in_auto(shell(line)));
+    let without = decide(shell(line));
+    assert_eq!(kinds(&with_proxy), [kind], "{line:?}");
+    assert_eq!(views(&with_proxy), [], "{line:?}");
+    let need = with_proxy.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Bus { bus }], "{line:?}");
+    let before = without.exits().next().unwrap();
+    assert_eq!(need.approver, before.approver, "{line:?}: the approver of today stays");
+}
+
+#[test]
+fn exits_bus_change_forms_beside_a_read_form_keep_their_exit() {
+    let engine = bus_proxy_engine();
+    let decision = engine.decide(&in_auto(shell("systemctl --failed; nmcli radio wifi off")));
+    assert_eq!(kinds(&decision), [ExitKind::Bus]);
+    assert_eq!(decision.exits().next().unwrap().approver, Approver::User);
+    assert_eq!(views(&decision), [Grant::BusFilter { bus: BusKind::System }]);
+    // Changes that are no bus exit keep their kind, and the model may still ask for the
+    // whole bus.
     assert_eq!(
         kinds(&engine.decide(&in_auto(shell("systemctl restart nginx")))),
         [ExitKind::Privilege]
     );
+    assert_eq!(
+        kinds(&engine.decide(&in_auto(shell("systemctl --user enable --now x.service")))),
+        [ExitKind::Persistence]
+    );
+    assert_eq!(
+        kinds(&engine.decide(&in_auto(shell("hostnamectl set-hostname box")))),
+        [ExitKind::Privilege]
+    );
     let asked = Needs { bus: Some(BusKind::System), ..Needs::default() };
-    assert_eq!(kinds(&engine.decide(&in_auto(shell("x").with_needs(asked)))), [ExitKind::Bus]);
+    let decision = engine.decide(&in_auto(shell("hostnamectl").with_needs(asked)));
+    assert_eq!(kinds(&decision), [ExitKind::Bus]);
+    assert_eq!(decision.exits().next().unwrap().grants, [Grant::Bus { bus: BusKind::System }]);
     assert_eq!(kinds(&decide(shell("coredumpctl list --no-pager"))), []);
     assert_eq!(kinds(&decide(shell("journalctl -b -1 -n 80"))), []);
+}
+
+#[rstest]
+#[case::hostnamectl("hostnamectl", BusKind::System)]
+#[case::failed("systemctl --failed", BusKind::System)]
+#[case::user_failed("systemctl --user --failed", BusKind::Session)]
+#[case::sessions("loginctl list-sessions", BusKind::System)]
+fn exits_bus_read_forms_stay_exits_without_the_bus_proxy(#[case] line: &str, #[case] bus: BusKind) {
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
+    assert_eq!(views(&decision), [], "{line:?}");
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Bus { bus }], "{line:?}");
+    assert_eq!(need.approver, Approver::Classifier, "{line:?}");
 }
 
 #[rstest]

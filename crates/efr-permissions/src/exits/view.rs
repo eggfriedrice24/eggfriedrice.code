@@ -1,6 +1,6 @@
-//! The network view rule (phase D1, efr's auto spec 8.8): which lines run in the
-//! sandbox with `Grant::NetView`, in the host's network namespace with no network
-//! socket.
+//! The view rules: which lines run in the sandbox with `Grant::NetView`, in the host's
+//! network namespace with no network socket (phase D1, efr's auto spec 8.8), and which
+//! get `Grant::BusFilter`, the call's own filtered bus (phase E, [`bus_grants`]).
 //!
 //! A line gets the view when the machine runs NetView calls, at least one simple command
 //! is a view command, and every simple command is a view command or a fixed text helper.
@@ -104,6 +104,34 @@ enum Part {
 /// [`net_view`] holds. A view is never an exit.
 pub(super) fn grants(segments: &[Segment], support: &AutoSupport) -> Vec<Grant> {
     if net_view(segments, support) { vec![Grant::NetView] } else { Vec::new() }
+}
+
+/// The filtered buses that the line of `segments` reads (phase E): one
+/// `Grant::BusFilter` for each bus that a read form of a systemd tool in any place of
+/// the line reads ([`programs::bus_read`]), in the order of the line, on a machine that
+/// runs the filtered bus proxy (`support.bus_proxy`). The places are the ones where
+/// [`predict`](super::predict) finds a program, also behind a wrapper, after `;`, `&&`
+/// and `|`, so each read form that has no `bus` exit gets its view.
+///
+/// NOTE: a fit, not a security layer, as the network view rule: a line
+/// `systemctl --failed; ./x.sh` gives the script the same filtered bus, and the proxy's
+/// rules carry the load.
+pub(super) fn bus_grants(segments: &[Segment], support: &AutoSupport) -> Vec<Grant> {
+    if !support.bus_proxy {
+        return Vec::new();
+    }
+    let mut grants: Vec<Grant> = Vec::new();
+    for segment in segments {
+        for (command, _) in programs::placed_commands(&segment.words) {
+            if let Some(bus) = programs::bus_read(command) {
+                let grant = Grant::BusFilter { bus };
+                if !grants.contains(&grant) {
+                    grants.push(grant);
+                }
+            }
+        }
+    }
+    grants
 }
 
 /// True when the line of `segments` gets the host's network view: the machine runs

@@ -2,7 +2,7 @@
 //! foreground, except that no delete of it counts as covered; the kinds that no job may
 //! hold are refused in every mode; outside `auto` each job asks the user.
 
-use efr_protocol::{BusKind, ExitKind, Mode, Needs, Origin, Scope};
+use efr_protocol::{BusKind, ExitKind, Grant, Mode, Needs, Origin, Scope};
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
@@ -10,8 +10,8 @@ use super::auto::auto_locations;
 use super::coverage::{coverable, undo_engine};
 use super::{app, input};
 use crate::{
-    Action, Cause, Decision, DecisionInput, Effect, Engine, Policy, Requirements, Resource, Rule,
-    Subject,
+    Action, AutoSupport, Cause, Decision, DecisionInput, Effect, Engine, Policy, Requirements,
+    Resource, Rule, Subject,
 };
 
 const APP: &str = "/home/u/p/app";
@@ -210,4 +210,46 @@ fn nmcli_job_is_refused() {
         assert_eq!(decision.effect(), Effect::Deny, "{line:?}");
         assert_eq!(refused(&decision), [ExitKind::Bus], "{line:?}");
     }
+}
+
+/// The machine of [`engine`] with the filtered bus proxy (phase E).
+fn bus_proxy_engine() -> Engine {
+    engine().with_support(AutoSupport { bus_proxy: true, ..AutoSupport::default() })
+}
+
+#[rstest]
+#[case::failed("systemctl --failed", BusKind::System)]
+#[case::user_failed("systemctl --user --failed", BusKind::Session)]
+#[case::watch("watch -n 60 systemctl list-units --state=failed", BusKind::System)]
+#[case::sessions("loginctl list-sessions", BusKind::System)]
+fn job_with_bus_read_form_gets_the_view(#[case] line: &str, #[case] bus: BusKind) {
+    // A view is no exit, so `job_refusal` never sees it: the job reads its own filtered
+    // bus for its whole life (Q63, DE12).
+    let decision = decide_in(&bus_proxy_engine(), job(line), Mode::Auto, Origin::Shell);
+    assert_eq!(decision.effect(), Effect::Contain, "{line:?}");
+    assert_eq!(refused(&decision), [], "{line:?}");
+    let views: Vec<&Grant> = decision.view_grants().collect();
+    assert_eq!(views, [&Grant::BusFilter { bus }], "{line:?}");
+    // Without the proxy the read form is a `bus` exit, which no job may hold.
+    let decision = decide(job(line));
+    assert_eq!(decision.effect(), Effect::Deny, "{line:?}");
+    assert_eq!(refused(&decision), [ExitKind::Bus], "{line:?}");
+}
+
+#[rstest]
+#[case::user_restart("systemctl --user restart x")]
+#[case::nmcli("nmcli device status")]
+#[case::notify("notify-send done")]
+#[case::remote("systemctl -H box status x")]
+#[case::beside_a_read_form("systemctl --failed; busctl list")]
+fn job_with_bus_change_form_stays_refused(#[case] line: &str) {
+    let engine = bus_proxy_engine();
+    let decision = decide_in(&engine, job(line), Mode::Auto, Origin::Shell);
+    assert_eq!(decision.effect(), Effect::Deny, "{line:?}");
+    assert_eq!(refused(&decision), [ExitKind::Bus], "{line:?}");
+    // The model's own need of the whole bus stays refused for a job too.
+    let asked = Needs { bus: Some(BusKind::System), ..Needs::default() };
+    let decision =
+        decide_in(&engine, job("hostnamectl").with_needs(asked), Mode::Auto, Origin::Shell);
+    assert_eq!(refused(&decision), [ExitKind::Bus], "{line:?}");
 }
