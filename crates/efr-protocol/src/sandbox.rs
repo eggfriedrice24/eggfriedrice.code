@@ -117,6 +117,13 @@ pub enum Grant {
     /// the host's network namespace, and seccomp allows only `AF_UNIX` and `AF_NETLINK`
     /// sockets, and only the `ROUTE` and `SOCK_DIAG` netlink protocols (phase D1).
     NetView,
+    /// The call's own filtered socket of `bus` (phase E), a view like `NetView`: the
+    /// plan binds `$CALL/bus/<bus>.sock` read-only where the bus is inside, and the
+    /// child may connect to it. Never beside a `Bus` grant of the same bus.
+    BusFilter {
+        /// Which bus.
+        bus: BusKind,
+    },
     /// A grant that this build does not know. efrd never makes one; the launcher
     /// refuses a spec that holds one.
     #[serde(other)]
@@ -136,6 +143,7 @@ impl Grant {
             | Grant::Bus { .. }
             | Grant::Desktop { .. }
             | Grant::NetView
+            | Grant::BusFilter { .. }
             | Grant::Unknown => None,
         }
     }

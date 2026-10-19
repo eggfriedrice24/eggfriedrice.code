@@ -5,13 +5,15 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FIXTURES_DIR, all, daemon_roots, draft_part_samples, event_path, event_samples,
-    floor_edit_exit_sample, grant_samples, input_wait_samples, launch_samples, method_samples,
-    method_stem, models_list_sample, undo_refused_samples, withdraw_target_samples,
+    FIXTURES_DIR, all, always_saved_samples, approval_decision_samples, daemon_roots,
+    draft_part_samples, event_path, event_samples, floor_edit_exit_sample, grant_samples,
+    input_wait_samples, launch_samples, method_samples, method_stem, models_list_sample,
+    undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
-    BlockReason, DraftPart, Event, ExitKind, Grant, InputWait, Launch, Method, Mode, ModelSource,
-    RootSource, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
+    AlwaysSaved, ApprovalDecision, BlockReason, BusProxyOff, DraftPart, Event, ExitKind, Grant,
+    InputWait, Launch, Method, Mode, ModelSource, NotSavedReason, RootSource, UndoAction,
+    UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -130,10 +132,11 @@ fn event_index(event: &Event) -> usize {
         Event::JobEnded { .. } => 46,
         Event::JobNotice { .. } => 47,
         Event::JobNoticeHeld { .. } => 48,
+        Event::AlwaysRuleSaved { .. } => 49,
     }
 }
 
-const EVENT_COUNT: usize = 49;
+const EVENT_COUNT: usize = 50;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -217,10 +220,11 @@ fn grant_index(grant: &Grant) -> usize {
         Grant::Unmask { .. } => 7,
         Grant::NetView => 8,
         Grant::Unknown => 9,
+        Grant::BusFilter { .. } => 10,
     }
 }
 
-const GRANT_COUNT: usize = 10;
+const GRANT_COUNT: usize = 11;
 
 /// The position of a launch in the enum, for the same purpose as `method_index`.
 fn launch_index(launch: &Launch) -> usize {
@@ -329,6 +333,57 @@ fn block_reason_index(reason: BlockReason) -> usize {
 }
 
 const BLOCK_REASON_COUNT: usize = 10;
+
+/// The position of an approval answer in the enum, for the same purpose as
+/// `method_index`.
+fn approval_decision_index(decision: ApprovalDecision) -> usize {
+    match decision {
+        ApprovalDecision::Allow => 0,
+        ApprovalDecision::Deny => 1,
+        ApprovalDecision::AllowAlways => 2,
+    }
+}
+
+const APPROVAL_DECISION_COUNT: usize = 3;
+
+/// The position of an always rule's outcome in the enum, for the same purpose as
+/// `method_index`.
+fn always_saved_index(saved: &AlwaysSaved) -> usize {
+    match saved {
+        AlwaysSaved::Saved { .. } => 0,
+        AlwaysSaved::NotSaved { .. } => 1,
+        AlwaysSaved::Unknown => 2,
+    }
+}
+
+const ALWAYS_SAVED_COUNT: usize = 3;
+
+/// The position of a reason in the enum, for the same purpose as `method_index`.
+fn not_saved_reason_index(reason: NotSavedReason) -> usize {
+    match reason {
+        NotSavedReason::Changed => 0,
+        NotSavedReason::ReadOnly => 1,
+        NotSavedReason::LoadCheck => 2,
+        NotSavedReason::Io => 3,
+        NotSavedReason::ReloadTimeout => 4,
+        NotSavedReason::Unknown => 5,
+    }
+}
+
+const NOT_SAVED_REASON_COUNT: usize = 6;
+
+/// The position of a reason in the enum, for the same purpose as `method_index`.
+fn bus_proxy_off_index(reason: BusProxyOff) -> usize {
+    match reason {
+        BusProxyOff::Config => 0,
+        BusProxyOff::NoProgram => 1,
+        BusProxyOff::SelfTest => 2,
+        BusProxyOff::OldVersion => 3,
+        BusProxyOff::Unknown => 4,
+    }
+}
+
+const BUS_PROXY_OFF_COUNT: usize = 5;
 
 #[test]
 fn every_sample_matches_its_frozen_file() {
@@ -467,6 +522,23 @@ fn every_withdraw_target_has_a_sample() {
 fn every_block_reason_has_a_sample() {
     let covered: Vec<usize> = BlockReason::ALL.into_iter().map(block_reason_index).collect();
     assert_eq!(covered, (0..BLOCK_REASON_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_approval_decision_and_always_outcome_has_a_sample() {
+    let decisions: Vec<usize> =
+        approval_decision_samples().into_iter().map(approval_decision_index).collect();
+    assert_eq!(decisions, (0..APPROVAL_DECISION_COUNT).collect::<Vec<_>>());
+    let saved: Vec<usize> = always_saved_samples().iter().map(always_saved_index).collect();
+    assert_eq!(saved, (0..ALWAYS_SAVED_COUNT).collect::<Vec<_>>());
+    let reasons: Vec<usize> = NotSavedReason::ALL.into_iter().map(not_saved_reason_index).collect();
+    assert_eq!(reasons, (0..NOT_SAVED_REASON_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_bus_proxy_off_reason_has_a_sample() {
+    let covered: Vec<usize> = BusProxyOff::ALL.into_iter().map(bus_proxy_off_index).collect();
+    assert_eq!(covered, (0..BUS_PROXY_OFF_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

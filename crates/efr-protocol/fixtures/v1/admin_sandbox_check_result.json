@@ -13,7 +13,9 @@
       "the registered project ~ is your home directory; auto runs its turns as cautious"
     ],
     "netview": false,
-    "proxy": false
+    "proxy": false,
+    "bus_proxy": false,
+    "bus_proxy_off": "no_program"
   },
   "checks": [
     {

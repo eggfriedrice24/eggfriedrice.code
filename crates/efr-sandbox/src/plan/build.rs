@@ -58,8 +58,9 @@ impl MountPlan {
     pub fn build(spec: &SandboxSpec, fs: &dyn FsView) -> Result<MountPlan, SandboxError> {
         spec.check()?;
         // A grant of a newer efr: this build cannot know what it widens, so the call
-        // fails closed.
-        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown)) {
+        // fails closed. The filtered bus has no plan step yet, so it fails the same way.
+        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown | Grant::BusFilter { .. }))
+        {
             return Err(SandboxError::UnknownGrant);
         }
         // NOTE: efrd adds the network view only beside `Write` and `Unmask` grants

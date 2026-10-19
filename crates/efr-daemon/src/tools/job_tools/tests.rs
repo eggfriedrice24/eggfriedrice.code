@@ -131,6 +131,8 @@ async fn job_stop_of_ended_job_returns_state() {
                 output_truncated: false,
                 blocked: Vec::new(),
                 blocked_more: 0,
+                bus_refused: Vec::new(),
+                bus_refused_more: 0,
             },
         );
     store.writer().append(batch).await.unwrap();

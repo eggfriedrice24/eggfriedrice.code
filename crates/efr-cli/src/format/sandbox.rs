@@ -275,6 +275,7 @@ fn grant_words(grant: &Grant, home: Option<&Path>) -> String {
         Grant::Device { path } => format!("the device {}", tilde(path, home)),
         Grant::Unmask { path } => format!("{} readable", tilde(path, home)),
         Grant::NetView => "host network view (no sending)".to_owned(),
+        Grant::BusFilter { bus } => format!("filtered bus: {}", bus_words(*bus)),
         Grant::Unknown => "unknown grant".to_owned(),
         _ => "more access".to_owned(),
     }

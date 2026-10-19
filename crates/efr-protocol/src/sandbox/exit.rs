@@ -286,6 +286,11 @@ pub struct ExitInfo {
     /// True when only the user may approve this exit.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub user_only: bool,
+    /// The rule that an `allow_always` answer saves, in words, such as
+    /// `write under ~/notes` or `host download.example.org:443` (phase E). Absent when
+    /// no rule may cover the call; a client offers the answer only when it is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always: Option<String>,
 }
 
 #[cfg(test)]

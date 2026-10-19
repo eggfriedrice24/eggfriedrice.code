@@ -26,6 +26,15 @@
     ]
   },
   {
+    "kind": "contained",
+    "grants": [
+      {
+        "kind": "bus_filter",
+        "bus": "system"
+      }
+    ]
+  },
+  {
     "kind": "unsandboxed"
   }
 ]

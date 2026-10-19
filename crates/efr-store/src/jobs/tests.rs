@@ -60,6 +60,8 @@ fn job_ended(n: u32, state: JobState, stopped_by: Option<JobStopBy>) -> Event {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     }
 }
 

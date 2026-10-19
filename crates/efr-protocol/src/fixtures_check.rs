@@ -19,33 +19,35 @@ use crate::{
     ActionFacts, AdminConfigReload, AdminConfigReloadResult, AdminLoginApiKey,
     AdminLoginApiKeyResult, AdminLoginOpenAi, AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult,
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
-    AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalDecision,
-    ApprovalRespond, ApprovalRespondResult, Base64Bytes, BlockReason, Blocked, BusKind, CacheMode,
-    CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome,
-    ClientFrame, Color, CommandId, Compaction, CompactionId, CompactionTrigger, ConfigFileError,
-    ConfigStatus, ContextUse, ConversationCompact, ConversationCompactResult, ConversationDiff,
-    ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
-    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
-    ConversationSummary, ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths,
-    DaemonRoots, DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody,
-    ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource,
-    FileChange, FileChanges, GitCounts, Grant, HeldReason, Hello, HelloResult, HostFact,
-    InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState, JobStopBy, JobsList,
-    JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport,
+    AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes, BlockReason, Blocked,
+    BusKind, BusProxyOff, BusRefusal, CacheMode, CallId, Capabilities, CatalogOrigin,
+    CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color, CommandId,
+    Compaction, CompactionId, CompactionTrigger, ConfigFileError, ConfigStatus, ContextUse,
+    ConversationCompact, ConversationCompactResult, ConversationDiff, ConversationDiffResult,
+    ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSnapshot,
+    ConversationStatus, ConversationSubscribe, ConversationSubscribeItem, ConversationSummary,
+    ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots,
+    DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode,
+    Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange,
+    FileChanges, GitCounts, Grant, HeldReason, Hello, HelloResult, HostFact, InputRespond,
+    InputRespondResult, InputWait, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult,
+    JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport,
     LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
-    ModelsListResult, NetworkMode, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION,
-    PageCursor, PathClassName, PauseReason, Presence, PresenceSet, PresenceSetResult,
-    PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
-    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
-    PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
-    RefChange, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource,
-    RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths,
-    SandboxStatus, SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope,
-    ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase,
-    StopReason, SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
-    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
-    Verdict, Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ModelsListResult, NetworkMode, NotSavedReason, NoticeKind, Origin, OverriddenSettings,
+    PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence, PresenceSet,
+    PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList,
+    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
+    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
+    PtyWriteResult, QuestionId, RefChange, ReportedFile, RequestId, ResentSteers, Risk, RootDir,
+    RootFiles, RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
+    ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange, TargetFact, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
+    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
+    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -122,7 +124,47 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("held_reasons.json", &HeldReason::ALL.to_vec()));
     fixtures.push(fixture("notice_kinds.json", &NoticeKind::ALL.to_vec()));
     fixtures.push(fixture("block_reasons.json", &BlockReason::ALL.to_vec()));
+    fixtures.push(fixture("approval_decisions.json", &approval_decision_samples()));
+    fixtures.push(fixture("always_saved.json", &always_saved_samples()));
+    fixtures.push(fixture("not_saved_reasons.json", &NotSavedReason::ALL.to_vec()));
+    fixtures.push(fixture("bus_proxy_off_reasons.json", &BusProxyOff::ALL.to_vec()));
     fixtures
+}
+
+/// Every answer to an approval request, so `approval_decisions.json` freezes the wire
+/// form of each.
+pub(crate) fn approval_decision_samples() -> Vec<ApprovalDecision> {
+    vec![ApprovalDecision::Allow, ApprovalDecision::Deny, ApprovalDecision::AllowAlways]
+}
+
+/// Every state of an always rule's outcome, so `always_saved.json` freezes the wire
+/// form of each.
+pub(crate) fn always_saved_samples() -> Vec<AlwaysSaved> {
+    vec![
+        AlwaysSaved::Saved { index: 2, rule: "write under ~/notes".into() },
+        AlwaysSaved::NotSaved { reason: NotSavedReason::ReadOnly },
+        AlwaysSaved::Unknown,
+    ]
+}
+
+/// Bus calls that the bus filter refused, with every member set.
+fn bus_refused() -> Vec<BusRefusal> {
+    vec![
+        BusRefusal {
+            bus: BusKind::System,
+            name: "org.freedesktop.systemd1".into(),
+            member: "org.freedesktop.systemd1.Manager.StartUnit".into(),
+            path: "/org/freedesktop/systemd1".into(),
+            count: 2,
+        },
+        BusRefusal {
+            bus: BusKind::Session,
+            name: "org.freedesktop.Notifications".into(),
+            member: "org.freedesktop.Notifications.Notify".into(),
+            path: "/org/freedesktop/Notifications".into(),
+            count: 1,
+        },
+    ]
 }
 
 /// A job that ran, with every member set.
@@ -404,6 +446,8 @@ pub(crate) fn grant_samples() -> Vec<Grant> {
         Grant::Device { path: "/dev/nvme0n1".into() },
         Grant::Unmask { path: "/home/me/p/app/.env".into() },
         Grant::NetView,
+        Grant::BusFilter { bus: BusKind::System },
+        Grant::BusFilter { bus: BusKind::Session },
         Grant::Unknown,
     ];
     grants.extend(DesktopKind::ALL.map(|desktop| Grant::Desktop { desktop }));
@@ -419,6 +463,7 @@ pub(crate) fn launch_samples() -> Vec<Launch> {
         Launch::Contained {
             grants: vec![Grant::NetView, Grant::Write { path: "/home/me/notes".into() }],
         },
+        Launch::Contained { grants: vec![Grant::BusFilter { bus: BusKind::System }] },
         Launch::Unsandboxed,
     ]
 }
@@ -442,6 +487,8 @@ fn sandbox_status() -> SandboxStatus {
         netview: true,
         netview_off: false,
         proxy: true,
+        bus_proxy: true,
+        bus_proxy_off: None,
     }
 }
 
@@ -1107,6 +1154,8 @@ fn answer_fixtures() -> Vec<Fixture> {
                     fix: Some("install the non-setuid build of bubblewrap".into()),
                     netview: false,
                     proxy: false,
+                    bus_proxy: false,
+                    bus_proxy_off: Some(BusProxyOff::NoProgram),
                     ..sandbox_status()
                 },
                 checks: vec![
@@ -1397,6 +1446,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 setup_error: Some("bwrap: Can't mount proc on /newroot/proc".into()),
                 cache_deletes: vec!["/home/me/.cache/go-build/3f".into()],
                 cache_deletes_more: 2,
+                bus_refused: bus_refused(),
+                bus_refused_more: 3,
             }),
             refusal: Some("efr's config (floor)".into()),
             changes: Some(file_changes()),
@@ -1421,6 +1472,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 model_reason: Some("the user asked for the report in Documents".into()),
                 judged: Some(judgement()),
                 user_only: true,
+                always: Some("write under ~/Documents".into()),
             }),
         },
         Event::ApprovalResolved {
@@ -1501,6 +1553,11 @@ pub(crate) fn event_samples() -> Vec<Event> {
             cached: true,
             chain_step: Some(ChainStep::TurnModel),
             skipped: vec!["gpt-6-luna: missing".into()],
+        },
+        Event::AlwaysRuleSaved {
+            turn_id: turn_id(),
+            call_id: call_id(),
+            outcome: AlwaysSaved::Saved { index: 2, rule: "write under ~/Documents".into() },
         },
         Event::ExitReviewStarted {
             turn_id: turn_id(),
@@ -1630,6 +1687,8 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 count: 4,
             }],
             blocked_more: 1,
+            bus_refused: bus_refused(),
+            bus_refused_more: 1,
         },
         Event::JobNotice {
             conversation_id: conversation_id(),

@@ -6,10 +6,11 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    BlockReason, Blocked, CallId, CommandId, Compaction, ConversationId, EffectiveSettings,
-    ErrorBody, ErrorCode, Event, EventEnvelope, HeldReason, InputWait, JobId, JobState, Mode,
-    NoticeKind, Origin, OverriddenSettings, PromptSend, PtyId, Scope, Seq, ShellContext,
-    SnapshotPhase, StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
+    AlwaysSaved, ApprovalDecision, BlockReason, Blocked, BusKind, BusRefusal, CallId, CommandId,
+    Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope,
+    HeldReason, InputWait, JobId, JobState, Mode, NotSavedReason, NoticeKind, Origin,
+    OverriddenSettings, PromptSend, PtyId, Scope, Seq, ShellContext, SnapshotPhase, StopReason,
+    TurnId, TurnSettings, TurnStop, UndoId, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -364,6 +365,8 @@ fn job_ended_has_no_turn_id() {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     };
     assert_eq!(ended.turn_id(), None);
     assert_eq!(
@@ -718,4 +721,78 @@ fn every_stop_reason_is_its_wire_name() {
         assert_eq!(value, json!(reason.as_str()));
         assert_eq!(serde_json::from_value::<StopReason>(value).unwrap(), reason);
     }
+}
+
+#[test]
+fn allow_always_is_one_snake_case_word() {
+    let wire = serde_json::to_value(ApprovalDecision::AllowAlways).unwrap();
+    assert_eq!(wire, json!("allow_always"));
+    assert_eq!(
+        serde_json::from_value::<ApprovalDecision>(wire).unwrap(),
+        ApprovalDecision::AllowAlways
+    );
+}
+
+#[test]
+fn always_rule_saved_belongs_to_its_turn_and_reads_a_later_state_as_unknown() {
+    let event = Event::AlwaysRuleSaved {
+        turn_id: turn(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        outcome: AlwaysSaved::NotSaved { reason: NotSavedReason::Changed },
+    };
+    assert_eq!(event.turn_id(), Some(turn()));
+    assert_eq!(event.kind(), "always_rule_saved");
+    let wire = serde_json::to_value(&event).unwrap();
+    assert_eq!(wire["outcome"], json!({ "kind": "not_saved", "reason": "changed" }));
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), event);
+    let later: AlwaysSaved =
+        serde_json::from_value(json!({ "kind": "queued", "after": 3 })).unwrap();
+    assert_eq!(later, AlwaysSaved::Unknown);
+    let reason: AlwaysSaved =
+        serde_json::from_value(json!({ "kind": "not_saved", "reason": "disk_full" })).unwrap();
+    assert_eq!(reason, AlwaysSaved::NotSaved { reason: NotSavedReason::Unknown });
+}
+
+#[test]
+fn job_ended_without_bus_refusals_reads_as_before() {
+    let old = json!({
+        "kind": "job_ended",
+        "job_id": "j3",
+        "state": "exited",
+        "exit_code": 0,
+        "output_bytes": 12,
+        "ran_secs": 4,
+        "tail": "ok\n",
+    });
+    let event: Event = serde_json::from_value(old.clone()).unwrap();
+    let Event::JobEnded { bus_refused, bus_refused_more, .. } = &event else {
+        panic!("not a job_ended event: {event:?}");
+    };
+    assert!(bus_refused.is_empty());
+    assert_eq!(*bus_refused_more, 0);
+    assert_eq!(serde_json::to_value(&event).unwrap(), old, "empty members stay off the wire");
+    let mut with = serde_json::to_value(&event).unwrap();
+    with["bus_refused"] = json!([{
+        "bus": "system",
+        "name": "org.freedesktop.systemd1",
+        "member": "org.freedesktop.systemd1.Manager.StartUnit",
+        "path": "/org/freedesktop/systemd1",
+    }]);
+    with["bus_refused_more"] = json!(2);
+    let read: Event = serde_json::from_value(with.clone()).unwrap();
+    let Event::JobEnded { bus_refused, bus_refused_more, .. } = &read else {
+        panic!("not a job_ended event: {read:?}");
+    };
+    assert_eq!(*bus_refused_more, 2);
+    assert_eq!(
+        bus_refused,
+        &[BusRefusal {
+            bus: BusKind::System,
+            name: "org.freedesktop.systemd1".into(),
+            member: "org.freedesktop.systemd1.Manager.StartUnit".into(),
+            path: "/org/freedesktop/systemd1".into(),
+            count: 1,
+        }]
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), with, "a count of 1 stays off the wire");
 }

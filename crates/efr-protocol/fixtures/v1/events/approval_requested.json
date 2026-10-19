@@ -35,6 +35,7 @@
       "category": "action outside the user's request",
       "rationale": "no user message names ~/Documents"
     },
-    "user_only": true
+    "user_only": true,
+    "always": "write under ~/Documents"
   }
 }

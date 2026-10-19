@@ -284,6 +284,7 @@ pub(crate) fn exit_info(kinds: &[ExitKind], launch: Launch) -> ExitInfo {
         model_reason: None,
         judged: None,
         user_only: false,
+        always: None,
     }
 }
 

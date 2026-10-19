@@ -152,7 +152,7 @@ async fn diff_with(
 #[tokio::test]
 async fn efr_diff_shows_the_last_turn_of_the_newest_conversation() {
     let (exit, stdout, stderr, asked) =
-        diff_with(&[], false, Ok(result(Some(DIFF))), vec![summary()]).await;
+        Box::pin(diff_with(&[], false, Ok(result(Some(DIFF))), vec![summary()])).await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(
         asked,
@@ -172,7 +172,7 @@ async fn efr_diff_shows_the_last_turn_of_the_newest_conversation() {
 #[tokio::test]
 async fn efr_diff_stat_on_a_terminal_paints_the_counts() {
     let (exit, stdout, _, _) =
-        diff_with(&["--stat"], true, Ok(result(None)), vec![summary()]).await;
+        Box::pin(diff_with(&["--stat"], true, Ok(result(None)), vec![summary()])).await;
     assert_eq!(exit, Exit::Success);
     insta::assert_snapshot!(readable(&stdout));
 }
@@ -181,7 +181,8 @@ async fn efr_diff_stat_on_a_terminal_paints_the_counts() {
 async fn efr_diff_turn_asks_for_that_turn_without_a_lookup() {
     let turn = turn().to_string();
     let (exit, _, stderr, asked) =
-        diff_with(&["--turn", &turn, "--stat"], false, Ok(result(None)), Vec::new()).await;
+        Box::pin(diff_with(&["--turn", &turn, "--stat"], false, Ok(result(None)), Vec::new()))
+            .await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(
         asked,
@@ -201,7 +202,8 @@ async fn a_turn_that_changed_nothing_says_so() {
         changes: FileChanges::default(),
         diff: Some(String::new()),
     };
-    let (exit, stdout, stderr, _) = diff_with(&[], false, Ok(nothing), vec![summary()]).await;
+    let (exit, stdout, stderr, _) =
+        Box::pin(diff_with(&[], false, Ok(nothing), vec![summary()])).await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(stdout, "");
     assert!(stderr.ends_with(&format!("turn {} changed no files\n", turn())), "{stderr}");
@@ -210,7 +212,8 @@ async fn a_turn_that_changed_nothing_says_so() {
 #[tokio::test]
 async fn a_turn_without_a_snapshot_is_an_error_that_says_which_turn() {
     let body = ErrorBody::new(ErrorCode::NotFound, "the conversation has no turn");
-    let (exit, stdout, stderr, _) = diff_with(&[], false, Err(body), vec![summary()]).await;
+    let (exit, stdout, stderr, _) =
+        Box::pin(diff_with(&[], false, Err(body), vec![summary()])).await;
     assert_eq!(exit, Exit::DaemonError);
     assert_eq!(stdout, "");
     assert!(
@@ -224,7 +227,8 @@ async fn a_turn_without_a_snapshot_is_an_error_that_says_which_turn() {
 
 #[tokio::test]
 async fn without_a_conversation_there_is_nothing_to_show() {
-    let (exit, stdout, stderr, asked) = diff_with(&[], false, Ok(result(None)), Vec::new()).await;
+    let (exit, stdout, stderr, asked) =
+        Box::pin(diff_with(&[], false, Ok(result(None)), Vec::new())).await;
     assert_eq!(exit, Exit::DaemonError);
     assert_eq!(stdout, "");
     assert_eq!(asked, None);

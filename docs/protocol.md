@@ -432,3 +432,27 @@ No protocol version has shipped yet.
   `events/tool_call_completed.json`, `events/job_ended.json`,
   `events/exit_requested.json`, `admin_status_result.json` and
   `admin_sandbox_check_result.json` now set the new members.
+- Version 1, additive: the bus filter and always-allow (phase E). `approval_decision`
+  gains `allow_always`: run the call and save the rule that the question offered. An
+  `efr` or a daemon from before this version cannot read it; a turn that does not know
+  it denies the call. The exit info of `approval_requested` gains `always` (absent when
+  no rule may cover the call): the rule in words; a client offers `allow_always` only
+  when it is set. New event kind `always_rule_saved` (`turn_id`, `call_id`, `outcome`),
+  which belongs to its turn; `outcome` is an object tagged by `kind`: `saved` (`index`,
+  `rule`), `not_saved` (`reason`: `changed`, `read_only`, `load_check`, `io`,
+  `reload_timeout`) or `unknown`, and a reader takes a state or a reason that it does
+  not know as `unknown`. `approval_resolved` does not change. New grant kind
+  `bus_filter` (`bus`): the call's own filtered socket of that bus, a view like
+  `net_view`; a reader that does not know it takes it as `unknown`, and a launcher that
+  has no plan step for it refuses the call. The sandbox status gains `bus_proxy` (false
+  when absent): true when efrd runs the filtered bus proxy, and `bus_proxy_off` (absent
+  when the filter is on): `config`, `no_program`, `self_test`, `old_version` or
+  `unknown`. `sandbox_summary` and the `job_ended` event gain `bus_refused` (absent
+  when empty, at most 16 entries of `bus`, `name`, `member`, `path` and `count`, 1 when
+  absent) and `bus_refused_more` (0 when absent). The new fixtures
+  `approval_decisions.json`, `always_saved.json`, `not_saved_reasons.json`,
+  `bus_proxy_off_reasons.json` and `events/always_rule_saved.json` freeze them;
+  `grants.json`, `launches.json`, `events/approval_requested.json`,
+  `events/tool_call_completed.json`, `events/job_ended.json`,
+  `admin_status_result.json` and `admin_sandbox_check_result.json` now set the new
+  members.

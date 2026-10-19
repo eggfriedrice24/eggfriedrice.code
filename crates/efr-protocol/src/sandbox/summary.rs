@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::BusKind;
+
 /// What a contained or unsandboxed call did to the state around it. Names only: no
 /// value of a variable and no file content.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -59,6 +61,14 @@ pub struct SandboxSummary {
     /// is not UTF-8, or a whole directory hidden at once.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub cache_deletes_more: u32,
+    /// Bus calls that the bus filter refused (phase E), at most
+    /// [`MAX_BUS_REFUSED`](Self::MAX_BUS_REFUSED): one entry for each bus, name,
+    /// member and path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bus_refused: Vec<BusRefusal>,
+    /// The refusals that `bus_refused` leaves out (phase E).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub bus_refused_more: u32,
 }
 
 impl SandboxSummary {
@@ -68,6 +78,8 @@ impl SandboxSummary {
     pub const MAX_CACHE_DELETES: usize = 4096;
     /// The most bytes of paths that [`cache_deletes`](Self::cache_deletes) lists.
     pub const MAX_CACHE_DELETE_BYTES: usize = 256 * 1024;
+    /// The most entries that [`bus_refused`](Self::bus_refused) lists.
+    pub const MAX_BUS_REFUSED: usize = 16;
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -93,6 +105,25 @@ pub struct Blocked {
     pub reason: BlockReason,
     /// How many connections of the call the proxy refused for this host, port and
     /// reason. 1 when absent.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub count: u32,
+}
+
+/// One bus call that the bus filter refused (phase E), with how often. The names come
+/// from the command's own messages, so a client shows them as text that a program
+/// wrote.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct BusRefusal {
+    /// Which bus.
+    pub bus: BusKind,
+    /// The destination, as the client wrote it, or `<invalid>`.
+    pub name: String,
+    /// `interface.member`, the member alone for a call with no interface, or empty for
+    /// a refusal of the bus itself that names no member.
+    pub member: String,
+    /// The object path, or `<invalid>`.
+    pub path: String,
+    /// How many such calls the filter refused. 1 when absent.
     #[serde(default = "one", skip_serializing_if = "is_one")]
     pub count: u32,
 }

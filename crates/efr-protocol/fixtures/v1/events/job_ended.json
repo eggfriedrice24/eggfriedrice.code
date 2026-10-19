@@ -29,5 +29,21 @@
       "count": 4
     }
   ],
-  "blocked_more": 1
+  "blocked_more": 1,
+  "bus_refused": [
+    {
+      "bus": "system",
+      "name": "org.freedesktop.systemd1",
+      "member": "org.freedesktop.systemd1.Manager.StartUnit",
+      "path": "/org/freedesktop/systemd1",
+      "count": 2
+    },
+    {
+      "bus": "session",
+      "name": "org.freedesktop.Notifications",
+      "member": "org.freedesktop.Notifications.Notify",
+      "path": "/org/freedesktop/Notifications"
+    }
+  ],
+  "bus_refused_more": 1
 }

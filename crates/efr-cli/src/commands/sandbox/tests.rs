@@ -25,6 +25,8 @@ fn ready() -> SandboxStatus {
         netview: false,
         netview_off: false,
         proxy: false,
+        bus_proxy: false,
+        bus_proxy_off: None,
     }
 }
 

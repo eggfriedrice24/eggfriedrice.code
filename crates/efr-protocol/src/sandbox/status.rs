@@ -54,6 +54,43 @@ pub struct SandboxStatus {
     /// call can reach the network through efr's proxy (phase D2). False when absent.
     #[serde(default)]
     pub proxy: bool,
+    /// True when efrd runs the filtered bus proxy: the program exists, its self-test
+    /// passed and `dbus.proxy` is true (phase E). False when absent.
+    #[serde(default)]
+    pub bus_proxy: bool,
+    /// Why the bus filter is off, when it is (phase E). Absent when it is on, and from
+    /// an earlier daemon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus_proxy_off: Option<BusProxyOff>,
+}
+
+/// Why the bus filter is off (phase E).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum BusProxyOff {
+    /// `dbus.proxy` is false.
+    Config,
+    /// `xdg-dbus-proxy` is not installed as a trusted program.
+    NoProgram,
+    /// The self-test of the proxy failed.
+    SelfTest,
+    /// The installed `xdg-dbus-proxy` is older than the oldest version that efr tested.
+    OldVersion,
+    /// A reason that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl BusProxyOff {
+    /// Every reason, in the order of the enum.
+    pub const ALL: [BusProxyOff; 5] = [
+        BusProxyOff::Config,
+        BusProxyOff::NoProgram,
+        BusProxyOff::SelfTest,
+        BusProxyOff::OldVersion,
+        BusProxyOff::Unknown,
+    ];
 }
 
 impl SandboxStatus {
@@ -73,6 +110,8 @@ impl SandboxStatus {
             netview: false,
             netview_off: false,
             proxy: false,
+            bus_proxy: false,
+            bus_proxy_off: None,
         }
     }
 }

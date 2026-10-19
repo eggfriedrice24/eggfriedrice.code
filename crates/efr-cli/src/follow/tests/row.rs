@@ -1345,6 +1345,8 @@ async fn view_stop_key_stops_job() {
             output_truncated: false,
             blocked: Vec::new(),
             blocked_more: 0,
+            bus_refused: Vec::new(),
+            bus_refused_more: 0,
         };
         conn.item(sub, &item(11, end)).await;
         let mut stopped = job(3, "npm run dev");
