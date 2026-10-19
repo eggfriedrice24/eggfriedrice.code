@@ -84,6 +84,24 @@ pub enum ConfigError {
         #[source]
         source: PermissionsError,
     },
+    /// An entry of `sandbox.allow` or `dbus.allow` in the config file is refused: an
+    /// always-allow rule of a bad shape, or a bus rule that could open more than one
+    /// exact method, names a protected service, or adds a method that changes the
+    /// machine.
+    #[error("{key}[{index}] in {} is invalid", .path.display())]
+    InvalidEntry {
+        /// The config file.
+        path: PathBuf,
+        /// The dotted key of the array, such as `sandbox.allow`.
+        key: &'static str,
+        /// The entry's place in the array, counted from 0.
+        index: usize,
+        /// Where the entry is.
+        location: Option<Location>,
+        /// The error from `efr-permissions`.
+        #[source]
+        source: PermissionsError,
+    },
     /// A value in the config file is outside its allowed set or range.
     #[error("the config value {key} = {value} in {} is not {expected}", .path.display())]
     Invalid {
@@ -134,8 +152,20 @@ pub enum ConfigError {
         /// How many rules the file has.
         count: usize,
     },
-    /// `permissions` or `permissions.rules` in the file is not a table or a list of
-    /// tables, so the writer cannot add or remove a rule there.
+    /// An entry of an array of tables, such as `sandbox.allow`, that the writer was
+    /// asked to remove is not in the file.
+    #[error("{key}[{index}] does not exist; the file has {count} entries there")]
+    NoEntry {
+        /// The dotted key of the array.
+        key: &'static str,
+        /// The entry's place as asked, counted from 0.
+        index: usize,
+        /// How many entries the file has there.
+        count: usize,
+    },
+    /// A table or an array of tables in the file, such as `permissions` or
+    /// `sandbox.allow`, is not a table or a list of tables, so the writer cannot add or
+    /// remove an entry there.
     #[error("{key} in the config file has a form the writer cannot change")]
     NotATable {
         /// The dotted key.
@@ -229,6 +259,7 @@ impl ConfigError {
             ConfigError::Parse { location, .. }
             | ConfigError::ParseRule { location, .. }
             | ConfigError::InvalidRule { location, .. }
+            | ConfigError::InvalidEntry { location, .. }
             | ConfigError::Invalid { location, .. }
             | ConfigError::ThemeParse { location, .. }
             | ConfigError::ThemeInvalid { location, .. } => *location,
@@ -236,8 +267,8 @@ impl ConfigError {
         }
     }
 
-    /// The dotted key that holds the error, such as `shell.idle_minutes` or
-    /// `permissions.rules[2]`, when the error belongs to one key.
+    /// The dotted key that holds the error, such as `shell.idle_minutes`,
+    /// `permissions.rules[2]` or `sandbox.allow[0]`, when the error belongs to one key.
     pub fn key(&self) -> Option<String> {
         match self {
             ConfigError::Parse { key, .. } | ConfigError::ThemeParse { key, .. } => key.clone(),
@@ -248,6 +279,8 @@ impl ConfigError {
             | ConfigError::ThemeInvalid { key, .. }
             | ConfigError::NotATable { key } => Some((*key).to_owned()),
             ConfigError::NoRule { index, .. } => Some(format!("permissions.rules[{index}]")),
+            ConfigError::InvalidEntry { key, index, .. }
+            | ConfigError::NoEntry { key, index, .. } => Some(format!("{key}[{index}]")),
             ConfigError::InvalidOverride { key, .. }
             | ConfigError::InvalidValue { key, .. }
             | ConfigError::UnknownKey { key } => Some(key.clone()),

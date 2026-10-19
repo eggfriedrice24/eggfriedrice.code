@@ -762,6 +762,15 @@ fn each_sandbox_key_that_opens_the_sandbox_loosens() {
         ("sandbox.promote_env added", changed(|s| s.promote_env.push("PATH".to_owned()))),
         ("sandbox.synced_dirs removed", changed(|s| s.synced_dirs.clear())),
         ("sandbox.rebuildable added", changed(|s| s.rebuildable.push("src".to_owned()))),
+        (
+            "sandbox.allow added",
+            changed(|s| {
+                s.allow.push(efr_config::AllowRule::Write {
+                    under: "~/notes".to_owned(),
+                    project: None,
+                });
+            }),
+        ),
     ];
     for (row, next) in &opening {
         assert!(super::sandbox_loosens(&base, next), "{row} must loosen");
@@ -837,6 +846,91 @@ fn loosens_ask_destructive_unless_undoable() {
     assert!(super::loosens(&always, &unless), "always to unless_undoable asks less");
     assert!(super::sandbox_loosens(&always.sandbox, &unless.sandbox));
     assert!(!super::loosens(&unless, &always), "unless_undoable to always asks more");
+}
+
+#[test]
+fn loosens_dbus_rows() {
+    use efr_config::DbusSettings;
+    use efr_permissions::BusRule;
+    use efr_protocol::BusKind;
+
+    let entry = |bus: BusKind, name: &str, calls: &[&str]| BusRule {
+        bus,
+        name: name.to_owned(),
+        call: calls.iter().map(|call| (*call).to_owned()).collect(),
+    };
+    let get = "org.freedesktop.Notifications.GetCapabilities";
+    let info = "org.freedesktop.Notifications.GetServerInformation";
+    let mut base = DbusSettings::default();
+    base.allow.push(entry(BusKind::Session, "org.freedesktop.Notifications", &[get]));
+    let changed = |change: &dyn Fn(&mut DbusSettings)| {
+        let mut next = base.clone();
+        change(&mut next);
+        next
+    };
+    let opening: Vec<(&str, DbusSettings)> = vec![
+        ("dbus.proxy true", changed(&|d| d.proxy = true)),
+        ("dbus.allow method added", changed(&|d| d.allow[0].call.push(info.to_owned()))),
+        (
+            "dbus.allow entry added",
+            changed(&|d| d.allow.push(entry(BusKind::Session, "org.example.Player", &[get]))),
+        ),
+        ("dbus.allow other bus", changed(&|d| d.allow[0].bus = BusKind::System)),
+    ];
+    for (row, next) in &opening {
+        assert!(super::dbus_loosens(&base, next), "{row} must loosen");
+        let mut before = Settings::default();
+        before.dbus = base.clone();
+        let mut after = Settings::default();
+        after.dbus = next.clone();
+        assert!(super::loosens(&before, &after), "{row} must loosen the whole file");
+    }
+    let mut on = base.clone();
+    on.proxy = true;
+    let closing: Vec<(&str, DbusSettings)> = vec![
+        ("dbus.proxy false", base.clone()),
+        ("dbus.allow removed", {
+            let mut next = on.clone();
+            next.allow.clear();
+            next
+        }),
+        ("dbus.allow split", {
+            let mut next = on.clone();
+            next.allow.push(next.allow[0].clone());
+            next
+        }),
+    ];
+    for (row, next) in &closing {
+        assert!(!super::dbus_loosens(&on, next), "{row} must not loosen");
+    }
+}
+
+#[tokio::test]
+async fn settings_tool_cannot_write_sandbox_allow() {
+    let fixture = Fixture::new();
+    fixture.write(COMMENTED);
+    let rule = json!([{"kind": "write", "under": "~/notes"}]);
+    let bus = json!([{"bus": "system", "name": "org.freedesktop.timedate1", "call": ["org.freedesktop.DBus.Properties.GetAll"]}]);
+    let cases = [
+        json!({"operation": "set", "key": "sandbox.allow", "value": rule}),
+        json!({"operation": "set", "key": "sandbox.allow", "value": "[{ kind = \"write\", under = \"~/notes\" }]"}),
+        json!({"operation": "unset", "key": "sandbox.allow"}),
+        json!({"operation": "set", "key": "dbus.allow", "value": bus}),
+        json!({"operation": "unset", "key": "dbus.allow"}),
+        json!({"operation": "set", "key": "network.hosts", "value": []}),
+    ];
+    for (n, input) in (10..).zip(cases) {
+        let call = local(n, input.clone());
+        let refused = fixture.tool.requirements(&call).await.unwrap_err();
+        assert!(refused.contains("only the user changes"), "{input}: {refused}");
+        assert_eq!(fixture.tool.preview(&call).await, None, "{input}");
+    }
+    // `add_rule` writes `permissions.rules` only: an always-allow rule is not a rule.
+    let call =
+        local(20, json!({"operation": "add_rule", "rule": {"kind": "write", "under": "~/notes"}}));
+    let refused = fixture.tool.requirements(&call).await.unwrap_err();
+    assert!(refused.contains("not a rule"), "{refused}");
+    assert_eq!(fixture.text(), COMMENTED);
 }
 
 #[test]

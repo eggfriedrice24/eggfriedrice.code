@@ -12,6 +12,10 @@
 //! [`EXAMPLE`]; a link to nothing is refused, because the new file would appear
 //! somewhere the user may not expect.
 //!
+//! [`Edit::add_table_entry`] and [`Edit::remove_table_entry`] change an array of tables
+//! (`permissions.rules`, `sandbox.allow`, `network.hosts`, `dbus.allow`) in the form
+//! that the file uses; [`Edit::set`] never changes one.
+//!
 //! The functions block. Async code calls them in `spawn_blocking`.
 
 use std::io;
@@ -27,11 +31,21 @@ use crate::keys::{self, Kind};
 use crate::settings::value_from_text;
 use crate::{ConfigError, EXAMPLE, Settings};
 
-/// The table of the rules.
-const PERMISSIONS: &str = "permissions";
+/// The key of the rules.
+const RULES: &str = "permissions.rules";
 
-/// The key of the rules in [`PERMISSIONS`].
-const RULES: &str = "rules";
+/// The arrays of tables of the file: the keys of [`Kind::Rules`]. Only an editor and
+/// the entry operations of [`Edit`] change them, never [`Edit::set`].
+pub(crate) const TABLE_KEYS: &[&str] =
+    &["permissions.rules", "sandbox.allow", "network.hosts", "dbus.allow"];
+
+/// `key` as one of [`TABLE_KEYS`], with its table and its name in that table.
+fn table_key(key: &str) -> Result<(&'static str, &'static str, &'static str), ConfigError> {
+    let unknown = || ConfigError::UnknownKey { key: key.to_owned() };
+    let known = TABLE_KEYS.iter().copied().find(|known| *known == key).ok_or_else(unknown)?;
+    let (parent, name) = known.split_once('.').ok_or_else(unknown)?;
+    Ok((known, parent, name))
+}
 
 /// The config file as the writer read it.
 #[derive(Debug, Clone)]
@@ -165,49 +179,83 @@ impl Edit {
     }
 
     /// Appends `rule` to `permissions.rules`, after the rules the file has, so it wins
-    /// over them where both match. A file without rules gets a `[[permissions.rules]]`
-    /// table right after its `[permissions]` table and its rules; a file that writes
-    /// the rules as an inline array keeps that form.
+    /// over them where both match. It writes the rule as
+    /// [`add_table_entry`](Self::add_table_entry) does.
     pub fn add_rule(&mut self, rule: &Rule) -> Result<(), ConfigError> {
-        let encoded =
-            toml_edit::ser::to_document(rule).map_err(|source| ConfigError::Encode { source })?;
-        let mut table = encoded.as_table().clone();
-        table.decor_mut().clear();
-        let inline = self.document.get(PERMISSIONS).is_some_and(Item::is_inline_table);
-        let permissions = self.permissions()?;
-        match permissions.get_mut(RULES) {
-            Some(Item::ArrayOfTables(tables)) => tables.push(table),
-            Some(Item::Value(Value::Array(array))) => {
-                let mut inline = table.into_inline_table();
-                inline.fmt();
-                array.push(Value::InlineTable(inline));
-            }
-            Some(_) => return Err(ConfigError::NotATable { key: "permissions.rules" }),
-            None if inline => {
-                let mut inline = table.into_inline_table();
-                inline.fmt();
-                let array: toml_edit::Array = std::iter::once(Value::InlineTable(inline)).collect();
-                permissions.insert(RULES, Item::Value(Value::Array(array)));
-            }
-            None => {
-                let mut tables = ArrayOfTables::new();
-                tables.push(table);
-                permissions.insert(RULES, Item::ArrayOfTables(tables));
-            }
-        }
-        Ok(())
+        self.add_table_entry(RULES, rule).map(|_| ())
     }
 
     /// Removes `permissions.rules[index]`, counted from 0 as `efr config show` and the
     /// errors number the rules. The rules after it move up by one.
     pub fn remove_rule(&mut self, index: usize) -> Result<(), ConfigError> {
-        let missing = |count| ConfigError::NoRule { index, count };
-        let Some(permissions) =
-            self.document.as_table_mut().get_mut(PERMISSIONS).and_then(Item::as_table_like_mut)
+        self.remove_table_entry(RULES, index).map_err(|error| match error {
+            ConfigError::NoEntry { index, count, .. } => ConfigError::NoRule { index, count },
+            other => other,
+        })
+    }
+
+    /// Appends `entry` to the array of tables at `key`, such as `sandbox.allow`, after
+    /// the entries that the file has, and returns the new entry's index. It keeps the
+    /// form that the file uses: `[[sandbox.allow]]` tables, an inline array
+    /// (`allow = [{ .. }]`), an inline parent table (`sandbox = { allow = [..] }`) or a
+    /// dotted key (`sandbox.allow = [..]`). A file with no entries gets a
+    /// `[[sandbox.allow]]` table right after its `[sandbox]` table, and a file with no
+    /// `[sandbox]` table gets one at its end. The new text is checked when the file is
+    /// written, so an entry that a load refuses is never written.
+    pub fn add_table_entry<T: serde::Serialize>(
+        &mut self,
+        key: &str,
+        entry: &T,
+    ) -> Result<usize, ConfigError> {
+        let (key, parent, name) = table_key(key)?;
+        let encoded =
+            toml_edit::ser::to_document(entry).map_err(|source| ConfigError::Encode { source })?;
+        let mut table = encoded.as_table().clone();
+        table.decor_mut().clear();
+        let inline_parent = self.document.get(parent).is_some_and(Item::is_inline_table);
+        let inline_entry = |table: Table| {
+            let mut inline = table.into_inline_table();
+            inline.fmt();
+            Value::InlineTable(inline)
+        };
+        let holder = self.parent_table(parent)?;
+        let count = match holder.get_mut(name) {
+            Some(Item::ArrayOfTables(tables)) => {
+                tables.push(table);
+                tables.len()
+            }
+            Some(Item::Value(Value::Array(array))) => {
+                array.push(inline_entry(table));
+                array.len()
+            }
+            Some(_) => return Err(ConfigError::NotATable { key }),
+            None if inline_parent => {
+                let array: toml_edit::Array = std::iter::once(inline_entry(table)).collect();
+                holder.insert(name, Item::Value(Value::Array(array)));
+                1
+            }
+            None => {
+                let mut tables = ArrayOfTables::new();
+                tables.push(table);
+                holder.insert(name, Item::ArrayOfTables(tables));
+                1
+            }
+        };
+        Ok(count - 1)
+    }
+
+    /// Removes entry `index`, counted from 0, of the array of tables at `key`, such as
+    /// `sandbox.allow`. The entries after it move up by one; the key goes away with its
+    /// last entry.
+    pub fn remove_table_entry(&mut self, key: &str, index: usize) -> Result<(), ConfigError> {
+        let (key, parent, name) = table_key(key)?;
+        let missing = |count| ConfigError::NoEntry { key, index, count };
+        let Some(holder) =
+            self.document.as_table_mut().get_mut(parent).and_then(Item::as_table_like_mut)
         else {
             return Err(missing(0));
         };
-        let count = match permissions.get_mut(RULES) {
+        let left = match holder.get_mut(name) {
             None => return Err(missing(0)),
             Some(Item::ArrayOfTables(tables)) => {
                 let count = tables.len();
@@ -225,23 +273,24 @@ impl Edit {
                 array.remove(index);
                 array.len()
             }
-            Some(_) => return Err(ConfigError::NotATable { key: "permissions.rules" }),
+            Some(_) => return Err(ConfigError::NotATable { key }),
         };
-        if count == 0 {
-            permissions.remove(RULES);
+        if left == 0 {
+            holder.remove(name);
         }
         Ok(())
     }
 
-    /// The `[permissions]` table, added at the end of the file when it is missing.
-    fn permissions(&mut self) -> Result<&mut dyn TableLike, ConfigError> {
+    /// The top-level table `name`, such as `[permissions]`, added at the end of the
+    /// file when it is missing.
+    fn parent_table(&mut self, name: &'static str) -> Result<&mut dyn TableLike, ConfigError> {
         let root = self.document.as_table_mut();
-        if !root.contains_key(PERMISSIONS) {
-            root.insert(PERMISSIONS, Item::Table(Table::new()));
+        if !root.contains_key(name) {
+            root.insert(name, Item::Table(Table::new()));
         }
-        root.get_mut(PERMISSIONS)
+        root.get_mut(name)
             .and_then(Item::as_table_like_mut)
-            .ok_or(ConfigError::NotATable { key: "permissions" })
+            .ok_or(ConfigError::NotATable { key: name })
     }
 
     /// The new contents of the file.

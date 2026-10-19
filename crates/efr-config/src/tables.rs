@@ -15,6 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub(crate) mod anthropic;
 pub(crate) mod classifier;
 pub(crate) mod compaction;
+pub(crate) mod dbus;
 pub(crate) mod jobs;
 pub(crate) mod network;
 pub(crate) mod presence;

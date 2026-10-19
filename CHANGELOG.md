@@ -212,6 +212,12 @@ into the GitHub release notes, and it stops when the section is missing.
   but only as a fact, never as your request.
 - With the proxy, Node's `fetch` uses the proxy through `NODE_USE_ENV_PROXY=1`, so
   Node prints an "experimental" warning on stderr in sandboxed commands.
+- `[dbus] proxy` and `[[dbus.allow]]`: turn the bus filter on or off, or allow more
+  bus methods. For systemd, logind and the other default services efr accepts only read
+  methods; for other services it refuses wildcards and known write and power methods.
+  `config.toml` also accepts `[[sandbox.allow]]` rules (`kind` `host`, `write` or
+  `socket`) and refuses a rule of a bad shape. Nothing reads these keys yet, and
+  `dbus.proxy` is `false`.
 
 ### Changed
 

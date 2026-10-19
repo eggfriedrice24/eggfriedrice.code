@@ -12,8 +12,8 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    AnthropicSettings, ClassifierSettings, CompactionSettings, ConversationSettings, DiffColors,
-    JobsSettings, ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings,
+    AnthropicSettings, ClassifierSettings, CompactionSettings, ConversationSettings, DbusSettings,
+    DiffColors, JobsSettings, ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings,
     PresenceSettings, RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings,
     SnapshotSettings, UndoSettings,
 };
@@ -53,8 +53,8 @@ pub enum Kind {
     Boolean,
     /// A list of strings.
     List,
-    /// `[[permissions.rules]]`: tables, which only an editor or the rule operations
-    /// change.
+    /// An array of tables, such as `[[permissions.rules]]` or `[[sandbox.allow]]`, which
+    /// only an editor or the entry operations of the writer change.
     Rules,
 }
 
@@ -110,6 +110,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "compaction" => fields::<CompactionSettings>(),
         "sandbox" => fields::<SandboxSettings>(),
         "network" => fields::<NetworkSettings>(),
+        "dbus" => fields::<DbusSettings>(),
         "classifier" => fields::<ClassifierSettings>(),
         "undo" => fields::<UndoSettings>(),
         "snapshot" => fields::<SnapshotSettings>(),

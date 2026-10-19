@@ -256,6 +256,13 @@
 # them back).
 # ask_destructive = "unless_undoable"
 
+# Always-allow rules, also as [[sandbox.allow]] tables. Each has a kind: host (host,
+# and port, default 443), write (under, a directory, and an optional project) or
+# socket (path). In auto, a later exit of that kind and resource runs with no review
+# and no question. The floors still hold: efrd turns off a rule that crosses one. Only
+# an editor and the a answer of an exit question change them.
+# allow = [{ kind = "write", under = "~/notes" }, { kind = "host", host = "download.example.org" }]
+
 [network]
 # true runs ss, the read forms of ip, nstat and reads of /proc/net in auto with your
 # machine's network view and no network socket, with no question. false sends them to
@@ -286,6 +293,21 @@
 # The bytes that a contained command may send through the proxy, from 65536 (64 KiB)
 # to 1073741824 (1 GiB).
 # max_upload_bytes = 4194304
+
+[dbus]
+# true runs the read forms of systemctl, loginctl, hostnamectl, timedatectl and
+# localectl in auto with no question, through a filtered bus that lets through only
+# read methods. false sends them to the reviewer. efrd turns the filter off when
+# xdg-dbus-proxy is missing or fails its self-test.
+# proxy = false
+
+# More bus methods that the filter lets through, also as [[dbus.allow]] tables: bus
+# (system or session), name (the service) and call (IFACE.MEMBER or
+# IFACE.MEMBER@PATH). For systemd and the other services of the defaults, a method
+# must start with Get, List, Can or Lookup. For other services efr refuses methods
+# that start with a word that changes the machine, but you own each method that you
+# add. Only an editor changes them.
+# allow = [{ bus = "session", name = "org.freedesktop.Notifications", call = ["org.freedesktop.Notifications.GetServerInformation"] }]
 
 [classifier]
 # true lets a reviewer model decide most actions that leave the sandbox in auto, and

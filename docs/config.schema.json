@@ -30,6 +30,83 @@
         }
       ]
     },
+    "AllowRule": {
+      "description": "One `[[sandbox.allow]]` rule: a kind and a resource, never a command pattern.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A `host` exit to one host and port through efr's proxy. It never covers the\nwhole network, so with `network.mode = \"none\"` it covers nothing.",
+          "properties": {
+            "host": {
+              "description": "The host name, matched without case. Never a pattern, an IP address or\n`localhost`.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "host",
+              "type": "string"
+            },
+            "port": {
+              "default": 443,
+              "description": "The port.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "host"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A contained `write` exit whose bind lies at or below one directory.",
+          "properties": {
+            "kind": {
+              "const": "write",
+              "type": "string"
+            },
+            "project": {
+              "description": "When set, the rule covers only turns of this project (its root, absolute or\nbelow `~/`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "under": {
+              "description": "The directory, absolute or below `~/`: the file, the parent dir, the new\nfile or the new dir that the \"yes\" opened.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "under"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A `socket` exit to one socket path, never a link.",
+          "properties": {
+            "kind": {
+              "const": "socket",
+              "type": "string"
+            },
+            "path": {
+              "description": "The socket, absolute or below `~/`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AnthropicSettings": {
       "additionalProperties": false,
       "description": "`[anthropic]`: the Anthropic provider, with an API key.",
@@ -80,6 +157,48 @@
           "type": "string"
         }
       ]
+    },
+    "BusKind": {
+      "description": "A D-Bus message bus.",
+      "oneOf": [
+        {
+          "const": "system",
+          "description": "The system bus, `/run/dbus/system_bus_socket`.",
+          "type": "string"
+        },
+        {
+          "const": "session",
+          "description": "The user's session bus, below `$XDG_RUNTIME_DIR`.",
+          "type": "string"
+        }
+      ]
+    },
+    "BusRule": {
+      "additionalProperties": false,
+      "description": "One `[[dbus.allow]]` entry: more methods of one service on one bus. The entries add\nto the defaults and never replace them.",
+      "properties": {
+        "bus": {
+          "$ref": "#/$defs/BusKind",
+          "description": "The bus: `system` or `session`."
+        },
+        "call": {
+          "description": "The methods, each `IFACE.MEMBER` (at every path) or `IFACE.MEMBER@PATH`, where\nPATH may end in `/*` for the path and every path below it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "The well-known name of the service, such as `org.freedesktop.timedate1`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bus",
+        "name",
+        "call"
+      ],
+      "type": "object"
     },
     "CacheMode": {
       "description": "How the sandbox treats the tool caches (`~/.cargo`, `~/.cache` and the others of\n`sandbox.caches`).",
@@ -309,6 +428,26 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "DbusSettings": {
+      "additionalProperties": false,
+      "description": "`[dbus]`: the filtered message bus of the `auto` sandbox. Every key applies from the\nnext call.",
+      "properties": {
+        "allow": {
+          "default": [],
+          "description": "More bus methods that the filter lets through, each a table: `bus` (`system` or\n`session`), `name` (the service, such as `org.freedesktop.timedate1`) and `call`\n(a list of `IFACE.MEMBER` or `IFACE.MEMBER@PATH`; a PATH may end in `/*`). They\nadd to the built-in read methods. For systemd, logind, hostnamed, timedated,\nlocaled and timesyncd a method must start with `Get`, `List`, `Can` or `Lookup`.\nFor other services efr refuses a method that starts with a word that changes the\nmachine, such as `Start` or `Set`, but it cannot tell every read from a write:\nyou own each method that you add. Only an editor changes them.",
+          "items": {
+            "$ref": "#/$defs/BusRule"
+          },
+          "type": "array"
+        },
+        "proxy": {
+          "default": false,
+          "description": "`true`: in `auto`, the read forms of `systemctl`, `loginctl`, `hostnamectl`,\n`timedatectl` and `localectl` run in the sandbox with no question, through a\nfiltered bus that lets through only read methods. `false`: they go to the\nreviewer, as a look at the whole bus. efrd turns the filter off when\n`xdg-dbus-proxy` is missing or fails its self-test. A change applies to new\ncalls; a running background job keeps the bus rules of its start.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -1098,6 +1237,14 @@
       "additionalProperties": false,
       "description": "`[sandbox]`: the kernel sandbox of the `auto` mode. Every key applies from the next\ncall or turn.",
       "properties": {
+        "allow": {
+          "default": [],
+          "description": "Always-allow rules, each a table with a `kind`: `host` (`host`, and `port`,\ndefault 443), `write` (`under`, a directory, and an optional `project`) or\n`socket` (`path`). In `auto`, a later exit of that kind and resource runs with\nno review and no question, with the same widening that a \"yes\" gives. The\nfloors still hold: efrd checks them when it loads a rule, and turns off a rule\nthat crosses one. Only an editor and the `a` answer of an exit question change\nthem.",
+          "items": {
+            "$ref": "#/$defs/AllowRule"
+          },
+          "type": "array"
+        },
         "ask_destructive": {
           "$ref": "#/$defs/AskDestructive",
           "default": "unless_undoable",
@@ -1548,6 +1695,14 @@
       },
       "description": "Queues, approvals, streaming and terminals."
     },
+    "dbus": {
+      "$ref": "#/$defs/DbusSettings",
+      "default": {
+        "allow": [],
+        "proxy": false
+      },
+      "description": "The filtered message bus of the `auto` mode."
+    },
     "jobs": {
       "$ref": "#/$defs/JobsSettings",
       "default": {
@@ -1640,6 +1795,7 @@
     "sandbox": {
       "$ref": "#/$defs/SandboxSettings",
       "default": {
+        "allow": [],
         "ask_destructive": "unless_undoable",
         "cache_days": 14,
         "cache_max_gib": 20,

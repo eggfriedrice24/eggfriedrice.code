@@ -50,8 +50,19 @@ pub(crate) fn span_of(document: &Document<String>, key: &str) -> Option<Range<us
 /// The span of `permissions.rules[index]`, written as a `[[permissions.rules]]` table or
 /// as an element of an inline array.
 pub(crate) fn span_of_rule(document: &Document<String>, index: usize) -> Option<Range<usize>> {
-    let rules = document.as_table().get("permissions")?.as_table()?.get("rules")?;
-    match rules {
+    span_of_entry(document, "permissions.rules", index)
+}
+
+/// The span of entry `index` of the array of tables at the dotted `key`, such as
+/// `sandbox.allow`: a `[[sandbox.allow]]` table or an element of an inline array.
+pub(crate) fn span_of_entry(
+    document: &Document<String>,
+    key: &str,
+    index: usize,
+) -> Option<Range<usize>> {
+    let (parent, name) = key.split_once('.')?;
+    let entries = document.as_table().get(parent)?.as_table_like()?.get(name)?;
+    match entries {
         Item::ArrayOfTables(tables) => tables.get(index)?.span(),
         Item::Value(Value::Array(array)) => array.get(index)?.span(),
         _ => None,
