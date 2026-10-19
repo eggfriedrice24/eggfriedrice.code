@@ -504,11 +504,12 @@ spec; `docs/sandbox.md` for the user's view):
   and its links, the persistence paths of the home directory, `$ZDOTDIR`'s startup
   files, dotfile link targets in a write root (`sandbox/links.rs`), efr's programs, the
   protected names in each project and `sandbox.protect` as floors; the call's grants.
-  The surface guard scans the write roots, scratch, and the dir of each `Grant::Write`
-  outside them (DE41), so an approved write to a repository that is no project cannot
-  plant its git hooks unseen. The engine gets `$SSH_AUTH_SOCK` and the socket of `$GPG_AGENT_INFO` from the hidden
-  shells' environment as credential sockets (`HostFacts::agent_sockets`), so only the
-  user approves one.
+  The surface guard scans the write roots, scratch, and the real dir of each
+  `Grant::Write` outside them, or the dir that holds `.git` for a grant in a git dir
+  (DE41), so an approved write to a repository that is no project cannot plant its git
+  hooks unseen. The engine gets `$SSH_AUTH_SOCK` and the socket of `$GPG_AGENT_INFO`
+  from the hidden shells' environment as credential sockets
+  (`HostFacts::agent_sockets`), so only the user approves one.
 - The desktop socket of a `desktop` grant (`sandbox/desktop.rs`): `prompt.send` keeps
   the six desktop variables of the prompt's terminal (`ShellContext.desktop`) for its
   conversation; a call takes them, or efrd's own start environment when the prompt

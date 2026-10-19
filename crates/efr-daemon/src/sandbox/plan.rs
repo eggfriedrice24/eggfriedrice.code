@@ -25,6 +25,7 @@ use efr_sandbox::{
 };
 use efr_stdx::paths::Dirs;
 
+use crate::sandbox::facts;
 use crate::sandbox::links::link_targets;
 use crate::sandbox::projects::{self, WORKTREE_CHANGED, WORKTREE_NO_RECORD};
 
@@ -289,27 +290,50 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
 
 /// The dirs of the call's `Grant::Write` grants that the surface guard scans besides
 /// the write roots (DE41): an approved write to a repository that is no project could
-/// plant `.git/hooks` there. A grant path that is a dir, or that does not exist yet (a
-/// dir or a file that the call makes), counts; an existing file does not, and neither
-/// does a path at or below a root that the guard scans already, or a git dir. It reads
-/// one stat per grant.
+/// plant `.git/hooks` there. Each grant counts by its real path, which the plan binds: a
+/// dir, or a path that does not exist yet (a dir or a file that the call makes); an
+/// existing file does not. A grant at or below a `.git` part counts as the dir that holds
+/// that `.git`, because the guard looks for `.git` only at and below its roots. A path at
+/// or below a root that the guard scans already, or a git dir, does not count. It reads
+/// a few stats per grant.
 fn write_grant_dirs(grants: &[Grant], guarded: &[PathBuf], git_dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     for grant in grants {
         let Grant::Write { path } = grant else { continue };
-        let scanned = |root: &PathBuf| is_within(path, root);
-        if !path.is_absolute()
-            || guarded.iter().chain(git_dirs).chain(&dirs).any(scanned)
-            || fs::symlink_metadata(path).is_ok_and(|meta| !meta.is_dir())
-        {
+        if !path.is_absolute() {
+            continue;
+        }
+        // NOTE: the plan binds what a link leads to, so the guard scans that.
+        let real = facts::real_path(path).unwrap_or_else(|| path.clone());
+        if git_dirs.iter().any(|dir| is_within(&real, dir)) {
+            continue;
+        }
+        let dir = match git_holder(&real) {
+            Some(holder) => holder,
+            None if fs::symlink_metadata(&real).is_ok_and(|meta| !meta.is_dir()) => continue,
+            None => real,
+        };
+        if guarded.iter().chain(&dirs).any(|root| is_within(&dir, root)) {
             continue;
         }
         // NOTE: a dir below this grant that an earlier grant added would be scanned
         // twice.
-        dirs.retain(|dir| !is_within(dir, path));
-        dirs.push(path.clone());
+        dirs.retain(|known| !is_within(known, &dir));
+        dirs.push(dir);
     }
     dirs
+}
+
+/// The dir that holds the first `.git` part of `path`, or `None` when it has none.
+fn git_holder(path: &Path) -> Option<PathBuf> {
+    let mut holder = PathBuf::new();
+    for part in path.components() {
+        if part.as_os_str() == ".git" {
+            return Some(holder);
+        }
+        holder.push(part);
+    }
+    None
 }
 
 /// The network of a call (DP15): the host's with `Grant::OpenNetwork`; none for the
