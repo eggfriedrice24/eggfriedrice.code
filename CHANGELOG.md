@@ -362,6 +362,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - The model no longer answers a prompt that you cancelled. This also holds for a turn
   that efr stopped before this version. The first request of such a conversation
   then misses the prompt cache once.
+- `systemctl --user` in a sandboxed command with the session bus now uses that bus.
+  Before, systemd 262 looked only for its private socket, and the command failed, also
+  after you allowed the whole session bus. A script that runs `systemctl --user`
+  itself still fails.
 
 ### Security
 

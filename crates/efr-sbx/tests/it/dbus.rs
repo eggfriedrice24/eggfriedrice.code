@@ -348,3 +348,76 @@ fn resolve_unix_holds_only_the_bus_paths() {
     printed(&run, &format!("filtered {}", bus_word(BusKind::System)));
     assert!(!reached(&own) && !reached(&other), "a socket outside the rules got a connection");
 }
+
+/// Puts a stand-in `systemctl` first on the launcher's `PATH`: it prints its words and
+/// whether `XDG_RUNTIME_DIR` is set.
+fn stand_in_systemctl(fixture: &mut Fixture) -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = tempfile::Builder::new().prefix("p").tempdir_in(target_tmp()).unwrap();
+    let path = bin.path().canonicalize().unwrap();
+    let program = path.join("systemctl");
+    std::fs::write(
+        &program,
+        "#!/bin/sh\nprintf 'words %s xrt %s\\n' \"$*\" \"${XDG_RUNTIME_DIR-unset}\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let old = fixture.env.get(std::ffi::OsStr::new("PATH")).cloned().unwrap_or_default();
+    let mut new = path.into_os_string();
+    new.push(":");
+    new.push(old);
+    fixture.env.insert("PATH".into(), new);
+    bin
+}
+
+#[test]
+fn systemctl_user_function_unsets_runtime_dir() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let _bin = stand_in_systemctl(&mut fixture);
+    let xrt = fixture.xrt.display().to_string();
+    let line = "systemctl --user --failed; systemctl --failed; \
+                systemctl status --user x.service; systemctl -- --user; \
+                command systemctl --user --failed";
+    // No session bus in the call: systemctl runs as it is.
+    let run = fixture.run(line);
+    run.expect_status(0);
+    printed(&run, &format!("words --user --failed xrt {xrt}"));
+    // The filtered session bus: `--user` runs with no XDG_RUNTIME_DIR, so systemd uses
+    // the bus; every other form, and `command systemctl`, keeps it.
+    fixture.bus_filter(&[BusKind::Session]);
+    let run = fixture.run(line);
+    run.expect_status(0);
+    let lines: Vec<&str> = run.stdout.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "words --user --failed xrt unset".to_owned(),
+            format!("words --failed xrt {xrt}"),
+            "words status --user x.service xrt unset".to_owned(),
+            format!("words -- --user xrt {xrt}"),
+            format!("words --user --failed xrt {xrt}"),
+        ],
+        "{run:#?}"
+    );
+    // The function is efr's: the records do not report it as the line's.
+    let functions: Vec<String> = run.apply_fields();
+    assert!(!functions.iter().any(|field| field == "systemctl"), "{functions:?}");
+}
+
+#[test]
+fn systemctl_user_function_with_a_granted_session_bus() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let _bin = stand_in_systemctl(&mut fixture);
+    // An approved grant of the whole session bus, here a stand-in at the user's
+    // `$XRT/bus`: the same function reaches it (check C2-5).
+    let bus = fixture.xrt.join("bus");
+    let _listener = stand_in(&bus);
+    fixture.spec.runtime.session_bus = Some(bus);
+    fixture.grant(Grant::Bus { bus: BusKind::Session });
+    let run = fixture.run("systemctl --user --failed; print -r -- $DBUS_SESSION_BUS_ADDRESS");
+    run.expect_status(0);
+    printed(&run, "words --user --failed xrt unset");
+    printed(&run, &format!("unix:path={}", fixture.xrt.join("bus").display()));
+}
