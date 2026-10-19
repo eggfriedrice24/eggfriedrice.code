@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_protocol::{BlockReason, Blocked, InputWait, Needs, SandboxSummary};
+use efr_protocol::{BlockReason, Blocked, BusKind, BusRefusal, InputWait, Needs, SandboxSummary};
 use efr_shell::{
     CommandResult, CommandRunner, Completion, OutputUpdate, RunMode, RunProgress, RunRequest,
     ShellError,
@@ -776,6 +776,61 @@ pub fn blocked_note(blocked: &[Blocked], more: u32, max_upload_bytes: u64) -> Op
         lines.push(format!("[efr: the network proxy also refused {more} more {connections}.]"));
     }
     Some(lines.join("\n"))
+}
+
+/// The model's note about the bus calls that efr's bus filter refused in a call or a
+/// job (phase E, DE11), or that the filter stopped during it (DE8): one sentence that
+/// names each refused call as data, with how to ask for the whole bus, and one that
+/// says the filter stopped. `refused` comes from the filter's log, with each name,
+/// member and path checked against the D-Bus grammar; `more` counts the refusals that
+/// it leaves out. `None` when there is nothing to say.
+pub fn bus_note(refused: &[BusRefusal], more: u32, stopped: bool) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let count = refused
+        .iter()
+        .fold(u64::from(more), |count, entry| count.saturating_add(u64::from(entry.count)));
+    if count > 0 {
+        let calls: Vec<String> = refused.iter().map(refused_call).collect();
+        let what = if count == 1 { "a call".to_owned() } else { format!("{count} calls") };
+        let mut list = calls.join("; ");
+        if more > 0 && !list.is_empty() {
+            list.push_str(&format!("; {more} more"));
+        }
+        let listed = if list.is_empty() { String::new() } else { format!(": {list}") };
+        lines.push(format!(
+            "[efr: the bus filter refused {what}{listed}. For the whole bus for one command, \
+             call shell again with needs.bus.]"
+        ));
+    }
+    if stopped {
+        lines.push(
+            "[efr: the bus filter stopped during the command, so its bus calls after that \
+             failed.]"
+                .to_owned(),
+        );
+    }
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// One refused call of [`bus_note`]: `bus=system name=N member=M path=P`, without an
+/// empty member and path (a refusal of the bus itself), and with `(N times)`.
+fn refused_call(entry: &BusRefusal) -> String {
+    let bus = match entry.bus {
+        BusKind::System => "system",
+        BusKind::Session => "session",
+        _ => "unknown",
+    };
+    let mut text = format!("bus={bus} name={}", entry.name);
+    if !entry.member.is_empty() {
+        text.push_str(&format!(" member={}", entry.member));
+    }
+    if !entry.path.is_empty() {
+        text.push_str(&format!(" path={}", entry.path));
+    }
+    if entry.count > 1 {
+        text.push_str(&format!(" ({} times)", entry.count));
+    }
+    text
 }
 
 /// The sentence of [`blocked_note`] for `reason` and the hosts `hosts`.

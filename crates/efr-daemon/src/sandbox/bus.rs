@@ -26,8 +26,9 @@
 //!   the job ends. [`BusCall::finish`] closes the sync pipe, after which the proxy ends
 //!   at once; dropping a [`BusCall`] kills the proxies.
 //! - Each proxy's stderr, which holds its `--log` lines and its own errors, is kept
-//!   raw, at most [`MAX_LOG_BYTES`], for the refusals. A proxy that ended before its
-//!   call did (a crash) is reported as stopped.
+//!   raw, at most [`MAX_LOG_BYTES`], and [`BusCall::finish`] reads the refused calls
+//!   from it ([`log`]). A proxy that ended before its call did (a crash) is reported as
+//!   stopped.
 //! - [`BusService::self_test`] runs at start and after each probe while `dbus.proxy` is
 //!   true (DE8): `xdg-dbus-proxy --version` must report at least [`VERSION_FLOOR`], and
 //!   one proxy with the default system rules and an upstream that no client uses must
@@ -625,13 +626,15 @@ pub(crate) struct BusCall {
 }
 
 impl BusCall {
-    /// Ends the proxies and returns what the filter refused and whether a proxy died
-    /// during the call.
+    /// Ends the proxies and returns what the filter refused (from each proxy's log,
+    /// [`log::Refusals`]) and whether a proxy died during the call.
     pub(crate) async fn finish(self) -> BusReport {
         let call = self.call.clone();
         let mut report = BusReport::default();
+        let mut refusals = log::Refusals::default();
         for closed in self.close().await {
             let bus = bus_name(closed.bus);
+            refusals.read(closed.bus, &closed.log.bytes);
             report.stopped |= closed.early;
             if closed.early {
                 tracing::warn!(call = %call, bus, status = ?closed.status, "the bus filter stopped during the command");
@@ -649,6 +652,7 @@ impl BusCall {
                 closed.ready_ms,
             );
         }
+        (report.refused, report.more) = refusals.into_parts();
         report
     }
 
@@ -692,5 +696,6 @@ struct Closed {
 
 #[cfg(test)]
 pub(crate) mod fake;
+mod log;
 #[cfg(test)]
 mod tests;

@@ -38,14 +38,14 @@ use efr_sandbox::{RESULT_FILE, SandboxResult};
 use efr_stdx::paths::Dirs;
 use efr_stdx::time::Clock;
 use efr_store::{Batch, Readers, WriterHandle};
-use efr_tools::blocked_note;
+use efr_tools::{blocked_note, bus_note};
 use jiff::Timestamp;
 use rustix::process::Signal;
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
-use crate::sandbox::bus::BusCall;
+use crate::sandbox::bus::{BusCall, BusReport};
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::sandbox::proxy::ProxyCall;
 
@@ -827,6 +827,8 @@ impl JobTable {
                         tail,
                         blocked,
                         blocked_more,
+                        bus_refused,
+                        bus_refused_more,
                         ..
                     } => {
                         let body = NoticeBody::Ended {
@@ -837,7 +839,10 @@ impl JobTable {
                         };
                         // NOTE: the limit of a job of an earlier efrd is not known here;
                         // the note names the key without the number.
-                        let refused = blocked_note(blocked, *blocked_more, 0);
+                        let refused = joined_notes(
+                            blocked_note(blocked, *blocked_more, 0),
+                            bus_note(bus_refused, *bus_refused_more, false),
+                        );
                         let text = notice_text_refused(&job, &shown, body, refused.as_deref());
                         (NoticeKind::Exited, text)
                     }
@@ -1005,10 +1010,14 @@ impl JobTask {
             }
             None => (Vec::new(), 0, None),
         };
-        // NOTE: the bus filters end with the job, before its dirs go (DE1).
-        if let Some(bus) = bus {
-            bus.finish().await;
-        }
+        // NOTE: the bus filters end with the job, before its dirs go (DE1); their
+        // refusals reach the record and the notice (DE11), and a filter that died
+        // reaches the notice (DE8).
+        let bus = match bus {
+            Some(bus) => bus.finish().await,
+            None => BusReport::default(),
+        };
+        let refused = joined_notes(refused, bus_note(&bus.refused, bus.more, bus.stopped));
         let result = read_result(&self.call_dir).await;
         let launcher_lost = result.is_none();
         let ended = end_of(result.as_ref(), stopped_by);
@@ -1043,8 +1052,8 @@ impl JobTask {
             output_truncated: self.output.truncated(),
             blocked,
             blocked_more,
-            bus_refused: Vec::new(),
-            bus_refused_more: 0,
+            bus_refused: bus.refused,
+            bus_refused_more: bus.more,
         };
         // NOTE: the launcher ended, so its pid leaves the model-side list before the
         // record: a reader that sees `JobEnded` sees the list without it. A session that
@@ -1090,6 +1099,15 @@ impl JobTask {
         }
         tracing::info!(conversation = %self.key.conversation, job = %info.id, state = ended.state.as_str(), "a job ended");
         let _ = self.ended.send(Some(final_info));
+    }
+}
+
+/// The notes of a job's end for the model: the network proxy's, then the bus
+/// filter's, one per line.
+fn joined_notes(network: Option<String>, bus: Option<String>) -> Option<String> {
+    match (network, bus) {
+        (Some(network), Some(bus)) => Some(format!("{network}\n{bus}")),
+        (network, bus) => network.or(bus),
     }
 }
 

@@ -11,6 +11,7 @@ mod anthropic;
 mod apply_patch;
 mod approvals;
 mod backtrace;
+mod bus;
 mod cache_prefix;
 mod catalog;
 mod classifier_eval;
