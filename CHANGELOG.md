@@ -217,8 +217,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `systemctl status <unit>` and the other read forms, `systemctl --user --failed`,
   `loginctl list-sessions`. The command reaches the system or session bus only through
   a filter that allows read methods. efr turns the filter off when `xdg-dbus-proxy` is
-  missing, older than 0.1.5, or fails its self-test; `efr status` then shows a warning,
-  and these queries go to the reviewer as before.
+  missing, older than 0.1.5, or fails its self-test; `efr status` then shows
+  `bus filter off (<reason>)`, and these queries go to the reviewer as before.
 - With `[dbus] proxy = true`, a bus call that the filter refuses fails in the command,
   and efr tells the model which call the filter refused and how to ask for the whole
   bus for one command. The record of a command or a job keeps the refused calls. When

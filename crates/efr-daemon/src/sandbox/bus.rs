@@ -529,8 +529,8 @@ fn make_dir_and_clear(dir: &Path, socket: &Path) -> std::io::Result<()> {
     }
 }
 
-/// The warning of `efr status` when `dbus.proxy` is true but the filter is off for
-/// `off` (DE8).
+/// The sandbox warning that `efr sandbox check` shows when `dbus.proxy` is true but the
+/// filter is off for `off` (DE8).
 pub(crate) fn off_warning(off: efr_protocol::BusProxyOff) -> String {
     let reason = match off {
         efr_protocol::BusProxyOff::NoProgram => "xdg-dbus-proxy is not installed",

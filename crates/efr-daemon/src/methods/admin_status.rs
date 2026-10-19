@@ -18,7 +18,7 @@ pub(crate) async fn handle(
     let settings = Arc::clone(&state.settings.borrow());
     let mut sandbox = state.sandbox.reported(&settings);
     // NOTE: a disabled always rule (phase E, DE44) is a warning of the sandbox, which
-    // `efr status` shows; efrd runs on.
+    // `efr sandbox check` and `efr sandbox allow` show; efrd runs on.
     sandbox.warnings.extend(crate::always::disabled_warnings(&state.engine.borrow()));
     let result = AdminStatusResult {
         daemon_id: state.daemon_id,

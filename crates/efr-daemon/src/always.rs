@@ -16,8 +16,8 @@
 //! counts as read-only: the atomic write would replace it, but the user made it so.
 //!
 //! A rule that fails a floor check when the rules load stays in the list, disabled:
-//! [`disabled_warnings`] gives its warning for `efr status`, and [`warn_disabled`] logs
-//! it once (DE44).
+//! [`disabled_warnings`] gives its warning for `efr sandbox check` and
+//! `efr sandbox allow`, and [`warn_disabled`] logs it once (DE44).
 //!
 //! The other path that writes `sandbox.allow` is `efr sandbox allow remove` in efr-cli.
 //! Any program of the user's that writes `config.toml` can add a rule too; the reload
@@ -46,8 +46,8 @@ pub(crate) const RELOAD_WAIT: Duration = Duration::from_secs(5);
 /// The key of the always rules in `config.toml`.
 const KEY: &str = "sandbox.allow";
 
-/// The warning of each disabled rule of `engine`, as `efr status` shows it in
-/// `SandboxStatus::warnings`, such as `sandbox.allow[1] is disabled: it names a git
+/// The warning of each disabled rule of `engine` in `SandboxStatus::warnings`, as
+/// `efr sandbox check` shows it, such as `sandbox.allow[1] is disabled: it names a git
 /// dir` (DE44).
 pub(crate) fn disabled_warnings(engine: &Engine) -> Vec<String> {
     engine
