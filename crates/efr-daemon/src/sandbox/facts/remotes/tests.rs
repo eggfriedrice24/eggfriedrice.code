@@ -210,6 +210,27 @@ async fn remote_snapshot_taken_at_first_call() {
 }
 
 #[tokio::test]
+async fn remote_baseline_taken_at_first_fact_request_not_first_read() {
+    let world = world().await;
+    let app = world.root.join("home/p/app");
+    repo(&app, "https://git.test/app.git").await;
+    // NOTE: an include file has no stamp; the repository's own config keeps its stamp.
+    let extra = app.join(".git/extra.config");
+    std::fs::write(&extra, "").unwrap();
+    git(&app, &["config", "include.path", "extra.config"]).await;
+    let dirs = [app.clone()];
+    assert!(world.service.remote_facts(conversation(1), &[]).await.is_empty());
+    std::fs::write(&extra, "[remote \"origin\"]\n\tpushurl = https://evil.test/app.git\n").unwrap();
+    let found = world.service.remote_facts(conversation(1), &dirs).await;
+    let origin = remote(&found, &app);
+    assert_eq!(origin.push, [url("evil.test", 443, false, false)]);
+    assert!(!origin.project, "the push URL changed after the conversation's first request");
+    std::fs::write(&extra, "").unwrap();
+    let back = world.service.remote_facts(conversation(1), &dirs).await;
+    assert!(remote(&back, &app).project, "the URLs of the first request");
+}
+
+#[tokio::test]
 async fn nested_repo_remote_is_not_project() {
     let world = world().await;
     let app = world.root.join("home/p/app");
