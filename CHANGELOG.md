@@ -315,6 +315,11 @@ into the GitHub release notes, and it stops when the section is missing.
   other programs that do not use HTTP, servers that your browser must reach, services
   on your machine or your LAN, and other ports still get the whole network after a
   review.
+- `git fetch`, `git pull` and `git push` now show every host behind a remote name to
+  the reviewer. A remote of your project that did not change since the conversation
+  started counts as named by you. With the proxy, a fetch from an ssh remote, `ssh`,
+  `mosh` and `autossh` run outside the sandbox with your ssh keys, and only after a
+  message of yours names the host (or the remote is your project's).
 - With the proxy, tools that send an Encrypted Client Hello, such as headless Chrome,
   Electron and Playwright, cannot fetch through the proxy.
 

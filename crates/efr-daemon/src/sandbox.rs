@@ -139,6 +139,8 @@ struct Inner {
     mounts: mounts::MountView,
     /// The network proxy and the sockets of the calls (phase D2).
     proxy: proxy::ProxyService,
+    /// The snapshots of the pinned project git dirs' remotes, per conversation (DP22).
+    remotes: facts::remotes::Snapshots,
     writer: WriterHandle,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
@@ -268,6 +270,7 @@ impl SandboxService {
                 mount_view,
                 mounts,
                 proxy,
+                remotes: facts::remotes::Snapshots::default(),
                 writer,
                 clock,
                 rng,
@@ -310,6 +313,92 @@ impl SandboxService {
     /// The network proxy and the sockets of the calls.
     pub(crate) fn proxy(&self) -> &proxy::ProxyService {
         &self.inner.proxy
+    }
+
+    /// The git remotes of each of `dirs` for a fact request of `conversation` (DP22):
+    /// one read per repository, with [`RemoteFact::project`] for the remotes of a pinned
+    /// project git dir that match the conversation's snapshot. The first fact request
+    /// of a conversation takes the stamps of the pinned git dirs' config files.
+    ///
+    /// [`RemoteFact::project`]: efr_permissions::RemoteFact::project
+    pub(crate) async fn remote_facts(
+        &self,
+        conversation: ConversationId,
+        dirs: &[PathBuf],
+    ) -> Vec<(PathBuf, Vec<efr_permissions::RemoteFact>)> {
+        let home = self.inner.home.path().to_path_buf();
+        let snapshots = &self.inner.remotes;
+        let pinned = if snapshots.has(conversation) && dirs.is_empty() {
+            Vec::new()
+        } else {
+            self.pinned_git_dirs().await
+        };
+        if !snapshots.has(conversation) {
+            let (pinned, home) = (pinned.clone(), home.clone());
+            let service = self.clone();
+            let begun = tokio::task::spawn_blocking(move || {
+                service.inner.remotes.begin(conversation, &pinned, &home);
+            })
+            .await;
+            if begun.is_err() {
+                tracing::warn!("the snapshot of the project remotes panicked");
+            }
+        }
+        let git = &self.inner.git;
+        let mut read: Vec<(Option<PathBuf>, Vec<efr_permissions::RemoteFact>)> = Vec::new();
+        let mut found = Vec::new();
+        for dir in dirs {
+            let owned = dir.clone();
+            let top = tokio::task::spawn_blocking(move || facts::remotes::work_tree(&owned))
+                .await
+                .ok()
+                .flatten();
+            if let Some((_, remotes)) =
+                read.iter().find(|(known, _)| top.is_some() && *known == top)
+            {
+                found.push((dir.clone(), remotes.clone()));
+                continue;
+            }
+            let Some((top, mut remotes)) = facts::remotes::read(git, &self.inner.home, dir).await
+            else {
+                continue;
+            };
+            if let Some(top) = &top
+                && let Some((root, git_dir)) = pinned.iter().find(|(root, _)| root == top)
+            {
+                snapshots.mark(conversation, root, git_dir, &home, &mut remotes);
+            }
+            read.push((top, remotes.clone()));
+            found.push((dir.clone(), remotes));
+        }
+        found
+    }
+
+    /// The pinned git dirs of the registered projects, each with its work tree: the top
+    /// `.git` dir of a project, or the common dir of its worktree record when the
+    /// record still matches.
+    async fn pinned_git_dirs(&self) -> Vec<(PathBuf, PathBuf)> {
+        let projects = self.projects().await;
+        let state = self.inner.dirs.state().to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            projects
+                .into_iter()
+                .filter_map(|root| {
+                    let dot = root.join(".git");
+                    if std::fs::symlink_metadata(&dot).is_ok_and(|meta| meta.is_dir()) {
+                        return Some((root, dot));
+                    }
+                    match projects::check(&state, &root) {
+                        efr_sandbox::WorktreeCheck::Matches(record) => {
+                            Some((root, record.common_dir))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect()
+        })
+        .await
+        .unwrap_or_default()
     }
 
     /// True when efrd's mount namespace is the one of its parent, so the mounts that

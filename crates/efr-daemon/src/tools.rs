@@ -454,9 +454,10 @@ impl DaemonToolbox {
             masks: &masks,
         };
         let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
-        // NOTE: the proxy's refusals are facts for the reviewer (DP23); a refusal is
-        // never a name.
+        // NOTE: the remotes and the proxy's refusals are facts for the reviewer (DP22,
+        // DP23); a refusal is never a name.
         let conversation = call.context.conversation_id;
+        facts.remotes = sandbox.remote_facts(conversation, &request.remotes).await;
         facts.refused_hosts = sandbox.proxy().refused_hosts(conversation, turn_began);
         let projects = cover_projects(
             sandbox.projects().await,

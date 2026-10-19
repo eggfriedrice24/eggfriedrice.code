@@ -577,8 +577,12 @@ spec; `docs/sandbox.md` for the user's view):
   read at start, at each reload, and at a proxy call's prepare when a file changed, at
   most once a minute (`proxy/mirrors.rs`). `admin.status` says `network_mode: proxy`
   when the proxy runs, and warns about each `sandbox.env_keep` entry that looks like a
-  secret while `network.mode = "proxy"`. The facts of a line carry the hosts that the
-  proxy refused in the conversation's last call and its jobs. In a
+  secret while `network.mode = "proxy"`. The facts of a line carry the git remotes of
+  each directory of a remote git command (`sandbox/facts/remotes.rs`: one hardened
+  `git config` run per repository, one more over a `.gitmodules`; a remote of a pinned
+  project git dir is the project's own while its config files have not changed since
+  the conversation's first fact request and its URLs equal the first read) and the
+  hosts that the proxy refused in the conversation's last call and its jobs. In a
   build with the test seams, `Seams::proxy_deps` gives the proxy a table of test names
   (`Deps::with_proxy_hosts`, `EFR_TEST_PROXY_HOSTS` for the smoke's `efrd`), or refuses
   every name and address with no table, and the pacman files are `/dev/null`.
@@ -1129,8 +1133,9 @@ exit, `network.mode = "none"` and a failed self-test that keep the phase 1 behav
 reload whose list reaches a running job and a mode change that does not cut one,
 `sandbox.explain` with the proxy on, and a test name that reaches its server. With a
 real zsh, a foreground call's refusals reach the tool result. Unit tests
-(`sandbox/proxy/tests.rs`) cover the bind in a deep call dir, the sweep of a call past
-its timeout, the live list, the mirror read and the refusal facts.
+(`sandbox/proxy/tests.rs`, `sandbox/facts/remotes/tests.rs`) cover the bind in a deep call dir, the sweep of a call
+past its timeout, the live list, the mirror read, the remote facts and the project
+snapshot.
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project
