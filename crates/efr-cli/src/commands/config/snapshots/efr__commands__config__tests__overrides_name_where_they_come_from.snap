@@ -1,5 +1,6 @@
 ---
 source: crates/efr-cli/src/commands/config/tests.rs
+assertion_line: 116
 expression: "effective(&ctx, &view)"
 ---
 # /c/efr/config.toml (absent; every value is its default)
@@ -66,7 +67,7 @@ network.allow = ["@crates", "@npm", "@pypi", "@go", "@github-read", "@pacman-mir
 network.deny = []  # default
 network.hosts = []  # default
 network.max_upload_bytes = 4194304  # default
-dbus.proxy = false  # default
+dbus.proxy = true  # default
 dbus.allow = []  # default
 classifier.enabled = true  # default
 classifier.model = (unset)  # default

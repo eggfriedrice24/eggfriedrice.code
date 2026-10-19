@@ -862,6 +862,7 @@ fn loosens_dbus_rows() {
     let get = "org.freedesktop.Notifications.GetCapabilities";
     let info = "org.freedesktop.Notifications.GetServerInformation";
     let mut base = DbusSettings::default();
+    base.proxy = false;
     base.allow.push(entry(BusKind::Session, "org.freedesktop.Notifications", &[get]));
     let changed = |change: &dyn Fn(&mut DbusSettings)| {
         let mut next = base.clone();
