@@ -324,7 +324,8 @@ impl SandboxService {
     /// `bus_proxy` only when `dbus.proxy` is true and the bus filter's self-test passed,
     /// else the reason in `bus_proxy_off` (DE8); and with the warnings of a proxy that is
     /// off because its self-test failed, of a bus filter that is off while `dbus.proxy`
-    /// is true, and of `sandbox.env_keep` entries that look like secrets (DP25).
+    /// is true ([`bus::warns`]), and of `sandbox.env_keep` entries that look like
+    /// secrets (DP25).
     pub(crate) fn reported(&self, settings: &Settings) -> SandboxStatus {
         let current = self.current();
         let network_mode = if proxy::proxy_on(settings, &current) {
