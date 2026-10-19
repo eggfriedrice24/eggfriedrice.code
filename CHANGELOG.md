@@ -212,12 +212,6 @@ into the GitHub release notes, and it stops when the section is missing.
   but only as a fact, never as your request.
 - With the proxy, Node's `fetch` uses the proxy through `NODE_USE_ENV_PROXY=1`, so
   Node prints an "experimental" warning on stderr in sandboxed commands.
-- `[dbus] proxy` and `[[dbus.allow]]`: turn the bus filter on or off, or allow more
-  bus methods. For systemd, logind and the other default services efr accepts only read
-  methods; for other services it refuses wildcards and known write and power methods.
-  `config.toml` also accepts `[[sandbox.allow]]` rules (`kind` `host`, `write` or
-  `socket`) and refuses a rule of a bad shape. Nothing reads these keys yet, and
-  `dbus.proxy` is `false`.
 - With `[dbus] proxy = true` in `auto`, read-only system queries run with no review:
   `hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
   `systemctl status <unit>` and the other read forms, `systemctl --user --failed`,
@@ -225,20 +219,26 @@ into the GitHub release notes, and it stops when the section is missing.
   a filter that allows read methods. efr turns the filter off when `xdg-dbus-proxy` is
   missing, older than 0.1.5, or fails its self-test; `efr status` then shows a warning,
   and these queries go to the reviewer as before.
-- Answer `a` (always), then `y`, at an exit question to save a rule in
-  `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
-  no question and no review. Rules cover one host and port, one write dir, or one
-  socket. efr keeps the comments of the file. A rule that no longer passes the floor
-  checks is disabled with a warning; efrd still starts. The question shows the rule
-  next to its keys, such as `a always: write under ~/notes`, and `a` first asks
-  `save rule "write under ~/notes"? y/n`: any key but `y` goes back to the question.
-  Then one line says `saved as sandbox.allow[2]: write under ~/notes`, or why efr did
-  not save it. A command that a rule covers shows `allowed by your rule
-  sandbox.allow[2]: write under ~/notes`, also in `efr history`.
 - With `[dbus] proxy = true`, a bus call that the filter refuses fails in the command,
   and efr tells the model which call the filter refused and how to ask for the whole
   bus for one command. The record of a command or a job keeps the refused calls. When
   the filter stops during a command, efr tells the model too.
+- `[dbus] proxy` and `[[dbus.allow]]`: turn the bus filter on or off, or allow more
+  bus methods. For systemd, logind and the other default services efr accepts only read
+  methods; for other services it refuses wildcards and known write and power methods.
+  efrd refuses an entry of a bad shape at start and at a reload, and
+  `efr config check` shows the same errors.
+- Answer `a` (always), then `y`, at an exit question to save a rule in
+  `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
+  no question and no review. Rules cover one host and port, one write dir, or one
+  socket. efr keeps the comments of the file. A rule of a bad shape stops efrd at start
+  and makes a reload fail; a rule that no longer passes the floor checks is disabled
+  with a warning, and efrd still starts. The question shows the rule next to its keys,
+  such as `a always: write under ~/notes`, and `a` first asks
+  `save rule "write under ~/notes"? y/n`: any key but `y` goes back to the question.
+  Then one line says `saved as sandbox.allow[2]: write under ~/notes`, or why efr did
+  not save it. A command that a rule covers shows `allowed by your rule
+  sandbox.allow[2]: write under ~/notes`, also in `efr history`.
 - `efr sandbox allow` lists the always rules of `config.toml` with their numbers, and
   marks a rule that efrd disabled with the reason. `efr sandbox allow remove N` asks
   `remove sandbox.allow[N]: <rule>? y/n`, removes the rule with `y`, keeps the comments
@@ -248,6 +248,8 @@ into the GitHub release notes, and it stops when the section is missing.
   the reason, such as `dbus.proxy = false` or `xdg-dbus-proxy is not installed`. With
   `[dbus] proxy = true`, a command shows each bus call that the filter refused under
   its result, such as `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`.
+- The Arch packages name `xdg-dbus-proxy` as an optional dependency, for the bus
+  filter.
 
 ### Changed
 

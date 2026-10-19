@@ -321,7 +321,7 @@ denied. Each exit has a kind:
 | `host` | with `network.mode = "none"`: every network need, such as `curl`, `git fetch`, `npm ci` or `checkupdates`, with the whole network for the call. With the proxy (`network.mode = "proxy"`): a host that the line or a git remote shows and that is not on the allow list, with a grant of that one host and port (`curl https://example.com/x`); a raw network program (`nslookup`, `dig`, `host`, `ping`, `traceroute`, `nc`, `socat`, `telnet`, `ftp` and the like) and a `needs.hosts` entry of `localhost`, a private or link-local address, or a port other than 443 and 80, with the whole network. A network program whose hosts are all on the allow list, or that names no host (`cargo build`, `npm ci`), makes no exit: the proxy decides. A host that the deny list holds makes no exit either; the proxy refuses it |
 | `host_view` | `iw`, `ifconfig`, `netstat`; `ss` and `ip` in a line that also does other work (`ss -tln; make test`), in a form that changes something (`ss -K`, `ip link set`), or with the network view off. A view line has no exit ("Views", below) |
 | `outside` | `df`, `findmnt` only when efrd runs in a mount namespace of its own, such as a hardened unit; else they run in the sandbox with the mount view and no exit (docs/sandbox.md, "The host's mounts"); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read, such as `python3 -c`, `sh -c` or `node build.js`); `rustup toolchain install`, `rustup install`, `rustup update`, `rustup target add`, `rustup component add` and `rustup self update` (the reviewer for a release channel such as `stable`, `beta`, `nightly` or `1.90`, with a date and a target if you like, when a message of yours names `rustup`, the toolchain or the channel; only you for a line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`, because the install puts programs on your `PATH`); with the proxy, `ssh`, `mosh`, `autossh`, and `git fetch`, `git pull` or `git clone` from an ssh remote (the record names the host; the reviewer needs a message of yours that names the host, or a remote of your project; a destination that efr cannot read, such as `$HOST`, an ssh URL of `.gitmodules`, and a line that can send ssh to another host first or run a command on your machine, such as `ssh -J`, `ssh -F`, `ssh -o ProxyCommand=...`, `mosh --ssh`, `git -c core.sshCommand=...` or `GIT_SSH_COMMAND=...`, ask only you) |
-| `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions`; `nmcli` and `iwctl` (the reviewer for a read form, such as `nmcli device status` or `iwctl station wlan0 show`; only you for every other form, such as `nmcli radio wifi off`, because the system bus has no filter yet). A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's agent) and a socket under a mask |
+| `socket`, `bus` | a Unix socket; `notify-send`, `busctl`, `resolvectl`, `gdbus`, `coredumpctl` and the `systemctl` forms that are not read forms, such as `systemctl get-default`; `hostnamectl`, `systemctl --failed` and the other read forms only while the bus filter is off ("Views", below); `nmcli` and `iwctl` (the reviewer for a read form, such as `nmcli device status` or `iwctl station wlan0 show`; only you for every other form, such as `nmcli radio wifi off`, because the bus filter has no rules for NetworkManager and iwd). A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's agent) and a socket under a mask. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket fails at the start of the call, also through a link |
 | `desktop_ipc` | the read and reload forms `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_*`, `i3-msg -t get_*`, `xrandr` without a change, `wlr-randr`, `niri msg` (the reviewer); a form that types or starts programs, such as `hyprctl dispatch exec` or `xdotool type`, an unknown form and a desktop socket that the model names (only you approve). The call gets the one control socket of the program's desktop and its variable (docs/sandbox.md, "Desktop sockets") |
 | `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
 | `masked_read` | a read of a masked path: `.env`, `~/.zsh_history`, a browser profile (only you approve) |
@@ -335,8 +335,8 @@ denied. Each exit has a kind:
 
 **Views.** A view is a read-only view of the host that a contained call gets with no
 exit, no review and no question. The engine gives it as a reason of its own
-(`Subject::View`), never as an exit. Phase D1 has one view, the host's network view
-(`Grant::NetView`). A line gets it when each simple command is one of these: `ss` (not
+(`Subject::View`), never as an exit. There are two views. The first is the host's
+network view (`Grant::NetView`). A line gets it when each simple command is one of these: `ss` (not
 `-K`, `-D` or `-N`), a read form of `ip` (not `-batch`, `-netns` or `-all`), `nstat`
 (not `-d`), a read of a file below `/proc/net`, or a simple text helper such as
 `grep`, `sort` or `sleep`. `watch`, `timeout` and a `while` loop around them are
@@ -348,6 +348,18 @@ the probe's self-test of the view failed, the same lines are `host_view` exits. 
 the line also has an exit, the launch keeps the view only beside `write` and `unmask`
 grants. With every other grant, such as the network, a device or a bus, the view
 drops, and the call gets only that grant.
+
+The second is the filtered bus (`Grant::BusFilter { bus }`, phase E). With
+`dbus.proxy = true` and a filter that passed its self-test, a line gets it when at
+least one simple command, in any place of the line, is a read form of `systemctl`,
+`systemctl --user`, `loginctl`, `hostnamectl`, `timedatectl` or `localectl` with no
+`-H`, `--host`, `-M`, `--machine`, `--root`, `--image` or `--image-policy`.
+docs/sandbox.md, "The bus filter", lists the forms and the methods that the filter lets
+through. The rest of the line gets the same filtered bus, so this rule too only picks
+the lines that fit. The view drops beside the network view and beside a `bus` exit of
+the same bus, which gives the whole bus. With the filter off, the same forms are `bus`
+exits. A background job with a read form gets its own filter for its whole life; the
+whole bus stays refused for jobs.
 
 The engine reads every line, also one with a substitution or a group, and finds the
 exits that it can see. Text can only add a question; the sandbox holds what the text
@@ -444,6 +456,48 @@ line of the command corpus.
 `false`, or when the turn's project is your home directory, the turn runs as
 `cautious`. The turn records why, `efr history` shows it, and the model is told the
 mode that it really has.
+
+## Always-allow rules
+
+In `auto`, an `a` (always) answer at an exit question saves a standing rule in
+`[[sandbox.allow]]` of `config.toml`, after a confirm (`a`, then `y`). The card offers
+`a` only when a rule may cover the exit (`ExitInfo.always`), and only from a terminal on
+your machine. A later shell call that the rules cover runs with no review and no
+question, with the same grants that a "yes" gives, also while you are away, in a job
+and in a turn that a job notice started. docs/sandbox.md, "Always-allow rules", shows
+the confirm, the lines and the commands.
+
+The rules sit below every floor and above the reviewer. The order is: the floors, your
+`deny` and `ask` rules, the always rules, the reviewer, you. A rule has one of three
+kinds:
+
+- `host`: one host and port through the proxy. It never covers the whole network, so
+  with `network.mode = "none"` it does nothing. `network.deny` still wins.
+- `write`: one dir below your home; it covers a contained write whose binds all lie at
+  or below it. With `project`, only in turns of that project.
+- `socket`: one socket, never a link, never in a write root, and never a service,
+  container, bus, desktop or credential socket.
+
+A rule covers a call only when it covers every exit of the call, each exit is one that
+the reviewer may judge and that runs in the sandbox with narrow grants, each path
+matches by its real path (efrd resolves the links before the call; a path with no such
+fact is not covered), no floor, synced dir or project lies at or below a dir that the
+call opens (also a floor that does not exist yet), and no `deny` or `ask` rule of yours
+names a path at or below a grant. So a rule never covers a privilege, persistence,
+upload, desktop, masked-read, synced-folder, bus or device exit, `outside`, a delete in
+a cache or a file tool.
+
+efrd checks each rule against the floors when it loads the file, and before it saves
+one. A rule of a bad shape stops efrd at start and makes a reload fail. A rule that
+crosses a floor stays in the file, disabled with its reason: efrd logs one warning,
+`efr status` shows `sandbox.allow[N] is disabled: <reason>`, and `efr sandbox allow`
+shows `disabled: <reason>`. A reload whose only change is in `[[sandbox.allow]]` sends
+the new rules to the engine and starts no probe. `efr config check` checks only the
+shape. `efr sandbox allow remove N` takes a rule out.
+
+There are two allow lists. `[[sandbox.allow]]` covers shell calls in `auto`.
+`[[permissions.rules]]` with `write allow` (below, "Your rules") covers `write_file`
+and `edit` in every mode, also in `auto`.
 
 ## Background jobs
 

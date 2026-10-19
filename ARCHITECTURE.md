@@ -36,7 +36,7 @@ shipped binary.
 | `efr-patch` | lib | 0 | the patch engine of `apply_patch` and the `edit` tool: the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio | none |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
-| `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox, the views of the host that a line gets with no exit, and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
+| `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox, the views of the host that a line gets with no exit, the rules of the bus filter (the built-in read methods, the checks of `[[dbus.allow]]` and the proxy's arguments), the always-allow rules with their floor checks and their match, and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
 | `efr-scope` | lib | 1 | cwd to `Scope`: git discovery, dotfiles layouts, the project registry and its changes that keep comments | `efr-protocol`, `efr-stdx` |
 | `efr-holder` | lib | 1 | the `PtyHolder` trait and holder wire types; no IO, no unsafe | `efr-protocol`, `efr-stdx` |
 | `efr-http` | lib | 1 | the reqwest client, SSE parser, WebSocket client, Unix-socket HTTP client, header redaction | `efr-stdx` |
@@ -49,7 +49,7 @@ shipped binary.
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
-| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) and `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
+| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter) and `dbus-proxy` (runs `xdg-dbus-proxy` for one filtered bus of a call, with its own Landlock domain, seccomp filter and fd limit); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
@@ -60,8 +60,8 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records, the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait | `efr-protocol`, `efr-stdx` |
 | `efr-client` | lib | 3 | the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
-| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line (with the git remotes), the turn-end report, the read-only scope of model-side socket peers, and the network proxy's socket for each call with its lifetime, its host list and the hosts that a token in a project file denies; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops and the sweep of a job's session), the home copies of the files that an approved exit writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `jobs` (list, stop), `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain), `undo`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line (with the git remotes), the turn-end report, the read-only scope of model-side socket peers, and the network proxy's socket for each call with its lifetime, its host list and the hosts that a token in a project file denies; the bus filter: an `xdg-dbus-proxy` for each filtered bus of a call or a job, with its self-test and the refusals of its log; the writer of always-allow rules, which checks a rule and appends it to `config.toml`; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops and the sweep of a job's session), the home copies of the files that an approved exit writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except `efr-client` and the test crates |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `jobs` (list, stop), `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`; renders replies through `efr-render` | `efr-client`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-client`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -432,5 +432,34 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   list, `project_remote` and `refused_by_proxy` in
   `crates/efr-conversation/src/exit.rs`. The tests on the real launcher are in
   `crates/efr-sbx/tests/it/proxy.rs` and `crates/efr-daemon/tests/it/sandbox/proxy.rs`.
+- The bus filter and always-allow rules (ADR 0013, phase E). The bus filter: the
+  built-in read methods, the checks of `[[dbus.allow]]` and the proxy's arguments in
+  `crates/efr-permissions/src/bus.rs`, with the recorded calls in
+  `crates/efr-permissions/tests/fixtures/bus-recording.toml`; the read forms and the
+  view in `crates/efr-permissions/src/exits/programs.rs` and `exits/view.rs`; the keys
+  in `crates/efr-config/src/tables/dbus.rs`; the plan step with the `/run/dbus` tmpfs
+  and `RESOLVE_UNIX` in `crates/efr-sandbox/src/plan/build.rs`, the wrapper's Landlock
+  domain and seccomp profile in `crates/efr-sandbox/src/landlock.rs` and `seccomp.rs`;
+  the wrapper in `crates/efr-sbx/src/dbus_proxy.rs` and its self-test in
+  `crates/efr-sbx/src/self_test/bus_proxy.rs`; the `systemctl` function of the child
+  shell in `crates/efr-shell/assets/zsh/efr-child.zsh`; efrd's supervisor, its
+  self-test and its status in `crates/efr-daemon/src/sandbox/bus.rs`, the log parser
+  in `crates/efr-daemon/src/sandbox/bus/log.rs`, the trusted program in
+  `crates/efr-daemon/src/trusted_programs.rs` and the seams of the test buses in
+  `crates/efr-daemon/src/sandbox/seams.rs`; the model's note in
+  `crates/efr-tools/src/shell_tool.rs` (`bus_note`). Always-allow: the rule type, its
+  floor checks and its match in `crates/efr-permissions/src/always.rs`,
+  `always/check.rs` and `always/cover.rs`; the key in
+  `crates/efr-config/src/tables/sandbox.rs` and the writer's `add_table_entry` in
+  `crates/efr-config/src/writer.rs`; the check in the turn in
+  `crates/efr-conversation/src/turn/always.rs`; efrd's writer in
+  `crates/efr-daemon/src/always.rs`, the reload in `crates/efr-daemon/src/reload.rs`
+  and the real-path facts in `crates/efr-daemon/src/sandbox/facts.rs`; the card and
+  `efr sandbox allow` in `crates/efr-cli`. The tests on the real launcher and the real
+  proxy are in `crates/efr-sbx/tests/it/dbus.rs`,
+  `crates/efr-daemon/tests/it/sandbox/dbus.rs` (private `dbus-daemon` buses with the
+  fake services of `dbus/fake_bus.py`) and `crates/efr-daemon/tests/it/sandbox/always.rs`;
+  the turn-level tests with a fake proxy in `crates/efr-daemon/tests/it/bus.rs`; the
+  eval of the bus prompts in `crates/efr-daemon/tests/it/classifier_eval.rs`.
 - On-disk layout and schema: `docs/storage.md`. The libghostty pin: `docs/ghostty-pin.md`.
 - Decisions that are expensive to reverse: `docs/adr/`.
