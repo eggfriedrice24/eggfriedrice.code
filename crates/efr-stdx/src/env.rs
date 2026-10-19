@@ -42,6 +42,11 @@ pub enum Var {
     /// that need the real launcher run only when it is set (`just test-sandbox` sets
     /// it).
     TestSbxBin,
+    /// `EFR_TEST_PROXY_HOSTS`: test names and the servers behind them, such as
+    /// `registry.test=127.0.0.2:41001,git.test=127.0.0.3:41002`; an `efrd` built with
+    /// the test seams sends its proxy's connections for those names to those servers,
+    /// and refuses every other name. Only the smoke sets it.
+    TestProxyHosts,
     /// `EFR_BENCH_PROJECT`: an absolute path to the project in which efrd's bench
     /// `shell_call_phases_in_a_project` runs its calls; without it, the bench makes a
     /// small git repository.
@@ -89,6 +94,7 @@ impl Var {
         Var::OpenBrowser,
         Var::TestZsh,
         Var::TestSbxBin,
+        Var::TestProxyHosts,
         Var::BenchProject,
         Var::Mode,
         Var::Model,
@@ -127,6 +133,7 @@ impl Var {
             Var::OpenBrowser => "EFR_OPEN_BROWSER",
             Var::TestZsh => "EFR_TEST_ZSH",
             Var::TestSbxBin => "EFR_TEST_SBX_BIN",
+            Var::TestProxyHosts => "EFR_TEST_PROXY_HOSTS",
             Var::BenchProject => "EFR_BENCH_PROJECT",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",
