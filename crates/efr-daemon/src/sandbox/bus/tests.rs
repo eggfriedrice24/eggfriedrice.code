@@ -359,6 +359,7 @@ async fn no_self_test_while_dbus_proxy_is_off() {
 async fn bus_proxy_off_without_the_program() {
     let mut fixture = Fixture::new(Buses::Both).await;
     fixture.settings.dbus.proxy = true;
+    fixture.settings.set_source("dbus.proxy", efr_config::Source::File);
     let service = fixture.service_with(Arc::default()).await;
 
     let status = service.current();
@@ -370,6 +371,12 @@ async fn bus_proxy_off_without_the_program() {
         "{:?}",
         reported.warnings
     );
+    // With `dbus.proxy` true only by its default, the optional program is no warning;
+    // the status still says why the filter is off.
+    fixture.settings.set_source("dbus.proxy", efr_config::Source::Default);
+    let reported = service.reported(&fixture.settings);
+    assert_eq!((reported.bus_proxy, reported.bus_proxy_off), (false, Some(BusProxyOff::NoProgram)));
+    assert!(reported.warnings.is_empty(), "{:?}", reported.warnings);
 }
 
 #[tokio::test]

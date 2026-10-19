@@ -380,7 +380,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - The bus filter is on by default (`dbus.proxy = true`): read-only system queries such
   as `hostnamectl` and `systemctl --failed` run in `auto` with no review. Install
   `xdg-dbus-proxy` for it; without it, `efr status` shows `bus filter off`, and these
-  queries go to the reviewer as before. `dbus.proxy = false` turns the filter off.
+  queries go to the reviewer as before, with no warning unless you set
+  `dbus.proxy = true` yourself. `dbus.proxy = false` turns the filter off.
 
 ### Fixed
 

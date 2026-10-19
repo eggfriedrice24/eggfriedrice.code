@@ -529,6 +529,15 @@ fn make_dir_and_clear(dir: &Path, socket: &Path) -> std::io::Result<()> {
     }
 }
 
+/// True when the filter, off for `off`, is worth a warning: always, but for a missing
+/// `xdg-dbus-proxy` while `dbus.proxy` is true only by its built-in default. The
+/// program is an optional dependency, and the user never asked for the filter, so the
+/// status says `off` with no warning that only an install or `proxy = false` removes.
+pub(crate) fn warns(settings: &efr_config::Settings, off: efr_protocol::BusProxyOff) -> bool {
+    off != efr_protocol::BusProxyOff::NoProgram
+        || settings.source("dbus.proxy") != efr_config::Source::Default
+}
+
 /// The sandbox warning that `efr sandbox check` shows when `dbus.proxy` is true but the
 /// filter is off for `off` (DE8).
 pub(crate) fn off_warning(off: efr_protocol::BusProxyOff) -> String {
