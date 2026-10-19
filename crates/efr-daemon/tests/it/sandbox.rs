@@ -1076,8 +1076,12 @@ async fn shell_a_call_queued_behind_a_running_one_holds_no_plan_lock() {
     let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
     // NOTE: the test clock moves only once A's command runs. The wait for the new
     // shell's prompt also counts against the call's timeout, so a clock that moves
-    // earlier ends the call before its command runs, and nothing queues.
+    // earlier ends the call before its command runs, and nothing queues. The wait
+    // covers the project add's reload, the hidden shell's start and the first launch;
+    // in CI's sandbox VM the whole test takes about 18 s, so the default limit of 10 s
+    // is too short for this one step.
     Wait::new("A's first command to run")
+        .limit(Duration::from_secs(30))
         .until(|| project.join("a-running").exists())
         .await
         .unwrap();
