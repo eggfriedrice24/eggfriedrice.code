@@ -112,3 +112,34 @@ async fn a_found_program_runs_with_a_clean_environment() {
     names.sort_unstable();
     assert_eq!(names, ["LC_ALL", "PATH"]);
 }
+
+#[test]
+fn xdg_dbus_proxy_is_found_and_checked_like_the_others() {
+    let (_temp, root) = root();
+    let bin = root.join("bin");
+    let program = fake(&bin, "xdg-dbus-proxy");
+    let programs = TrustedPrograms::in_test_dir(&bin, &[]);
+    assert!(programs.has(Program::XdgDbusProxy));
+    assert_eq!(programs.checked_path(Program::XdgDbusProxy), Some(program.clone()));
+    assert!(programs.command(Program::XdgDbusProxy).is_some());
+
+    // A file put in its place: the checked path and the command refuse it alike.
+    std::fs::remove_file(&program).unwrap();
+    fake(&bin, "xdg-dbus-proxy");
+    assert_eq!(programs.checked_path(Program::XdgDbusProxy), None);
+    assert!(programs.command(Program::XdgDbusProxy).is_none());
+}
+
+#[test]
+fn the_installed_xdg_dbus_proxy_passes_the_real_rule() {
+    use std::os::unix::fs::MetadataExt as _;
+    // Check C4-5 of the phase E plan: a root-owned `/usr/bin/xdg-dbus-proxy` passes the
+    // rule of efrd's own `PATH`. A machine without it has nothing to check.
+    let installed = Path::new("/usr/bin/xdg-dbus-proxy");
+    let Ok(meta) = std::fs::symlink_metadata(installed) else { return };
+    if meta.uid() != 0 || !meta.is_file() {
+        return;
+    }
+    let programs = TrustedPrograms::resolve(std::ffi::OsStr::new("/usr/bin"), &[]);
+    assert_eq!(programs.checked_path(Program::XdgDbusProxy).as_deref(), Some(installed));
+}

@@ -1,5 +1,6 @@
-//! The programs that efrd itself runs for the state copies of cron and linger (efr's
-//! auto spec 10.8, plan PB20): `crontab` and `loginctl`.
+//! The programs that efrd itself runs: `crontab` and `loginctl` for the state copies of
+//! cron and linger (efr's auto spec 10.8, plan PB20), and `xdg-dbus-proxy` for the
+//! filtered bus of the `auto` sandbox (phase E, DE7).
 //!
 //! efrd finds them once at start, on its own `PATH`, never on the hidden shell's,
 //! whose entries can be dirs that the sandbox wrote. A program counts only in a dir
@@ -30,16 +31,19 @@ pub(crate) enum Program {
     Crontab,
     /// `loginctl`, for the linger setting.
     Loginctl,
+    /// `xdg-dbus-proxy`, the filter of a call's bus (phase E).
+    XdgDbusProxy,
 }
 
 impl Program {
-    const ALL: [Program; 2] = [Program::Crontab, Program::Loginctl];
+    const ALL: [Program; 3] = [Program::Crontab, Program::Loginctl, Program::XdgDbusProxy];
 
     /// The file name on the `PATH`.
     pub(crate) fn name(self) -> &'static str {
         match self {
             Program::Crontab => "crontab",
             Program::Loginctl => "loginctl",
+            Program::XdgDbusProxy => "xdg-dbus-proxy",
         }
     }
 }
@@ -68,7 +72,7 @@ impl PartialEq for Found {
 
 impl Eq for Found {}
 
-/// The programs that efrd may run for the state copies.
+/// The programs that efrd may run.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct TrustedPrograms {
     found: Vec<Found>,
@@ -118,10 +122,10 @@ impl TrustedPrograms {
         self.found.iter().any(|found| found.program == program)
     }
 
-    /// A command for `program` with a clean environment, or `None` when efrd found no
-    /// such program or the file is no longer the one that it found. The caller adds
-    /// the fixed arguments.
-    pub(crate) fn command(&self, program: Program) -> Option<tokio::process::Command> {
+    /// The path of `program` after the check that [`command`](Self::command) makes:
+    /// `None` when efrd found no such program or the file is no longer the one that it
+    /// found. It blocks for one stat.
+    pub(crate) fn checked_path(&self, program: Program) -> Option<PathBuf> {
         let found = self.found.iter().find(|found| found.program == program)?;
         let meta = std::fs::symlink_metadata(&found.path).ok()?;
         let pinned = rustix::fs::fstat(&*found.pin).ok()?;
@@ -131,7 +135,15 @@ impl TrustedPrograms {
             tracing::warn!(program = program.name(), path = %found.path.display(), "a trusted program changed since efrd started; it does not run");
             return None;
         }
-        let mut command = efr_stdx::process::command(&found.path, "/");
+        Some(found.path.clone())
+    }
+
+    /// A command for `program` with a clean environment, or `None` when efrd found no
+    /// such program or the file is no longer the one that it found
+    /// ([`checked_path`](Self::checked_path)). The caller adds the fixed arguments.
+    pub(crate) fn command(&self, program: Program) -> Option<tokio::process::Command> {
+        let path = self.checked_path(program)?;
+        let mut command = efr_stdx::process::command(&path, "/");
         command
             .env_clear()
             .env("PATH", "/usr/bin:/bin")

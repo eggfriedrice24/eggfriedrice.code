@@ -979,9 +979,9 @@ conventions that `efr_stdx::env::Var` does not name.
 - Undo never writes through a link, never writes a path that changed since the plan
   read it, and copies every file that it overwrites or removes into the undo trash
   first.
-- efrd runs `crontab` and `loginctl` only from a root-owned dir outside every write
-  root, as the file that it found at start, with fixed arguments and never a word of
-  the model.
+- efrd runs `crontab`, `loginctl` and `xdg-dbus-proxy` only from a root-owned dir
+  outside every write root, as the file that it found at start, with fixed arguments
+  and never a word of the model.
 - A background job starts only after its launcher's pid is model-side, and a process
   of a job holds `read` only on the socket, also after its launcher is gone, while its
   session lives. efrd writes a job's output itself, and never through a link.
