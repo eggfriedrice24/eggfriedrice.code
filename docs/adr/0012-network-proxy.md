@@ -102,7 +102,8 @@ call that can reach a socket of efrd.
     registry files, the git config with its global and include files) makes efrd deny
     that host for the call.
 
-11. **The proxy runs only after its self-test.** `network.mode = "proxy"` turns it on.
+11. **The proxy is on by default, and runs only after its self-test.**
+    `network.mode` is `"proxy"` by default from the end of phase D2.
     The probe runs a third launch with a proxy plan and checks the bridge (a `CONNECT`
     through `127.0.0.1:3128`), `EACCES` on a direct connect to the socket,
     `ENETUNREACH` for other TCP, and `EPERM` for a signal to the bridge. When a check

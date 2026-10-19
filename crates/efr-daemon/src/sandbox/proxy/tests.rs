@@ -276,6 +276,7 @@ async fn missing_pacman_files_give_no_mirror() {
 #[test]
 fn env_keep_secret_warns_under_proxy() {
     let mut settings = Settings::default();
+    settings.network.mode = NetworkMode::None;
     settings.sandbox.env_keep = vec!["GITHUB_TOKEN".to_owned(), "EDITOR".to_owned()];
     assert!(env_keep_warnings(&settings).is_empty(), "no proxy, no warning");
     settings.network.mode = NetworkMode::Proxy;
@@ -289,6 +290,7 @@ fn fallback_notice_once_per_start() {
     let clock = TestClock::new();
     let proxy = service(&clock);
     let mut settings = Settings::default();
+    settings.network.mode = NetworkMode::None;
     let failed = SandboxStatus { available: true, ..SandboxStatus::unavailable("x") };
     assert_eq!(proxy.fallback_note(&settings, &failed), None, "network.mode = none");
     settings.network.mode = NetworkMode::Proxy;

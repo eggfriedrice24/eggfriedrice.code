@@ -631,8 +631,8 @@ own mounts.
 
 ## The network proxy
 
-With `network.mode = "proxy"`, a contained command reaches the hosts of your allow
-list through efr's network proxy, with no review: the package registries and GitHub
+With `network.mode = "proxy"` (the default), a contained command reaches the hosts of
+your allow list through efr's network proxy, with no review: the package registries and GitHub
 by default. So `cargo build` with a new dependency, `npm install` and `pip install`
 run at once. Every other route stays closed. With `network.mode = "none"`, a contained
 command has no network, as before phase D2.

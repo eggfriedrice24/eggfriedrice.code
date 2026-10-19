@@ -655,8 +655,8 @@
         },
         "mode": {
           "$ref": "#/$defs/NetworkMode",
-          "default": "none",
-          "description": "`\"proxy\"`: contained commands reach the hosts of `allow` through efr's proxy,\nand a network need is no review. `\"none\"`: no network; every network need is a\nreview that opens the whole network for one call. A change applies to new calls;\na running background job keeps its network until it ends."
+          "default": "proxy",
+          "description": "`\"proxy\"` (the default): contained commands reach the hosts of `allow` through\nefr's proxy, and a network need is no review. `\"none\"`: no network; every network\nneed is a review that opens the whole network for one call. A change applies to new calls;\na running background job keeps its network until it ends."
         },
         "netview": {
           "default": true,
@@ -1590,7 +1590,7 @@
         "deny": [],
         "hosts": [],
         "max_upload_bytes": 4194304,
-        "mode": "none",
+        "mode": "proxy",
         "netview": true
       },
       "description": "What network a contained call of the `auto` mode sees."

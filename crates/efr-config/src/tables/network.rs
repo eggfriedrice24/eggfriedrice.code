@@ -16,9 +16,9 @@ pub struct NetworkSettings {
     /// run in the sandbox with your machine's network view and no network socket, with
     /// no question. `false`: they go to the reviewer, as a look at the host's network.
     pub netview: bool,
-    /// `"proxy"`: contained commands reach the hosts of `allow` through efr's proxy,
-    /// and a network need is no review. `"none"`: no network; every network need is a
-    /// review that opens the whole network for one call. A change applies to new calls;
+    /// `"proxy"` (the default): contained commands reach the hosts of `allow` through
+    /// efr's proxy, and a network need is no review. `"none"`: no network; every network
+    /// need is a review that opens the whole network for one call. A change applies to new calls;
     /// a running background job keeps its network until it ends.
     pub mode: NetworkMode,
     /// The hosts that contained commands reach through the proxy on port 443: presets
@@ -44,7 +44,7 @@ impl Default for NetworkSettings {
     fn default() -> Self {
         NetworkSettings {
             netview: true,
-            mode: NetworkMode::None,
+            mode: NetworkMode::Proxy,
             allow: Preset::ALL.iter().map(|preset| preset.name().to_owned()).collect(),
             deny: Vec::new(),
             hosts: Vec::new(),

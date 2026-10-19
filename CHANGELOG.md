@@ -193,8 +193,8 @@ into the GitHub release notes, and it stops when the section is missing.
   command downloads for the rest of the conversation, in efr's private layer. Your own
   caches do not change. It is off by default because each sandboxed command then takes
   about 3 to 4 ms more to start.
-- A network proxy for `auto`. Turn it on with `network.mode = "proxy"`. A sandboxed
-  command then reaches the package registries and GitHub with no review: crates.io,
+- A network proxy for `auto`, on by default (`network.mode = "proxy"`). A sandboxed
+  command reaches the package registries and GitHub with no review: crates.io,
   npm, PyPI, the Go module proxy, GitHub downloads and your pacman mirrors. efr checks
   each connection: the host must be on your allow list, it must not resolve to a local
   or private address, and the TLS server name must match. Only the hosts and ports that
@@ -215,6 +215,10 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- `network.mode` is now `"proxy"` by default. Package fetches such as `cargo build`
+  with a new dependency, `npm install` and `pip install` run with no review. Set
+  `network.mode = "none"` to get the old behavior: no network, and a review that opens
+  the whole network for one command.
 - In `auto`, `write_file` and `edit` outside the project and `$SCRATCH` are an exit
   that the reviewer decides, as a shell write there is.
 - In `auto`, a write that runs outside the sandbox, such as `mv src ~/x`, and an
@@ -379,8 +383,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - With `network.mode = "proxy"`, `efr sandbox check` warns about each
   `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
   allowed hosts.
-- The proxy cannot see inside TLS. A sandboxed command can still send data to a host
-  on your allow list, with no credentials: at most `network.max_upload_bytes` (4 MiB)
+- The network proxy is on by default. It cannot see inside TLS: a sandboxed command can
+  still send data to a host on your allow list, with no credentials: at most `network.max_upload_bytes` (4 MiB)
   per command, counted from the first byte of each connection. Hosts that fetch on
   behalf of the client (the Go module proxy) and DNS names below your own `*.suffix`
   entries widen this. Socket grants that reach the network, such as Docker's socket,

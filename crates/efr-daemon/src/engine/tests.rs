@@ -394,7 +394,9 @@ async fn network_mode_none_keeps_phase1() {
     let (_root, home) = home();
     let parts = parts(&home, home.path().join("secrets"));
     let probed = Probed { proxy: true, ..Probed::default() };
-    let engine = parts.engine(&Settings::default(), probed).await.unwrap();
+    let mut settings = Settings::default();
+    settings.network.mode = efr_protocol::NetworkMode::None;
+    let engine = parts.engine(&settings, probed).await.unwrap();
     assert_eq!(engine.support().egress, efr_permissions::Egress::None, "network.mode = none");
     let decided = decide(
         &engine,
