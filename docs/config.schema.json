@@ -1178,7 +1178,7 @@
         },
         "keep_downloads": {
           "default": false,
-          "description": "In the `tmp` cache mode, the download caches (`~/.cargo`, `~/go/pkg/mod`,\n`~/.npm`, the bun and pnpm stores) keep what a call downloads for the rest of\nthe conversation, in efr's private layer, as the `overlay` mode does. The other\ncaches stay `tmp`.",
+          "description": "In the `tmp` cache mode, the download caches (`~/.cargo`, `~/go/pkg/mod`,\n`~/.npm`, the bun and pnpm stores) keep what a call downloads for the rest of\nthe conversation, in efr's private layer, as the `overlay` mode does. The other\ncaches stay `tmp`. Off by default: each call then takes about 3 to 4 ms more,\nabove the launch gate of 10 ms.",
           "type": "boolean"
         },
         "mask": {

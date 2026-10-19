@@ -21,6 +21,9 @@ pub const DEFAULT_CACHES: &[&str] = &[
 
 /// The caches of [`DEFAULT_CACHES`] that get downloads: with `sandbox.keep_downloads`
 /// in the `tmp` cache mode they keep their private layer for the conversation.
+// NOTE: the five that phase D2 measured (`launch cost downloads`). No set passed the
+// launch gate, so the key is off by default and this set only serves a user who turns
+// it on: two kept caches cost about as much as five.
 pub const DOWNLOAD_CACHES: &[&str] =
     &["~/.cargo", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store"];
 
@@ -151,7 +154,8 @@ pub struct SandboxSettings {
     /// In the `tmp` cache mode, the download caches (`~/.cargo`, `~/go/pkg/mod`,
     /// `~/.npm`, the bun and pnpm stores) keep what a call downloads for the rest of
     /// the conversation, in efr's private layer, as the `overlay` mode does. The other
-    /// caches stay `tmp`.
+    /// caches stay `tmp`. Off by default: each call then takes about 3 to 4 ms more,
+    /// above the launch gate of 10 ms.
     // NOTE: not a loosening key, as `cache_mode` is not one: it keeps the same private
     // layer that the `overlay` mode keeps, and opens nothing of the host.
     pub keep_downloads: bool,
@@ -212,6 +216,10 @@ impl Default for SandboxSettings {
             // the reference machine (p95 above 10 ms). The EBUSY setup failures of that
             // gate are gone since efr-sbx mounts the overlays with index=off.
             cache_mode: CacheMode::Tmp,
+            // NOTE: off: with the cargo and npm caches kept, the p95 launch cost was
+            // 11.8 ms without the child shell on the reference machine (tmp: 8.45 ms),
+            // above the gate of 10 ms. The kernel syncs the upper file system when an
+            // overlay with a layer on disk unmounts.
             keep_downloads: false,
             cache_days: 14,
             cache_max_gib: 20,
