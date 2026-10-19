@@ -856,6 +856,7 @@ dependencies = [
  "pretty_assertions",
  "regex",
  "rustix",
+ "rustls",
  "sd-notify",
  "serde",
  "serde_json",

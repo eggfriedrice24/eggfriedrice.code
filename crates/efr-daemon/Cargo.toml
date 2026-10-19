@@ -88,6 +88,8 @@ efr-test-daemon.workspace = true
 efr-test-support.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true
+# The local HTTPS registry of the proxy's end-to-end tests (tests/it/sandbox/proxy).
+rustls.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
 wiremock.workspace = true

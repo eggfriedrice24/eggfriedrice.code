@@ -9,6 +9,7 @@ mod jobs;
 mod jobs_guard;
 mod mount_view;
 mod netview;
+mod proxy;
 mod review;
 mod undo;
 
