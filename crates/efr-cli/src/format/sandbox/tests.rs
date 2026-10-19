@@ -11,11 +11,11 @@ use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
 use super::{
-    AWAY_EXPIRED, Requested, background_stopped, blocked, cache_freed, check, exit_card,
-    exit_heading, exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note,
-    fallback_warning, home_changed, judge_details, no_answer_row, paused, presence_changed,
-    reviewed, reviewer_row, reviewing, setup_failed, status_line, surface_answered, surface_change,
-    surface_changed, surface_report, survivors, tilde,
+    AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_lines, cache_freed, check,
+    contained_trace, exit_card, exit_heading, exit_judged, exit_lines, exit_record, exit_summary,
+    explain, fallback_note, fallback_warning, home_changed, judge_details, no_answer_row, paused,
+    presence_changed, reviewed, reviewer_row, reviewing, setup_failed, status_line,
+    surface_answered, surface_change, surface_changed, surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -159,6 +159,49 @@ fn the_status_line_says_ready_with_the_facts_or_unavailable_with_the_reason() {
     assert_eq!(
         status_line(&down),
         "unavailable: Landlock ABI 6 found; auto needs 9 (Linux 7.1); auto runs as cautious"
+    );
+}
+
+#[test]
+fn status_shows_network_proxy() {
+    let proxy = SandboxStatus { network_mode: NetworkMode::Proxy, proxy: true, ..ready() };
+    assert_eq!(
+        status_line(&proxy),
+        "ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network proxy)"
+    );
+    // efrd fell back: network.mode is proxy, but the proxy self-test failed.
+    let fell_back = SandboxStatus {
+        warnings: vec![
+            "efr's network proxy is off: its self-test failed; contained commands have no network"
+                .to_owned(),
+        ],
+        ..ready()
+    };
+    assert!(
+        status_line(&fell_back).ends_with("network none (proxy self-test failed))"),
+        "{}",
+        status_line(&fell_back)
+    );
+    let checked = check(&AdminSandboxCheckResult { status: proxy, ..check_result() });
+    assert!(checked.contains("\nnetwork proxy\nauto: ready\n"), "{checked}");
+    let checked = check(&check_result());
+    assert!(checked.contains("\nnetwork none\nauto: ready\n"), "{checked}");
+}
+
+#[test]
+fn the_trace_names_the_proxy_in_place_of_no_network() {
+    assert_eq!(
+        contained_trace(true, false, true),
+        "sandbox: writes in the project, $SCRATCH, private /tmp; network through efr's proxy"
+    );
+    assert_eq!(
+        contained_trace(false, true, true),
+        "sandbox: writes in $SCRATCH, private /tmp; network through efr's proxy; host network \
+         view (no sending)"
+    );
+    assert_eq!(
+        contained_trace(false, false, false),
+        "sandbox: writes in $SCRATCH, private /tmp; no network"
     );
 }
 
@@ -552,6 +595,14 @@ fn blocked_hosts_and_stopped_jobs_get_a_line_each() {
         let line = blocked(&Blocked { reason, ..refused.clone() });
         assert_eq!(line, format!("network: blocked evil.example:443 ({word})"));
     }
+    assert_eq!(
+        blocked_lines(&[Blocked { count: 2, ..refused.clone() }], 3),
+        [
+            "network: blocked evil.example:443 (not on the allow list; 2 times)",
+            "network: and 3 more refused",
+        ]
+    );
+    assert_eq!(blocked_lines(&[], 0), Vec::<String>::new());
     assert_eq!(background_stopped(&[]), None);
     assert_eq!(
         background_stopped(&["vite".to_owned(), "node".to_owned()]).unwrap(),

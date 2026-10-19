@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use efr_protocol::{Event, HeldReason, JobId, JobState, JobStopBy, Seq, SurfaceChange};
+use efr_protocol::{
+    BlockReason, Blocked, Event, HeldReason, JobId, JobState, JobStopBy, Seq, SurfaceChange,
+};
 use pretty_assertions::assert_eq;
 
 use super::{
@@ -128,6 +130,39 @@ fn a_guard_stop_a_lost_launcher_survivors_and_a_cut_output_are_named() {
         ended(&j3(), &end),
         "job j3 ended with exit 0 after 0 seconds; 0 B output; it changed git settings; 1 \
          process of the job may still run"
+    );
+}
+
+/// The `job_ended` of job 3 that exited 0, with these refusals of the proxy.
+fn refused_job(blocked: Vec<Blocked>, more: u32) -> Event {
+    let mut event = job_ended(JobState::Exited, Some(0), None);
+    if let Event::JobEnded { blocked: refused, blocked_more, .. } = &mut event {
+        *refused = blocked;
+        *blocked_more = more;
+    }
+    event
+}
+
+#[test]
+fn job_end_lists_blocked() {
+    let refused =
+        |host: &str, reason, count| Blocked { host: host.to_owned(), port: 443, reason, count };
+    let blocked = vec![
+        refused("other.test", BlockReason::NotAllowed, 3),
+        refused("x.test", BlockReason::NotTls, 1),
+    ];
+    assert_eq!(
+        conversation_line(&refused_job(blocked, 4)).unwrap(),
+        "job j3 ended with exit 0 after 92 minutes; 1.2 MB output; network: blocked \
+         other.test:443 (not on the allow list; 3 times), x.test:443 (not TLS) and 4 more"
+    );
+    assert_eq!(
+        conversation_line(&refused_job(Vec::new(), 1)).unwrap(),
+        "job j3 ended with exit 0 after 92 minutes; 1.2 MB output; network: 1 refused"
+    );
+    assert_eq!(
+        conversation_line(&refused_job(Vec::new(), 0)).unwrap(),
+        "job j3 ended with exit 0 after 92 minutes; 1.2 MB output"
     );
 }
 

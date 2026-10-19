@@ -413,8 +413,8 @@ impl<'a> Transcript<'a> {
                     self.note(&line);
                 }
                 if let Some(summary) = summary {
-                    for blocked in &summary.blocked {
-                        self.note(&sandbox::blocked(blocked));
+                    for line in sandbox::blocked_lines(&summary.blocked, summary.blocked_more) {
+                        self.note(&line);
                     }
                     if let Some(line) = sandbox::background_stopped(&summary.background_stopped) {
                         self.note(&line);

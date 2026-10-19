@@ -516,6 +516,9 @@ pub(crate) struct TurnView {
     traced: bool,
     /// A contained call of this turn had the network view: the end of the turn says so.
     traced_net_view: bool,
+    /// A contained call of this turn ran with efr's network proxy: the end of the turn
+    /// says so.
+    traced_proxied: bool,
     /// Calls that run in the sandbox, whose failure says so, each with true when it
     /// has the network view (`Grant::NetView`).
     contained: HashMap<CallId, bool>,
@@ -611,6 +614,7 @@ impl TurnView {
             in_project: false,
             traced: false,
             traced_net_view: false,
+            traced_proxied: false,
             contained: HashMap::new(),
             exits: HashMap::new(),
             reviewed: HashMap::new(),
@@ -1401,10 +1405,12 @@ impl TurnView {
                 let ran = contained && !denied && refusal.is_none() && setup.is_none();
                 self.traced |= ran;
                 self.traced_net_view |= net_view == Some(true) && ran;
+                self.traced_proxied |=
+                    ran && summary.as_ref().is_some_and(|summary| summary.proxied);
                 // The job that the call started, first: it runs on after the call.
                 let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
-                    notes.extend(summary.blocked.iter().map(sandbox::blocked));
+                    notes.extend(sandbox::blocked_lines(&summary.blocked, summary.blocked_more));
                     notes.extend(sandbox::background_stopped(&summary.background_stopped));
                     notes.extend(sandbox::survivors(&summary.survivors));
                 }
@@ -2430,8 +2436,9 @@ impl TurnView {
         self.commit_question();
         self.question = None;
         let net_view = std::mem::take(&mut self.traced_net_view);
+        let proxied = std::mem::take(&mut self.traced_proxied);
         if std::mem::take(&mut self.traced) {
-            let trace = sandbox::contained_trace(self.in_project, net_view);
+            let trace = sandbox::contained_trace(self.in_project, net_view, proxied);
             // Whole, not cut to the width as a note is: it says where the calls wrote.
             let noted = self.dim_block(&[trace], self.size);
             step.out.push_str(&noted.out);
