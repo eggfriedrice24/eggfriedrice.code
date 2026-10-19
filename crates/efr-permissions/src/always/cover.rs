@@ -32,8 +32,9 @@ enum Item {
     /// One host and port through efr's proxy, the host in lower case.
     Host { host: String, port: u16 },
     /// A write bind of `path`, whose real path is `real`; `dir` for a bind of a whole
-    /// dir (`Target`, `Parent`, `MakeDir`).
-    Write { path: PathBuf, real: PathBuf, dir: bool },
+    /// dir (`Target`, `Parent`, `MakeDir`), `made` for a file that the call makes
+    /// (`MakeFile`).
+    Write { path: PathBuf, real: PathBuf, dir: bool, made: bool },
     /// One socket, which is no link.
     Socket { path: PathBuf },
 }
@@ -102,7 +103,8 @@ fn items(machine: &Machine<'_>, decision: &Decision, project: Option<&Path>) -> 
                         need.bind,
                         Some(WriteBind::Target | WriteBind::Parent(_) | WriteBind::MakeDir)
                     );
-                    Item::Write { path, real, dir }
+                    let made = need.bind == Some(WriteBind::MakeFile);
+                    Item::Write { path, real, dir, made }
                 }
                 Grant::Socket { path } => {
                     let path = normal(path, locations)?;
@@ -172,7 +174,7 @@ fn eligible(need: &ExitNeed) -> bool {
 /// (DE20 (b)): the plan binds only the floors that exist, so the call could make a
 /// missing one.
 fn over_a_floor(item: &Item, locations: &Locations) -> bool {
-    let Item::Write { path, real, dir: true } = item else { return false };
+    let Item::Write { path, real, dir: true, .. } = item else { return false };
     let home = locations.home();
     let projects = locations.projects_below(Path::new("/"));
     let mut guarded = persistence_floors(home)
@@ -255,7 +257,9 @@ fn covers(rule: &AllowRule, items: &[Item], project: Option<&Path>, locations: &
 
 /// The rule that an `a` answer would save for `items`: one host and port, one socket,
 /// or the real path of the one write bind that holds every other one, limited to the
-/// turn's project when it has one. `None` for a mix of kinds or of hosts and sockets.
+/// turn's project when it has one. `None` for a mix of kinds or of hosts and sockets,
+/// and for a file that the call makes: a later write of the file, which then exists,
+/// binds its dir unless the dir is shared, and a rule of the file never covers that.
 fn offer(items: &[Item], project: Option<&Path>, locations: &Locations) -> Option<AllowRule> {
     let home = locations.home();
     match items.first()? {
@@ -270,6 +274,11 @@ fn offer(items: &[Item], project: Option<&Path>, locations: &Locations) -> Optio
                 })
                 .collect::<Option<_>>()?;
             let top = reals.iter().find(|top| reals.iter().all(|real| real.starts_with(top)))?;
+            let made =
+                |item: &Item| matches!(item, Item::Write { real, made: true, .. } if real == *top);
+            if items.iter().any(made) {
+                return None;
+            }
             let project = match project {
                 Some(root) => Some(tilde(root, home)?),
                 None => None,
