@@ -338,7 +338,7 @@ async fn mount_view_only_for_mount_lines() {
     let df = service.prepare(&second, &with_df).await.unwrap();
     assert_mount_files(&df.run.dir);
     assert_eq!(statvfs_runs(&fixture), 1);
-    assert!(!df.notes.contains(&MOUNT_VIEW_FAILED));
+    assert!(!df.notes.contains(&MOUNT_VIEW_FAILED.to_owned()));
     drop(df);
 
     // The exit child runs on the host, where df is already right.

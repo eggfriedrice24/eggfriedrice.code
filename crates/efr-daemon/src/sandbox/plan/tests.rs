@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use efr_config::{SandboxSettings, WriteProjects};
+use efr_permissions::Egress;
 use efr_protocol::{CacheMode, CallId, ConversationId, Grant, Launch};
 use efr_sandbox::{FloorKind, MaskKind, NetworkPlan, SpecLaunch, WriteRootKind};
 use efr_stdx::paths::Dirs;
@@ -16,6 +17,7 @@ struct Fixture {
     home: PathBuf,
     dirs: Dirs,
     host: HostFacts,
+    egress: Egress,
 }
 
 impl Fixture {
@@ -33,7 +35,7 @@ impl Fixture {
             user_runtime: root.join("xrt"),
             ..HostFacts::default()
         };
-        Fixture { _dir: dir, root, home, dirs, host }
+        Fixture { _dir: dir, root, home, dirs, host, egress: Egress::None }
     }
 
     fn plan(
@@ -63,6 +65,7 @@ impl Fixture {
             launcher: &self.dirs.runtime().join("bin/efr-sbx"),
             desktops: &[],
             job: None,
+            egress: self.egress,
         };
         build(&input)
     }
@@ -240,4 +243,55 @@ fn persistence_floors_have_their_kind() {
     assert_eq!(floor_kind(Path::new(".config/fish")), FloorKind::ShellStartup);
     assert_eq!(floor_kind(Path::new(".config/hypr")), FloorKind::Autostart);
     assert_eq!(floor_kind(Path::new(".cargo/bin")), FloorKind::ToolConfig);
+}
+
+#[test]
+fn open_network_grant_gives_plan_open() {
+    let mut fixture = Fixture::new();
+    fixture.egress = Egress::Proxy;
+    let settings = SandboxSettings::default();
+    let launch = Launch::Contained { grants: vec![Grant::OpenNetwork] };
+    let planned = fixture.plan(&settings, &launch, None, &[]);
+    assert_eq!(planned.spec.network, NetworkPlan::Open);
+    planned.spec.check().unwrap();
+}
+
+#[test]
+fn proxy_egress_gives_the_calls_own_socket() {
+    let mut fixture = Fixture::new();
+    let settings = SandboxSettings::default();
+    let planned = fixture.plan(&settings, &Launch::contained(), None, &[]);
+    assert_eq!(planned.spec.network, NetworkPlan::None, "no proxy egress, no proxy");
+    fixture.egress = Egress::Proxy;
+    let host =
+        Launch::Contained { grants: vec![Grant::Host { host: "extra.test".into(), port: 443 }] };
+    for launch in [Launch::contained(), host] {
+        let planned = fixture.plan(&settings, &launch, None, &[]);
+        let spec = &planned.spec;
+        assert_eq!(
+            spec.network,
+            NetworkPlan::Proxy { socket: spec.runtime.call_dir.join("proxy.sock") }
+        );
+        spec.check().unwrap();
+    }
+    let unsandboxed = fixture.plan(&settings, &Launch::Unsandboxed, None, &[]);
+    assert_eq!(unsandboxed.spec.network, NetworkPlan::None, "the exit child has no proxy");
+}
+
+#[test]
+fn netview_line_keeps_plan_none_with_proxy_on() {
+    let mut fixture = Fixture::new();
+    fixture.egress = Egress::Proxy;
+    let settings = SandboxSettings::default();
+    let view = Launch::Contained { grants: vec![Grant::NetView] };
+    let planned = fixture.plan(&settings, &view, None, &[]);
+    assert_eq!(planned.spec.network, NetworkPlan::None, "the view takes the host's namespace");
+    let both = Launch::Contained {
+        grants: vec![Grant::NetView, Grant::Host { host: "extra.test".into(), port: 443 }],
+    };
+    let planned = fixture.plan(&settings, &both, None, &[]);
+    assert!(
+        matches!(planned.spec.network, NetworkPlan::Proxy { .. }),
+        "a host grant needs the proxy"
+    );
 }

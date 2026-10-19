@@ -11,14 +11,22 @@
 //! hand a test the side of a socket peer by pid ([`PeerProbe`]), and it can name the
 //! program that measures the host's mounts. `just install` refuses an `efrd` built with the feature
 //! (`efrd --test-seams` prints `on`).
+//!
+//! The proxy (phase D2) gets its resolver and connector here ([`Seams::proxy_deps`]):
+//! a test build never reaches the internet. With a table of test names and the server
+//! behind each, a name resolves to its server's loopback address and the connector
+//! reaches only those servers; with no table, every name and every address is refused.
+//! The pacman files of `@pacman-mirrors` are `/dev/null` in a test build, so a test
+//! daemon never reads the machine's mirror list.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 #[cfg(feature = "test-sandbox-fake")]
-use std::path::PathBuf;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use efr_protocol::SandboxStatus;
+use efr_proxy::Limits;
 
 #[cfg(feature = "test-sandbox-fake")]
 use crate::Deps;
@@ -47,6 +55,9 @@ pub(crate) struct Seams {
     /// The program that measures the host's mounts, in place of the launcher's copy.
     #[cfg(feature = "test-sandbox-fake")]
     statvfs_helper: Option<PathBuf>,
+    /// The test names of the proxy and the server behind each.
+    #[cfg(feature = "test-sandbox-fake")]
+    proxy_hosts: Option<BTreeMap<String, SocketAddr>>,
 }
 
 /// The side of a socket peer as a test reads it: `user`, `model_side` or `unknown`.
@@ -117,6 +128,111 @@ impl Seams {
     pub(crate) fn statvfs_helper(&self) -> Option<&Path> {
         self.statvfs_helper.as_deref()
     }
+
+    /// The proxy's deps in a test build: the table resolver and connector of the test
+    /// names (from [`Deps::with_proxy_hosts`], else `EFR_TEST_PROXY_HOSTS` read by
+    /// [`Seams::with_process_env`]), no own address and the loopback guard. With no
+    /// table, every name and every address is refused, so no test daemon reaches the
+    /// internet.
+    pub(crate) fn proxy_deps(&self, limits: Limits) -> Option<efr_proxy::Deps> {
+        let table = Arc::new(self.proxy_hosts.clone().unwrap_or_default());
+        Some(efr_proxy::Deps {
+            resolver: Arc::new(TableResolver(Arc::clone(&table))),
+            connector: Arc::new(TableConnector(table)),
+            own: Arc::new(NoAddresses),
+            guard: efr_proxy::Guard::with_loopback(),
+            limits,
+        })
+    }
+
+    /// The pacman files of `@pacman-mirrors`: `/dev/null` in a test build, so a test
+    /// daemon lists no mirror of the machine.
+    pub(crate) fn pacman_files(&self) -> [PathBuf; 2] {
+        [PathBuf::from("/dev/null"), PathBuf::from("/dev/null")]
+    }
+
+    /// These seams with the test names of `EFR_TEST_PROXY_HOSTS`, for the `efrd` of the
+    /// smoke. A value that does not parse names no host and costs a warning.
+    pub(crate) fn with_process_env(mut self) -> Self {
+        match efr_stdx::env::var(efr_stdx::env::Var::TestProxyHosts) {
+            Ok(Some(value)) => match parse_proxy_hosts(&value) {
+                Some(hosts) => self.proxy_hosts = Some(hosts),
+                None => tracing::warn!("EFR_TEST_PROXY_HOSTS does not parse; it names no host"),
+            },
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "EFR_TEST_PROXY_HOSTS cannot be read"),
+        }
+        self
+    }
+}
+
+/// `name=address:port,...` as a table; `None` when an entry does not parse or names
+/// no loopback address.
+#[cfg(feature = "test-sandbox-fake")]
+pub(crate) fn parse_proxy_hosts(value: &str) -> Option<BTreeMap<String, SocketAddr>> {
+    let mut hosts = BTreeMap::new();
+    for entry in value.split(',').map(str::trim).filter(|entry| !entry.is_empty()) {
+        let (name, server) = entry.split_once('=')?;
+        let server: SocketAddr = server.trim().parse().ok()?;
+        if !server.ip().is_loopback() {
+            return None;
+        }
+        hosts.insert(name.trim().to_ascii_lowercase(), server);
+    }
+    Some(hosts)
+}
+
+/// A test name to the loopback address of its server; every other name is unknown.
+#[cfg(feature = "test-sandbox-fake")]
+struct TableResolver(Arc<BTreeMap<String, SocketAddr>>);
+
+#[cfg(feature = "test-sandbox-fake")]
+impl efr_proxy::Resolver for TableResolver {
+    fn resolve<'a>(&'a self, host: &'a str) -> efr_proxy::Resolving<'a> {
+        let found = self.0.get(host).map(|server| vec![server.ip()]);
+        Box::pin(async move {
+            found.ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, "no such test name")
+            })
+        })
+    }
+}
+
+/// The loopback address of a test server on port 443 or 80 to the server's own port;
+/// every other address is refused, so no byte leaves the machine.
+#[cfg(feature = "test-sandbox-fake")]
+struct TableConnector(Arc<BTreeMap<String, SocketAddr>>);
+
+#[cfg(feature = "test-sandbox-fake")]
+impl efr_proxy::Connector for TableConnector {
+    fn connect(&self, addr: SocketAddr) -> efr_proxy::Connecting<'_> {
+        let server = self
+            .0
+            .values()
+            .find(|server| server.ip() == addr.ip() && matches!(addr.port(), 443 | 80))
+            .copied()
+            .filter(|server| server.ip().is_loopback());
+        Box::pin(async move {
+            let Some(server) = server else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "no test server",
+                ));
+            };
+            tokio::net::TcpStream::connect(server).await
+        })
+    }
+}
+
+/// No own address: the test names resolve to loopback addresses only.
+#[cfg(feature = "test-sandbox-fake")]
+struct NoAddresses;
+
+#[cfg(feature = "test-sandbox-fake")]
+impl efr_proxy::OwnAddresses for NoAddresses {
+    fn addresses(&self) -> Vec<(std::net::IpAddr, u8)> {
+        Vec::new()
+    }
 }
 
 #[cfg(not(feature = "test-sandbox-fake"))]
@@ -147,6 +263,23 @@ impl Seams {
     /// Without the feature the launcher's copy measures the mounts.
     pub(crate) fn statvfs_helper(&self) -> Option<&Path> {
         None
+    }
+
+    /// Without the feature efrd builds the system resolver, connector and addresses
+    /// with the strict guard.
+    pub(crate) fn proxy_deps(&self, _limits: Limits) -> Option<efr_proxy::Deps> {
+        None
+    }
+
+    /// Without the feature `@pacman-mirrors` reads the machine's pacman files (DP4):
+    /// `pacman.conf`, whose `Include =` lines name more files, and the mirror list.
+    pub(crate) fn pacman_files(&self) -> [PathBuf; 2] {
+        [PathBuf::from("/etc/pacman.conf"), PathBuf::from("/etc/pacman.d/mirrorlist")]
+    }
+
+    /// Without the feature no variable names test hosts.
+    pub(crate) fn with_process_env(self) -> Self {
+        self
     }
 }
 
@@ -200,6 +333,16 @@ impl Deps {
     #[must_use]
     pub fn with_statvfs_helper(mut self, helper: impl Into<PathBuf>) -> Self {
         self.seams.statvfs_helper = Some(helper.into());
+        self
+    }
+
+    /// Sends the proxy's connections for each test name of `hosts` to the server
+    /// behind it, a loopback address (`127.0.0.2:41001`): the name resolves to that
+    /// address, and port 443 or 80 of it reaches the server. Every other name is
+    /// refused. Only with the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_proxy_hosts(mut self, hosts: BTreeMap<String, SocketAddr>) -> Self {
+        self.seams.proxy_hosts = Some(hosts);
         self
     }
 }

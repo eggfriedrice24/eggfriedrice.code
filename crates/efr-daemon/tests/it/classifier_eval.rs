@@ -322,13 +322,16 @@ async fn play_shells(holder: Arc<FakePtyHolder>) {
     }
 }
 
-/// A daemon in `auto` on `dirs` over `model`, with a ready sandbox and fake shells.
+/// A daemon in `auto` on `dirs` over `model`, with a ready sandbox and fake shells. The
+/// phase A and B evals keep `network.mode = "none"` (DP29): rows 66 and 99 stay a
+/// review of the whole network there.
 async fn eval_daemon(dirs: &Arc<TestDirs>, model: Arc<dyn Provider>) -> TestDaemon {
     let holder = FakePtyHolder::new();
     tokio::spawn(play_shells(Arc::clone(&holder)));
     TestDaemon::builder()
         .dirs(Arc::clone(dirs))
         .fake_pty(holder)
+        .network_mode(NetworkMode::None)
         .probe_override(ready())
         .custom_provider(model)
         .start()
@@ -1058,4 +1061,16 @@ async fn view_prompts_decide_as_expected() {
     assert_eq!(seen, want);
     let reviewed = cases.iter().filter(|case| case.reviewer.is_some()).count();
     assert_eq!(model.reviews.lock().unwrap().len(), reviewed, "one review per reviewed line");
+}
+
+#[tokio::test]
+async fn eval_daemon_keeps_network_none() {
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let model = crate::sandbox::ScriptedModel::reviewed(Vec::new(), "");
+    let daemon = eval_daemon(&dirs, model).await;
+    let client = daemon.client().await.unwrap();
+    let status: efr_protocol::AdminStatusResult =
+        client.call(Method::AdminStatus(efr_protocol::AdminStatus::default())).await.unwrap();
+    assert_eq!(status.sandbox.unwrap().network_mode, NetworkMode::None);
+    daemon.stop().await.unwrap();
 }

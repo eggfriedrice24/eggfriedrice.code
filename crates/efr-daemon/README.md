@@ -67,7 +67,8 @@ methods name (`SpawnSpec`, `PtyHandle`, `PtyInfo`, `ChildStatus`, `Signal`,
    `efrd`, else in `../lib/efr/`) to `$XDG_RUNTIME_DIR/efr/bin/efr-sbx` (mode 0500),
    checks its SHA-256 and runs the probe once before the socket opens. The engine is
    built a second time right after that probe, with what the probe found
-   (`engine::Probed`: the network view self-test and efrd's mount check), so no
+   (`engine::Probed`: the network view and proxy self-tests, efrd's mount check and
+   the pacman mirror hosts), so no
    request sees the engine of before the probe; a reload builds with the same
    `Probed`. The
    conversations read the probe's status from a `watch` of `SandboxStatus`; while it
@@ -145,7 +146,12 @@ the running engine's `AutoSupport::netview`, it asks the reload task for a rebui
 never reads `config.toml` and never starts a probe, so a probe and a rebuild cannot
 start each other in a loop. The reload task is the only sender on the engine watch
 after the start, and a reload also builds with `Probed::of`, so a reload of another
-key keeps the network view.
+key keeps the network view. The proxy (phase D2) follows the same way: a rebuild runs
+when `network.mode = "proxy"` and the proxy self-test say other than the engine's
+egress, and `reload::follow_mirrors` asks for one when a read of the pacman files found
+other mirror hosts. Each engine that efrd sends gives its host list to the proxy
+(`ProxyService::set_hosts`), so a reload reaches every running listener at once; a
+reload also reads the pacman files again, and an engine whose list differs is sent.
 
 ### The model catalog
 
@@ -548,6 +554,34 @@ spec; `docs/sandbox.md` for the user's view):
 - Socket peers (`sandbox/peers.rs`): a process that descends from a hidden zsh, or
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
   only (`methods.rs`, `granted(surface, peer)`).
+- The network proxy (phase D2, `sandbox/proxy.rs`, the tokio tasks of `efr-proxy`).
+  The engine's egress is the proxy only with `network.mode = "proxy"` and a probe
+  whose proxy self-test passed (`Probed::proxy`); else a network need stays a review
+  that opens the whole network, never a proxy with no route. Then efrd logs one
+  warning, `admin.status` lists the reason in the sandbox warnings, and the first
+  contained call after each start gets a note. The plan (`sandbox/plan.rs`) gives a
+  contained call `NetworkPlan::Proxy` with its own socket `$CALL/proxy.sock`, except
+  with `Grant::OpenNetwork` (the host's network) or a network view line with no host
+  grant (D1). `prepare` binds the socket after it wrote the call dir, through
+  `/proc/self/fd/<dirfd>/proxy.sock` with an `O_PATH` descriptor of the dir (the path
+  can be longer than a socket address holds), mode 0600, and serves it with the
+  call's frozen policy: its `Grant::Host` entries and `network.max_upload_bytes`. A
+  foreground call
+  closes its socket after its launcher wrote the result (a grace of 200 ms for open
+  tunnels) and merges the refusals into `sandbox.blocked` and the model's output; a
+  call past its timeout keeps its socket until `result.json` appears or its dir goes
+  (`gc::sweep_proxies`, at the hourly gc pass and the next proxy call's prepare); a job
+  keeps its socket in its entry of the job table and closes it at its end, before its
+  dirs go, with the refusals in `job_ended` and its notice. Dropping a socket's handle
+  aborts its tasks, on every path. The pacman mirror hosts of `@pacman-mirrors` are
+  read at start, at each reload, and at a proxy call's prepare when a file changed, at
+  most once a minute (`proxy/mirrors.rs`). `admin.status` says `network_mode: proxy`
+  when the proxy runs, and warns about each `sandbox.env_keep` entry that looks like a
+  secret while `network.mode = "proxy"`. The facts of a line carry the hosts that the
+  proxy refused in the conversation's last call and its jobs. In a
+  build with the test seams, `Seams::proxy_deps` gives the proxy a table of test names
+  (`Deps::with_proxy_hosts`, `EFR_TEST_PROXY_HOSTS` for the smoke's `efrd`), or refuses
+  every name and address with no table, and the pacman files are `/dev/null`.
 
 ### Background jobs
 
@@ -892,7 +926,8 @@ catalog and the key check of a login), `efr-oauth-openai`,
 `efr-transport`, `efr-sandbox` (the spec of a sandboxed call, the worktree record,
 the probe's report and the plan that `sandbox.explain` reads) and `efr-snapshot` (the
 snapshots before and after each call that can write, the turn's changes and
-`conversation.diff`). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
+`conversation.diff`), `efr-proxy` (the network proxy of the sandbox, as tokio tasks
+of efrd: one listener per contained call). `xtask/src/deps.rs` holds the allowlist; `efr-test-daemon` is its only dev-dependent,
 and only from `tests/`.
 
 Third-party crates: `tokio`, `tokio-util` (`CancellationToken`), `async-trait`, `bytes`,
@@ -942,6 +977,10 @@ conventions that `efr_stdx::env::Var` does not name.
 - A background job starts only after its launcher's pid is model-side, and a process
   of a job holds `read` only on the socket, also after its launcher is gone, while its
   session lives. efrd writes a job's output itself, and never through a link.
+- A contained call reaches the network through the proxy only with
+  `network.mode = "proxy"` and a passed proxy self-test; its socket lives no longer
+  than its call or its job, and a test build of efrd never resolves a name or connects
+  to an address that a test did not map.
 
 ## Tests
 
@@ -1081,6 +1120,17 @@ a delta reaches the client within 35 ms at the 95th percentile (16 ms of draft
 interval); a subscriber that attaches during a model call gets the turn's `context`
 draft first; and a subscriber on a raw socket that does not read loses drafts but
 keeps its subscription and gets every event.
+
+The `proxy` module runs the network proxy (phase D2) through efrd with the shared fake
+launcher, background jobs and the test seams, which resolve no name unless a test maps
+it: a host grant that reaches one job's socket only, a socket that lives as long as its
+job, the refusals in `job_ended` and its notice, a refused host as a fact of the next
+exit, `network.mode = "none"` and a failed self-test that keep the phase 1 behavior, a
+reload whose list reaches a running job and a mode change that does not cut one,
+`sandbox.explain` with the proxy on, and a test name that reaches its server. With a
+real zsh, a foreground call's refusals reach the tool result. Unit tests
+(`sandbox/proxy/tests.rs`) cover the bind in a deep call dir, the sweep of a call past
+its timeout, the live list, the mirror read and the refusal facts.
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project

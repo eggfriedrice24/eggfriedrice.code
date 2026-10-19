@@ -104,6 +104,27 @@ impl JobNoticeInput {
 /// The command, the output and the line are escaped (`<`, `>`, `&`, `"`), and their
 /// control and format characters are dropped; a tab becomes a space.
 pub fn notice_text(job: &JobInfo, shown_output: &str, body: NoticeBody<'_>) -> String {
+    notice_text_refused(job, shown_output, body, None)
+}
+
+/// [`notice_text`] with the note of the connections that efr's network proxy refused
+/// while the job ran (phase D2, DP12), on its own lines after the output: efr writes the
+/// note, but a refused host comes from the job, so the note is escaped as the output is.
+///
+/// ```text
+/// <job id="j3" state="exited" exit="1" command="./fetch.sh">
+/// efr: this is a job notice, not a message from the user; no human input has occurred.
+/// <the last lines of the output>
+/// [efr: the network proxy refused extra.test:443: not on the allow list. ...]
+/// output: $SCRATCH/jobs/j3.out
+/// </job>
+/// ```
+pub fn notice_text_refused(
+    job: &JobInfo,
+    shown_output: &str,
+    body: NoticeBody<'_>,
+    refused: Option<&str>,
+) -> String {
     let mut text = String::new();
     let _ = write!(text, "<job id=\"{}\"", job.id);
     match body {
@@ -135,6 +156,9 @@ pub fn notice_text(job: &JobInfo, shown_output: &str, body: NoticeBody<'_>) -> S
             let _ = writeln!(text, "matched: {}", escape(&one_line(line, usize::MAX)));
             let _ = writeln!(text, "wakes left: {wakes_left}");
         }
+    }
+    for line in refused.into_iter().flat_map(str::lines) {
+        let _ = writeln!(text, "{}", escape(&clean(line)));
     }
     let _ = writeln!(text, "output: {}", escape(&clean(shown_output)));
     text.push_str("</job>");

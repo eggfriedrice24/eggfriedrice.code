@@ -30,7 +30,13 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   prints fixed answers, or one that blocks until efrd kills it at its deadline. For background jobs, `job_env` gives every job a fixed environment in
   place of the `env` file of a real hidden zsh, and `TestDaemon::peer_side` says where a
   process stands on the daemon's socket (`User`, `ModelSide` or `Unknown`), as the scope
-  check decides it.
+  check decides it. For the network proxy (phase D2), a test daemon has
+  `network.mode = "none"` unless `network_mode(NetworkMode::Proxy)` turns it on, and the
+  proxy then runs only with a `probe_override` whose `proxy` is true. `proxy_hosts`
+  maps test names (`registry.test`) to the servers behind them, each on a loopback
+  address of its own: the name resolves to that address, and port 443 or 80 of it
+  reaches the server. Without it the proxy refuses every name and every address, so a
+  test daemon never reaches the internet.
 - `fake_launcher`: `FakeLauncher`, one `/bin/sh` script in place of `efr-sbx` for the
   tests of `efr-daemon`, `efr-cli` and the eval. `run --call-dir D` runs a call's line
   with `/bin/sh`; `run --call-dir D --job` runs a job as the real launcher's contract

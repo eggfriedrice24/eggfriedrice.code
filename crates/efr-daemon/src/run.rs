@@ -201,6 +201,8 @@ impl Deps {
         let mut deps = Deps::new(dirs, home, Arc::new(SystemClock), Arc::new(rng));
         // NOTE: efrd's own PATH, never the hidden shell's (plan PB20).
         deps.programs_path = std::env::var_os("PATH");
+        // NOTE: only a build with the test seams reads the smoke's test hosts.
+        deps.seams = deps.seams.with_process_env();
         Ok(deps
             .with_shell_env(shell_env)
             .with_root_sources(root_sources)
@@ -516,10 +518,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     })
     .await;
     sandbox.probe(&settings).await;
+    sandbox.proxy().read_mirrors(true).await;
+    sandbox.proxy().warn_fallback(&settings, &sandbox.current());
     // NOTE: the engine follows what the first probe found before any request can read
-    // it. A build that fails here keeps the engine of before, which supports less.
+    // it. A build that fails here keeps the engine of before, which supports less. The
+    // proxy reads the list of the engine that efrd sends.
     match engine_parts.engine(&settings, Probed::of(&sandbox)).await {
         Ok(probed) => {
+            sandbox.proxy().set_hosts(probed.hosts());
             engine_sender.send_replace(Arc::new(probed));
         }
         Err(error) => {
@@ -706,6 +712,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             state.sandbox.status(),
             state.settings.subscribe(),
             state.engine.subscribe(),
+            stop.clone(),
+        )),
+        // NOTE: a prepare that read other pacman mirror hosts reaches the engine and the
+        // proxy through the same task.
+        tokio::spawn(reload::follow_mirrors(
+            state.reloads.clone(),
+            state.sandbox.proxy().mirror_changes(),
             stop.clone(),
         )),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),

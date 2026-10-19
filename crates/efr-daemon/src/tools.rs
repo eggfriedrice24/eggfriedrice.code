@@ -60,7 +60,7 @@ use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, ReadFileTool, ShellTool,
     ToolContext, ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec,
-    WriteFileTool, WriteJournal, WrittenKind, not_ready_message,
+    WriteFileTool, WriteJournal, WrittenKind, blocked_note, not_ready_message,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -433,7 +433,8 @@ impl DaemonToolbox {
             efr_permissions::exits::fact_requests(command, command_dir, engine.locations())
                 .with_needs(declared.needs.as_ref(), command_dir, engine.locations());
         let rebuildable = self.settings.borrow().sandbox.rebuildable.clone();
-        let turn_start = sandbox.turns().started(call.context.turn_id, self.clock.now());
+        let turn_began = sandbox.turns().started(call.context.turn_id, self.clock.now());
+        let turn_start = turn_began;
         let turn_start = match &self.jobs {
             Some(jobs) => {
                 let (conversation, turn) = (call.context.conversation_id, call.context.turn_id);
@@ -453,6 +454,10 @@ impl DaemonToolbox {
             masks: &masks,
         };
         let mut facts = facts::collect(&input, sandbox.git(), &self.home).await;
+        // NOTE: the proxy's refusals are facts for the reviewer (DP23); a refusal is
+        // never a name.
+        let conversation = call.context.conversation_id;
+        facts.refused_hosts = sandbox.proxy().refused_hosts(conversation, turn_began);
         let projects = cover_projects(
             sandbox.projects().await,
             self.settings.borrow().sandbox.write_projects,
@@ -738,6 +743,7 @@ impl DaemonToolbox {
         let context = context.with_sandbox(Some(prepared.run.clone()));
         let started = prepared.started.clone();
         let notes = prepared.notes.clone();
+        let proxy = prepared.proxy;
         let mut sink = CallSink {
             out,
             connections: &self.connections,
@@ -784,6 +790,26 @@ impl DaemonToolbox {
             }
             Err(error) => ToolOutcome::error(for_model(&error)),
         };
+        if let Some(proxy) = proxy {
+            // NOTE: a call that runs on past its timeout keeps its network until its
+            // launcher wrote the result (DP14).
+            if ended {
+                let limit = proxy.max_upload_bytes();
+                let report = proxy.close(crate::sandbox::proxy::CLOSE_GRACE).await;
+                // NOTE: the refusals reach the record, the client's `network:` line and
+                // the model (DP12).
+                if let Some(note) = blocked_note(&report.blocked, report.blocked_more, limit) {
+                    outcome.output = format!("{}\n{note}", outcome.output);
+                }
+                if let Some(summary) = &mut outcome.sandbox {
+                    summary.proxied = true;
+                    summary.blocked = report.blocked;
+                    summary.blocked_more = report.blocked_more;
+                }
+            } else {
+                sandbox.proxy().keep_timed_out(proxy, prepared.run.dir.clone());
+            }
+        }
         let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(!ended), limits));
         outcome.changes = self.snapshot_after(snapshot).await;
         if !notes.is_empty() {

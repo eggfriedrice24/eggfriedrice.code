@@ -834,6 +834,7 @@ dependencies = [
  "efr-provider",
  "efr-provider-anthropic",
  "efr-provider-openai",
+ "efr-proxy",
  "efr-pty",
  "efr-sandbox",
  "efr-scope",

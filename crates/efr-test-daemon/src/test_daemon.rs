@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{DirBuilder, OpenOptions};
 use std::io::Write as _;
+use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -34,7 +35,7 @@ use efr_daemon::{
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
     ConversationSubscribe, ConversationSubscribeItem, DaemonId, Event, EventEnvelope, Method,
-    Origin, PromptSend, SandboxStatus, Seq, ShellContext, TurnSettings,
+    NetworkMode, Origin, PromptSend, SandboxStatus, Seq, ShellContext, TurnSettings,
 };
 use efr_test_support::{Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript};
 use futures::StreamExt as _;
@@ -154,6 +155,8 @@ struct Launch {
     job_env: Option<BTreeMap<String, String>>,
     /// The program that measures the host's mounts, in place of the launcher's copy.
     statvfs_helper: Option<PathBuf>,
+    /// The test names of the proxy and the server behind each.
+    proxy_hosts: Option<BTreeMap<String, SocketAddr>>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -184,6 +187,9 @@ impl Default for TestDaemonBuilder {
         config.shell.login = false;
         // Idle shells stay unless a test turns the collector on.
         config.shell.idle_minutes = 0;
+        // NOTE: no network proxy unless a test asks for it, whatever the default, so the
+        // tests of the phases before D2 keep their results.
+        config.network.mode = NetworkMode::None;
         TestDaemonBuilder {
             dirs: None,
             clock: None,
@@ -199,6 +205,7 @@ impl Default for TestDaemonBuilder {
                 trusted_programs: None,
                 job_env: None,
                 statvfs_helper: None,
+                proxy_hosts: None,
             },
         }
     }
@@ -353,6 +360,27 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Sets `network.mode`; the builder has `"none"`, so a test that wants efr's network
+    /// proxy says so with [`NetworkMode::Proxy`]. The proxy runs only with a probe whose
+    /// proxy self-test passed ([`probe_override`](Self::probe_override) with `proxy:
+    /// true`).
+    #[must_use]
+    pub fn network_mode(mut self, mode: NetworkMode) -> Self {
+        self.settings.config.network.mode = mode;
+        self
+    }
+
+    /// Sends the proxy's connections for each test name of `hosts` to the server behind
+    /// it, which listens on a loopback address of its own (`127.0.0.2:0` and up): the
+    /// name resolves to that address, and port 443 or 80 of it reaches the server.
+    /// Without it the daemon's proxy refuses every name and every address, so it never
+    /// reaches the internet.
+    #[must_use]
+    pub fn proxy_hosts(mut self, hosts: BTreeMap<String, SocketAddr>) -> Self {
+        self.settings.proxy_hosts = Some(hosts);
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -429,6 +457,9 @@ impl TestDaemon {
         }
         if let Some(helper) = &settings.statvfs_helper {
             deps = deps.with_statvfs_helper(helper.clone());
+        }
+        if let Some(hosts) = &settings.proxy_hosts {
+            deps = deps.with_proxy_hosts(hosts.clone());
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());

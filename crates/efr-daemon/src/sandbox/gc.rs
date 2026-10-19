@@ -104,6 +104,26 @@ pub(crate) fn launcher_running(shell_dir: &Path) -> bool {
     })
 }
 
+/// True when the call of `call_dir` ended: its `result.json` is there, or the dir is
+/// gone. The listener of its proxy socket may close then (DP14). It blocks.
+pub(crate) fn call_ended(call_dir: &Path) -> bool {
+    call_dir.join(RESULT_FILE).exists() || std::fs::symlink_metadata(call_dir).is_err()
+}
+
+/// Closes the proxy listener of each call past its timeout that ended since
+/// ([`call_ended`]), and returns how many it closed. The gc pass and the next prepare
+/// of a call call it.
+pub(crate) async fn sweep_proxies(proxy: &super::proxy::ProxyService) -> usize {
+    let closed = proxy.sweep().await;
+    if closed > 0 {
+        tracing::debug!(
+            closed,
+            "the proxy listeners of calls that ended after their timeout closed"
+        );
+    }
+    closed
+}
+
 /// Moves the layers `dir` aside, so a call that starts after this gets new ones, and
 /// returns where they went. The caller holds the lock of the running calls and has
 /// checked that none of the conversation runs. It blocks.
