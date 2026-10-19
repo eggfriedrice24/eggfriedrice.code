@@ -1195,7 +1195,12 @@ call. The job eval of phase C replays five prompts that start a background job, 
 the view eval of phase D1 (`view_prompts.json`) six prompts: `ss`, `ip -s link`, a
 network watch job and `df -hT` run with no review (the first three with
 `Grant::NetView`), a read form of `nmcli` is a `bus` exit for the reviewer, and
-`nmcli radio wifi off` is a `bus` exit that only the user may allow. The answers are
+`nmcli radio wifi off` is a `bus` exit that only the user may allow. The proxy eval of
+phase D2 (`proxy_prompts.json`) runs four prompts with `network.mode = "proxy"`: "update
+the dependencies" runs contained with no review; a download from a host that is not
+listed is a `host` exit with a grant of that one host, and the record names the host;
+"push this branch" stays an `upload` exit outside the sandbox; and a dev server on
+`localhost` is a `host` exit with the whole network. The answers are
 written for the verdicts of the spec, not taken from a live model, so the evals prove
 the replay and efr's rules; the real models are a manual check.
 

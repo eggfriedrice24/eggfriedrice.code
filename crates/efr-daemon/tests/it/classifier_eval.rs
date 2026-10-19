@@ -45,6 +45,15 @@
 //! Its probe passed the network view self-test, and efrd shares the mount namespace of
 //! the test, so the mount view is on.
 //!
+//! The proxy eval of phase D2 (DP29) replays `fixtures/classifier/proxy_prompts.json`
+//! in the shape of the view eval, with `network.mode = "proxy"` and a probe whose proxy
+//! self-test passed: "update the dependencies" runs contained with no review (the
+//! registries are on the default allow list); a download from a host that is not
+//! listed is a `host` exit with a grant of that one host, and the reviewer sees the
+//! host; "push this branch" stays an `upload` exit outside the sandbox; and a dev
+//! server that the user's browser must reach is a `host` exit for `localhost` with the
+//! whole network.
+//!
 //! No live model runs. The reviewer's answers are those that a model must give for the
 //! verdicts of the spec. No line of the phase A and B evals runs either: the fake shell
 //! answers each typed line with status 0 at once, so the launcher never starts and an
@@ -795,6 +804,9 @@ struct JobExpect {
     /// that runs with no exit.
     #[serde(default)]
     exits: Option<Vec<ExitKind>>,
+    /// The proxy eval only: the hosts of the line's records, in order.
+    #[serde(default)]
+    hosts: Option<Vec<String>>,
 }
 
 impl JobCase {
@@ -1073,4 +1085,67 @@ async fn eval_daemon_keeps_network_none() {
         client.call(Method::AdminStatus(efr_protocol::AdminStatus::default())).await.unwrap();
     assert_eq!(status.sandbox.unwrap().network_mode, NetworkMode::None);
     daemon.stop().await.unwrap();
+}
+
+/// What a proxy prompt showed: the view eval's facts and the hosts of its records.
+type ProxySeen<'a> = (ViewSeen<'a>, Vec<String>);
+
+#[tokio::test]
+async fn proxy_prompts_decide_as_expected() {
+    let path = Path::new(FIXTURES).join("proxy_prompts.json");
+    let cases: Vec<JobCase> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(cases.len(), 4, "the eval has the four proxy prompts of phase D2");
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    // NOTE: `admin.project_add` reloads `config.toml`, so the file holds the proxy mode
+    // that the builder sets.
+    std::fs::write(dirs.dirs().config().join("config.toml"), "[network]\nmode = \"proxy\"\n")
+        .unwrap();
+    let fake = FakeLauncher::write(&dirs.root().join("fake")).unwrap();
+    let model = Arc::new(JobEvalModel {
+        id: ProviderId::new("test").unwrap(),
+        cases: cases.clone(),
+        reviews: Mutex::new(Vec::new()),
+    });
+    let holder = FakePtyHolder::new();
+    tokio::spawn(play_shells(Arc::clone(&holder)));
+    let daemon = TestDaemon::builder()
+        .dirs(Arc::clone(&dirs))
+        .fake_pty(holder)
+        .sandbox_launcher(fake.path())
+        .probe_override(SandboxStatus { netview: true, proxy: true, ..ready() })
+        .network_mode(NetworkMode::Proxy)
+        .custom_provider(Arc::clone(&model) as Arc<dyn Provider>)
+        .start()
+        .await
+        .unwrap();
+    add_project(&daemon, &project).await;
+
+    let mut seen: Vec<ProxySeen<'_>> = Vec::new();
+    let mut want: Vec<ProxySeen<'_>> = Vec::new();
+    for (n, case) in cases.iter().enumerate() {
+        let events = run_prompt(&daemon, n as u128 + 1, &case.prompt).await;
+        let asked =
+            events.iter().any(|envelope| matches!(envelope.event, Event::ApprovalRequested { .. }));
+        let all = records(&events);
+        let exits: Vec<ExitKind> =
+            all.iter().flat_map(|record| record.action.exits.clone()).collect();
+        let hosts: Vec<String> = all
+            .iter()
+            .flat_map(|record| record.facts.hosts.iter().map(|fact| fact.host.clone()))
+            .collect();
+        let launch = call_launch(&events, dirs.home());
+        seen.push(((&case.prompt, judgements(&events), asked, exits, launch), hosts));
+        let expect = &case.expect;
+        let exits = expect.exits.clone().unwrap_or_else(|| panic!("{}: no exits", case.prompt));
+        let hosts = expect.hosts.clone().unwrap_or_else(|| panic!("{}: no hosts", case.prompt));
+        want.push((
+            (&case.prompt, expect.judged.clone(), expect.asked, exits, expect.launch.clone()),
+            hosts,
+        ));
+    }
+    daemon.stop().await.unwrap();
+    assert_eq!(seen, want);
+    let reviewed = cases.iter().filter(|case| case.reviewer.is_some()).count();
+    assert_eq!(model.reviews.lock().unwrap().len(), reviewed, "one review per reviewed line");
 }
