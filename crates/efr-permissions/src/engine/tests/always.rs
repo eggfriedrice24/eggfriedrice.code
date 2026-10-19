@@ -803,3 +803,54 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn always_write_rule_never_covers_a_git_dir() {
+    // `~/notes` is a repository that is no project. A rule of `~/notes` loads, but a
+    // write into its git dir could plant a hook or a config key that runs code, and the
+    // surface guard looks only for `.git` at and below a grant.
+    let engine = engine(vec![write("~/notes")]);
+    assert_eq!(marks(&engine), [None]);
+    let hook = "/home/u/notes/.git/hooks/pre-commit";
+    let hooks = "/home/u/notes/.git/hooks";
+    let copy = shell("cp hook ~/notes/.git/hooks/pre-commit")
+        .with_write(hook)
+        .with_facts(facts(&[(hook, None), (hooks, DIR)], &same(&[hook, hooks])));
+    let (decision, verdict) = judge(&engine, copy.clone());
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.bind, Some(WriteBind::Parent(hooks.into())));
+    assert_eq!(need.approver, Approver::Classifier);
+    assert_eq!(verdict, AlwaysVerdict::None);
+    assert_eq!(judge(&self::engine(Vec::new()), copy).1, AlwaysVerdict::None);
+    // The config of the same repository.
+    let config = "/home/u/notes/.git/config";
+    let append = shell("echo x >> ~/notes/.git/config").with_write(config).with_facts(facts(
+        &[(config, FILE), ("/home/u/notes/.git", DIR)],
+        &same(&[config, "/home/u/notes/.git"]),
+    ));
+    let (decision, verdict) = judge(&engine, append);
+    assert!(decision.exits().next().is_some());
+    assert_eq!(verdict, AlwaysVerdict::None);
+    // A link that leads into the git dir.
+    let file = "/home/u/notes/h/pre-commit";
+    let linked = shell("cp hook ~/notes/h/pre-commit").with_write(file).with_facts(facts(
+        &[(file, None), ("/home/u/notes/h", DIR)],
+        &[(file, hook), ("/home/u/notes/h", hooks)],
+    ));
+    assert_eq!(judge(&engine, linked).1, AlwaysVerdict::None);
+}
+
+#[test]
+fn always_write_rule_never_covers_a_floor_through_a_link() {
+    // `~/work/h` links to the floor `~/work/hooks`: the new file lies in the floor.
+    let engine = engine(vec![write("~/work")]);
+    assert_eq!(marks(&engine), [None]);
+    let (file, real) = ("/home/u/work/h/b.txt", "/home/u/work/hooks/b.txt");
+    let requirements = shell("touch ~/work/h/b.txt").with_write(file).with_facts(facts(
+        &[(file, None), ("/home/u/work/h", DIR)],
+        &[(file, real), ("/home/u/work/h", "/home/u/work/hooks")],
+    ));
+    let (decision, verdict) = judge(&engine, requirements);
+    assert_eq!(decision.exits().next().unwrap().bind, Some(WriteBind::MakeFile));
+    assert_eq!(verdict, AlwaysVerdict::None);
+}

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use efr_protocol::{ExitKind, ExitSource, Grant};
 
-use super::check::{check, real_write_roots, rule_path};
+use super::check::{check, floor_at_or_above, git_dir, real_write_roots, rule_path};
 use super::{AllowFloor, AllowRule, AlwaysVerdict};
 use crate::decision::{Cause, Decision, Effect, Subject};
 use crate::exits::{Approver, ExitNeed, WriteBind};
@@ -90,6 +90,14 @@ fn items(machine: &Machine<'_>, decision: &Decision, project: Option<&Path>) -> 
                 Grant::Write { path } => {
                     let path = normal(path, locations)?;
                     let real = real_path(decision, &path, locations)?;
+                    // NOTE: the load check refuses a rule with a `.git` part or below a
+                    // floor, but the dir of a rule can hold a git dir or a floor, and a
+                    // link can lead into one. A write there is never covered (DE24).
+                    let floor =
+                        |path: &Path| git_dir(path) || floor_at_or_above(path, locations).is_some();
+                    if floor(&path) || floor(&real) {
+                        return None;
+                    }
                     let dir = matches!(
                         need.bind,
                         Some(WriteBind::Target | WriteBind::Parent(_) | WriteBind::MakeDir)
