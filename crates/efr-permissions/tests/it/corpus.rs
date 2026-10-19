@@ -295,6 +295,7 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         sources,
         remotes: remote_facts(&line.remotes),
         refused_hosts: Vec::new(),
+        real_paths: Vec::new(),
     })
 }
 

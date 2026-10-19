@@ -278,6 +278,31 @@ Modules:
   engine and the daemon's sandbox planner share, as they share the secrets
   (`secret_paths`, `Locations::secret_paths`). `PERSISTENCE_FLOOR_GROUPS` gives each
   floor its `FloorGroup`, which decides the phrases that name its files.
+- `bus` (phase E): the rules of the filtered bus proxy. `DEFAULT_RULES` holds the read
+  methods that the probe recorded for the read forms of `systemctl`, `loginctl`,
+  `hostnamectl`, `timedatectl` and `localectl`, each an exact member at a path (no
+  member glob, no `IFACE.*`, no rule with a path alone). `GetUnitProcesses` and
+  `GetUnitByPID` are not in it, and the session bus has no `Properties` rule at
+  `/org/freedesktop/systemd1`, so the user manager's `Environment` stays out.
+  `tests/fixtures/bus-recording.toml` holds the recorded calls, and a test keeps it and
+  the table equal. `BusRule` is one `[[dbus.allow]]` entry; `check_rules` refuses an
+  entry with `*`, `IFACE.*`, a path alone, no call, a name that is not a well-known bus
+  name, the bus driver, `Properties.Set`, a protected service (`FLOOR_NAMES`: secrets,
+  portals, polkit, Flatpak, kwallet, dconf), a member of a service of the defaults that
+  does not start with the word `Get`, `List`, `Can` or `Lookup`, or a member of any
+  other service that starts with a word of `WRITE_MEMBER_PREFIXES`, without case
+  (`PermissionsError::BusRule` with a `BusRuleProblem`). `BusFilter::compile` lays the
+  entries of one bus over the defaults, and `BusFilter::proxy_args` gives `--filter`,
+  `--log` and one `--call` per rule, never `--talk`, `--own`, `--see` or
+  `--broadcast`.
+- `always` (phase E): `AllowRule`, one `[[sandbox.allow]]` always-allow rule: `host`
+  (one host and port), `write` (a directory, with an optional `project`) or `socket`
+  (one socket path). `AllowRule::describe` gives the rule in words, and
+  `AllowRule::check_shape` checks what needs no fact about the machine
+  (`PermissionsError::AllowRule` with an `AllowRuleProblem`): one ASCII host name that
+  is no pattern, IP address or `localhost`, a port above 0, and paths that are absolute
+  or below `~/` with no `.` or `..` part. `CallFacts::real_paths` gives the real path of
+  each write grant path and named socket of a call (`FactRequest::real_paths`).
 
 ## Tier
 

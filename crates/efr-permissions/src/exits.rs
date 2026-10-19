@@ -840,6 +840,10 @@ pub struct FactRequest {
     /// git command with `-c`, `--git-dir` or `--work-tree`, asks for none: the facts of
     /// the directory would not be the ones that the command uses.
     pub remotes: Vec<PathBuf>,
+    /// The paths whose real path, after every link, a fact gives (phase E): the write
+    /// grant paths and the named sockets of the predicted exits. The answers go to
+    /// [`CallFacts::real_paths`]; an always-allow rule covers no path that has no answer.
+    pub real_paths: Vec<PathBuf>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the

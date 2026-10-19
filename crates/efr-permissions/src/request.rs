@@ -224,6 +224,10 @@ pub struct CallFacts {
     /// jobs (phase D2, DP23). A fact for the reviewer, never a name: it shows only that
     /// a command tried the host.
     pub refused_hosts: Vec<String>,
+    /// Each path of [`FactRequest::real_paths`](crate::FactRequest), the write grant
+    /// paths and the named sockets of the call, with its path after every link (phase
+    /// E). An always-allow rule covers no path that has no entry here.
+    pub real_paths: Vec<(PathBuf, PathBuf)>,
 }
 
 /// One git remote of a directory, or one submodule URL of its `.gitmodules` (phase D2,

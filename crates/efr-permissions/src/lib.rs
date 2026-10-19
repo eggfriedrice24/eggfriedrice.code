@@ -35,6 +35,9 @@
 //!   the sandbox must read. [`Engine::with_hosts`] gives the engine that list, and
 //!   [`CallFacts`] carries the git remotes ([`RemoteFact`], [`RemoteUrl`]) and the
 //!   hosts that the proxy refused.
+//! - Phase E: [`BusFilter`] holds the rules of the filtered bus proxy (the defaults and
+//!   the `[[dbus.allow]]` entries, [`BusRule`]) and the proxy's arguments;
+//!   [`AllowRule`] is one `[[sandbox.allow]]` always-allow rule, with its shape check.
 //!
 //! `efr-tools` declares what a call needs, this crate decides, and
 //! `efr-conversation/src/turn.rs` enforces; `xtask/src/deps.rs` forbids
@@ -50,6 +53,8 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+mod always;
+pub mod bus;
 mod command;
 mod decision;
 mod engine;
@@ -63,10 +68,12 @@ mod request;
 mod support;
 mod tables;
 
+pub use always::AllowRule;
+pub use bus::{BusFilter, BusRule, check_rules};
 pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
-pub use error::{HostError, PermissionsError};
+pub use error::{AllowRuleProblem, BusRuleProblem, HostError, PermissionsError};
 pub use exits::{Approver, ExitNeed, FactRequest, Installed, PathFacts, Rebuild, WriteBind};
 pub use jobs::{JOB_REFUSAL, SERVICE_SOCKETS, job_refusal, service_socket};
 pub use network::{HostList, HostRule, HostTable, HostVerdict, MirrorHost, PacmanFile, Preset};

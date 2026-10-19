@@ -1,5 +1,6 @@
 //! The public error types of the crate: [`PermissionsError`] for the engine's inputs,
-//! and [`HostError`] for an entry of the network host list.
+//! and [`HostError`] for an entry of the network host list. [`BusRuleProblem`] and
+//! [`AllowRuleProblem`] are the reasons of two `PermissionsError` variants (phase E).
 
 // NOTE: HostError is a type of its own and not a variant of PermissionsError, because
 // the phase D2 plan fixes it as the error of `HostList::compile`: efr-config turns each
@@ -149,5 +150,152 @@ pub enum PermissionsError {
         index: usize,
         /// The action.
         action: Action,
+    },
+
+    /// A `[[dbus.allow]]` entry breaks a rule of the bus filter (phase E).
+    #[error("dbus.allow[{index}] is refused")]
+    BusRule {
+        /// The position of the entry in `dbus.allow`, counted from 0.
+        index: usize,
+        /// Why it is refused.
+        #[source]
+        problem: BusRuleProblem,
+    },
+
+    /// A `[[sandbox.allow]]` rule has a bad shape (phase E). A rule that crosses a
+    /// floor is not an error here: efrd keeps it, disabled.
+    #[error("sandbox.allow[{index}] is refused")]
+    AllowRule {
+        /// The position of the rule in `sandbox.allow`, counted from 0.
+        index: usize,
+        /// Why it is refused.
+        #[source]
+        problem: AllowRuleProblem,
+    },
+}
+
+/// Why a `[[dbus.allow]]` entry is refused (phase E): it could open more than one exact
+/// method, it names a protected service, or it adds a method that changes the machine.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum BusRuleProblem {
+    /// A name or a call holds `*` where the proxy reads a glob.
+    #[error("it holds `*`; name each method in full, such as org.freedesktop.DBus.Properties.Get")]
+    Glob,
+
+    /// A call names every method of an interface (`IFACE.*`).
+    #[error("a call names every method of an interface (IFACE.*); name each method")]
+    InterfaceWildcard,
+
+    /// A call names only a path (`@PATH` or `*@PATH`), which allows every method there.
+    #[error("a call names only a path, which allows every method there; name each method")]
+    PathOnly,
+
+    /// The entry has no call.
+    #[error("the call list is empty")]
+    EmptyCall,
+
+    /// The name is not a well-known bus name.
+    #[error("the name is not a valid bus name, such as org.freedesktop.timedate1")]
+    BadName,
+
+    /// The name is a unique name (`:1.42`), which changes with each connection.
+    #[error(
+        "the name is a unique name (:1.x), which changes with each connection; name the service"
+    )]
+    UniqueName,
+
+    /// The name is the bus driver, `org.freedesktop.DBus`.
+    #[error("the bus driver org.freedesktop.DBus is never allowed")]
+    BusDriver,
+
+    /// The name is a protected service, or a name below one: secrets, a portal, polkit,
+    /// Flatpak, kwallet or dconf.
+    #[error("{name} is a protected service (secrets, portals, polkit, Flatpak, kwallet or dconf)")]
+    FloorName {
+        /// The name as the entry wrote it.
+        name: String,
+    },
+
+    /// A call is `org.freedesktop.DBus.Properties.Set`, which changes a service.
+    #[error("org.freedesktop.DBus.Properties.Set changes a service and is never allowed")]
+    PropertiesSet,
+
+    /// A call adds a member that does not read to a service of the defaults: there a
+    /// member must start with `Get`, `List`, `Can` or `Lookup`.
+    #[error(
+        "{member} is not a read method; for this service a method must start with Get, List, Can or Lookup"
+    )]
+    NotARead {
+        /// The call's `IFACE.MEMBER`.
+        member: String,
+    },
+
+    /// A call adds a member whose name starts with a word that changes the machine,
+    /// such as `Start`, `Set` or `PowerOff`, matched without case.
+    #[error("{member} can change the machine and is never allowed")]
+    WriteMember {
+        /// The call's `IFACE.MEMBER`.
+        member: String,
+    },
+
+    /// A call is not `IFACE.MEMBER` or `IFACE.MEMBER@PATH` of the D-Bus grammar.
+    #[error("{call:?} is not IFACE.MEMBER or IFACE.MEMBER@PATH")]
+    BadCall {
+        /// The call as the entry wrote it.
+        call: String,
+    },
+}
+
+/// Why a `[[sandbox.allow]]` rule has a bad shape (phase E). These checks need no fact
+/// about the machine; efrd runs the floor checks when it loads the rule.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AllowRuleProblem {
+    /// The host is not a host name: a label is empty, longer than 63 bytes or has a
+    /// character other than `a-z`, `0-9` and `-`, or the name is not ASCII.
+    #[error("the host {host:?} is not a valid host name")]
+    BadHost {
+        /// The host as the rule wrote it.
+        host: String,
+    },
+
+    /// The host is a pattern, such as `*.example.com`. A rule names one host.
+    #[error("the host {host:?} is a pattern; a rule names one host")]
+    HostPattern {
+        /// The host as the rule wrote it.
+        host: String,
+    },
+
+    /// The host is an IP address.
+    #[error("the host {host:?} is an IP address; a rule names a host name")]
+    IpLiteral {
+        /// The host as the rule wrote it.
+        host: String,
+    },
+
+    /// The host is `localhost` or a name below it.
+    #[error("the host {host:?} is this machine; a rule cannot open it")]
+    Localhost {
+        /// The host as the rule wrote it.
+        host: String,
+    },
+
+    /// The port is 0.
+    #[error("the port is 0; a port is 1 to 65535")]
+    PortZero,
+
+    /// A path is not absolute and does not start with `~/`.
+    #[error("the path {path:?} is not absolute and does not start with ~/")]
+    BadPath {
+        /// The path as the rule wrote it.
+        path: String,
+    },
+
+    /// A path has a `.` or `..` part.
+    #[error("the path {path:?} has a . or .. part; write the path in full")]
+    DotDot {
+        /// The path as the rule wrote it.
+        path: String,
     },
 }
