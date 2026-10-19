@@ -205,8 +205,11 @@ into the GitHub release notes, and it stops when the section is missing.
   its self-test passes; else `efr sandbox check` warns, and commands have no network.
 - With the proxy, a command that the proxy refused shows
   `network: blocked <host:port> (<reason>)`, and the model reads why. A background job
-  lists its refusals when it ends. The reviewer sees the hosts that the proxy refused
-  in the last command and in the jobs, but only as a fact, never as your request.
+  lists its refusals in the line of its end, in the view, in `efr history` and in
+  `efr jobs stop`. The dim line at the end of a turn says `network through efr's
+  proxy` in place of `no network` when a command of the turn ran with the proxy. The
+  reviewer sees the hosts that the proxy refused in the last command and in the jobs,
+  but only as a fact, never as your request.
 - With the proxy, Node's `fetch` uses the proxy through `NODE_USE_ENV_PROXY=1`, so
   Node prints an "experimental" warning on stderr in sandboxed commands.
 
@@ -322,6 +325,9 @@ into the GitHub release notes, and it stops when the section is missing.
   message of yours names the host (or the remote is your project's).
 - With the proxy, tools that send an Encrypted Client Hello, such as headless Chrome,
   Electron and Playwright, cannot fetch through the proxy.
+- `efr status` and `efr sandbox check` show the network of a sandboxed command:
+  `network proxy`, `network none`, or `network none (proxy self-test failed)` when
+  `network.mode = "proxy"` but the proxy's self-test failed.
 
 ### Fixed
 
@@ -373,6 +379,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - With `network.mode = "proxy"`, `efr sandbox check` warns about each
   `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
   allowed hosts.
+- The proxy cannot see inside TLS. A sandboxed command can still send data to a host
+  on your allow list, with no credentials: at most `network.max_upload_bytes` (4 MiB)
+  per command, counted from the first byte of each connection. Hosts that fetch on
+  behalf of the client (the Go module proxy) and DNS names below your own `*.suffix`
+  entries widen this. Socket grants that reach the network, such as Docker's socket,
+  are a way around the proxy. `docs/adr/0012-network-proxy.md` lists what the proxy
+  checks and what it cannot stop.
 
 ## [0.0.3] - 2026-10-09
 
