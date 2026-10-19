@@ -32,6 +32,8 @@ fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStop
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     }
 }
 

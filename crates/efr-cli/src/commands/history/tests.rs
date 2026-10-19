@@ -860,7 +860,8 @@ async fn history_verbose_without_a_conversation_shows_the_newest_of_this_termina
     let mut mine = summary(CONVERSATION);
     mine.tty = Some("/dev/pts/3".to_owned());
     let (exit, stdout, shown) =
-        verbose_without_a_conversation(Some("/dev/pts/3"), vec![summary(newest), mine]).await;
+        Box::pin(verbose_without_a_conversation(Some("/dev/pts/3"), vec![summary(newest), mine]))
+            .await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(shown, Some(conversation()));
     assert!(
@@ -877,7 +878,7 @@ async fn history_verbose_without_a_conversation_shows_the_newest_of_this_termina
 async fn history_verbose_without_a_conversation_falls_back_to_the_newest() {
     let newest = "019a9b1c-3d00-7a10-8b20-0000000000a1";
     let (exit, stdout, shown) =
-        verbose_without_a_conversation(Some("/dev/pts/9"), vec![summary(newest)]).await;
+        Box::pin(verbose_without_a_conversation(Some("/dev/pts/9"), vec![summary(newest)])).await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(shown, Some(newest.parse().unwrap()));
     assert!(
@@ -888,11 +889,12 @@ async fn history_verbose_without_a_conversation_falls_back_to_the_newest() {
     );
     assert!(stdout.contains("exit requested:"), "{stdout}");
 
-    let (_, stdout, shown) = verbose_without_a_conversation(None, vec![summary(newest)]).await;
+    let (_, stdout, shown) =
+        Box::pin(verbose_without_a_conversation(None, vec![summary(newest)])).await;
     assert_eq!(shown, Some(newest.parse().unwrap()));
     assert!(stdout.starts_with("the newest conversation;"), "{stdout}");
 
-    let (exit, stdout, shown) = verbose_without_a_conversation(None, Vec::new()).await;
+    let (exit, stdout, shown) = Box::pin(verbose_without_a_conversation(None, Vec::new())).await;
     assert_eq!((exit, stdout.as_str(), shown), (Exit::Success, "no conversations yet\n", None));
 }
 
@@ -1210,6 +1212,8 @@ fn job_events() -> Vec<EventEnvelope> {
             output_truncated: false,
             blocked: Vec::new(),
             blocked_more: 0,
+            bus_refused: Vec::new(),
+            bus_refused_more: 0,
         },
         notice(4),
         notice(4),

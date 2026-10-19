@@ -234,6 +234,8 @@ fn job_ended(state: JobState, exit_code: Option<i32>, stopped_by: Option<JobStop
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     }
 }
 
@@ -278,6 +280,8 @@ fn job_ended_notice_line() {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     };
     assert_eq!(
         line(&lost, title).as_deref(),

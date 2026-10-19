@@ -527,6 +527,7 @@ pub(crate) fn info(
             .filter(|reason| !reason.trim().is_empty()),
         judged: None,
         user_only: approver != Approver::Classifier,
+        always: None,
     }
 }
 

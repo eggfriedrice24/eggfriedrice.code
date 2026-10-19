@@ -1,4 +1,9 @@
 //! `approval.respond`: answer an approval request.
+//!
+//! `allow_always` (phase E) runs the call and saves the rule that the question offered
+//! in `exit.always`; a client sends it only when that member is set. Only a surface of
+//! the user's own machine may send it, never a phone. A daemon or a turn that does not
+//! know the answer denies the call.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

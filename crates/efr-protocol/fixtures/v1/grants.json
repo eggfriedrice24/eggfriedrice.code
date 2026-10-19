@@ -35,6 +35,14 @@
     "kind": "net_view"
   },
   {
+    "kind": "bus_filter",
+    "bus": "system"
+  },
+  {
+    "kind": "bus_filter",
+    "bus": "session"
+  },
+  {
     "kind": "unknown"
   },
   {

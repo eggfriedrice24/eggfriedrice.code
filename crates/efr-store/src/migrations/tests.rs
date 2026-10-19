@@ -471,6 +471,8 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     };
     store.writer().append(Batch::new().event(id, job_started).event(id, job_ended)).await.unwrap();
     let recordings = crate::recording::Recordings::new(

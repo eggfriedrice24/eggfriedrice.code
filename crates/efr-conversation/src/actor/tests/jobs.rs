@@ -282,6 +282,8 @@ async fn restart_records_held_notice_once() {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     };
     let committed =
         h.store.writer().append(efr_store::Batch::new().event(h.conversation_id, end)).await;

@@ -52,7 +52,10 @@ pub use changes::{
 };
 pub use compaction::{Compaction, CompactionTrigger, ContextUse};
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
-pub use event::{ApprovalDecision, Event, EventEnvelope, InputWait, StopReason, TurnStop, Usage};
+pub use event::{
+    AlwaysSaved, ApprovalDecision, Event, EventEnvelope, InputWait, NotSavedReason, StopReason,
+    TurnStop, Usage,
+};
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{
     CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,
@@ -113,8 +116,10 @@ pub use sandbox::record::{
     ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCounts, HostFact, JudgeKind, Judgement,
     PathClassName, PauseReason, ProgramFact, Risk, TargetFact, UserAuthorization, Verdict,
 };
-pub use sandbox::status::{CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
-pub use sandbox::summary::{BlockReason, Blocked, ReportedFile, SandboxSummary, SurfaceChange};
+pub use sandbox::status::{BusProxyOff, CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
+pub use sandbox::summary::{
+    BlockReason, Blocked, BusRefusal, ReportedFile, SandboxSummary, SurfaceChange,
+};
 pub use sandbox::{BusKind, CacheMode, DesktopKind, Grant, Launch, ModeFallback, NetworkMode};
 pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};

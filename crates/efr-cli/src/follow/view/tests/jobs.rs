@@ -28,6 +28,8 @@ fn job_ended(stopped_by: Option<JobStopBy>, survivors: &[&str]) -> Event {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     }
 }
 

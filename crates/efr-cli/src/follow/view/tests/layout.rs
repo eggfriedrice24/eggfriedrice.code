@@ -1474,6 +1474,8 @@ fn view_shows_job_start_and_end() {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     };
     let matched = Event::JobWatchMatched {
         job_id: job.id.clone(),

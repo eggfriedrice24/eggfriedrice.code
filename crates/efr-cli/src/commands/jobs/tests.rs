@@ -40,6 +40,8 @@ fn stopped_by_you(n: u32, tail: &str, survivors: &[&str]) -> Event {
         output_truncated: false,
         blocked: Vec::new(),
         blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
     }
 }
 

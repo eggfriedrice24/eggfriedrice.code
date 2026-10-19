@@ -386,6 +386,8 @@ impl ProbeReport {
             netview: failure.is_none() && self.netview == Some(true),
             netview_off: false,
             proxy: failure.is_none() && self.proxy == Some(true),
+            bus_proxy: false,
+            bus_proxy_off: None,
         }
     }
 

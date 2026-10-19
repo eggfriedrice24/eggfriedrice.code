@@ -51,7 +51,23 @@
     "cache_deletes": [
       "/home/me/.cache/go-build/3f"
     ],
-    "cache_deletes_more": 2
+    "cache_deletes_more": 2,
+    "bus_refused": [
+      {
+        "bus": "system",
+        "name": "org.freedesktop.systemd1",
+        "member": "org.freedesktop.systemd1.Manager.StartUnit",
+        "path": "/org/freedesktop/systemd1",
+        "count": 2
+      },
+      {
+        "bus": "session",
+        "name": "org.freedesktop.Notifications",
+        "member": "org.freedesktop.Notifications.Notify",
+        "path": "/org/freedesktop/Notifications"
+      }
+    ],
+    "bus_refused_more": 3
   },
   "refusal": "efr's config (floor)",
   "changes": {

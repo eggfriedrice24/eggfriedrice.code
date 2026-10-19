@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "saved",
+    "index": 2,
+    "rule": "write under ~/notes"
+  },
+  {
+    "kind": "not_saved",
+    "reason": "read_only"
+  },
+  {
+    "kind": "unknown"
+  }
+]

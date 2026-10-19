@@ -2,9 +2,9 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use crate::{
-    ActionFacts, BlockReason, Blocked, BusKind, CacheMode, DesktopKind, EffectiveSettings, Event,
-    ExitFacts, ExitKind, Grant, HostFact, Launch, Mode, ModeFallback, Needs, NetworkMode,
-    ProtocolError, SandboxStatus, SandboxSummary,
+    ActionFacts, BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, CacheMode, DesktopKind,
+    EffectiveSettings, Event, ExitFacts, ExitInfo, ExitKind, Grant, HostFact, Launch, Mode,
+    ModeFallback, Needs, NetworkMode, ProtocolError, SandboxStatus, SandboxSummary,
 };
 
 #[test]
@@ -341,6 +341,7 @@ fn a_status_before_the_first_probe_is_unavailable_with_a_reason() {
             "network_mode": "none",
             "netview": false,
             "proxy": false,
+            "bus_proxy": false,
         })
     );
     assert_eq!(CacheMode::Readonly.as_str(), "readonly");
@@ -448,4 +449,68 @@ fn a_surface_change_says_what_it_does_in_words() {
     assert_eq!(change("config_worktree_appeared", None).what(), "a new config.worktree");
     assert_eq!(change("hook_planted", None).what(), "a new hook");
     assert_eq!(change("a_later_rule", None).what(), "a later rule");
+}
+
+#[test]
+fn bus_filter_grant_round_trip() {
+    let grant = Grant::BusFilter { bus: BusKind::Session };
+    let wire = json!({ "kind": "bus_filter", "bus": "session" });
+    assert_eq!(serde_json::to_value(&grant).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Grant>(wire).unwrap(), grant);
+    assert_eq!(grant.path(), None);
+}
+
+#[test]
+fn sandbox_status_without_bus_proxy_reads_false() {
+    let status: SandboxStatus = serde_json::from_value(json!({
+        "available": true,
+        "cache_mode": "overlay",
+        "network_mode": "proxy",
+        "proxy": true,
+    }))
+    .unwrap();
+    assert!(!status.bus_proxy);
+    assert_eq!(status.bus_proxy_off, None);
+    assert!(serde_json::to_value(&status).unwrap().get("bus_proxy_off").is_none());
+    let off = SandboxStatus { bus_proxy_off: Some(BusProxyOff::SelfTest), ..status };
+    assert_eq!(serde_json::to_value(&off).unwrap()["bus_proxy_off"], json!("self_test"));
+    for reason in BusProxyOff::ALL {
+        let wire = serde_json::to_value(reason).unwrap();
+        assert_eq!(serde_json::from_value::<BusProxyOff>(wire).unwrap(), reason);
+    }
+    let later: BusProxyOff = serde_json::from_value(json!("no_bus")).unwrap();
+    assert_eq!(later, BusProxyOff::Unknown);
+}
+
+#[test]
+fn summary_without_bus_refused_reads_empty() {
+    let read: SandboxSummary = serde_json::from_value(json!({ "confined": true })).unwrap();
+    assert!(read.bus_refused.is_empty());
+    assert_eq!(read.bus_refused_more, 0);
+    let refused: BusRefusal = serde_json::from_value(json!({
+        "bus": "system",
+        "name": "org.freedesktop.login1",
+        "member": "org.freedesktop.login1.Manager.PowerOff",
+        "path": "/org/freedesktop/login1",
+    }))
+    .unwrap();
+    assert_eq!(refused.count, 1);
+    let summary = SandboxSummary { bus_refused: vec![refused], bus_refused_more: 5, ..read };
+    let wire = serde_json::to_value(&summary).unwrap();
+    assert_eq!(wire["bus_refused_more"], json!(5));
+    assert_eq!(serde_json::from_value::<SandboxSummary>(wire).unwrap(), summary);
+    assert_eq!(SandboxSummary::MAX_BUS_REFUSED, 16);
+}
+
+#[test]
+fn exit_info_without_always_offers_no_rule() {
+    let info: ExitInfo = serde_json::from_value(json!({
+        "kinds": ["write"],
+        "launch": { "kind": "contained", "grants": [{ "kind": "write", "path": "/home/me/n" }] },
+    }))
+    .unwrap();
+    assert_eq!(info.always, None);
+    assert!(serde_json::to_value(&info).unwrap().get("always").is_none());
+    let offer = ExitInfo { always: Some("write under ~/n".into()), ..info };
+    assert_eq!(serde_json::to_value(&offer).unwrap()["always"], json!("write under ~/n"));
 }

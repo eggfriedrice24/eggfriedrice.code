@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 
 use crate::compaction::{is_zero_u32, is_zero_u64};
 use crate::{
-    Blocked, CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId,
+    Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId,
     EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant,
     HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind, Launch, NoticeKind, Origin,
     PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange, ReportedFile, Risk,
@@ -536,6 +536,18 @@ pub enum Event {
         skipped: Vec<String>,
     },
 
+    /// What became of the rule of an `allow_always` answer (phase E). The turn records
+    /// it after it tried to save the rule. `approval_resolved` came before it, when the
+    /// answer came.
+    AlwaysRuleSaved {
+        /// The turn.
+        turn_id: TurnId,
+        /// The call whose question offered the rule.
+        call_id: CallId,
+        /// The saved rule, or why there is none.
+        outcome: AlwaysSaved,
+    },
+
     /// The classifier started to review an exit, so a client can show `reviewing:`. A
     /// verdict from the turn's cache has none.
     ExitReviewStarted {
@@ -806,6 +818,13 @@ pub enum Event {
         /// The refusals that `blocked` leaves out. 0 when absent.
         #[serde(default, skip_serializing_if = "is_zero_u32")]
         blocked_more: u32,
+        /// The bus calls that the bus filter refused while the job ran (phase E), at
+        /// most [`SandboxSummary::MAX_BUS_REFUSED`]. Absent when none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bus_refused: Vec<BusRefusal>,
+        /// The refusals that `bus_refused` leaves out. 0 when absent.
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        bus_refused_more: u32,
     },
 
     /// A job notice entered the conversation: a turn took it into its first message.
@@ -899,6 +918,7 @@ impl Event {
             | Event::TurnCancelled { turn_id }
             | Event::ExitRequested { turn_id, .. }
             | Event::ExitJudged { turn_id, .. }
+            | Event::AlwaysRuleSaved { turn_id, .. }
             | Event::ExitReviewStarted { turn_id, .. }
             | Event::ClassifierPaused { turn_id, .. }
             | Event::CacheDeleteApplied { turn_id, .. }
@@ -983,6 +1003,70 @@ pub enum ApprovalDecision {
     Allow,
     /// Do not run it; the model sees a denied call.
     Deny,
+    /// Run the tool call, and save the rule that the question offered
+    /// ([`ExitInfo::always`]), so later exits that it covers run with no question
+    /// (phase E). Only the user's own machine may give it.
+    AllowAlways,
+}
+
+/// What became of the rule of an [`ApprovalDecision::AllowAlways`] answer (phase E).
+///
+/// On the wire an object with a `kind` member, such as
+/// `{"kind": "saved", "index": 2, "rule": "write under ~/notes"}` or
+/// `{"kind": "not_saved", "reason": "read_only"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AlwaysSaved {
+    /// The rule is `sandbox.allow[index]` of `config.toml`. A rule that the list
+    /// already held keeps its old index.
+    Saved {
+        /// The rule's index in `sandbox.allow`.
+        index: u32,
+        /// The rule in words, such as `write under ~/notes`.
+        rule: String,
+    },
+    /// The call ran as a "yes", and no rule was saved.
+    NotSaved {
+        /// Why.
+        reason: NotSavedReason,
+    },
+    /// A state that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Why the rule of an [`ApprovalDecision::AllowAlways`] answer was not saved (phase E).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum NotSavedReason {
+    /// `config.toml` changed under each of three tries.
+    Changed,
+    /// `config.toml` cannot be written.
+    ReadOnly,
+    /// The rule failed the check that efrd runs on each rule when it loads the file.
+    LoadCheck,
+    /// The file could not be read or written.
+    Io,
+    /// The rule was written, but the reload did not end in time; a later call may ask
+    /// once more.
+    ReloadTimeout,
+    /// A reason that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl NotSavedReason {
+    /// Every reason, in the order of the enum.
+    pub const ALL: [NotSavedReason; 6] = [
+        NotSavedReason::Changed,
+        NotSavedReason::ReadOnly,
+        NotSavedReason::LoadCheck,
+        NotSavedReason::Io,
+        NotSavedReason::ReloadTimeout,
+        NotSavedReason::Unknown,
+    ];
 }
 
 /// Whether a running tool call's command waits for the user to type a line, and what
