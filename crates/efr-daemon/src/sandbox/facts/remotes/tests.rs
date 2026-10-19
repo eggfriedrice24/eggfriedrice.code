@@ -158,6 +158,7 @@ async fn world() -> World {
         clock: Arc::clone(&clock),
         rng: Arc::new(TestRng::new(4)),
         git: Git::new(clock).isolated(),
+        programs: Default::default(),
     })
     .await;
     World { _temp: temp, root, service, _store: store }

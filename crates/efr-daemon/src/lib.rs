@@ -70,7 +70,7 @@ pub use efr_holder::{
 };
 pub use efr_provider::Provider;
 pub use efr_shell::ScreenFactory;
-pub use error::{DaemonError, KeyProblem};
+pub use error::{BusProxyProblem, DaemonError, KeyProblem};
 pub use providers::{ANTHROPIC, API, ProviderFactory, SUBSCRIPTION};
 pub use run::{Daemon, Deps, run, start};
 pub use runtime::build_runtime;

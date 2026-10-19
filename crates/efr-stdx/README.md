@@ -81,6 +81,8 @@ table names the same set. An empty value counts as unset.
 | `EFR_TEST_ZSH` | A flag. Tests that drive a real zsh run only when it is on. |
 | `EFR_TEST_SBX_BIN` | An absolute path to a built `efr-sbx`. The sandbox tests that need the real launcher run only when it is set; `just test-sandbox` sets it. |
 | `EFR_TEST_PROXY_HOSTS` | Test names and the servers behind them, such as `registry.test=127.0.0.2:41001,git.test=127.0.0.3:41002`. An `efrd` built with the test seams sends its proxy's connections for those names to those servers and refuses every other name. Only the smoke sets it. |
+| `EFR_TEST_SYSTEM_BUS` | An absolute path to a test's own system bus socket. An `efrd` built with the test seams uses it as the system bus, for the bus filter and for an approved whole bus; without it, that `efrd` has no system bus. Only the smoke sets it. |
+| `EFR_TEST_SESSION_BUS` | An absolute path to a test's own session bus socket. An `efrd` built with the test seams uses it as the session bus; without it, that `efrd` has no session bus. Only the smoke sets it. |
 | `EFR_BENCH_PROJECT` | An absolute path to the project in which efrd's bench `shell_call_phases_in_a_project` runs its calls. Without it, the bench makes a small git repository. |
 | `EFR_MODE` | The permission mode that `efr send`, `efr new` and `efr settings` ask for: `manual`, `cautious` or `auto`. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |
 | `EFR_MODEL` | The model that `efr send`, `efr new` and `efr settings` ask for. A flag wins over it. The zsh plugin hands over the terminal's choice in it. |

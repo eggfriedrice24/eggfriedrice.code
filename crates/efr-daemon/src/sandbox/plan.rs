@@ -51,6 +51,9 @@ pub(crate) struct HostFacts {
     pub(crate) user_runtime: PathBuf,
     /// The session bus socket.
     pub(crate) session_bus: Option<PathBuf>,
+    /// The system bus socket; `None` is the machine's, `/run/dbus/system_bus_socket`.
+    /// A test build sets the seam's (DE14).
+    pub(crate) system_bus: Option<PathBuf>,
     /// `$XAUTHORITY`, masked.
     pub(crate) xauthority: Option<PathBuf>,
     /// `$HISTFILE`, masked.
@@ -86,6 +89,7 @@ impl HostFacts {
             zsh,
             user_runtime,
             session_bus,
+            system_bus: None,
             xauthority: absolute("XAUTHORITY"),
             histfile: absolute("HISTFILE"),
             zdotdir: absolute("ZDOTDIR"),
@@ -330,7 +334,11 @@ pub(crate) fn runtime_paths(input: &PlanInput<'_>) -> RuntimePaths {
         zsh: input.host.zsh.clone().unwrap_or_else(|| PathBuf::from("/usr/bin/zsh")),
         bwrap: input.bwrap.to_path_buf(),
         session_bus: input.host.session_bus.clone(),
-        system_bus: PathBuf::from("/run/dbus/system_bus_socket"),
+        system_bus: input
+            .host
+            .system_bus
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(efr_sandbox::SYSTEM_BUS_SOCKET)),
         desktops: input.desktops.to_vec(),
     }
 }

@@ -140,6 +140,8 @@ fn all_lists_every_variant() {
         Var::TestZsh,
         Var::TestSbxBin,
         Var::TestProxyHosts,
+        Var::TestSystemBus,
+        Var::TestSessionBus,
         Var::BenchProject,
         Var::Mode,
         Var::Model,
@@ -163,6 +165,8 @@ fn all_lists_every_variant() {
             | Var::TestZsh
             | Var::TestSbxBin
             | Var::TestProxyHosts
+            | Var::TestSystemBus
+            | Var::TestSessionBus
             | Var::BenchProject
             | Var::Mode
             | Var::Model

@@ -473,6 +473,7 @@ async fn df_routine_after_mount_view() {
         clock: Arc::clone(&clock),
         rng: Arc::new(TestRng::new(5)),
         git: Git::new(clock).isolated(),
+        programs: Default::default(),
     })
     .await;
     assert!(service.mount_view(), "the test runs in the mount namespace of its parent");

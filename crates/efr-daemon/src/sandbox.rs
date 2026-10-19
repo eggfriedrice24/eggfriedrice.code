@@ -14,6 +14,9 @@
 //! and `nonce` (0600). It takes the plan lock of the call's projects, which the caller
 //! holds until the launcher writes `started`. A call with a proxy plan also gets its
 //! proxy socket `$CALL/proxy.sock` there, served by efrd's proxy (`proxy.rs`, phase D2).
+//! A call with a filtered bus view gets one `xdg-dbus-proxy` for each bus in
+//! `$CALL/bus/` (`bus.rs`, phase E); efrd drops a view of a bus that the machine lacks
+//! before it writes the spec.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -26,8 +29,8 @@ use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{Engine, ExitNeed, WriteBind};
 use efr_protocol::{
-    ConversationId, DesktopEnv, DesktopKind, Event, Grant, Launch, SandboxPaths, SandboxStatus,
-    Scope,
+    BusKind, ConversationId, DesktopEnv, DesktopKind, Event, Grant, Launch, SandboxPaths,
+    SandboxStatus, Scope,
 };
 use efr_sandbox::{
     DesktopSocket, JobPlan, NONCE_FILE, NetworkPlan, ProbeReport, SPEC_FILE, SpecLaunch,
@@ -43,7 +46,9 @@ use tokio::sync::{Semaphore, watch};
 
 use crate::DaemonError;
 use crate::engine::load_registry;
+use crate::trusted_programs::TrustedPrograms;
 
+pub(crate) mod bus;
 pub(crate) mod desktop;
 mod explain;
 pub(crate) mod facts;
@@ -101,6 +106,8 @@ pub(crate) struct ServiceParts {
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) rng: Arc<dyn Rng>,
     pub(crate) git: Git,
+    /// The programs that efrd runs itself, with the trusted `xdg-dbus-proxy`.
+    pub(crate) programs: Arc<TrustedPrograms>,
 }
 
 /// The sandbox service. Cheap to clone; clones share everything.
@@ -139,6 +146,8 @@ struct Inner {
     mounts: mounts::MountView,
     /// The network proxy and the sockets of the calls (phase D2).
     proxy: proxy::ProxyService,
+    /// The filtered bus proxies of the calls (phase E).
+    bus: bus::BusService,
     /// The snapshots of the pinned project git dirs' remotes, per conversation (DP22).
     remotes: facts::remotes::Snapshots,
     writer: WriterHandle,
@@ -190,6 +199,8 @@ pub(crate) struct Prepared {
     pub(crate) contained: bool,
     /// The proxy socket of a call with a proxy plan, served until the call ends.
     pub(crate) proxy: Option<proxy::ProxyCall>,
+    /// The filtered bus proxies of a call with a bus view, until the call ends.
+    pub(crate) bus: Option<bus::BusCall>,
     /// Counts the call as running until it drops; `None` for a job.
     _running: Option<Running>,
 }
@@ -227,8 +238,23 @@ impl SandboxService {
     /// The service, with the launcher copied; the status says [`NOT_PROBED`] until the
     /// first [`probe`](Self::probe).
     pub(crate) async fn new(parts: ServiceParts) -> SandboxService {
-        let ServiceParts { dirs, home, mut host, source, seams, registry, writer, clock, rng, git } =
-            parts;
+        let ServiceParts {
+            dirs,
+            home,
+            mut host,
+            source,
+            seams,
+            registry,
+            writer,
+            clock,
+            rng,
+            git,
+            programs,
+        } = parts;
+        // NOTE: in a test build both buses come only from the seams (DE14), for a whole
+        // bus grant and for the bus filter alike.
+        host.system_bus = Some(seams.system_bus());
+        host.session_bus = seams.session_bus(host.session_bus.take());
         let source = seams.launcher().map(Path::to_path_buf).or(source);
         let copy = dirs.runtime().join(launcher::BIN_DIR).join(launcher::LAUNCHER);
         if let Some(source) = &source {
@@ -250,6 +276,7 @@ impl SandboxService {
         let helper = seams.statvfs_helper().map_or_else(|| copy.clone(), Path::to_path_buf);
         let mounts = mounts::MountView::new(helper, Arc::clone(&clock));
         let proxy = proxy::ProxyService::new(&seams, Arc::clone(&clock));
+        let bus = bus::BusService::new(Arc::clone(&clock), programs, copy.clone());
         SandboxService {
             inner: Arc::new(Inner {
                 dirs,
@@ -270,6 +297,7 @@ impl SandboxService {
                 mount_view,
                 mounts,
                 proxy,
+                bus,
                 remotes: facts::remotes::Snapshots::default(),
                 writer,
                 clock,
@@ -313,6 +341,11 @@ impl SandboxService {
     /// The network proxy and the sockets of the calls.
     pub(crate) fn proxy(&self) -> &proxy::ProxyService {
         &self.inner.proxy
+    }
+
+    /// The filtered bus proxies of the calls.
+    pub(crate) fn bus(&self) -> &bus::BusService {
+        &self.inner.bus
     }
 
     /// The git remotes of each of `dirs` for a fact request of `conversation` (DP22):
@@ -776,6 +809,9 @@ impl SandboxService {
             (_, launch) => launch.clone(),
         };
         let exit_child_job = job.is_some() && launch == Launch::Unsandboxed;
+        // NOTE: before the spec is written: a view of a bus that efrd cannot serve goes,
+        // so the plan never meets a missing socket (DE8), and the call runs with no bus.
+        let (launch, buses, upstream, bus_notes) = self.bus_views(launch, input.settings).await;
         if !status.available && !exit_child_job {
             return Err(DaemonError::SandboxUnavailable {
                 reason: status.reason.clone().unwrap_or_else(|| NOT_PROBED.to_owned()),
@@ -843,6 +879,7 @@ impl SandboxService {
         tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase=plan_build elapsed_ms={}", watch);
         let spec = planned.spec;
         let mut notes: Vec<String> = planned.notes.iter().map(|note| (*note).to_owned()).collect();
+        notes.extend(bus_notes);
         if spec.launch == SpecLaunch::Contained
             && let Some(note) = self.inner.proxy.fallback_note(input.settings, &status)
         {
@@ -920,6 +957,22 @@ impl SandboxService {
             }
             _ => None,
         };
+        // NOTE: the bus sockets exist before the launcher starts, as the proxy socket:
+        // the plan binds them, and refuses a filtered bus without its socket. A start
+        // failure fails the call; it never runs with the real bus.
+        let bus = if buses.is_empty() {
+            None
+        } else {
+            self.inner.bus.sweep().await;
+            match self.inner.bus.start(&call_dir, &buses, &upstream).await {
+                Ok(started) => Some(started),
+                Err(error) => {
+                    drop(proxy);
+                    remove_dir(call_dir.clone()).await;
+                    return Err(error);
+                }
+            }
+        };
         let running = match job {
             Some(_) => None,
             None => {
@@ -946,15 +999,77 @@ impl SandboxService {
             state_dir: spec.runtime.job_state_dir(call.call_id),
             contained: spec.launch == SpecLaunch::Contained,
             proxy,
+            bus,
             _running: running,
         })
     }
 
+    /// `launch` without the bus views that efrd cannot serve, the buses of the views
+    /// that stay, their upstream sockets, and the note of each dropped view (DE8): a
+    /// system view goes when the system bus is missing or refused, a session view when
+    /// the host has no path session bus. The upstream is never in efr's dirs or a write
+    /// root (DE7).
+    async fn bus_views(
+        &self,
+        launch: Launch,
+        settings: &Settings,
+    ) -> (Launch, Vec<BusKind>, bus::BusUpstream, Vec<String>) {
+        let wanted: Vec<BusKind> = launch
+            .grants()
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::BusFilter { bus } => Some(*bus),
+                _ => None,
+            })
+            .collect();
+        if wanted.is_empty() {
+            return (launch, Vec::new(), bus::BusUpstream::default(), Vec::new());
+        }
+        let dirs = &self.inner.dirs;
+        let mut refused = self.write_roots(settings).await;
+        refused.extend(
+            [dirs.config(), dirs.data(), dirs.state(), dirs.runtime()].map(Path::to_path_buf),
+        );
+        let host = &self.inner.host;
+        let (system, session) = (host.system_bus.clone(), host.session_bus.clone());
+        let upstream = tokio::task::spawn_blocking(move || {
+            bus::BusUpstream::check(system.as_deref(), session.as_deref(), &refused)
+        })
+        .await
+        .unwrap_or_default();
+        let mut notes = Vec::new();
+        let mut buses = Vec::new();
+        for bus in wanted {
+            if upstream.path(bus).is_some() {
+                buses.push(bus);
+            } else {
+                tracing::info!(bus = ?bus, "a bus view is dropped: this machine has no such bus that efr accepts");
+                let note =
+                    if bus == BusKind::System { bus::NO_SYSTEM_BUS } else { bus::NO_SESSION_BUS };
+                notes.push(note.to_owned());
+            }
+        }
+        let launch = match launch {
+            Launch::Contained { grants } => Launch::Contained {
+                grants: grants
+                    .into_iter()
+                    .filter(|grant| match grant {
+                        Grant::BusFilter { bus } => buses.contains(bus),
+                        _ => true,
+                    })
+                    .collect(),
+            },
+            other => other,
+        };
+        (launch, buses, upstream, notes)
+    }
+
     /// Deletes idle cache layers by `settings`, leaving those of a conversation with a
-    /// running call, and closes the proxy listeners of calls that ended after their
-    /// timeout.
+    /// running call, and closes the proxy listeners and the bus filters of calls that
+    /// ended after their timeout.
     pub(crate) async fn gc(&self, settings: &Settings) {
         gc::sweep_proxies(&self.inner.proxy).await;
+        self.inner.bus.sweep().await;
         let root = self.inner.dirs.state().join(plan::SANDBOX_DIR);
         let now = std::time::SystemTime::from(self.inner.clock.now());
         let shells = self.inner.dirs.runtime().join(plan::SHELL_DIR);

@@ -404,6 +404,7 @@ impl DaemonToolbox {
             write_roots: prepared.write_roots.clone(),
             contained: prepared.contained,
             proxy: None,
+            bus: None,
         };
         let new =
             NewJob { wakes: new.info.watch.as_ref().map_or(0, |watch| watch.max_wakes), ..new };
@@ -543,9 +544,11 @@ impl JobLaunch {
             now,
             slot,
         } = self;
-        // NOTE: the job's socket lives in its entry of the job table from its start to
-        // its end; a job that does not start drops it here, which closes it.
+        // NOTE: the job's socket and bus filters live in its entry of the job table from
+        // its start to its end; a job that does not start drops them here, which closes
+        // them.
         new.proxy = prepared.proxy.take();
+        new.bus = prepared.bus.take();
         // NOTE: before the launcher records the surface, so its guard never takes an
         // entry that a running job planted in these roots as its baseline.
         if prepared.contained {

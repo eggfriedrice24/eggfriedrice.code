@@ -976,6 +976,7 @@ async fn file_tool_write_has_target_kind_facts() {
         clock: clock.shared(),
         rng: Arc::new(TestRng::new(3)),
         git: efr_scope::Git::new(clock.shared()).isolated(),
+        programs: Default::default(),
     })
     .await;
     let engine = Engine::with_defaults(Locations::new(&home).unwrap());
@@ -1033,6 +1034,7 @@ async fn sandboxed(root: &Path, settings: Settings) -> DaemonToolbox {
         clock: clock.shared(),
         rng: Arc::new(TestRng::new(3)),
         git: efr_scope::Git::new(clock.shared()).isolated(),
+        programs: Default::default(),
     })
     .await;
     let engine = Engine::with_defaults(Locations::new(&home).unwrap());
@@ -1192,6 +1194,7 @@ pub(super) async fn kept_in(root: &Path, data: &Path, settings: Settings) -> Kep
         clock: clock.shared(),
         rng: Arc::new(TestRng::new(3)),
         git: efr_scope::Git::new(clock.shared()).isolated(),
+        programs: Default::default(),
     })
     .await;
     let engine = Engine::with_defaults(Locations::new(&home).unwrap());

@@ -122,6 +122,17 @@ impl TrustedPrograms {
         self.found.iter().any(|found| found.program == program)
     }
 
+    /// These programs, with `program` found at `path` instead, by the rule of
+    /// [`in_test_dir`](Self::in_test_dir): a test's own fake. Without such a file, the
+    /// program is not found. It blocks.
+    pub(crate) fn with_test_program(mut self, program: Program, path: &Path) -> Self {
+        self.found.retain(|found| found.program != program);
+        if let Some((path, dev, ino, pin)) = trusted_file(path, false) {
+            self.found.push(Found { program, path, dev, ino, pin: Arc::new(pin) });
+        }
+        self
+    }
+
     /// The path of `program` after the check that [`command`](Self::command) makes:
     /// `None` when efrd found no such program or the file is no longer the one that it
     /// found. It blocks for one stat.

@@ -421,6 +421,12 @@ into the GitHub release notes, and it stops when the section is missing.
 - `~/.local/share/dbus-1` is now a floor: a sandboxed command cannot write it, and a
   write there asks you. The bus starts the program of a service file there outside the
   sandbox when a client calls its name.
+- With `dbus.proxy = true`, the bus filter of a command runs in its own Landlock
+  domain with no TCP, a seccomp filter and an fd limit: it reads only its program and
+  libraries, connects only to the two real buses, and makes its sockets only in the
+  command's bus dir. Each command gets its own filter, which ends with the command. A
+  filter that cannot start fails the command; the command never gets the whole bus
+  instead. A bug in the filter itself still reaches your bus rights.
 
 ## [0.0.3] - 2026-10-09
 

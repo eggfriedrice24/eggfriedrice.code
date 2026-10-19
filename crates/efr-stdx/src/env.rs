@@ -47,6 +47,14 @@ pub enum Var {
     /// the test seams sends its proxy's connections for those names to those servers,
     /// and refuses every other name. Only the smoke sets it.
     TestProxyHosts,
+    /// `EFR_TEST_SYSTEM_BUS`: an absolute path to a test's own system bus socket; an
+    /// `efrd` built with the test seams uses it as the system bus, and without it has
+    /// none. Only the smoke sets it.
+    TestSystemBus,
+    /// `EFR_TEST_SESSION_BUS`: an absolute path to a test's own session bus socket; an
+    /// `efrd` built with the test seams uses it as the session bus, and without it has
+    /// none. Only the smoke sets it.
+    TestSessionBus,
     /// `EFR_BENCH_PROJECT`: an absolute path to the project in which efrd's bench
     /// `shell_call_phases_in_a_project` runs its calls; without it, the bench makes a
     /// small git repository.
@@ -95,6 +103,8 @@ impl Var {
         Var::TestZsh,
         Var::TestSbxBin,
         Var::TestProxyHosts,
+        Var::TestSystemBus,
+        Var::TestSessionBus,
         Var::BenchProject,
         Var::Mode,
         Var::Model,
@@ -134,6 +144,8 @@ impl Var {
             Var::TestZsh => "EFR_TEST_ZSH",
             Var::TestSbxBin => "EFR_TEST_SBX_BIN",
             Var::TestProxyHosts => "EFR_TEST_PROXY_HOSTS",
+            Var::TestSystemBus => "EFR_TEST_SYSTEM_BUS",
+            Var::TestSessionBus => "EFR_TEST_SESSION_BUS",
             Var::BenchProject => "EFR_BENCH_PROJECT",
             Var::Mode => "EFR_MODE",
             Var::Model => "EFR_MODEL",

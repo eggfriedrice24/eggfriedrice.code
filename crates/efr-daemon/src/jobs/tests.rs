@@ -112,6 +112,7 @@ impl Scene {
             write_roots: Vec::new(),
             contained: true,
             proxy: None,
+            bus: None,
         }
     }
 
@@ -506,6 +507,30 @@ async fn job_numbers_follow_the_store_and_never_repeat() {
     assert_eq!(scene.table.number(scene.conversation).await.unwrap(), 6);
     let other = ConversationId::from_uuid(id(2));
     assert_eq!(scene.table.number(other).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn bus_proxy_of_a_job_lives_with_the_job() {
+    let scene = Scene::new().await;
+    let fake = crate::sandbox::bus::fake::FakeBus::new(&scene.dirs.root().join("fake"));
+    let bus = fake.service(scene.clock.shared());
+    let mut job = scene.new_job(1);
+    let started =
+        bus.start(&job.call_dir, &[efr_protocol::BusKind::System], &fake.upstream()).await.unwrap();
+    let pid = started.pids()[0];
+    job.bus = Some(started);
+    let mut spawned = scene.table.spawn(&job).unwrap();
+    scene.table.start(&mut spawned, &job).await.unwrap();
+    scene.table.begin(spawned, job, None).await.unwrap();
+
+    let alive = || Path::new(&format!("/proc/{pid}")).exists();
+    assert!(alive(), "the filter runs while the job runs");
+    assert_eq!(fake.ended(), 0);
+    scene.table.drop_lifeline(scene.key(1));
+    scene.ended(1).await;
+
+    assert_eq!(fake.ended(), 1, "the filter ended with the job, by its closed pipe");
+    Wait::new("the filter's exit").until(|| !alive()).await.unwrap();
 }
 
 #[test]
