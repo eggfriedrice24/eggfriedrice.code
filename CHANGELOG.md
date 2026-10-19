@@ -378,8 +378,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - With the proxy, when your git config (also `~/.gitconfig` and its includes) or your
   project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or `.cargo/config.toml`
   holds a password or a token for a host, efr blocks that host for sandboxed commands
-  of that project and says why. Move the token to a file that the sandbox hides, such
-  as `~/.npmrc`.
+  and says why. Your git config counts also for a command outside a project. Move the
+  token to a file that the sandbox hides, such as `~/.npmrc`.
 - With `network.mode = "proxy"`, `efr sandbox check` warns about each
   `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
   allowed hosts.

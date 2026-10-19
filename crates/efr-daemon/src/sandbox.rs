@@ -888,8 +888,7 @@ impl SandboxService {
                 // its host through the proxy (DP25).
                 let mut dirs = roots.clone();
                 dirs.push(call.shell_cwd.clone().unwrap_or_else(|| call.cwd.clone()));
-                let denied =
-                    proxy::tokens::denied(&self.inner.git, &self.inner.home, &dirs, &roots).await;
+                let denied = proxy::tokens::denied(&self.inner.git, &self.inner.home, &dirs).await;
                 policy.deny = denied.hosts;
                 notes.extend(denied.notes);
                 let bound = self
