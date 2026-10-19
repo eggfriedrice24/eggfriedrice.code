@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use efr_protocol::{ExitKind, ExitSource, Grant, Mode, Origin, Scope};
 
+use crate::always::{self, AllowFloor, AllowRule, AlwaysVerdict};
 use crate::command::{self, SimpleCommand};
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 use crate::exits::{self, Approver, Envelope, ExitInput, ExitNeed, PathFacts, Rebuild};
@@ -93,6 +94,9 @@ pub struct Engine {
     support: AutoSupport,
     /// The host list of efr's proxy (phase D2). Nothing reads it yet.
     hosts: Arc<HostList>,
+    /// The always-allow rules of `sandbox.allow` (phase E), in the file's order, each
+    /// with the floor that disables it.
+    allow: Arc<[(AllowRule, Option<AllowFloor>)]>,
 }
 
 /// The machine policy of one mode, and how many of its rules are built in.
@@ -122,6 +126,7 @@ impl Engine {
             locations,
             support: AutoSupport::default(),
             hosts: Arc::default(),
+            allow: Arc::new([]),
         }
     }
 
@@ -152,6 +157,71 @@ impl Engine {
         &self.hosts
     }
 
+    /// The engine with the always-allow rules of `sandbox.allow` (phase E, efr's auto
+    /// spec 11.2). Each rule goes through [`Engine::check_allow`] against this engine's
+    /// locations and host list, so the daemon sets the rules last; a rule that fails a
+    /// floor check stays in the list, disabled with its reason ([`AllowFloor`]), and
+    /// never covers a call. It never fails for a floor (DE44): a rule can turn bad with
+    /// no edit, such as when a new project or a new dotfile link appears.
+    #[must_use]
+    pub fn with_allow(mut self, rules: Vec<AllowRule>) -> Self {
+        let checked: Vec<(AllowRule, Option<AllowFloor>)> = rules
+            .into_iter()
+            .map(|rule| {
+                let disabled = self.check_allow(&rule).err();
+                (rule, disabled)
+            })
+            .collect();
+        self.allow = checked.into();
+        self
+    }
+
+    /// The floor check of one always-allow rule (DE23 to DE25, efr's auto spec 11.3),
+    /// the same that [`Engine::with_allow`] runs: its shape, then what its kind may never
+    /// name. A `host` rule may not name a host that `network.deny` holds. A `write` rule
+    /// may not name `~` or a dir above it or outside it, a secret, efr's config or own
+    /// dirs, a mask, a synced folder, a git dir, a floor or a dir below one, a dir above a
+    /// built-in floor of the home directory (such as `~/.config`), a write root or a dir
+    /// above one, or a dir that holds more than one project. A `socket` rule may not name
+    /// a service manager's or a container engine's socket, a bus, a credential agent, a
+    /// desktop socket, a socket in a write root, a mask, a secret or efr's own dirs. The
+    /// daemon calls it before it writes a rule (DE26).
+    pub fn check_allow(&self, rule: &AllowRule) -> Result<(), AllowFloor> {
+        always::check(rule, &self.locations, &self.hosts)
+    }
+
+    /// The always-allow rules, in the file's order, each with `None` or the floor that
+    /// disables it.
+    pub fn allow_rules(&self) -> &[(AllowRule, Option<AllowFloor>)] {
+        &self.allow
+    }
+
+    /// Whether an always-allow rule covers every exit of `decision`, the decision of a
+    /// shell call in a turn whose project root is `project` (DE20).
+    ///
+    /// Only a decision of an `auto` shell call that asks for its exits alone, each a
+    /// `host`, `write` or `socket` exit that the classifier judges on its own, that runs
+    /// in the sandbox with narrow grants (one host and port through efr's proxy, a
+    /// contained write bind, one socket) and that no delete in a cache made, may give
+    /// `Covered` or `Offer`. Every write and socket grant needs its real path from the
+    /// call's facts ([`CallFacts::real_paths`](crate::CallFacts)): a grant with no fact,
+    /// a socket that is a link or lies in a write root, a dir grant with a floor, a
+    /// synced folder or a registered project at or below it (also a floor that does not
+    /// exist yet), and a grant that a user's `deny` or `ask` rule names, are never
+    /// covered, and no rule is offered for them. One rule must cover every exit:
+    /// `Covered` names the first that does. Else `Offer` holds the rule that an `a`
+    /// answer would save, which passes [`Engine::check_allow`].
+    pub fn always(&self, decision: &Decision, project: Option<&Path>) -> AlwaysVerdict {
+        let machine = &self.auto;
+        let machine = always::Machine {
+            locations: &self.locations,
+            hosts: &self.hosts,
+            allow: &self.allow,
+            user_rules: machine.policy.rules().get(machine.built_in..).unwrap_or_default(),
+        };
+        always::verdict(&machine, decision, project)
+    }
+
     /// An engine that decides by `policy` alone in every mode, with no built-in rule,
     /// for tests of what happens when no rule matches.
     #[cfg(test)]
@@ -164,6 +234,7 @@ impl Engine {
             auto: machine,
             support: AutoSupport::default(),
             hosts: Arc::default(),
+            allow: Arc::new([]),
         }
     }
 
@@ -385,7 +456,13 @@ impl Engine {
             (Some(input), true) => exits::notes(input),
             _ => Vec::new(),
         };
-        Decision::from_reasons(reasons).with_notes(notes)
+        // NOTE: the always-allow matcher reads the real paths of a shell call's grants
+        // (phase E); a file tool's decision never has them, so no rule covers it.
+        let real_paths = match (&requirements.facts, auto && shell) {
+            (Some(facts), true) => facts.real_paths.clone(),
+            _ => Vec::new(),
+        };
+        Decision::from_reasons(reasons).with_notes(notes).with_real_paths(real_paths)
     }
 
     /// True when `efr undo` can bring back every file that a file tool call of

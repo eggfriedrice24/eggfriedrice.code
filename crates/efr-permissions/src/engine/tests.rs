@@ -1,5 +1,6 @@
 //! Decision tables: inputs as literals, one expected effect per row.
 
+mod always;
 mod auto;
 mod commands;
 mod coverage;

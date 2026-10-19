@@ -333,7 +333,42 @@ Modules:
   (`PermissionsError::AllowRule` with an `AllowRuleProblem`): one ASCII host name that
   is no pattern, IP address or `localhost`, a port above 0, and paths that are absolute
   or below `~/` with no `.` or `..` part. `CallFacts::real_paths` gives the real path of
-  each write grant path and named socket of a call (`FactRequest::real_paths`).
+  each write grant path and named socket of a call (`FactRequest::real_paths`: each
+  path that the line, `needs.write` or a declared write writes below `~`, with its
+  parents below `~`, and each socket of `needs.sockets`).
+
+  `Engine::with_allow` checks each rule against the engine's locations and host list
+  (`Engine::check_allow`, `always/check.rs`), so the daemon sets the rules last. A rule
+  that fails is kept, disabled with its `AllowFloor`, and never covers a call: it never
+  fails the engine, because a rule can turn bad with no edit (a new project, a new
+  dotfile link). `Engine::allow_rules` lists the rules with their marks. A `host` rule
+  may not name a host of `network.deny`. A `write` rule may not name `~`, a dir above or
+  outside it, a secret, efr's config or own dirs, a mask, a synced folder, a git dir, a
+  floor or a dir below one, a dir above a built-in floor of the home directory (such
+  as `~/.config`), a write root or a dir above one, or a dir of more than one project. A
+  `socket` rule may not name the socket of a service manager or a container engine, a
+  path below `$XDG_RUNTIME_DIR/systemd/`, a bus, a credential agent, a desktop socket, a
+  socket in a real write root, a mask, a secret or efr's own dirs.
+
+  `Engine::always(decision, project)` gives the `AlwaysVerdict` of one call
+  (`always/cover.rs`): `Covered { index }` when one enabled rule covers every exit of
+  the call, else `Offer(rule)` with the rule that an `a` answer would save (it passes
+  `check_allow` and covers the call), else `None`. Only an `auto` shell call whose only
+  deciding reasons are its exits may be covered, and only when each exit is a `host`,
+  `write` or `socket` exit that the classifier judges on its own, runs in the sandbox,
+  holds only narrow grants (one `Grant::Host`, a contained `Grant::Write` bind that is
+  no `ExitChild`, one `Grant::Socket`) and comes from no cache delete. So privilege,
+  persistence, upload, desktop, masked-read, synced, above-root and outside exits, the
+  bus and `OpenNetwork` are never covered. The apply checks: every write and socket
+  grant needs its real path from the facts; a `write` rule covers a bind whose real path
+  lies at or below its dir (and only in turns of its `project`, when it names one); a
+  dir bind (`Target`, `Parent`, `MakeDir`) with a floor, a synced folder or a registered
+  project at or below it, also one that does not exist yet, is never covered, while a
+  file bind (`TargetOnly`, `MakeFile`) stays eligible; a socket that is a link or lies in
+  a write root is never covered; and a user `deny` or `ask` rule for writes that names a
+  grant path, a path below it or a dir above it (or `network` of every call, for a
+  host) leaves the call to the classifier. A phone turn runs as `cautious`, which has no
+  exits, so it never uses a rule.
 
 ## Tier
 

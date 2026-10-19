@@ -68,7 +68,7 @@ mod request;
 mod support;
 mod tables;
 
-pub use always::AllowRule;
+pub use always::{AllowFloor, AllowRule, AlwaysVerdict};
 pub use bus::{BusFilter, BusRule, check_rules};
 pub use command::Construct;
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};

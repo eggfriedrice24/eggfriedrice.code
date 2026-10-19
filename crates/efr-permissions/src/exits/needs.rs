@@ -178,7 +178,7 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNee
 /// The desktop of a socket path that the model names: an X11 socket in
 /// `/tmp/.X11-unix`, a Wayland socket (`wayland-*`), sway's (`sway-ipc*`), i3's
 /// (`i3/ipc-socket*`), one of Hyprland's (below a `hypr` dir) or niri's (`niri*`).
-fn named_desktop(path: &Path, name: &str) -> Option<DesktopKind> {
+pub(crate) fn named_desktop(path: &Path, name: &str) -> Option<DesktopKind> {
     let text = path.to_string_lossy();
     Some(if text.starts_with("/tmp/.X11-unix/") {
         DesktopKind::X11
@@ -208,7 +208,7 @@ const AGENT_WORDS: &[&str] = &["agent", "ssh", "gnupg", "gpg", "keyring", "gcr",
 /// `/run/user/1000/ssh-agent.socket` or `~/.1password/agent.sock`. A word counts in any
 /// case, inside a longer name, so a socket of another program can ask too; that only
 /// adds a question.
-pub(super) fn is_credential_agent(path: &Path, locations: &crate::Locations) -> bool {
+pub(crate) fn is_credential_agent(path: &Path, locations: &crate::Locations) -> bool {
     if locations.credential_sockets().iter().any(|known| known == path) {
         return true;
     }
