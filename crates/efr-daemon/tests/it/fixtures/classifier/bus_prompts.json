@@ -1,0 +1,89 @@
+[
+  {
+    "prompt": "what is the hostname of this machine?",
+    "input": { "command": "hostnamectl" },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "launch": { "kind": "contained", "grants": [{ "kind": "bus_filter", "bus": "system" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "which services failed?",
+    "input": { "command": "systemctl --failed --no-pager" },
+    "reviewer": null,
+    "expect": {
+      "judged": [],
+      "asked": false,
+      "exits": [],
+      "launch": { "kind": "contained", "grants": [{ "kind": "bus_filter", "bus": "system" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "restart nginx",
+    "input": { "command": "systemctl restart nginx" },
+    "reviewer": null,
+    "expect": {
+      "judged": [["user", "deny"]],
+      "asked": true,
+      "exits": ["privilege"],
+      "launch": { "kind": "unsandboxed" },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "enable and start my myagent service",
+    "input": { "command": "systemctl --user enable --now myagent.service" },
+    "files": {
+      ".config/systemd/user/myagent.service": "[Unit]\nDescription=my agent\n\n[Service]\nExecStart=/usr/bin/true\n\n[Install]\nWantedBy=default.target\n"
+    },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "medium",
+      "user_authorization": "high",
+      "category": "persistence",
+      "rationale": "The user asked to enable and start the myagent service."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "exits": ["persistence"],
+      "launch": { "kind": "unsandboxed" },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "send me a notification when the build is done",
+    "input": { "command": "notify-send 'build done'" },
+    "reviewer": {
+      "verdict": "allow",
+      "risk": "low",
+      "user_authorization": "high",
+      "category": "fits the request",
+      "rationale": "The user asked for a desktop notification."
+    },
+    "expect": {
+      "judged": [["classifier", "allow"]],
+      "asked": false,
+      "exits": ["bus"],
+      "launch": { "kind": "contained", "grants": [{ "kind": "bus", "bus": "session" }] },
+      "max_minutes": null
+    }
+  },
+  {
+    "prompt": "write the date into ~/notes/today.txt",
+    "input": { "command": "date > ~/notes/today.txt" },
+    "reviewer": null,
+    "expect": {
+      "judged": [["always", "allow"]],
+      "asked": false,
+      "exits": ["write"],
+      "launch": { "kind": "contained", "grants": [{ "kind": "write", "path": "~/notes/today.txt" }] },
+      "max_minutes": null
+    }
+  }
+]
