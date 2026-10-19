@@ -489,7 +489,8 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     // facts were dropped (`--git-dir`, `-c`, a `GIT_*` variable, a
                     // `cd` first) or name no host (a local path, a transport that efr
                     // does not read), would pass the naming rule with nothing to check;
-                    // and a variable of the line can choose what it runs.
+                    // and a variable of the line can choose what it runs. With no facts
+                    // at all (no sandbox in efrd) the rule of phase A stays.
                     if need.kind == ExitKind::Upload
                         && let Some(rest) = remotes::git_push(command)
                     {
@@ -498,7 +499,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                         {
                             need.hosts.push(host);
                         }
-                        if need.hosts.is_empty() || ssh_env {
+                        if (need.hosts.is_empty() && input.facts.is_some()) || ssh_env {
                             need.approver = Approver::User;
                         }
                     }
