@@ -424,9 +424,14 @@ proptest property:
   has none), and on that machine with efr's proxy and the default allow list the phase
   D2 result (`pd2`, the phase D1 result where a row has none: the package fetches,
   `git fetch` and `git pull` with no remote fact, and a URL of a listed host run with
-  no exit); the `p1` column keeps the phase 1 result. A phase B result differs only
+  no exit), and on that machine with the filtered bus proxy the phase E result (`pe`,
+  the phase D2 result where a row has none: rows 8 to 11, the read forms of
+  `hostnamectl`, `systemctl` and `loginctl`, run with the view `Grant::BusFilter` and no
+  exit); the `p1` column keeps the phase 1 result. A phase B result differs only
   where the snapshot covers a destructive line, which becomes routine, and a phase D1
-  result only for `df`, which reads the mount view in the sandbox.
+  result only for `df`, which reads the mount view in the sandbox. With always rules
+  that name their resources, rows 79, 80, 85 and 89 still ask, and no rule covers them
+  (`corpus_79_80_85_89_ask_with_bus_proxy_and_rules`).
 - Every exit starts with the approver of its kind (`ExitKind::user_only`), and only
   the places of spec 9.1 relax it: every `write` goes to the classifier, also one that
   runs in the exit child; an `upload`, an `above_root` path that holds no second

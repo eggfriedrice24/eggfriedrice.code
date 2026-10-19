@@ -35,6 +35,11 @@
 #               exit, because the proxy decides them. The column holds the result word;
 #               the grants of a `host` exit under the proxy (`OpenNetwork` for line 67,
 #               `Grant::Host` for line 99) are asserted by named engine tests
+#   pe          the phase E result, in the words of `pa`, on the phase D2 machine with
+#               the filtered bus proxy (`bus_proxy`); only where it differs from `pd2`
+#               (else `pd`, else `pb`): a read form of a systemd tool runs with the view
+#               `Grant::BusFilter` of its bus and no exit. The view is asserted by named
+#               engine tests
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
@@ -124,6 +129,7 @@ line = "hostnamectl"
 p1 = "X(bus)"
 pa = "K(bus)"
 pb = "K(bus)"
+pe = "R"
 exits = ["bus"]
 
 [[line]]
@@ -132,6 +138,7 @@ line = "systemctl --failed --no-pager"
 p1 = "X(bus)"
 pa = "K(bus)"
 pb = "K(bus)"
+pe = "R"
 exits = ["bus"]
 
 [[line]]
@@ -140,6 +147,7 @@ line = "systemctl status nginx"
 p1 = "X(bus)"
 pa = "K(bus)"
 pb = "K(bus)"
+pe = "R"
 exits = ["bus"]
 reads = ["/home/u/p/efr/status", "/home/u/p/efr/nginx"]
 
@@ -149,6 +157,7 @@ line = "systemctl --user --failed"
 p1 = "X(bus)"
 pa = "K(bus)"
 pb = "K(bus)"
+pe = "R"
 exits = ["bus"]
 
 [[line]]
@@ -157,6 +166,7 @@ line = "loginctl list-sessions"
 p1 = "X(bus)"
 pa = "K(bus)"
 pb = "K(bus)"
+pe = "R"
 exits = ["bus"]
 reads = ["/home/u/p/efr/list-sessions"]
 
