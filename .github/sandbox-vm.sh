@@ -194,6 +194,17 @@ cmd_guest() {
     # default on as on Arch, so the tests show that the option reaches the kernel.
     echo Y >/sys/module/overlay/parameters/index
     say "overlay index $(cat /sys/module/overlay/parameters/index)"
+    # The filtered system bus of a call binds the call's socket at
+    # /run/dbus/system_bus_socket over a tmpfs on /run/dbus, so that dir must exist, as on
+    # a machine with a system bus. systemctl talks to a bus only when /run/systemd/system
+    # exists (sd_booted). The guest has neither; it makes both, and nothing listens there.
+    local place
+    for place in /run/dbus /run/systemd/system; do
+        if [[ ! -d "$place" ]]; then
+            mkdir -p "$place" || fail "the guest cannot make $place"
+        fi
+    done
+    say "bus mount points: /run/dbus /run/systemd/system"
     # The tests keep their fixtures below the target dir of the build
     # (CARGO_TARGET_TMPDIR) and below the workspace's target/tmp (efr-shell); in CI
     # the two are one dir.
