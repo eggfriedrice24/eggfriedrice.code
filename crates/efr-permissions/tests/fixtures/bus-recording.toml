@@ -1,0 +1,461 @@
+# The bus calls of the read forms of the filtered bus (phase E), recorded with the
+# recording relay of the phase E probe: each tool ran in bwrap with only the relay's
+# sockets as the system and the session bus. Every tool first sends
+# org.freedesktop.DBus.Hello to the bus driver; the proxy answers it itself, so it is
+# not listed.
+#
+# `bus_defaults_match_the_recording` (src/bus/tests.rs) checks this file against
+# DEFAULT_RULES in src/bus.rs, both ways:
+#
+# - [[call]]: one recorded call. `allow = true` means that the defaults of its bus must
+#   let it through; `allow = false` means that they must refuse it, and `why` says why.
+# - [[kept]]: a default rule that no recorded call uses, with the reason it is in the
+#   defaults. Every default rule must match an allowed call or be listed here.
+#
+# `systemd` is the systemd version of the recording. The systemd 255 rows (Ubuntu 24.04,
+# the CI image) come from the first CI run of the build branch.
+
+[[call]]
+tool = "hostnamectl"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.hostname1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/hostname1"
+allow = true
+
+[[call]]
+tool = "hostnamectl"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "hostnamectl"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.hostname1"
+member = "org.freedesktop.hostname1.GetProductUUID"
+path = "/org/freedesktop/hostname1"
+allow = false
+why = "polkit guards it; the real bus refuses it too"
+
+[[call]]
+tool = "hostnamectl"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.hostname1"
+member = "org.freedesktop.hostname1.GetHardwareSerial"
+path = "/org/freedesktop/hostname1"
+allow = false
+why = "polkit guards it; the real bus refuses it too"
+
+[[call]]
+tool = "systemctl --failed"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.ListUnitsByPatterns"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl list-units"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.ListUnitsByPatterns"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl status dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/systemd1/unit/dbus_2dbroker_2eservice"
+allow = true
+
+[[call]]
+tool = "systemctl status dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1/unit/dbus_2esocket"
+allow = true
+
+[[call]]
+tool = "systemctl status dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.GetUnitProcesses"
+path = "/org/freedesktop/systemd1"
+allow = false
+why = "it gives the command line of each process of the unit (DE34)"
+
+[[call]]
+tool = "systemctl status"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl status 1"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.GetUnitByPIDFD"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl is-active dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1/unit/dbus_2dbroker_2eservice"
+allow = true
+
+[[call]]
+tool = "systemctl is-enabled dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.GetUnitFileState"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl list-unit-files"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.ListUnitFilesByPatterns"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl list-timers"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1/unit/shadow_2etimer"
+allow = true
+
+[[call]]
+tool = "systemctl list-jobs"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.ListJobs"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl cat dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1/unit/dbus_2dbroker_2eservice"
+allow = true
+
+[[call]]
+tool = "systemctl cat dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.GetUnit"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl show dbus-broker.service"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/systemd1/unit/dbus_2dbroker_2eservice"
+allow = true
+
+[[call]]
+tool = "systemctl --user --failed"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.ListUnitsByPatterns"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "systemctl --user status pipewire.service"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/systemd1/unit/pipewire_2eservice"
+allow = true
+
+[[call]]
+tool = "systemctl --user status pipewire.service"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1/unit/pipewire_2esocket"
+allow = true
+
+[[call]]
+tool = "systemctl --user status pipewire.service"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.GetUnitProcesses"
+path = "/org/freedesktop/systemd1"
+allow = false
+why = "it gives the command line of each process of the unit (DE34)"
+
+[[call]]
+tool = "systemctl --user status"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/systemd1"
+allow = false
+why = "the user manager's Environment can hold tokens (DE35)"
+
+[[call]]
+tool = "systemctl --user show-environment"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1"
+allow = false
+why = "the user manager's Environment can hold tokens (DE35)"
+
+[[call]]
+tool = "systemctl --user is-enabled pipewire.service"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.systemd1.Manager.GetUnitFileState"
+path = "/org/freedesktop/systemd1"
+allow = true
+
+[[call]]
+tool = "loginctl list-sessions"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.login1.Manager.ListSessionsEx"
+path = "/org/freedesktop/login1"
+allow = true
+
+[[call]]
+tool = "loginctl list-users"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.login1.Manager.ListUsers"
+path = "/org/freedesktop/login1"
+allow = true
+
+[[call]]
+tool = "loginctl list-users"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/login1/user/_1000"
+allow = true
+
+[[call]]
+tool = "loginctl list-seats"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.login1.Manager.ListSeats"
+path = "/org/freedesktop/login1"
+allow = true
+
+[[call]]
+tool = "loginctl show-session 1"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.login1.Manager.GetSession"
+path = "/org/freedesktop/login1"
+allow = true
+
+[[call]]
+tool = "loginctl show-session 1"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/login1/session/_31"
+allow = true
+
+[[call]]
+tool = "loginctl user-status"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.login1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/login1/user/self"
+allow = true
+
+[[call]]
+tool = "loginctl user-status"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.systemd1"
+member = "org.freedesktop.DBus.Properties.Get"
+path = "/org/freedesktop/systemd1/unit/user_2d1000_2eslice"
+allow = true
+
+[[call]]
+tool = "timedatectl"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.timedate1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/timedate1"
+allow = true
+
+[[call]]
+tool = "timedatectl timesync-status"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.timesync1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/timesync1"
+allow = true
+
+[[call]]
+tool = "localectl"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.locale1"
+member = "org.freedesktop.DBus.Properties.GetAll"
+path = "/org/freedesktop/locale1"
+allow = true
+
+[[call]]
+tool = "busctl introspect org.freedesktop.hostname1 /org/freedesktop/hostname1"
+systemd = 262
+bus = "system"
+name = "org.freedesktop.hostname1"
+member = "org.freedesktop.DBus.Introspectable.Introspect"
+path = "/org/freedesktop/hostname1"
+allow = false
+why = "busctl is no read form of the filter; it keeps its bus exit"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.hostname1"
+call = "org.freedesktop.DBus.Properties.Get@/org/freedesktop/hostname1"
+why = "the one-property form of the recorded GetAll"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.DBus.Properties.Get@/org/freedesktop/systemd1"
+why = "the one-property form of the recorded GetAll"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.ListUnits@/org/freedesktop/systemd1"
+why = "the older form of ListUnitsByPatterns"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.ListUnitFiles@/org/freedesktop/systemd1"
+why = "the older form of ListUnitFilesByPatterns"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.login1"
+call = "org.freedesktop.login1.Manager.GetUser@/org/freedesktop/login1"
+why = "loginctl show-user and user-status with a user name"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.login1"
+call = "org.freedesktop.login1.Manager.GetSeat@/org/freedesktop/login1"
+why = "loginctl show-seat and seat-status"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.login1"
+call = "org.freedesktop.DBus.Properties.Get@/org/freedesktop/login1/*"
+why = "the one-property form of the recorded GetAll"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.timedate1"
+call = "org.freedesktop.DBus.Properties.Get@/org/freedesktop/timedate1"
+why = "the one-property form of the recorded GetAll"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.locale1"
+call = "org.freedesktop.DBus.Properties.Get@/org/freedesktop/locale1"
+why = "the one-property form of the recorded GetAll"
+
+[[kept]]
+bus = "system"
+name = "org.freedesktop.timesync1"
+call = "org.freedesktop.DBus.Properties.Get@/org/freedesktop/timesync1"
+why = "the one-property form of the recorded GetAll"
+
+[[kept]]
+bus = "session"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.ListUnits@/org/freedesktop/systemd1"
+why = "the same Manager read set as the system bus"
+
+[[kept]]
+bus = "session"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.ListUnitFiles@/org/freedesktop/systemd1"
+why = "the same Manager read set as the system bus"
+
+[[kept]]
+bus = "session"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.ListUnitFilesByPatterns@/org/freedesktop/systemd1"
+why = "the same Manager read set as the system bus"
+
+[[kept]]
+bus = "session"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.GetUnit@/org/freedesktop/systemd1"
+why = "the same Manager read set as the system bus"
+
+[[kept]]
+bus = "session"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.GetUnitByPIDFD@/org/freedesktop/systemd1"
+why = "the same Manager read set as the system bus"
+
+[[kept]]
+bus = "session"
+name = "org.freedesktop.systemd1"
+call = "org.freedesktop.systemd1.Manager.ListJobs@/org/freedesktop/systemd1"
+why = "the same Manager read set as the system bus"
