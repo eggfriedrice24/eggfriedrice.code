@@ -7,7 +7,11 @@
 //! it), and fails when the `tmp` mode cannot start every call. A second test reports
 //! the cost of a job's start. `launch cost proxy` reports the cost of a call with a
 //! proxy plan, whose bridge takes two more spawns and a ready byte per call.
+//! `launch cost downloads` reports the cost of the `tmp` mode when the download caches
+//! keep their layer for the conversation (`sandbox.keep_downloads`, DP27 of the phase
+//! D2 plan).
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -31,6 +35,14 @@ const CACHES: &[&str] = &[
     ".m2/repository",
     ".gradle/caches",
 ];
+
+/// The narrow set of kept download caches of the spec's section 8.7, at the unit of
+/// the cache table: the cargo and npm caches.
+const DOWNLOADS_NARROW: &[&str] = &[".cargo", ".npm"];
+
+/// The wide set of kept download caches: `efr_config::DOWNLOAD_CACHES` at most.
+const DOWNLOADS_WIDE: &[&str] =
+    &[".cargo", "go/pkg/mod", ".npm", ".bun/install/cache", ".local/share/pnpm/store"];
 
 /// The gate's limit on the p95 launch cost.
 const GATE: Duration = Duration::from_millis(10);
@@ -236,6 +248,105 @@ fn launch_cost_proxy() {
         ms(p95(1).saturating_sub(p95(0)))
     ));
     say(&format!("gate: proxy {}", if cost <= GATE { "passes" } else { "fails" }));
+}
+
+/// The cost of the `tmp` mode with kept download caches (DP27): the 9 caches of the
+/// spec, of which none, the two of [`DOWNLOADS_NARROW`] or the five of
+/// [`DOWNLOADS_WIDE`] keep their layer for the conversation, as `overlay` mode layers
+/// with the layer lock; the rest stay `tmp`. A report of three series, `launch cost
+/// tmp`, `launch cost downloads narrow` and `launch cost downloads`, whose calls take
+/// turns. 100 calls each, 1000 with `EFR_TEST_SBX_GATE=1`. Each gate line compares the
+/// p95 without the child shell with the launch gate and counts the setup failures; the
+/// default of `sandbox.keep_downloads` follows from them, so a fail is a report, not a
+/// failed test.
+#[test]
+fn launch_cost_downloads() {
+    let ready = sandbox_or_skip!();
+    let gate = env_var("EFR_TEST_SBX_GATE").is_some_and(|value| value == "1");
+    let calls = if gate { 1000 } else { 100 };
+    let mut fixtures = Vec::new();
+    for kept in [&[][..], DOWNLOADS_NARROW, DOWNLOADS_WIDE] {
+        let mut fixture = Fixture::new(&ready);
+        for cache in CACHES {
+            let path = fixture.home.join(cache);
+            fs::create_dir_all(&path).unwrap();
+            fixture.cache(&path);
+        }
+        fixture.spec.cache_mode = CacheMode::Tmp;
+        for cache in &mut fixture.spec.caches {
+            cache.keep = kept.iter().any(|name| cache.target == fixture.home.join(name));
+        }
+        let count = fixture.spec.caches.iter().filter(|cache| cache.keep).count();
+        assert_eq!(count, kept.len());
+        fixtures.push(fixture);
+    }
+    let mut series: Vec<Vec<Duration>> = vec![Vec::with_capacity(calls); fixtures.len()];
+    let mut failures: Vec<Vec<String>> = vec![Vec::new(); fixtures.len()];
+    let mut phases: Vec<BTreeMap<String, Vec<u64>>> = vec![BTreeMap::new(); fixtures.len()];
+    for _ in 0..calls {
+        let each = fixtures.iter().zip(&mut series).zip(&mut failures).zip(&mut phases);
+        for (((fixture, costs), failed), steps) in each {
+            let call_dir = fixture.prepare("true");
+            let command = fixture.command(&call_dir, &fixture.project);
+            let start = Instant::now();
+            let ended = run_with_timeout(command);
+            let spent = start.elapsed();
+            let run = fixture.collect(&call_dir, ended);
+            if let Some(error) = &run.result().setup_error {
+                failed.push(error.clone());
+                continue;
+            }
+            run.expect_status(0);
+            costs.push(spent);
+            for timing in &run.result().timings {
+                steps.entry(timing.phase.clone()).or_default().push(timing.us);
+            }
+        }
+    }
+    let children = child_shell(&Fixture::new(&ready));
+    let names = [
+        "launch cost tmp (9 tmp overlays)",
+        "launch cost downloads narrow (2 kept, 7 tmp)",
+        "launch cost downloads (5 kept, 4 tmp)",
+    ];
+    let mut p95s = Vec::new();
+    for ((name, costs), steps) in names.into_iter().zip(series).zip(&mut phases) {
+        p95s.push(report(name, costs).1);
+        // Where the time goes: the launcher's steps at their median.
+        let medians: Vec<String> = steps
+            .iter_mut()
+            .map(|(phase, us)| {
+                us.sort_unstable();
+                let at = us.len() / 2;
+                format!("{phase} {:.2}", us.get(at).copied().unwrap_or_default() as f64 / 1000.0)
+            })
+            .collect();
+        say(&format!("  steps at p50 in ms: {}", medians.join(", ")));
+    }
+    let (child_p50, _) = report("the child shell alone", children);
+    let ms = |cost: Duration| cost.as_secs_f64() * 1000.0;
+    for ((name, p95), failed) in
+        ["tmp", "downloads narrow", "downloads"].iter().zip(&p95s).zip(&failures)
+    {
+        let cost = p95.saturating_sub(child_p50);
+        let passes = cost <= GATE && failed.is_empty();
+        say(&format!(
+            "launch cost {name} at p95 without the child shell: {:.2} ms, {} setup failures in \
+             {calls} calls{}; gate: {}",
+            ms(cost),
+            failed.len(),
+            failed.first().map(|error| format!(" (first: {error})")).unwrap_or_default(),
+            if passes { "passes" } else { "fails" }
+        ));
+    }
+    let tmp = p95s.first().copied().unwrap_or_default();
+    say(&format!(
+        "the kept layers add at p95: {:.2} ms (narrow), {:.2} ms (five)",
+        ms(p95s.get(1).copied().unwrap_or_default().saturating_sub(tmp)),
+        ms(p95s.get(2).copied().unwrap_or_default().saturating_sub(tmp))
+    ));
+    let tmp_failures = failures.first().cloned().unwrap_or_default();
+    assert!(tmp_failures.is_empty(), "the tmp cache mode failed to start: {tmp_failures:?}");
 }
 
 /// The cost of a call with the network view: no network namespace of its own, the
