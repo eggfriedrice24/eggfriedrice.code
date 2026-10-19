@@ -74,9 +74,11 @@ pub enum Ecosystem {
 
 /// The registry hosts of each ecosystem: a view of the network presets of spec 8.3
 /// ([`Preset::hosts`]), so the presets are the one source of these hosts. The pacman
-/// mirrors depend on the machine, so this table has none: the mirror list parser is
-/// [`crate::network::parse_pacman`], and until efrd reads the files (phase D2) the
-/// `Pacman` exception has no hosts.
+/// mirrors depend on the machine, so this table has none, and the `Pacman` exception
+/// has no hosts: efrd reads the mirror list ([`crate::network::parse_pacman`]) into
+/// the proxy's host list for `@pacman-mirrors`, so under the proxy a listed mirror
+/// needs no review at all, and any other mirror host still needs a user message that
+/// names it. This is stricter than DP4, which gave the exception the mirror hosts.
 ///
 /// The classifier's naming rule lets a `host` exit of a package manager's fetch reach
 /// these hosts without a user message that names them, when a user message asks to
