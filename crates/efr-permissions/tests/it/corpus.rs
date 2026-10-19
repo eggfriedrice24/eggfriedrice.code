@@ -2,7 +2,9 @@
 //! gets the phase A result of its `pa` column, on a machine with undo the phase B
 //! result of its `pb` column, and on a machine with the network view and the mount view
 //! the phase D1 result of its `pd` column, which is the `pb` result where the line has
-//! none (`tests/fixtures/auto-corpus.toml`). The `p1` column keeps the phase 1 result
+//! none (`tests/fixtures/auto-corpus.toml`). With efr's network proxy it gets the phase
+//! D2 result of `pd2`, and with the filtered bus proxy the phase E result of `pe`, each
+//! the earlier result where the line has none. The `p1` column keeps the phase 1 result
 //! of spec Appendix A.
 
 use std::collections::BTreeSet;
@@ -11,11 +13,12 @@ use std::sync::Arc;
 
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
-    Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, CoverAsk, Coverage, Decision,
-    DecisionInput, Effect, Egress, Engine, HostList, Locations, Policy, Preset, RemoteFact,
-    RemoteUrl, Requirements, SettingsChange, Source, SourceFact, TargetKind,
+    AllowRule, AlwaysVerdict, Approver, AutoSupport, CallFacts, Cause, ConversationPolicy,
+    CoverAsk, Coverage, Decision, DecisionInput, Effect, Egress, Engine, HostList, Locations,
+    Policy, Preset, RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact,
+    TargetKind,
 };
-use efr_protocol::{ExitKind, Mode, Origin, ProjectId, Scope};
+use efr_protocol::{BusKind, ExitKind, Grant, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
 
@@ -47,6 +50,9 @@ struct Line {
     /// The phase D2 result, when it differs from the phase D1 result.
     #[serde(default)]
     pd2: Option<String>,
+    /// The phase E result, when it differs from the phase D2 result.
+    #[serde(default)]
+    pe: Option<String>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -144,6 +150,17 @@ fn pd2_engine() -> Engine {
 /// The phase D2 result of `line`: its `pd2` column, else its phase D1 result.
 fn pd2(line: &Line) -> &str {
     line.pd2.as_deref().unwrap_or_else(|| pd(line))
+}
+
+/// The machine of phase E: the phase D2 machine with the filtered bus proxy.
+fn pe_engine() -> Engine {
+    let support = AutoSupport { bus_proxy: true, ..*pd2_engine().support() };
+    pd2_engine().with_support(support)
+}
+
+/// The phase E result of `line`: its `pe` column, else its phase D2 result.
+fn pe(line: &Line) -> &str {
+    line.pe.as_deref().unwrap_or_else(|| pd2(line))
 }
 
 /// The machine of the fixture's header, whose sandbox supports `support`.
@@ -323,6 +340,17 @@ fn remote_facts(words: &[String]) -> Vec<(PathBuf, Vec<RemoteFact>)> {
     vec![(PathBuf::from(PROJECT), remotes)]
 }
 
+/// The decision input of `line` in a turn of the project, with the facts of phase B.
+fn input(line: &Line) -> DecisionInput {
+    DecisionInput {
+        requirements: requirements(line, true),
+        scope: Scope::Project(id(1)),
+        origin: Origin::Shell,
+        mode: Mode::Auto,
+        conversation_policy: ConversationPolicy::new(SCRATCH),
+    }
+}
+
 /// The lines of the corpus whose result on `engine` is not the one of `column`, each
 /// with what it found. A line that runs with no exit (`R` or `C`) must have none; any
 /// other line must have the exits of the fixture.
@@ -456,6 +484,99 @@ fn routine_lines_stay_routine_in_phase_d2() {
             assert_ne!(pd2, pd(line), "line {}: a `pd2` that equals `pd` says nothing", line.n);
             assert!(matches!(pd2.as_str(), "R" | "C"), "line {} {:?}", line.n, line.line);
             assert_eq!(pd(line), "K(host)", "line {} {:?}", line.n, line.line);
+        }
+    }
+}
+
+#[test]
+fn pe_corpus_rows_match() {
+    assert_eq!(mismatches(&pe_engine(), true, pe), Vec::<String>::new());
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let changed: BTreeSet<u32> =
+        corpus.line.iter().filter(|line| line.pe.is_some()).map(|line| line.n).collect();
+    assert_eq!(changed, BTreeSet::from([8, 9, 10, 11]), "rows 8 to 11 become routine");
+    // Each of them reads the filtered bus of its view.
+    let engine = pe_engine();
+    for line in corpus.line.iter().filter(|line| line.pe.is_some()) {
+        let decision = engine.decide(&input(line));
+        let bus = if line.line.as_deref().is_some_and(|text| text.contains("--user")) {
+            BusKind::Session
+        } else {
+            BusKind::System
+        };
+        let views: Vec<&Grant> = decision.view_grants().collect();
+        assert_eq!(views, [&Grant::BusFilter { bus }], "line {} {:?}", line.n, line.line);
+    }
+}
+
+#[test]
+fn routine_lines_stay_routine_in_phase_e() {
+    // A line that runs with no exit in phase D2 makes no exit in phase E either; phase E
+    // only takes `bus` exits away, where a read form reads the filtered bus.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        if matches!(pd2(line), "R" | "C") {
+            assert_eq!(pe(line), pd2(line), "line {} {:?}", line.n, line.line);
+        }
+        if let Some(pe) = &line.pe {
+            assert_ne!(pe, pd2(line), "line {}: a `pe` that equals `pd2` says nothing", line.n);
+            assert_eq!(pe, "R", "line {} {:?}", line.n, line.line);
+            assert_eq!(pd2(line), "K(bus)", "line {} {:?}", line.n, line.line);
+        }
+    }
+}
+
+/// Always rules that name the resources of the corpus lines that must still ask (79,
+/// 80, 85, 89), and some that a line could match.
+fn named_rules() -> Vec<AllowRule> {
+    let socket = |path: &str| AllowRule::Socket { path: path.to_owned() };
+    let write = |under: &str| AllowRule::Write { under: under.to_owned(), project: None };
+    vec![
+        socket("/run/dbus/system_bus_socket"),
+        socket("/run/user/1000/systemd/private"),
+        socket("/run/systemd/private"),
+        write("~/.config/systemd/user"),
+        write("~/.local/share/systemd"),
+        write("~/notes"),
+        write("~/Documents"),
+        AllowRule::Host { host: "example.com".to_owned(), port: 443 },
+        AllowRule::Host { host: "github.com".to_owned(), port: 443 },
+    ]
+}
+
+#[test]
+fn corpus_79_80_85_89_ask_with_bus_proxy_and_rules() {
+    let engine = pe_engine().with_allow(named_rules());
+    let disabled: Vec<bool> =
+        engine.allow_rules().iter().map(|(_, floor)| floor.is_some()).collect();
+    assert_eq!(disabled, [true, true, true, true, true, false, false, false, false]);
+    assert_eq!(mismatches(&engine, true, pe), Vec::<String>::new());
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        let decision = engine.decide(&input(line));
+        let verdict = engine.always(&decision, Some(PROJECT.as_ref()));
+        if [79, 80, 85, 89].contains(&line.n) {
+            assert_eq!(decision.effect(), Effect::Ask, "line {} {:?}", line.n, line.line);
+            assert_eq!(verdict, AlwaysVerdict::None, "line {} {:?}", line.n, line.line);
+        }
+        // A covered or offered line asks only for exits that a rule may cover.
+        if verdict != AlwaysVerdict::None {
+            for need in decision.exits() {
+                assert!(
+                    matches!(need.kind, ExitKind::Host | ExitKind::Write | ExitKind::Socket)
+                        && need.approver == Approver::Classifier
+                        && !need.runs_unsandboxed()
+                        && need.grants.iter().all(|grant| {
+                            matches!(
+                                grant,
+                                Grant::Host { .. } | Grant::Write { .. } | Grant::Socket { .. }
+                            )
+                        }),
+                    "line {} {:?}: {need:?}",
+                    line.n,
+                    line.line
+                );
+            }
         }
     }
 }
