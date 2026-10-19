@@ -161,9 +161,10 @@ Modules:
   grant. A desktop socket that the model names in `needs.sockets` gets the grant of
   its desktop, never its path, and only the user approves it. `nmcli` and `iwctl` ask
   NetworkManager and iwd on the system bus, so they are `bus` exits with
-  `Grant::Bus { bus: System }`: the classifier judges their read forms, such as
-  `nmcli device status` and `iwctl station wlan0 show`, and only the user approves
-  every other form, such as `nmcli radio wifi off`.
+  `Grant::Bus { bus: System }`, also with the filtered bus proxy of phase E: the
+  classifier judges their read forms, such as `nmcli device status` and
+  `iwctl station wlan0 show`, and only the user approves every other form, such as
+  `nmcli radio wifi off`.
   The `rustup` forms that install (`toolchain install`, `install`, `update`,
   `target add`, `component add`, `self update`) are `outside` exits, because in the
   sandbox they write only the private layer of `~/.rustup`. The install puts programs
@@ -201,6 +202,29 @@ Modules:
   layer: a NetView call can run any code, and its seccomp profile, Landlock rights and
   the refusal of `listen` carry the whole load. `iw`, `ifconfig`, `netstat`, the
   write forms of `ip` and any line that does more stay `host_view` exits.
+
+  From phase E, on a machine that runs the filtered bus proxy
+  (`AutoSupport::bus_proxy`), `exits::views` also gives `Grant::BusFilter { bus }`,
+  the call's own filtered bus, to a line with at least one read form of a systemd tool,
+  in any place of the line (after `;`, `&&`, `|`, behind a wrapper): `systemctl` and
+  `systemctl --user` with no verb or with `status`, `list-units`, `list-unit-files`,
+  `list-sockets`, `list-timers`, `list-jobs`, `list-dependencies`, `is-active`,
+  `is-failed`, `is-enabled`, `show` or `cat`; `loginctl` with no verb or a verb that only
+  reports (`list-sessions`, `show-session`, `user-status` and the rest); `hostnamectl`,
+  `timedatectl` and `localectl` with no verb, `status` or `show`, and `timedatectl
+  timesync-status` and `show-timesync`. These are the forms whose recorded bus methods
+  all lie in the proxy's default rules (`bus`). A form with `-H`, `--host`, `-M`,
+  `--machine`, `--root`, `--image` or `--image-policy` (also a prefix of a long option
+  or a cluster of short ones), or a word that only the shell can read, is no read form.
+  `predict` then finds no `bus` exit for the read form, and the view's reason is
+  `Contain`. Every other bus form keeps its `bus` exit and approver: the other read
+  verbs of `systemctl`, `systemctl --user start` and the like, `resolvectl`,
+  `coredumpctl`, `busctl`, `gdbus`, `notify-send`, `nmcli` and `iwctl`, and the model's
+  `needs.bus`. The rule is a fit, not a security layer: `systemctl --failed; ./x.sh`
+  gives the script the same filtered bus, and the proxy's rules carry the load. A view
+  is no exit, so `job_refusal` never sees it: a job reads its own filtered bus. The
+  conversation drops the bus view beside the network view and beside an approved
+  `Grant::Bus` of the same bus.
 - `jobs` (phase C): `job_refusal` names the exits that no background job may hold, in
   every mode and whatever the user answers: `privilege`, `masked_read`, `persistence`,
   a `desktop_ipc` form that types or starts programs, the whole message bus, and the

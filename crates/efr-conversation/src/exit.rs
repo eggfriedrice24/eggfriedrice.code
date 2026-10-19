@@ -153,26 +153,38 @@ fn launch<'a>(
             }
         }
     }
-    let views: Vec<Grant> = views.filter(|view| view_fits(view, &grants)).cloned().collect();
+    // NOTE: each view is checked against the exit grants and the views that joined
+    // before it, so two views that do not fit each other never join one launch.
     for view in views {
-        if !grants.contains(&view) {
-            grants.push(view);
+        if !grants.contains(view) && view_fits(view, &grants) {
+            grants.push(view.clone());
         }
     }
     Launch::Contained { grants }
 }
 
-/// True when the view `view` may join a launch with the exit grants `grants`, as an
-/// allow list. `NetView` stays only beside `Write` and `Unmask` grants, which do not
-/// depend on the network namespace. With any other grant it drops: the NetView seccomp
-/// profile would fail the `socket()` of a network grant, and a device such as
-/// `/dev/net/tun` could send frames from the host's namespace with no `socket()` call.
+/// True when the view `view` may join a launch with the grants `grants` (the exits'
+/// grants and the views that joined before), as an allow list.
+///
+/// - `NetView` stays only beside `Write` and `Unmask` grants, which do not depend on
+///   the network namespace. With any other grant it drops: the NetView seccomp profile
+///   would fail the `socket()` of a network grant, and a device such as `/dev/net/tun`
+///   could send frames from the host's namespace with no `socket()` call.
+/// - `BusFilter` of a bus (phase E) stays beside every grant except `NetView` and a
+///   `Bus` grant of the same bus: an approved exit to the real bus of the call serves
+///   the line's reads too, and the sandbox spec refuses the pair.
+///
 /// A view that this build does not know never joins.
 fn view_fits(view: &Grant, grants: &[Grant]) -> bool {
     match view {
         Grant::NetView => {
             grants.iter().all(|grant| matches!(grant, Grant::Write { .. } | Grant::Unmask { .. }))
         }
+        Grant::BusFilter { bus } => grants.iter().all(|grant| match grant {
+            Grant::NetView => false,
+            Grant::Bus { bus: real } => real != bus,
+            _ => true,
+        }),
         _ => false,
     }
 }

@@ -25,6 +25,10 @@ pub(super) struct Found {
     /// The hosts that it reaches, for an `outside` exit of a remote shell or an ssh git
     /// URL; the caller adds the line's hosts to a `host` or `upload` exit.
     pub(super) hosts: Vec<String>,
+    /// True for a `bus` exit of a read form of [`bus_read`] (phase E): on a machine
+    /// with the filtered bus proxy it is no exit, and the line gets the view
+    /// `Grant::BusFilter` of its bus instead.
+    pub(super) bus_read: bool,
 }
 
 impl Found {
@@ -37,6 +41,7 @@ impl Found {
             approver,
             names: Vec::new(),
             hosts: Vec::new(),
+            bus_read: false,
         }
     }
 
@@ -82,8 +87,9 @@ impl Found {
 
     /// A `bus` exit of `nmcli` or `iwctl` with `args`, which talk to NetworkManager and
     /// iwd on the system bus: the classifier judges a read form of [`is_bus_read`], the
-    /// user every other form. The grant binds the raw system bus until the bus proxy of
-    /// phase E, so a "yes" lets the program change the network.
+    /// user every other form. The grant binds the raw system bus, so a "yes" lets the
+    /// program change the network. It keeps the exit with the filtered bus proxy of
+    /// phase E too: the proxy's default rules hold no method of NetworkManager or iwd.
     fn bus_form(program: &str, args: &[String]) -> Self {
         let approver =
             if is_bus_read(program, args) { Approver::Classifier } else { Approver::User };
@@ -604,8 +610,113 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
         "find" if has(args, "-delete") => found.push(Found::of(ExitKind::Destructive)),
         _ => {}
     }
+    if let Some(bus) = bus_read_form(program, args) {
+        for exit in &mut found {
+            if exit.kind == ExitKind::Bus && exit.grants == [Grant::Bus { bus }] {
+                exit.bus_read = true;
+            }
+        }
+    }
     found.extend(device_operands(args).into_iter().map(device_exit));
     found
+}
+
+/// The bus whose filtered view the simple command `words` reads, program first, when
+/// it is a read form of [`bus_read_form`] (phase E): the read forms of `systemctl`,
+/// `systemctl --user`, `loginctl`, `hostnamectl`, `timedatectl` and `localectl` whose
+/// recorded bus methods all lie in the default rules of the filtered bus proxy
+/// ([`crate::bus`]).
+pub(super) fn bus_read(words: &[String]) -> Option<BusKind> {
+    let (first, args) = words.split_first()?;
+    bus_read_form(base_name(first), args)
+}
+
+/// The verbs of `systemctl` and `systemctl --user` whose bus methods the probe recorded
+/// and the default rules hold. `systemctl` with no verb, such as `systemctl --failed`,
+/// lists the units too. The other read verbs of [`SYSTEMCTL_READ`] call methods that
+/// the defaults leave out, so they keep their `bus` exit.
+const SYSTEMCTL_BUS_READ: &[&str] = &[
+    "status",
+    "list-units",
+    "list-unit-files",
+    "list-sockets",
+    "list-timers",
+    "list-jobs",
+    "list-dependencies",
+    "is-active",
+    "is-failed",
+    "is-enabled",
+    "show",
+    "cat",
+];
+
+/// The verbs of `hostnamectl`, `timedatectl` and `localectl` that only show the
+/// service's properties. Each program with no verb shows them too.
+const CTL_BUS_READ: &[&str] = &["status", "show"];
+
+/// The verbs of `timedatectl` that only show the properties of `timesyncd`.
+const TIMESYNC_BUS_READ: &[&str] = &["timesync-status", "show-timesync"];
+
+/// The long options of the systemd tools that send the command to another host, a
+/// container or another root, where the filtered bus of the call does not lead. `getopt`
+/// takes any unique prefix of a long option, so a prefix counts too.
+const REMOTE_LONG: &[&str] = &["host", "machine", "root", "image", "image-policy"];
+
+/// The short options of the systemd tools that send the command to another host (`-H`)
+/// or a container (`-M`).
+const REMOTE_SHORT: &[char] = &['H', 'M'];
+
+/// The bus that `program` with `args` reads through the filtered bus proxy, or `None`
+/// when it is no read form of phase E (DE3): `systemctl` and `systemctl --user` with no
+/// verb or a verb of [`SYSTEMCTL_BUS_READ`], `loginctl` with no verb or a verb of
+/// [`LOGINCTL_READ`], and `hostnamectl`, `timedatectl` and `localectl` with no verb or
+/// a verb of [`CTL_BUS_READ`] (and [`TIMESYNC_BUS_READ`] for `timedatectl`). A form
+/// with an option of [`REMOTE_LONG`] or [`REMOTE_SHORT`] before or after the verb, or a
+/// word that only the shell can read, is no read form.
+fn bus_read_form(program: &str, args: &[String]) -> Option<BusKind> {
+    if args.iter().any(|word| word.contains([OPAQUE, '$']) || names_remote(word)) {
+        return None;
+    }
+    match program {
+        "systemctl" => {
+            let bus = if has(args, "--user") { BusKind::Session } else { BusKind::System };
+            match verb(args, SYSTEMCTL_VALUES) {
+                None => Some(bus),
+                Some(verb) if SYSTEMCTL_BUS_READ.contains(&verb) => Some(bus),
+                Some(_) => None,
+            }
+        }
+        "loginctl" => match verb(args, &[]) {
+            None => Some(BusKind::System),
+            Some(verb) if LOGINCTL_READ.contains(&verb) => Some(BusKind::System),
+            Some(_) => None,
+        },
+        "hostnamectl" | "timedatectl" | "localectl" => match verb(args, &[]) {
+            None => Some(BusKind::System),
+            Some(verb) if CTL_BUS_READ.contains(&verb) => Some(BusKind::System),
+            Some(verb) if program == "timedatectl" && TIMESYNC_BUS_READ.contains(&verb) => {
+                Some(BusKind::System)
+            }
+            Some(_) => None,
+        },
+        _ => None,
+    }
+}
+
+/// True when `word` is an option that sends a systemd tool to another host, container
+/// or root: a long option of which a name of [`REMOTE_LONG`] starts with the given name
+/// (`--host`, `--ho=box`, `--root=/mnt`), or a cluster of short options that holds
+/// `-H` or `-M` (`-H`, `-Hbox`, `-qM`). Stricter than the tools: a value in a cluster,
+/// such as the `M` of `-pMainPID`, counts too, which only keeps an exit.
+fn names_remote(word: &str) -> bool {
+    if let Some(long) = word.strip_prefix("--") {
+        let name = long.split_once('=').map_or(long, |(name, _)| name);
+        return !name.is_empty() && REMOTE_LONG.iter().any(|remote| remote.starts_with(name));
+    }
+    match word.strip_prefix('-') {
+        Some(cluster) => cluster.contains(REMOTE_SHORT),
+        None => false,
+    }
 }
 
 /// The `outside` exit of a `rustup` form that installs a toolchain, a target or a

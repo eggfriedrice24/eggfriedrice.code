@@ -9,7 +9,8 @@
 //! turns the model's `needs` into exits.
 //!
 //! [`views`] gives the views of the host that a line gets with no exit: the network
-//! view for a line that only reads the host's network (`view.rs`).
+//! view for a line that only reads the host's network, and the filtered bus for a line
+//! with a read form of a systemd tool (`view.rs`).
 //!
 //! [`unsandboxed_line_problem`] is the one-command rule: a line that runs outside the
 //! sandbox must be one command plus read-only helpers, or a `sudo -k` that only forgets
@@ -465,8 +466,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 if exit.kind == ExitKind::Outside && !exit.hosts.is_empty() && ssh_env {
                     exit.approver = Approver::User;
                 }
-                // NOTE: from phase E the filtered bus proxy decides a bus call.
-                if exit.kind == ExitKind::Bus && input.support.bus_proxy {
+                // NOTE: a read form of a systemd tool reads the filtered bus of its view
+                // (phase E, [`views`]); every other bus form keeps its exit.
+                if exit.bus_read && input.support.bus_proxy {
                     continue;
                 }
                 if exit.kind == ExitKind::Outside && mount_view {
@@ -661,14 +663,26 @@ pub fn notes(input: &ExitInput<'_>) -> Vec<String> {
 }
 
 /// The views of the host that the shell call of `input` gets with no exit, no
-/// classifier and no question (phase D1): `[Grant::NetView]` for a line that only reads
-/// the host's network, such as `ss -tln | grep 8080` or `cat /proc/net/dev`, on a machine
-/// that runs NetView calls ([`AutoSupport::netview`]). [`predict`] then finds no
-/// `host_view` exit for it. The rule is a fit, not a security layer: the launch drops
-/// the view beside any grant other than `write` and `unmask`, and the NetView call's
-/// seccomp profile and Landlock rights hold whatever code it runs.
+/// classifier and no question.
+///
+/// - `Grant::NetView` (phase D1) for a line that only reads the host's network, such as
+///   `ss -tln | grep 8080` or `cat /proc/net/dev`, on a machine that runs NetView calls
+///   ([`AutoSupport::netview`]). [`predict`] then finds no `host_view` exit for it. The
+///   launch drops the view beside any grant other than `write` and `unmask`, and the
+///   NetView call's seccomp profile and Landlock rights hold whatever code it runs.
+/// - `Grant::BusFilter` of a bus (phase E) for a line with at least one simple command,
+///   in any place of the line, that is a read form of a systemd tool on that bus, such
+///   as `systemctl --failed` or `loginctl list-sessions`, on a machine that runs the
+///   filtered bus proxy ([`AutoSupport::bus_proxy`]). [`predict`] then finds no `bus`
+///   exit for that command; every other bus form of the line keeps its exit. The
+///   proxy's rules hold whatever the line runs: the rule is a fit, not a security layer.
+///
+/// The bus views come after the network view, and the launch never joins the two.
 pub fn views(input: &ExitInput<'_>) -> Vec<Grant> {
-    view::grants(&scan::scan(input.line), input.support)
+    let segments = scan::scan(input.line);
+    let mut grants = view::grants(&segments, input.support);
+    grants.extend(view::bus_grants(&segments, input.support));
+    grants
 }
 
 /// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of

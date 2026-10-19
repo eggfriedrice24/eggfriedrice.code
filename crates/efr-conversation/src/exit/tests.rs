@@ -277,6 +277,84 @@ fn grant_unsandboxed_wins_over_net_view() {
     }
 }
 
+/// The engine of [`engine`] on a machine with the filtered bus proxy (phase E), and
+/// efr's network proxy when `proxy` is true.
+fn bus_proxy_engine(proxy: bool) -> Engine {
+    let egress = if proxy { Egress::Proxy } else { Egress::None };
+    engine().with_support(AutoSupport { bus_proxy: true, egress, ..AutoSupport::default() })
+}
+
+#[test]
+fn bus_view_fits_beside_write_and_host_but_not_beside_real_bus() {
+    let system = Grant::BusFilter { bus: BusKind::System };
+    let session = Grant::BusFilter { bus: BusKind::Session };
+    // Alone, the read form runs routine with its own filtered bus.
+    let decision = decide(&bus_proxy_engine(false), shell("systemctl --failed"));
+    assert_eq!(kinds(&decision), []);
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![system.clone()] });
+    // Beside a write grant.
+    let decision =
+        decide(&bus_proxy_engine(false), shell("systemctl --failed > /home/u/notes/failed.txt"));
+    assert_eq!(kinds(&decision), [ExitKind::Write]);
+    let write = Grant::Write { path: "/home/u/notes".into() };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![write, system.clone()] });
+    // Beside a host grant of efr's proxy.
+    let needs = Needs { hosts: vec!["example.org".to_owned()], ..Needs::default() };
+    let decision = decide(&bus_proxy_engine(true), shell("hostnamectl").with_needs(needs));
+    let host = Grant::Host { host: "example.org".to_owned(), port: 443 };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![host, system.clone()] });
+    // Beside the real bus of the other bus it stays; beside the real bus of its own bus
+    // it drops, and the approved exit serves the reads too.
+    let decision = decide(&bus_proxy_engine(false), shell("systemctl --failed; notify-send done"));
+    let real_session = Grant::Bus { bus: BusKind::Session };
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![real_session, system.clone()] });
+    let decision =
+        decide(&bus_proxy_engine(false), shell("systemctl --user --failed; notify-send done"));
+    assert_eq!(
+        grant(&decision),
+        Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::Session }] }
+    );
+    let asked = Needs { bus: Some(BusKind::System), ..Needs::default() };
+    let decision = decide(&bus_proxy_engine(false), shell("hostnamectl").with_needs(asked));
+    assert_eq!(
+        grant(&decision),
+        Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::System }] }
+    );
+    // Both buses, each with its own view.
+    let decision =
+        decide(&bus_proxy_engine(false), shell("systemctl --failed; systemctl --user --failed"));
+    assert_eq!(grant(&decision), Launch::Contained { grants: vec![system, session] });
+    // A line that runs outside the sandbox gets no view at all.
+    let decision = decide(&bus_proxy_engine(false), shell("sudo systemctl status nginx"));
+    assert_eq!(grant(&decision), Launch::Unsandboxed);
+}
+
+#[test]
+fn netview_and_bus_filter_never_join_one_launch() {
+    let system = Grant::BusFilter { bus: BusKind::System };
+    // The engine gives the network view first, so the bus view drops after it.
+    assert_eq!(
+        super::launch(std::iter::empty(), [Grant::NetView, system.clone()].iter()),
+        Launch::Contained { grants: vec![Grant::NetView] }
+    );
+    // In the other order the network view drops: the two never join.
+    assert_eq!(
+        super::launch(std::iter::empty(), [system.clone(), Grant::NetView].iter()),
+        Launch::Contained { grants: vec![system] }
+    );
+    // A line of the network view rule holds no systemd tool, and a line with one gets no
+    // network view.
+    let netview = AutoSupport { bus_proxy: true, netview: true, ..AutoSupport::default() };
+    let engine = engine().with_support(netview);
+    let decision = decide(&engine, shell("ss -tln; systemctl --failed"));
+    let views: Vec<&Grant> = decision.view_grants().collect();
+    assert_eq!(views, [&Grant::BusFilter { bus: BusKind::System }]);
+    assert_eq!(kinds(&decision), [ExitKind::HostView]);
+    let decision = decide(&engine, shell("ss -tln | grep 8080"));
+    let views: Vec<&Grant> = decision.view_grants().collect();
+    assert_eq!(views, [&Grant::NetView]);
+}
+
 /// The record of a call whose line is `line`, with no facts and no messages.
 fn record_of(line: &str) -> ExitRecord {
     let engine = engine();
