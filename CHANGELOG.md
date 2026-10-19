@@ -188,6 +188,11 @@ into the GitHub release notes, and it stops when the section is missing.
   A new `[network]` table has one key, `netview` (default `true`); `false` sends these
   commands to the reviewer again. The dim line at the end of such a turn says
   `host network view (no sending)`.
+- `sandbox.keep_downloads` (default `false`): in the `tmp` cache mode, the download
+  caches (`~/.cargo`, `~/go/pkg/mod`, `~/.npm`, the bun and pnpm stores) keep what a
+  command downloads for the rest of the conversation, in efr's private layer. Your own
+  caches do not change. It is off by default because each sandboxed command then takes
+  about 3 to 4 ms more to start.
 
 ### Changed
 

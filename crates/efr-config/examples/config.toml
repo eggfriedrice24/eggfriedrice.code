@@ -199,7 +199,8 @@
 
 # In the tmp cache mode, the download caches (~/.cargo, ~/go/pkg/mod, ~/.npm, the bun
 # and pnpm stores) keep what a call downloads for the rest of the conversation, in
-# efr's private layer. Your own caches do not change.
+# efr's private layer. Your own caches do not change. Off by default: each call then
+# takes about 3 to 4 ms more, above the launch gate of 10 ms.
 # keep_downloads = false
 
 # Days without a call after which a conversation's cache layers are deleted, from 1
