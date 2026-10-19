@@ -31,6 +31,11 @@
 //! - A proxy plan binds the call's socket read-only at `$XRT/efr-proxy.sock` for the
 //!   bridge, with no `RESOLVE_UNIX` rule for the child, and sets the proxy variables. It
 //!   always keeps the private network namespace.
+//! - A socket grant never binds the system bus, the session bus, a socket of a service
+//!   manager or a container engine ([`SERVICE_SOCKETS`]), a socket below
+//!   `$XRT/systemd/`, or the control socket of a desktop. The plan checks the path after
+//!   every link, so a link in a write root to the session bus binds nothing. Only a bus
+//!   grant binds a bus, and only a desktop grant binds a desktop's socket.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -73,6 +78,30 @@ pub const PROXY_VARIABLES: &[&str] = &[
 
 /// The variables that a proxy call gets for the hosts that skip the proxy.
 pub const NO_PROXY_VARIABLES: &[&str] = &["NO_PROXY", "no_proxy"];
+
+/// The sockets of service managers and container engines, each as the last components
+/// of its path, which no socket grant binds: through one, a call starts a unit or a
+/// container that runs outside the sandbox. A copy of `efr_permissions::SERVICE_SOCKETS`
+/// (this crate has no edge to it); a test in efr-daemon keeps the two lists equal.
+pub const SERVICE_SOCKETS: &[&str] = &[
+    "systemd/private",
+    "systemd/io.systemd.Manager",
+    "docker.sock",
+    "podman/podman.sock",
+    "containerd.sock",
+    "containerd/containerd.sock",
+    "crio.sock",
+    "crio/crio.sock",
+    "buildkit/buildkitd.sock",
+    "lxd/unix.socket",
+    "incus/unix.socket",
+    "libvirt/libvirt-sock",
+    "libvirt/virtqemud-sock",
+];
+
+/// The system bus socket at its fixed place, which no socket grant binds, whatever the
+/// spec names as the system bus.
+pub const SYSTEM_BUS_SOCKET: &str = "/run/dbus/system_bus_socket";
 
 /// The order of mounts at one depth: a mask first, a floor last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -149,6 +149,18 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// A socket grant reaches, after every link, the system or session bus, the socket of
+    /// a service manager or a container engine, a socket below `$XRT/systemd/`, or the
+    /// control socket of a desktop. Only a bus grant binds a bus, and only a desktop
+    /// grant binds a desktop's socket.
+    #[error(
+        "the socket {path:?} reaches a bus, a service manager or a desktop; a socket grant never binds it"
+    )]
+    SocketGrantRefused {
+        /// The socket as the grant names it.
+        path: PathBuf,
+    },
+
     /// A grant asks to unmask an engine secret.
     #[error("{path:?} is an engine secret; no grant unmasks it")]
     UnmaskSecret {

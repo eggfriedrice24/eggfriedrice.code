@@ -295,3 +295,10 @@ fn netview_line_keeps_plan_none_with_proxy_on() {
         "a host grant needs the proxy"
     );
 }
+
+#[test]
+fn the_plan_and_the_engine_name_the_same_service_sockets() {
+    // efr-sandbox cannot depend on efr-permissions, so it keeps its own copy of the
+    // list; a socket grant to any of them fails at plan time.
+    assert_eq!(efr_sandbox::SERVICE_SOCKETS, efr_permissions::SERVICE_SOCKETS);
+}

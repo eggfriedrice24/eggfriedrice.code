@@ -8,6 +8,7 @@
 mod behaviour;
 mod corpus;
 mod cost;
+mod dbus;
 mod escape;
 mod job;
 mod mount_view;

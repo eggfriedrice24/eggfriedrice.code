@@ -71,7 +71,7 @@ pub use names::{
 pub use paths::{depth, expand_home, is_normal, is_within, normalize, too_wide};
 pub use plan::{
     Explanation, Mount, MountOp, MountOrigin, MountPlan, NO_PROXY, NO_PROXY_VARIABLES, OpKind,
-    PROXY_PORT, PROXY_URL, PROXY_VARIABLES, PlanNote, StartDir,
+    PROXY_PORT, PROXY_URL, PROXY_VARIABLES, PlanNote, SERVICE_SOCKETS, SYSTEM_BUS_SOCKET, StartDir,
 };
 pub use probe::{
     BWRAP_REQUIRED_FLAGS, BwrapFacts, HOME_PROJECT_FIX, ProbeFailure, ProbeReport,
