@@ -7,6 +7,7 @@ use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
 use super::envelope::{Envelope, resolve};
 use super::programs::{ProxyRoute, is_host_device, proxy_route};
 use super::{Approver, ExitNeed, WriteFacts, write_need};
+use crate::jobs::service_socket;
 use crate::network::{HostList, host_and_port};
 use crate::path_class::normalize;
 use crate::{AutoSupport, CallFacts, Egress};
@@ -112,13 +113,16 @@ pub(super) fn exits(
 }
 
 /// The exit of a socket that the model names: a container engine's socket gives root,
-/// a bus socket is the bus, a display socket the desktop: its grant binds the one
-/// control socket that efrd finds for the prompt's terminal, never the named path, and
-/// only the user approves it. A socket inside an engine
-/// secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one of efr's own
-/// roots, such as efrd's socket, a `config` floor. Only the user approves a socket
-/// under a mask or one of a credential agent ([`is_credential_agent`]), because a key
-/// there signs and logs in as the user.
+/// and so does the socket of a service manager
+/// ([`SERVICE_SOCKETS`](crate::SERVICE_SOCKETS), such as
+/// `$XDG_RUNTIME_DIR/systemd/private`, which starts any unit outside the sandbox): both
+/// are `privilege` exits that only the user approves. A bus socket is the bus, a
+/// display socket the desktop: its grant binds the one control socket that efrd finds
+/// for the prompt's terminal, never the named path, and only the user approves it. A
+/// socket inside an engine secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor,
+/// and one of efr's own roots, such as efrd's socket, a `config` floor. Only the user
+/// approves a socket under a mask or one of a credential agent
+/// ([`is_credential_agent`]), because a key there signs and logs in as the user.
 fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNeed {
     let part = format!("needs.sockets {}", path.display());
     let locations = envelope.locations();
@@ -136,7 +140,9 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNee
     }
     let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
     let text = path.to_string_lossy();
-    let kind = if matches!(name, "docker.sock" | "podman.sock" | "containerd.sock") {
+    let kind = if matches!(name, "docker.sock" | "podman.sock" | "containerd.sock")
+        || service_socket(&path)
+    {
         ExitKind::Privilege
     } else if path == Path::new("/run/dbus/system_bus_socket")
         || path == Path::new("/var/run/dbus/system_bus_socket")

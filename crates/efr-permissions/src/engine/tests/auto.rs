@@ -2992,3 +2992,57 @@ fn ss_and_ip_lines_routine_in_phase_d1(#[case] line: &str) {
     assert_eq!(kinds(&decision), [ExitKind::HostView], "{line:?}");
     assert_eq!(decision.exits().next().unwrap().approver, Approver::Classifier);
 }
+
+/// A socket of a service manager starts units outside the sandbox, so it is a
+/// `privilege` exit that only the user approves, as a container engine's socket is
+/// (DE39). Before phase E it was a `socket` exit for the classifier.
+#[rstest]
+#[case::user_manager("/run/user/1000/systemd/private")]
+#[case::user_manager_varlink("/run/user/1000/systemd/io.systemd.Manager")]
+#[case::system_manager("/run/systemd/private")]
+#[case::podman("/run/user/1000/podman/podman.sock")]
+#[case::docker("/var/run/docker.sock")]
+#[case::containerd("/run/containerd/containerd.sock")]
+#[case::crio("/run/crio/crio.sock")]
+#[case::buildkit("/run/user/1000/buildkit/buildkitd.sock")]
+#[case::lxd("/var/snap/lxd/common/lxd/unix.socket")]
+#[case::incus("/var/lib/incus/unix.socket")]
+#[case::libvirt("/run/user/1000/libvirt/libvirt-sock")]
+#[case::virtqemud("/run/user/1000/libvirt/virtqemud-sock")]
+fn socket_service_paths_are_privilege(#[case] socket: &str) {
+    assert!(crate::service_socket(socket.as_ref()), "{socket} is a service socket");
+    let needs = Needs { sockets: vec![socket.to_owned()], ..Needs::default() };
+    let decision = decide(shell("make").with_needs(needs));
+    assert_eq!(kinds(&decision), [ExitKind::Privilege], "{socket}");
+    let need = decision.exits().next().unwrap();
+    assert_eq!((need.approver, need.runs_unsandboxed()), (Approver::User, true), "{socket}");
+    assert_eq!(need.grants, [], "{socket}: a privilege exit binds no socket");
+    // Another socket of the same dir stays a `socket` exit for the classifier.
+    let other = "/run/user/1000/systemd/notify-other";
+    let needs = Needs { sockets: vec![other.to_owned()], ..Needs::default() };
+    let decision = decide(shell("make").with_needs(needs));
+    assert_eq!(kinds(&decision), [ExitKind::Socket]);
+}
+
+/// The bus starts the program of a service file in `~/.local/share/dbus-1` outside the
+/// sandbox when a client calls its name, so the dir is a floor (DE42): a write there is
+/// a `persistence` exit, read-only in a contained call.
+#[rstest]
+#[case::service_file("/home/u/.local/share/dbus-1/services/org.example.Agent.service")]
+#[case::dir("/home/u/.local/share/dbus-1/services")]
+#[case::the_floor("/home/u/.local/share/dbus-1")]
+fn dbus_service_dir_is_a_floor(#[case] path: &str) {
+    assert!(crate::PERSISTENCE_FLOORS.contains(&".local/share/dbus-1"));
+    let floors = crate::persistence_floors("/home/u".as_ref());
+    assert!(floors.contains(&PathBuf::from("/home/u/.local/share/dbus-1")));
+    let decision = decide(shell(&format!("echo x > {path}")).with_write(path));
+    assert_eq!(kinds(&decision), [ExitKind::Persistence], "{path}");
+    assert_eq!(decision.exits().next().unwrap().approver, Approver::User, "{path}");
+    let facts =
+        engine().path_facts(path.as_ref(), &Scope::Project(app()), SCRATCH.as_ref()).unwrap();
+    assert!(facts.floor, "{path}");
+    // Beside it, `~/.local/share` itself is no floor.
+    let notes = "/home/u/.local/share/notes.txt";
+    let decision = decide(shell(&format!("echo x > {notes}")).with_write(notes));
+    assert_eq!(kinds(&decision), [ExitKind::Write]);
+}

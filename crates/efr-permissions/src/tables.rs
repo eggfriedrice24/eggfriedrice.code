@@ -134,6 +134,10 @@ pub const PERSISTENCE_FLOORS: &[&str] = &[
     ".config/autostart",
     ".local/share/systemd",
     ".local/share/applications",
+    // NOTE: the bus starts the `Exec=` of a service file here, outside the sandbox, when
+    // a client calls its name, and the filtered bus proxy lets a call reach a listed
+    // name (phase E).
+    ".local/share/dbus-1",
     ".config/hypr",
     ".config/sway",
     ".config/i3",
@@ -166,7 +170,7 @@ pub enum FloorGroup {
     Session,
     /// The units of the user's systemd.
     Systemd,
-    /// Autostart entries and desktop entries.
+    /// Autostart entries, desktop entries and the bus's service files.
     Autostart,
     /// The config of Hyprland.
     Hypr,
@@ -211,6 +215,7 @@ pub const PERSISTENCE_FLOOR_GROUPS: &[(&str, FloorGroup)] = &[
     (".config/autostart", FloorGroup::Autostart),
     (".local/share/systemd", FloorGroup::Systemd),
     (".local/share/applications", FloorGroup::Autostart),
+    (".local/share/dbus-1", FloorGroup::Autostart),
     (".config/hypr", FloorGroup::Hypr),
     (".config/sway", FloorGroup::Sway),
     (".config/i3", FloorGroup::I3),
