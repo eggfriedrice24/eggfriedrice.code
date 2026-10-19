@@ -429,7 +429,7 @@ fn contained_exits_name_what_a_yes_opens() {
     let grants = vec![
         Grant::Write { path: PathBuf::from("/home/u/Documents") },
         Grant::Socket { path: PathBuf::from("/run/user/1000/podman/podman.sock") },
-        Grant::Bus { bus: efr_protocol::BusKind::System },
+        Grant::Bus { bus: BusKind::System },
         Grant::Device { path: PathBuf::from("/dev/nvme0n1") },
         Grant::Unmask { path: PathBuf::from("/home/u/p/app/.env") },
     ];
