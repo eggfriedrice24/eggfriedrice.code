@@ -80,7 +80,7 @@ pub use tables::render::{
 };
 pub use tables::sandbox::{
     AskDestructive, DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
-    DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, SandboxSettings, WriteProjects,
+    DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, DOWNLOAD_CACHES, SandboxSettings, WriteProjects,
 };
 pub use tables::snapshot::{IgnoredFiles, SnapshotSettings};
 pub use tables::undo::UndoSettings;

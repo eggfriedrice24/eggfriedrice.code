@@ -46,6 +46,7 @@ fn layer(target: &str) -> CacheLayer {
         upper: "/run/efr-sbx/layers/0/upper".into(),
         work: "/run/efr-sbx/layers/0/work".into(),
         moved: Vec::new(),
+        fresh: true,
     }
 }
 

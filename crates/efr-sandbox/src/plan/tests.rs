@@ -369,9 +369,9 @@ fn plan_gives_the_helper_each_overlay_with_the_mounts_inside_it() {
     let plan = plan(&spec, &fs);
     let layers = plan.cache_layers().unwrap();
     assert_eq!(layers.staging, Path::new("/run/user/1000/efr-sbx/layers"));
-    assert!(!layers.fresh);
     let [layer] = layers.layers.as_slice() else { panic!("{layers:#?}") };
     assert_eq!(layer.target, Path::new("/home/u/.cargo"));
+    assert!(!layer.fresh);
     assert_eq!(layer.dir, Path::new("/run/user/1000/efr-sbx/layers/0"));
     assert_eq!(layer.upper, layer.dir.join("upper"));
     assert_eq!(layer.work, layer.dir.join("work"));
@@ -392,7 +392,7 @@ fn plan_gives_the_helper_each_overlay_with_the_mounts_inside_it() {
     tmp.cache_mode = CacheMode::Tmp;
     let plan = MountPlan::build(&tmp, &world()).unwrap();
     let layers = plan.cache_layers().unwrap();
-    assert!(layers.fresh);
+    assert!(layers.layers.iter().all(|layer| layer.fresh));
     assert!(plan.layer_sources.is_empty());
 
     let mut readonly = crate::testing::spec();
@@ -420,6 +420,123 @@ fn plan_refuses_two_caches_on_one_layer_dir() {
     spec.cache_mode = CacheMode::Tmp;
     spec.caches[0].work = "/home/u/.local/state/efr/elsewhere/work".into();
     assert!(MountPlan::build(&spec, &world()).is_ok());
+}
+
+/// The spec of [`spec`] in the `tmp` mode with `~/.npm` first and the kept `~/.cargo`
+/// second (`sandbox.keep_downloads`), and its machine.
+fn tmp_with_kept_cargo() -> (SandboxSpec, FakeFs) {
+    let mut spec = spec();
+    spec.cache_mode = CacheMode::Tmp;
+    spec.caches[0].keep = true;
+    let runtime = &spec.runtime;
+    let npm =
+        crate::CacheOverlay::new(Path::new("/home/u/.npm"), &runtime.sandbox_dir, &runtime.home);
+    spec.caches.insert(0, npm);
+    let mut fs = world();
+    fs.dir("/home/u/.npm");
+    (spec, fs)
+}
+
+#[test]
+fn keep_cache_is_an_overlay_in_tmp_mode() {
+    let (spec, fs) = tmp_with_kept_cargo();
+    let plan = plan(&spec, &fs);
+    let cargo = &spec.caches[1];
+    assert!(has_mount(
+        &plan,
+        &MountOp::Overlay {
+            lower: "/home/u/.cargo".into(),
+            upper: cargo.upper.clone(),
+            work: cargo.work.clone(),
+            target: "/home/u/.cargo".into(),
+        }
+    ));
+    // The pins hold as in every mode.
+    assert!(has_mount(&plan, &ro("/home/u/.cargo/bin")));
+    assert!(has_mount(&plan, &ro("/home/u/.cargo/config.toml")));
+    assert_eq!(
+        plan.explain(Path::new("/home/u/.cargo/registry")).role,
+        SandboxPathRole::CacheOverlay
+    );
+    // The layer dir check of the `overlay` mode holds for a kept cache too.
+    let mut shared = spec.clone();
+    shared.caches[0] = crate::CacheOverlay {
+        target: "/home/u/.npm".into(),
+        keep: true,
+        ..shared.caches[1].clone()
+    };
+    let error = MountPlan::build(&shared, &fs).unwrap_err();
+    assert!(matches!(error, SandboxError::CacheLayer { .. }), "{error:?}");
+    // `keep` means nothing in the `readonly` mode.
+    let mut readonly = spec;
+    readonly.cache_mode = CacheMode::Readonly;
+    let plan = MountPlan::build(&readonly, &fs).unwrap();
+    assert!(!plan.mounts().iter().any(|mount| mount.origin == MountOrigin::Cache));
+}
+
+#[test]
+fn keep_cache_layer_is_not_fresh() {
+    let (spec, fs) = tmp_with_kept_cargo();
+    let plan = plan(&spec, &fs);
+    let layers = plan.cache_layers().unwrap();
+    let cargo = layers.layers.iter().find(|layer| layer.target == Path::new("/home/u/.cargo"));
+    let cargo = cargo.unwrap();
+    assert!(!cargo.fresh, "{layers:#?}");
+    assert_eq!(cargo.upper, cargo.dir.join("upper"));
+    assert_eq!(cargo.work, cargo.dir.join("work"));
+    // The launcher locks the parent of each layer dir, so the conversation's layer
+    // lock also covers the kept cache in the `tmp` mode.
+    let layer = spec.caches[1].upper.parent().unwrap().to_path_buf();
+    assert_eq!(plan.layer_dirs(), [layer]);
+    assert_eq!(
+        plan.layer_dirs()[0].parent(),
+        Some(spec.runtime.sandbox_dir.join("cache").as_path())
+    );
+}
+
+#[test]
+fn other_caches_stay_tmp() {
+    let (spec, fs) = tmp_with_kept_cargo();
+    let plan = plan(&spec, &fs);
+    assert!(has_mount(
+        &plan,
+        &MountOp::TmpOverlay { lower: "/home/u/.npm".into(), target: "/home/u/.npm".into() }
+    ));
+    let layers = plan.cache_layers().unwrap();
+    let fresh: Vec<(&Path, bool)> =
+        layers.layers.iter().map(|layer| (layer.target.as_path(), layer.fresh)).collect();
+    assert_eq!(fresh, [(Path::new("/home/u/.npm"), true), (Path::new("/home/u/.cargo"), false)]);
+    // bwrap binds the one kept layer dir onto the kept cache's staging dir, never onto
+    // the fresh one's.
+    let mut fds = crate::FdTable::new(&fs);
+    let args: Vec<String> = plan
+        .bwrap_args(&mut fds, &crate::LaunchFds { status: 9, policy: 5 }, Path::new(PROJECT))
+        .unwrap()
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let chdir = args.iter().position(|arg| arg == "--chdir").unwrap();
+    let staging = "/run/user/1000/efr-sbx/layers";
+    assert_eq!(args[chdir - 7..chdir - 3], ["--perms", "0700", "--tmpfs", staging]);
+    assert_eq!(args[chdir - 3], "--bind-fd");
+    assert_eq!(args[chdir - 1], format!("{staging}/1"));
+
+    // With no kept cache, the `tmp` mode is today's: every layer fresh, no layer dir.
+    let mut today = spec.clone();
+    today.caches[1].keep = false;
+    let plan = MountPlan::build(&today, &fs).unwrap();
+    assert!(plan.cache_layers().unwrap().layers.iter().all(|layer| layer.fresh));
+    assert!(plan.layer_dirs().is_empty());
+    assert!(!plan.mounts().iter().any(|mount| matches!(mount.op, MountOp::Overlay { .. })));
+    // In the `overlay` mode every cache keeps its layer, kept or not.
+    let mut overlay = today;
+    overlay.cache_mode = CacheMode::Overlay;
+    let mut fs = fs;
+    let npm = &overlay.caches[0];
+    fs.dir(&npm.upper.to_string_lossy()).dir(&npm.work.to_string_lossy());
+    let plan = MountPlan::build(&overlay, &fs).unwrap();
+    assert!(plan.cache_layers().unwrap().layers.iter().all(|layer| !layer.fresh));
+    assert_eq!(plan.layer_dirs().len(), 2);
 }
 
 #[test]

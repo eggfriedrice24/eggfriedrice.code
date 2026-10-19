@@ -37,8 +37,8 @@ pub const STAGING_DIR: &str = "layers";
 pub struct CacheLayer {
     /// The user's cache: the lower layer and the mount point.
     pub target: PathBuf,
-    /// The layer's dir in the staging dir: a dir of the staging tmpfs in the `tmp`
-    /// mode, a bind of the conversation's layer dir in the `overlay` mode.
+    /// The layer's dir in the staging dir: a dir of the staging tmpfs for a
+    /// [`fresh`](Self::fresh) layer, else a bind of the conversation's layer dir.
     pub dir: PathBuf,
     /// The upper layer, in `dir`.
     pub upper: PathBuf,
@@ -47,6 +47,11 @@ pub struct CacheLayer {
     /// The mount points of the plan's mounts inside `target`, outermost only: the
     /// helper moves each one onto the overlay, with the mounts below it.
     pub moved: Vec<PathBuf>,
+    /// True for a cache of the `tmp` mode that keeps no layer: the helper makes the
+    /// layer's dirs in the staging tmpfs, so the call's writes go away with it. False
+    /// in the `overlay` mode and for a kept cache of the `tmp` mode
+    /// (`sandbox.keep_downloads`), whose layer stays for the conversation.
+    pub fresh: bool,
 }
 
 /// The cache overlays of one call.
@@ -56,9 +61,6 @@ pub struct CacheLayer {
 pub struct CacheLayers {
     /// The staging dir inside the sandbox; the helper unmounts it at the end.
     pub staging: PathBuf,
-    /// True in the `tmp` mode: the helper makes each layer's dirs in the staging tmpfs,
-    /// so the call's writes go away with it.
-    pub fresh: bool,
     /// The overlays, in the order of the plan.
     pub layers: Vec<CacheLayer>,
 }

@@ -62,7 +62,7 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `src/layers.rs` | the layer helper: the cache overlays, the plan's mounts inside each cache moved onto it, and the upper dirs sent back with `SCM_RIGHTS` |
 | `src/deletes.rs` | the cache deletes: `efr_sandbox::CacheDeletes` over the upper dirs that the helper sent, read with `RESOLVE_BENEATH` and `RESOLVE_NO_SYMLINKS`; a whiteout is a character device 0/0, an opaque dir has `user.overlay.opaque` |
 | `src/timings.rs` | the time of each step of a contained launch, for `result.json` and efrd's `phase` debug lines |
-| `src/layer_lock.rs` | in the `overlay` mode, the exclusive `flock` on the conversation's layer dir that each launch holds until its overlays are gone |
+| `src/layer_lock.rs` | the exclusive `flock` on the conversation's layer dir that each launch holds until its overlays are gone: in the `overlay` mode, and in the `tmp` mode for the kept caches of `sandbox.keep_downloads` (`CacheOverlay::keep`) |
 | `src/inner.rs` | the inner stage |
 | `src/landlock.rs`, `src/seccomp.rs` | the policy of `efr-sandbox` applied with the `landlock` and `seccompiler` crates |
 | `src/exit_child.rs` | the exit child as a subreaper |

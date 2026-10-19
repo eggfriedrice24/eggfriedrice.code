@@ -45,6 +45,7 @@ sandbox.write_projects = "named"  # default
 sandbox.write_roots = []  # default
 sandbox.caches = ["~/.cargo", "~/.rustup", "~/.cache", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store", "~/.m2/repository", "~/.gradle/caches"]  # default
 sandbox.cache_mode = "tmp"  # default
+sandbox.keep_downloads = false  # default
 sandbox.cache_days = 14  # default
 sandbox.cache_max_gib = 20  # default
 sandbox.mask = []  # default

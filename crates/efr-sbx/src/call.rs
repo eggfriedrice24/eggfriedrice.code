@@ -378,11 +378,9 @@ fn prepare_sandbox_dir(spec: &efr_sandbox::SandboxSpec) -> Result<(), SbxError> 
     if spec.job.is_some() {
         dirs.push(spec.runtime.job_state_dir(spec.call));
     }
-    if spec.cache_mode == efr_protocol::CacheMode::Overlay {
-        for cache in &spec.caches {
-            dirs.push(cache.upper.clone());
-            dirs.push(cache.work.clone());
-        }
+    for cache in spec.caches.iter().filter(|cache| cache.keeps_layer(spec.cache_mode)) {
+        dirs.push(cache.upper.clone());
+        dirs.push(cache.work.clone());
     }
     for dir in dirs {
         std::fs::DirBuilder::new()

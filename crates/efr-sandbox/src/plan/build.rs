@@ -335,7 +335,10 @@ impl Builder<'_> {
                 continue;
             }
             let target = resolved.path;
-            if self.spec.cache_mode == CacheMode::Overlay {
+            // NOTE: a kept cache of the `tmp` mode (`sandbox.keep_downloads`) mounts on
+            // its private layer as in the `overlay` mode; the other caches stay `tmp`.
+            let keep = cache.keeps_layer(self.spec.cache_mode);
+            if keep {
                 // NOTE: the helper binds the layer dir and finds upper and work in it; a
                 // dir that two overlays share would be one upper for both.
                 let layer = cache.upper.parent();
@@ -347,16 +350,15 @@ impl Builder<'_> {
                     _ => return Err(SandboxError::CacheLayer { cache: cache.target.clone() }),
                 }
             }
-            let op = match self.spec.cache_mode {
-                CacheMode::Tmp => {
-                    MountOp::TmpOverlay { lower: target.clone(), target: target.clone() }
-                }
-                _ => MountOp::Overlay {
+            let op = if keep {
+                MountOp::Overlay {
                     lower: target.clone(),
                     upper: cache.upper.clone(),
                     work: cache.work.clone(),
                     target: target.clone(),
-                },
+                }
+            } else {
+                MountOp::TmpOverlay { lower: target.clone(), target: target.clone() }
             };
             self.push(op, OpKind::Overlay, MountOrigin::Cache);
             self.caches.push(target);
@@ -845,8 +847,9 @@ impl Builder<'_> {
     }
 }
 
-/// The overlays of `mounts` for the launcher's helper, and in the `overlay` mode the
-/// layer dir of each one, which bwrap binds into the staging dir.
+/// The overlays of `mounts` for the launcher's helper, and the layer dir of each one
+/// that keeps its private layer (every one in the `overlay` mode, the kept caches in
+/// the `tmp` mode), which bwrap binds into the staging dir, in the order of the plan.
 fn cache_layers(spec: &SandboxSpec, mounts: &[Mount]) -> (Option<CacheLayers>, Vec<PathBuf>) {
     let staging = spec.runtime.inside_dir().join(STAGING_DIR);
     let mut layers = Vec::new();
@@ -861,6 +864,7 @@ fn cache_layers(spec: &SandboxSpec, mounts: &[Mount]) -> (Option<CacheLayers>, V
         let named = |path: &Path, fallback: &str| {
             dir.join(path.file_name().map_or_else(|| fallback.into(), ToOwned::to_owned))
         };
+        let fresh = upper.is_none();
         let (upper, work) = match upper {
             Some((upper, work)) => {
                 // The plan checked that the two share a parent of their own.
@@ -872,13 +876,12 @@ fn cache_layers(spec: &SandboxSpec, mounts: &[Mount]) -> (Option<CacheLayers>, V
         // A cache's own overlay is never a mount that bwrap made, so it never moves.
         let inside = mounts.iter().filter(|mount| mount.origin != MountOrigin::Cache);
         let moved = moved_mounts(target, inside.map(|mount| mount.op.target()));
-        layers.push(CacheLayer { target: target.clone(), dir, upper, work, moved });
+        layers.push(CacheLayer { target: target.clone(), dir, upper, work, moved, fresh });
     }
     if layers.is_empty() {
         return (None, sources);
     }
-    let fresh = spec.cache_mode != CacheMode::Overlay;
-    (Some(CacheLayers { staging, fresh, layers }), sources)
+    (Some(CacheLayers { staging, layers }), sources)
 }
 
 /// `paths` without one that lies in another, in their order.

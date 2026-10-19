@@ -1176,6 +1176,11 @@
           },
           "type": "array"
         },
+        "keep_downloads": {
+          "default": false,
+          "description": "In the `tmp` cache mode, the download caches (`~/.cargo`, `~/go/pkg/mod`,\n`~/.npm`, the bun and pnpm stores) keep what a call downloads for the rest of\nthe conversation, in efr's private layer, as the `overlay` mode does. The other\ncaches stay `tmp`.",
+          "type": "boolean"
+        },
         "mask": {
           "default": [],
           "description": "More paths that a call reads as empty: absolute, or `~/...`. In `auto`, a\n`read_file` of them asks.",
@@ -1654,6 +1659,7 @@
         "env_deny": [],
         "env_keep": [],
         "export_deny": [],
+        "keep_downloads": false,
         "mask": [],
         "mask_globs": [
           ".env",

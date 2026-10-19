@@ -199,6 +199,104 @@ fn tmp_cache_writes_go_away_after_the_call() {
     assert_eq!(run.stdout, "one\nindex\n", "{run:#?}");
 }
 
+/// A fixture in the `tmp` mode with `~/.cargo` kept (`sandbox.keep_downloads`) and
+/// `~/.cache` not kept; returns the two caches.
+fn tmp_with_kept_cargo(fixture: &mut Fixture) -> (std::path::PathBuf, std::path::PathBuf) {
+    fixture.spec.cache_mode = CacheMode::Tmp;
+    let cargo = fixture.home.join(".cargo");
+    let cache = fixture.home.join(".cache");
+    write(&cargo.join("registry/index"), "lower\n");
+    write(&cargo.join("config.toml"), "[build]\n");
+    write(&cache.join("index"), "lower\n");
+    fixture.cache(&cargo);
+    fixture.cache(&cache);
+    keep_cargo(fixture);
+    (cargo, cache)
+}
+
+/// Sets `keep` on the fixture's `~/.cargo` cache again, after a change of the
+/// conversation made its overlays anew.
+fn keep_cargo(fixture: &mut Fixture) {
+    let cargo = fixture.home.join(".cargo");
+    for cache in &mut fixture.spec.caches {
+        cache.keep = cache.target == cargo;
+    }
+}
+
+#[test]
+fn keep_cache_survives_calls() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let (cargo, cache) = tmp_with_kept_cargo(&mut fixture);
+    let run = fixture.run(&format!(
+        "print kept > {0}/registry/x && print gone > {1}/x && cat {0}/registry/x {1}/x",
+        q(&cargo),
+        q(&cache)
+    ));
+    run.expect_status(0);
+    assert_eq!(run.result().setup_error, None, "{run:#?}");
+    assert_eq!(run.stdout, "kept\ngone\n", "{run:#?}");
+    // The next call of the conversation finds the download, and the other cache is
+    // fresh again.
+    let run = fixture.run(&format!(
+        "cat {0}/registry/x {0}/registry/index; ls {1}",
+        q(&cargo),
+        q(&cache)
+    ));
+    run.expect_status(0);
+    assert_eq!(run.stdout, "kept\nlower\nindex\n", "{run:#?}");
+    // Nothing reached the user's caches; the download lies in the private layer.
+    assert!(!cargo.join("registry/x").exists(), "the write reached the user's ~/.cargo");
+    assert!(!cache.join("x").exists(), "the write reached the user's ~/.cache");
+    let kept = fixture.spec.caches.iter().find(|overlay| overlay.target == cargo).unwrap();
+    assert_eq!(fs::read_to_string(kept.upper.join("registry/x")).unwrap(), "kept\n");
+    // The pins of ~/.cargo hold in a kept cache too.
+    let run = fixture.run(&format!("print x >> {}/config.toml; print $?", q(&cargo)));
+    assert_eq!(run.stdout.trim(), "1", "the pin did not hold: {run:#?}");
+}
+
+#[test]
+fn keep_cache_not_in_other_conversation() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let (cargo, _) = tmp_with_kept_cargo(&mut fixture);
+    fixture.run(&format!("print kept > {}/registry/x", q(&cargo))).expect_status(0);
+    let old = fixture.switch_conversation();
+    keep_cargo(&mut fixture);
+    let run = fixture.run(&format!("ls {}/registry", q(&cargo)));
+    run.expect_status(0);
+    assert_eq!(run.stdout, "index\n", "another conversation saw the download: {run:#?}");
+    let new_layer = fixture.spec.caches.iter().find(|overlay| overlay.target == cargo).unwrap();
+    let old_layer = old.caches.iter().find(|overlay| overlay.target == cargo).unwrap();
+    assert_ne!(new_layer.upper, old_layer.upper);
+    assert!(old_layer.upper.join("registry/x").exists());
+}
+
+#[test]
+fn keep_cache_waits_for_the_layer_lock() {
+    // The conversation's layer lock also covers a kept cache in the `tmp` mode, so two
+    // overlays never share its upper dir. A launch that cannot get the lock in time
+    // fails at setup, and its call does not run.
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let (cargo, _) = tmp_with_kept_cargo(&mut fixture);
+    let kept = fixture.spec.caches.iter().find(|overlay| overlay.target == cargo).unwrap();
+    let layers = kept.upper.parent().unwrap().parent().unwrap().to_path_buf();
+    assert_eq!(layers, fixture.spec.runtime.sandbox_dir.join("cache"));
+    fs::create_dir_all(kept.upper.parent().unwrap()).unwrap();
+    let held = fs::File::open(&layers).unwrap();
+    rustix::fs::flock(&held, rustix::fs::FlockOperation::LockExclusive).unwrap();
+    let marker = fixture.project.join("ran");
+    let run = fixture.run(&format!("touch {}", q(&marker)));
+    run.expect_status(125);
+    let error = run.result().setup_error.clone().unwrap_or_default();
+    assert!(error.contains("still used its cache layers"), "{run:#?}");
+    assert!(!marker.exists(), "the call ran while another launch held its layers");
+    drop(held);
+    fixture.run(&format!("touch {}", q(&marker))).expect_status(0);
+    assert!(marker.exists());
+}
+
 #[test]
 fn cache_upper_lists_whiteouts() {
     let ready = sandbox_or_skip!();

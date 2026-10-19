@@ -309,8 +309,9 @@ impl MountPlan {
         self.layers.as_ref()
     }
 
-    /// In the `overlay` mode, the layer dir of each overlay, which bwrap binds into the
-    /// staging dir; empty in the other modes.
+    /// The layer dir of each overlay that keeps its private layer, which bwrap binds
+    /// into the staging dir: every overlay in the `overlay` mode, the kept caches in the
+    /// `tmp` mode (`CacheOverlay::keep`), none in the `readonly` mode.
     pub fn layer_dirs(&self) -> &[PathBuf] {
         &self.layer_sources
     }
