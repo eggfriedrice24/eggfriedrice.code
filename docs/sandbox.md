@@ -1070,7 +1070,9 @@ these holds:
   call. A path that efrd could not resolve is not covered, and neither is a socket that
   is a link.
 - No floor, synced dir or project lies at or below a dir that the call would open,
-  also a floor that does not exist yet. A grant of one file stays coverable.
+  also a floor that does not exist yet. A grant of one file stays coverable, but `a`
+  offers no rule for a new file that the call makes: once the file exists, a later
+  write binds its dir, and a rule of the file does not cover the dir.
 - No grant lies at or below a floor or a `.git` dir, by its path or by its real path.
   So a rule never covers a write to the hooks or the config of a repository in its
   dir.

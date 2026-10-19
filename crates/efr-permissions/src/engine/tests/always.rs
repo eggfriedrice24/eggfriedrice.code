@@ -854,3 +854,38 @@ fn always_write_rule_never_covers_a_floor_through_a_link() {
     assert_eq!(decision.exits().next().unwrap().bind, Some(WriteBind::MakeFile));
     assert_eq!(verdict, AlwaysVerdict::None);
 }
+
+#[test]
+fn always_offers_no_rule_for_a_new_file() {
+    // A rule of a new file would be dead: once the file exists, a write of it binds its
+    // dir, and the rule never covers the dir.
+    let file = "/home/u/notes/b.txt";
+    let new = shell("touch ~/notes/b.txt").with_write(file).with_facts(facts(
+        &[(file, None), ("/home/u/notes", DIR)],
+        &same(&[file, "/home/u/notes"]),
+    ));
+    let (decision, verdict) = judge(&engine(Vec::new()), new);
+    assert_eq!(decision.exits().next().unwrap().bind, Some(WriteBind::MakeFile));
+    assert_eq!(verdict, AlwaysVerdict::None);
+    let again = shell("touch ~/notes/b.txt").with_write(file).with_facts(facts(
+        &[(file, FILE), ("/home/u/notes", DIR)],
+        &same(&[file, "/home/u/notes"]),
+    ));
+    let engine = engine(vec![write("~/notes/b.txt")]);
+    assert_eq!(marks(&engine), [None]);
+    let (decision, verdict) = judge(&engine, again);
+    assert_eq!(
+        decision.exits().next().unwrap().bind,
+        Some(WriteBind::Parent("/home/u/notes".into()))
+    );
+    assert_eq!(verdict, AlwaysVerdict::Offer(write_in("~/notes", "~/p/app")));
+    // A rule of the dir still covers the new file.
+    let new = shell("touch ~/notes/c.txt").with_write("/home/u/notes/c.txt").with_facts(facts(
+        &[("/home/u/notes/c.txt", None), ("/home/u/notes", DIR)],
+        &same(&["/home/u/notes/c.txt", "/home/u/notes"]),
+    ));
+    assert_eq!(
+        judge(&self::engine(vec![write("~/notes")]), new).1,
+        AlwaysVerdict::Covered { index: 0 }
+    );
+}
