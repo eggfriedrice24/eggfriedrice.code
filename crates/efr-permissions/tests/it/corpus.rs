@@ -12,8 +12,8 @@ use std::sync::Arc;
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
     Approver, AutoSupport, CallFacts, Cause, ConversationPolicy, CoverAsk, Coverage, Decision,
-    DecisionInput, Effect, Egress, Engine, HostList, Locations, Policy, Preset, Requirements,
-    SettingsChange, Source, SourceFact, TargetKind,
+    DecisionInput, Effect, Egress, Engine, HostList, Locations, Policy, Preset, RemoteFact,
+    RemoteUrl, Requirements, SettingsChange, Source, SourceFact, TargetKind,
 };
 use efr_protocol::{ExitKind, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
@@ -76,6 +76,10 @@ struct Line {
     files: Vec<PathBuf>,
     #[serde(default)]
     tracked: Vec<Tracked>,
+    /// The remotes that efrd reads for the project, each `name=host`: one https URL
+    /// for fetch and push.
+    #[serde(default)]
+    remotes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -289,9 +293,33 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         links: Vec::new(),
         covered,
         sources,
-        remotes: Vec::new(),
+        remotes: remote_facts(&line.remotes),
         refused_hosts: Vec::new(),
     })
+}
+
+/// The remote facts of the project for the `name=host` words of a corpus line.
+fn remote_facts(words: &[String]) -> Vec<(PathBuf, Vec<RemoteFact>)> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let remotes = words
+        .iter()
+        .map(|word| {
+            let (name, host) = word.split_once('=').unwrap();
+            let url =
+                RemoteUrl { host: host.to_owned(), port: 443, ssh: false, credentials: false };
+            RemoteFact {
+                name: name.to_owned(),
+                fetch: vec![url.clone()],
+                push: vec![url],
+                project: false,
+                upstream: false,
+                submodule: false,
+            }
+        })
+        .collect();
+    vec![(PathBuf::from(PROJECT), remotes)]
 }
 
 /// The lines of the corpus whose result on `engine` is not the one of `column`, each

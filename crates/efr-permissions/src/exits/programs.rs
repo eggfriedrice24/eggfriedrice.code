@@ -43,11 +43,13 @@ impl Found {
     /// The `outside` exit of a program that reaches `host` over ssh with the user's ssh
     /// agent and keys (DP20 (e), (f)): the classifier judges it only when a user message
     /// names the host, as written on the line (an alias of `~/.ssh/config` counts as
-    /// written). A destination that efr cannot read, such as `$HOST`, is for the user.
-    fn remote_shell(host: Option<String>) -> Self {
+    /// written). A destination that efr cannot read, such as `$HOST`, is for the user,
+    /// and so is a form that the line `steered`: one that can reach another host first
+    /// or run a local command, such as `ssh -J` or `ssh -o ProxyCommand=...`.
+    fn remote_shell(host: Option<String>, steered: bool) -> Self {
         match host {
             Some(host) => Found {
-                approver: Approver::ClassifierWhenNamed,
+                approver: if steered { Approver::User } else { Approver::ClassifierWhenNamed },
                 names: vec![host.clone()],
                 hosts: vec![host],
                 ..Found::of(ExitKind::Outside)
@@ -575,9 +577,9 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
         } else {
             network.host()
         }),
-        "ssh" | "mosh" | "autossh" => {
-            found.extend(network.remote_shell(ssh_destination(program, args)))
-        }
+        "ssh" | "mosh" | "autossh" => found.extend(
+            network.remote_shell(ssh_destination(program, args), ssh_steered(program, args)),
+        ),
         "nmcli" | "iwctl" => found.push(Found::bus_form(program, args)),
         program if RAW_NETWORK_PROGRAMS.contains(&program) => found.push(open_network()),
         program if HTTP_NETWORK_PROGRAMS.contains(&program) => found.extend(network.host()),
@@ -828,11 +830,11 @@ impl Network<'_> {
     /// A remote shell to `host`, or an ssh git URL of `host`: a `host` exit with the
     /// whole network when the machine has no proxy. The proxy carries no ssh, so under
     /// it the command runs only outside the sandbox, and the host must be named
-    /// ([`Found::remote_shell`]).
-    fn remote_shell(&self, host: Option<String>) -> Option<Found> {
+    /// ([`Found::remote_shell`]); a form that the line `steered` is for the user.
+    fn remote_shell(&self, host: Option<String>, steered: bool) -> Option<Found> {
         match self.support.egress {
             Egress::None => self.host(),
-            Egress::Proxy => Some(Found::remote_shell(host)),
+            Egress::Proxy => Some(Found::remote_shell(host, steered)),
         }
     }
 }
@@ -1399,7 +1401,10 @@ fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
             // NOTE: an ssh URL on the line, such as `git clone git@host:o/r.git`; a
             // remote name reads its URLs from the facts (remotes.rs).
             match operands_of(rest).into_iter().find(|word| is_ssh_url(word)) {
-                Some(url) => network.remote_shell(ssh_url_host(url)).into_iter().collect(),
+                Some(url) => {
+                    let steered = git_steers_ssh(&args[..at], rest);
+                    network.remote_shell(ssh_url_host(url), steered).into_iter().collect()
+                }
                 None => network.host().into_iter().collect(),
             }
         }
@@ -1436,6 +1441,14 @@ fn is_ssh_url(word: &str) -> bool {
         Some((scheme, _)) => matches!(scheme, "ssh" | "git+ssh" | "ssh+git"),
         None => is_remote(word),
     }
+}
+
+/// The host of the repository operand of a git push, the first word of `rest` that is
+/// no option, when it is an ssh URL in the scp form (`git@host:o/r.git`). A URL with a
+/// scheme names its host through [`line_hosts`].
+pub(super) fn scp_url_host(rest: &[String]) -> Option<String> {
+    let operand = rest.iter().find(|word| !word.starts_with('-'))?;
+    (!operand.contains("://") && is_ssh_url(operand)).then(|| ssh_url_host(operand)).flatten()
 }
 
 /// The host of the ssh URL `word`, in lower case; `None` when only the shell can read
@@ -1566,6 +1579,110 @@ fn gh(args: &[String], network: &Network<'_>) -> Option<Found> {
 /// The options of `ssh` that take a value as the next word.
 const SSH_VALUE_LETTERS: &str = "BbcDEeFIiJLlmOopQRSWw";
 
+/// The options of `autossh` that take a value as the next word: those of `ssh`, and
+/// `-M port` (for ssh `-M` is a flag).
+const AUTOSSH_VALUE_LETTERS: &str = "BbcDEeFIiJLlMmOopQRSWw";
+
+/// The options of `ssh` whose value can reach another host than the destination, read
+/// more config, or run a local command: a config file (`-F`), a jump host (`-J`) and a
+/// forward of the standard streams (`-W`).
+const SSH_STEERING_LETTERS: &str = "FJW";
+
+/// The `-o` keys of `ssh`, in lower case, that can reach another host than the
+/// destination, read more config, or run a local command.
+const SSH_STEERING_KEYS: &[&str] = &[
+    "proxycommand",
+    "proxyjump",
+    "hostname",
+    "localcommand",
+    "permitlocalcommand",
+    "knownhostscommand",
+    "match",
+    "include",
+];
+
+/// True when `ssh`, `mosh` or `autossh` with `args` can reach another host than its
+/// destination or run a command on this machine (DP20 (e)): an option of
+/// [`SSH_STEERING_LETTERS`], an `-o` with a key of [`SSH_STEERING_KEYS`], or `mosh
+/// --ssh` or `--client`. ssh also reads options after the destination, up to the
+/// remote command.
+fn ssh_steered(program: &str, args: &[String]) -> bool {
+    if program == "mosh" {
+        return args.iter().take_while(|word| *word != "--").any(|word| {
+            let option = word.split_once('=').map_or(word.as_str(), |(option, _)| option);
+            matches!(option, "--ssh" | "--client")
+        });
+    }
+    let values = if program == "autossh" { AUTOSSH_VALUE_LETTERS } else { SSH_VALUE_LETTERS };
+    let mut words = args.iter();
+    let mut destination = false;
+    while let Some(word) = words.next() {
+        if word == "--" {
+            break;
+        }
+        let Some(letters) = word.strip_prefix('-').filter(|letters| !letters.is_empty()) else {
+            if destination {
+                // NOTE: the remote command.
+                break;
+            }
+            destination = true;
+            continue;
+        };
+        let Some((at, letter)) = letters.char_indices().find(|(_, c)| values.contains(*c)) else {
+            continue;
+        };
+        let inline = &letters[at + letter.len_utf8()..];
+        let value = if inline.is_empty() {
+            words.next().map(String::as_str).unwrap_or_default()
+        } else {
+            inline
+        };
+        if SSH_STEERING_LETTERS.contains(letter) {
+            return true;
+        }
+        if letter == 'o' {
+            let key = value.trim_start().split(['=', ' ', '\t']).next().unwrap_or_default();
+            if SSH_STEERING_KEYS.contains(&key.to_ascii_lowercase().as_str()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True when the git command with the options `global` (before its subcommand) and
+/// `rest` (after it) can run its ssh transport with a command or a config of the line,
+/// or reach more hosts than its URL: a config value of the line (`-c`, `--config-env`,
+/// `clone -c` or `--config`), another exec path, a template dir with hooks, or the
+/// submodules of the clone, whose URLs come from the remote.
+fn git_steers_ssh(global: &[String], rest: &[String]) -> bool {
+    fn option(word: &str) -> &str {
+        word.split_once('=').map_or(word, |(option, _)| option)
+    }
+    global.iter().any(|word| matches!(option(word), "-c" | "--config-env" | "--exec-path"))
+        || rest.iter().any(|word| {
+            matches!(
+                option(word),
+                "-c" | "--config" | "--template" | "--recurse-submodules" | "--recursive"
+            )
+        })
+}
+
+/// True when the segment `words` sets a variable that changes how git or ssh reach a
+/// remote or which command they run on this machine: a `GIT_*` name, such as
+/// `GIT_SSH_COMMAND` or `GIT_CONFIG_COUNT`, an `SSH_*` name, such as `SSH_ASKPASS`, or
+/// an `AUTOSSH_*` name, such as `AUTOSSH_PATH`. It reads assignment words and the
+/// words of `export` and `env` alike.
+pub(super) fn sets_ssh_env(words: &[String]) -> bool {
+    words.iter().any(|word| {
+        let word = word.trim_start_matches(['\'', '"']);
+        word.split_once('=').is_some_and(|(name, _)| {
+            let name = name.strip_suffix('+').unwrap_or(name);
+            ["GIT_", "SSH_", "AUTOSSH_"].iter().any(|prefix| name.starts_with(prefix))
+        })
+    })
+}
+
 /// The hosts that the command `words` names: the host of each URL, of each remote
 /// operand of `scp`, `sftp` and `rsync`, and the destination of `ssh`, `mosh` and
 /// `autossh`, each once, in lower case.
@@ -1622,8 +1739,7 @@ pub(super) fn line_urls(words: &[String]) -> Vec<(String, u16)> {
 /// The host of the destination of `ssh` with `args`: the first word after the options,
 /// without a user or a port.
 fn ssh_destination(program: &str, args: &[String]) -> Option<String> {
-    // NOTE: `autossh -M port` takes a value; for ssh `-M` is a flag.
-    let values = if program == "autossh" { "BbcDEeFIiJLlMmOopQRSWw" } else { SSH_VALUE_LETTERS };
+    let values = if program == "autossh" { AUTOSSH_VALUE_LETTERS } else { SSH_VALUE_LETTERS };
     let mut words = args.iter();
     while let Some(word) = words.next() {
         if word == "--" {

