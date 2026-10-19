@@ -118,7 +118,7 @@ pub(crate) enum SandboxCommand {
 /// The `efr sandbox allow` commands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum AllowCommand {
-    /// Remove the rule sandbox.allow[N] from config.toml, after a question.
+    /// Remove rule N of sandbox.allow from config.toml, after a question.
     Remove {
         /// The number of the rule, as efr sandbox allow lists it.
         #[arg(value_name = "N")]
