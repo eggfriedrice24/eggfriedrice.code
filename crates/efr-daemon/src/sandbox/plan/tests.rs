@@ -302,3 +302,35 @@ fn the_plan_and_the_engine_name_the_same_service_sockets() {
     // list; a socket grant to any of them fails at plan time.
     assert_eq!(efr_sandbox::SERVICE_SOCKETS, efr_permissions::SERVICE_SOCKETS);
 }
+
+#[test]
+fn write_grant_dir_joins_the_guard_roots() {
+    let fixture = Fixture::new();
+    let home = &fixture.home;
+    let app = home.join("p/app");
+    // A repository that is no project, whose `.git/hooks` a write could plant.
+    let repo = home.join("dotfiles");
+    std::fs::create_dir_all(repo.join(".git/hooks")).unwrap();
+    let file = home.join("notes.txt");
+    std::fs::write(&file, "").unwrap();
+    let made = home.join("new-dir");
+    let launch = Launch::Contained {
+        grants: vec![
+            Grant::Write { path: repo.clone() },
+            Grant::Write { path: repo.join("sub") },
+            Grant::Write { path: file.clone() },
+            Grant::Write { path: made.clone() },
+            Grant::Write { path: app.join("build") },
+        ],
+    };
+    let settings = SandboxSettings::default();
+
+    let spec = fixture.plan(&settings, &launch, Some(&app), &[]).spec;
+
+    let scratch = fixture.dirs.data().join("scratch/x");
+    assert_eq!(spec.guard_roots, [app.clone(), repo.clone(), made.clone(), scratch.clone()]);
+    spec.check().unwrap();
+    // Without a write grant the guard scans what it did before.
+    let routine = fixture.plan(&settings, &Launch::contained(), Some(&app), &[]).spec;
+    assert_eq!(routine.guard_roots, [app, scratch]);
+}

@@ -249,6 +249,7 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
     let floors = floors(input, &projects, &writable);
     let mut guard_roots = writable.clone();
     guard_roots.retain(|root| !git_dirs.contains(root));
+    guard_roots.extend(write_grant_dirs(input.launch.grants(), &guard_roots, &git_dirs));
     guard_roots.push(input.scratch.to_path_buf());
     let grants = input.launch.grants().to_vec();
     let launch = match input.launch {
@@ -284,6 +285,31 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         job: input.job,
     };
     Planned { spec, notes }
+}
+
+/// The dirs of the call's `Grant::Write` grants that the surface guard scans besides
+/// the write roots (DE41): an approved write to a repository that is no project could
+/// plant `.git/hooks` there. A grant path that is a dir, or that does not exist yet (a
+/// dir or a file that the call makes), counts; an existing file does not, and neither
+/// does a path at or below a root that the guard scans already, or a git dir. It reads
+/// one stat per grant.
+fn write_grant_dirs(grants: &[Grant], guarded: &[PathBuf], git_dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for grant in grants {
+        let Grant::Write { path } = grant else { continue };
+        let scanned = |root: &PathBuf| is_within(path, root);
+        if !path.is_absolute()
+            || guarded.iter().chain(git_dirs).chain(&dirs).any(scanned)
+            || fs::symlink_metadata(path).is_ok_and(|meta| !meta.is_dir())
+        {
+            continue;
+        }
+        // NOTE: a dir below this grant that an earlier grant added would be scanned
+        // twice.
+        dirs.retain(|dir| !is_within(dir, path));
+        dirs.push(path.clone());
+    }
+    dirs
 }
 
 /// The network of a call (DP15): the host's with `Grant::OpenNetwork`; none for the

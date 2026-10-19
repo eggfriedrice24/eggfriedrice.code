@@ -499,7 +499,9 @@ spec; `docs/sandbox.md` for the user's view):
   and its links, the persistence paths of the home directory, `$ZDOTDIR`'s startup
   files, dotfile link targets in a write root (`sandbox/links.rs`), efr's programs, the
   protected names in each project and `sandbox.protect` as floors; the call's grants.
-  The engine gets `$SSH_AUTH_SOCK` and the socket of `$GPG_AGENT_INFO` from the hidden
+  The surface guard scans the write roots, scratch, and the dir of each `Grant::Write`
+  outside them (DE41), so an approved write to a repository that is no project cannot
+  plant its git hooks unseen. The engine gets `$SSH_AUTH_SOCK` and the socket of `$GPG_AGENT_INFO` from the hidden
   shells' environment as credential sockets (`HostFacts::agent_sockets`), so only the
   user approves one.
 - The desktop socket of a `desktop` grant (`sandbox/desktop.rs`): `prompt.send` keeps
