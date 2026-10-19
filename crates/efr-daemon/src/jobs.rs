@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use efr_config::JobsSettings;
-use efr_conversation::{JobNoticeInput, NoticeBody, notice_text};
+use efr_conversation::{JobNoticeInput, NoticeBody, notice_text, notice_text_refused};
 use efr_protocol::{
     CallId, ConversationId, Event, JobId, JobInfo, JobState, JobStopBy, Launch, NoticeKind, Seq,
     SurfaceChange, TurnId,
@@ -38,6 +38,7 @@ use efr_sandbox::{RESULT_FILE, SandboxResult};
 use efr_stdx::paths::Dirs;
 use efr_stdx::time::Clock;
 use efr_store::{Batch, Readers, WriterHandle};
+use efr_tools::blocked_note;
 use jiff::Timestamp;
 use rustix::process::Signal;
 use tokio::sync::{mpsc, watch};
@@ -45,6 +46,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
+use crate::sandbox::proxy::ProxyCall;
 
 pub(crate) mod guard;
 pub(crate) mod launch;
@@ -146,6 +148,9 @@ pub(crate) struct NewJob {
     pub(crate) guard_roots: Vec<PathBuf>,
     pub(crate) write_roots: Vec<PathBuf>,
     pub(crate) contained: bool,
+    /// The job's proxy socket, served for its whole life (DP14); `None` without a proxy
+    /// plan.
+    pub(crate) proxy: Option<ProxyCall>,
 }
 
 /// A launcher that efrd spawned and that waits for its start byte, with the reader of
@@ -246,6 +251,8 @@ struct Entry {
     kept: Option<KeptSnapshot>,
     /// The changes that a guard check found while the job ran (`jobs/guard.rs`).
     guard: Vec<SurfaceChange>,
+    /// The job's proxy socket until the job ends; dropping it closes the socket.
+    proxy: Option<ProxyCall>,
 }
 
 impl JobTable {
@@ -412,10 +419,11 @@ impl JobTable {
     pub(crate) async fn begin(
         &self,
         spawned: Spawned,
-        job: NewJob,
+        mut job: NewJob,
         kept: Option<KeptSnapshot>,
     ) -> Result<JobInfo, DaemonError> {
         let Spawned { process, output, matches } = spawned;
+        let proxy = job.proxy.take();
         let mut info = job.info.clone();
         let now = self.inner.clock.now();
         info.started_at = now;
@@ -454,6 +462,7 @@ impl JobTable {
             lifeline: Some(lifeline),
             kept,
             guard: Vec::new(),
+            proxy,
         };
         self.lock().running.insert(key, entry);
         let watching = (job.matcher.is_some() && job.wakes > 0)
@@ -801,14 +810,26 @@ impl JobTable {
                 let job = notice.job;
                 let shown = job.output.display().to_string();
                 let (kind, text) = match &notice.event {
-                    Event::JobEnded { state, exit_code, stopped_by, tail, .. } => {
+                    Event::JobEnded {
+                        state,
+                        exit_code,
+                        stopped_by,
+                        tail,
+                        blocked,
+                        blocked_more,
+                        ..
+                    } => {
                         let body = NoticeBody::Ended {
                             state: *state,
                             exit_code: *exit_code,
                             stopped_by: *stopped_by,
                             tail,
                         };
-                        (NoticeKind::Exited, notice_text(&job, &shown, body))
+                        // NOTE: the limit of a job of an earlier efrd is not known here;
+                        // the note names the key without the number.
+                        let refused = blocked_note(blocked, *blocked_more, 0);
+                        let text = notice_text_refused(&job, &shown, body, refused.as_deref());
+                        (NoticeKind::Exited, text)
                     }
                     Event::JobWatchMatched { line, wakes_left, .. } => {
                         let body = NoticeBody::Watch { line, wakes_left: *wakes_left };
@@ -930,7 +951,7 @@ impl JobTask {
     async fn finish(mut self, stopped_by: Option<JobStopBy>) {
         let table = &self.table;
         let clock = Arc::clone(&table.inner.clock);
-        let (lifeline, kept, guarded, info) = {
+        let (lifeline, kept, guarded, info, proxy) = {
             let mut guard = table.lock();
             match guard.running.get_mut(&self.key) {
                 Some(entry) => (
@@ -938,8 +959,9 @@ impl JobTask {
                     entry.kept.take(),
                     std::mem::take(&mut entry.guard),
                     Some(entry.info.clone()),
+                    entry.proxy.take(),
                 ),
-                None => (None, None, Vec::new(), None),
+                None => (None, None, Vec::new(), None, None),
             }
         };
         drop(lifeline);
@@ -961,6 +983,17 @@ impl JobTask {
             }
         }
         let info = table.lock().running.get(&self.key).map_or(info, |entry| entry.info.clone());
+        // NOTE: the launcher ended, and the bridge with it; the socket closes before the
+        // job's dirs go (DP14), and its refusals reach the record and the notice (DP12).
+        let (blocked, blocked_more, refused) = match proxy {
+            Some(proxy) => {
+                let limit = proxy.max_upload_bytes();
+                let report = proxy.close(crate::sandbox::proxy::CLOSE_GRACE).await;
+                let note = blocked_note(&report.blocked, report.blocked_more, limit);
+                (report.blocked, report.blocked_more, note)
+            }
+            None => (Vec::new(), 0, None),
+        };
         let result = read_result(&self.call_dir).await;
         let launcher_lost = result.is_none();
         let ended = end_of(result.as_ref(), stopped_by);
@@ -993,8 +1026,8 @@ impl JobTask {
             survivors,
             launcher_lost,
             output_truncated: self.output.truncated(),
-            blocked: Vec::new(),
-            blocked_more: 0,
+            blocked,
+            blocked_more,
         };
         // NOTE: the launcher ended, so its pid leaves the model-side list before the
         // record: a reader that sees `JobEnded` sees the list without it. A session that
@@ -1024,7 +1057,8 @@ impl JobTask {
                     stopped_by: ended.stopped_by,
                     tail: &tail,
                 };
-                let text = notice_text(&final_info, &self.output_path.display().to_string(), body);
+                let shown = self.output_path.display().to_string();
+                let text = notice_text_refused(&final_info, &shown, body, refused.as_deref());
                 // NOTE: the model that stopped a job read its output in the tool result:
                 // the notice rides in the next turn and uses none of the hour's wake
                 // turns. Every other end wakes the model, also a stop by the user.

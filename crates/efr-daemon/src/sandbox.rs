@@ -12,7 +12,8 @@
 //! [`SandboxService::prepare`] turns a call that the check point let through the
 //! launcher into its call dir: `$R/sbx/<conversation>/<call>` (0700) with `spec.json`
 //! and `nonce` (0600). It takes the plan lock of the call's projects, which the caller
-//! holds until the launcher writes `started`.
+//! holds until the launcher writes `started`. A call with a proxy plan also gets its
+//! proxy socket `$CALL/proxy.sock` there, served by efrd's proxy (`proxy.rs`, phase D2).
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -29,8 +30,8 @@ use efr_protocol::{
     Scope,
 };
 use efr_sandbox::{
-    DesktopSocket, JobPlan, NONCE_FILE, ProbeReport, SPEC_FILE, SpecLaunch, expand_home, nonce_hex,
-    too_wide,
+    DesktopSocket, JobPlan, NONCE_FILE, NetworkPlan, ProbeReport, SPEC_FILE, SpecLaunch,
+    expand_home, nonce_hex, too_wide,
 };
 use efr_scope::{Git, Home};
 use efr_shell::SandboxRun;
@@ -56,6 +57,7 @@ pub(crate) mod peers;
 pub(crate) mod plan;
 pub(crate) mod probe;
 pub(crate) mod projects;
+pub(crate) mod proxy;
 pub(crate) mod quarantine;
 pub(crate) mod report;
 pub(crate) mod seams;
@@ -135,6 +137,8 @@ struct Inner {
     mount_view: bool,
     /// The snapshots of the host's mounts for the lines that run `df` or `findmnt`.
     mounts: mounts::MountView,
+    /// The network proxy and the sockets of the calls (phase D2).
+    proxy: proxy::ProxyService,
     writer: WriterHandle,
     clock: Arc<dyn Clock>,
     rng: Arc<dyn Rng>,
@@ -173,7 +177,7 @@ pub(crate) struct Prepared {
     /// The project roots of the call, which the turn-end report reads.
     pub(crate) projects: Vec<PathBuf>,
     /// Notes for the model.
-    pub(crate) notes: Vec<&'static str>,
+    pub(crate) notes: Vec<String>,
     /// The roots that the surface guard scans.
     pub(crate) guard_roots: Vec<PathBuf>,
     /// The write roots of the spec.
@@ -182,6 +186,8 @@ pub(crate) struct Prepared {
     pub(crate) state_dir: PathBuf,
     /// True for a contained launch, false for the exit child.
     pub(crate) contained: bool,
+    /// The proxy socket of a call with a proxy plan, served until the call ends.
+    pub(crate) proxy: Option<proxy::ProxyCall>,
     /// Counts the call as running until it drops; `None` for a job.
     _running: Option<Running>,
 }
@@ -241,6 +247,7 @@ impl SandboxService {
             tokio::task::spawn_blocking(mounts::same_mount_namespace).await.unwrap_or(false);
         let helper = seams.statvfs_helper().map_or_else(|| copy.clone(), Path::to_path_buf);
         let mounts = mounts::MountView::new(helper, Arc::clone(&clock));
+        let proxy = proxy::ProxyService::new(&seams, Arc::clone(&clock));
         SandboxService {
             inner: Arc::new(Inner {
                 dirs,
@@ -260,6 +267,7 @@ impl SandboxService {
                 desktops: Mutex::new(HashMap::new()),
                 mount_view,
                 mounts,
+                proxy,
                 writer,
                 clock,
                 rng,
@@ -280,9 +288,28 @@ impl SandboxService {
 
     /// The status now as `efr status` and `efr sandbox check` get it: with
     /// `netview_off` when `settings` turn the network view off, so the client does not
-    /// show the view as on while the engine does not use it.
+    /// show the view as on while the engine does not use it; with `network_mode` the
+    /// proxy when `network.mode = "proxy"` and the self-test passed (DP15); and with the
+    /// warnings of a proxy that is off because its self-test failed and of
+    /// `sandbox.env_keep` entries that look like secrets (DP25).
     pub(crate) fn reported(&self, settings: &Settings) -> SandboxStatus {
-        SandboxStatus { netview_off: !settings.network.netview, ..self.current() }
+        let current = self.current();
+        let network_mode = if proxy::proxy_on(settings, &current) {
+            efr_protocol::NetworkMode::Proxy
+        } else {
+            efr_protocol::NetworkMode::None
+        };
+        let mut warnings = current.warnings.clone();
+        if proxy::falls_back(settings, &current) {
+            warnings.push(proxy::PROXY_FALLBACK.to_owned());
+        }
+        warnings.extend(proxy::env_keep_warnings(settings));
+        SandboxStatus { netview_off: !settings.network.netview, network_mode, warnings, ..current }
+    }
+
+    /// The network proxy and the sockets of the calls.
+    pub(crate) fn proxy(&self) -> &proxy::ProxyService {
+        &self.inner.proxy
     }
 
     /// True when efrd's mount namespace is the one of its parent, so the mounts that
@@ -692,6 +719,7 @@ impl SandboxService {
             launcher: &self.inner.copy,
             desktops: &desktops,
             job: job.as_ref().map(|job| job.plan),
+            egress: input.engine.support().egress,
         };
         let roots: Vec<PathBuf> =
             plan::project_roots(&plan_input).into_iter().map(|root| root.path).collect();
@@ -711,7 +739,12 @@ impl SandboxService {
         let planned = plan::build(&plan_input);
         tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase=plan_build elapsed_ms={}", watch);
         let spec = planned.spec;
-        let mut notes = planned.notes;
+        let mut notes: Vec<String> = planned.notes.iter().map(|note| (*note).to_owned()).collect();
+        if spec.launch == SpecLaunch::Contained
+            && let Some(note) = self.inner.proxy.fallback_note(input.settings, &status)
+        {
+            notes.push(note.to_owned());
+        }
         make_targets(&call.exits).await?;
         let call_dir = spec.runtime.call_dir.clone();
         let mut nonce = [0_u8; 16];
@@ -753,6 +786,30 @@ impl SandboxService {
         .await
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
         tracing::debug!(phase = "call_dir_write", elapsed_ms = %watch, "phase=call_dir_write elapsed_ms={}", watch);
+        // NOTE: the socket exists before the launcher starts: the plan binds it into
+        // the call, and the launcher refuses a proxy plan without it.
+        let proxy = match &spec.network {
+            NetworkPlan::Proxy { .. } => {
+                gc::sweep_proxies(&self.inner.proxy).await;
+                // NOTE: at most once a minute, and only when a pacman file changed (DP4);
+                // other hosts reach the engine and the proxy through the reload task.
+                self.inner.proxy.read_mirrors(false).await;
+                let policy = call_policy(&spec, input.settings);
+                let bound = self
+                    .inner
+                    .proxy
+                    .bind(call.conversation_id, &call_dir, policy, job.is_some())
+                    .await;
+                match bound {
+                    Ok(bound) => Some(bound),
+                    Err(error) => {
+                        remove_dir(call_dir.clone()).await;
+                        return Err(error);
+                    }
+                }
+            }
+            _ => None,
+        };
         let running = match job {
             Some(_) => None,
             None => {
@@ -778,13 +835,16 @@ impl SandboxService {
             write_roots: spec.write_roots.iter().map(|root| root.path.clone()).collect(),
             state_dir: spec.runtime.job_state_dir(call.call_id),
             contained: spec.launch == SpecLaunch::Contained,
+            proxy,
             _running: running,
         })
     }
 
     /// Deletes idle cache layers by `settings`, leaving those of a conversation with a
-    /// running call.
+    /// running call, and closes the proxy listeners of calls that ended after their
+    /// timeout.
     pub(crate) async fn gc(&self, settings: &Settings) {
+        gc::sweep_proxies(&self.inner.proxy).await;
         let root = self.inner.dirs.state().join(plan::SANDBOX_DIR);
         let now = std::time::SystemTime::from(self.inner.clock.now());
         let shells = self.inner.dirs.runtime().join(plan::SHELL_DIR);
@@ -852,7 +912,7 @@ impl SandboxService {
 async fn mount_files(
     task: tokio::task::JoinHandle<Option<Arc<mounts::Taken>>>,
     spec: &efr_sandbox::SandboxSpec,
-    notes: &mut Vec<&'static str>,
+    notes: &mut Vec<String>,
 ) -> Vec<(&'static str, Vec<u8>)> {
     match snapshot_files(task, spec).await {
         Some((table, sizes)) => {
@@ -860,7 +920,7 @@ async fn mount_files(
         }
         None => {
             tracing::warn!(call_id = %spec.call, "the mount view failed; df shows the sandbox's mounts");
-            notes.push(MOUNT_VIEW_FAILED);
+            notes.push(MOUNT_VIEW_FAILED.to_owned());
             Vec::new()
         }
     }
@@ -920,6 +980,33 @@ fn mount_masks(spec: &efr_sandbox::SandboxSpec) -> (Vec<PathBuf>, Vec<PathBuf>) 
         runtime.state.clone(),
     ];
     (masks, below)
+}
+
+/// The proxy policy of the call of `spec`, frozen at its bind (DP24): its host grants,
+/// and the upload limit of `settings`.
+fn call_policy(spec: &efr_sandbox::SandboxSpec, settings: &Settings) -> efr_proxy::CallPolicy {
+    let grants = spec
+        .grants
+        .iter()
+        .filter_map(|grant| match grant {
+            Grant::Host { host, port } => Some((host.clone(), *port)),
+            _ => None,
+        })
+        .collect();
+    efr_proxy::CallPolicy {
+        call: spec.call,
+        grants,
+        deny: Vec::new(),
+        max_upload_bytes: settings.network.max_upload_bytes,
+    }
+}
+
+/// Removes the call dir `dir` of a call that does not start, off the async workers.
+async fn remove_dir(dir: PathBuf) {
+    let removed = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(&dir)).await;
+    if !matches!(removed, Ok(Ok(()))) {
+        tracing::debug!("the call dir of a call that did not start could not be removed");
+    }
 }
 
 /// Makes the targets that approved write grants bind and that their program would

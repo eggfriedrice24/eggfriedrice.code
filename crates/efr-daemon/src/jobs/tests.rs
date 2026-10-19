@@ -111,6 +111,7 @@ impl Scene {
             guard_roots: Vec::new(),
             write_roots: Vec::new(),
             contained: true,
+            proxy: None,
         }
     }
 

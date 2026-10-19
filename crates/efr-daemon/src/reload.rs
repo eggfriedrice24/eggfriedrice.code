@@ -28,7 +28,10 @@
 //!
 //! The same task rebuilds the engine when a probe changed what the sandbox supports
 //! ([`Reloads::rebuild`]): [`follow_probes`] watches the probe's status and asks for a
-//! rebuild when the network view of its last result differs from the running engine's.
+//! rebuild when the network view or the proxy of its last result differs from the
+//! running engine's, and [`follow_mirrors`] asks for one when a read of the pacman files
+//! found other mirror hosts. Each engine that the task sends gives its host list to the
+//! proxy, which every running listener reads (phase D2).
 //! A rebuild uses the running settings and the last probe; it never reads the file
 //! again and never starts a probe, so a probe and a rebuild cannot start each other in
 //! a loop. The task is the only one that sends on the engine watch after the start.
@@ -37,8 +40,10 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{CONFIG_FILE, ConfigError, FileState, Reloaded, Settings};
-use efr_permissions::Engine;
-use efr_protocol::{AdminConfigReloadResult, ConfigFileError, ConfigStatus, Mode, SandboxStatus};
+use efr_permissions::{Egress, Engine};
+use efr_protocol::{
+    AdminConfigReloadResult, ConfigFileError, ConfigStatus, Mode, NetworkMode, SandboxStatus,
+};
 use jiff::SignedDuration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -210,9 +215,17 @@ pub(crate) async fn serve(
 async fn rebuild_now(state: &State) -> bool {
     let settings = Arc::clone(&state.settings.borrow());
     let current = Arc::clone(&state.engine.borrow());
+    state.sandbox.proxy().warn_fallback(&settings, &state.sandbox.current());
     match state.engine_parts.engine(&settings, Probed::of(&state.sandbox)).await {
-        Ok(engine) if engine.support() != current.support() => {
-            tracing::info!(netview = engine.support().netview, "the engine follows the probe");
+        Ok(engine)
+            if engine.support() != current.support() || engine.hosts() != current.hosts() =>
+        {
+            tracing::info!(
+                netview = engine.support().netview,
+                proxy = engine.support().egress == Egress::Proxy,
+                "the engine follows the probe"
+            );
+            state.sandbox.proxy().set_hosts(engine.hosts());
             state.engine.send_replace(Arc::new(engine));
             true
         }
@@ -239,8 +252,17 @@ pub(crate) async fn follow_probes(
     stop: CancellationToken,
 ) {
     loop {
-        let wanted = settings.borrow().network.netview && status.borrow_and_update().netview;
-        if wanted != engine.borrow().support().netview && reloads.rebuild().await.is_err() {
+        let (netview, proxy) = {
+            let settings = settings.borrow();
+            let status = status.borrow_and_update();
+            (
+                settings.network.netview && status.netview,
+                settings.network.mode == NetworkMode::Proxy && status.proxy,
+            )
+        };
+        let support = *engine.borrow().support();
+        let differs = netview != support.netview || proxy != (support.egress == Egress::Proxy);
+        if differs && reloads.rebuild().await.is_err() {
             return;
         }
         // NOTE: biased, so a status that came before the stop is still followed.
@@ -248,6 +270,26 @@ pub(crate) async fn follow_probes(
             biased;
             changed = status.changed() => {
                 if changed.is_err() {
+                    return;
+                }
+            }
+            () = stop.cancelled() => return,
+        }
+    }
+}
+
+/// Asks `reloads` for a rebuild of the engine each time a read of the pacman files in
+/// `mirrors` found other mirror hosts, until `stop`: the rebuild sends the new list to
+/// the engine and the proxy (DP4).
+pub(crate) async fn follow_mirrors(
+    reloads: Reloads,
+    mut mirrors: watch::Receiver<Arc<[efr_permissions::MirrorHost]>>,
+    stop: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            changed = mirrors.changed() => {
+                if changed.is_err() || reloads.rebuild().await.is_err() {
                     return;
                 }
             }
@@ -339,11 +381,15 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     // `sandbox.ask_destructive`, plan PB17).
     let rules_changed = settings.permissions != running.permissions;
     let current = Arc::clone(&state.engine.borrow());
+    // NOTE: a reload reads the pacman files again (DP4); the engine's list holds their
+    // mirror hosts.
+    state.sandbox.proxy().read_mirrors(true).await;
     let engine = match state.engine_parts.engine(&settings, Probed::of(&state.sandbox)).await {
         Ok(engine)
             if rules_changed
                 || engine.locations() != current.locations()
-                || engine.support() != current.support() =>
+                || engine.support() != current.support()
+                || engine.hosts() != current.hosts() =>
         {
             Some(engine)
         }
@@ -366,8 +412,12 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     }
     let engine_sent = engine.is_some();
     if let Some(engine) = engine {
+        // NOTE: the list reaches every running listener at once (DP3); a running call
+        // keeps its own grants.
+        state.sandbox.proxy().set_hosts(engine.hosts());
         state.engine.send_replace(Arc::new(engine));
     }
+    state.sandbox.proxy().warn_fallback(&settings, &state.sandbox.current());
     let shell = &settings.shell;
     if (shell.program.as_ref(), shell.login)
         != (running.shell.program.as_ref(), running.shell.login)

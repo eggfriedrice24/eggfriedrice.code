@@ -383,10 +383,59 @@ async fn engine_netview_needs_setting_and_probe() {
     let netview = async |settings: &Settings, probed: Probed| {
         parts.engine(settings, probed).await.unwrap().support().netview
     };
-    assert!(netview(&Settings::default(), probed).await, "the key and the self-test");
+    assert!(netview(&Settings::default(), probed.clone()).await, "the key and the self-test");
     assert!(!netview(&Settings::default(), Probed::default()).await, "no passed self-test");
     assert!(!netview(&off, probed).await, "network.netview = false");
     assert!(!netview(&off, Probed::default()).await);
+}
+
+#[tokio::test]
+async fn network_mode_none_keeps_phase1() {
+    let (_root, home) = home();
+    let parts = parts(&home, home.path().join("secrets"));
+    let probed = Probed { proxy: true, ..Probed::default() };
+    let engine = parts.engine(&Settings::default(), probed).await.unwrap();
+    assert_eq!(engine.support().egress, efr_permissions::Egress::None, "network.mode = none");
+    let decided = decide(
+        &engine,
+        &home,
+        Mode::Auto,
+        Requirements::none()
+            .with_command("curl https://extra.test/x")
+            .with_command_dir(home.path()),
+    );
+    assert!(!matches!(decided, Effect::Allow), "a network need is still a host exit: {decided:?}");
+}
+
+#[tokio::test]
+async fn failed_proxy_self_test_falls_back_to_none() {
+    let (_root, home) = home();
+    let parts = parts(&home, home.path().join("secrets"));
+    let mut settings = Settings::default();
+    settings.network.mode = efr_protocol::NetworkMode::Proxy;
+    let failed = parts.engine(&settings, Probed::default()).await.unwrap();
+    assert_eq!(failed.support().egress, efr_permissions::Egress::None, "no route-less proxy");
+    let passed = Probed { proxy: true, ..Probed::default() };
+    let on = parts.engine(&settings, passed).await.unwrap();
+    assert_eq!(on.support().egress, efr_permissions::Egress::Proxy);
+    assert_eq!(on.locations(), failed.locations(), "the probe changes only the support");
+}
+
+#[tokio::test]
+async fn engine_hosts_follow_the_settings_and_the_mirrors() {
+    let (_root, home) = home();
+    let parts = parts(&home, home.path().join("secrets"));
+    let mut settings = Settings::default();
+    settings.network.allow = vec!["extra.test".to_owned(), "@pacman-mirrors".to_owned()];
+    settings.network.deny = vec!["denied.test".to_owned()];
+    let mirror =
+        efr_permissions::MirrorHost { host: "mirror.test".to_owned(), port: 443, http: false };
+    let probed = Probed { mirrors: std::sync::Arc::from(vec![mirror]), ..Probed::default() };
+    let engine = parts.engine(&settings, probed).await.unwrap();
+    assert!(engine.hosts().allows("extra.test", 443));
+    assert!(engine.hosts().allows("mirror.test", 443), "@pacman-mirrors holds the read hosts");
+    assert!(engine.hosts().denies("denied.test"));
+    assert!(!engine.hosts().allows("other.test", 443));
 }
 
 #[tokio::test]

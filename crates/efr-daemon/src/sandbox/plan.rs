@@ -14,7 +14,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use efr_config::{SandboxSettings, WriteProjects};
-use efr_permissions::{PROTECTED_NAMES, ZSH_STARTUP_FILES, persistence_floors, sandbox_masks};
+use efr_permissions::{
+    Egress, PROTECTED_NAMES, ZSH_STARTUP_FILES, persistence_floors, sandbox_masks,
+};
 use efr_protocol::{CacheMode, CallId, ConversationId, DesktopEnv, Grant, Launch};
 use efr_sandbox::{
     CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_DIR, JobPlan, Mask, MaskKind,
@@ -137,6 +139,9 @@ pub(crate) struct PlanInput<'a> {
     /// cache layers in `$SBX/jobs/<call>`, so it never holds the layer lock of the
     /// conversation's foreground calls. `None` for a call of the hidden shell.
     pub(crate) job: Option<JobPlan>,
+    /// How a contained call reaches the network: the engine's egress, which says
+    /// whether the call gets the proxy (DP15).
+    pub(crate) egress: Egress,
 }
 
 /// A built spec, and what the tool result says about it.
@@ -242,12 +247,11 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
     guard_roots.retain(|root| !git_dirs.contains(root));
     guard_roots.push(input.scratch.to_path_buf());
     let grants = input.launch.grants().to_vec();
-    let network =
-        if grants.contains(&Grant::OpenNetwork) { NetworkPlan::Open } else { NetworkPlan::None };
     let launch = match input.launch {
         Launch::Unsandboxed => SpecLaunch::Unsandboxed,
         _ => SpecLaunch::Contained,
     };
+    let network = network(&grants, launch, input.egress, &runtime);
     let spec = SandboxSpec {
         version: SPEC_VERSION,
         conversation: input.conversation,
@@ -276,6 +280,27 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         job: input.job,
     };
     Planned { spec, notes }
+}
+
+/// The network of a call (DP15): the host's with `Grant::OpenNetwork`; none for the
+/// exit child, with no proxy egress, or for a network view line (the view takes the
+/// host's namespace only with no network plan, D1); else the bridge to the call's own
+/// proxy socket, `$CALL/proxy.sock`.
+pub(crate) fn network(
+    grants: &[Grant],
+    launch: SpecLaunch,
+    egress: Egress,
+    runtime: &RuntimePaths,
+) -> NetworkPlan {
+    if grants.contains(&Grant::OpenNetwork) {
+        return NetworkPlan::Open;
+    }
+    let view_only = grants.contains(&Grant::NetView)
+        && !grants.iter().any(|grant| matches!(grant, Grant::Host { .. }));
+    if launch == SpecLaunch::Unsandboxed || egress != Egress::Proxy || view_only {
+        return NetworkPlan::None;
+    }
+    NetworkPlan::Proxy { socket: runtime.proxy_socket() }
 }
 
 /// Where things are for the call.

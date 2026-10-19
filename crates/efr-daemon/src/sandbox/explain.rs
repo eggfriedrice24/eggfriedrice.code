@@ -1,6 +1,9 @@
 //! `sandbox.explain`: what a contained call can do with one path, and why, from the
 //! same plan that the launcher builds (efr's auto spec, section 13.6).
 
+use std::ffi::OsString;
+use std::io;
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
 use efr_config::Settings;
@@ -9,7 +12,8 @@ use efr_protocol::{
     CallId, ConversationId, ExitKind, Launch, Mode, SandboxExplainResult, SandboxPathRole,
 };
 use efr_sandbox::{
-    FloorKind, MaskKind, MountOrigin, MountPlan, WriteRootKind, is_within, resolve, too_wide,
+    FileKind, FloorKind, FsView, MaskKind, MountOrigin, MountPlan, NetworkPlan, WriteRootKind,
+    is_within, resolve, too_wide,
 };
 
 use crate::DaemonError;
@@ -81,6 +85,7 @@ impl SandboxService {
             launcher: &self.inner.copy,
             desktops: &[],
             job: None,
+            egress: engine.support().egress,
         };
         let spec = plan::build(&input).spec;
         let runtime = spec.runtime.clone();
@@ -103,6 +108,13 @@ impl SandboxService {
                     )
                     .collect(),
             };
+            // NOTE: efrd binds a call's proxy socket at its prepare; the explained call
+            // has none, and the plan must find it to bind it.
+            let socket = match &spec.network {
+                NetworkPlan::Proxy { socket } => Some(socket.clone()),
+                _ => None,
+            };
+            let view = WithSocket { inner: &view, socket };
             let plan = MountPlan::build(&spec, &view)?;
             let real = resolve(&DaemonFs, &target)?.path;
             let mut explanation = plan.explain(&real);
@@ -135,6 +147,48 @@ impl SandboxService {
             reason,
             write_exit,
         })
+    }
+}
+
+/// `inner` with the proxy socket of a call that efrd has not prepared: the socket is
+/// there, and so are the dirs above it.
+struct WithSocket<'a> {
+    inner: &'a dyn FsView,
+    socket: Option<PathBuf>,
+}
+
+impl FsView for WithSocket<'_> {
+    fn lstat(&self, path: &Path) -> io::Result<FileKind> {
+        let Some(socket) = &self.socket else { return self.inner.lstat(path) };
+        if path == socket {
+            return Ok(FileKind::Other);
+        }
+        match self.inner.lstat(path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound && socket.starts_with(path) => {
+                Ok(FileKind::Dir)
+            }
+            other => other,
+        }
+    }
+
+    fn read_link(&self, path: &Path) -> io::Result<PathBuf> {
+        self.inner.read_link(path)
+    }
+
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<OsString>> {
+        self.inner.read_dir(path)
+    }
+
+    fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.inner.read_file(path, limit)
+    }
+
+    fn open_no_symlinks(&self, path: &Path) -> io::Result<OwnedFd> {
+        self.inner.open_no_symlinks(path)
+    }
+
+    fn open_empty(&self) -> io::Result<OwnedFd> {
+        self.inner.open_empty()
     }
 }
 

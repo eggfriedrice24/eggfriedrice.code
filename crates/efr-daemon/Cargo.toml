@@ -42,6 +42,8 @@ efr-holder.workspace = true
 efr-http.workspace = true
 efr-oauth-openai.workspace = true
 efr-permissions.workspace = true
+# The network proxy of the auto sandbox (phase D2), as tokio tasks of efrd.
+efr-proxy.workspace = true
 efr-protocol.workspace = true
 efr-provider.workspace = true
 efr-provider-anthropic.workspace = true

@@ -95,7 +95,7 @@ pub use history::HistoryLimits;
 pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
 pub use notice::{
     JobNoticeInput, NOT_USER_INPUT, NOTICE_LINE_BYTES, NOTICE_TAIL_BYTES, NOTICE_TAIL_LINES,
-    NoticeBody, job_lifetime_fact, notice_text,
+    NoticeBody, job_lifetime_fact, notice_text, notice_text_refused,
 };
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};

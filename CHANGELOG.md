@@ -193,6 +193,22 @@ into the GitHub release notes, and it stops when the section is missing.
   command downloads for the rest of the conversation, in efr's private layer. Your own
   caches do not change. It is off by default because each sandboxed command then takes
   about 3 to 4 ms more to start.
+- A network proxy for `auto`. Turn it on with `network.mode = "proxy"`. A sandboxed
+  command then reaches the package registries and GitHub with no review: crates.io,
+  npm, PyPI, the Go module proxy, GitHub downloads and your pacman mirrors. efr checks
+  each connection: the host must be on your allow list, it must not resolve to a local
+  or private address, and the TLS server name must match. Only the hosts and ports that
+  you list get through, and plain `http://` only for the hosts that you mark. A command
+  that needs another host goes to the reviewer, which opens that one host for that one
+  command. `network.allow`, `network.deny`, `[[network.hosts]]` and
+  `network.max_upload_bytes` set what the proxy lets through. The proxy runs only when
+  its self-test passes; else `efr sandbox check` warns, and commands have no network.
+- With the proxy, a command that the proxy refused shows
+  `network: blocked <host:port> (<reason>)`, and the model reads why. A background job
+  lists its refusals when it ends. The reviewer sees the hosts that the proxy refused
+  in the last command and in the jobs, but only as a fact, never as your request.
+- With the proxy, Node's `fetch` uses the proxy through `NODE_USE_ENV_PROXY=1`, so
+  Node prints an "experimental" warning on stderr in sandboxed commands.
 
 ### Changed
 
@@ -294,6 +310,13 @@ into the GitHub release notes, and it stops when the section is missing.
   private layer, and the toolchain was gone after the command.
 - In `auto`, `twine check` and the other `twine` forms that do not upload now get the
   network after a review. Before, they ran with none.
+- With the proxy, a command that names a host that is not on your allow list goes to
+  the reviewer for that one host and its port. `nslookup`, `dig`, `ping`, `nc` and
+  other programs that do not use HTTP, servers that your browser must reach, services
+  on your machine or your LAN, and other ports still get the whole network after a
+  review.
+- With the proxy, tools that send an Encrypted Client Hello, such as headless Chrome,
+  Electron and Playwright, cannot fetch through the proxy.
 
 ### Fixed
 
@@ -337,6 +360,9 @@ into the GitHub release notes, and it stops when the section is missing.
   credential helper. It also no longer gets a name that ends in `_AUTH`, such as
   `npm_config__auth`, or a variable whose value is a URL with a password, such as
   `PIP_INDEX_URL=https://user:token@...`, unless `sandbox.env_keep` keeps it.
+- With `network.mode = "proxy"`, `efr sandbox check` warns about each
+  `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
+  allowed hosts.
 
 ## [0.0.3] - 2026-10-09
 

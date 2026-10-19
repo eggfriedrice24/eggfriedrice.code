@@ -27,6 +27,7 @@ mod login;
 mod netview;
 mod presence;
 mod prompt_send;
+mod proxy;
 mod pty_attach;
 mod receipts;
 mod reconcile;

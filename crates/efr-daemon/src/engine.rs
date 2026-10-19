@@ -11,11 +11,14 @@
 //! directory builds a new one here and sends it there.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use efr_config::{AskDestructive, Settings, WriteProjects};
 use efr_permissions::{
-    AutoSupport, Engine, FloorGroup, Locations, PermissionsError, ZSH_STARTUP_FILES,
+    AutoSupport, Egress, Engine, FloorGroup, HostList, Locations, MirrorHost, PermissionsError,
+    ZSH_STARTUP_FILES,
 };
+use efr_protocol::NetworkMode;
 use efr_sandbox::{expand_home, is_within, too_wide};
 use efr_scope::{Home, Registry};
 
@@ -59,28 +62,37 @@ pub(crate) struct EfrPaths {
 }
 
 /// What efrd found about this machine that the engine needs: whether a contained call
-/// can get the host's network view, and whether efrd sees the user's mounts. Both
-/// change only with a probe, never with the settings.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// can get the host's network view or the proxy, whether efrd sees the user's mounts,
+/// and the pacman mirror hosts of `@pacman-mirrors`. They change only with a probe or a
+/// read of the pacman files, never with the settings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Probed {
     /// The network view self-test of the last probe passed (`SandboxStatus::netview`).
     pub(crate) netview: bool,
     /// efrd shares the mount namespace of the user (`SandboxService::mount_view`).
     pub(crate) mount_view: bool,
-    /// The proxy self-test of the last probe passed (`SandboxStatus::proxy`, phase D2).
-    /// Nothing reads it yet: the engine's egress stays `Egress::None`.
+    /// The proxy self-test of the last probe passed (`SandboxStatus::proxy`, phase D2):
+    /// with `network.mode = "proxy"` the engine's egress is the proxy (DP15).
     pub(crate) proxy: bool,
+    /// The hosts of the pacman files' `Server =` lines (DP4).
+    pub(crate) mirrors: Arc<[MirrorHost]>,
 }
 
 impl Probed {
-    /// The current values of `sandbox`: its last status and its mount check.
+    /// The current values of `sandbox`: its last status, its mount check and its last
+    /// read of the pacman files.
     pub(crate) fn of(sandbox: &SandboxService) -> Probed {
         let status = sandbox.status();
         let (netview, proxy) = {
             let status = status.borrow();
             (status.netview, status.proxy)
         };
-        Probed { netview, mount_view: sandbox.mount_view(), proxy }
+        Probed {
+            netview,
+            mount_view: sandbox.mount_view(),
+            proxy,
+            mirrors: sandbox.proxy().mirrors(),
+        }
     }
 }
 
@@ -246,8 +258,10 @@ pub(crate) fn build(
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
     locations = with_efr(locations, sandbox)?;
-    // NOTE: no proxy (phase D2) and no bus proxy (phase E) yet. The mount view follows
-    // efrd's own mount check (`Probed`). efrd keeps the home store while snapshots are
+    // NOTE: no bus proxy (phase E) yet. The network proxy (phase D2) needs both the
+    // user's `network.mode = "proxy"` and a probe whose proxy self-test passed; else a
+    // network need stays a review that opens the whole network (DP15), never a route-less
+    // proxy. The mount view follows efrd's own mount check (`Probed`). efrd keeps the home store while snapshots are
     // on (`home.rs`), and a covered destructive part runs with no review only while
     // undo is on too and `sandbox.ask_destructive` lets it (plan PB17). With snapshots
     // off, a named floor file edit goes back to the user: stricter, never looser. The
@@ -257,14 +271,36 @@ pub(crate) fn build(
     let undo = floor_backup
         && settings.undo.enabled
         && settings.sandbox.ask_destructive == AskDestructive::UnlessUndoable;
+    let egress = if settings.network.mode == NetworkMode::Proxy && probed.proxy {
+        Egress::Proxy
+    } else {
+        Egress::None
+    };
     let support = AutoSupport {
+        egress,
         floor_backup,
         undo,
         mount_view: probed.mount_view,
         netview: settings.network.netview && probed.netview,
         ..AutoSupport::default()
     };
-    Ok(Engine::with_rules(locations, settings.permissions.rules.clone()).with_support(support))
+    let hosts = host_list(settings, &probed.mirrors);
+    Ok(Engine::with_rules(locations, settings.permissions.rules.clone())
+        .with_support(support)
+        .with_hosts(Arc::new(hosts)))
+}
+
+/// The proxy's global list of `settings` with the pacman mirror hosts `mirrors` (DP2 to
+/// DP4). The config check refuses a list that does not compile, so a failure here costs
+/// a warning and an empty list, which allows nothing.
+pub(crate) fn host_list(settings: &Settings, mirrors: &[MirrorHost]) -> HostList {
+    match settings.network.host_list(mirrors) {
+        Ok(list) => list,
+        Err(error) => {
+            tracing::warn!(error = %error, "the proxy's host list does not compile; it allows nothing");
+            HostList::default()
+        }
+    }
 }
 
 /// `locations` with efr's own roots and programs (plan PD36): the runtime root, the

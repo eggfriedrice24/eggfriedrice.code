@@ -136,6 +136,7 @@ impl Scene {
             guard_roots: roots.iter().map(PathBuf::from).collect(),
             write_roots: roots.iter().map(PathBuf::from).collect(),
             contained: true,
+            proxy: None,
         };
         let mut spawned = self.table.spawn(&job).unwrap();
         self.table.start(&mut spawned, &job).await.unwrap();
