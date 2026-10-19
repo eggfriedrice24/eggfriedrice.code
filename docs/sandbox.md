@@ -1451,7 +1451,7 @@ reach the network through efr's proxy; `network none` that they have no network
 (`network.mode = "none"`), and `network none (proxy self-test failed)` that the proxy
 is off because its self-test failed. `bus filter on` means that read-only system
 queries run through the bus filter; `bus filter off` names the reason, such as
-`dbus.proxy is false` or a failed self-test.
+`dbus.proxy = false` or a failed self-test.
 
 `efr sandbox allow` lists the always rules of `config.toml` with their index, and
 `disabled: <reason>` for a rule that crosses a floor. `efr sandbox allow remove N`
