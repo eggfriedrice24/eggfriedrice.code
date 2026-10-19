@@ -43,7 +43,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 |---|---|
 | Writes | only in the write roots (below). Everything else is read-only. |
 | Secrets | the paths of the read masks read as empty. Secret-like environment variables are removed. |
-| Network | none. Only loopback works, so a test can start a server and talk to it. A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
+| Network | with `network.mode = "proxy"`, only the hosts of your allow list, through efr's network proxy: the package registries and GitHub by default (see "The network proxy"). With `network.mode = "none"`, none. Loopback works in both modes, so a test can start a server and talk to it. A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
 | Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. An approved exit opens one socket for one call (see "Desktop sockets"). |
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
@@ -96,6 +96,18 @@ directories on your `PATH` are never an overlay; they stay read-only. A cache in
 another cache (`~/.cache/pip` and `~/.cache`, or `~/.cargo` as a link into `~/.cache`)
 gets no overlay of its own: the outer overlay holds it, and its read-only paths still
 apply. The order of `sandbox.caches` does not change this.
+
+`sandbox.keep_downloads` (default `false`) keeps the downloads of a conversation in the
+`tmp` mode: the download caches (`~/.cargo`, `~/go/pkg/mod`, `~/.npm`,
+`~/.bun/install/cache` and `~/.local/share/pnpm/store`) keep the private layer of the
+conversation, as in the `overlay` mode, and the other caches stay `tmp`. So with the
+proxy, a second `cargo build` in the conversation does not download the crates again.
+Your own caches do not change. It is off by default because it failed the launch gate:
+the kernel syncs the upper layer to the disk at the end of each call, and a call then
+costs about 3 to 4 ms more (about 12 ms at p95, against the gate of 10 ms). The kept
+caches share the layer lock of the conversation (below) and the clean-up of
+`sandbox.cache_days` and `sandbox.cache_max_gib`. The key does not loosen the sandbox:
+it keeps a private layer and opens nothing of your machine.
 
 efr mounts the cache overlays itself, not bubblewrap, because bubblewrap cannot set
 the options of an overlay:
@@ -311,7 +323,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | Kind | Example | After a yes | Who can approve |
 |---|---|---|---|
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
-| `host` | `curl -LO https://example.com/x.tar.gz`, `npm ci` | the sandbox, with full network for this call | the reviewer, else you |
+| `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5173`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer, else you |
 | `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
 | `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
@@ -319,7 +331,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
-| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, or the model asks to run outside, such as `gdb` or git over ssh | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`) |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`). An ssh line needs a message of yours that names the host, or a remote of your project; an ssh submodule URL, a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link` asks only you |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
 | `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
@@ -371,10 +383,17 @@ allows, a `high` risk needs a message of yours that clearly authorizes it, a wri
 needs a message that names each target unless the target is a tool cache, build
 output below a registered project or efr's trash, and a host that is not on the allow
 list needs a message that names it, except a package fetch of a request to build,
-install or update. The text of the line never changes this. Before the proxy, efr
-knows a host only from the line (a URL, a remote operand, the destination of `ssh`);
-for a host that the line does not show, such as a git remote name, there is no name
-to check.
+install or update. The text of the line never changes this. A host is on the allow
+list only with the proxy, only for a grant of that one host, and only on its port; a
+grant of the whole network always needs the name. efr knows a host from the line (a
+URL, a remote operand, the destination of `ssh`) and, for `git fetch`, `git pull`,
+`git push` and `git submodule update`, from the remotes of the repository: every
+fetch and push URL behind the remote name. A remote of your registered project's own
+git dir that did not change since the conversation started counts as named by you
+(`project_remote`); a repository that a command made does not count. A host that the
+proxy refused in the last command or a job is a fact for the reviewer
+(`refused_by_proxy`), never a name. A host that a script connects to has a fact only
+after the proxy refused it.
 
 The reviewer is the small model of your provider (`classifier.model` picks another),
 then the turn's model at a low effort (`classifier.fallback_to_turn_model`), then you.
@@ -439,7 +458,7 @@ The question shows the whole line, what leaves the sandbox, and how the call run
 
 ```
 ? allow full network for this call
-│ npm ci
+│ nslookup example.com
 │ why: network
 │ y allow · n deny
 ```
@@ -472,8 +491,9 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   exit 2 · 1.5s`, and no word about the sandbox: every shell call of `auto` runs
   there. A turn in which a call ran in the sandbox ends with one dim line that says
   where the sandbox can write, such as `sandbox: writes in the project, $SCRATCH,
-  private /tmp; no network`. When a call of the turn had the network view, the line
-  ends with `; host network view (no sending)`.
+  private /tmp; no network`. When a call of the turn ran with the proxy, the line says
+  `network through efr's proxy` in place of `no network`. When a call of the turn had
+  the network view, the line ends with `; host network view (no sending)`.
 - Three refusals in a row without a person (by a floor) stop the turn. A refusal of
   the reviewer does not count here; it has its own pause (above).
 
@@ -503,7 +523,7 @@ sockets, links, counters and routes. The call cannot send anything:
 | TCP | Landlock also refuses TCP bind and connect, a second layer behind seccomp. |
 | Unix sockets | as in every call: no connect to a socket path that the call did not make, and no connect or send to an abstract name outside the sandbox. |
 | `ss -p` | names only the processes of the call. Landlock hides the file descriptors of every other process. |
-| Package managers | get the offline hints, as in every call without the network. |
+| Package managers | get the offline hints, as in every call without the network or the proxy. |
 
 Which lines get the view (`efr-permissions/src/exits/view.rs`): each simple command
 of the line is one of these:
@@ -608,6 +628,227 @@ Every contained call could already list every mount of the machine through
 `/proc/<pid>/mountinfo`, also the mounts of other users and containers. A new procfs or
 `hidepid` would hide them, and both hide `ps`. The mount view adds the sizes of your
 own mounts.
+
+## The network proxy
+
+With `network.mode = "proxy"`, a contained command reaches the hosts of your allow
+list through efr's network proxy, with no review: the package registries and GitHub
+by default. So `cargo build` with a new dependency, `npm install` and `pip install`
+run at once. Every other route stays closed. With `network.mode = "none"`, a contained
+command has no network, as before phase D2.
+[`docs/adr/0012-network-proxy.md`](adr/0012-network-proxy.md) records the decision.
+
+### The path of a connection
+
+1. The call keeps its own network namespace, with only loopback. Before the command
+   starts, the launcher starts a small bridge in the call, `efr-bridge`, which listens
+   on `127.0.0.1:3128`.
+2. efr sets the proxy variables of the call to `http://127.0.0.1:3128`: `HTTPS_PROXY`,
+   `HTTP_PROXY`, `https_proxy`, `http_proxy`, `ALL_PROXY`, `all_proxy`,
+   `CARGO_HTTP_PROXY`, `npm_config_proxy`, `npm_config_https_proxy`,
+   `YARN_HTTP_PROXY`, `YARN_HTTPS_PROXY` and `PIP_PROXY`. `NO_PROXY` and `no_proxy`
+   are `localhost,127.0.0.1,::1`, so a server that a test starts in the call stays
+   direct. These variables win over a proxy in your own tool config, such as
+   `~/.cargo/config.toml`. Node's `fetch` uses them only with `NODE_USE_ENV_PROXY=1`,
+   which efr sets, so Node prints an "experimental" warning on stderr. curl, cargo,
+   git over https, npm, pip, uv, go, bun and pnpm were tested on 2026-10-13. A tool
+   that does not read these variables fails closed: it cannot resolve the host.
+3. The bridge copies each connection to the call's proxy socket. efrd binds this Unix
+   socket for the call (`$CALL/proxy.sock`, mode 0600), and the launcher binds it
+   read-only into the call at `$XRT/efr-proxy.sock`. The command itself cannot connect
+   to that socket: Landlock gives `EACCES`. Only the bridge can.
+4. efrd's proxy reads the request, checks it, resolves the host, connects, checks the
+   TLS server name, and then copies the bytes both ways.
+
+The bridge starts with two plain process spawns, a starter and a server, and runs in
+its own session. Before it serves, the server closes every other file descriptor,
+names itself `efr-bridge`, turns off core dumps and `/proc` access to it, and applies
+its own Landlock domain (no write right, a connect only to the proxy socket, no
+signal out) and its own seccomp filter (only Unix sockets; no `bind`, `listen`,
+`execve` or `ptrace`). Then it tells the starter that it is ready. When a step fails,
+the bridge does not serve, and the call fails to start with a setup error. The bridge
+adds about 0.6 ms to each call. The bridge is no job of the call's shell, so the end
+of a call does not list it as a stopped background process, and the stop of a
+background job spares a process with its name. The end of the call's pid namespace
+ends it.
+
+### What the proxy checks
+
+For each `CONNECT` request, in this order:
+
+1. The request head must come within 10 seconds and 8 KiB. A control character gives
+   400.
+2. An IP address as the host gives 403, unless `[[network.hosts]]` lists it.
+3. When the call's upload budget is spent, a new tunnel gets 403.
+4. Port 80 means plain HTTP: a tunnel to a port that only an `http` entry or a port 80
+   grant allows gets 403.
+5. The lists: the deny list wins, then the allow list, then the host grants of the
+   call. A host that is not on a list gets 403, with no DNS lookup. So a name that is
+   not listed never reaches a DNS server.
+6. The proxy resolves the name (5 seconds). Every address of the name must be a
+   global address: not loopback, private, shared (CGNAT), link-local, unique local,
+   multicast, documentation or another special-purpose block, and not an address of
+   your machine or of one of its networks. The proxy unwraps the IPv4-mapped,
+   IPv4-compatible and NAT64 forms first. A `private = true` entry may resolve to an
+   address of your LAN, never to loopback, link-local or your machine.
+7. The proxy connects only to an address that it checked: at most 4 addresses, 10
+   seconds each and 15 seconds in all.
+8. After `200 Connection established`, the first bytes must be a TLS ClientHello
+   (16 KiB, 10 seconds), and its server name must be the host. A hello with no server
+   name, bytes that are not TLS, and a hello that asks for Encrypted Client Hello cut
+   the tunnel before any byte of the client leaves.
+9. Then the proxy copies the bytes, under the upload budget.
+
+Plain `http://` works only for an http host: an entry with `http = true`, an
+`http://` pacman mirror, or a host grant on port 80. It allows only `GET` and `HEAD`.
+The proxy writes a new request head with a fixed list of headers, and reads no byte
+after the head, so one connection carries one request. When the server cannot be
+reached, the command gets 502 with a short reason, such as `no such host`, `refused`
+or `timed out`.
+
+The upload budget (`network.max_upload_bytes`, 4 MiB) counts every byte that the
+command sends after each `CONNECT` head, the TLS hello included, over every connection
+of the call. A background job counts for its whole life. When the budget is spent, the
+proxy cuts the connection and refuses new ones.
+
+The proxy checks only the first TLS hello. A second hello after a HelloRetryRequest, a
+TLS 1.2 renegotiation and the `:authority` of HTTP/2 are not checked.
+
+### The allow list
+
+`network.allow` holds presets, host names and `*.suffix` entries. The default holds the
+six presets:
+
+| Preset | Hosts |
+|---|---|
+| `@crates` | `crates.io`, `index.crates.io`, `static.crates.io` |
+| `@npm` | `registry.npmjs.org`, `registry.yarnpkg.com` |
+| `@pypi` | `pypi.org`, `files.pythonhosted.org` |
+| `@go` | `proxy.golang.org`, `sum.golang.org` |
+| `@github-read` | `github.com`, `codeload.github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com`, `release-assets.githubusercontent.com` |
+| `@pacman-mirrors` | the hosts of the `Server =` lines of `/etc/pacman.d/mirrorlist` and of each file that an `Include =` line of `/etc/pacman.conf` names; empty when the files do not exist |
+
+An entry of `allow` allows port 443. Write a name in lower case and in its ASCII
+(`xn--`) form; `*` alone and a suffix of one label, such as `*.com`, are refused. efrd
+reads the pacman files at start, at a reload, and again when one of them changed (at
+most once a minute). `network.deny` holds entries that no command reaches; it wins
+over the allow list and over every host grant. `[[network.hosts]]` adds a host with
+options, and only an editor changes it:
+
+```toml
+[[network.hosts]]
+host = "mirror.lan"
+port = 8080
+http = true       # plain GET and HEAD too
+private = true    # it may resolve to an address of your LAN
+```
+
+To add a company registry or a `GOPROXY` host, add its host to `network.allow` (or to
+`[[network.hosts]]` for another port), and set the registry in the tool's own config
+as usual. The proxy variables of the call stay in front of it.
+
+A change of `allow`, `deny` or `[[network.hosts]]` reaches every running call at once.
+A change of `mode` applies to the next call; a running background job keeps its
+proxy until it ends. `network.mode = "none"` and a running job: `efr jobs stop` ends
+it.
+
+### Hosts that are not on the list
+
+- A host that the line shows, such as the URL of `curl` or `wget`, or the host of an
+  https git remote, is a `host` exit with a grant of that one host and port for that
+  one call. The reviewer may allow it only when a message of yours names the host. The
+  next call asks again.
+- A host that the line does not show, such as a host in a script, gets 403. The
+  command's output then has a note, such as `[efr: the network proxy refused
+  other.test:443: not on the allow list. To reach a host, call shell again with
+  needs.hosts.]`, and the model can ask for the host with `needs.hosts`. The record of
+  that next exit says that the proxy refused the host (`refused_by_proxy`). This is a
+  fact, never your permission.
+- Programs that do not use HTTP keep the whole network after a review: `nslookup`,
+  `dig`, `host`, `drill`, `ping`, `traceroute`, `tracepath`, `mtr`, `nc`, `ncat`,
+  `netcat`, `socat`, `telnet` and `ftp`. So does a `needs.hosts` entry of
+  `localhost`, a private or link-local address, or a port other than 443 and 80. This
+  is the route for a dev server that your browser must reach, a service on your
+  machine or your LAN, and a client that does not read the proxy variables, such as
+  `psql`, `redis-cli` or Java. Such a host never counts as on the allow list, so the
+  reviewer needs a message of yours that names it.
+- `ssh`, `mosh`, `autossh` and git over ssh (a fetch or clone from an ssh remote) run
+  outside the sandbox with your ssh keys. The record names the host, and the reviewer
+  may allow it only when a message of yours names the host, or when the remote belongs
+  to your registered project and did not change since the conversation started. An ssh
+  URL of `.gitmodules`, which a command can write, always asks you.
+- `git push` and the other uploads stay `upload` exits outside the sandbox, as before.
+  The reviewer now sees every host behind the remote name.
+- A line that also reads your network, such as `ss -tln; curl https://x`, keeps the
+  `host_view` exit with the whole network: the network view never joins a proxy call.
+
+### Refusals
+
+A command that the proxy refused shows a dim line under its result, such as
+`network: blocked other.test:443 (not on the allow list)`, and the model reads a note
+with the reason. A background job lists its refusals in the line of its end. The
+proxy keeps at most 32 records for each call, one for each host, port and reason,
+with a count; `and N more` counts the rest.
+
+| Reason | Why |
+|---|---|
+| `not on the allow list` | the host is not on a list, or the deny list holds it, or efrd denies it for the call because a file holds a credential for it |
+| `a private address` | the name resolves to a local or private address |
+| `the TLS name differs from the host` | the server name of the TLS hello is not the host |
+| `not TLS` | no TLS hello with a server name, or a hello that asks for Encrypted Client Hello |
+| `ip address` | the command named an IP address |
+| `a method that is not allowed` | plain HTTP other than `GET` and `HEAD`, or a tunnel to port 80 |
+| `bad request` | a malformed request head |
+| `over the upload limit` | the call sent more than `max_upload_bytes` |
+| `too many connections` | more than 64 open connections in the call |
+
+### Credentials
+
+The proxy lets a command reach an allowed host, so efr keeps credentials out of the
+call:
+
+- The read masks hide the credential files of git, the registries and the package
+  tools (see "Read masks").
+- The environment filter drops `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*`, names that end in `_AUTH`, and each
+  variable whose value is a URL with a password, such as
+  `PIP_INDEX_URL=https://user:token@...`. `sandbox.env_keep` can keep the last two
+  kinds; `efr status` and `efr sandbox check` then warn about each kept name that looks
+  like a secret.
+- A token in a file that the sandbox must read cannot be hidden line by line. So when
+  the project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml`, `.cargo/config.toml`
+  or `.cargo/config`, or the git config of the project (with `~/.gitconfig`, the XDG
+  file and their includes) holds a password or a token for a host, efrd denies that
+  host for the call. The output says why: `[efr: efr blocks registry.npmjs.org for
+  this command: ~/p/app/.npmrc holds a credential for it. Move the credential to a file
+  that the sandbox hides, such as ~/.npmrc.]`. A git `http.extraHeader` with no URL
+  denies every remote host and the hosts of `@github-read`; a shell credential helper
+  or a credential store in a write root denies the hosts of the remotes.
+
+### When the proxy closes
+
+The proxy socket of a foreground call closes when the command ends; open connections
+get 200 ms to finish. A call that runs past its timeout keeps its socket until its
+result comes or its dir goes (efrd looks at each prepare of the conversation and once
+an hour). A background job keeps its socket until it ends. An efrd restart ends every
+job; a foreground call that runs past its timeout loses its network then.
+
+The probe checks the bridge at each start (see "When the sandbox cannot run"). When
+the check fails, contained commands have no network, and `efr status` says so.
+
+### What the proxy cannot stop
+
+- The proxy cannot see inside TLS. A command can send data to a host on your allow
+  list, with no credentials, up to the upload budget.
+- The Go module proxy fetches a missing module from its origin host, so a request
+  through `@go` can carry data to another host. A `*.suffix` entry lets a command pick
+  a DNS name below the suffix, which the proxy resolves.
+- A CDN that serves another site by the `Host` header inside TLS widens what an allowed
+  host reaches. In the probe, Fastly answered 421 and Cloudflare 403.
+- A socket grant that reaches the network goes around the proxy: systemd-resolved's
+  varlink socket, nscd, the Docker and Podman sockets, tailscaled and a SOCKS socket.
+- Tools that send an Encrypted Client Hello, also as a decoy, such as headless Chrome,
+  Electron and Playwright, cannot fetch through the proxy.
 
 ## Background jobs
 
@@ -871,6 +1112,16 @@ runs, the network view is off, and `ss` and `ip` go to the reviewer. The warning
 `the network view's self-test failed, so ss and ip need a review: <check>`. efrd
 builds its engine again after each probe, so the view follows the newest result.
 
+A third launch checks the proxy's bridge with a test socket of the probe, which
+answers like the proxy. `proxy_tcp`: a TCP connect to `127.0.0.1:3128`, a `CONNECT
+probe.test:443`, the answer and one echoed byte. `proxy_socket_direct`: a connect to
+the bound socket gives `EACCES`. `proxy_tcp_other`: TCP to `192.0.2.1:9` gives
+`ENETUNREACH`. `proxy_bridge_signal`: a signal to the bridge gives `EPERM`. A failure
+here is a warning too: with `network.mode = "proxy"`, efrd falls back to no network,
+logs one warning, and the first contained command after each start of efrd gets the
+note `efr's network proxy is off: its self-test failed; run efr status`. `efr status`
+then shows `network none (proxy self-test failed)`.
+
 | Failure | Reason | Fix |
 |---|---|---|
 | no bubblewrap | `bubblewrap is not installed` | Arch: `pacman -S bubblewrap`; Debian and Ubuntu: `apt install bubblewrap`; Fedora: `dnf install bubblewrap` |
@@ -921,13 +1172,17 @@ warn  ~/dotfiles/bin is on PATH and inside the registered project ~/dotfiles; it
 warn  the registered project ~ is your home directory; auto runs its turns as cautious
 launch 3.6 ms
 netview yes
+network proxy
 auto: ready
 ```
 
 A failed check has a `fix:` line below it. The command exits with 1 when the sandbox
 is not available. `netview no (the warning above says why)` means that the self-test
 of the network view failed; `auto` still works. `netview off (network.netview = false)`
-means that you turned the view off.
+means that you turned the view off. `network proxy` means that contained commands
+reach the network through efr's proxy; `network none` that they have no network
+(`network.mode = "none"`), and `network none (proxy self-test failed)` that the proxy
+is off because its self-test failed.
 
 `efr sandbox explain PATH` tells what a contained command can do with one path, from
 the current directory:
@@ -1047,10 +1302,15 @@ when efr counts you away: `away_after_minutes`, `away_wait_secs` and `push` (no 
 client exists yet, so it does nothing today). Each key applies from the next
 question, and none needs a restart.
 
-`[network]` has one key in phase D1: `netview` (default `true`). `false` makes `ss`,
-`ip` read forms, `nstat` and reads of `/proc/net` `host_view` exits for the reviewer
-again. It applies from the next call, with no restart. The settings tool marks a
-change from `false` to `true` as "loosens permissions".
+`[network]` holds `netview` (default `true`): `false` makes `ss`, `ip` read forms,
+`nstat` and reads of `/proc/net` `host_view` exits for the reviewer again. It also
+holds the keys of the proxy: `mode`, `allow`, `deny`, `[[network.hosts]]` and
+`max_upload_bytes` (see "The network proxy"). Each applies from the next call, with no
+restart; the allow and deny lists also reach the calls that run. The settings tool
+marks each change that opens more as "loosens permissions": `netview` from `false` to
+`true`, `mode` to `"proxy"`, a new `allow` entry, a removed `deny` entry, a new or wider
+`[[network.hosts]]` entry, and a higher `max_upload_bytes`. Only an editor changes
+`[[network.hosts]]`.
 
 ## Known limits
 
@@ -1065,7 +1325,7 @@ change from `false` to `true` as "loosens permissions".
 | the private `/tmp` | wrong paths for you or the model | the prompt text says so; share files through `$SCRATCH` |
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |
-| a `bus` or `host` grant opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so |
+| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so; with the proxy, a host that the line shows gets a grant of that one host |
 | `tty` and `$$` show the sandbox's view | confusing output for system work | the prompt text says so; `df`, `findmnt`, `ss` and `ip` show your machine through the views |
 | a call with the network view runs in your network namespace and can run any code | a gap in the seccomp profile would let it send from your machine | only Unix and netlink sockets, and only two netlink protocols; `listen` and `pidfd_getfd` refused; Landlock refuses TCP; the probe checks each refusal at every start; the view only beside `write` and `unmask` grants |
 | a host program can send a datagram to an abstract socket name that a network view call binds, also with a socket in it (`SCM_RIGHTS`) | the call could receive a connected socket from a host program and send through it | it needs a host program that sends to that name on purpose; `listen` fails, so no stream service; a job ends at its time limit |
@@ -1078,9 +1338,16 @@ change from `false` to `true` as "loosens permissions".
 | a hung NFS or FUSE mount, an automount | `df` could hang or mount a share | the helper ends after one second, the mount shows `-` for a minute; no `statvfs` for `autofs` and the other dummy types |
 | an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege, upload and persistence are yours only |
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
-| no network | a build that must download fails | the network is an exit; `sandbox.offline_hints` tells package managers to use the cache |
+| no network with `network.mode = "none"`, or a host that is not on the allow list | a build that must download fails | with the proxy, the registries are on the default list; a host that the line shows is a review for that one host; without the proxy, the network is an exit, and `sandbox.offline_hints` tells package managers to use the cache |
+| the proxy cannot see inside TLS | a command can send data to a host on your allow list, with no credentials: at most `max_upload_bytes` (4 MiB) per command, counted from the first byte of each connection | no credentials in the sandbox (masks, the environment filter, the token deny); the server name check; the cut of Encrypted Client Hello; a short default list |
+| the Go module proxy fetches a missing module from its origin, and a `*.suffix` entry lets a command pick a DNS name below the suffix | data can reach a host through `@go`, or a DNS server through a name | the list check before any lookup; the budget; remove `@go` from `network.allow` when you do not need it |
+| a socket grant that reaches the network: systemd-resolved's varlink socket, nscd, the Docker and Podman sockets, tailscaled, a SOCKS socket | the call goes around the proxy | a socket grant is an exit; the question names the socket |
+| the proxy checks only the first TLS hello | a second hello after a HelloRetryRequest, a TLS 1.2 renegotiation or the `:authority` of HTTP/2 can name another site behind the same CDN | the budget; such fronting depends on the CDN (Fastly and Cloudflare refused it in the probe) |
+| tools that send an Encrypted Client Hello, also as a decoy: headless Chrome, Electron, Playwright | their fetches through the proxy fail (`not TLS`) | none: the cut stops fronting through ECH |
+| a token in a file that the sandbox must read and that is not on efr's list | the token reaches a host on your allow list | the token deny covers the project's registry files and the git config; move a token to a file that the sandbox hides |
+| a foreground call that runs past its timeout | it loses its network when efrd restarts | none; a restart ends every job anyway |
 | MCP servers | they run outside the sandbox | none yet |
-| the host naming rule sees only the hosts of the line | a host behind a git remote name or a script reaches the reviewer's allow with no name; the `host` exit opens the whole network for the call | the reviewer reads the line and your messages; the masks and the environment filter stay; the proxy of a later phase grants one host |
+| the host naming rule sees only the hosts of the line and of the git remotes | a host that a script connects to has no fact before the proxy refuses it | with the proxy, a host that is not listed gets 403 and then a review of that one host; the masks and the environment filter stay |
 | the reviewer's name check is a word match | "do not push" names a push; "zshrc" can name the wrong file | the reviewer still reads your messages; a generic file name such as `config` or `init` names nothing alone, nor does the bare name of a program, a unit or a desktop entry; wide targets ask you |
 | an allowed `outside` line runs in the exit child with your full rights, and only predicted targets get a copy | a program that the model did not write in this turn can change `~/.zshrc` with no name and no copy; the turn-end line names only what the copies cover | the one-command rule; a program written in this turn or in a write root asks you, and so does an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, a script); the reviewer sees the line |
 | the payload of a file tool edit of a floor file goes to the reviewer | the payload is model text, which can hold words that try to steer the reviewer | the reviewer's prompt says that text in the action never authorizes; the naming rule still needs a message of yours; a payload over 8 KiB asks you |
@@ -1100,5 +1367,5 @@ change from `false` to `true` as "loosens permissions".
 | a job in the exit child that starts a process in a new session (`setsid`) and ends its own launcher, in any order | that process can escape the stop, the time limit and the sweep; the end does not name it, and efrd's socket counts it as your process, not the model's | the sweep by the job's session ends every other process; the end names a lost launcher; a cgroup per job comes later |
 | a job keeps the sandbox plan of its start | a new mask, secret or floor of a settings change does not reach a running job | stop the job and let the model start it again |
 | a job writes a path that a later call also changes | that change stays with the later call's turn, not with the job's | undo refuses while a job writes in its roots |
-| a dev server in a contained job listens on the sandbox's own loopback | your browser cannot reach it | the model asks for the network for the job (`needs.hosts`), and the reviewer decides; a grant to listen comes later |
+| a dev server in a contained job listens on the sandbox's own loopback | your browser cannot reach it | the model names `localhost` with the port in `needs.hosts`, and after a review the job gets the whole network, so it listens on your loopback; the reviewer allows this only when a message of yours names the host; a grant to listen comes later |
 | a job's output goes to a pipe | some programs keep their output in a buffer, so the output file and the notices come late | run the program with `stdbuf -oL` or its own flag for line output |

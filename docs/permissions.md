@@ -318,9 +318,9 @@ denied. Each exit has a kind:
 | Kind | Examples |
 |---|---|
 | `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit. A path below such a node, such as `/dev/fd/3/x`, goes through an open file to a place that efr cannot see, so it is a write that only you approve |
-| `host` | a network need: `curl`, `git fetch`, `npm ci`, `checkupdates` |
+| `host` | with `network.mode = "none"`: every network need, such as `curl`, `git fetch`, `npm ci` or `checkupdates`, with the whole network for the call. With the proxy (`network.mode = "proxy"`): a host that the line or a git remote shows and that is not on the allow list, with a grant of that one host and port (`curl https://example.com/x`); a raw network program (`nslookup`, `dig`, `host`, `ping`, `traceroute`, `nc`, `socat`, `telnet`, `ftp` and the like) and a `needs.hosts` entry of `localhost`, a private or link-local address, or a port other than 443 and 80, with the whole network. A network program whose hosts are all on the allow list, or that names no host (`cargo build`, `npm ci`), makes no exit: the proxy decides. A host that the deny list holds makes no exit either; the proxy refuses it |
 | `host_view` | `iw`, `ifconfig`, `netstat`; `ss` and `ip` in a line that also does other work (`ss -tln; make test`), in a form that changes something (`ss -K`, `ip link set`), or with the network view off. A view line has no exit ("Views", below) |
-| `outside` | `df`, `findmnt` only when efrd runs in a mount namespace of its own, such as a hardened unit; else they run in the sandbox with the mount view and no exit (docs/sandbox.md, "The host's mounts"); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read, such as `python3 -c`, `sh -c` or `node build.js`) |
+| `outside` | `df`, `findmnt` only when efrd runs in a mount namespace of its own, such as a hardened unit; else they run in the sandbox with the mount view and no exit (docs/sandbox.md, "The host's mounts"); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read, such as `python3 -c`, `sh -c` or `node build.js`); `rustup toolchain install`, `rustup install`, `rustup update`, `rustup target add`, `rustup component add` and `rustup self update` (the reviewer for a release channel such as `stable`, `beta`, `nightly` or `1.90`, with a date and a target if you like, when a message of yours names `rustup`, the toolchain or the channel; only you for a line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`, because the install puts programs on your `PATH`); with the proxy, `ssh`, `mosh`, `autossh`, and `git fetch`, `git pull` or `git clone` from an ssh remote (the record names the host; the reviewer needs a message of yours that names the host, or a remote of your project; a destination that efr cannot read, such as `$HOST`, and an ssh URL of `.gitmodules` ask only you) |
 | `socket`, `bus` | a Unix socket; `hostnamectl`, `systemctl --failed`, `loginctl list-sessions`; `nmcli` and `iwctl` (the reviewer for a read form, such as `nmcli device status` or `iwctl station wlan0 show`; only you for every other form, such as `nmcli radio wifi off`, because the system bus has no filter yet). A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's agent) and a socket under a mask |
 | `desktop_ipc` | the read and reload forms `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_*`, `i3-msg -t get_*`, `xrandr` without a change, `wlr-randr`, `niri msg` (the reviewer); a form that types or starts programs, such as `hyprctl dispatch exec` or `xdotool type`, an unknown form and a desktop socket that the model names (only you approve). The call gets the one control socket of the program's desktop and its variable (docs/sandbox.md, "Desktop sockets") |
 | `device` | a node below `/dev` that the sandbox does not have: `nvme smart-log /dev/nvme0n1`, `cat x > /dev/sda` |
@@ -328,7 +328,7 @@ denied. Each exit has a kind:
 | `destructive` | `git reset --hard`, `git clean -f`, `git checkout -- P`, `dd of=`, `shred`, `: > F`, `rm -r` of tracked files (no question and no review when efr's snapshot holds every file that the part can change and `sandbox.ask_destructive = "unless_undoable"`, the default, so `efr undo` brings it back; `shred`, `git clean -x` and `-X`, `git reflog expire` and `git gc --prune` are never covered; else the reviewer when every target lies in the project, `$SCRATCH` or `sandbox.write_roots`; else only you; docs/sandbox.md, "Undo") |
 | `privilege` | `sudo`, `doas`, `pkexec`, `run0`, `yay`, `paru`, `docker`, `podman`, a changing `systemctl`, `busctl call` (only you approve) |
 | `persistence` | an edit of a floor file, such as `~/.zshrc` or `~/.config/hypr/hyprland.conf` (the reviewer when a message of yours names the file, and efr copies it first, so `efr undo` reverts it; with `snapshot.enabled = false` only you); a file tool edit of such a file sends its text to the reviewer, and a text over 8 KiB asks you; a named unit change (`systemctl --user enable`, `mask` and the like of a unit that was in a unit dir before the turn), a link into a `*.wants` dir or a copy into a floor dir from a file outside every write root, `crontab <file>`, `crontab -` fed a literal, `crontab -r`, `loginctl enable-linger` and `disable-linger` (the reviewer when a message of yours names the unit, cron or linger, and efr copies the links, the crontab or the setting first and sends the installed text to the reviewer; else only you); `systemctl --user link`, `edit` and `revert`, `crontab -e`, `at`, `systemd-run --user`, another link, a dir, `.git/hooks` and `.git/config`, and `sandbox.protect` (only you approve) |
-| `upload` | `git push`, `npm publish`, `scp`, `rsync host:`, `curl -d`, `-F`, `-T` or `-X POST` (the reviewer when a message of yours names it, such as "push this branch"; else only you) |
+| `upload` | `git push`, `npm publish`, `scp`, `rsync host:`, `curl -d`, `-F`, `-T` or `-X POST` (the reviewer when a message of yours names it, such as "push this branch"; else only you). The record of `git push` names every host that git pushes to behind the remote name. An upload always runs outside the sandbox, never through the proxy |
 | `synced_write` | a write to `~/Dropbox` and the other `sandbox.synced_dirs` (only you approve) |
 | `above_root` | a write at or above a write root or efr's config: `rm -rf ..`, `rm -rf ~/p/old-app` (the reviewer for one path that a message of yours names and that holds no floor; a project's own `.git` and protected names do not count; else only you, also for `~`, `/`, a system dir and a dir that holds more than one project) |
 | `secret`, `config` | a read or write of a secret, a write of efr's config, of efr's own programs or of efr's own dirs: denied |
@@ -357,7 +357,14 @@ exists, and a directory holds tracked files.
 After a command fails in the sandbox, the model can call `shell` again with `needs`:
 paths to write, hosts, sockets, a bus, a device, masked paths to read, or `outside`.
 Each entry is an exit, which the reviewer decides or which asks you. Other modes
-ignore `needs`.
+ignore `needs`. With the proxy, efr reads each host of `needs.hosts` as `host:port`:
+`http://host` means port 80 (plain `GET` and `HEAD`), else the port of the word, else
+443. A host on the allow list for that port drops out with a note, because the proxy
+already allows it; a host on the deny list drops out with the note "the user's config
+denies <host>"; a name that is not ASCII drops out with the note "write the host in
+its ASCII (xn--) form". `localhost`, a loopback, private or link-local address, and a
+port other than 443 and 80 give the whole network for the call. Every other host
+gives a grant of that one host and port.
 
 **The reviewer.** In `auto`, the user's request is the permission. A reviewer model
 decides most exits, so you see far fewer questions. It reads your messages and the
@@ -372,11 +379,35 @@ relates to, and hands an unsure case to you. efr then applies two rules of its o
   target is in a tool cache, in build output below a registered project or in efr's
   trash, which a tool or efr can make again. An allow of a host that is not on the
   allow list needs a message that names the host, except a package fetch of a request
-  to build, install or update. Without the name, the allow goes to you. Until the
-  proxy comes, efr knows a host only from the line: the host of a URL, of a remote
-  operand of `scp`, `sftp` or `rsync`, and the destination of `ssh`. A host that the
-  line does not show, such as the server behind a git remote name or a script that
-  connects, has nothing to check, and the allow of the reviewer stands.
+  to build, install or update. Without the name, the allow goes to you. A host is on
+  the allow list (`on_allow_list` in the record) only with the proxy, only for an exit
+  whose grant for that host is a grant of that one host, and only on the exit's own
+  port; an exit with the whole network, an `upload` and an `outside` exit always need
+  the name. efr knows a host from the line (the host of a URL, of a remote operand of
+  `scp`, `sftp` or `rsync`, the destination of `ssh`), and from the git remote facts
+  below. A host that a script connects to has nothing to check until the proxy refuses
+  it.
+
+**Git remote facts.** For `git fetch`, `git pull`, `git ls-remote`, `git remote
+update`, `git push` and `git submodule update`, efrd reads the remotes of the
+repository with one hardened `git config` run (`remote.*.url`, `remote.*.pushurl`,
+`url.*.insteadOf`, `url.*.pushInsteadOf` and `branch.*.remote`; git applies your
+global files and includes), and the URLs of `.gitmodules` for `submodule update`. The
+remote is the one that the line names, else the remote of the current branch, else
+`origin`. Every fetch and push URL of it adds its host to the record of the line's
+`host`, `upload` and `outside` exits. Under the proxy, a fetch from an https remote
+that is not listed is a `host` exit for that one host, and a fetch from an ssh remote
+is an `outside` exit with the host.
+
+- `project_remote`: the host belongs to a remote of a git dir that the plan pins (the
+  top `.git` of a registered project, or a registered git dir), whose URLs are the
+  ones that efrd saw at the conversation's first call. Such a host counts as named by
+  you for `host`, `upload` and `outside` exits; an `upload` still needs its verb, such
+  as "push", in a message of yours. A remote of a repository that a command made, a
+  nested repository and a URL of `.gitmodules` never count.
+- `refused_by_proxy`: the proxy refused the host in the conversation's last command or
+  in one of its jobs. This is a fact for the record and the question, never a name:
+  it shows only that a command tried the host, never that you want it.
 
 The reviewer is the small model of your provider, then the turn's model, then you:
 [`docs/providers.md`](providers.md) tells which models and what they cost. A missing
