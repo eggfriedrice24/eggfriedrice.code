@@ -48,12 +48,16 @@ as_root() {
 # modules, virtme-ng reads the kernel version with file, and its init finds the serial
 # port that returns the exit status of the guest through udev. The corpus runs rg in its
 # row 4. The network view tests require ss and ip (iproute2). Its cargo rows use the
-# pinned Rust toolchain, which the job installs with rustup.
+# pinned Rust toolchain, which the job installs with rustup. The tests of the filtered
+# bus run the real xdg-dbus-proxy and the real clients of systemd (hostnamectl,
+# systemctl, loginctl, busctl) against two private dbus-daemon buses, with a fake
+# service in Python that uses Gio (python3-gi and gir1.2-glib-2.0).
 cmd_tools() {
     as_root apt-get update -q
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        busybox-static ca-certificates curl file iproute2 kmod python3-argcomplete \
-        python3-requests python3-venv qemu-system-x86 ripgrep udev virtiofsd zsh zstd
+        busybox-static ca-certificates curl dbus-daemon file gir1.2-glib-2.0 iproute2 kmod \
+        python3-argcomplete python3-gi python3-requests python3-venv qemu-system-x86 ripgrep \
+        systemd udev virtiofsd xdg-dbus-proxy zsh zstd
     # The wheel by its pinned hash, without pip's resolver: its two dependencies come
     # from apt.
     local dl wheel="virtme_ng-$virtme_ng-py3-none-any.whl"
@@ -151,7 +155,7 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
             echo "### Sandbox suite in a VM"
             echo
             echo '```'
-            sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|toolchain) /\1 /p' "$log"
+            sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|toolchain|xdg-dbus-proxy|systemd) /\1 /p' "$log"
             sed -nE 's/^ *((efr-sbx run|the child shell|launch cost|setup failures|gate:|job start).*)/\1/p' "$log"
             echo '```'
             echo
@@ -244,12 +248,19 @@ cmd_tests() {
     # here a missing one is a fault of the job. The fixture projects of the corpus lie
     # outside the workspace, so the pinned toolchain is named here. The proxy tests use
     # git, and they make their test CA with openssl; the runner and the image have both.
+    # The bus filter tests need xdg-dbus-proxy, dbus-daemon, the clients of systemd and
+    # Python's Gio, which `tools` installs.
     local toolchain tool
     toolchain="$(sed -nE 's/^channel = "(.*)"/\1/p' rust-toolchain.toml)"
     export RUSTUP_TOOLCHAIN="$toolchain"
-    for tool in cargo rustfmt rustup rg ss ip git openssl; do
+    for tool in cargo rustfmt rustup rg ss ip git openssl \
+        xdg-dbus-proxy dbus-daemon hostnamectl systemctl loginctl busctl; do
         command -v "$tool" >/dev/null || fail "$tool is not on PATH in the guest"
     done
+    python3 -I -c 'from gi.repository import Gio' ||
+        fail "python3 cannot import gi.repository.Gio in the guest"
+    say "xdg-dbus-proxy $(xdg-dbus-proxy --version)"
+    say "systemd $(systemctl --version | head -n1)"
     cargo --version >/dev/null 2>&1 ||
         fail "the pinned toolchain $toolchain is not installed: run rustup toolchain install"
     say "toolchain $(cargo --version)"
