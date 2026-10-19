@@ -395,14 +395,18 @@ async fn proxy_port_rules() {
     let hosts = [
         HostTable { host: "http.test", port: None, http: true, private: false },
         HostTable { host: "port.test", port: Some(8443), http: false, private: false },
+        HostTable { host: "lan.test", port: Some(8080), http: true, private: false },
+        HostTable { host: "both.test", port: Some(8080), http: true, private: false },
+        HostTable { host: "both.test", port: Some(8080), http: false, private: false },
     ];
     let world = World::new(list(&["plain.test"], &[], &hosts));
     let echo = Upstream::echo().await;
-    for name in ["plain.test", "http.test", "port.test", "grant.test"] {
+    for name in ["plain.test", "http.test", "port.test", "grant.test", "lan.test", "both.test"] {
         world.table.add(name, &["127.0.0.1"]);
     }
     world.connector.route("127.0.0.1:443", echo.addr);
     world.connector.route("127.0.0.1:8443", echo.addr);
+    world.connector.route("127.0.0.1:8080", echo.addr);
     let (call, path) = world.call(&[("grant.test", 80)], BUDGET);
     for (target, status, reason) in [
         ("plain.test:443", 200, None),
@@ -414,6 +418,9 @@ async fn proxy_port_rules() {
         ("port.test:443", 403, Some(BlockReason::NotAllowed)),
         ("grant.test:80", 403, Some(BlockReason::Method)),
         ("grant.test:443", 403, Some(BlockReason::NotAllowed)),
+        // NOTE: an `http` entry with a port opens plain GET and HEAD there, no tunnel.
+        ("lan.test:8080", 403, Some(BlockReason::Method)),
+        ("both.test:8080", 200, None),
     ] {
         let mut client = Client::connect(&path).await;
         assert_eq!(client.connect_to(target).await, status, "{target}");

@@ -27,6 +27,13 @@ impl Opening {
             None => port == 443 || (self.http && port == 80),
         }
     }
+
+    /// True when the entry opens a TLS tunnel (a `CONNECT`) to `port`: a plain entry on
+    /// its port, and an `http` entry with no port only on 443. An `http` entry with a
+    /// port opens plain `GET` and `HEAD` there, never a tunnel (DP6).
+    fn tunnels(self, port: u16) -> bool {
+        self.covers(port) && port != 80 && (!self.http || self.port.is_none())
+    }
 }
 
 /// The allow and deny lists of the proxy, compiled from `network.allow`,
@@ -128,6 +135,23 @@ impl HostList {
             };
         }
         verdict
+    }
+
+    /// True when an entry that is not denied opens a TLS tunnel to `host:port`: a
+    /// `CONNECT` to a port that only an `http` entry opens is refused (DP6). Port 80 is
+    /// never a tunnel.
+    pub fn tunnels(&self, host: &str, port: u16) -> bool {
+        let host = canonical(host);
+        if self.denies(&host) {
+            return false;
+        }
+        let exact = self.exact.get(host.as_ref()).into_iter().flatten();
+        let below = self
+            .suffix
+            .iter()
+            .filter(|(suffix, _)| is_below(&host, suffix))
+            .map(|(_, opening)| opening);
+        exact.chain(below).any(|opening| opening.tunnels(port))
     }
 
     /// True when [`decide`](Self::decide) gives `Allowed` for `host:port`. The engine

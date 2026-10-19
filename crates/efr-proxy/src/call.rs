@@ -63,6 +63,16 @@ impl Call {
         }
     }
 
+    /// True when the call may open a TLS tunnel to `host:port`, which
+    /// [`verdict`](Self::verdict) allows: the global list opens it for a tunnel, or a
+    /// grant names that port and it is not 80 (DP6).
+    pub(crate) fn may_tunnel(&self, host: &str, port: u16) -> bool {
+        let list = Arc::clone(&self.hosts.borrow());
+        port != 80
+            && (list.tunnels(host, port)
+                || self.grants.iter().any(|(granted, own)| granted == host && *own == port))
+    }
+
     /// True when the budget is spent: the next `CONNECT` or plain request gets 403.
     pub(crate) fn spent(&self) -> bool {
         self.used.load(Ordering::Acquire) >= self.max_upload
