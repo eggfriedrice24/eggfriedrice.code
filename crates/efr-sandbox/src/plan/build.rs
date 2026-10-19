@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{BusKind, CacheMode, Grant};
+use efr_protocol::{BusKind, CacheMode, DesktopKind, Grant};
 
 use crate::SandboxError;
 use crate::desktop::{desktop_socket_path, is_desktop_socket};
@@ -15,7 +15,7 @@ use crate::mounts::{MOUNTS_FILE, SIZES_FILE};
 use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
 use crate::plan::{
     Mount, MountOp, MountOrigin, MountPlan, NO_PROXY, NO_PROXY_VARIABLES, OpKind, PROXY_URL,
-    PROXY_VARIABLES, PlanNote,
+    PROXY_VARIABLES, PlanNote, SERVICE_SOCKETS, SYSTEM_BUS_SOCKET,
 };
 use crate::spec::{DesktopSocket, FloorKind, MaskKind, NetworkPlan, SandboxSpec, WriteRootKind};
 use crate::surface::{ScanLimits, scan_git_dirs};
@@ -648,11 +648,12 @@ impl Builder<'_> {
     fn sockets_and_devices(&mut self) -> Result<(), SandboxError> {
         let spec = self.spec;
         let runtime = &spec.runtime;
-        let mut sockets: Vec<PathBuf> = Vec::new();
+        // Each socket with true for a socket grant, false for a bus grant.
+        let mut sockets: Vec<(PathBuf, bool)> = Vec::new();
         let mut desktops: Vec<&DesktopSocket> = Vec::new();
         for grant in &spec.grants {
             match grant {
-                Grant::Socket { path } => sockets.push(path.clone()),
+                Grant::Socket { path } => sockets.push((path.clone(), true)),
                 Grant::Desktop { desktop } => {
                     let socket =
                         runtime.desktops.iter().find(|socket| socket.desktop == *desktop).ok_or(
@@ -661,7 +662,7 @@ impl Builder<'_> {
                     desktops.push(socket);
                 }
                 Grant::Bus { bus: BusKind::System } => {
-                    sockets.push(runtime.system_bus.clone());
+                    sockets.push((runtime.system_bus.clone(), false));
                     self.env.push((
                         "DBUS_SYSTEM_BUS_ADDRESS".to_owned(),
                         format!("unix:path={}", runtime.system_bus.display()),
@@ -673,7 +674,7 @@ impl Builder<'_> {
                         "DBUS_SESSION_BUS_ADDRESS".to_owned(),
                         format!("unix:path={}", bus.display()),
                     ));
-                    sockets.push(bus);
+                    sockets.push((bus, false));
                 }
                 Grant::Device { path } => {
                     let node = self.resolve(path)?;
@@ -692,8 +693,11 @@ impl Builder<'_> {
                 _ => {}
             }
         }
-        for socket in sockets {
+        for (socket, granted) in sockets {
             let resolved = self.resolve(&socket)?;
+            if granted && self.service_socket(&socket, &resolved.path)? {
+                return Err(SandboxError::SocketGrantRefused { path: socket });
+            }
             if resolved.kind != Some(FileKind::Other) || self.hidden_socket(&resolved.path)? {
                 return Err(SandboxError::GrantTarget { path: socket });
             }
@@ -755,6 +759,37 @@ impl Builder<'_> {
             }
         }
         Ok(self.masked_by(path).is_some_and(|mask| mask.kind != MaskKind::EfrState))
+    }
+
+    /// True when a socket grant of `named`, which resolves to `resolved`, reaches what
+    /// only another grant may bind, or nothing may: the system or the session bus, the
+    /// socket of a service manager or a container engine, a socket below
+    /// `$XRT/systemd/`, or the control socket of any desktop. The engine classifies a
+    /// socket by its text only, so this check on the path after every link is what
+    /// keeps a link in a write root (`~/p/app.sock -> $XRT/bus`) from the real bus. It
+    /// is not part of [`hidden_socket`](Self::hidden_socket), because a desktop grant
+    /// must still bind its own socket.
+    fn service_socket(&self, named: &Path, resolved: &Path) -> Result<bool, SandboxError> {
+        let runtime = &self.spec.runtime;
+        let user_runtime = self.resolve(&runtime.user_runtime)?.path;
+        let mut buses = vec![
+            runtime.system_bus.clone(),
+            PathBuf::from(SYSTEM_BUS_SOCKET),
+            runtime.user_runtime.join("bus"),
+        ];
+        buses.extend(runtime.session_bus.clone());
+        for bus in &buses {
+            if self.resolve(bus)?.path == resolved {
+                return Ok(true);
+            }
+        }
+        let service = |path: &Path| SERVICE_SOCKETS.iter().any(|socket| path.ends_with(socket));
+        Ok(service(named)
+            || service(resolved)
+            || is_within(resolved, &user_runtime.join("systemd"))
+            || DesktopKind::ALL
+                .iter()
+                .any(|desktop| is_desktop_socket(*desktop, resolved, &user_runtime)))
     }
 
     fn finish(self) -> MountPlan {

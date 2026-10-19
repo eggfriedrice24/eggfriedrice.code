@@ -404,6 +404,10 @@ into the GitHub release notes, and it stops when the section is missing.
   stop.
 - A process below a hidden shell or a job that declares itself a phone now gets the
   read scope only. Before, it could approve exits.
+- A socket grant never binds the system bus, the session bus, a service manager's
+  socket (such as `systemd/private`), a container engine's socket or a desktop socket,
+  also through a link. Before, one approved socket exit for a link to the session bus
+  could reach it. Such a command now fails to start, and the sandbox says why.
 
 ## [0.0.3] - 2026-10-09
 

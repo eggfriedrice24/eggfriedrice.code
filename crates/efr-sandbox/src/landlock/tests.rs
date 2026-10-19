@@ -47,9 +47,11 @@ fn netview_policy_has_deny_tcp() {
 #[test]
 fn a_socket_grant_is_the_only_resolve_unix_rule() {
     let mut spec = spec();
-    spec.grants.push(Grant::Socket { path: "/run/user/1000/bus".into() });
-    let policy = MountPlan::build(&spec, &world()).unwrap().landlock();
-    assert_eq!(policy.resolve_unix, [PathBuf::from("/run/user/1000/bus")]);
+    spec.grants.push(Grant::Socket { path: "/run/user/1000/mpd/socket".into() });
+    let mut world = world();
+    world.socket("/run/user/1000/mpd/socket");
+    let policy = MountPlan::build(&spec, &world).unwrap().landlock();
+    assert_eq!(policy.resolve_unix, [PathBuf::from("/run/user/1000/mpd/socket")]);
 }
 
 #[test]

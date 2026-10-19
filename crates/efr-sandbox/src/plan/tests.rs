@@ -759,6 +759,139 @@ fn plan_refuses_desktop_socket_outside_runtime_or_x11_dir() {
     assert!(has_mount(&plan(&spec, &fs), &rw("/run/user/1000/sway-ipc.1000.42.sock")));
 }
 
+/// The plan of the spec with the one grant `Grant::Socket { path }`.
+fn socket_grant(fs: &FakeFs, path: &str) -> Result<MountPlan, SandboxError> {
+    let mut spec = spec();
+    spec.grants = vec![Grant::Socket { path: path.into() }];
+    MountPlan::build(&spec, fs)
+}
+
+/// Fails unless `result` refuses the socket grant of `path`.
+fn refused(result: &Result<MountPlan, SandboxError>, path: &str) {
+    assert!(
+        matches!(result, Err(SandboxError::SocketGrantRefused { path: named }) if named == Path::new(path)),
+        "{path}: {result:?}"
+    );
+}
+
+#[test]
+fn socket_grant_link_to_bus_refused() {
+    let mut fs = world();
+    fs.link("/home/u/p/app/app.sock", "/run/user/1000/bus")
+        .link("/home/u/p/app/sys.sock", "/run/dbus/system_bus_socket")
+        .link("/var/run", "/run")
+        .link("/home/u/p/app/var.sock", "/var/run/dbus/system_bus_socket")
+        .socket("/run/user/1000/app.sock");
+    for path in [
+        "/home/u/p/app/app.sock",
+        "/home/u/p/app/sys.sock",
+        "/home/u/p/app/var.sock",
+        "/run/user/1000/bus",
+        "/run/dbus/system_bus_socket",
+    ] {
+        refused(&socket_grant(&fs, path), path);
+    }
+    // The session bus at $XRT/bus is refused also when the spec names no session bus,
+    // and the system bus that the spec names is refused wherever it lies.
+    let mut spec = spec();
+    spec.runtime.session_bus = None;
+    spec.grants = vec![Grant::Socket { path: "/home/u/p/app/app.sock".into() }];
+    refused(&MountPlan::build(&spec, &fs), "/home/u/p/app/app.sock");
+    fs.socket("/home/u/test-bus/bus").link("/home/u/p/app/test.sock", "/home/u/test-bus/bus");
+    let mut spec = crate::testing::spec();
+    spec.runtime.system_bus = "/home/u/test-bus/bus".into();
+    spec.grants = vec![Grant::Socket { path: "/home/u/p/app/test.sock".into() }];
+    refused(&MountPlan::build(&spec, &fs), "/home/u/p/app/test.sock");
+    // Another socket of the runtime dir still binds.
+    let bound = socket_grant(&fs, "/run/user/1000/app.sock").unwrap();
+    assert!(has_mount(&bound, &rw("/run/user/1000/app.sock")));
+    // A bus grant still binds its bus.
+    let mut spec = crate::testing::spec();
+    spec.grants = vec![Grant::Bus { bus: BusKind::System }];
+    assert!(has_mount(&plan(&spec, &fs), &rw("/run/dbus/system_bus_socket")));
+}
+
+#[test]
+fn socket_grant_to_service_socket_refused() {
+    let mut fs = world();
+    fs.socket("/run/user/1000/systemd/private")
+        .socket("/run/user/1000/systemd/notify")
+        .socket("/run/systemd/private")
+        .socket("/run/systemd/io.systemd.Manager")
+        .socket("/run/docker.sock")
+        .socket("/run/user/1000/podman/podman.sock")
+        .socket("/run/libvirt/virtqemud-sock")
+        .socket("/home/u/p/app/run.sock")
+        .link("/home/u/p/app/m.sock", "/run/user/1000/systemd/notify")
+        .link("/home/u/p/app/d.sock", "/run/docker.sock")
+        .link("/home/u/p/app/docker.sock", "/home/u/p/app/run.sock");
+    for path in [
+        "/run/user/1000/systemd/private",
+        "/run/user/1000/systemd/notify",
+        "/run/systemd/private",
+        "/run/systemd/io.systemd.Manager",
+        "/run/docker.sock",
+        "/run/user/1000/podman/podman.sock",
+        "/run/libvirt/virtqemud-sock",
+        "/home/u/p/app/m.sock",
+        "/home/u/p/app/d.sock",
+        // A link with the name of a service socket: the name alone refuses it.
+        "/home/u/p/app/docker.sock",
+    ] {
+        refused(&socket_grant(&fs, path), path);
+    }
+    let bound = socket_grant(&fs, "/home/u/p/app/run.sock").unwrap();
+    assert!(has_mount(&bound, &rw("/home/u/p/app/run.sock")));
+}
+
+#[test]
+fn socket_grant_to_desktop_socket_refused() {
+    let mut fs = world();
+    fs.socket(HYPR_SOCKET)
+        .socket("/run/user/1000/wayland-1")
+        .socket("/run/user/1000/sway-ipc.1000.42.sock")
+        .socket("/run/user/1000/niri.wayland-1.42.sock")
+        .socket("/tmp/.X11-unix/X0")
+        .link("/home/u/p/app/w.sock", "/run/user/1000/wayland-1")
+        .link("/home/u/p/app/x.sock", "/tmp/.X11-unix/X0")
+        .link("/home/u/p/app/h.sock", HYPR_SOCKET);
+    for path in [
+        HYPR_SOCKET,
+        "/run/user/1000/wayland-1",
+        "/run/user/1000/sway-ipc.1000.42.sock",
+        "/run/user/1000/niri.wayland-1.42.sock",
+        "/tmp/.X11-unix/X0",
+        "/home/u/p/app/w.sock",
+        "/home/u/p/app/x.sock",
+        "/home/u/p/app/h.sock",
+    ] {
+        refused(&socket_grant(&fs, path), path);
+    }
+}
+
+#[test]
+fn desktop_grant_still_binds_its_socket() {
+    let mut fs = world();
+    fs.socket(HYPR_SOCKET).socket("/run/user/1000/wayland-1");
+    let mut spec = spec();
+    spec.runtime.desktops = vec![
+        hyprland(),
+        DesktopSocket {
+            desktop: DesktopKind::Wayland,
+            path: "/run/user/1000/wayland-1".into(),
+            value: "wayland-1".to_owned(),
+        },
+    ];
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Hyprland }];
+    let hypr = plan(&spec, &fs);
+    assert!(has_mount(&hypr, &rw(HYPR_SOCKET)));
+    assert_eq!(hypr.resolve_unix, [PathBuf::from(HYPR_SOCKET)]);
+    spec.grants = vec![Grant::Desktop { desktop: DesktopKind::Wayland }];
+    let wayland = plan(&spec, &fs);
+    assert!(has_mount(&wayland, &rw("/run/user/1000/wayland-1")));
+    assert_eq!(wayland.env_overrides(), [("WAYLAND_DISPLAY".to_owned(), "wayland-1".to_owned())]);
+}
+
 #[test]
 fn plan_desktop_without_socket_is_no_desktop() {
     let mut fs = world();
