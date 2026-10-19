@@ -89,6 +89,7 @@ pub const DEFAULT_RULES: &[DefaultRule] = &[
         name: "org.freedesktop.login1",
         calls: &[
             "org.freedesktop.login1.Manager.ListSessionsEx@/org/freedesktop/login1",
+            "org.freedesktop.login1.Manager.ListSessions@/org/freedesktop/login1",
             "org.freedesktop.login1.Manager.ListUsers@/org/freedesktop/login1",
             "org.freedesktop.login1.Manager.ListSeats@/org/freedesktop/login1",
             "org.freedesktop.login1.Manager.GetSession@/org/freedesktop/login1",
