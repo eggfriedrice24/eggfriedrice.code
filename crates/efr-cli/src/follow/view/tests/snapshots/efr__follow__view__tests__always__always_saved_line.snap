@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/follow/view/tests/always.rs
+expression: "format!(\"{}{err}\", answered.err)"
+---
+✓ allowed always
+saved as sandbox.allow[2]: write under ~/notes
+· $ echo hi > ~/notes/x
+  ✓

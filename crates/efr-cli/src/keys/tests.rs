@@ -11,7 +11,8 @@ use rustix::termios::{InputModes, LocalModes, OptionalActions, tcgetattr, tcseta
 use tokio::sync::mpsc;
 
 use super::{
-    COUNT_TRIES, KEY_QUEUE, Key, KeyReader, Read, Typeahead, decision, start_on, typed_so_far,
+    COUNT_TRIES, KEY_QUEUE, Key, KeyReader, Read, Typeahead, decision, decision_with_always,
+    start_on, typed_so_far,
 };
 
 /// A pseudo-terminal pair: the master, which plays the person typing, and the slave,
@@ -56,6 +57,19 @@ fn y_allows_n_denies_and_other_keys_mean_nothing() {
     assert_eq!(decision(b'N'), Some(ApprovalDecision::Deny));
     for key in [b'\r', b'\n', b' ', b'a', 0x1b, 0x03] {
         assert_eq!(decision(key), None, "{key:#x}");
+    }
+}
+
+#[test]
+fn a_gives_always_only_when_the_question_offers_a_rule() {
+    for key in *b"aA" {
+        assert_eq!(decision_with_always(key, true), Some(ApprovalDecision::AllowAlways));
+        assert_eq!(decision_with_always(key, false), None);
+    }
+    for offered in [true, false] {
+        assert_eq!(decision_with_always(b'y', offered), Some(ApprovalDecision::Allow));
+        assert_eq!(decision_with_always(b'n', offered), Some(ApprovalDecision::Deny));
+        assert_eq!(decision_with_always(b'x', offered), None);
     }
 }
 

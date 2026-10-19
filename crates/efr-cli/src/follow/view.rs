@@ -107,7 +107,12 @@
 //! facts and the model's reason, labelled as the model's. While the reviewer of `auto`
 //! judges an exit, the status row says `reviewing: <line>`; its allow or refusal is
 //! one muted line before the call's rows, and an unsure verdict is a row of the card
-//! that follows. A turn whose mode fell back says so at its start. When a call changed git settings that run programs, the
+//! that follows. An exit question that offers an always rule (phase E) shows `a` with
+//! the rule in its keys row; after an `a`, the row asks to confirm the rule
+//! ([`TurnView::confirm_always`]). The line of what the rule became follows the answer,
+//! and a call that a rule covered gets one muted line, as a reviewer's allow does. A
+//! turn whose mode fell back says so at its start. When a call changed git settings
+//! that run programs, the
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
 //!
@@ -485,6 +490,13 @@ pub(crate) struct TurnView {
     raw_messages: u32,
     /// The approval waiting for a key.
     asking: Option<CallId>,
+    /// The rule that an `a` answer to the approval [`asking`](Self::asking) saves, in
+    /// words and safe to print, when its question offers one (phase E).
+    offered: Option<String>,
+    /// The call whose question got an `a` answer, until the line of what it saved: when
+    /// stdout is not a terminal, the first rows of the call wait for that line, as they
+    /// wait for an answer.
+    saving: Option<CallId>,
     /// The approval that this client answered, whose resolution needs no second note.
     answered: Option<CallId>,
     /// The turn waits behind another one and has not started.
@@ -601,6 +613,8 @@ impl TurnView {
             size: Size::default(),
             raw_messages: 0,
             asking: None,
+            offered: None,
+            saving: None,
             answered: None,
             queued: false,
             blocking: HashSet::new(),
@@ -1247,6 +1261,7 @@ impl TurnView {
             Event::ExitRequested { call_id, .. }
             | Event::ExitReviewStarted { call_id, .. }
             | Event::ExitJudged { call_id, .. }
+            | Event::AlwaysRuleSaved { call_id, .. }
             | Event::ApprovalRequested { call_id, .. }
             | Event::ApprovalResolved { call_id, .. }
             | Event::ApprovalExpired { call_id, .. } => {
@@ -1473,6 +1488,25 @@ impl TurnView {
                 skipped,
                 ..
             } => self.judged(*call_id, *verdict, *risk, rationale.as_deref(), skipped, size),
+            Event::ExitJudged {
+                call_id,
+                judge: JudgeKind::Always,
+                verdict: Verdict::Allow,
+                category,
+                rationale,
+                ..
+            } => {
+                let line = format::always::covered(category.as_deref(), rationale.as_deref());
+                self.covered(*call_id, &line, size)
+            }
+            Event::AlwaysRuleSaved { call_id, outcome, .. } => {
+                if self.saving == Some(*call_id) {
+                    self.saving = None;
+                }
+                let ours = self.call.as_ref().is_some_and(|call| call.call_id == *call_id);
+                let line = format::always::saved(outcome);
+                self.verdict_line(ours.then_some(*call_id), &line, size)
+            }
             Event::ApprovalRequested {
                 call_id, summary, diff_preview, interactive, exit, ..
             } => {
@@ -1734,7 +1768,10 @@ impl TurnView {
         }
         let settled = self.settle(call_id);
         let line = format!("{} from {}", format::decision(decision), format::origin(origin));
-        let good = decision == ApprovalDecision::Allow;
+        let good = format::allows(decision);
+        if decision == ApprovalDecision::AllowAlways {
+            self.saving = Some(call_id);
+        }
         Step { settled, ..self.answer_line(About::Approval(call_id), good, &line, size) }
     }
 
@@ -1788,6 +1825,21 @@ impl TurnView {
         self.verdict_line(ours.then_some(call_id), &line, size)
     }
 
+    /// An always rule covered every exit of call `call_id`, which runs with no question
+    /// and no review (phase E): one muted `line` before its rows, as a reviewer's allow.
+    fn covered(&mut self, call_id: CallId, line: &str, size: Size) -> Step {
+        let ours = self.call.as_ref().is_some_and(|call| call.call_id == call_id);
+        if ours {
+            if let Some(call) = self.call.as_mut() {
+                call.approved(self.event_at);
+            }
+            let tool =
+                self.tools.get(&call_id).map_or_else(String::new, |tool| format::one_line(tool));
+            self.state(State::Tool(tool));
+        }
+        self.verdict_line(ours.then_some(call_id), line, size)
+    }
+
     /// The muted line of a verdict: right before the rows of call `call`, which follow
     /// it at once, or a note when it is about no running call, such as the deletes of
     /// a tool cache after the call.
@@ -1838,8 +1890,10 @@ impl TurnView {
             let mut err = self.err_spacing.before(block).to_owned();
             err.push_str(&text);
             let mut err = self.raw_err(err);
+            // NOTE: after an `a` answer, the line of what it saved comes first.
             if let About::Approval(call) = about
                 && self.call.as_ref().is_some_and(|shown| shown.call_id == call)
+                && self.saving != Some(call)
             {
                 err.push_str(&self.due_header(size));
             }
@@ -2020,7 +2074,7 @@ impl TurnView {
             self.dirty = true;
         } else {
             let mut text = self.err_spacing.before(Block::Question).to_owned();
-            text.push_str(&card.render(Some(footer), &self.options_at(size)));
+            text.push_str(&card.render(Some(&footer), &self.options_at(size)));
             step.err = self.raw_err(text);
         }
         step
@@ -2398,14 +2452,67 @@ impl TurnView {
         if let Some(call) = self.call.as_mut().filter(|call| call.call_id == call_id) {
             call.approved(None);
         }
-        let good = decision == ApprovalDecision::Allow;
+        let good = format::allows(decision);
+        if decision == ApprovalDecision::AllowAlways {
+            self.saving = Some(call_id);
+        }
         let step =
             self.answer_line(About::Approval(call_id), good, format::decision(decision), size);
-        if decision == ApprovalDecision::Allow && self.interactive.contains(&call_id) {
+        if good && self.interactive.contains(&call_id) {
             self.retained = Some(call_id);
             return Step { ask: Some(Ask::Retain(call_id)), ..step };
         }
         step
+    }
+
+    /// True when the approval `call_id` waits for a key here and its question offers a
+    /// rule for an `a` answer (phase E).
+    pub(crate) fn offers_always(&self, call_id: CallId) -> bool {
+        self.asking == Some(call_id) && self.offered.is_some()
+    }
+
+    /// The user pressed `a` at the approval `call_id`: the last row of its card asks to
+    /// confirm the rule, `save rule "write under ~/notes"? y/n`. Only `y` then saves it.
+    pub(crate) fn confirm_always(&mut self, call_id: CallId, size: Size) -> Step {
+        match self.offered.clone().filter(|_| self.asking == Some(call_id)) {
+            Some(rule) => self.set_footer(call_id, Footer::Confirm(rule), size),
+            None => Step::default(),
+        }
+    }
+
+    /// A key other than `y` at the confirm of an `a` answer: the question of the approval
+    /// `call_id` asks again with its keys, and nothing is answered.
+    pub(crate) fn always_cancelled(&mut self, call_id: CallId, size: Size) -> Step {
+        match self.offered.clone().filter(|_| self.asking == Some(call_id)) {
+            Some(rule) => self.set_footer(call_id, Footer::Always(rule), size),
+            None => Step::default(),
+        }
+    }
+
+    /// The daemon did not take the `a` answer to the approval `call_id`, which stays
+    /// open: a note says why, and the question asks again without the `a`.
+    pub(crate) fn always_refused(&mut self, call_id: CallId, message: &str, size: Size) -> Step {
+        self.offered = None;
+        let line = format!("the answer was not taken: {}", format::one_line(message));
+        let mut step = self.note(&line, size);
+        let keys = self.set_footer(call_id, Footer::Keys(card::ALLOW_KEYS), size);
+        step.err.push_str(&keys.err);
+        step
+    }
+
+    /// The last row of the card of the approval `call_id` becomes `footer`: in the live
+    /// zone on a terminal, else the row again on stderr.
+    fn set_footer(&mut self, call_id: CallId, footer: Footer, size: Size) -> Step {
+        if self.terminal() {
+            let about = About::Approval(call_id);
+            if let Some(shown) = self.question.as_mut().filter(|shown| shown.about == about) {
+                shown.footer = footer;
+                self.dirty = true;
+            }
+            return Step::default();
+        }
+        let text = card::footer_row(&footer, &self.options_at(size));
+        Step { err: self.raw_err(text), ..Step::default() }
     }
 
     /// Ends the view early: commits what the current message has so far and clears the
@@ -2423,6 +2530,7 @@ impl TurnView {
         // The rows of a call that still wait show what ran.
         let header = self.due_header(self.size);
         self.asking = None;
+        self.saving = None;
         self.surface = None;
         self.running = None;
         self.call = None;
@@ -2588,7 +2696,17 @@ impl TurnView {
                 running.typed.clear();
                 running.hinted = false;
             }
-            Footer::Keys(card::ALLOW_KEYS)
+            // NOTE: only a daemon that knows the `a` answer fills `always` (phase E), so
+            // an older one never gets it.
+            self.offered = request
+                .exit
+                .and_then(|exit| exit.always.as_deref())
+                .map(format::one_line)
+                .filter(|rule| !rule.trim().is_empty());
+            match &self.offered {
+                Some(rule) => Footer::Always(rule.clone()),
+                None => Footer::Keys(card::ALLOW_KEYS),
+            }
         } else {
             Footer::Waiting
         };
@@ -2889,10 +3007,10 @@ impl TurnView {
         }
         if let Some(shown) = &self.question {
             if shown.committed {
-                live.push_str(&card::footer_row(shown.footer, &options));
+                live.push_str(&card::footer_row(&shown.footer, &options));
             } else {
                 live.push_str(self.spacing.peek(Block::Question));
-                live.push_str(&shown.card.render(Some(shown.footer), &options));
+                live.push_str(&shown.card.render(Some(&shown.footer), &options));
             }
         }
         if let Some(input) = self.input.as_ref().filter(|_| !self.ended) {
