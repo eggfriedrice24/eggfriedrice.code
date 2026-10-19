@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use efr_permissions::{
-    Action, CommandPattern, ConversationPolicy, Decision, DecisionInput, Effect, Engine, Locations,
-    Policy, Requirements, Resource, Rule,
+    Action, AllowRule, CommandPattern, ConversationPolicy, Decision, DecisionInput, Effect, Engine,
+    Locations, Policy, Requirements, Resource, Rule,
 };
 use efr_protocol::{ApprovalDecision, CallId, Mode, Origin, Scope, TurnId};
 use efr_stdx::id::uuid_v7;
@@ -33,7 +33,7 @@ fn decide(requirements: Requirements) -> Decision {
 #[tokio::test]
 async fn an_answer_reaches_the_parked_call_once() {
     let approvals = Approvals::default();
-    let receiver = approvals.park(turn(1), call(2), false);
+    let receiver = approvals.park(turn(1), call(2), false, None);
 
     assert_eq!(approvals.waiting_turn(call(2)), Some(turn(1)));
     assert!(approvals.answer(call(2), ApprovalDecision::Allow));
@@ -45,25 +45,38 @@ async fn an_answer_reaches_the_parked_call_once() {
 #[test]
 fn an_answer_for_a_call_that_stopped_waiting_is_not_delivered() {
     let approvals = Approvals::default();
-    drop(approvals.park(turn(1), call(2), false));
+    drop(approvals.park(turn(1), call(2), false, None));
     assert!(!approvals.answer(call(2), ApprovalDecision::Allow));
 }
 
 #[test]
 fn a_withdrawn_call_takes_no_answer() {
     let approvals = Approvals::default();
-    let _receiver = approvals.park(turn(1), call(2), false);
+    let _receiver = approvals.park(turn(1), call(2), false, None);
     assert!(approvals.withdraw(call(2)));
     assert!(!approvals.withdraw(call(2)));
     assert!(!approvals.answer(call(2), ApprovalDecision::Allow));
 }
 
 #[test]
+fn a_parked_call_keeps_the_rule_it_offers() {
+    let approvals = Approvals::default();
+    let rule = AllowRule::Write { under: "~/notes".to_owned(), project: None };
+    let _offered = approvals.park(turn(1), call(2), false, Some(rule));
+    let _plain = approvals.park(turn(1), call(3), false, None);
+    assert!(approvals.offers_always(call(2)));
+    assert!(!approvals.offers_always(call(3)));
+    assert!(!approvals.offers_always(call(4)), "no call waits");
+    assert!(approvals.answer(call(2), ApprovalDecision::AllowAlways));
+    assert!(!approvals.offers_always(call(2)), "an answered call offers nothing more");
+}
+
+#[test]
 fn withdrawing_a_turn_takes_out_only_its_calls() {
     let approvals = Approvals::default();
-    let _a = approvals.park(turn(1), call(2), false);
-    let _b = approvals.park(turn(1), call(3), false);
-    let _c = approvals.park(turn(4), call(5), false);
+    let _a = approvals.park(turn(1), call(2), false, None);
+    let _b = approvals.park(turn(1), call(3), false, None);
+    let _c = approvals.park(turn(4), call(5), false, None);
     let mut expected = vec![call(2), call(3)];
     expected.sort_unstable();
 

@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_permissions::{Engine, Policy};
-use efr_protocol::{Mode, ModelInfo, Origin, SandboxStatus};
+use async_trait::async_trait;
+use efr_permissions::{AllowRule, Engine, Policy};
+use efr_protocol::{AlwaysSaved, Mode, ModelInfo, Origin, SandboxStatus};
 use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
@@ -165,6 +166,22 @@ impl ConfigSource for watch::Receiver<Arc<ConversationConfig>> {
     }
 }
 
+/// Saves an always-allow rule (phase E, efr's auto spec 11.2): the rule that a question
+/// offered ([`ExitInfo::always`](efr_protocol::ExitInfo)) when the user answered `a`.
+///
+/// The daemon implements it. It checks the rule as a load of `config.toml` does
+/// ([`Engine::check_allow`]), adds it to `sandbox.allow` of `config.toml`, and waits for
+/// the reload, so the next call sees the rule. It never fails with an error: every
+/// failure is an [`AlwaysSaved::NotSaved`] with its reason, and the call runs as a
+/// "yes" all the same.
+#[async_trait]
+pub trait AllowWriter: Send + Sync + fmt::Debug {
+    /// Saves `rule`: [`AlwaysSaved::Saved`] with its index in `sandbox.allow` (the old
+    /// index of an equal rule that the list already holds), or
+    /// [`AlwaysSaved::NotSaved`] with the reason.
+    async fn add(&self, rule: AllowRule) -> AlwaysSaved;
+}
+
 /// Machine facts for the preamble, gathered once by the daemon.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -219,6 +236,9 @@ pub struct ConversationDeps {
     /// daemon holds the other end; nothing stores a draft. A send without a receiver
     /// costs nothing, and a turn does no draft work while nobody listens.
     pub drafts: broadcast::Sender<ConversationDraft>,
+    /// Where an `a` (always) answer saves its rule (phase E). `None` offers no `a`: a
+    /// question then never names a rule.
+    pub allow_writer: Option<Arc<dyn AllowWriter>>,
 }
 
 /// How a conversation's actor starts.

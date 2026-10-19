@@ -33,6 +33,7 @@
 //! before the next call, and its deletes in a private cache layer may reach the real
 //! caches (`cache.rs`).
 
+mod always;
 mod cache;
 mod coalesce;
 mod compact;
@@ -48,7 +49,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use efr_permissions::{
-    Approver, ConversationPolicy, Decision, DecisionInput, Effect, Engine, Requirements,
+    AllowRule, AlwaysVerdict, Approver, ConversationPolicy, Decision, DecisionInput, Effect,
+    Engine, Requirements,
 };
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
@@ -1336,10 +1338,24 @@ impl Turn {
         let decision = &ruling.decision;
         let kinds = exit::kinds(decision);
         let mut events = Vec::with_capacity(2);
+        // NOTE: the rule that an `a` answer saves, when the question offers one: only
+        // with a writer of the daemon (phase E).
+        let mut offer: Option<AllowRule> = None;
         let exit = if kinds.is_empty() {
             None
         } else {
             let record = self.exit_record(call, ruling);
+            // NOTE: the always-allow rules come after the floors and the user's rules,
+            // which the engine applied, and before the classifier (DE21).
+            match self.always(call, ruling) {
+                AlwaysVerdict::Covered { index } => {
+                    return self.covered(call, ruling, record, index).await;
+                }
+                AlwaysVerdict::Offer(rule) if self.shared.deps.allow_writer.is_some() => {
+                    offer = Some(rule);
+                }
+                _ => {}
+            }
             let (recorded, judgement) = match self.review(call, ruling, &record).await? {
                 Reviewed::Decided(authorization) => return Ok(authorization),
                 Reviewed::Ask { recorded, judgement } => (recorded, judgement),
@@ -1366,6 +1382,7 @@ impl Turn {
             let mut info =
                 exit::info(decision, &ruling.requirements, &ruling.launch, home, approver);
             info.judged = judgement;
+            info.always = offer.as_ref().map(AllowRule::describe);
             Some(info)
         };
         let mut summary =
@@ -1385,7 +1402,7 @@ impl Turn {
         // answers it (efr's auto spec, section 9.5). Nor does it answer a job's question:
         // its "yes" is not one-shot, it lasts while nobody watches the job.
         let local_only = kinds.contains(&ExitKind::Privilege) || ruling.requirements.background;
-        let answer = self.shared.approvals.park(turn_id, call_id, local_only);
+        let answer = self.shared.approvals.park(turn_id, call_id, local_only, offer.clone());
         events.push(Event::ApprovalRequested {
             turn_id,
             call_id,
@@ -1441,11 +1458,23 @@ impl Turn {
         };
         let away = away_from.is_some();
         tracing::debug!(phase = "approval_wait", elapsed_ms = %watch, "phase=approval_wait elapsed_ms={}", watch);
+        // NOTE: the actor takes an `a` only for a question that offers a rule; any
+        // other `a` falls to the denial below.
+        let saved = match waited {
+            Waited::Answer(Some(ApprovalDecision::AllowAlways)) => offer,
+            _ => None,
+        };
         let authorization = match waited {
             Waited::Answer(Some(ApprovalDecision::Allow)) => Authorization::Allowed {
                 approved_interactive: interactive,
                 launch: ruling.launch.clone(),
             },
+            Waited::Answer(Some(ApprovalDecision::AllowAlways)) if saved.is_some() => {
+                Authorization::Allowed {
+                    approved_interactive: interactive,
+                    launch: ruling.launch.clone(),
+                }
+            }
             // NOTE: a decision added to the protocol later denies, so a newer client
             // can never run a call that this build would not.
             Waited::Answer(Some(_)) if !kinds.is_empty() => {
@@ -1489,6 +1518,11 @@ impl Turn {
                 skipped: Vec::new(),
             }])
             .await?;
+        }
+        // NOTE: the call runs as a "yes" whatever the writer says; the rule counts from
+        // the next call on (DE26).
+        if let Some(rule) = saved {
+            self.save_always(call, rule).await?;
         }
         Ok(authorization)
     }

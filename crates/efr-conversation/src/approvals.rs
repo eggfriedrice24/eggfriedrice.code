@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use efr_permissions::{Cause, Decision, Effect, Reason, Subject};
+use efr_permissions::{AllowRule, Cause, Decision, Effect, Reason, Subject};
 use efr_protocol::{ApprovalDecision, CallId, ExitKind, TurnId};
 use tokio::sync::oneshot;
 
@@ -27,20 +27,25 @@ struct Parked {
     turn_id: TurnId,
     /// True when only the user's own machine may answer, as for a privilege exit.
     local_only: bool,
+    /// The rule that an `a` (always) answer saves, when the question offers one
+    /// (phase E).
+    always: Option<AllowRule>,
     answer: oneshot::Sender<ApprovalDecision>,
 }
 
 impl Approvals {
     /// Parks `call_id` of `turn_id`; the receiver gets the user's decision. With
-    /// `local_only`, only the user's own machine may answer.
+    /// `local_only`, only the user's own machine may answer. `always` is the rule that
+    /// the question offers for an `a` answer (phase E), if it offers one.
     pub(crate) fn park(
         &self,
         turn_id: TurnId,
         call_id: CallId,
         local_only: bool,
+        always: Option<AllowRule>,
     ) -> oneshot::Receiver<ApprovalDecision> {
         let (answer, receiver) = oneshot::channel();
-        self.lock().insert(call_id, Parked { turn_id, local_only, answer });
+        self.lock().insert(call_id, Parked { turn_id, local_only, always, answer });
         receiver
     }
 
@@ -53,6 +58,11 @@ impl Approvals {
     /// give.
     pub(crate) fn local_only(&self, call_id: CallId) -> bool {
         self.lock().get(&call_id).is_some_and(|parked| parked.local_only)
+    }
+
+    /// True when the question of `call_id` offers a rule for an `a` (always) answer.
+    pub(crate) fn offers_always(&self, call_id: CallId) -> bool {
+        self.lock().get(&call_id).is_some_and(|parked| parked.always.is_some())
     }
 
     /// Hands `decision` to the turn parked on `call_id`. False when no turn waits, or

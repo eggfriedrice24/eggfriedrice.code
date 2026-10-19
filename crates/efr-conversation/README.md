@@ -134,6 +134,26 @@ turns.
   other answer, and a judge that gave none (every step of its chain failed), asks the
   user with one `exit_requested` for the call, and the question shows the classifier's
   answer in `ExitInfo::judged`.
+- Always-allow rules (phase E, `turn/always.rs`). They come after the floors and the
+  user's rules, which the engine applied, and before the classifier. When the turn runs
+  in `auto`, the launcher runs the call, and `efr_permissions::Engine::always` says that
+  one rule of `sandbox.allow` covers every exit of the call (`AlwaysVerdict::Covered`),
+  the call runs with the widening of a "yes", with no classifier call and no question.
+  The turn records `exit_requested` and `exit_judged` (judge `always`, the category
+  `sandbox.allow[N]`, the rule in words as the rationale). This needs no judge, and it
+  runs while the classifier is off or paused and while the user is away. It counts as a
+  judged allow, but it does not reset the classifier's denials in a row. The engine
+  gives the project root of the turn's scope to the matcher, and the facts of the call
+  give the real paths (`CallFacts::real_paths`, from efrd). When no rule covers the
+  call but one may (`AlwaysVerdict::Offer`), and the daemon gave a writer
+  (`ConversationDeps::allow_writer`, an `AllowWriter`), the question offers that rule in
+  words (`ExitInfo::always`), and the parked approval keeps the rule. An answer
+  `allow_always` runs the call as a "yes" (`exit_judged`, judge `user`); then the turn
+  hands the rule to the writer and records `always_rule_saved` with what came of it
+  (`Saved` with the index, or `NotSaved` with the reason). The call runs either way.
+  The actor takes `allow_always` only from the user's own machine
+  (`RemoteAlwaysAnswer` for a phone) and only for a question that offers a rule
+  (`NoAlwaysOffer`); both leave the question open, never a "yes" in its place.
 - The user's question: `approval_requested`, whose `exit` shows the kinds, the launch,
   what a "yes" opens, efr's facts, the model's reason and whether only the user may
   approve it. A "yes" runs the call with the narrowest launch (`exit::grant`): the
@@ -142,9 +162,13 @@ turns.
   socket, a bus, a device, an unmask), or `Launch::Unsandboxed` (the exit child) when
   an exit cannot run in the sandbox. The grants of the line's views
   (`Decision::view_grants`, such as `Grant::NetView`, which needs no question) join
-  after the exits' grants by an allow list: `NetView` stays only beside `Write` and
-  `Unmask` grants, and drops beside any other grant (a network, host, socket, bus,
-  desktop or device grant); the exit child takes no view. The same rule gives a
+  after the exits' grants by an allow list (`exit::view_fits`): `NetView` stays only
+  beside `Write` and `Unmask` grants, and drops beside any other grant (a network,
+  host, socket, bus, desktop or device grant). `BusFilter { bus }` (phase E, the
+  filtered bus of a read form such as `systemctl --failed`) stays beside every grant
+  except `NetView` and a `Bus` grant of the same bus, where it drops, so a launch
+  never holds both views and never holds the filtered and the real socket of one bus.
+  The exit child takes no view. The same rule gives a
   routine call with a view and no exit its grant. `CallContext::exits` carries the approved exits,
   so the toolbox can make a write target first and copy a floor file first. The answer
   is recorded as `exit_judged` (judge `user`). Before it asks about a launch in the
@@ -250,6 +274,10 @@ turns.
 - `ExitJudge` (`ConversationDeps::judge`) is the seam of the classifier: the daemon
   implements it with the chain of models, the cache of verdicts of a turn and the hash
   of the record. `None` asks the user about every exit.
+- `AllowWriter` (`ConversationDeps::allow_writer`, phase E) is the seam that saves an
+  always rule: the daemon checks the rule as a load does, adds it to `sandbox.allow`
+  of `config.toml` and waits for the reload. It answers with a typed outcome, never an
+  error. `None` offers no `a`.
 - `respond_approval` records `approval_resolved` and hands the decision to the parked
   turn. The store refuses an answer to a call that is not pending, so of two racing
   answers only one commits. A parked call that can no longer be answered (the turn was
@@ -978,7 +1006,8 @@ Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blockin
   class, `Ask` parks the turn on a `oneshot` until the user answers.
 - In `auto` nothing runs outside the sandbox without a person's or the classifier's
   allow: a contained call has `Launch::Contained`, and only an allow gives
-  `Launch::Unsandboxed`, to a line of one command. The classifier never judges a floor,
+  `Launch::Unsandboxed`, to a line of one command. An always rule covers only a call
+  that the launcher runs, and only the user's own terminal saves one. The classifier never judges a floor,
   a kind that only the user approves, a settings change or an exit that no user message
   names where a name is needed, and its errors ask the user, never allow. A delete in a
   real cache passes the engine (`Engine::decide_cache_delete`) and the same question
@@ -1052,7 +1081,10 @@ follows a script of calls (`testing::Script`), a judge that answers from a queue
 keeps each record (`testing::FakeJudge`) and a presence that a test sets
 (`testing::FakePresence`): which exits the classifier judges and which ask the user
 (`turn/tests/review.rs`), the pause after denials and the floor count
-(`turn/tests/denials.rs`), the away wait and the phone (`turn/tests/away.rs`), cache
+(`turn/tests/denials.rs`), the away wait and the phone (`turn/tests/away.rs`), the
+always rules (a covered call before the classifier, the offer and the `a` answer, the
+phone, a user's `deny` or `ask` rule, the kinds that no rule covers, the pause and the
+away wait, a job; `turn/tests/always.rs`), cache
 deletes (`turn/tests/cache.rs`), the snapshots and the undo info at the end of a turn
 (`turn/tests/sandbox.rs`), and the routine lines of the command corpus of
 `efr-permissions`, which make no judge call (`turn/tests/corpus.rs`). `exit/tests.rs`

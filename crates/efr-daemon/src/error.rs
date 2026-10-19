@@ -840,7 +840,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         | ConversationError::UnknownTurn { .. }
         | ConversationError::NoQueuedPrompt { .. } => ErrorCode::NotFound,
         ConversationError::RemoteSurfaceAnswer { .. }
-        | ConversationError::RemotePrivilegeAnswer { .. } => ErrorCode::Forbidden,
+        | ConversationError::RemotePrivilegeAnswer { .. }
+        | ConversationError::RemoteAlwaysAnswer { .. } => ErrorCode::Forbidden,
+        ConversationError::NoAlwaysOffer { .. } => ErrorCode::Invalid,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. } => ErrorCode::Invalid,
         ConversationError::CompactionBusy { .. } | ConversationError::NothingToCompact { .. } => {

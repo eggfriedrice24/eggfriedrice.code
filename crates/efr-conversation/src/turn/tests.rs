@@ -26,6 +26,7 @@ use crate::testing::{
 use crate::{CompactionConfig, ContextLimits};
 use crate::{ConversationError, approvals};
 
+mod always;
 mod append_only;
 mod away;
 mod cache;

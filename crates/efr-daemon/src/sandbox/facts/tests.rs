@@ -213,3 +213,44 @@ fn program_with_mtime_set_back_counts_as_changed() {
     assert!(super::changed_since(&program, Timestamp::now() - hour));
     assert!(!super::changed_since(&program, Timestamp::now() + hour));
 }
+
+#[tokio::test]
+async fn real_paths_fact_follows_links() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().canonicalize().unwrap();
+    let real = home.join("dotfiles/notes");
+    std::fs::create_dir_all(&real).unwrap();
+    std::os::unix::fs::symlink(&real, home.join("notes")).unwrap();
+    std::fs::write(real.join("a.txt"), "").unwrap();
+    // A link to nothing: a write through it lands where it points, which efrd does
+    // not know, so it gives no fact.
+    std::os::unix::fs::symlink(home.join("gone/x"), home.join("dangling")).unwrap();
+    let mut request = FactRequest::default();
+    request.real_paths = vec![
+        home.join("notes/a.txt"),
+        home.join("notes/new/b.txt"),
+        home.join("plain/c.txt"),
+        home.join("dangling"),
+        home.join("dangling/y"),
+        PathBuf::from("relative/z"),
+    ];
+    let input = FactInput {
+        request: &request,
+        writes: &[],
+        command_dir: None,
+        shell_path: "",
+        rebuildable: &[],
+        turn_start: Timestamp::UNIX_EPOCH,
+        masks: &[],
+    };
+    let git_runner = Git::new(TestClock::new().shared()).isolated();
+    let facts = collect(&input, &git_runner, &Home::new(&home).unwrap()).await;
+    assert_eq!(
+        facts.real_paths,
+        vec![
+            (home.join("notes/a.txt"), real.join("a.txt")),
+            (home.join("notes/new/b.txt"), real.join("new/b.txt")),
+            (home.join("plain/c.txt"), home.join("plain/c.txt")),
+        ]
+    );
+}

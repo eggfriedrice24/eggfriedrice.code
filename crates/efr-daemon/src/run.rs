@@ -636,6 +636,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         judge: Some(judge),
         presence: Arc::clone(&presence) as Arc<dyn PresenceReader>,
         drafts: drafts.clone(),
+        allow_writer: None,
     };
     let ttys = conversations::load_ttys(&readers).await?;
     let roots = roots(&dirs, root_sources);
