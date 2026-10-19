@@ -73,6 +73,7 @@ ok    bubblewrap /usr/bin/bwrap 0.13.0, not setuid
 launch 3.6 ms, with your rc snapshot 14.8 ms
 netview yes
 network none
+bus filter off
 auto: ready
 "
     );

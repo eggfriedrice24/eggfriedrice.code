@@ -1014,6 +1014,7 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         }
         if sandbox.available {
             row("netview", &sandbox::netview_words(sandbox));
+            row("bus filter", &sandbox::bus_filter_words(sandbox));
         }
     }
     out

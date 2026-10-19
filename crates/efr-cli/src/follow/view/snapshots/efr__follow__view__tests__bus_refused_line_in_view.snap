@@ -1,0 +1,12 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: err
+---
+· $ systemctl --failed; ./start.sh
+  ✗ exit 1
+  bus: refused system org.freedesktop.systemd1 Manager.StartUnit
+  bus: refused system org.freedesktop.systemd1 org.freedesktop.DBus.Properties.Set; 3 times
+  bus: refused session org.example.␛[2JEvil
+  bus: and 3 more refused
+
+sandbox: writes in $SCRATCH, private /tmp; no network

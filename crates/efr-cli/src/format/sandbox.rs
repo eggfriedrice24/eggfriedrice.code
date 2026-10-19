@@ -11,10 +11,10 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    AdminSandboxCheckResult, BlockReason, Blocked, BusKind, ChainStep, CheckOutcome, DesktopKind,
-    ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, JudgeKind, Launch, Mode, ModeFallback,
-    PathClassName, PauseReason, Presence, PresenceSource, ProgramFact, ReportedFile, Risk,
-    SandboxExplainResult, SandboxStatus, SurfaceChange, TargetFact, Verdict,
+    AdminSandboxCheckResult, BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, ChainStep,
+    CheckOutcome, DesktopKind, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, JudgeKind,
+    Launch, Mode, ModeFallback, PathClassName, PauseReason, Presence, PresenceSource, ProgramFact,
+    ReportedFile, Risk, SandboxExplainResult, SandboxStatus, SurfaceChange, TargetFact, Verdict,
 };
 
 use super::card::{self, Card, Row};
@@ -211,6 +211,7 @@ pub(crate) fn check(result: &AdminSandboxCheckResult) -> String {
         };
         let _ = writeln!(out, "netview {netview}");
         let _ = writeln!(out, "network {}", network_words(status));
+        let _ = writeln!(out, "bus filter {}", bus_filter_words(status));
         out.push_str("auto: ready\n");
     } else {
         let reason = result.status.reason.as_deref().unwrap_or("the probe gave no reason");
@@ -1284,6 +1285,67 @@ fn blocked_entry(blocked: &Blocked) -> String {
         0 | 1 => format!("{host}:{} ({reason})", blocked.port),
         count => format!("{host}:{} ({reason}; {count} times)", blocked.port),
     }
+}
+
+/// The lines of the bus calls that a call's bus filter refused (phase E), such as
+/// `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`, with `; N times`
+/// when the filter refused it more than once, then `bus: and N more refused` for the
+/// refusals that the list leaves out. A member shows without the name of its service
+/// in front. The names come from the command's own messages, so each part passes
+/// through [`one_line`]; entries that then read the same, such as two paths of one
+/// method, show as one line with their counts added.
+pub(crate) fn bus_refused_lines(refused: &[BusRefusal], more: u32) -> Vec<String> {
+    let mut lines: Vec<(String, u64)> = Vec::new();
+    for entry in refused {
+        let name = one_line(&entry.name);
+        let member = one_line(&entry.member);
+        let member = member
+            .strip_prefix(&name)
+            .and_then(|rest| rest.strip_prefix('.'))
+            .filter(|rest| !rest.is_empty())
+            .map_or(member.clone(), str::to_owned);
+        let bus = match entry.bus {
+            BusKind::System => "system",
+            BusKind::Session => "session",
+            _ => "unknown",
+        };
+        let mut line = format!("bus: refused {bus} {name}");
+        if !member.is_empty() {
+            let _ = write!(line, " {member}");
+        }
+        let count = u64::from(entry.count.max(1));
+        match lines.iter_mut().find(|(shown, _)| *shown == line) {
+            Some((_, total)) => *total = total.saturating_add(count),
+            None => lines.push((line, count)),
+        }
+    }
+    let mut out: Vec<String> = lines
+        .into_iter()
+        .map(|(line, count)| if count > 1 { format!("{line}; {count} times") } else { line })
+        .collect();
+    if more > 0 {
+        out.push(format!("bus: and {more} more refused"));
+    }
+    out
+}
+
+/// The value of the `bus filter` row of `efr status` and `efr sandbox check` (phase
+/// E): `on` when efrd runs the filtered bus proxy, else `off` with the reason, such as
+/// `off (dbus.proxy = false)`. A daemon from before the filter says neither, so it
+/// shows `off`.
+pub(crate) fn bus_filter_words(status: &SandboxStatus) -> String {
+    if status.bus_proxy {
+        return "on".to_owned();
+    }
+    let reason = match status.bus_proxy_off {
+        None => return "off".to_owned(),
+        Some(BusProxyOff::Config) => "dbus.proxy = false",
+        Some(BusProxyOff::NoProgram) => "xdg-dbus-proxy is not installed",
+        Some(BusProxyOff::SelfTest) => "its self-test failed",
+        Some(BusProxyOff::OldVersion) => "xdg-dbus-proxy is too old",
+        Some(_) => "unknown reason",
+    };
+    format!("off ({reason})")
 }
 
 /// The note about background jobs that stopped when a contained call ended.
