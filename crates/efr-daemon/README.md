@@ -1163,8 +1163,19 @@ listener that the test bound; a function named `ss` from the sandbox state of an
 earlier call runs in a view call, and its TCP socket fails with `EAFNOSUPPORT` while
 the test's listener accepts nothing; a background job that watches the network starts
 with the view and no review, sees the test's connection and stops by `job_stop`; and
-`df` runs with no review and lists the host's mounts, not the sandbox's binds. The
-unit tests of `sandbox/` cover the plan, the probe with a fake launcher, the lock, the worktree record, the facts, the report, the
+`df` runs with no review and lists the host's mounts, not the sandbox's binds. Its
+child module `sandbox::proxy` runs the network proxy of phase D2 the same way, with
+`network.mode = "proxy"`, the launcher's bridge and a local HTTPS server on a loopback
+address of its own (`sandbox/proxy/registry.rs`: a rustls server with a leaf of a test
+CA that `openssl` makes at test time, and a log of each request), which the test seams
+map to a `.test` name: `cargo fetch` from a sparse registry runs with no review and
+gets the crate (and the same line with an empty allow list gets a refusal of the
+registry); a script that pushes to a listed git host sends no credential from the
+masked credential files, while the same push outside the sandbox sends one; a token in
+the project's git config or `.npmrc` makes efrd deny that host for the call; a script
+that reaches a host that is not listed gets the proxy's note in its output; and a
+background dev server with the `localhost` route answers the test on the host's
+loopback. The unit tests of `sandbox/` cover the plan, the probe with a fake launcher, the lock, the worktree record, the facts, the report, the
 quarantine and the peer check on real process trees.
 
 The `presence` module checks that a conversation goes away after the idle minutes and
