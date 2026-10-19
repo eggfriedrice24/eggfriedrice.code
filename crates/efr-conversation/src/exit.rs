@@ -971,7 +971,8 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
 /// normal form.
 ///
 /// `on_allow_list` holds only under efr's proxy, for a host that only `host` exits
-/// name, each with `Grant::Host` grants only (never `Grant::OpenNetwork`), on each of
+/// name, each with at least one grant and `Grant::Host` grants only (never
+/// `Grant::OpenNetwork`), on each of
 /// their ports, when no `upload` or `outside` exit names the host. So the list never
 /// lifts the name for an exit that opens the whole network, for an upload or for a run
 /// outside the sandbox, and never with no proxy. `project_remote` holds for a host of a
@@ -1017,10 +1018,12 @@ fn host_facts(
             && !naming.is_empty()
             && naming.iter().all(|need| need.kind == ExitKind::Host && !wide(need))
             && naming.iter().all(|need| {
-                need.grants.iter().all(|grant| match grant {
-                    Grant::Host { port, .. } => engine.hosts().allows(host, *port),
-                    _ => false,
-                })
+                // NOTE: an exit with no grant has no port to check the list on.
+                !need.grants.is_empty()
+                    && need.grants.iter().all(|grant| match grant {
+                        Grant::Host { port, .. } => engine.hosts().allows(host, *port),
+                        _ => false,
+                    })
             })
     };
     let project_remote = |host: &str| {
