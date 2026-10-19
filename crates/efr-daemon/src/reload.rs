@@ -14,8 +14,9 @@
 //! - the settings watch, which a turn reads when it starts and a prompt when it
 //!   arrives, and the idle shell collector at each look;
 //! - the permission engine, sent again when the `[permissions]` table changed or what
-//!   it protects did (the links in the config directory, the registered projects),
-//!   and the trusted programs of the hidden shells when the table changed;
+//!   it protects did (the links in the config directory, the registered projects), or
+//!   the always rules of `sandbox.allow` with their disabled marks (phase E), and the
+//!   trusted programs of the hidden shells when the table changed;
 //! - how new hidden shells start (`shell.program`, `shell.login`);
 //! - the log filter.
 //!
@@ -413,8 +414,9 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
         let cautious = settings.permissions.policy(Mode::Cautious);
         state.shells.set_trusted_programs(shells::trusted_programs(&cautious));
     }
-    let engine_sent = engine.is_some();
+    let probe_again = probes_again(&running, &settings, &current, engine.as_ref());
     if let Some(engine) = engine {
+        crate::always::warn_disabled(&engine, Some(&current));
         // NOTE: the list reaches every running listener at once (DP3); a running call
         // keeps its own grants.
         state.sandbox.proxy().set_hosts(engine.hosts());
@@ -434,10 +436,6 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     {
         tracing::warn!(error = %error, "the log filter stays as it was");
     }
-    // NOTE: the probe checks that no program of the sandbox lies in a write root, and
-    // which bwrap and cache mode it uses, so a change of `[sandbox]` or of the projects
-    // (the engine's locations) runs it again.
-    let probe_again = settings.sandbox != running.sandbox || engine_sent;
     // NOTE: `[model] provider` needs a restart, so the check is against the running one.
     crate::providers::warn_foreign_model(&settings);
     if settings != *running {
@@ -447,6 +445,31 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
         state.sandbox.reprobe(Arc::clone(&state.settings.borrow()));
     }
     Ok(restart_needed)
+}
+
+/// True when a reload from `running` to `next` must run the sandbox probe again: the
+/// probe checks that no program of the sandbox lies in a write root, and which bwrap
+/// and cache mode it uses, so a change of `[sandbox]` runs it, and so does a `sent`
+/// engine whose locations (the projects) or support differ from `current`.
+///
+/// NOTE: `sandbox.allow` is left out, and so is whether an engine was sent at all: an
+/// `a` answer changes only the always rules, and its reload must start no probe
+/// (DE28).
+pub(crate) fn probes_again(
+    running: &Settings,
+    next: &Settings,
+    current: &Engine,
+    sent: Option<&Engine>,
+) -> bool {
+    let without_rules = |settings: &Settings| {
+        let mut sandbox = settings.sandbox.clone();
+        sandbox.allow.clear();
+        sandbox
+    };
+    without_rules(running) != without_rules(next)
+        || sent.is_some_and(|engine| {
+            engine.locations() != current.locations() || engine.support() != current.support()
+        })
 }
 
 /// `error` as the wire error of a refused file, belonging to `key` when one is known.

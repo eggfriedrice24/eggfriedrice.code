@@ -2,18 +2,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_permissions::{
-    AutoSupport, ConversationPolicy, DecisionInput, Effect, Engine, Locations, Requirements,
+    AllowFloor, AllowRule, AutoSupport, ConversationPolicy, DecisionInput, Effect, Engine,
+    Locations, Requirements,
 };
 use efr_protocol::{
     AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CacheMode,
     CommandId, ConfigFileError, Method, Mode, NetworkMode, Origin, PromptSend, PromptSendResult,
     RootSource, SandboxStatus, Scope, ShellContext, TurnSettings,
 };
+use efr_scope::Registry;
 use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 
-use super::{Outcome, Reloads, Request, follow_probes, notice};
+use super::{Outcome, Reloads, Request, follow_probes, notice, probes_again};
 use crate::testing::{RawClient, Running, deps, logged, serve_with};
 use crate::{ScreenChoice, Settings};
 
@@ -571,4 +573,146 @@ async fn status_watch_task_asks_a_rebuild_on_change() {
 
     assert_eq!(rebuilds, 2);
     assert!(requests.try_recv().is_err(), "no request for a status that changed nothing");
+}
+
+fn write_rule(under: &str) -> AllowRule {
+    AllowRule::Write { under: under.to_owned(), project: None }
+}
+
+/// A `[[sandbox.allow]]` table of a write rule under `under`.
+fn allow_table(under: &str) -> String {
+    format!("[[sandbox.allow]]\nkind = \"write\"\nunder = \"{under}\"\n")
+}
+
+#[tokio::test]
+async fn allow_change_sends_the_engine_and_starts_no_probe() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let before = Arc::clone(&daemon.engine.borrow());
+
+    std::fs::write(config_file(&dirs), allow_table("~/notes")).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let after = Arc::clone(&daemon.engine.borrow());
+    assert!(!Arc::ptr_eq(&before, &after), "a new engine was sent for the rule alone");
+    assert_eq!(after.allow_rules(), [(write_rule("~/notes"), None)]);
+
+    // Only the rules changed: no probe. The other keys of `[sandbox]`, the projects and
+    // what the sandbox supports still run one.
+    let running = Settings::default();
+    let mut ruled = running.clone();
+    ruled.sandbox.allow = vec![write_rule("~/notes")];
+    assert!(!probes_again(&running, &ruled, &before, Some(&after)));
+    assert!(!probes_again(&running, &ruled, &before, None));
+    let mut rebuildable = ruled.clone();
+    rebuildable.sandbox.rebuildable.push("out".to_owned());
+    assert!(probes_again(&ruled, &rebuildable, &after, None));
+    let home = dirs.home();
+    let project = "0192f0c1-7a00-7000-8000-000000000009".parse().unwrap();
+    let moved = Engine::with_defaults(
+        Locations::new(home).unwrap().with_project(project, home.join("p")).unwrap(),
+    );
+    assert!(probes_again(&running, &running, &before, Some(&moved)));
+    let undo = (*before).clone();
+    let undo = undo.with_support(AutoSupport { undo: !before.support().undo, ..*before.support() });
+    assert!(probes_again(&running, &running, &before, Some(&undo)));
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn bad_allow_rule_shape_refused_on_reload() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let before = Arc::clone(&daemon.engine.borrow());
+
+    // A relative dir is a shape error: the file is refused, and nothing changes.
+    let text = format!("{}{}", allow_table("~/notes"), allow_table("notes"));
+    std::fs::write(config_file(&dirs), text).unwrap();
+    let result = reload(&daemon.socket).await;
+    assert!(!result.applied, "{result:?}");
+    let error = result.error.unwrap();
+    assert!(error.message.contains("sandbox.allow[1]"), "{error:?}");
+    assert!(Arc::ptr_eq(&before, &daemon.engine.borrow()), "the old engine stays");
+    assert!(daemon.settings.borrow().sandbox.allow.is_empty());
+    assert!(status(&daemon.socket).await.config.unwrap().reload_error.is_some());
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn always_allow_rejects_floor_path() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    // efrd starts with a rule that names a floor: the rule is disabled, never fatal.
+    let mut settings = Settings::default();
+    settings.sandbox.allow = vec![write_rule("~/.zshrc"), write_rule("~/notes")];
+    let daemon = serve_with(settings, deps(&dirs, &clock)).await;
+    let engine = Arc::clone(&daemon.engine.borrow());
+    let marks: Vec<bool> = engine.allow_rules().iter().map(|(_, off)| off.is_some()).collect();
+    assert_eq!(marks, [true, false]);
+    let sandbox = status(&daemon.socket).await.sandbox.unwrap();
+    let disabled: Vec<&String> =
+        sandbox.warnings.iter().filter(|warning| warning.contains("sandbox.allow")).collect();
+    assert_eq!(disabled.len(), 1, "{:?}", sandbox.warnings);
+    assert!(disabled[0].starts_with("sandbox.allow[0] is disabled: "), "{}", disabled[0]);
+
+    // A reload that adds a floor rule applies, with the rule disabled.
+    let text = format!("{}{}", allow_table("~/notes"), allow_table("~/.config/systemd/user"));
+    std::fs::write(config_file(&dirs), text).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let engine = Arc::clone(&daemon.engine.borrow());
+    assert_eq!(
+        engine.allow_rules()[1].1,
+        Some(AllowFloor::UnderFloor { floor: dirs.home().join(".config/systemd") })
+    );
+    let sandbox = status(&daemon.socket).await.sandbox.unwrap();
+    assert!(
+        sandbox.warnings.iter().any(|warning| warning.starts_with("sandbox.allow[1] is disabled")),
+        "{:?}",
+        sandbox.warnings
+    );
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn stale_allow_rule_is_disabled_not_fatal() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let text = format!("{}{}", allow_table("~/code"), allow_table("~/notes"));
+    std::fs::write(config_file(&dirs), text).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let marks = |engine: &Engine| -> Vec<Option<AllowFloor>> {
+        engine.allow_rules().iter().map(|(_, off)| off.clone()).collect()
+    };
+    assert_eq!(marks(&daemon.engine.borrow()), [None, None]);
+
+    // Projects appear below the rule's dir after it was saved, each a write root of
+    // every call: the next reload disables the rule, sends the engine, and the other
+    // rule still works.
+    let home = dirs.home();
+    let mut registry = Registry::empty();
+    for (n, name) in [(1_u128, "site"), (2, "blog")] {
+        std::fs::create_dir_all(home.join("code").join(name)).unwrap();
+        let id = efr_protocol::ProjectId::from_uuid(uuid::Uuid::from_u128(n));
+        registry.register(id, home.join("code").join(name), None).unwrap();
+    }
+    registry.save(&Registry::path_in(dirs.dirs().config())).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let stale = Some(AllowFloor::WriteRoot { root: home.join("code/site") });
+    assert_eq!(marks(&daemon.engine.borrow()), [stale, None]);
+    let sandbox = status(&daemon.socket).await.sandbox.unwrap();
+    assert!(
+        sandbox.warnings.iter().any(|warning| warning.starts_with("sandbox.allow[0] is disabled")),
+        "{:?}",
+        sandbox.warnings
+    );
+    daemon.stop().await;
+
+    // efrd starts again with the disabled rule in the file.
+    let daemon = start(&dirs, &clock).await;
+    assert!(reload(&daemon.socket).await.applied);
+    let stale = Some(AllowFloor::WriteRoot { root: home.join("code/site") });
+    assert_eq!(marks(&daemon.engine.borrow()), [stale, None]);
+    daemon.stop().await;
 }

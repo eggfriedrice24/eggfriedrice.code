@@ -16,6 +16,10 @@ pub(crate) async fn handle(
 ) -> Result<(), DaemonError> {
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let settings = Arc::clone(&state.settings.borrow());
+    let mut sandbox = state.sandbox.reported(&settings);
+    // NOTE: a disabled always rule (phase E, DE44) is a warning of the sandbox, which
+    // `efr status` shows; efrd runs on.
+    sandbox.warnings.extend(crate::always::disabled_warnings(&state.engine.borrow()));
     let result = AdminStatusResult {
         daemon_id: state.daemon_id,
         version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -29,7 +33,7 @@ pub(crate) async fn handle(
         catalog: Some(state.providers.models().status()),
         roots: Some(state.roots.clone()),
         config: Some(reload::status(state).await),
-        sandbox: Some(state.sandbox.reported(&settings)),
+        sandbox: Some(sandbox),
         sandbox_paths: Some(state.sandbox.paths().await),
     };
     responder.item(&result).await?;
