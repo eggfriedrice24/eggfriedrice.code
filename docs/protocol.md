@@ -416,8 +416,10 @@ No protocol version has shipped yet.
   with `net_view`, and `admin_status_result.json` and `admin_sandbox_check_result.json`
   set `netview`.
 - Version 1, additive: the proxy's refusals and status (phase D2). `block_reason` gains
-  `ip_literal`, `not_tls`, `bad_request`, `limit` and `unknown`; a reader takes a reason
-  that it does not know as `unknown`. A `blocked` entry gains `count` (1 when absent,
+  `ip_literal`, `not_tls`, `bad_request`, `limit` and `unknown`; a reader from this
+  version on takes a reason that it does not know as `unknown`. An `efr` from before
+  this version cannot read `ip_literal`, `not_tls`, `bad_request` or `limit`, and fails
+  on the frame that holds one. A `blocked` entry gains `count` (1 when absent,
   sent only when it is not 1): how many connections the proxy refused for that host,
   port and reason. `sandbox_summary` gains `blocked_more` (0 when absent, sent only when
   it is not 0), the refusals that `blocked` leaves out (it lists at most 32), and
@@ -425,8 +427,8 @@ No protocol version has shipped yet.
   The `job_ended` event gains the same `blocked` list and `blocked_more`, absent when
   empty. A host fact of the exit record gains `project_remote` (false when absent): the
   host of a remote of a pinned project git dir. The sandbox status gains `proxy` (false
-  when absent): true when the probe's proxy self-test passed. No efrd sends these values
-  yet. The new `block_reasons.json` freezes every reason;
+  when absent): true when the probe's proxy self-test passed. The new
+  `block_reasons.json` freezes every reason;
   `events/tool_call_completed.json`, `events/job_ended.json`,
   `events/exit_requested.json`, `admin_status_result.json` and
   `admin_sandbox_check_result.json` now set the new members.
