@@ -1,0 +1,26 @@
+---
+source: crates/efr-cli/src/commands/status/tests.rs
+expression: "shown.join(\"\\n---\\n\")"
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     on
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     off (dbus.proxy = false)
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     off (xdg-dbus-proxy is not installed)
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     off (its self-test failed)
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     off (xdg-dbus-proxy is too old)
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     off (unknown reason)
+---
+sandbox        ready (Landlock ABI 10, bubblewrap 0.13.0, caches overlay, network none)
+bus filter     off
+---
+sandbox        unavailable: bubblewrap is not installed; auto runs as cautious

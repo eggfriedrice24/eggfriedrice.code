@@ -239,6 +239,10 @@ into the GitHub release notes, and it stops when the section is missing.
   and efr tells the model which call the filter refused and how to ask for the whole
   bus for one command. The record of a command or a job keeps the refused calls. When
   the filter stops during a command, efr tells the model too.
+- `efr status` and `efr sandbox check` show `bus filter on`, or `bus filter off` with
+  the reason, such as `dbus.proxy = false` or `xdg-dbus-proxy is not installed`. With
+  `[dbus] proxy = true`, a command shows each bus call that the filter refused under
+  its result, such as `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`.
 
 ### Changed
 

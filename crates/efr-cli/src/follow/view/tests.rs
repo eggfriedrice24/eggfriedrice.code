@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    ApprovalDecision, BlockReason, Blocked, CallId, Draft, DraftPart, EffectiveSettings, ErrorBody,
-    ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, Grant, InputWait,
-    Launch, Mode, ModeFallback, Origin, OverriddenSettings, PathClassName, Presence,
-    PresenceSource, QuestionId, ReportedFile, SandboxSummary, Scope, Seq, StopReason,
-    SurfaceChange, TargetFact, TurnId, TurnStop, Usage,
+    ApprovalDecision, BlockReason, Blocked, BusKind, BusRefusal, CallId, Draft, DraftPart,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
+    ExitSource, Grant, InputWait, Launch, Mode, ModeFallback, Origin, OverriddenSettings,
+    PathClassName, Presence, PresenceSource, QuestionId, ReportedFile, SandboxSummary, Scope, Seq,
+    StopReason, SurfaceChange, TargetFact, TurnId, TurnStop, Usage,
 };
 use efr_render::{ColourMode, RenderOptions};
 use jiff::{SignedDuration, Timestamp};
@@ -1586,6 +1586,46 @@ fn trace_says_proxy_for_a_proxy_call() {
         true,
     );
     assert!(err.ends_with("private /tmp; no network\n"), "{err:?}");
+}
+
+#[test]
+fn bus_refused_line_in_view() {
+    let refused = |member: &str, path: &str, count| BusRefusal {
+        bus: BusKind::System,
+        name: "org.freedesktop.systemd1".to_owned(),
+        member: member.to_owned(),
+        path: path.to_owned(),
+        count,
+    };
+    let summary = SandboxSummary {
+        confined: true,
+        bus_refused: vec![
+            refused("org.freedesktop.systemd1.Manager.StartUnit", "/org/freedesktop/systemd1", 1),
+            refused("org.freedesktop.DBus.Properties.Set", "/org/freedesktop/systemd1", 1),
+            refused("org.freedesktop.DBus.Properties.Set", "/org/freedesktop/systemd1/unit/a", 2),
+            BusRefusal {
+                bus: BusKind::Session,
+                name: "org.example.\x1b[2JEvil".to_owned(),
+                member: String::new(),
+                path: String::new(),
+                count: 1,
+            },
+        ],
+        bus_refused_more: 3,
+        ..SandboxSummary::default()
+    };
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(Scope::Machine, None),
+            contained_started("systemctl --failed; ./start.sh"),
+            contained_completed(1, Some(summary)),
+            turn_completed(),
+        ],
+        true,
+    );
+    insta::assert_snapshot!(err);
 }
 
 #[test]

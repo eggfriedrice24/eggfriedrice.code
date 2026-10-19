@@ -1426,6 +1426,10 @@ impl TurnView {
                 let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
                     notes.extend(sandbox::blocked_lines(&summary.blocked, summary.blocked_more));
+                    notes.extend(sandbox::bus_refused_lines(
+                        &summary.bus_refused,
+                        summary.bus_refused_more,
+                    ));
                     notes.extend(sandbox::background_stopped(&summary.background_stopped));
                     notes.extend(sandbox::survivors(&summary.survivors));
                 }

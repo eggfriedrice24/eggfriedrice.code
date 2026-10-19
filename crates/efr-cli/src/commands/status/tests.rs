@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use efr_protocol::{
-    AdminStatusResult, CacheMode, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode, LoginKind,
-    Method, NetworkMode, Origin, ProviderStatus, SandboxStatus,
+    AdminStatusResult, BusProxyOff, CacheMode, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode,
+    LoginKind, Method, NetworkMode, Origin, ProviderStatus, SandboxStatus,
 };
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
@@ -333,6 +333,66 @@ async fn status_shows_netview() {
         let rows: Vec<&str> = stdout
             .lines()
             .filter(|line| line.starts_with("sandbox") || line.starts_with("netview"))
+            .collect();
+        shown.push(rows.join("\n"));
+    }
+    insta::assert_snapshot!(shown.join("\n---\n"));
+}
+
+#[tokio::test]
+async fn status_shows_bus_filter() {
+    let ready = SandboxStatus {
+        available: true,
+        reason: None,
+        fix: None,
+        landlock_abi: Some(10),
+        errata: Some(0xf),
+        bwrap: Some(PathBuf::from("/usr/bin/bwrap")),
+        bwrap_version: Some("0.13.0".to_owned()),
+        cache_mode: CacheMode::Overlay,
+        network_mode: NetworkMode::None,
+        warnings: Vec::new(),
+        netview: true,
+        netview_off: false,
+        proxy: false,
+        bus_proxy: true,
+        bus_proxy_off: None,
+    };
+    let off =
+        |reason| SandboxStatus { bus_proxy: false, bus_proxy_off: Some(reason), ..ready.clone() };
+    // A daemon from before the bus filter sends neither field.
+    let older = SandboxStatus { bus_proxy: false, ..ready.clone() };
+    // An unavailable sandbox has no bus filter row.
+    let down = SandboxStatus::unavailable("bubblewrap is not installed");
+    let mut shown = Vec::new();
+    for sandbox in [
+        ready.clone(),
+        off(BusProxyOff::Config),
+        off(BusProxyOff::NoProgram),
+        off(BusProxyOff::SelfTest),
+        off(BusProxyOff::OldVersion),
+        off(BusProxyOff::Unknown),
+        older,
+        down,
+    ] {
+        let env = TestEnv::new();
+        let daemon = env.listen();
+        let ctx = env.context();
+        let (mut out, captured) = capture();
+        let status = AdminStatusResult { sandbox: Some(sandbox), ..result() };
+        let script = async {
+            let mut conn = daemon.accept().await;
+            let (id, _) = conn.request().await;
+            conn.reply(id, &status).await;
+            conn.until_closed().await;
+        };
+        let line = command(&["status"]);
+        let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+        assert_eq!(exit, Exit::Success);
+        let stdout = captured.stdout();
+        let rows: Vec<&str> = stdout
+            .lines()
+            .filter(|line| line.starts_with("sandbox ") || line.starts_with("bus filter"))
             .collect();
         shown.push(rows.join("\n"));
     }

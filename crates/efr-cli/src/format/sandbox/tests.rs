@@ -1,21 +1,23 @@
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{
-    ActionFacts, AdminSandboxCheckResult, BlockReason, Blocked, CacheMode, ChainStep, CheckOutcome,
-    DesktopKind, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCounts, Grant, HostFact,
-    JudgeKind, Judgement, Launch, Mode, ModeFallback, NetworkMode, PathClassName, PauseReason,
-    Presence, PresenceSource, ProgramFact, ReportedFile, Risk, SandboxCheck, SandboxExplainResult,
-    SandboxPathRole, SandboxStatus, Scope, SurfaceChange, TargetFact, UserAuthorization, Verdict,
+    ActionFacts, AdminSandboxCheckResult, BlockReason, Blocked, BusKind, BusRefusal, CacheMode,
+    ChainStep, CheckOutcome, DesktopKind, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource,
+    GitCounts, Grant, HostFact, JudgeKind, Judgement, Launch, Mode, ModeFallback, NetworkMode,
+    PathClassName, PauseReason, Presence, PresenceSource, ProgramFact, ReportedFile, Risk,
+    SandboxCheck, SandboxExplainResult, SandboxPathRole, SandboxStatus, Scope, SurfaceChange,
+    TargetFact, UserAuthorization, Verdict,
 };
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
 use super::{
-    AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_lines, cache_freed, check,
-    contained_trace, exit_card, exit_heading, exit_judged, exit_lines, exit_record, exit_summary,
-    explain, fallback_note, fallback_warning, home_changed, judge_details, no_answer_row, paused,
-    presence_changed, reviewed, reviewer_row, reviewing, setup_failed, status_line,
-    surface_answered, surface_change, surface_changed, surface_report, survivors, tilde,
+    AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_lines, bus_refused_lines,
+    cache_freed, check, contained_trace, exit_card, exit_heading, exit_judged, exit_lines,
+    exit_record, exit_summary, explain, fallback_note, fallback_warning, home_changed,
+    judge_details, no_answer_row, paused, presence_changed, reviewed, reviewer_row, reviewing,
+    setup_failed, status_line, surface_answered, surface_change, surface_changed, surface_report,
+    survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -186,9 +188,9 @@ fn status_shows_network_proxy() {
         status_line(&fell_back)
     );
     let checked = check(&AdminSandboxCheckResult { status: proxy, ..check_result() });
-    assert!(checked.contains("\nnetwork proxy\nauto: ready\n"), "{checked}");
+    assert!(checked.contains("\nnetwork proxy\nbus filter off\nauto: ready\n"), "{checked}");
     let checked = check(&check_result());
-    assert!(checked.contains("\nnetwork none\nauto: ready\n"), "{checked}");
+    assert!(checked.contains("\nnetwork none\nbus filter off\nauto: ready\n"), "{checked}");
 }
 
 #[test]
@@ -1056,4 +1058,58 @@ fn backup_line_names_the_link_and_the_real_file() {
     );
     // A real file that is the path itself adds nothing.
     assert_eq!(home_changed(real, Some(real), None, home()), "changed ~/dotfiles/hypr/x.conf");
+}
+
+#[test]
+fn bus_refusals_name_the_bus_the_service_and_the_short_member() {
+    let entry = |bus, name: &str, member: &str, path: &str, count| BusRefusal {
+        bus,
+        name: name.to_owned(),
+        member: member.to_owned(),
+        path: path.to_owned(),
+        count,
+    };
+    const SYSTEMD: &str = "org.freedesktop.systemd1";
+    let refused = [
+        entry(BusKind::System, SYSTEMD, "org.freedesktop.systemd1.Manager.StartUnit", "/a", 1),
+        // Another interface keeps its whole name; the same line again adds its count.
+        entry(BusKind::System, SYSTEMD, "org.freedesktop.DBus.Properties.Set", "/a", 2),
+        entry(BusKind::System, SYSTEMD, "org.freedesktop.DBus.Properties.Set", "/b", 1),
+        // A refusal of the bus itself names no member.
+        entry(BusKind::Session, "org.freedesktop.Notifications", "", "", 1),
+        // The names come from the command: they cannot drive the terminal.
+        entry(BusKind::Session, "<invalid>", "a\x1b[2J", "<invalid>", 1),
+    ];
+    assert_eq!(
+        bus_refused_lines(&refused, 4),
+        [
+            "bus: refused system org.freedesktop.systemd1 Manager.StartUnit",
+            "bus: refused system org.freedesktop.systemd1 org.freedesktop.DBus.Properties.Set; \
+             3 times",
+            "bus: refused session org.freedesktop.Notifications",
+            "bus: refused session <invalid> a\u{241b}[2J",
+            "bus: and 4 more refused",
+        ]
+    );
+    assert!(bus_refused_lines(&[], 0).is_empty());
+    assert_eq!(bus_refused_lines(&[], 2), ["bus: and 2 more refused"]);
+}
+
+#[test]
+fn check_shows_the_bus_filter() {
+    let line = |status: SandboxStatus| {
+        let result = AdminSandboxCheckResult {
+            status,
+            checks: Vec::new(),
+            launch_us: None,
+            snapshot_launch_us: None,
+        };
+        check(&result).lines().find(|line| line.starts_with("bus filter ")).map(str::to_owned)
+    };
+    let on = SandboxStatus { bus_proxy: true, ..ready() };
+    assert_eq!(line(on).as_deref(), Some("bus filter on"));
+    let off =
+        SandboxStatus { bus_proxy_off: Some(efr_protocol::BusProxyOff::NoProgram), ..ready() };
+    assert_eq!(line(off).as_deref(), Some("bus filter off (xdg-dbus-proxy is not installed)"));
+    assert_eq!(line(SandboxStatus::unavailable("no bwrap")), None);
 }
