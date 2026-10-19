@@ -230,6 +230,10 @@ into the GitHub release notes, and it stops when the section is missing.
   no question and no review. Rules cover one host and port, one write dir, or one
   socket. efr keeps the comments of the file. A rule that no longer passes the floor
   checks is disabled with a warning; efrd still starts.
+- With `[dbus] proxy = true`, a bus call that the filter refuses fails in the command,
+  and efr tells the model which call the filter refused and how to ask for the whole
+  bus for one command. The record of a command or a job keeps the refused calls. When
+  the filter stops during a command, efr tells the model too.
 
 ### Changed
 

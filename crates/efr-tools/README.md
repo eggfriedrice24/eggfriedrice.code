@@ -95,7 +95,11 @@ The tools:
   sandbox or were dropped, the background processes that stopped (with the advice to
   start such a process with `background: true`), the hosts that the proxy
   refused (`blocked_note`: one sentence per reason, with the hosts that got it, and one
-  for the refusals that the list leaves out; efrd uses it for a job's end too), the git
+  for the refusals that the list leaves out; efrd uses it for a job's end too), the bus
+  calls that efr's bus filter refused (`bus_note`: each refused call as data, with its
+  bus, name, member and path, how to ask for the whole bus with `needs.bus`, and one
+  line when the filter stopped during the command; efrd adds it after the filter
+  ended, for a call and for a job's end), the git
   settings that the launcher moved away, a shell directory that the
   sandbox hides and a state that was not kept. A sandbox that could not start says
   why (`Completion::SandboxFailed`, from `setup_error` only), and a contained command

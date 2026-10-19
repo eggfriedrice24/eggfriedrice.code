@@ -620,7 +620,18 @@ spec; `docs/sandbox.md` for the user's view):
   bus call's prepare), and a job keeps them in its table entry until it ends. A proxy
   ends at once when its sync pipe closes; one that ended before (a crash) is reported
   as stopped. Each proxy logs `phase=bus_proxy call=<id> bus=<bus> ready_ms=N` at its
-  end and keeps at most 256 KiB of its stderr for the refusals. In a build with the
+  end and keeps at most 256 KiB of its stderr for the refusals. `BusCall::finish`
+  reads the refused calls from that `--log` text (`sandbox/bus/log.rs`): a `*DENIED*`
+  or `*HIDDEN*` line pairs only with the call line just before it (the `C<n>` of a
+  line is the client's own serial, and each client starts at `C1`), signal lines and
+  their verdicts are skipped, a bus driver refusal (`Filtering message due to arg0`)
+  counts as a refusal of that name with no member, and a name, member or path that
+  is not D-Bus grammar becomes `<invalid>`. At most 16 entries, one per bus, name,
+  member and path with a count, go to `SandboxSummary.bus_refused` of a call or
+  `JobEnded.bus_refused` of a job, and the rest to `bus_refused_more`. The model gets
+  `efr_tools::bus_note` in the tool result or the job's notice: the refused calls as
+  data and how to ask for the whole bus (`needs.bus`), and `the bus filter stopped
+  during the command` when a proxy died. In a build with the
   test seams both buses come only from `Deps::with_system_bus` and
   `Deps::with_session_bus` (`EFR_TEST_SYSTEM_BUS` and `EFR_TEST_SESSION_BUS` for the
   smoke's `efrd`), for the filter and for a whole bus grant alike: with no seam the
@@ -1236,6 +1247,15 @@ a crash reported as stopped, a reload's rules for the next call, the dropped vie
 a test build without a seam, the self-test (its version floor, a failure, no program,
 none while `dbus.proxy` is off, and a reload that turns it on), and the status with
 its reason. `jobs/tests.rs` checks that a job's filter lives with the job.
+`sandbox/bus/log/tests.rs` reads the refusals from logs of `xdg-dbus-proxy` 0.1.9: the
+pairing with the open call, signal lines, driver refusals, invalid names and the cap
+of 16. At turn level, `tests/it/bus.rs` runs a fake proxy through the shared fake
+launcher with two stand-in bus sockets: a read form gets the view with no review, the
+refusals reach `JobEnded` and the job's notice, a job's filter lives with the job, a
+filter that died gives the note, and with a real zsh a foreground call's refusals
+reach the tool result and a whole bus grant starts no filter. No line runs a real
+`systemctl`: a job's line waits on a FIFO that no one writes, and a foreground call
+finds a fake `systemctl` first on its `PATH`.
 `sandbox_real_wrapper_runs_the_real_proxy` runs the real launcher and the real
 `xdg-dbus-proxy` under `just test-sandbox` when the program is installed. The eval
 checks that its daemon keeps the filter off (`eval_daemon_keeps_bus_proxy_off`).

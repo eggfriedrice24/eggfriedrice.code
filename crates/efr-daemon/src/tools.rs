@@ -60,7 +60,7 @@ use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
     AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, ReadFileTool, ShellTool,
     ToolContext, ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec,
-    WriteFileTool, WriteJournal, WrittenKind, blocked_note, not_ready_message,
+    WriteFileTool, WriteJournal, WrittenKind, blocked_note, bus_note, not_ready_message,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -816,7 +816,16 @@ impl DaemonToolbox {
             // NOTE: as the proxy socket: a call that runs on past its timeout keeps its
             // filtered bus until its launcher wrote the result (DE1).
             if ended {
-                bus.finish().await;
+                let report = bus.finish().await;
+                // NOTE: the refusals reach the record, the client's `bus:` line and the
+                // model (DE11), and a filter that died reaches the model (DE8).
+                if let Some(note) = bus_note(&report.refused, report.more, report.stopped) {
+                    outcome.output = format!("{}\n{note}", outcome.output);
+                }
+                if let Some(summary) = &mut outcome.sandbox {
+                    summary.bus_refused = report.refused;
+                    summary.bus_refused_more = report.more;
+                }
             } else {
                 sandbox.bus().keep_timed_out(bus, prepared.run.dir.clone());
             }

@@ -1,3 +1,4 @@
+mod bus;
 mod corpus;
 mod proxy;
 mod sandbox;

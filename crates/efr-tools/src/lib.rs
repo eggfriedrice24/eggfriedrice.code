@@ -59,7 +59,7 @@ pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
 pub use shell_tool::{
-    JobRequest, ShellTool, WatchInput, blocked_note, job_request, job_started_text,
+    JobRequest, ShellTool, WatchInput, blocked_note, bus_note, job_request, job_started_text,
     not_ready_message,
 };
 pub use tool::{
