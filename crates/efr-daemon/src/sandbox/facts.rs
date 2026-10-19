@@ -12,6 +12,9 @@
 //! the target exists, the directory holds tracked files. So a lost fact asks, and never
 //! runs more.
 //!
+//! For a git command that reaches a remote, it reads the repository's remotes
+//! (`remotes.rs`, phase D2): one hardened git run per repository.
+//!
 //! For a persistence form whose content is another file (plan PB19a), it also reads
 //! each source that the engine names ([`FactRequest::sources`]): the real file behind
 //! every link, whether it changed in this turn (its mtime or ctime at or after the
@@ -321,6 +324,8 @@ async fn tracked_files(git: &Git, home: &Home, dir: &Path) -> Option<u32> {
         }
     }
 }
+
+pub(crate) mod remotes;
 
 #[cfg(test)]
 mod tests;
