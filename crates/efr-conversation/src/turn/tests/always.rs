@@ -402,6 +402,48 @@ async fn always_runs_while_away() {
 }
 
 #[tokio::test]
+async fn always_allow_under_dir_keeps_floor_binds() {
+    // `~/.zshrc` is a link into `~/dotfiles`. A rule under `~/dotfiles` covers a new file
+    // there, and the call runs with exactly the grant that a "yes" gives; the plan of
+    // that grant keeps the floor read-only (`efr-sandbox`, the test of this name). The
+    // engine never covers a dir bind that holds a floor (`efr-permissions`).
+    let mut setup = ruled(vec![write("~/dotfiles")], Vec::new(), None, None);
+    let home = setup.home().to_path_buf();
+    let dotfiles = home.join("dotfiles");
+    let engine = setup.engine.take().unwrap();
+    let locations = engine
+        .locations()
+        .clone()
+        .with_link_floor_root(dotfiles.join("zsh/.zshrc"), home.join(".zshrc"))
+        .unwrap();
+    let engine = Engine::with_rules(locations, Policy::empty())
+        .with_support(*engine.support())
+        .with_allow(vec![write("~/dotfiles")]);
+    assert_eq!(engine.allow_rules()[0].1, None, "a rule above a floor may load");
+    setup.engine = Some(engine);
+    let file = dotfiles.join("notes.txt");
+    let line = format!("touch {}", file.display());
+    let facts = CallFacts {
+        targets: vec![(file.clone(), None), (dotfiles.clone(), Some(TargetKind::Dir))],
+        real_paths: vec![(file.clone(), file.clone()), (dotfiles.clone(), dotfiles.clone())],
+        ..CallFacts::default()
+    };
+    let declared =
+        Requirements::none().with_command(line.clone()).with_write(file.clone()).with_facts(facts);
+    let (mut h, turn_id) =
+        start(setup, vec![shell(&line)], vec![(line, declared)], "touch a note").await;
+    h.wait_end(turn_id).await;
+    assert_eq!(always_judged(&h).await.len(), 1);
+    let ran = h.toolbox.ran();
+    assert_eq!(ran.len(), 1);
+    let Launch::Contained { grants } = &ran[0].launch else { panic!("{:?}", ran[0].launch) };
+    assert_eq!(grants.len(), 1, "{grants:?}");
+    let Grant::Write { path } = &grants[0] else { panic!("{grants:?}") };
+    assert!(path.starts_with(&dotfiles), "{path:?}");
+    assert!(!home.join(".zshrc").starts_with(path), "the grant never holds the floor's link");
+}
+
+#[tokio::test]
 async fn always_applies_to_jobs() {
     let setup = ruled(vec![write("~/notes")], Vec::new(), None, None);
     let (line, declared) = notes_copy(setup.home(), "a.txt");
