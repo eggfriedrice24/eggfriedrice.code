@@ -140,7 +140,7 @@ fn guarded(path: &Path, locations: &Locations) -> Result<(), AllowFloor> {
 
 /// The floor that `path` is or lies below: a built-in floor of the home directory, a
 /// floor that the daemon added, or a protected name in a write root (`Envelope`).
-fn floor_at_or_above(path: &Path, locations: &Locations) -> Option<PathBuf> {
+pub(crate) fn floor_at_or_above(path: &Path, locations: &Locations) -> Option<PathBuf> {
     let home = locations.home();
     let found = persistence_floors(home)
         .into_iter()

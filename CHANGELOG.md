@@ -468,8 +468,8 @@ into the GitHub release notes, and it stops when the section is missing.
   instead. A bug in the filter itself still reaches your bus rights.
 - An always rule never covers a privilege, persistence, upload, desktop, masked-read or
   synced-folder exit, never runs a command outside the sandbox, never names a floor,
-  efr's own dirs or a secret, never covers a dir above a floor or a path through a
-  link, and never beats a `deny` or `ask` rule or `network.deny`. Only an answer in
+  efr's own dirs or a secret, never covers a dir above a floor, a write in a floor or
+  in a `.git` dir, or a path through a link, and never beats a `deny` or `ask` rule or `network.deny`. Only an answer in
   your own terminal saves a rule; efr never writes one for a phone or the model. Any
   program of yours that can write `config.toml` can still add one.
 

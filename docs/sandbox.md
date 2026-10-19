@@ -1071,6 +1071,9 @@ these holds:
   is a link.
 - No floor, synced dir or project lies at or below a dir that the call would open,
   also a floor that does not exist yet. A grant of one file stays coverable.
+- No grant lies at or below a floor or a `.git` dir, by its path or by its real path.
+  So a rule never covers a write to the hooks or the config of a repository in its
+  dir.
 - No `deny` or `ask` rule of yours (`[[permissions.rules]]`) names a path at or below a
   grant of the call, and `network.deny` still wins.
 
