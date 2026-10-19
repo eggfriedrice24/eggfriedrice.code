@@ -14,6 +14,7 @@ license=('MIT')
 depends=('glibc' 'libgcc' 'zsh')
 optdepends=('bubblewrap: the kernel sandbox of the auto mode (also needs Linux 7.1 or newer)'
             'git: project roots and the git facts of a turn'
+            'xdg-dbus-proxy: read-only system queries in the auto mode'
             'xdg-utils: let efr login openai open the browser with EFR_OPEN_BROWSER=1')
 provides=("${pkgname%-bin}=$pkgver")
 conflicts=("${pkgname%-bin}")
