@@ -247,6 +247,33 @@ fn a_phone_may_read_operate_and_approve_but_never_administer_or_type() {
 }
 
 #[test]
+fn a_declared_phone_below_a_hidden_shell_gets_read_only() {
+    // NOTE: the origin is what the client declares in `hello`, so a process of the
+    // model's commands can say `phone`. The walk decides, never the declared origin.
+    for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+        assert_eq!(granted(Origin::Phone, peer), [ScopeName::Read], "{peer:?}");
+        for method in every_method() {
+            let allowed = authorize(Origin::Phone, peer, &method);
+            match scope(&method) {
+                ScopeName::Read => assert!(allowed.is_ok(), "{}", method.name()),
+                ScopeName::Operate | ScopeName::Approve => assert!(
+                    matches!(&allowed, Err(DaemonError::ModelSidePeer { method: name })
+                        if *name == method.name()),
+                    "{peer:?} {}: {allowed:?}",
+                    method.name()
+                ),
+                _ => assert!(
+                    matches!(&allowed, Err(DaemonError::Forbidden { method: name, .. })
+                        if *name == method.name()),
+                    "{peer:?} {}: {allowed:?}",
+                    method.name()
+                ),
+            }
+        }
+    }
+}
+
+#[test]
 fn a_cursor_round_trips_and_a_foreign_one_is_refused() {
     assert_eq!(parse_cursor(&cursor(Seq::new(42))).unwrap(), Seq::new(42));
     for foreign in ["42", "s:", "s:-1", "c:42", "s:4x"] {

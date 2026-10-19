@@ -868,22 +868,29 @@ open(out + ".tmp", "wb").write(data)
 os.rename(out + ".tmp", out)
 "#;
 
-// NOTE: two workers, so the daemon in this process answers the peer while the test
-// waits for the peer's file.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn escape_model_side_peer_read_scope() {
-    use efr_protocol::framing::{Decoder, encode};
-    use efr_protocol::{ClientFrame, Hello, Origin, PROTOCOL_VERSION, ProjectsList, RequestId};
+/// How the daemon ended each request of a peer: the request's id, and the code and the
+/// message of its error, when it failed.
+type PeerAnswers = Vec<(u64, Option<(ErrorCode, String)>)>;
 
-    let test = "escape_model_side_peer_read_scope";
+/// Leaves a double-forked peer behind from a command of the model in the hidden zsh,
+/// which says `hello` as `origin` and then sends `requests` with the ids 2 and up; how
+/// the daemon ended each one, the `hello` as id 1. `None` when the test skips.
+async fn model_side_peer(
+    test: &str,
+    origin: efr_protocol::Origin,
+    requests: Vec<Method>,
+) -> Option<PeerAnswers> {
+    use efr_protocol::framing::{Decoder, encode};
+    use efr_protocol::{ClientFrame, Hello, PROTOCOL_VERSION, RequestId};
+
     if !zsh_enabled(test) {
-        return;
+        return None;
     }
     if !std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
         .any(|dir| dir.join("python3").is_file())
     {
         skip(test, "python3 is not installed");
-        return;
+        return None;
     }
     let dirs = Arc::new(TestDirs::new().unwrap());
     let work = dirs.create_dir("peer").unwrap();
@@ -891,20 +898,15 @@ async fn escape_model_side_peer_read_scope() {
     std::fs::write(work.join("peer.py"), PEER).unwrap();
     let hello = Hello {
         protocol: PROTOCOL_VERSION,
-        origin: Origin::Shell,
+        origin,
         client: Some("peer".to_owned()),
         capabilities: efr_protocol::Capabilities::default(),
         tty: None,
         pid: None,
         device_id: None,
     };
-    let requests = [
-        Method::Hello(hello),
-        Method::AdminStatus(AdminStatus {}),
-        Method::ProjectsList(ProjectsList {}),
-        Method::AdminSandboxCheck(AdminSandboxCheck {}),
-    ];
-    for (n, method) in requests.into_iter().enumerate() {
+    let requests = std::iter::once(Method::Hello(hello)).chain(requests);
+    for (n, method) in requests.enumerate() {
         let frame = ClientFrame::Request { id: RequestId::new(n as u64 + 1), method };
         std::fs::write(frames.join(format!("{n}")), encode(&frame).unwrap()).unwrap();
     }
@@ -928,23 +930,20 @@ async fn escape_model_side_peer_read_scope() {
     let (_, events) =
         run_turn(&daemon, "leave a peer", Mode::Cautious, ApprovalDecision::Allow).await;
     assert!(kinds(&events).contains(&"tool_call_completed"), "{:?}", kinds(&events));
-    let mut answers = None;
-    for _ in 0..1000 {
-        if let Ok(bytes) = std::fs::read(&out) {
-            answers = Some(bytes);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let answers = answers.expect("the peer wrote what the daemon answered");
+    let answers = Wait::new("the peer's file of the daemon's answers")
+        .limit(Duration::from_secs(30))
+        .until_some(|| std::fs::read(&out).ok())
+        .await
+        .unwrap();
     let mut decoder = Decoder::new();
-    let mut ended: Vec<(u64, Option<ErrorCode>)> = Vec::new();
+    let mut ended: PeerAnswers = Vec::new();
     for payload in decoder.push(&answers).unwrap() {
         match efr_protocol::ServerFrame::from_json(&payload).unwrap() {
             efr_protocol::ServerFrame::End { id } => ended.push((id.get(), None)),
-            efr_protocol::ServerFrame::Error(frame) => {
-                ended.push((frame.id.map_or(0, RequestId::get), Some(frame.error.code)));
-            }
+            efr_protocol::ServerFrame::Error(frame) => ended.push((
+                frame.id.map_or(0, RequestId::get),
+                Some((frame.error.code, frame.error.message)),
+            )),
             efr_protocol::ServerFrame::Item { id, .. } if id.get() == 1 => {
                 ended.push((1, None));
             }
@@ -953,12 +952,67 @@ async fn escape_model_side_peer_read_scope() {
     }
     ended.sort_by_key(|(id, _)| *id);
     ended.dedup_by_key(|(id, _)| *id);
+    daemon.stop().await.unwrap();
+    Some(ended)
+}
+
+/// The error codes of `answers`, by request id.
+fn peer_codes(answers: &PeerAnswers) -> Vec<(u64, Option<ErrorCode>)> {
+    answers.iter().map(|(id, error)| (*id, error.as_ref().map(|(code, _)| *code))).collect()
+}
+
+// NOTE: two workers, so the daemon in this process answers the peer while the test
+// waits for the peer's file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn escape_model_side_peer_read_scope() {
+    use efr_protocol::{Origin, ProjectsList};
+
+    let requests = vec![
+        Method::AdminStatus(AdminStatus {}),
+        Method::ProjectsList(ProjectsList {}),
+        Method::AdminSandboxCheck(AdminSandboxCheck {}),
+    ];
+    let Some(answers) =
+        model_side_peer("escape_model_side_peer_read_scope", Origin::Shell, requests).await
+    else {
+        return;
+    };
     assert_eq!(
-        ended,
+        peer_codes(&answers),
         [(1, None), (2, Some(ErrorCode::Forbidden)), (3, None), (4, Some(ErrorCode::Forbidden)),],
         "a process of the model's command may read, never administer"
     );
-    daemon.stop().await.unwrap();
+}
+
+// NOTE: the origin is what a client declares in `hello`. A process of the model's
+// command that declares `phone` must not get the phone's `approve` scope.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn escape_model_side_peer_declares_phone() {
+    use efr_protocol::{CallId, ConversationId, Origin, ProjectsList};
+
+    let respond = Method::ApprovalRespond(ApprovalRespond {
+        command_id: command_id(9),
+        conversation_id: ConversationId::from_uuid(uuid::Uuid::from_u128(1)),
+        call_id: CallId::from_uuid(uuid::Uuid::from_u128(2)),
+        decision: ApprovalDecision::Allow,
+    });
+    let requests = vec![respond, Method::ProjectsList(ProjectsList {})];
+    let Some(answers) =
+        model_side_peer("escape_model_side_peer_declares_phone", Origin::Phone, requests).await
+    else {
+        return;
+    };
+    assert_eq!(
+        peer_codes(&answers),
+        [(1, None), (2, Some(ErrorCode::Forbidden)), (3, None)],
+        "a process of the model's command that says phone may read, never approve"
+    );
+    let (_, refused) = &answers[1];
+    let message = refused.as_ref().map(|(_, message)| message.as_str()).unwrap_or_default();
+    assert!(
+        message.contains("not open to a process that the model's commands started"),
+        "the refusal is the model-side one: {message}"
+    );
 }
 
 /// Runs git in `dir` without the machine's configuration.

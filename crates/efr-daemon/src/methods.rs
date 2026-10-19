@@ -9,9 +9,12 @@
 //! Scopes: every connection on the Unix socket holds all five, `admin` included,
 //! unless its process descends from a hidden shell or shares a hidden shell's session:
 //! such a model-side peer, or one whose process is gone, holds `read` only (efr's auto
-//! spec, section 13.5; `sandbox/peers.rs`). A phone connection (the tailnet listener of
-//! a later milestone, where every client is `Origin::Phone`) holds `read`, `operate`
-//! and `approve`; `terminal` is off by default there and `admin` is never granted.
+//! spec, section 13.5; `sandbox/peers.rs`). A connection that declares the phone
+//! origin holds `read`, `operate` and `approve`; `terminal` is off by default there and
+//! `admin` is never granted. On the Unix socket efrd walks `/proc` for every origin,
+//! the phone included, so a model-side process that declares `phone` holds `read` only.
+//! A tailnet listener of a later milestone has no local pid: it must grant the phone
+//! scopes by its own pairing, never through this walk.
 //!
 //! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction, an
 //! undo and keys for the hidden shell are input of a person, so each one makes its conversation
@@ -220,9 +223,12 @@ impl Input {
 }
 
 /// The scopes a connection from `surface` holds, whose process stands at `peer`.
+///
+/// A declared phone gets the phone scopes only when its process is the user's own: the
+/// origin is what the client says in `hello`, so a model-side process could declare it.
 pub(crate) fn granted(surface: Origin, peer: PeerSide) -> &'static [ScopeName] {
     match (surface, peer) {
-        (Origin::Phone, _) => PHONE_SCOPES,
+        (Origin::Phone, PeerSide::User) => PHONE_SCOPES,
         (_, PeerSide::User) => &ScopeName::ALL,
         _ => READ_ONLY,
     }
@@ -245,11 +251,9 @@ pub(crate) fn authorize(
 }
 
 /// Where the process of `context`'s peer stands: a look at `/proc` off the async
-/// workers. A phone has no process here; its surface decides.
+/// workers, for every origin. Every connection here comes through the Unix socket,
+/// so a declared phone is a local process too, and it gets the same walk.
 pub(crate) async fn peer_side(state: &State, context: &ConnectionContext) -> PeerSide {
-    if context.surface() == Origin::Phone {
-        return PeerSide::User;
-    }
     let pid = context.pid();
     let shells = model_side_roots(state);
     let own = state.pid;
