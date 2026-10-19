@@ -98,6 +98,46 @@ fn the_turn_project_and_the_named_ones_are_roots_but_never_home() {
     assert!(roots(&planned).is_empty());
 }
 
+/// The caches of `planned` that keep their private layer in the `tmp` mode.
+fn kept(planned: &Planned) -> Vec<PathBuf> {
+    let caches = planned.spec.caches.iter().filter(|cache| cache.keep);
+    caches.map(|cache| cache.target.clone()).collect()
+}
+
+#[test]
+fn keep_downloads_off_is_today() {
+    let fixture = Fixture::new();
+    let mut settings = SandboxSettings::default();
+    settings.keep_downloads = false;
+    let planned = fixture.plan(&settings, &Launch::contained(), None, &[]);
+    assert_eq!(planned.spec.caches.len(), efr_config::DEFAULT_CACHES.len());
+    assert!(kept(&planned).is_empty());
+    assert_eq!(planned.spec.cache_mode, CacheMode::Tmp);
+}
+
+#[test]
+fn keep_downloads_keeps_only_the_download_caches() {
+    let fixture = Fixture::new();
+    let home = &fixture.home;
+    let mut settings = SandboxSettings::default();
+    settings.keep_downloads = true;
+    let planned = fixture.plan(&settings, &Launch::contained(), None, &[]);
+    let downloads: Vec<PathBuf> = efr_config::DOWNLOAD_CACHES
+        .iter()
+        .map(|cache| home.join(cache.trim_start_matches("~/")))
+        .collect();
+    assert_eq!(kept(&planned), downloads);
+    // The layers lie in the conversation's sandbox dir, as in the `overlay` mode.
+    for cache in planned.spec.caches.iter().filter(|cache| cache.keep) {
+        assert!(cache.upper.starts_with(&planned.spec.runtime.sandbox_dir), "{cache:?}");
+    }
+    // A download cache that the user took out of `sandbox.caches` stays out.
+    settings.caches.retain(|cache| cache != Path::new("~/.npm"));
+    let planned = fixture.plan(&settings, &Launch::contained(), None, &[]);
+    assert!(!planned.spec.caches.iter().any(|cache| cache.target == home.join(".npm")));
+    assert_eq!(kept(&planned).len(), downloads.len() - 1);
+}
+
 #[test]
 fn worktree_record_mismatch_drops_git_roots() {
     let fixture = Fixture::new();

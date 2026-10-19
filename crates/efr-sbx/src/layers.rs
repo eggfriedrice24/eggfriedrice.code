@@ -58,7 +58,7 @@ fn run(pid: u32) -> Result<(), SbxError> {
     enter(pid)?;
     let mut uppers = Vec::with_capacity(layers.layers.len());
     for layer in &layers.layers {
-        uppers.push(mount(layer, layers.fresh)?);
+        uppers.push(mount(layer)?);
     }
     rustix::mount::unmount(&layers.staging, UnmountFlags::DETACH)
         .map_err(|error| SbxError::io("unmount", &layers.staging, error.into()))?;
@@ -120,7 +120,7 @@ fn layer_dir(path: &Path) -> Result<OwnedFd, SbxError> {
 }
 
 /// Mounts the overlay of `layer`, and returns the descriptor of its upper dir.
-fn mount(layer: &CacheLayer, fresh: bool) -> Result<OwnedFd, SbxError> {
+fn mount(layer: &CacheLayer) -> Result<OwnedFd, SbxError> {
     let moved = layer
         .moved
         .iter()
@@ -131,7 +131,9 @@ fn mount(layer: &CacheLayer, fresh: bool) -> Result<OwnedFd, SbxError> {
                 .map_err(|error| SbxError::io("open the mount at", path, error.into()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if fresh {
+    // NOTE: per layer: in the `tmp` mode a kept cache (`sandbox.keep_downloads`) finds
+    // its dirs in the bind of its layer dir, and the other caches make theirs.
+    if layer.fresh {
         for dir in [&layer.dir, &layer.upper, &layer.work] {
             std::fs::DirBuilder::new()
                 .mode(0o700)

@@ -134,7 +134,10 @@ impl MountPlan {
             // The staging dir lies in the launcher's dir in the masked runtime dir, which
             // bwrap made before; the helper unmounts it once the overlays are in place.
             push(&[&"--perms", &"0700", &"--tmpfs", &layers.staging]);
-            for (source, layer) in self.layer_sources.iter().zip(&layers.layers) {
+            // NOTE: one source per layer that keeps its private layer, in the plan's
+            // order; a fresh layer's dirs lie in the staging tmpfs.
+            let kept = layers.layers.iter().filter(|layer| !layer.fresh);
+            for (source, layer) in self.layer_sources.iter().zip(kept) {
                 let fd = fds.open(source)?.to_string();
                 push(&[&"--bind-fd", &fd, &layer.dir]);
             }

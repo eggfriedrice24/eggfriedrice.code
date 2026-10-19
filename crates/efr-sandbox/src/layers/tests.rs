@@ -27,13 +27,13 @@ fn only_the_outermost_mounts_inside_the_cache_move() {
 fn layers_round_trip_and_refuse_a_large_plan() {
     let layers = CacheLayers {
         staging: "/run/user/1000/efr-sbx/layers".into(),
-        fresh: true,
         layers: vec![CacheLayer {
             target: "/home/u/.cargo".into(),
             dir: "/run/user/1000/efr-sbx/layers/0".into(),
             upper: "/run/user/1000/efr-sbx/layers/0/upper".into(),
             work: "/run/user/1000/efr-sbx/layers/0/work".into(),
             moved: vec!["/home/u/.cargo/bin".into()],
+            fresh: true,
         }],
     };
     let bytes = layers.to_json().unwrap();

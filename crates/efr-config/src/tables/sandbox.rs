@@ -19,6 +19,11 @@ pub const DEFAULT_CACHES: &[&str] = &[
     "~/.gradle/caches",
 ];
 
+/// The caches of [`DEFAULT_CACHES`] that get downloads: with `sandbox.keep_downloads`
+/// in the `tmp` cache mode they keep their private layer for the conversation.
+pub const DOWNLOAD_CACHES: &[&str] =
+    &["~/.cargo", "~/go/pkg/mod", "~/.npm", "~/.bun/install/cache", "~/.local/share/pnpm/store"];
+
 /// The names masked inside write roots; a leading `!` keeps a name readable.
 pub const DEFAULT_MASK_GLOBS: &[&str] =
     &[".env", ".env.*", "!.env.example", "!.env.sample", "!.env.template"];
@@ -143,6 +148,13 @@ pub struct SandboxSettings {
     /// How the caches are mounted: `overlay` (a private upper layer per conversation),
     /// `tmp` (writes vanish after each call) or `readonly`.
     pub cache_mode: CacheMode,
+    /// In the `tmp` cache mode, the download caches (`~/.cargo`, `~/go/pkg/mod`,
+    /// `~/.npm`, the bun and pnpm stores) keep what a call downloads for the rest of
+    /// the conversation, in efr's private layer, as the `overlay` mode does. The other
+    /// caches stay `tmp`.
+    // NOTE: not a loosening key, as `cache_mode` is not one: it keeps the same private
+    // layer that the `overlay` mode keeps, and opens nothing of the host.
+    pub keep_downloads: bool,
     /// Days without a call after which a conversation's cache layers are deleted, from 1
     /// to 3650.
     pub cache_days: u32,
@@ -200,6 +212,7 @@ impl Default for SandboxSettings {
             // the reference machine (p95 above 10 ms). The EBUSY setup failures of that
             // gate are gone since efr-sbx mounts the overlays with index=off.
             cache_mode: CacheMode::Tmp,
+            keep_downloads: false,
             cache_days: 14,
             cache_max_gib: 20,
             mask: Vec::new(),

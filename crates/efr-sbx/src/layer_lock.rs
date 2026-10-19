@@ -1,4 +1,5 @@
-//! The lock of a conversation's cache layers in the `overlay` mode.
+//! The lock of a conversation's cache layers: every layer in the `overlay` mode, the
+//! kept caches (`sandbox.keep_downloads`) in the `tmp` mode.
 //!
 //! The layer helper mounts each overlay with `index=off`, and without the index the
 //! kernel no longer refuses a second overlay on an upper dir that one already uses.

@@ -814,6 +814,19 @@ fn loosens_classifier_enabled() {
 }
 
 #[test]
+fn keep_downloads_does_not_loosen() {
+    // It keeps the private layer that the `overlay` mode keeps, and opens nothing of
+    // the host, as `cache_mode` does not loosen.
+    let mut off = Settings::default();
+    off.sandbox.keep_downloads = false;
+    let mut on = Settings::default();
+    on.sandbox.keep_downloads = true;
+    assert!(!super::loosens(&off, &on), "false to true does not loosen");
+    assert!(!super::sandbox_loosens(&off.sandbox, &on.sandbox));
+    assert!(!super::loosens(&on, &off), "true to false does not loosen");
+}
+
+#[test]
 fn loosens_ask_destructive_unless_undoable() {
     use efr_config::AskDestructive;
 

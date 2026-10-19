@@ -190,6 +190,11 @@ pub struct CacheOverlay {
     pub work: PathBuf,
     /// Paths inside the cache that stay read-only, such as `~/.cargo/bin`.
     pub pins: Vec<PathBuf>,
+    /// In the `tmp` mode, keep the private layer of `upper` and `work` across the
+    /// conversation's calls, as the `overlay` mode does (`sandbox.keep_downloads`). The
+    /// other modes ignore it.
+    #[serde(default)]
+    pub keep: bool,
 }
 
 impl CacheOverlay {
@@ -210,6 +215,18 @@ impl CacheOverlay {
             upper: layer.join("upper"),
             work: layer.join("work"),
             pins: pins.iter().map(|pin| target.join(pin)).collect(),
+            keep: false,
+        }
+    }
+
+    /// True when the cache mounts on its private layer of `upper` and `work` in the
+    /// mode `mode`: always in the `overlay` mode, in the `tmp` mode only when
+    /// [`keep`](Self::keep) is set, never in the `readonly` mode.
+    pub fn keeps_layer(&self, mode: CacheMode) -> bool {
+        match mode {
+            CacheMode::Overlay => true,
+            CacheMode::Tmp => self.keep,
+            _ => false,
         }
     }
 }

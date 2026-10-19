@@ -217,12 +217,23 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         Some(_) => runtime.job_state_dir(input.call),
         None => runtime.sandbox_dir.clone(),
     };
+    // NOTE: `sandbox.keep_downloads` keeps the private layer of the download caches in
+    // the `tmp` mode; the launcher ignores `keep` in the other modes.
+    let kept: Vec<PathBuf> = if settings.keep_downloads {
+        let downloads = efr_config::DOWNLOAD_CACHES.iter();
+        downloads.map(|cache| expand_home(Path::new(cache), home)).collect()
+    } else {
+        Vec::new()
+    };
     let caches = settings
         .caches
         .iter()
         .map(|cache| expand_home(cache, home))
         .filter(|cache| cache.is_absolute())
-        .map(|cache| CacheOverlay::new(&cache, &layer_root, home))
+        .map(|cache| CacheOverlay {
+            keep: kept.contains(&cache),
+            ..CacheOverlay::new(&cache, &layer_root, home)
+        })
         .collect();
 
     let masks = masks(input, &projects);

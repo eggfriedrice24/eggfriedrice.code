@@ -97,6 +97,7 @@ fn a_full_cache_delete_list_fits_in_the_result() {
         upper: "/l/0/upper".into(),
         work: "/l/0/work".into(),
         moved: Vec::new(),
+        fresh: true,
     };
     let mut deletes = CacheDeletes::new(DeleteLimits::default());
     deletes.walk(&layer, &[], &Whiteouts(names), &lower);

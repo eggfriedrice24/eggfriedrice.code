@@ -52,7 +52,10 @@ Modules:
   this crate only reads and checks them. `ask_destructive` (`AskDestructive`:
   `always` or `unless_undoable`, the default) says whether a line that deletes or
   overwrites files in `auto` asks first when efr's snapshot holds its files (phase B).
-  The proxy and bus keys come with their phases.
+  `keep_downloads` (phase D2) keeps the private layer of the caches of
+  `DOWNLOAD_CACHES` for the conversation in the `tmp` cache mode; it is not a loosening
+  key, because it keeps the same private layer that the `overlay` mode keeps and opens
+  nothing of the host. The proxy and bus keys come with their phases.
 - `tables/network`: `[network]` (`NetworkSettings`): `netview` (default `true`, a
   live key), whether `ss`, the read forms of `ip`, `nstat` and reads of `/proc/net`
   run in the sandbox with the host's network view and no network socket (phase D1).

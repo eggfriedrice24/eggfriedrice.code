@@ -197,6 +197,11 @@
 # failed the launch gate of phase 1 (slow setups).
 # cache_mode = "tmp"
 
+# In the tmp cache mode, the download caches (~/.cargo, ~/go/pkg/mod, ~/.npm, the bun
+# and pnpm stores) keep what a call downloads for the rest of the conversation, in
+# efr's private layer. Your own caches do not change.
+# keep_downloads = false
+
 # Days without a call after which a conversation's cache layers are deleted, from 1
 # to 3650.
 # cache_days = 14
