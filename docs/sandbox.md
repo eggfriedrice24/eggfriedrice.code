@@ -25,6 +25,13 @@ decision.
   bus for `systemctl`, and `outside` only when nothing narrower fits.
 - Reads work as they do for you, except for secrets. So `journalctl` shows in the
   sandbox the journal that you can read, with no grant.
+- With `dbus.proxy = true`, read-only system queries, such as `hostnamectl`,
+  `systemctl --failed` and `loginctl list-sessions`, run in the sandbox with no
+  question. They reach the system
+  or the session bus only through efr's bus filter, which lets through only read
+  methods (see "The bus filter").
+- An `a` (always) answer at some exit questions saves a rule, so the same exit asks
+  nothing again (see "Always-allow rules").
 - `read_file`, `write_file`, `edit` and `apply_patch` run in efrd, not in the sandbox.
   In `auto` they follow the rules of `cautious`, plus exits: a read of a sandbox mask,
   a write outside the project and `$SCRATCH`, and a write to a floor path are exits,
@@ -44,7 +51,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 | Writes | only in the write roots (below). Everything else is read-only. |
 | Secrets | the paths of the read masks read as empty. Secret-like environment variables are removed. |
 | Network | with `network.mode = "proxy"`, only the hosts of your allow list, through efr's network proxy: the package registries and GitHub by default (see "The network proxy"). With `network.mode = "none"`, none. Loopback works in both modes, so a test can start a server and talk to it. A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
-| Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. An approved exit opens one socket for one call (see "Desktop sockets"). |
+| Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. A read-only system query gets a filtered bus (see "The bus filter"). An approved exit opens one socket for one call (see "Desktop sockets"); a socket grant never opens a bus, a service manager's socket or a desktop socket, also through a link. |
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
 | Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. |
@@ -325,9 +332,9 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
 | `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5173`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer, else you |
 | `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
-| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs |
+| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
-| `bus` | `hostnamectl`, `systemctl --failed`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off` | the sandbox, with the bus socket | the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the system bus has no filter yet |
+| `bus` | `notify-send`, `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `hostnamectl` and `systemctl --failed` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
@@ -343,7 +350,8 @@ across calls. An exit that runs outside the sandbox does not see them.
 "Else you" means that the reviewer handed the question to you, or that it is off
 (`classifier.enabled = false`), paused, or failed at each step of its chain.
 
-A grant lives for one call. The next call asks again.
+A grant lives for one call. The next call asks again, unless an always rule covers it
+(see "Always-allow rules").
 
 **Desktop sockets.** A `desktop_ipc` exit opens the one control socket of the desktop
 that its program talks to, and sets the one variable that names it:
@@ -572,7 +580,7 @@ netlink. They are `bus` exits: the reviewer decides a read form, such as
 `nmcli device status`, `nmcli general status` or `iwctl station wlan0 show`, and only
 you allow every other form, such as `nmcli radio wifi off` or
 `iwctl station wlan0 connect X`. A background job with `nmcli` or `iwctl` is refused,
-as every job that needs the bus is.
+as every job that needs the whole bus is.
 
 ### The host's mounts
 
@@ -859,6 +867,238 @@ the check fails, contained commands have no network, and `efr status` says so.
 - Tools that send an Encrypted Client Hello, also as a decoy, such as headless Chrome,
   Electron and Playwright, cannot fetch through the proxy.
 
+## The bus filter
+
+Read-only system queries run in the sandbox with no question. Examples:
+`hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
+`systemctl status nginx.service`, `systemctl --user --failed` and
+`loginctl list-sessions`. Such a command reaches the system or the session bus only
+through efr's bus filter, `xdg-dbus-proxy`, which lets through only a fixed list of
+read methods. The filter runs while `dbus.proxy` is `true`.
+[`docs/adr/0013-bus-proxy-and-always-allow.md`](adr/0013-bus-proxy-and-always-allow.md)
+records the decision.
+
+### Which lines get the filter
+
+A line gets the filtered bus when at least one of its simple commands is one of these
+read forms, with no option that names another host, machine, root or image (`-H`,
+`--host`, `-M`, `--machine`, `--root`, `--image`, `--image-policy`):
+
+| Program | Read forms |
+|---|---|
+| `systemctl`, `systemctl --user` | no verb, `status`, `list-units`, `list-unit-files`, `list-sockets`, `list-timers`, `list-jobs`, `list-dependencies`, `is-active`, `is-failed`, `is-enabled`, `show`, `cat`, and `--failed` |
+| `loginctl` | no verb, `list-sessions`, `list-users`, `list-seats`, `show-session`, `show-user`, `show-seat`, `session-status`, `user-status`, `seat-status` |
+| `hostnamectl`, `timedatectl`, `localectl` | no verb, `status`, `show`; also `timedatectl timesync-status` and `show-timesync` |
+
+The rule picks the lines that fit. It is not a security layer: in
+`systemctl --failed; ./x.sh`, the script gets the same filtered bus. The filter, not
+the rule, decides what a call can do on the bus. A `systemctl` form gets the system
+bus, a `systemctl --user` form the session bus. Every other bus form keeps its `bus`
+exit (see "Exits"), such as `systemctl get-default`, `notify-send`, `busctl`,
+`resolvectl`, `coredumpctl`, `nmcli` and `iwctl`. A `systemctl` that changes
+something, such as `systemctl restart nginx`, stays a `privilege` exit, and
+`systemctl --user enable` a `persistence` exit.
+
+### What the filter lets through
+
+The built-in rules name each method by its full name and its path. These are the read
+calls that efr recorded for the tools above:
+
+| Bus | Service | Methods |
+|---|---|---|
+| system | `org.freedesktop.hostname1` | `Properties.Get` and `GetAll` at `/org/freedesktop/hostname1` |
+| system | `org.freedesktop.systemd1` | `Properties.Get` and `GetAll`, and `Manager.ListUnits`, `ListUnitsByPatterns`, `ListUnitFiles`, `ListUnitFilesByPatterns`, `GetUnitFileState`, `GetUnit`, `GetUnitByPIDFD` and `ListJobs` at `/org/freedesktop/systemd1`; `Properties.Get` and `GetAll` at each unit |
+| system | `org.freedesktop.login1` | `Manager.ListSessionsEx`, `ListUsers`, `ListSeats`, `GetSession`, `GetUser` and `GetSeat`; `Properties.Get` and `GetAll` below `/org/freedesktop/login1/` |
+| system | `org.freedesktop.timedate1`, `locale1`, `timesync1` | `Properties.Get` and `GetAll` at the service's own path |
+| session | `org.freedesktop.systemd1` | the same `Manager` methods, and `Properties.Get` and `GetAll` at each unit; no property of the manager itself, so its `Environment` stays hidden |
+
+Every other method, name and path fails with `Access denied` (or `ServiceUnknown` for a
+name that the filter hides), and the service never gets the call. So
+`systemctl --user status` with no unit and `systemctl --user show-environment` fail.
+`systemctl status <unit>` works without the process tree: `GetUnitProcesses` is not
+in the list, because it shows the command lines of the processes of your machine,
+which the sandbox hides. You can add it (see `[[dbus.allow]]` below).
+
+`systemctl --user` reaches the session filter through a function of the sandbox's
+shell. Before it runs `systemctl`, the function unsets `XDG_RUNTIME_DIR`, because
+systemd otherwise looks only for the user manager's private socket. A script that runs
+`systemctl --user` itself does not get the function, and fails.
+
+### A call that the filter refuses
+
+The command fails at that call, as it would with `Access denied` from the real bus.
+The model reads one note with the refused call as data, such as `[efr: the bus filter
+refused a call: bus=system name=org.freedesktop.systemd1
+member=org.freedesktop.systemd1.Manager.StartUnit path=/org/freedesktop/systemd1. For
+the whole bus for one command, call shell again with needs.bus.]`. While you follow the
+turn, the view shows `bus: refused system org.freedesktop.systemd1
+Manager.StartUnit`. The record of the call and the end of a job keep the refused
+calls, at most 16 of them with a count.
+
+When the model then asks for `needs.bus`, that is a `bus` exit for the whole bus, for
+one call, and the reviewer or you decide. The next filtered call is filtered again.
+
+### `[[dbus.allow]]`
+
+`[[dbus.allow]]` adds methods to the built-in rules. It never replaces them. Only an
+editor changes it; the settings tool and the `a` answer cannot.
+
+```toml
+[[dbus.allow]]
+bus = "system"
+name = "org.freedesktop.systemd1"
+call = ["org.freedesktop.systemd1.Manager.GetDefaultTarget@/org/freedesktop/systemd1"]
+```
+
+Each `call` entry is `IFACE.MEMBER` or `IFACE.MEMBER@PATH`, and a PATH may end in
+`/*`. efrd refuses an entry at start and at a reload, with its index, when it holds
+`*`, `IFACE.*`, a path-only rule or an empty `call` list, when its name is not a
+well-known bus name, a unique name (`:1.42`) or the bus driver, when a call is
+`org.freedesktop.DBus.Properties.Set`, or when the name is a protected service:
+secrets, a portal, polkit, Flatpak, kwallet or dconf. `efr config check` shows the
+same errors.
+
+Two more checks keep an entry to reads where efr can tell:
+
+- For `org.freedesktop.systemd1`, `login1`, `hostname1`, `timedate1`, `locale1` and
+  `timesync1`, an entry may add only `Properties.Get`, `Properties.GetAll`, or a
+  member whose name starts with the word `Get`, `List`, `Can` or `Lookup`, on every
+  interface.
+- For every other service, efr refuses a member that starts with a word that changes
+  the machine, such as `Set`, `Start`, `Stop`, `Restart`, `Kill`, `Enable`, `Mask`,
+  `Reboot`, `PowerOff`, `Suspend`, `Lock`, `Inhibit`, `Mount`, `Create` or `Activate`,
+  with or without capitals. This list is a floor, not a full guard: for these services
+  efr cannot tell a read from a write. You own each method that you add.
+
+An added method does not make a new read form: `systemctl get-default` still has its
+`bus` exit. The method helps a script on a line that already has the filter.
+
+### How the filter runs
+
+- efrd starts one `xdg-dbus-proxy` for each filtered bus of a call, before the call
+  starts, and ends it after the call. A call needs at most two, and most calls need
+  none. A start takes about 1.5 ms. A background job keeps its filters for its whole
+  life, with the rules of its start: a reload that removes a `[[dbus.allow]]` entry or
+  sets `dbus.proxy = false` reaches only new calls and new jobs.
+- The proxy runs under `efr-sbx dbus-proxy`, with its own Landlock domain, a seccomp
+  filter and an fd limit: it reads only its program and its libraries, connects only
+  to the two real buses, makes its sockets only in the call's `bus/` dir, and has no
+  TCP. The call sees its socket at `/run/dbus/system_bus_socket` (over an empty
+  `/run/dbus`) or at `$XDG_RUNTIME_DIR/bus`, with `DBUS_SYSTEM_BUS_ADDRESS` or
+  `DBUS_SESSION_BUS_ADDRESS` set.
+- A proxy that cannot start fails the call with a setup error. The call never gets the
+  whole bus instead. A proxy that stops during a call gives the note `the bus filter
+  stopped during the command`.
+- On a machine with no session bus, a session read form runs with no bus, and the
+  model reads `[efr: no session bus on this machine; the bus filter did not run.]`.
+- efrd uses `xdg-dbus-proxy` only when root owns it and its directory, as for every
+  program that efrd runs outside the sandbox. The Arch packages name it as an optional
+  dependency.
+
+### What the filter cannot do
+
+- It checks no arguments. `Properties.Get` and `GetAll` on an allowed path read every
+  property there. The properties of a session unit can show the environment of a
+  transient unit, such as one that `systemd-run --user -E` started, which the sandbox
+  hides.
+- A client can send broadcast signals with no rule. The sender is the client's own
+  unique name, so it cannot pose as a well-known name.
+- The bus and polkit see the proxy, which runs in efrd's session, not your seat
+  session. The built-in rules hold no method that polkit guards; `hostnamectl` asks for
+  two such methods (the product UUID and the serial), and the filter refuses them, as
+  the real bus does.
+- A rule gives its name the right to be started by the bus. So the bus can start a
+  listed service by activation. `~/.local/share/dbus-1` is a floor, so a sandboxed
+  command cannot plant a service file there.
+- The proxy itself runs outside the sandbox with an unfiltered connection to the real
+  bus for each client. A memory bug in its parser reaches your full rights on that
+  bus. The wrapper limits files, network and system calls, not what the proxy sends on
+  the bus.
+
+## Always-allow rules
+
+At an exit question that offers it, `a` saves a standing answer. The card shows the
+key with the rule in words, such as `a always: write under ~/notes`. `a` does not
+answer at once: efr shows `save rule "write under ~/notes"? y/n`, and only `y` saves
+the rule and runs the call. Any other key goes back to the question. A key that you
+typed before the confirm line showed never answers it.
+
+The rule goes to `[[sandbox.allow]]` at the end of `config.toml`, and efr keeps every
+comment and blank line of the file. Then the call runs as with a "yes", and the view
+shows `saved as sandbox.allow[2]: write under ~/notes`. When efr cannot save the rule
+(the file is read-only, it changed three times while efr wrote it, or the rule fails a
+floor check), the call still runs once, and the view shows `rule not saved: <reason>;
+the command ran once`.
+
+A later call that the rules cover runs with no question and no review, with the same
+widening that a "yes" gives. The view shows a dim line, such as `allowed by your rule
+sandbox.allow[2]: write under ~/notes`, and `efr history` shows `judge: always`. This
+works also while you are away, in background jobs and in turns that a job notice
+started: a rule is your standing answer and reads no message.
+
+```toml
+[[sandbox.allow]]
+kind = "host"
+host = "example.com"
+port = 443
+
+[[sandbox.allow]]
+kind = "write"
+under = "~/notes"
+project = "~/p/app"
+
+[[sandbox.allow]]
+kind = "socket"
+path = "~/.mpd/socket"
+```
+
+| Kind | Covers | Refused or disabled |
+|---|---|---|
+| `host` | a `host` exit whose grants are each that one host and port through the proxy (`port` is 443 when you leave it out) | a `*.suffix`, an IP address, `localhost`, a host of `network.deny`, a bad host name. A host rule never covers the whole network, so with `network.mode = "none"` it does nothing |
+| `write` | a contained `write` exit whose binds all lie at or below `under`; with `project`, only in turns of that project | `under` outside your home dir, at or above `~` or a write root; at or below a floor, a mask, a secret, efr's own dirs, `projects.toml`, a synced dir or a `.git` dir; a dir that holds a built-in floor of your home, such as `~/.config`; a dir that holds more than one project; a link on the way |
+| `socket` | a `socket` exit for that one socket, which is not a link | a service manager's socket, `docker.sock`, `podman.sock` and `containerd.sock`, a credential agent, a desktop socket, a bus socket, `$XDG_RUNTIME_DIR/systemd/*`, a path below a read mask, a path in efr's dirs or in a write root |
+
+A rule covers a call only when it covers every exit of the call, and only when each of
+these holds:
+
+- The exit is one that the reviewer may judge. So a rule never covers a privilege,
+  persistence, upload, desktop, masked-read, synced-folder, bus or device exit, a delete
+  in a cache, `outside`, or a file tool such as `write_file`.
+- The call runs in the sandbox, and each grant is narrow: one host and port, a
+  contained write bind, one socket.
+- Each path matches by its real path, after every link, as efrd finds it before the
+  call. A path that efrd could not resolve is not covered, and neither is a socket that
+  is a link.
+- No floor, synced dir or project lies at or below a dir that the call would open,
+  also a floor that does not exist yet. A grant of one file stays coverable.
+- No `deny` or `ask` rule of yours (`[[permissions.rules]]`) names a path at or below a
+  grant of the call, and `network.deny` still wins.
+
+The order of the decision is: the floors, your `deny` and `ask` rules, the always
+rules, the reviewer, you. The surface guard still checks the git dirs below a dir that
+a rule opened, so a planted hook goes to the quarantine.
+
+Only a terminal on your machine saves a rule. A phone gets `forbidden` for `a`, and
+the question stays open. efr never writes a rule for the model, and the settings tool
+cannot write `sandbox.allow`. Any program of yours that can write `config.toml` can
+still add a rule: efrd reloads the file when it changes.
+
+efrd checks each rule when it loads the file. A rule of a bad shape, such as
+`under = 5`, stops efrd at start and makes a reload fail. A rule that fails a floor
+check stays in the file but is disabled: efrd logs one warning, `efr status` shows
+`sandbox.allow[1] is disabled: <reason>`, and the rule covers no call. Such a rule can
+turn bad with no edit, for example when you register a new project below it.
+`efr config check` checks only the shape.
+
+`efr sandbox allow` lists the rules with their index, and `disabled: <reason>` for a
+disabled one. `efr sandbox allow remove N` shows rule N in words, asks
+`remove sandbox.allow[N]: <rule>? y/n`, and removes it only when entry N still holds
+that rule. Then efrd reloads the file.
+
+`[[sandbox.allow]]` covers shell commands in `auto`. `[[permissions.rules]]` with
+`write allow` still covers `write_file` and `edit`; see
+[`docs/permissions.md`](permissions.md), "Your rules".
+
 ## Background jobs
 
 A background job is a command that runs on after its call and after its turn, such as
@@ -891,7 +1131,9 @@ A job can start in every mode.
   decides it. An approved job runs in the exit child with your rights.
 - In every mode, efr refuses a job whose line asks for one of these kinds: `sudo` and
   other ways to more rights, a read of a masked file, a change of a file that runs code later (also one
-  that you name), a desktop command that types or starts programs, the D-Bus bus, and
+  that you name), a desktop command that types or starts programs, the whole D-Bus
+  bus (a read-only query such as `systemctl --failed` runs with its own filtered bus
+  for the whole job instead), and
   a socket of a container engine or a service manager (`docker.sock`,
   `podman.sock`, `systemd/private`). The model gets `this cannot run as a job; run that
   part in the foreground, and the rest as a job`. Your yes does not change this: a job
@@ -1131,6 +1373,22 @@ logs one warning, and the first contained command after each start of efrd gets 
 note `efr's network proxy is off: its self-test failed; run efr status`. `efr status`
 then shows `network none (proxy self-test failed)`.
 
+While `dbus.proxy` is `true`, efrd also checks the bus filter at start and after each
+probe: `xdg-dbus-proxy --version` must say 0.1.5 or newer, and one filter with the
+built-in rules must start under the wrapper, write its ready byte and end cleanly. A
+failure here is a warning too: the filter is off, and the read-only queries of "The bus
+filter" go to the reviewer as `bus` exits, which is stricter, never looser. `efr
+status` shows `bus filter on`, or `bus filter off` with the reason.
+
+These warnings show in `efr status` and in efrd's log; `auto` still runs:
+
+| Warning | Meaning | Fix |
+|---|---|---|
+| `efr's bus filter is off: xdg-dbus-proxy is not installed; ...` | `dbus.proxy` is `true`, but efrd found no `xdg-dbus-proxy` that root owns | Arch: `pacman -S xdg-dbus-proxy`; Debian and Ubuntu: `apt install xdg-dbus-proxy` |
+| `efr's bus filter is off: the installed xdg-dbus-proxy is older than the oldest version that efr tested; ...` | the program is older than 0.1.5 | update the package |
+| `efr's bus filter is off: its self-test failed; ...` | the filter did not start or did not end cleanly | run `efr sandbox check`; efrd's log has the error |
+| `sandbox.allow[1] is disabled: <reason>` | an always rule crosses a floor (see "Always-allow rules") | change or remove the rule: `efr sandbox allow remove 1` |
+
 | Failure | Reason | Fix |
 |---|---|---|
 | no bubblewrap | `bubblewrap is not installed` | Arch: `pacman -S bubblewrap`; Debian and Ubuntu: `apt install bubblewrap`; Fedora: `dnf install bubblewrap` |
@@ -1191,7 +1449,14 @@ of the network view failed; `auto` still works. `netview off (network.netview = 
 means that you turned the view off. `network proxy` means that contained commands
 reach the network through efr's proxy; `network none` that they have no network
 (`network.mode = "none"`), and `network none (proxy self-test failed)` that the proxy
-is off because its self-test failed.
+is off because its self-test failed. `bus filter on` means that read-only system
+queries run through the bus filter; `bus filter off` names the reason, such as
+`dbus.proxy is false` or a failed self-test.
+
+`efr sandbox allow` lists the always rules of `config.toml` with their index, and
+`disabled: <reason>` for a rule that crosses a floor. `efr sandbox allow remove N`
+shows rule N, asks `remove sandbox.allow[N]: <rule>? y/n`, removes it and reloads the
+config (see "Always-allow rules").
 
 `efr sandbox explain PATH` tells what a contained command can do with one path, from
 the current directory:
@@ -1321,6 +1586,14 @@ marks each change that opens more as "loosens permissions": `netview` from `fals
 `[[network.hosts]]` entry, and a higher `max_upload_bytes`. Only an editor changes
 `[[network.hosts]]`.
 
+`[dbus]` holds `proxy` (default `false`), which turns the bus filter on, and
+`[[dbus.allow]]`, more bus methods for the filter (see "The bus filter").
+`[[sandbox.allow]]` holds the always rules (see "Always-allow rules"). Each applies from
+the next call, with no restart; a running job keeps the bus rules of its start. The
+settings tool marks `dbus.proxy` from `false` to `true` as "loosens permissions", and
+it cannot write `dbus.allow` or `sandbox.allow`: only an editor, the `a` answer and
+`efr sandbox allow remove` change those.
+
 ## Known limits
 
 | Limit | What can happen | What efr does |
@@ -1334,7 +1607,13 @@ marks each change that opens more as "loosens permissions": `netview` from `fals
 | the private `/tmp` | wrong paths for you or the model | the prompt text says so; share files through `$SCRATCH` |
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |
-| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so; with the proxy, a host that the line shows gets a grant of that one host |
+| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so; with the proxy, a host that the line shows gets a grant of that one host; a read-only system query gets the bus filter instead |
+| the bus filter checks no arguments | `Properties.Get` on an allowed path reads every property there, also the environment of a transient user unit | exact paths; no property of the user manager itself |
+| the bus filter runs outside the sandbox with your rights on the bus | a memory bug in `xdg-dbus-proxy` reaches your full bus rights, on the session bus also `StartTransientUnit` | the distribution's program, owned by root; its own Landlock domain, seccomp filter and fd limit; one filter per call that ends with it |
+| a script that runs `systemctl --user` itself | it fails, because systemd looks only for its private socket | run `systemctl --user` on the line, where the sandbox's shell gives it the session bus |
+| a running job keeps the bus rules of its start | a removed `[[dbus.allow]]` entry or `dbus.proxy = false` does not reach it | `efr jobs stop` ends it |
+| an always rule stays open for every later call | a message or a file that steers the model can use a host or a write dir that a rule opened | narrow kinds; the floors; the confirm step; `efr sandbox allow remove N` |
+| a one-time "yes" for a write to a dir above a floor that does not exist yet, such as `~/.config` with no `~/.config/autostart` | the call can make that floor | always rules never cover such a dir; the reviewer sees the dir |
 | `tty` and `$$` show the sandbox's view | confusing output for system work | the prompt text says so; `df`, `findmnt`, `ss` and `ip` show your machine through the views |
 | a call with the network view runs in your network namespace and can run any code | a gap in the seccomp profile would let it send from your machine | only Unix and netlink sockets, and only two netlink protocols; `listen` and `pidfd_getfd` refused; Landlock refuses TCP; the probe checks each refusal at every start; the view only beside `write` and `unmask` grants |
 | a host program can send a datagram to an abstract socket name that a network view call binds, also with a socket in it (`SCM_RIGHTS`) | the call could receive a connected socket from a host program and send through it | it needs a host program that sends to that name on purpose; `listen` fails, so no stream service; a job ends at its time limit |
