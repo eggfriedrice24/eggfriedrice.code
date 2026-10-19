@@ -627,7 +627,10 @@ async fn shell_dev_server_job_is_reachable_on_host_loopback() {
     }
     let dirs = target_dirs();
     let port = free_port();
-    write(&dirs.home().join("project/index.html"), "dev server\n");
+    // NOTE: the port is free only when the test looks; a marker of this test's own
+    // tells its job's server from another process that took the port since.
+    let marker = format!("dev server {}", dirs.root().display());
+    write(&dirs.home().join("project/index.html"), &format!("{marker}\n"));
     let line = format!("python3 -m http.server --bind 127.0.0.1 {port}");
     let job = json!({
         "command": line,
@@ -662,7 +665,7 @@ async fn shell_dev_server_job_is_reachable_on_host_loopback() {
     let mut answer = String::new();
     stream.read_to_string(&mut answer).unwrap();
     assert!(answer.starts_with("HTTP/1.0 200"), "{answer}");
-    assert!(answer.contains("dev server"), "{answer}");
+    assert!(answer.contains(&marker), "the job's own server: {answer}");
     let (_, events) =
         turn(&daemon, 2, "stop the dev server", Mode::Auto, ApprovalDecision::Deny).await;
     assert!(
