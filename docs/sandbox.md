@@ -1389,7 +1389,7 @@ These warnings show in `efr sandbox check` and in efrd's log; `auto` still runs:
 
 | Warning | Meaning | Fix |
 |---|---|---|
-| `efr's bus filter is off: xdg-dbus-proxy is not installed; ...` | `dbus.proxy` is `true`, but efrd found no `xdg-dbus-proxy` that root owns | Arch: `pacman -S xdg-dbus-proxy`; Debian and Ubuntu: `apt install xdg-dbus-proxy` |
+| `efr's bus filter is off: xdg-dbus-proxy is not installed; ...` | you set `dbus.proxy = true` in `config.toml`, but efrd found no `xdg-dbus-proxy` that root owns. With the default value, efr shows no warning, and `efr status` shows `bus filter off (xdg-dbus-proxy is not installed)` | Arch: `pacman -S xdg-dbus-proxy`; Debian and Ubuntu: `apt install xdg-dbus-proxy` |
 | `efr's bus filter is off: the installed xdg-dbus-proxy is older than the oldest version that efr tested; ...` | the program is older than 0.1.5 | update the package |
 | `efr's bus filter is off: its self-test failed; ...` | the filter did not start or did not end cleanly | run `efr sandbox check`; efrd's log has the error |
 | `sandbox.allow[1] is disabled: <reason>` | an always rule crosses a floor (see "Always-allow rules") | change or remove the rule: `efr sandbox allow remove 1` |

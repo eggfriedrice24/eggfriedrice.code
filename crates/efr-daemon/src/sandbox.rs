@@ -342,7 +342,9 @@ impl SandboxService {
             (true, true) => (true, None),
             (true, false) => (false, current.bus_proxy_off.or(Some(BusProxyOff::SelfTest))),
         };
-        if let Some(off) = bus_proxy_off.filter(|_| settings.dbus.proxy) {
+        if let Some(off) =
+            bus_proxy_off.filter(|off| settings.dbus.proxy && bus::warns(settings, *off))
+        {
             warnings.push(bus::off_warning(off));
         }
         SandboxStatus {
@@ -711,9 +713,15 @@ impl SandboxService {
         }
         let bus = &self.inner.bus;
         if !bus.has_program() {
-            tracing::warn!(
-                "dbus.proxy is true, but xdg-dbus-proxy is not installed as a trusted program; the bus filter is off"
-            );
+            if bus::warns(settings, BusProxyOff::NoProgram) {
+                tracing::warn!(
+                    "dbus.proxy is true, but xdg-dbus-proxy is not installed as a trusted program; the bus filter is off"
+                );
+            } else {
+                tracing::info!(
+                    "xdg-dbus-proxy is not installed as a trusted program; the bus filter is off"
+                );
+            }
             return (false, Some(BusProxyOff::NoProgram));
         }
         let id = efr_stdx::id::uuid_v7(&*self.inner.clock, &*self.inner.rng);
@@ -741,7 +749,11 @@ impl SandboxService {
                     }
                     _ => BusProxyOff::SelfTest,
                 };
-                tracing::warn!(error = %error, "the bus filter's self-test failed; the bus filter is off");
+                if bus::warns(settings, off) {
+                    tracing::warn!(error = %error, "the bus filter's self-test failed; the bus filter is off");
+                } else {
+                    tracing::info!(error = %error, "the bus filter is off");
+                }
                 (false, Some(off))
             }
         }
