@@ -37,6 +37,7 @@ use self::envelope::{WriteExit, read_exit, resolve};
 #[cfg(test)]
 pub(crate) use self::names::floor_names;
 pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
+pub(crate) use self::needs::{is_credential_agent, named_desktop};
 pub use self::programs::DESKTOP_IPC_READ;
 use self::remotes::RemoteUse;
 use self::scan::{OPAQUE, Segment, is_assignment};
@@ -854,9 +855,15 @@ pub struct FactRequest {
     /// git command with `-c`, `--git-dir` or `--work-tree`, asks for none: the facts of
     /// the directory would not be the ones that the command uses.
     pub remotes: Vec<PathBuf>,
-    /// The paths whose real path, after every link, a fact gives (phase E): the write
-    /// grant paths and the named sockets of the predicted exits. The answers go to
-    /// [`CallFacts::real_paths`]; an always-allow rule covers no path that has no answer.
+    /// The paths whose real path, after every link, a fact gives (phase E): each path
+    /// that the line writes below the home directory and each of its parents below the
+    /// home directory (a write grant binds the target or its nearest existing parent),
+    /// the same for each path of `needs.write` ([`FactRequest::with_needs`]) and each
+    /// declared write path ([`FactRequest::with_writes`]), and each socket of
+    /// `needs.sockets`. The daemon answers each path that it can resolve: for a path
+    /// that does not exist, the real path of its nearest existing parent with the rest
+    /// joined. The answers go to [`CallFacts::real_paths`]; an always-allow rule covers
+    /// no grant whose path has no answer.
     pub real_paths: Vec<PathBuf>,
 }
 
@@ -900,6 +907,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                     covers.extend(cover::path_asks(&[Some(path.clone())]));
                 }
                 covers.extend(cover::write_asks(&path, home));
+                add_real_paths(&mut request.real_paths, &path, home);
                 add(&mut request.targets, path);
             }
         }
@@ -945,6 +953,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             for word in written {
                 if let Some(path) = written_at(word) {
                     covers.extend(cover::write_asks(&path, home));
+                    add_real_paths(&mut request.real_paths, &path, home);
                     add(&mut request.targets, path);
                 }
             }
@@ -985,9 +994,17 @@ impl FactRequest {
         for word in needs.write.iter().take(Needs::MAX_WRITE) {
             if let Some(path) = resolve(word, start.as_deref(), locations) {
                 self.add_covers(cover::write_asks(&path, locations.home()));
+                add_real_paths(&mut self.real_paths, &path, locations.home());
                 if !self.targets.contains(&path) {
                     self.targets.push(path);
                 }
+            }
+        }
+        for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
+            if let Some(path) = resolve(word, start.as_deref(), locations)
+                && !self.real_paths.contains(&path)
+            {
+                self.real_paths.push(path);
             }
         }
         self
@@ -1002,6 +1019,7 @@ impl FactRequest {
             if let Some(path) = normalize(path) {
                 let path = locations.rehome(&path).into_owned();
                 self.add_covers(cover::write_asks(&path, locations.home()));
+                add_real_paths(&mut self.real_paths, &path, locations.home());
             }
         }
         self
@@ -1012,6 +1030,17 @@ impl FactRequest {
             if !self.covers.contains(&ask) {
                 self.covers.push(ask);
             }
+        }
+    }
+}
+
+/// Adds `path` and each of its parents strictly below `home` to `list`, each once,
+/// when `path` lies strictly below `home`: a contained write grant binds the target or
+/// its nearest existing parent, which lies below the home directory (phase E).
+fn add_real_paths(list: &mut Vec<PathBuf>, path: &Path, home: &Path) {
+    for dir in path.ancestors().take_while(|dir| dir.starts_with(home) && *dir != home) {
+        if !list.iter().any(|known| known == dir) {
+            list.push(dir.to_path_buf());
         }
     }
 }

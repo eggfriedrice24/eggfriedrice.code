@@ -55,6 +55,10 @@ pub struct Decision {
     effect: Effect,
     reasons: Vec<Reason>,
     notes: Vec<String>,
+    /// The real path of each write grant path and named socket of a shell call in
+    /// `auto`, from the daemon's facts ([`CallFacts::real_paths`](crate::CallFacts)), for
+    /// the always-allow matcher (phase E).
+    real_paths: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Decision {
@@ -62,7 +66,7 @@ impl Decision {
     /// engine, and the decision fails closed.
     pub(crate) fn from_reasons(reasons: Vec<Reason>) -> Self {
         let effect = reasons.iter().map(|reason| reason.effect).max().unwrap_or(Effect::Deny);
-        Decision { effect, reasons, notes: Vec::new() }
+        Decision { effect, reasons, notes: Vec::new(), real_paths: Vec::new() }
     }
 
     /// The decision with `notes` for the model.
@@ -70,6 +74,20 @@ impl Decision {
     pub(crate) fn with_notes(mut self, notes: Vec<String>) -> Self {
         self.notes = notes;
         self
+    }
+
+    /// The decision with the real paths of the call's grants, for
+    /// [`Engine::always`](crate::Engine::always).
+    #[must_use]
+    pub(crate) fn with_real_paths(mut self, real_paths: Vec<(PathBuf, PathBuf)>) -> Self {
+        self.real_paths = real_paths;
+        self
+    }
+
+    /// The real path of each write grant path and named socket of the call, as the
+    /// daemon's facts gave them (phase E). Empty outside `auto` and for a file tool.
+    pub(crate) fn real_paths(&self) -> &[(PathBuf, PathBuf)] {
+        &self.real_paths
     }
 
     /// Notes for the model about what the engine dropped from the call's `needs`, one
