@@ -11,12 +11,14 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use efr_protocol::{Event, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange};
+use efr_protocol::{
+    Blocked, Event, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange,
+};
 use efr_render::WidthMethod;
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthStr as _;
 
-use super::{ago, cut, lines, one_line, size, until};
+use super::{ago, cut, lines, one_line, sandbox, size, until};
 
 /// The line of a turn that a job notice started, not the user: the view and
 /// `efr history` show it where a prompt would stand.
@@ -93,6 +95,10 @@ pub(crate) struct Ended<'a> {
     pub(crate) survivors: &'a [String],
     pub(crate) launcher_lost: bool,
     pub(crate) output_truncated: bool,
+    /// The connections that efr's proxy refused while the job ran, and the count of
+    /// the rest (phase D2).
+    pub(crate) blocked: &'a [Blocked],
+    pub(crate) blocked_more: u32,
 }
 
 impl<'a> Ended<'a> {
@@ -110,6 +116,8 @@ impl<'a> Ended<'a> {
             survivors,
             launcher_lost,
             output_truncated,
+            blocked,
+            blocked_more,
             ..
         } = event
         else {
@@ -126,6 +134,8 @@ impl<'a> Ended<'a> {
             survivors,
             launcher_lost: *launcher_lost,
             output_truncated: *output_truncated,
+            blocked,
+            blocked_more: *blocked_more,
         };
         Some((job_id, ended))
     }
@@ -205,6 +215,9 @@ pub(crate) fn ended(job_id: &JobId, end: &Ended<'_>) -> String {
     }
     if end.output_truncated {
         line.push_str("; efr could not write all of its output to the file");
+    }
+    if let Some(refused) = sandbox::blocked_joined(end.blocked, end.blocked_more) {
+        let _ = write!(line, "; {refused}");
     }
     line
 }

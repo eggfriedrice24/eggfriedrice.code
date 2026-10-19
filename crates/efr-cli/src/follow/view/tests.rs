@@ -1543,6 +1543,52 @@ fn a_turn_with_the_network_view_says_so_in_its_trace() {
 }
 
 #[test]
+fn trace_says_proxy_for_a_proxy_call() {
+    let mut view = sandbox_view(false);
+    let refused = Blocked {
+        host: "other.test".to_owned(),
+        port: 443,
+        reason: BlockReason::NotAllowed,
+        count: 1,
+    };
+    let summary = SandboxSummary {
+        confined: true,
+        proxied: true,
+        blocked: vec![refused],
+        blocked_more: 2,
+        ..SandboxSummary::default()
+    };
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(Scope::Machine, None),
+            contained_started("curl -sS https://other.test/"),
+            contained_completed(0, Some(summary)),
+            turn_completed(),
+        ],
+        true,
+    );
+    assert!(err.contains("network: blocked other.test:443 (not on the allow list)\n"), "{err:?}");
+    assert!(err.contains("network: and 2 more refused\n"), "{err:?}");
+    assert!(
+        err.ends_with("sandbox: writes in $SCRATCH, private /tmp; network through efr's proxy\n"),
+        "{err:?}"
+    );
+    // The next turn with no proxied call has the plain trace again.
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(Scope::Machine, None),
+            contained_started("ls"),
+            contained_completed(0, None),
+            turn_completed(),
+        ],
+        true,
+    );
+    assert!(err.ends_with("private /tmp; no network\n"), "{err:?}");
+}
+
+#[test]
 fn a_fallback_says_so_at_the_start_of_the_turn() {
     let mut view = sandbox_view(true);
     let fallback = ModeFallback { asked: Mode::Auto, reason: "Landlock ABI 6".to_owned() };

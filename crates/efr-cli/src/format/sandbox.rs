@@ -30,23 +30,32 @@ const RISK: &str = "runs with your full rights: files, secrets, network";
 /// The mark of a program that a sandboxed call wrote or may have written.
 const UNTRUSTED: &str = "untrusted: written in the sandbox";
 
-/// The dim trace of the first contained call of a turn: where it can write. Phase 1
-/// has no network in the sandbox.
+/// The dim trace of the first contained call of a turn: where it can write. A call
+/// with no proxy has no network in the sandbox.
 pub(crate) const CONTAINED_IN_PROJECT: &str =
     "sandbox: writes in the project, $SCRATCH, private /tmp; no network";
 
 /// The same trace for a turn outside a registered project.
 pub(crate) const CONTAINED: &str = "sandbox: writes in $SCRATCH, private /tmp; no network";
 
+/// What the trace says in place of `no network` when a contained call of the turn ran
+/// with efr's network proxy (`SandboxSummary::proxied`, phase D2).
+const PROXY_TRACE: &str = "network through efr's proxy";
+
 /// What the trace adds when a contained call of the turn had the network view.
 const NET_VIEW_TRACE: &str = "host network view (no sending)";
 
 /// The dim trace at the end of a turn with a contained call: [`CONTAINED_IN_PROJECT`]
-/// in a registered project, else [`CONTAINED`], and the network view when a call of the
-/// turn had it (`Grant::NetView`), because that call saw the host's network.
-pub(crate) fn contained_trace(in_project: bool, net_view: bool) -> String {
-    let trace = if in_project { CONTAINED_IN_PROJECT } else { CONTAINED };
-    if net_view { format!("{trace}; {NET_VIEW_TRACE}") } else { trace.to_owned() }
+/// in a registered project, else [`CONTAINED`]; `network through efr's proxy` in place
+/// of `no network` when a call of the turn had the proxy (`proxied`); and the network
+/// view when a call of the turn had it (`Grant::NetView`), because that call saw the
+/// host's network.
+pub(crate) fn contained_trace(in_project: bool, net_view: bool, proxied: bool) -> String {
+    let mut trace = if in_project { CONTAINED_IN_PROJECT } else { CONTAINED }.to_owned();
+    if proxied {
+        trace = trace.replace("no network", PROXY_TRACE);
+    }
+    if net_view { format!("{trace}; {NET_VIEW_TRACE}") } else { trace }
 }
 
 /// The quarantine question in one line, for `efr history`.
@@ -81,8 +90,23 @@ pub(crate) fn status_line(status: &SandboxStatus) -> String {
         parts.push(format!("bubblewrap {}", one_line(version)));
     }
     parts.push(format!("caches {}", status.cache_mode.as_str()));
-    parts.push(format!("network {}", status.network_mode.as_str()));
+    parts.push(format!("network {}", network_words(status)));
     format!("ready ({})", parts.join(", "))
+}
+
+/// The start of efrd's warning when `network.mode = "proxy"` but the probe's proxy
+/// self-test failed.
+const PROXY_WARNING: &str = "efr's network proxy is off";
+
+/// What network a contained call has, for `efr status` and `efr sandbox check`:
+/// `proxy` (efr's proxy, phase D2), `none`, or `none (proxy self-test failed)` when
+/// `network.mode = "proxy"` but the probe's proxy self-test failed, so efrd fell back.
+pub(crate) fn network_words(status: &SandboxStatus) -> String {
+    let fell_back = status.warnings.iter().any(|warning| warning.starts_with(PROXY_WARNING));
+    match status.network_mode.as_str() {
+        "none" if fell_back => "none (proxy self-test failed)".to_owned(),
+        mode => mode.to_owned(),
+    }
 }
 
 /// The start of the probe's warning when the network view's self-test failed.
@@ -186,6 +210,7 @@ pub(crate) fn check(result: &AdminSandboxCheckResult) -> String {
             _ => netview_words(status),
         };
         let _ = writeln!(out, "netview {netview}");
+        let _ = writeln!(out, "network {}", network_words(status));
         out.push_str("auto: ready\n");
     } else {
         let reason = result.status.reason.as_deref().unwrap_or("the probe gave no reason");
@@ -1208,8 +1233,38 @@ pub(crate) fn surface_report(files: &[ReportedFile]) -> Vec<String> {
 }
 
 /// A connection that the proxy refused, such as `network: blocked evil.example:443 (not
-/// on the allow list)`.
+/// on the allow list)`, with the count when the proxy refused it more than once.
 pub(crate) fn blocked(blocked: &Blocked) -> String {
+    format!("network: blocked {}", blocked_entry(blocked))
+}
+
+/// The lines of a call's refusals: one [`blocked`] line each, then `network: and N more
+/// refused` for the refusals that the list leaves out (`blocked_more`).
+pub(crate) fn blocked_lines(blocked: &[Blocked], more: u32) -> Vec<String> {
+    let mut lines: Vec<String> = blocked.iter().map(self::blocked).collect();
+    if more > 0 {
+        lines.push(format!("network: and {more} more refused"));
+    }
+    lines
+}
+
+/// The refusals of a job in one piece of a line, such as `network: blocked a.test:443
+/// (not on the allow list), b.test:443 (not TLS) and 2 more`, or `network: 2 refused`
+/// when only the count is left; `None` when there are none.
+pub(crate) fn blocked_joined(blocked: &[Blocked], more: u32) -> Option<String> {
+    if blocked.is_empty() {
+        return (more > 0).then(|| format!("network: {more} refused"));
+    }
+    let entries: Vec<String> = blocked.iter().map(blocked_entry).collect();
+    let mut text = format!("network: blocked {}", entries.join(", "));
+    if more > 0 {
+        let _ = write!(text, " and {more} more");
+    }
+    Some(text)
+}
+
+/// `host:port (reason)`, with `; N times` in the parentheses for a count over one.
+fn blocked_entry(blocked: &Blocked) -> String {
     let reason = match blocked.reason {
         BlockReason::NotAllowed => "not on the allow list",
         BlockReason::PrivateAddress => "a private address",
@@ -1223,7 +1278,11 @@ pub(crate) fn blocked(blocked: &Blocked) -> String {
         BlockReason::Unknown => "unknown reason",
         _ => "refused",
     };
-    format!("network: blocked {}:{} ({reason})", one_line(&blocked.host), blocked.port)
+    let host = one_line(&blocked.host);
+    match blocked.count {
+        0 | 1 => format!("{host}:{} ({reason})", blocked.port),
+        count => format!("{host}:{} ({reason}; {count} times)", blocked.port),
+    }
 }
 
 /// The note about background jobs that stopped when a contained call ended.
