@@ -1097,6 +1097,19 @@ async fn proxy_prompts_decide_as_expected() {
     assert_eq!(cases.len(), 4, "the eval has the four proxy prompts of phase D2");
     let dirs = Arc::new(TestDirs::new().unwrap());
     let project = dirs.create_dir("home/project").unwrap();
+    // NOTE: a push with no host goes to the user, so the project is a repository whose
+    // `origin` is its own remote, which counts as named.
+    for args in [&["init", "-q"][..], &["remote", "add", "origin", "https://git.test/project.git"]]
+    {
+        let status = efr_stdx::process::command("git", &project)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .status()
+            .await
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
     // NOTE: `admin.project_add` reloads `config.toml`, so the file holds the proxy mode
     // that the builder sets.
     std::fs::write(dirs.dirs().config().join("config.toml"), "[network]\nmode = \"proxy\"\n")

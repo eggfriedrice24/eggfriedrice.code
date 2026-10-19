@@ -48,7 +48,7 @@
       "judged": [["classifier", "allow"]],
       "asked": false,
       "exits": ["upload"],
-      "hosts": [],
+      "hosts": ["git.test"],
       "launch": { "kind": "unsandboxed" },
       "max_minutes": null
     }
