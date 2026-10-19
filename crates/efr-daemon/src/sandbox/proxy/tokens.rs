@@ -8,10 +8,13 @@
 //!   call's dir (`.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml`, `.cargo/config.toml`,
 //!   `.cargo/config`; at most 64 KiB each), through the pure scanners of
 //!   `efr-permissions`;
-//! - one hardened `git config` run per repository at a project root, which also reads
-//!   the global, XDG and include files: a remote or `insteadOf` base with user info, an
-//!   `http.<url>.extraHeader`, an unscoped `http.extraHeader` (every remote and
-//!   `@github-read`), and a shell or file-store credential helper (every remote).
+//! - one hardened `git config` run per repository that holds one of those dirs, and one
+//!   for a dir in no repository, which also reads the global, XDG and include files: a
+//!   remote or `insteadOf` base with user info, an `http.<url>.extraHeader`, an
+//!   unscoped `http.extraHeader` (every remote and `@github-read`), and a shell or
+//!   file-store credential helper (every remote). The call's own dir is always one of
+//!   them, so the user's global files count also outside a project, and a project at a
+//!   subdir of a repository counts the repository's config.
 
 use std::path::{Path, PathBuf};
 
@@ -46,25 +49,33 @@ impl Denied {
     }
 }
 
-/// The hosts that the registry files of `dirs` and the git config of the repositories
-/// at `roots` hold a credential for.
-pub(crate) async fn denied(git: &Git, home: &Home, dirs: &[PathBuf], roots: &[PathBuf]) -> Denied {
+/// The hosts that the registry files of `dirs` and the git config of each of `dirs`
+/// hold a credential for. `dirs` holds the call's project roots and its own dir.
+pub(crate) async fn denied(git: &Git, home: &Home, dirs: &[PathBuf]) -> Denied {
     let mut denied = Denied::default();
     let owned = dirs.to_vec();
     let scanned = tokio::task::spawn_blocking(move || scan_files(&owned)).await.unwrap_or_default();
     for (file, hosts) in scanned {
         denied.add(hosts, &file.display().to_string());
     }
-    for root in roots {
-        let owned = root.clone();
+    // NOTE: one run per work tree, and one for all dirs in no work tree: there git reads
+    // only the system, global and XDG files, which are the same for each of them.
+    let mut seen: Vec<Option<PathBuf>> = Vec::new();
+    for dir in dirs {
+        let owned = dir.clone();
         let top =
             tokio::task::spawn_blocking(move || remotes::work_tree(&owned)).await.ok().flatten();
-        if top.as_deref() != Some(root.as_path()) {
+        if seen.contains(&top) {
             continue;
         }
-        let Some(entries) = remotes::config_entries(git, home, root).await else { continue };
+        seen.push(top.clone());
+        let Some(entries) = remotes::config_entries(git, home, dir).await else { continue };
         let hosts = git_hosts(&entries);
-        denied.add(hosts, &format!("the git config of {}", root.display()));
+        let source = match &top {
+            Some(top) => format!("the git config of {}", top.display()),
+            None => "your git config".to_owned(),
+        };
+        denied.add(hosts, &source);
     }
     denied
 }

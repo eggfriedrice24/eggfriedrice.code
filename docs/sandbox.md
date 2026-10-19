@@ -817,9 +817,9 @@ call:
   like a secret.
 - A token in a file that the sandbox must read cannot be hidden line by line. So when
   the project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml`, `.cargo/config.toml`
-  or `.cargo/config`, or the git config of the project (with `~/.gitconfig`, the XDG
-  file and their includes) holds a password or a token for a host, efrd denies that
-  host for the call. The output says why: `[efr: efr blocks registry.npmjs.org for
+  or `.cargo/config`, or the git config of the project or of the command's directory
+  (with `~/.gitconfig`, the XDG file and their includes, also outside a project) holds
+  a password or a token for a host, efrd denies that host for the call. The output says why: `[efr: efr blocks registry.npmjs.org for
   this command: ~/p/app/.npmrc holds a credential for it. Move the credential to a file
   that the sandbox hides, such as ~/.npmrc.]`. A git `http.extraHeader` with no URL
   denies every remote host and the hosts of `@github-read`; a shell credential helper

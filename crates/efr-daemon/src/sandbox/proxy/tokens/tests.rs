@@ -54,7 +54,7 @@ async fn project_npmrc_token_denies_registry_for_call() {
     std::fs::create_dir_all(world.app.join(".cargo")).unwrap();
     std::fs::write(world.app.join(".cargo/config.toml"), "[http]\ncainfo = \"ca.pem\"\n").unwrap();
     let dirs = [world.app.clone()];
-    let found = denied(&isolated(), &world.home, &dirs, &dirs).await;
+    let found = denied(&isolated(), &world.home, &dirs).await;
     assert!(found.hosts.contains(&"registry.test".to_owned()), "{found:?}");
     for host in Preset::Npm.hosts() {
         assert!(found.hosts.contains(&(*host).to_owned()), "the default registry: {found:?}");
@@ -69,7 +69,7 @@ async fn remote_with_token_denies_host_for_call() {
     let world = world();
     repo(&world.app, "https://u:tok@git.test/r.git").await;
     let dirs = [world.app.clone()];
-    let found = denied(&isolated(), &world.home, &dirs, &dirs).await;
+    let found = denied(&isolated(), &world.home, &dirs).await;
     assert_eq!(found.hosts, ["git.test"]);
     assert!(found.notes[0].contains("the git config of"), "{:?}", found.notes);
 }
@@ -86,9 +86,9 @@ async fn user_gitconfig_insteadof_token_denies_host() {
     let dirs = [world.app.clone()];
     // NOTE: with the user's configuration, as efrd runs git: the home is the test's.
     let user = Git::new(TestClock::new().shared());
-    let found = denied(&user, &world.home, &dirs, &dirs).await;
+    let found = denied(&user, &world.home, &dirs).await;
     assert_eq!(found.hosts, ["git.test"], "the global file counts");
-    let none = denied(&isolated(), &world.home, &dirs, &dirs).await;
+    let none = denied(&isolated(), &world.home, &dirs).await;
     assert!(none.hosts.is_empty(), "{none:?}");
 }
 
@@ -98,7 +98,7 @@ async fn unscoped_extraheader_denies_github_read() {
     repo(&world.app, "https://git.test/r.git").await;
     git(&world.app, &["config", "http.extraHeader", "Authorization: Bearer x"]).await;
     let dirs = [world.app.clone()];
-    let found = denied(&isolated(), &world.home, &dirs, &dirs).await;
+    let found = denied(&isolated(), &world.home, &dirs).await;
     assert!(found.hosts.contains(&"git.test".to_owned()), "every remote: {found:?}");
     for host in Preset::GithubRead.hosts() {
         assert!(found.hosts.contains(&(*host).to_owned()), "@github-read: {found:?}");
@@ -111,6 +111,46 @@ async fn a_clean_project_denies_nothing() {
     repo(&world.app, "https://git.test/r.git").await;
     std::fs::write(world.app.join(".npmrc"), "registry=https://registry.test/\n").unwrap();
     let dirs = [world.app.clone()];
-    let found = denied(&isolated(), &world.home, &dirs, &dirs).await;
+    let found = denied(&isolated(), &world.home, &dirs).await;
     assert_eq!(found, super::Denied::default());
+}
+
+#[tokio::test]
+async fn call_outside_any_project_denies_user_gitconfig_token_host() {
+    let world = world();
+    let scratch = world.home.path().join("scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    std::fs::write(
+        world.home.path().join(".gitconfig"),
+        "[url \"https://u:tok@git.test/\"]\n\tinsteadOf = https://git.test/\n",
+    )
+    .unwrap();
+    // NOTE: no project root, and the call's dir is in no repository.
+    let user = Git::new(TestClock::new().shared());
+    let found = denied(&user, &world.home, &[scratch]).await;
+    assert_eq!(found.hosts, ["git.test"], "{found:?}");
+    let [note] = found.notes.as_slice() else { panic!("{found:?}") };
+    assert!(note.contains("your git config"), "{note}");
+}
+
+#[tokio::test]
+async fn project_at_repository_subdir_denies_repository_token_host() {
+    let world = world();
+    repo(&world.app, "https://u:tok@git.test/r.git").await;
+    let service = world.app.join("services/api");
+    std::fs::create_dir_all(&service).unwrap();
+    let found = denied(&isolated(), &world.home, &[service]).await;
+    assert_eq!(found.hosts, ["git.test"], "{found:?}");
+    assert!(found.notes[0].contains(&world.app.display().to_string()), "{:?}", found.notes);
+}
+
+#[tokio::test]
+async fn one_git_run_per_work_tree() {
+    let world = world();
+    repo(&world.app, "https://u:tok@git.test/r.git").await;
+    let sub = world.app.join("src");
+    std::fs::create_dir_all(&sub).unwrap();
+    let found = denied(&isolated(), &world.home, &[world.app.clone(), sub]).await;
+    assert_eq!(found.hosts, ["git.test"]);
+    assert_eq!(found.notes.len(), 1, "{:?}", found.notes);
 }
