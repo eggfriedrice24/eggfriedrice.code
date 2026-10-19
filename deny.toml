@@ -15,6 +15,13 @@ ignore = [
   # theme dumps with it, and no upgrade exists. Open question, see
   # docs/adr/0005-syntax-highlighting-engine.md: revisit syntect or move to tree-sitter.
   { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 is complete and unmaintained, not vulnerable; syntect and two-face need it for their grammar dumps" },
+  # zvariant, zbus_names and zvariant_derive are unmaintained, not vulnerable: their code
+  # moved into zbus 6. efr-credentials gets them through keyring 4.2.0, secret-service
+  # 5.2.0 and zbus 5, and no keyring or secret-service release uses zbus 6 yet. Remove
+  # these three when keyring moves to zbus 6.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant 5 is unmaintained, not vulnerable; keyring and secret-service still need zbus 5" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names 4 is unmaintained, not vulnerable; keyring and secret-service still need zbus 5" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5 is unmaintained, not vulnerable; keyring and secret-service still need zbus 5" },
 ]
 
 [licenses]
