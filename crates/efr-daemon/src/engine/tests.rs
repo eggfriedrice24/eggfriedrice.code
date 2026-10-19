@@ -390,6 +390,23 @@ async fn engine_netview_needs_setting_and_probe() {
 }
 
 #[tokio::test]
+async fn engine_bus_proxy_needs_setting_and_self_test() {
+    let (_root, home) = home();
+    let parts = parts(&home, home.path().join("secrets"));
+    let passed = Probed { bus_proxy: true, ..Probed::default() };
+    let mut on = Settings::default();
+    on.dbus.proxy = true;
+    let bus_proxy = async |settings: &Settings, probed: Probed| {
+        parts.engine(settings, probed).await.unwrap().support().bus_proxy
+    };
+    assert!(bus_proxy(&on, passed.clone()).await, "the key and the self-test");
+    assert!(!bus_proxy(&on, Probed::default()).await, "no passed self-test");
+    let mut off = on.clone();
+    off.dbus.proxy = false;
+    assert!(!bus_proxy(&off, passed).await, "dbus.proxy = false");
+}
+
+#[tokio::test]
 async fn network_mode_none_keeps_phase1() {
     let (_root, home) = home();
     let parts = parts(&home, home.path().join("secrets"));

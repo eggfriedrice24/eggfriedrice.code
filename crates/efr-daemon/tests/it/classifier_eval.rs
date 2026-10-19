@@ -1089,6 +1089,35 @@ async fn eval_daemon_keeps_network_none() {
     daemon.stop().await.unwrap();
 }
 
+/// The phase A and B evals keep rows 8 to 11 a review of the bus (DE18): the eval
+/// daemon has no bus filter, also after a reload of a file that turns it on.
+#[tokio::test]
+async fn eval_daemon_keeps_bus_proxy_off() {
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let model = crate::sandbox::ScriptedModel::reviewed(Vec::new(), "");
+    let daemon = eval_daemon(&dirs, model).await;
+    let client = daemon.client().await.unwrap();
+    let status = async || -> SandboxStatus {
+        let status: efr_protocol::AdminStatusResult =
+            client.call(Method::AdminStatus(efr_protocol::AdminStatus::default())).await.unwrap();
+        status.sandbox.unwrap()
+    };
+    let off = (false, Some(efr_protocol::BusProxyOff::Config));
+    let before = status().await;
+    assert_eq!((before.bus_proxy, before.bus_proxy_off), off);
+
+    let config = dirs.dirs().config().join("config.toml");
+    std::fs::write(&config, "[dbus]\nproxy = true\n").unwrap();
+    let reloaded: efr_protocol::AdminConfigReloadResult = client
+        .call(Method::AdminConfigReload(efr_protocol::AdminConfigReload::default()))
+        .await
+        .unwrap();
+    assert!(reloaded.applied, "{reloaded:?}");
+    let after = status().await;
+    assert_eq!((after.bus_proxy, after.bus_proxy_off), off);
+    daemon.stop().await.unwrap();
+}
+
 /// What a proxy prompt showed: the view eval's facts and the hosts of its records.
 type ProxySeen<'a> = (ViewSeen<'a>, Vec<String>);
 

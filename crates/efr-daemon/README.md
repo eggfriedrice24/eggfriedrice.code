@@ -617,7 +617,18 @@ spec; `docs/sandbox.md` for the user's view):
   `Deps::with_session_bus` (`EFR_TEST_SYSTEM_BUS` and `EFR_TEST_SESSION_BUS` for the
   smoke's `efrd`), for the filter and for a whole bus grant alike: with no seam the
   system bus is a path that never exists and there is no session bus.
-  `Deps::with_bus_proxy_program` names a test's fake program.
+  `Deps::with_bus_proxy_program` names a test's fake program. While `dbus.proxy` is
+  true, each probe also runs the filter's self-test (`BusService::self_test`, in a
+  fresh dir below `$R/sbx/bus-test`): `xdg-dbus-proxy --version` must say 0.1.5 or
+  later, and one proxy with the default system rules and an upstream that no client
+  uses must become ready and end cleanly when its sync pipe closes. No self-test runs
+  while `dbus.proxy` is false, and a seam's probe sets the result instead.
+  `SandboxStatus.bus_proxy` carries the result into `Probed::bus_proxy`, and the engine
+  gets `AutoSupport::bus_proxy` only with `dbus.proxy` true too. `bus::follow` runs the
+  self-test when a reload turns `dbus.proxy` on, and asks the reload task for a new
+  engine when the filter's state differs from the engine's. `admin.status` says
+  `bus_proxy_off` (`config`, `no_program`, `self_test`, `old_version`) and warns when
+  `dbus.proxy` is true but the filter is off.
 
 ### Background jobs
 
@@ -1179,8 +1190,12 @@ and two stand-in bus sockets): the arguments that reach the program, the ready w
 a start failure that fails the call, the end with the call, the sweep of a call past
 its timeout, a relative socket in a deep call dir, a stale socket, the upstream check,
 a crash reported as stopped, a reload's rules for the next call, the dropped views,
-and a test build without a seam. `jobs/tests.rs` checks that a job's filter lives with
-the job.
+a test build without a seam, the self-test (its version floor, a failure, no program,
+none while `dbus.proxy` is off, and a reload that turns it on), and the status with
+its reason. `jobs/tests.rs` checks that a job's filter lives with the job.
+`sandbox_real_wrapper_runs_the_real_proxy` runs the real launcher and the real
+`xdg-dbus-proxy` under `just test-sandbox` when the program is installed. The eval
+checks that its daemon keeps the filter off (`eval_daemon_keeps_bus_proxy_off`).
 
 The `sandbox` module runs the `auto` mode end to end with a scripted model: the
 probe's failure and the fallback with its reason, a launcher in a write root, a project

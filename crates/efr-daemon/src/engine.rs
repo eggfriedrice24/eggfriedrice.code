@@ -74,6 +74,10 @@ pub(crate) struct Probed {
     /// The proxy self-test of the last probe passed (`SandboxStatus::proxy`, phase D2):
     /// with `network.mode = "proxy"` the engine's egress is the proxy (DP15).
     pub(crate) proxy: bool,
+    /// The bus filter's self-test passed (`SandboxStatus::bus_proxy`, phase E): with
+    /// `dbus.proxy = true` the engine gives the read forms of the bus a filtered bus
+    /// (DE8).
+    pub(crate) bus_proxy: bool,
     /// The hosts of the pacman files' `Server =` lines (DP4).
     pub(crate) mirrors: Arc<[MirrorHost]>,
 }
@@ -83,14 +87,15 @@ impl Probed {
     /// read of the pacman files.
     pub(crate) fn of(sandbox: &SandboxService) -> Probed {
         let status = sandbox.status();
-        let (netview, proxy) = {
+        let (netview, proxy, bus_proxy) = {
             let status = status.borrow();
-            (status.netview, status.proxy)
+            (status.netview, status.proxy, status.bus_proxy)
         };
         Probed {
             netview,
             mount_view: sandbox.mount_view(),
             proxy,
+            bus_proxy,
             mirrors: sandbox.proxy().mirrors(),
         }
     }
@@ -258,7 +263,9 @@ pub(crate) fn build(
     }
     locations = with_sandbox(locations, home.path(), settings, projects, sandbox);
     locations = with_efr(locations, sandbox)?;
-    // NOTE: no bus proxy (phase E) yet. The network proxy (phase D2) needs both the
+    // NOTE: the bus filter (phase E) needs both the user's `dbus.proxy` and a passed
+    // self-test (DE8); else a bus read stays a `bus` exit. The network proxy (phase D2)
+    // needs both the
     // user's `network.mode = "proxy"` and a probe whose proxy self-test passed; else a
     // network need stays a review that opens the whole network (DP15), never a route-less
     // proxy. The mount view follows efrd's own mount check (`Probed`). efrd keeps the home store while snapshots are
@@ -282,7 +289,7 @@ pub(crate) fn build(
         undo,
         mount_view: probed.mount_view,
         netview: settings.network.netview && probed.netview,
-        ..AutoSupport::default()
+        bus_proxy: settings.dbus.proxy && probed.bus_proxy,
     };
     let hosts = host_list(settings, &probed.mirrors);
     Ok(Engine::with_rules(locations, settings.permissions.rules.clone())

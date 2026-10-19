@@ -158,6 +158,10 @@ struct Launch {
     statvfs_helper: Option<PathBuf>,
     /// The test names of the proxy and the server behind each.
     proxy_hosts: Option<BTreeMap<String, SocketAddr>>,
+    /// The test's own system and session bus sockets.
+    buses: (Option<PathBuf>, Option<PathBuf>),
+    /// The test's own `xdg-dbus-proxy`.
+    bus_proxy_program: Option<PathBuf>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -207,6 +211,8 @@ impl Default for TestDaemonBuilder {
                 job_env: None,
                 statvfs_helper: None,
                 proxy_hosts: None,
+                buses: (None, None),
+                bus_proxy_program: None,
             },
         }
     }
@@ -383,6 +389,28 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Turns the bus filter on (`dbus.proxy = true`) with `system` and `session` as the
+    /// daemon's buses: the test's own sockets, such as private `dbus-daemon` buses or
+    /// stand-ins. A bus that is `None` does not exist for the daemon. The default is off,
+    /// with no bus at all: the daemon never reaches the machine's buses, and
+    /// `dbus.proxy = false` stays across a reload of `config.toml`. The filter runs only
+    /// with a program ([`bus_proxy_program`](Self::bus_proxy_program)) whose self-test
+    /// passed, or a probe override with `bus_proxy: true`.
+    #[must_use]
+    pub fn bus_proxy(mut self, system: Option<PathBuf>, session: Option<PathBuf>) -> Self {
+        self.settings.config.dbus.proxy = true;
+        self.settings.buses = (system, session);
+        self
+    }
+
+    /// Runs `program` as `xdg-dbus-proxy`, in place of the trusted program on a `PATH`:
+    /// a test's fake, or the real one for the tests of the real bus.
+    #[must_use]
+    pub fn bus_proxy_program(mut self, program: impl Into<PathBuf>) -> Self {
+        self.settings.bus_proxy_program = Some(program.into());
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -439,6 +467,11 @@ impl TestDaemon {
         if config.network.mode == NetworkMode::None {
             config.set_source("network.mode", Source::Flag("TestDaemon"));
         }
+        // NOTE: the same for the bus filter (phase E): a test that did not turn it on
+        // never gets it from a reload, whatever the built-in default.
+        if !config.dbus.proxy {
+            config.set_source("dbus.proxy", Source::Flag("TestDaemon"));
+        }
         let shell_env = settings.shell_env.clone().unwrap_or_else(|| default_shell_env(&home));
         // NOTE: a later start draws other ids, so a restarted daemon never mints an id
         // that the first one stored.
@@ -469,6 +502,15 @@ impl TestDaemon {
         }
         if let Some(hosts) = &settings.proxy_hosts {
             deps = deps.with_proxy_hosts(hosts.clone());
+        }
+        if let Some(system) = &settings.buses.0 {
+            deps = deps.with_system_bus(system.clone());
+        }
+        if let Some(session) = &settings.buses.1 {
+            deps = deps.with_session_bus(session.clone());
+        }
+        if let Some(program) = &settings.bus_proxy_program {
+            deps = deps.with_bus_proxy_program(program.clone());
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());

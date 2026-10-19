@@ -1,7 +1,8 @@
 //! The bus filter's supervisor below the turn: the spawn through the launcher's
 //! `dbus-proxy`, the ready byte, the lifetime of a call's proxies, the upstream check,
 //! and the prepare path with a spec that holds `Grant::BusFilter`. The program is the
-//! fake of `fake.rs`; no D-Bus tool runs.
+//! fake of `fake.rs`; no D-Bus tool runs. One test runs the real launcher and the real
+//! `xdg-dbus-proxy` with a stand-in bus, under `just test-sandbox`.
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixListener;
@@ -11,7 +12,9 @@ use std::sync::Arc;
 use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{BusRule, Engine, Locations};
-use efr_protocol::{BusKind, CallId, ConversationId, Grant, Launch, ProjectId, Scope, TurnId};
+use efr_protocol::{
+    BusKind, BusProxyOff, CallId, ConversationId, Grant, Launch, ProjectId, Scope, TurnId,
+};
 use efr_sandbox::{JobPlan, ProbeReport, SandboxSpec};
 use efr_scope::{Git, Home};
 use efr_stdx::paths::Dirs;
@@ -289,36 +292,201 @@ async fn bus_proxy_refuses_an_upstream_in_efr_dirs() {
 
 #[tokio::test]
 async fn bus_rules_reload_reaches_the_next_call() {
-    let (_temp, root) = temp();
-    let fake = FakeBus::new(&root.join("fake"));
-    let service = fake.service(system_clock());
-    let mut settings = Settings::default();
-    let (sender, receiver) = tokio::sync::watch::channel(Arc::new(settings.clone()));
-    let stop = tokio_util::sync::CancellationToken::new();
-    let follow = tokio::spawn(super::follow_settings(service.clone(), receiver, stop.clone()));
-    let first_dir = root.join("first");
-    std::fs::create_dir(&first_dir).unwrap();
-    let first = service.start(&first_dir, &[BusKind::System], &fake.upstream()).await.unwrap();
+    let fixture = Fixture::new(Buses::Both).await;
+    let bus = fixture.service.bus();
+    let follower = Follower::start(&fixture);
+    let first_dir = fixture.dirs.runtime().join("first");
+    std::fs::create_dir_all(&first_dir).unwrap();
+    let first = bus.start(&first_dir, &[BusKind::System], &fixture.fake.upstream()).await.unwrap();
 
+    let mut settings = fixture.settings.clone();
     settings.dbus.allow = vec![BusRule {
         bus: BusKind::System,
         name: "org.freedesktop.timedate1".to_owned(),
         call: vec!["org.freedesktop.timedate1.ListTimezones".to_owned()],
     }];
-    sender.send_replace(Arc::new(settings.clone()));
-    Wait::new("the new rules").until(|| !service.rules().is_empty()).await.unwrap();
-    let second_dir = root.join("second");
-    std::fs::create_dir(&second_dir).unwrap();
-    let second = service.start(&second_dir, &[BusKind::System], &fake.upstream()).await.unwrap();
+    follower.settings.send_replace(Arc::new(settings));
+    Wait::new("the new rules").until(|| !bus.rules().is_empty()).await.unwrap();
+    let second_dir = fixture.dirs.runtime().join("second");
+    std::fs::create_dir_all(&second_dir).unwrap();
+    let second =
+        bus.start(&second_dir, &[BusKind::System], &fixture.fake.upstream()).await.unwrap();
 
-    let starts = fake.starts();
+    let starts = fixture.fake.starts();
     let added = "org.freedesktop.timedate1=org.freedesktop.timedate1.ListTimezones";
     assert!(!calls(&starts[0]).contains(&added), "a running call keeps the rules of its start");
     assert!(calls(&starts[1]).contains(&added), "the next call gets the new rule");
     first.finish().await;
     second.finish().await;
-    stop.cancel();
-    follow.await.unwrap();
+    follower.stop().await;
+}
+
+#[tokio::test]
+async fn bus_proxy_self_test_turns_it_on() {
+    let mut fixture = Fixture::new(Buses::Both).await;
+    fixture.settings.dbus.proxy = true;
+
+    fixture.service.probe(&fixture.settings).await;
+
+    let status = fixture.service.current();
+    assert_eq!((status.bus_proxy, status.bus_proxy_off), (true, None));
+    assert_eq!(fixture.fake.versions(), 1);
+    let start = &fixture.fake.starts()[0];
+    let test_dirs = fixture.dirs.runtime().join("sbx/bus-test");
+    assert!(start[0].starts_with(&*test_dirs.to_string_lossy()), "{start:?}");
+    assert!(start[2].ends_with("/no-bus"), "an upstream that no client uses: {start:?}");
+    assert_eq!(fixture.fake.ended(), 1, "it ended by itself when its pipe closed");
+    assert_eq!(std::fs::read_dir(&test_dirs).unwrap().count(), 0, "its dir goes");
+    let reported = fixture.service.reported(&fixture.settings);
+    assert!(reported.bus_proxy);
+    assert!(reported.warnings.is_empty(), "{:?}", reported.warnings);
+}
+
+#[tokio::test]
+async fn no_self_test_while_dbus_proxy_is_off() {
+    let fixture = Fixture::new(Buses::Both).await;
+    assert!(!fixture.settings.dbus.proxy);
+
+    fixture.service.probe(&fixture.settings).await;
+
+    let status = fixture.service.current();
+    assert_eq!((status.bus_proxy, status.bus_proxy_off), (false, Some(BusProxyOff::Config)));
+    assert_eq!(fixture.fake.versions(), 0);
+    assert!(fixture.fake.starts().is_empty());
+}
+
+#[tokio::test]
+async fn bus_proxy_off_without_the_program() {
+    let mut fixture = Fixture::new(Buses::Both).await;
+    fixture.settings.dbus.proxy = true;
+    let service = fixture.service_with(Arc::default()).await;
+
+    let status = service.current();
+    assert_eq!((status.bus_proxy, status.bus_proxy_off), (false, Some(BusProxyOff::NoProgram)));
+    let reported = service.reported(&fixture.settings);
+    assert_eq!(reported.bus_proxy_off, Some(BusProxyOff::NoProgram));
+    assert!(
+        reported.warnings.iter().any(|warning| warning.contains("xdg-dbus-proxy is not installed")),
+        "{:?}",
+        reported.warnings
+    );
+}
+
+#[tokio::test]
+async fn bus_proxy_off_when_self_test_fails() {
+    let mut fixture = Fixture::new(Buses::Both).await;
+    fixture.settings.dbus.proxy = true;
+    for (marker, what) in [("fail-close", "an unclean end"), ("no-ready", "no ready byte")] {
+        fixture.fake.set(marker);
+
+        fixture.service.probe(&fixture.settings).await;
+
+        let status = fixture.service.current();
+        assert_eq!(
+            (status.bus_proxy, status.bus_proxy_off),
+            (false, Some(BusProxyOff::SelfTest)),
+            "{what}"
+        );
+        fixture.fake.unset(marker);
+    }
+    fixture.service.probe(&fixture.settings).await;
+    assert!(fixture.service.current().bus_proxy, "a passed self-test turns it on again");
+}
+
+#[tokio::test]
+async fn bus_proxy_off_below_the_version_floor() {
+    let mut fixture = Fixture::new(Buses::Both).await;
+    fixture.settings.dbus.proxy = true;
+    for (version, off) in [
+        ("xdg-dbus-proxy 0.1.4", Some(BusProxyOff::OldVersion)),
+        ("xdg-dbus-proxy", Some(BusProxyOff::OldVersion)),
+        ("xdg-dbus-proxy 0.1.5", None),
+        ("xdg-dbus-proxy 0.2", None),
+    ] {
+        fixture.fake.version(version);
+
+        fixture.service.probe(&fixture.settings).await;
+
+        assert_eq!(fixture.service.current().bus_proxy_off, off, "{version}");
+    }
+    assert_eq!(super::parse_version("xdg-dbus-proxy 0.1.9\n"), Some((0, 1, 9)));
+    assert_eq!(super::parse_version("xdg-dbus-proxy 1.x"), None);
+}
+
+#[tokio::test]
+async fn status_shows_bus_filter_off_reason() {
+    let mut fixture = Fixture::new(Buses::Both).await;
+    fixture.settings.dbus.proxy = true;
+    fixture.fake.set("fail-close");
+    fixture.service.probe(&fixture.settings).await;
+
+    let on = fixture.service.reported(&fixture.settings);
+    let mut off_settings = fixture.settings.clone();
+    off_settings.dbus.proxy = false;
+    let off = fixture.service.reported(&off_settings);
+
+    assert_eq!((on.bus_proxy, on.bus_proxy_off), (false, Some(BusProxyOff::SelfTest)));
+    let warning = super::off_warning(BusProxyOff::SelfTest);
+    assert_eq!(on.warnings.iter().filter(|line| **line == warning).count(), 1);
+    assert_eq!((off.bus_proxy, off.bus_proxy_off), (false, Some(BusProxyOff::Config)));
+    assert!(!off.warnings.contains(&warning), "dbus.proxy = false is the user's choice");
+}
+
+#[tokio::test]
+async fn reload_that_turns_dbus_proxy_on_runs_the_self_test_and_asks_for_the_engine() {
+    let fixture = Fixture::new(Buses::Both).await;
+    let mut follower = Follower::start(&fixture);
+    assert_eq!(fixture.service.current().bus_proxy_off, Some(BusProxyOff::Config));
+
+    let mut settings = fixture.settings.clone();
+    settings.dbus.proxy = true;
+    follower.settings.send_replace(Arc::new(settings));
+
+    let request =
+        Wait::new("a rebuild").until_some(|| follower.requests.try_recv().ok()).await.unwrap();
+    assert!(matches!(request, crate::reload::Request::Rebuild { .. }), "{request:?}");
+    assert!(fixture.service.current().bus_proxy);
+    assert_eq!(fixture.fake.versions(), 1);
+    request.answer(efr_protocol::AdminConfigReloadResult {
+        applied: true,
+        error: None,
+        restart_needed: Vec::new(),
+    });
+    follower.stop().await;
+}
+
+/// `bus::follow` on a fixture's service, with the reload task's requests and the
+/// settings it follows in the test's hands.
+struct Follower {
+    settings: tokio::sync::watch::Sender<Arc<Settings>>,
+    requests: tokio::sync::mpsc::Receiver<crate::reload::Request>,
+    _engine: tokio::sync::watch::Sender<Arc<Engine>>,
+    stop: tokio_util::sync::CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Follower {
+    fn start(fixture: &Fixture) -> Follower {
+        let (settings, settings_rx) =
+            tokio::sync::watch::channel(Arc::new(fixture.settings.clone()));
+        let (engine, engine_rx) = tokio::sync::watch::channel(Arc::new(fixture.engine.clone()));
+        let (reloads, requests) = crate::reload::Reloads::new();
+        let stop = tokio_util::sync::CancellationToken::new();
+        let task = tokio::spawn(super::follow(
+            fixture.service.clone(),
+            reloads,
+            settings_rx,
+            fixture.service.status(),
+            engine_rx,
+            stop.clone(),
+        ));
+        Follower { settings, requests, _engine: engine, stop, task }
+    }
+
+    async fn stop(self) {
+        self.stop.cancel();
+        self.task.await.unwrap();
+    }
 }
 
 #[tokio::test]
@@ -595,4 +763,51 @@ fn parts(
         git: Git::new(clock).isolated(),
         programs,
     }
+}
+
+/// The real launcher's `dbus-proxy` wrapper and the real `xdg-dbus-proxy` (checks C2-1
+/// and C4-1 of the phase E plan): the self-test passes, the socket's name is relative
+/// to the bus dir, a client of the filtered socket reaches the stand-in bus, and the
+/// proxy ends cleanly and removes its socket when its sync pipe closes. It runs under
+/// `just test-sandbox`, which names the launcher; a machine without `xdg-dbus-proxy`
+/// has nothing to check.
+#[tokio::test]
+#[expect(clippy::print_stderr, reason = "a skipped test says why, as atuin's e2e tests do")]
+async fn sandbox_real_wrapper_runs_the_real_proxy() {
+    use std::os::unix::fs::FileTypeExt as _;
+    let Ok(Some(launcher)) = efr_stdx::env::var(efr_stdx::env::Var::TestSbxBin) else {
+        eprintln!("skipped: EFR_TEST_SBX_BIN is not set");
+        return;
+    };
+    let programs = crate::trusted_programs::TrustedPrograms::resolve("/usr/bin".as_ref(), &[]);
+    if !programs.has(crate::trusted_programs::Program::XdgDbusProxy) {
+        eprintln!("note: /usr/bin/xdg-dbus-proxy is not installed; nothing to check");
+        return;
+    }
+    let (_temp, root) = temp();
+    let service = super::BusService::new(system_clock(), Arc::new(programs), launcher.into());
+    service.self_test(&root.join("self-test")).await.unwrap();
+    assert!(!root.join("self-test").exists(), "the self-test's dir goes");
+
+    let upstream = root.join("bus.sock");
+    let listener = UnixListener::bind(&upstream).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let call_dir = root.join("a".repeat(60)).join("b".repeat(60)).join("call");
+    std::fs::create_dir_all(&call_dir).unwrap();
+    let accepted = BusUpstream { system: Some(upstream.clone()), session: None };
+    let call = service.start(&call_dir, &[BusKind::System], &accepted).await.unwrap();
+
+    let socket = call_dir.join("bus/system.sock");
+    assert!(std::fs::symlink_metadata(&socket).unwrap().file_type().is_socket());
+    // NOTE: the socket's own path is longer than a socket address may be; the client
+    // connects by its name from the bus dir, as the sandbox's bind does not need to.
+    std::env::set_current_dir(call_dir.join("bus")).unwrap();
+    let _client = std::os::unix::net::UnixStream::connect("system.sock").unwrap();
+    Wait::new("the proxy's connection to the stand-in bus")
+        .until(|| listener.accept().is_ok())
+        .await
+        .unwrap();
+    let report = call.finish().await;
+    assert!(!report.stopped);
+    assert!(!socket.exists(), "the proxy removed its socket at its end");
 }
