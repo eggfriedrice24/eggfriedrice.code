@@ -456,7 +456,8 @@ fn engine_keeps_the_host_list_and_decides_as_before() {
         let requirements = Requirements::none().with_command(line).with_command_dir("/home/u/p");
         let request = crate::exits::fact_requests(line, Some(Path::new("/home/u/p")), &locations);
         assert_eq!(request.remotes.is_empty(), !line.starts_with("git"), "{line}");
-        let before = plain.decide(&input(requirements.clone()));
+        // NOTE: both with facts: a git push with facts that name no host is for the user.
+        let before = plain.decide(&input(requirements.clone().with_facts(CallFacts::default())));
         let after = engine.decide(&input(requirements.clone().with_facts(refused.clone())));
         assert_eq!(before, after, "{line}");
         let remotes = engine.decide(&input(requirements.with_facts(facts.clone())));
