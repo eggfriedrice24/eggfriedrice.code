@@ -90,10 +90,10 @@ pub use seccomp::{
     SyscallRule, TIOCLINUX, TIOCSTI,
 };
 pub use spec::{
-    CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS, JOB_DIR,
-    JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan,
-    PROXY_SOCKET_FILE, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec, SpecLaunch,
-    WriteRoot, WriteRootKind, layer_name,
+    BUS_FILTER_DIR, CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS,
+    JOB_DIR, JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind,
+    NetworkPlan, PROXY_SOCKET_FILE, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec,
+    SpecLaunch, WriteRoot, WriteRootKind, bus_filter_file, layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

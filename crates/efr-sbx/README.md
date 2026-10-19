@@ -181,7 +181,9 @@ cargo nextest run -p efr-sbx
 The unit tests need no sandbox; the seccomp tests run the compiled filters on a small
 BPF interpreter for both architectures, and the Landlock TCP test restricts one thread
 of its own. The integration tests (`tests/it/`: the escape suite, the network view's
-escape tests in `netview.rs`, the proxy plan's tests in `proxy.rs`, the behaviour
+escape tests in `netview.rs`, the proxy plan's tests in `proxy.rs`, the bus tests in
+`dbus.rs` (socket grants that reach a bus, and the filtered bus sockets of a call, each
+served by a listener of the test that stands for efrd's bus proxy, `TestBuses`), the behaviour
 tests, the jobs, the probe, the launch cost with the cost of a job's start, of a
 network view call and of a proxy call, and the corpus run) drive the real launcher
 with real bwrap, Landlock and seccomp. A network view test passes a refusal only on its

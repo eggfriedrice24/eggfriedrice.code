@@ -58,9 +58,8 @@ impl MountPlan {
     pub fn build(spec: &SandboxSpec, fs: &dyn FsView) -> Result<MountPlan, SandboxError> {
         spec.check()?;
         // A grant of a newer efr: this build cannot know what it widens, so the call
-        // fails closed. The filtered bus has no plan step yet, so it fails the same way.
-        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown | Grant::BusFilter { .. }))
-        {
+        // fails closed.
+        if spec.grants.iter().any(|grant| matches!(grant, Grant::Unknown)) {
             return Err(SandboxError::UnknownGrant);
         }
         // NOTE: efrd adds the network view only beside `Write` and `Unmask` grants
@@ -110,6 +109,7 @@ impl MountPlan {
         builder.assets()?;
         builder.sockets_and_devices()?;
         builder.proxy()?;
+        builder.bus_filter()?;
         Ok(builder.finish())
     }
 }
@@ -641,6 +641,58 @@ impl Builder<'_> {
             self.env.push(((*name).to_owned(), NO_PROXY.to_owned()));
         }
         self.env.push(("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()));
+        Ok(())
+    }
+
+    /// The call's filtered buses (phase E): for each `Grant::BusFilter`, the call's own
+    /// socket `$CALL/bus/<bus>.sock`, which efrd's bus proxy serves, bound read-only
+    /// where a D-Bus client finds the bus with no variable
+    /// ([`RuntimePaths::inside_bus_socket`](crate::RuntimePaths::inside_bus_socket)),
+    /// a `RESOLVE_UNIX` rule for the child on exactly that place, and the bus's
+    /// address variable.
+    ///
+    /// The session bus lands in the `$XRT` tmpfs. For the system bus the plan first
+    /// puts an empty tmpfs on `/run/dbus`, so the bind has a place and the host's real
+    /// socket there is out of view; with no `/run/dbus` the plan fails with
+    /// [`SandboxError::NoSystemBus`]. The bind is read-only like the proxy socket's:
+    /// `connect()` needs no writable mount. The socket must be a socket, else the call
+    /// fails closed; efrd drops a view that it cannot serve before it writes the spec.
+    fn bus_filter(&mut self) -> Result<(), SandboxError> {
+        let spec = self.spec;
+        let mut done: Vec<BusKind> = Vec::new();
+        for grant in &spec.grants {
+            let Grant::BusFilter { bus } = grant else { continue };
+            if done.contains(bus) {
+                continue;
+            }
+            done.push(*bus);
+            let variable = match bus {
+                BusKind::System => "DBUS_SYSTEM_BUS_ADDRESS",
+                BusKind::Session => "DBUS_SESSION_BUS_ADDRESS",
+                _ => return Err(SandboxError::UnknownGrant),
+            };
+            let source = spec.runtime.bus_filter_socket(*bus);
+            // efrd's call dir lies in efr's runtime root, out of the sandbox's reach, so
+            // a link on the way is followed, as for the launcher's other files.
+            let resolved = self.resolve(&source)?;
+            if resolved.kind != Some(FileKind::Other) {
+                return Err(SandboxError::GrantTarget { path: source });
+            }
+            let target = spec.runtime.inside_bus_socket(*bus);
+            if *bus == BusKind::System {
+                let Some(dir) = target.parent() else { return Err(SandboxError::NoSystemBus) };
+                if self.lstat(dir)? != Some(FileKind::Dir) {
+                    return Err(SandboxError::NoSystemBus);
+                }
+                let op = MountOp::Tmpfs { target: dir.to_path_buf(), perms: 0o755 };
+                self.push(op, OpKind::Mask, MountOrigin::Runtime);
+            }
+            let op =
+                MountOp::Bind { source: resolved.path, target: target.clone(), writable: false };
+            self.push(op, OpKind::Floor, MountOrigin::Asset);
+            self.env.push((variable.to_owned(), format!("unix:path={}", target.display())));
+            self.resolve_unix.push(target);
+        }
         Ok(())
     }
 

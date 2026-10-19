@@ -48,6 +48,29 @@ fn escape_write_outside_root_erofs() {
 }
 
 #[test]
+fn always_allow_under_dir_keeps_floor_binds() {
+    // A write grant of `~/dotfiles`, as an always rule gives one, where `~/.zshrc` (a
+    // floor) links to: the dir is writable, the floor's real file is not.
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    let dotfiles = fixture.home.join("dotfiles");
+    let target = dotfiles.join("zsh/.zshrc");
+    write(&target, "# the user's rc\n");
+    let rc = fixture.home.join(".zshrc");
+    fs::remove_file(&rc).unwrap();
+    symlink(&target, &rc).unwrap();
+    fixture.grant(Grant::Write { path: dotfiles.clone() });
+    let run = fixture.run(&format!(
+        "print pwned >> {}; print ok > {}",
+        q(&target),
+        q(&dotfiles.join("notes.txt"))
+    ));
+    assert!(run.stderr.contains("read-only file system"), "{run:#?}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "# the user's rc\n");
+    assert_eq!(fs::read_to_string(dotfiles.join("notes.txt")).unwrap(), "ok\n");
+}
+
+#[test]
 fn escape_chmod_outside_roots_fails() {
     let ready = sandbox_or_skip!();
     let fixture = Fixture::new(&ready);

@@ -19,7 +19,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use efr_protocol::{CacheMode, CallId, ConversationId, Grant};
+use efr_protocol::{BusKind, CacheMode, CallId, ConversationId, Grant};
 use efr_sandbox::{
     CacheOverlay, ENV_FILE, EnvPlan, Floor, FloorKind, JOB_DIR, JobPlan, LINE_FILE, Mask, MaskKind,
     NONCE_FILE, NetworkPlan, ProbeReport, RESULT_FILE, RecordLimits, RuntimePaths, SPEC_FILE,
@@ -202,6 +202,9 @@ pub(crate) struct Fixture {
     /// The test proxy of [`Fixture::proxy`]: each call then gets a proxy plan with its
     /// own socket.
     proxy: Option<TestProxy>,
+    /// The stand-in bus proxies of [`Fixture::bus_filter`]: each call then gets a
+    /// filtered bus grant for each bus, with its own sockets.
+    buses: Option<TestBuses>,
 }
 
 /// One finished call.
@@ -355,7 +358,21 @@ impl Fixture {
             spec,
             env,
             proxy: None,
+            buses: None,
         }
+    }
+
+    /// Gives every later call `Grant::BusFilter` for each of `buses`, with the call's
+    /// sockets `$CALL/bus/<bus>.sock` served by listeners that stand for efrd's bus
+    /// proxy: each answers a connection with one line, the name of its bus.
+    pub(crate) fn bus_filter(&mut self, buses: &[BusKind]) -> TestBuses {
+        let stand_ins = TestBuses {
+            buses: buses.to_vec(),
+            log: std::sync::Arc::default(),
+            serving: std::sync::Arc::default(),
+        };
+        self.buses = Some(stand_ins.clone());
+        stand_ins
     }
 
     /// Gives every later call a proxy plan (`NetworkPlan::Proxy`), with its socket at
@@ -379,6 +396,10 @@ impl Fixture {
         spec.runtime.call_dir = call_dir.to_path_buf();
         if let Some(proxy) = &self.proxy {
             spec.network = NetworkPlan::Proxy { socket: proxy.serve(call_dir) };
+        }
+        if let Some(buses) = &self.buses {
+            buses.serve(&spec.runtime);
+            spec.grants.extend(buses.buses.iter().map(|bus| Grant::BusFilter { bus: *bus }));
         }
         spec
     }
@@ -506,6 +527,9 @@ impl Fixture {
         let apply = fs::read(call_dir.join("apply")).ok();
         if let Some(proxy) = &self.proxy {
             proxy.close(call_dir);
+        }
+        if let Some(buses) = &self.buses {
+            buses.close(call_dir);
         }
         Run { status, stdout, stderr, result, apply, call_dir: call_dir.to_path_buf() }
     }
@@ -937,6 +961,85 @@ impl TestProxy {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Listeners that stand for efrd's bus proxy: every call of the fixture gets one per bus
+/// at `$CALL/bus/<bus>.sock` (the dir 0700, as efrd makes it). Each answers a connection
+/// with one line, `system` or `session`, and counts it.
+#[derive(Debug, Clone)]
+pub(crate) struct TestBuses {
+    buses: Vec<BusKind>,
+    log: std::sync::Arc<std::sync::Mutex<Vec<BusKind>>>,
+    serving: std::sync::Arc<std::sync::Mutex<Vec<Serving>>>,
+}
+
+/// The line that a stand-in bus answers.
+pub(crate) fn bus_word(bus: BusKind) -> &'static str {
+    if bus == BusKind::System { "system" } else { "session" }
+}
+
+impl TestBuses {
+    /// The buses that got a connection so far, in the order they came.
+    pub(crate) fn connections(&self) -> Vec<BusKind> {
+        self.log.lock().unwrap().clone()
+    }
+
+    /// Binds the call's bus sockets through the bus dir's descriptor, so a deep call
+    /// dir still fits a socket address, and serves each on a thread of its own.
+    fn serve(&self, runtime: &RuntimePaths) {
+        use std::os::fd::AsRawFd;
+        let dir_path = runtime.bus_filter_dir();
+        private_dir(&dir_path);
+        let flags = rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY;
+        let dir = rustix::fs::open(&dir_path, flags, rustix::fs::Mode::empty()).unwrap();
+        for bus in self.buses.clone() {
+            let name = efr_sandbox::bus_filter_file(bus);
+            let short = PathBuf::from(format!("/proc/self/fd/{}", dir.as_raw_fd())).join(name);
+            let listener = std::os::unix::net::UnixListener::bind(&short).unwrap();
+            let stop = std::sync::Arc::new(AtomicBool::new(false));
+            self.serving.lock().unwrap().push((runtime.call_dir.clone(), stop.clone()));
+            let log = self.log.clone();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let Ok(mut stream) = stream else { continue };
+                    log.lock().unwrap().push(bus);
+                    let _ = writeln!(stream, "{}", bus_word(bus));
+                }
+            });
+        }
+    }
+
+    /// Ends the listeners of `call_dir` once its call ended: the flags, then one
+    /// connection to each that wakes its accept.
+    fn close(&self, call_dir: &Path) {
+        use std::os::fd::AsRawFd;
+        let mut serving = self.serving.lock().unwrap();
+        let mut ended = false;
+        serving.retain(|(dir, stop)| {
+            if dir == call_dir {
+                stop.store(true, Ordering::SeqCst);
+                ended = true;
+                false
+            } else {
+                true
+            }
+        });
+        if !ended {
+            return;
+        }
+        let flags = rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY;
+        let bus_dir = call_dir.join(efr_sandbox::BUS_FILTER_DIR);
+        if let Ok(dir) = rustix::fs::open(&bus_dir, flags, rustix::fs::Mode::empty()) {
+            for bus in &self.buses {
+                let short = PathBuf::from(format!("/proc/self/fd/{}", dir.as_raw_fd()))
+                    .join(efr_sandbox::bus_filter_file(*bus));
+                let _ = std::os::unix::net::UnixStream::connect(short);
             }
         }
     }
