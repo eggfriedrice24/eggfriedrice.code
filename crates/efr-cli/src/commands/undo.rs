@@ -147,7 +147,7 @@ async fn call(client: &Client, params: TurnUndo) -> Result<TurnUndoResult, CliEr
 }
 
 /// Reads keys until `y` or `n`; Esc says no, and Ctrl+C stops `efr`.
-async fn answer(ctx: &Context) -> Result<bool, CliError> {
+pub(crate) async fn answer(ctx: &Context) -> Result<bool, CliError> {
     let mut reader = ctx.keys.start()?;
     let mut interrupt = ctx.interrupt.wait();
     let answer = loop {

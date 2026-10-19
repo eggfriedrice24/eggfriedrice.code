@@ -614,6 +614,25 @@ fn sigterm_while_a_turn_runs_ends_efr_by_the_signal() {
 }
 
 #[test]
+fn sandbox_allow_lists_the_rules_and_removes_none_without_a_terminal() {
+    let roots = Roots::new();
+    let file = roots.path("config").join("config.toml");
+    let text = "# mine\n[[sandbox.allow]]\nkind = \"write\"\nunder = \"~/notes\"\n";
+    std::fs::write(&file, text).unwrap();
+    let output = roots.efr().args(["sandbox", "allow"]).env("NO_COLOR", "1").output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr_of(&output));
+    assert_eq!(stdout_of(&output), "sandbox.allow[0]  write under ~/notes\n");
+    assert_eq!(
+        stderr_of(&output),
+        "the daemon is not running, so efr cannot say which rules are disabled\n"
+    );
+    let output = roots.efr().args(["sandbox", "allow", "remove", "0"]).output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
+    assert!(stderr_of(&output).contains("needs a terminal"), "{}", stderr_of(&output));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+}
+
+#[test]
 fn config_show_reads_the_environment_and_the_config_file() {
     let roots = Roots::new();
     std::fs::write(roots.path("config").join("config.toml"), "[render]\ntheme = \"nord\"\n")

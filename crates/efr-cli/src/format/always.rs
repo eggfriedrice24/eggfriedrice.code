@@ -56,5 +56,39 @@ pub(crate) fn covered(place: Option<&str>, rule: Option<&str>) -> String {
     }
 }
 
+/// What efrd's warning of a disabled rule starts with after the rule's place, as in
+/// `sandbox.allow[1] is disabled: it names a floor`.
+const DISABLED: &str = "] is disabled: ";
+
+/// The disabled rules among `warnings`, the sandbox warnings of `admin.status` (DE44):
+/// each rule's index with the reason that efrd gave, in the order of the warnings.
+pub(crate) fn disabled(warnings: &[String]) -> Vec<(usize, String)> {
+    warnings
+        .iter()
+        .filter_map(|warning| {
+            let rest = warning.strip_prefix(KEY)?.strip_prefix('[')?;
+            let (index, reason) = rest.split_once(DISABLED)?;
+            Some((index.parse().ok()?, reason.to_owned()))
+        })
+        .collect()
+}
+
+/// One row of `efr sandbox allow`: `sandbox.allow[0]  write under ~/notes`, with
+/// `; disabled: <reason>` for a rule that efrd disabled.
+pub(crate) fn list_row(index: usize, rule: &str, disabled: Option<&str>) -> String {
+    let mut row = format!("{KEY}[{index}]  {}", one_line(rule));
+    if let Some(reason) = disabled {
+        row.push_str("; disabled: ");
+        row.push_str(&one_line(reason));
+    }
+    row
+}
+
+/// The question of `efr sandbox allow remove N`: `remove sandbox.allow[0]: write under
+/// ~/notes? y/n`.
+pub(crate) fn remove_question(index: usize, rule: &str) -> String {
+    format!("remove {KEY}[{index}]: {}? y/n", one_line(rule))
+}
+
 #[cfg(test)]
 mod tests;

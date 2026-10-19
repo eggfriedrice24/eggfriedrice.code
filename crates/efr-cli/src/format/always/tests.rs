@@ -1,7 +1,7 @@
 use efr_protocol::{AlwaysSaved, NotSavedReason};
 use pretty_assertions::assert_eq;
 
-use super::{covered, saved};
+use super::{covered, disabled, list_row, remove_question, saved};
 
 #[test]
 fn saved_says_where_the_rule_is() {
@@ -57,4 +57,31 @@ fn covered_names_the_rule_and_its_place() {
     assert_eq!(covered(Some("sandbox.allow[2]"), None), "allowed by your rule sandbox.allow[2]");
     assert_eq!(covered(None, Some("host a.test:443")), "allowed by your rule: host a.test:443");
     assert_eq!(covered(Some(" "), Some("")), "allowed by your rule");
+}
+
+#[test]
+fn disabled_rules_come_from_the_sandbox_warnings() {
+    let warnings = [
+        "the network view's self-test failed".to_owned(),
+        "sandbox.allow[1] is disabled: it names a floor".to_owned(),
+        "sandbox.allow[x] is disabled: not a number".to_owned(),
+        "sandbox.allow[12] is disabled: it is a synced dir".to_owned(),
+    ];
+    assert_eq!(
+        disabled(&warnings),
+        [(1, "it names a floor".to_owned()), (12, "it is a synced dir".to_owned())]
+    );
+}
+
+#[test]
+fn a_list_row_and_the_remove_question_name_the_rule_safely() {
+    assert_eq!(list_row(0, "write under ~/notes", None), "sandbox.allow[0]  write under ~/notes");
+    assert_eq!(
+        list_row(1, "socket ~/a\x1b[2J", Some("it is a link\n")),
+        "sandbox.allow[1]  socket ~/a\u{241b}[2J; disabled: it is a link "
+    );
+    assert_eq!(
+        remove_question(2, "host a.test:443"),
+        "remove sandbox.allow[2]: host a.test:443? y/n"
+    );
 }
