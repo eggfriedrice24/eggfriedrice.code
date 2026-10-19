@@ -389,12 +389,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
   allowed hosts.
 - The network proxy is on by default. It cannot see inside TLS: a sandboxed command can
-  still send data to a host on your allow list, with no credentials: at most `network.max_upload_bytes` (4 MiB)
-  per command, counted from the first byte of each connection. Hosts that fetch on
-  behalf of the client (the Go module proxy) and DNS names below your own `*.suffix`
-  entries widen this. Socket grants that reach the network, such as Docker's socket,
-  are a way around the proxy. `docs/adr/0012-network-proxy.md` lists what the proxy
-  checks and what it cannot stop.
+  still send data to a host on your allow list, with no credentials: at most
+  `network.max_upload_bytes` (4 MiB) per command, counted from the first byte of each
+  connection. Hosts that fetch on behalf of the client (the Go module proxy) and DNS
+  names below your own `*.suffix` entries widen this. Socket grants that reach the
+  network, such as Docker's socket, are a way around the proxy.
+  `docs/adr/0012-network-proxy.md` lists what the proxy checks and what it cannot
+  stop.
 
 ## [0.0.3] - 2026-10-09
 
