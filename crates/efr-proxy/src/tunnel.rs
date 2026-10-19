@@ -31,8 +31,9 @@ pub(crate) async fn run(call: &Call, mut client: UnixStream, host: &str, port: u
         Some(BlockReason::UploadLimit)
     } else if !allowed {
         Some(BlockReason::NotAllowed)
-    } else if port == 80 {
-        // Port 80 is plain GET and HEAD, never a tunnel.
+    } else if !call.may_tunnel(host, port) {
+        // Port 80, and a port that only an `http` entry opens, are plain GET and HEAD,
+        // never a tunnel.
         Some(BlockReason::Method)
     } else {
         None

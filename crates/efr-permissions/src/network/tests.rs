@@ -132,6 +132,30 @@ fn host_list_port_rules() {
 }
 
 #[test]
+fn http_entry_with_port_opens_no_tunnel() {
+    let list = HostList::compile(
+        &["plain.example".to_owned()],
+        &["denied.example".to_owned()],
+        &[
+            HostTable { host: "mirror.example", port: None, http: true, private: false },
+            HostTable { host: "lan.example", port: Some(8080), http: true, private: false },
+            HostTable { host: "git.example", port: Some(8443), http: false, private: false },
+            HostTable { host: "denied.example", port: Some(8443), http: false, private: false },
+        ],
+        &[],
+    )
+    .unwrap();
+    assert!(list.tunnels("plain.example", 443));
+    assert!(list.tunnels("mirror.example", 443), "an http entry with no port keeps 443");
+    assert!(!list.tunnels("mirror.example", 80), "port 80 is never a tunnel");
+    assert!(list.allows("lan.example", 8080));
+    assert!(!list.tunnels("lan.example", 8080), "plain GET and HEAD only");
+    assert!(list.tunnels("git.example", 8443));
+    assert!(!list.tunnels("denied.example", 8443), "deny wins");
+    assert!(!list.tunnels("other.example", 443));
+}
+
+#[test]
 fn host_list_merges_the_entries_of_one_host() {
     let list = HostList::compile(
         &words(&["@github-read"]),

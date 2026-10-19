@@ -806,7 +806,7 @@ with a count; `and N more` counts the rest.
 | `the TLS name differs from the host` | the server name of the TLS hello is not the host |
 | `not TLS` | no TLS hello with a server name, or a hello that asks for Encrypted Client Hello |
 | `ip address` | the command named an IP address |
-| `a method that is not allowed` | plain HTTP other than `GET` and `HEAD`, or a tunnel to port 80 |
+| `a method that is not allowed` | plain HTTP other than `GET` and `HEAD`, or a tunnel to port 80 or to a port that only an `http` entry allows |
 | `bad request` | a malformed request head |
 | `over the upload limit` | the call sent more than `max_upload_bytes` |
 | `too many connections` | more than 64 open connections in the call |
