@@ -332,5 +332,37 @@ fn write_grant_dir_joins_the_guard_roots() {
     spec.check().unwrap();
     // Without a write grant the guard scans what it did before.
     let routine = fixture.plan(&settings, &Launch::contained(), Some(&app), &[]).spec;
-    assert_eq!(routine.guard_roots, [app, scratch]);
+    assert_eq!(routine.guard_roots, [app.clone(), scratch.clone()]);
+}
+
+#[test]
+fn write_grant_in_a_git_dir_or_through_a_link_joins_the_guard_roots() {
+    let fixture = Fixture::new();
+    let home = &fixture.home;
+    let app = home.join("p/app");
+    let scratch = fixture.dirs.data().join("scratch/x");
+    let settings = SandboxSettings::default();
+    let notes = home.join("notes");
+    std::fs::create_dir_all(notes.join(".git/hooks")).unwrap();
+    std::fs::write(notes.join(".git/config"), "").unwrap();
+    // A grant in the git dir, and a file there: the guard scans the dir that holds
+    // `.git`, because it looks for `.git` only at and below its roots.
+    for path in [notes.join(".git/hooks"), notes.join(".git/config")] {
+        let launch = Launch::Contained { grants: vec![Grant::Write { path: path.clone() }] };
+        let spec = fixture.plan(&settings, &launch, Some(&app), &[]).spec;
+        assert_eq!(spec.guard_roots, [app.clone(), notes.clone(), scratch.clone()], "{path:?}");
+        spec.check().unwrap();
+    }
+    // A link to a repository: the plan binds the repository, so the guard scans it.
+    let repo = home.join("repo");
+    std::fs::create_dir_all(repo.join(".git/hooks")).unwrap();
+    let link = home.join("link");
+    std::os::unix::fs::symlink(&repo, &link).unwrap();
+    let hooks = home.join("hooks");
+    std::os::unix::fs::symlink(notes.join(".git/hooks"), &hooks).unwrap();
+    let launch = Launch::Contained {
+        grants: vec![Grant::Write { path: link }, Grant::Write { path: hooks }],
+    };
+    let spec = fixture.plan(&settings, &launch, Some(&app), &[]).spec;
+    assert_eq!(spec.guard_roots, [app, repo, notes, scratch]);
 }
