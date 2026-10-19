@@ -1,0 +1,15 @@
+---
+source: crates/efr-cli/src/commands/sandbox/allow/tests.rs
+expression: left
+---
+# my rules
+[sandbox]
+# notes are mine
+[[sandbox.allow]]
+kind = "write"
+under = "~/notes"
+
+# downloads
+[[sandbox.allow]]
+kind = "host"
+host = "download.example.org"

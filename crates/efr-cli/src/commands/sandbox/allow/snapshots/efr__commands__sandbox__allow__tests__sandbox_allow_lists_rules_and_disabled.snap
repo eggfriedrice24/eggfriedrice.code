@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/commands/sandbox/allow/tests.rs
+expression: stdout
+---
+sandbox.allow[0]  write under ~/notes
+sandbox.allow[1]  write under ~/.zshrc; disabled: it names a shell startup file (floor)
+sandbox.allow[2]  host download.example.org:443

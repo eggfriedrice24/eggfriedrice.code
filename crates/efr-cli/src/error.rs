@@ -32,8 +32,9 @@ pub(crate) enum Exit {
     /// 1: the daemon failed the request, the turn failed, or the connection broke.
     DaemonError,
     /// 1: a config file has an error (`efr config check`, `edit`, `set`, `unset`), the
-    /// daemon refused one on `efr config reload`, or `efr sandbox check` found the
-    /// sandbox unavailable.
+    /// daemon refused one on `efr config reload`, `efr sandbox check` found the
+    /// sandbox unavailable, or the rule that `efr sandbox allow remove` asked about
+    /// changed in the file.
     Invalid,
     /// 2: the command line or its input is wrong.
     Usage,
@@ -302,6 +303,20 @@ pub(crate) enum CliError {
     /// `efr sandbox check` found the sandbox unavailable; it has already printed why.
     #[error("the sandbox is not available")]
     SandboxUnavailable,
+
+    /// `efr sandbox allow remove N` names a rule that `config.toml` does not have.
+    #[error("sandbox.allow has no rule {index}; config.toml has {count}")]
+    NoAllowRule { index: usize, count: usize },
+
+    /// `efr sandbox allow remove` cannot ask its question: stdin is no terminal. It
+    /// changed nothing.
+    #[error("efr sandbox allow remove needs a terminal for its question; nothing changed")]
+    AllowRemoveNeedsTerminal,
+
+    /// The rule at the index that `efr sandbox allow remove` showed is another rule now:
+    /// the file changed after the question. Nothing changed.
+    #[error("sandbox.allow[{index}] changed after the question; nothing changed")]
+    AllowRuleMoved { index: usize },
 }
 
 impl CliError {
@@ -325,10 +340,14 @@ impl CliError {
             | CliError::NoKey { .. }
             | CliError::KeyTooLong { .. }
             | CliError::UndoNeedsYes
+            | CliError::NoAllowRule { .. }
+            | CliError::AllowRemoveNeedsTerminal
             | CliError::AmbiguousConversation { .. } => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
-            CliError::ConfigInvalid | CliError::SandboxUnavailable => Exit::Invalid,
+            CliError::ConfigInvalid
+            | CliError::SandboxUnavailable
+            | CliError::AllowRuleMoved { .. } => Exit::Invalid,
             _ => Exit::DaemonError,
         }
     }
@@ -391,6 +410,9 @@ impl CliError {
             },
             CliError::NewWithoutPrompt => {
                 Some("in zsh, a bare ,new makes the next , line start a new conversation")
+            }
+            CliError::NoAllowRule { .. } | CliError::AllowRuleMoved { .. } => {
+                Some("efr sandbox allow lists the rules with their numbers")
             }
             _ => None,
         }

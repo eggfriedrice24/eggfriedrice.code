@@ -1,11 +1,14 @@
-//! `efr sandbox check` and `efr sandbox explain`: the sandbox of the `auto` mode, as the
-//! daemon sees it.
+//! `efr sandbox check`, `efr sandbox explain` and `efr sandbox allow`: the sandbox of the
+//! `auto` mode, as the daemon sees it, and the always-allow rules.
 //!
 //! `check` asks the daemon to run its probe now (`admin.sandbox_check`), prints every
 //! check with its outcome and the fix of a failed one, and exits with 1 when the
 //! sandbox is not available, so a script can test it. `explain` asks what a contained
 //! command can do with one path (`sandbox.explain`), from the current directory, which
-//! picks the project.
+//! picks the project. `allow` lists the always-allow rules of `config.toml`, and
+//! `allow remove N` removes one after a question.
+
+mod allow;
 
 use std::path::Path;
 
@@ -14,7 +17,7 @@ use efr_protocol::{
     SandboxExplainResult,
 };
 
-use crate::cli::SandboxCommand;
+use crate::cli::{AllowCommand, SandboxCommand};
 use crate::context::Context;
 use crate::error::CliError;
 use crate::format::sandbox;
@@ -28,6 +31,10 @@ pub(crate) async fn run(
     match command {
         SandboxCommand::Check => check(ctx, out).await,
         SandboxCommand::Explain { path } => explain(ctx, out, path).await,
+        SandboxCommand::Allow { command: None } => allow::list(ctx, out).await,
+        SandboxCommand::Allow { command: Some(AllowCommand::Remove { index }) } => {
+            allow::remove(ctx, out, *index).await
+        }
     }
 }
 

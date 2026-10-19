@@ -239,6 +239,11 @@ into the GitHub release notes, and it stops when the section is missing.
   and efr tells the model which call the filter refused and how to ask for the whole
   bus for one command. The record of a command or a job keeps the refused calls. When
   the filter stops during a command, efr tells the model too.
+- `efr sandbox allow` lists the always rules of `config.toml` with their numbers, and
+  marks a rule that efrd disabled with the reason. `efr sandbox allow remove N` asks
+  `remove sandbox.allow[N]: <rule>? y/n`, removes the rule with `y`, keeps the comments
+  of the file, and makes efrd read the file again. It removes nothing when the rule at
+  N changed after the question.
 - `efr status` and `efr sandbox check` show `bus filter on`, or `bus filter off` with
   the reason, such as `dbus.proxy = false` or `xdg-dbus-proxy is not installed`. With
   `[dbus] proxy = true`, a command shows each bus call that the filter refused under

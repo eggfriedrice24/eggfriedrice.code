@@ -535,7 +535,7 @@ async fn reload(ctx: &Context) -> Result<AdminConfigReloadResult, CliError> {
 
 /// Asks the daemon to reload after a change, and says how that went. A daemon that is
 /// not running reads the file when it starts.
-async fn reload_after_change(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
+pub(crate) async fn reload_after_change(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
     match reload(ctx).await {
         Ok(result) => report_reload(out, &result),
         Err(CliError::Client(ClientError::DaemonNotRunning { .. })) => {
