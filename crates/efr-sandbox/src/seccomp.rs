@@ -3,7 +3,8 @@
 //! no build or test needs and stops typing into the shared terminal. A call with
 //! `Grant::NetView` keeps the host's network namespace and gets
 //! [`SeccompProfile::net_view`], which also takes every network socket away. The bridge
-//! of a proxy call gets [`SeccompProfile::bridge`].
+//! of a proxy call gets [`SeccompProfile::bridge`], and the bus proxy of phase E
+//! [`SeccompProfile::bus_proxy`].
 
 use serde::{Deserialize, Serialize};
 
@@ -185,6 +186,10 @@ const NET_VIEW_DENIED: &[&str] = &["listen", "pidfd_getfd"];
 /// already.
 const BRIDGE_DENIED: &[&str] = &["bind", "listen", "execve", "execveat", "pidfd_getfd"];
 
+/// The calls that also fail with `EPERM` in the bus proxy; `ptrace` is in [`DENIED`]
+/// already.
+const BUS_PROXY_DENIED: &[&str] = &["pidfd_getfd"];
+
 impl SeccompProfile {
     /// The deny list of phase 1 (the spec's section 3.6).
     pub fn phase1() -> SeccompProfile {
@@ -249,6 +254,27 @@ impl SeccompProfile {
         }
         profile.rules.extend(
             BRIDGE_DENIED
+                .iter()
+                .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
+        );
+        profile
+    }
+
+    /// The profile of the bus proxy (`efr-sbx dbus-proxy`, phase E), on the model of
+    /// [`bridge`](Self::bridge): phase 1 with only `AF_UNIX` sockets, and `ptrace` and
+    /// `pidfd_getfd` refused. The proxy binds and listens on its sockets, so `bind` and
+    /// `listen` stay. The wrapper installs the filter before it runs the proxy, so
+    /// `execve` stays too; the Landlock domain lets it run only the program and the
+    /// library dirs, in the same domain and filter.
+    pub fn bus_proxy() -> SeccompProfile {
+        let mut profile = SeccompProfile::phase1();
+        for rule in &mut profile.rules {
+            if let SyscallRule::AllowSocketFamilies { allowed, .. } = rule {
+                *allowed = vec![AF_UNIX];
+            }
+        }
+        profile.rules.extend(
+            BUS_PROXY_DENIED
                 .iter()
                 .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
         );

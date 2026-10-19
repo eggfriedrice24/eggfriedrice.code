@@ -115,7 +115,26 @@ impl FsAccess {
 
     /// The rule on a granted socket.
     pub const SOCKET: [FsAccess; 1] = [FsAccess::ResolveUnix];
+
+    /// The rule on one file that a process may read and run, such as the bus proxy's
+    /// program: the file rights of [`READ_EXEC`](Self::READ_EXEC). Landlock refuses a
+    /// directory right on a file.
+    pub const READ_FILE: [FsAccess; 2] = [FsAccess::Execute, FsAccess::ReadFile];
+
+    /// The rule on the bus proxy's socket dir: make its sockets, remove them at its
+    /// end, and connect to them. No file, no dir, no write.
+    pub const SOCKET_DIR: [FsAccess; 3] =
+        [FsAccess::MakeSock, FsAccess::RemoveFile, FsAccess::ResolveUnix];
 }
+
+/// The dirs that the bus proxy reads and runs besides its own program: those of the
+/// shared libraries. GLib needs no other file but the loader's cache
+/// ([`BUS_PROXY_FILES`]) (check C2-4 of the phase E plan; Ubuntu's libraries lie below
+/// `/usr/lib` too).
+pub const BUS_PROXY_READS: &[&str] = &["/usr/lib", "/usr/lib64", "/lib", "/lib64"];
+
+/// The files that the bus proxy reads besides its own program: the loader's cache.
+pub const BUS_PROXY_FILES: &[&str] = &["/etc/ld.so.cache"];
 
 /// A Landlock scope: what a sandboxed process cannot reach outside its domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -167,6 +186,14 @@ pub struct LandlockPolicy {
     /// Every other call keeps TCP, so loopback servers in a call work.
     #[serde(default)]
     pub deny_tcp: bool,
+    /// Files with [`FsAccess::READ_FILE`]: the bus proxy's program and the loader's
+    /// cache. Empty for every call, which reads all of `/`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_files: Vec<PathBuf>,
+    /// Dirs with [`FsAccess::SOCKET_DIR`]: the bus proxy's own socket dir. Empty for
+    /// every call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub socket_dirs: Vec<PathBuf>,
 }
 
 impl LandlockPolicy {
@@ -188,6 +215,37 @@ impl LandlockPolicy {
             devices: Vec::new(),
             scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
             deny_tcp: true,
+            read_files: Vec::new(),
+            socket_dirs: Vec::new(),
+        }
+    }
+
+    /// The domain of `xdg-dbus-proxy` under `efr-sbx dbus-proxy` (phase E): every file
+    /// right handled; read and run only `program`, [`BUS_PROXY_READS`] and
+    /// [`BUS_PROXY_FILES`]; connect only
+    /// to each of `upstream`, the real buses; make, remove and connect to sockets only
+    /// in `dir`, the call's bus dir; no TCP bind or connect; abstract sockets and
+    /// signals outside the domain scoped. So the proxy reads no file of the user, writes
+    /// none, reaches no other socket and no network. It still holds the user's full
+    /// rights on each bus: the domain limits files and network, never what the proxy
+    /// asks the bus.
+    pub fn bus_proxy(program: &Path, dir: &Path, upstream: &[PathBuf]) -> LandlockPolicy {
+        let mut read_files = vec![program.to_path_buf()];
+        read_files.extend(BUS_PROXY_FILES.iter().map(PathBuf::from));
+        LandlockPolicy {
+            min_abi: MIN_LANDLOCK_ABI,
+            required_errata: ERRATUM_DISCONNECTED_DIRS,
+            read_exec: BUS_PROXY_READS.iter().map(PathBuf::from).collect(),
+            write: Vec::new(),
+            write_files: Vec::new(),
+            dev_rw: Vec::new(),
+            tty_fds: Vec::new(),
+            resolve_unix: upstream.to_vec(),
+            devices: Vec::new(),
+            scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
+            deny_tcp: true,
+            read_files,
+            socket_dirs: vec![dir.to_path_buf()],
         }
     }
 
@@ -201,11 +259,13 @@ impl LandlockPolicy {
             }
         };
         add(&self.read_exec, &FsAccess::READ_EXEC);
+        add(&self.read_files, &FsAccess::READ_FILE);
         add(&self.write, &FsAccess::WRITE_DIR);
         add(&self.write_files, &FsAccess::WRITE_FILE);
         add(&self.dev_rw, &FsAccess::DEV_RW);
         add(&self.devices, &FsAccess::DEVICE);
         add(&self.resolve_unix, &FsAccess::SOCKET);
+        add(&self.socket_dirs, &FsAccess::SOCKET_DIR);
         rules
     }
 }
@@ -228,6 +288,8 @@ impl MountPlan {
             devices,
             scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
             deny_tcp: self.net_view,
+            read_files: Vec::new(),
+            socket_dirs: Vec::new(),
         }
     }
 }

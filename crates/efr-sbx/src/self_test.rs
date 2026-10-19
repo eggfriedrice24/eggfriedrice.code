@@ -10,6 +10,7 @@
 //! count. With `--proxy` it runs the checks of a call with a proxy plan
 //! ([`PROXY_CHECKS`]): a tunnel through the bridge works, and the proxy socket, other
 //! addresses and the bridge itself are out of reach, each with its exact result.
+//! With `--bus-proxy` it runs the checks of the bus proxy's domain (`bus_proxy.rs`).
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -92,6 +93,31 @@ pub(crate) struct SelfTestArgs {
     /// name server; more than one may come.
     #[arg(long)]
     pub(crate) udp: Vec<SocketAddr>,
+    /// Run the checks of the bus proxy's domain (`BUS_PROXY_CHECKS`) behind
+    /// `efr-sbx dbus-proxy`, and write them on `--ready-fd` after the ready byte.
+    #[arg(long, requires = "ready_fd")]
+    pub(crate) bus_proxy: bool,
+    /// With `--bus-proxy`: the sync pipe, 3.
+    #[arg(long)]
+    pub(crate) ready_fd: Option<i32>,
+    /// With `--bus-proxy`: a socket name to bind, connect to and remove in the working
+    /// dir.
+    #[arg(long)]
+    pub(crate) bind: Option<PathBuf>,
+    /// With `--bus-proxy`: a bus socket that a connect must reach; more than one may
+    /// come.
+    #[arg(long)]
+    pub(crate) upstream: Vec<PathBuf>,
+    /// With `--bus-proxy`: a socket that a connect must fail to reach with EACCES; more
+    /// than one may come.
+    #[arg(long)]
+    pub(crate) refuse: Vec<PathBuf>,
+    /// With `--bus-proxy`: a dir where a new file must fail with EACCES.
+    #[arg(long)]
+    pub(crate) write_dir: Option<PathBuf>,
+    /// With `--bus-proxy`: a file whose read must fail with EACCES.
+    #[arg(long)]
+    pub(crate) read: Option<PathBuf>,
 }
 
 /// One check's outcome, as the self-test prints it.
@@ -179,6 +205,9 @@ const OTHER_NETLINK: &[u32] = &[16, 15, 9];
 
 /// Runs the checks and prints them; the exit status says whether all passed.
 pub(crate) fn main(args: &SelfTestArgs) -> std::process::ExitCode {
+    if args.bus_proxy {
+        return bus_proxy::main(args);
+    }
     let mut all = true;
     let mut out = io::stdout().lock();
     if args.proxy {
@@ -651,6 +680,8 @@ pub(crate) fn socket_path(path: &Path) -> io::Result<(Option<OwnedFd>, PathBuf)>
 fn outcome(ok: bool, detail: String) -> (bool, String) {
     (ok, detail)
 }
+
+mod bus_proxy;
 
 #[cfg(test)]
 mod tests;
