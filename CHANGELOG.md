@@ -396,6 +396,8 @@ into the GitHub release notes, and it stops when the section is missing.
   network, such as Docker's socket, are a way around the proxy.
   `docs/adr/0012-network-proxy.md` lists what the proxy checks and what it cannot
   stop.
+- A process below a hidden shell or a job that declares itself a phone now gets the
+  read scope only. Before, it could approve exits.
 
 ## [0.0.3] - 2026-10-09
 

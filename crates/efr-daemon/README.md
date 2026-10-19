@@ -276,7 +276,9 @@ twice, once for the scope and once for the handler, so a new protocol method doe
 compile until it has both. One handler per method lives in `methods/<noun_verb>.rs`.
 Connections on the Unix socket hold every scope, `admin` included; a phone connection
 (`Origin::Phone`, the tailnet listener of a later milestone) holds `read`, `operate` and
-`approve`.
+`approve`. efrd walks `/proc` for each peer on the Unix socket, also for one that
+declares `phone`, so a model-side process holds `read` only, whatever origin it
+declares. The tailnet listener must grant the phone scopes by its own pairing.
 
 - Writes (`prompt.send`, `prompt.withdraw`, `turn.interrupt`, `turn.steer`,
   `approval.respond`) answer a retried command id from its receipt. A refusal a retry cannot change (`invalid`,
