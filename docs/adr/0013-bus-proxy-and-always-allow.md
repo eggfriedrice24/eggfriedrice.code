@@ -45,8 +45,9 @@ also under prompt injection.
    TCP, the signal and abstract socket scopes), a seccomp filter (only `AF_UNIX`
    sockets, no `ptrace` and no `pidfd_getfd`; `execve` stays, because the wrapper sets
    the filter before it runs the program, and Landlock lets it run only the program
-   and the library dirs), an fd limit of 64 and `no_new_privs`, then runs the program. It moves its stdout to fd 3 with the
-   existing `fds.rs` code, so no new `unsafe` came. The ready byte on fd 3 within 2 s
+   and the library dirs), an fd limit of 64 and `no_new_privs`, then runs the program.
+   It moves its stdout to fd 3 with the existing `fds.rs` code, so no new `unsafe`
+   came. The ready byte on fd 3 within 2 s
    means ready; no byte is a start failure, and the call fails. It never gets the whole
    bus instead.
 
@@ -113,6 +114,13 @@ also under prompt injection.
   that includes `StartTransientUnit`, which runs code outside the sandbox. The wrapper
   limits files, network, system calls and fds; it does not limit what the proxy may
   send on its upstream connection.
+- The proxy can still call `execve` after it starts. The plan wanted no `execve` after
+  the exec of the program, but a seccomp filter cannot tell the wrapper's one exec from
+  a later one. A later exec stays in the same Landlock domain, seccomp filter and fd
+  limit, and `no_new_privs` gives a setuid program no rights. So it gives a proxy that
+  a parser bug took over nothing that its own code cannot do: the domain reads only
+  the program, the library dirs and the loader's cache, and the loader runs any program
+  that it can read. For the same reason the run right stays on the library dirs.
 - The filter checks no arguments. `Properties.Get` and `GetAll` on an allowed path
   read every property there. A session unit's properties can show the environment of a
   transient unit (`systemd-run --user -E`), which the sandbox hides.
