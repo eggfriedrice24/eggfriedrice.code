@@ -1085,8 +1085,8 @@ still add a rule: efrd reloads the file when it changes.
 
 efrd checks each rule when it loads the file. A rule of a bad shape, such as
 `under = 5`, stops efrd at start and makes a reload fail. A rule that fails a floor
-check stays in the file but is disabled: efrd logs one warning, `efr status` shows
-`sandbox.allow[1] is disabled: <reason>`, and the rule covers no call. Such a rule can
+check stays in the file but is disabled: efrd logs one warning, `efr sandbox check`
+shows `sandbox.allow[1] is disabled: <reason>`, and the rule covers no call. Such a rule can
 turn bad with no edit, for example when you register a new project below it.
 `efr config check` checks only the shape.
 
@@ -1380,7 +1380,7 @@ failure here is a warning too: the filter is off, and the read-only queries of "
 filter" go to the reviewer as `bus` exits, which is stricter, never looser. `efr
 status` shows `bus filter on`, or `bus filter off` with the reason.
 
-These warnings show in `efr status` and in efrd's log; `auto` still runs:
+These warnings show in `efr sandbox check` and in efrd's log; `auto` still runs:
 
 | Warning | Meaning | Fix |
 |---|---|---|
