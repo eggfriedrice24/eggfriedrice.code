@@ -33,7 +33,8 @@ pub struct DiffSettings {
     /// without `/` matches the name of a file in any directory; a glob that ends in `/`
     /// matches every file below a directory of that name; other globs match the whole
     /// path from the project root. Your groups match first, in the order of the file,
-    /// then the built-in groups: generated, tests, docs, else code.
+    /// then the built-in groups: generated, tests, docs, else code. A group named
+    /// `code` keeps its files in code; `total` is not a name of a group.
     #[schemars(with = "BTreeMap<String, Vec<String>>")]
     pub groups: DiffGroups,
 }

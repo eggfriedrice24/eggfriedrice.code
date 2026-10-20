@@ -58,7 +58,9 @@ fn a_group_name_is_short_and_plain() {
     for good in ["evals", "e2e", "golden_files", "web-ui", "A1"] {
         assert_eq!(check_name(good), None, "{good}");
     }
-    for bad in ["", "has space", "a.b", "a/b", "über", "x".repeat(25).as_str()] {
+    // NOTE: code is a good name: its files stay code, whatever the built-in groups say.
+    assert_eq!(check_name("code"), None);
+    for bad in ["", "has space", "a.b", "a/b", "über", "x".repeat(25).as_str(), "total"] {
         assert!(check_name(bad).is_some(), "{bad:?}");
     }
 }

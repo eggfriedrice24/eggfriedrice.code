@@ -1100,6 +1100,7 @@ fn diff_groups_keep_the_order_of_the_file() {
 fn diff_groups_with_a_bad_name_or_glob_are_refused_with_the_key_and_place() {
     let cases = [
         ("[diff.groups]\n\"has space\" = [\"a/\"]\n", "\"has space\""),
+        ("[diff.groups]\ntotal = [\"a/\"]\n", "\"total\""),
         ("[diff.groups]\nevals = []\n", "\"evals\""),
         ("[diff.groups]\nevals = [\"evals/\", \"a//b\"]\n", "\"a//b\""),
         ("[diff.groups]\nevals = [\"../evals/\"]\n", "\"../evals/\""),

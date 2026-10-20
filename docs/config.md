@@ -238,7 +238,7 @@ How `efr` groups the changed files of a turn.
 
 | Key | Default | Applies | Description |
 |---|---|---|---|
-| `groups` | `{}` | client | Groups of your own for the changed files of a turn: a name, then a list of globs, such as `evals = ["evals/", "*.eval.toml"]`. `*` matches inside one part of a path, `**` matches any number of parts, and `?` one character. A glob without `/` matches the name of a file in any directory; a glob that ends in `/` matches every file below a directory of that name; other globs match the whole path from the project root. Your groups match first, in the order of the file, then the built-in groups: generated, tests, docs, else code. |
+| `groups` | `{}` | client | Groups of your own for the changed files of a turn: a name, then a list of globs, such as `evals = ["evals/", "*.eval.toml"]`. `*` matches inside one part of a path, `**` matches any number of parts, and `?` one character. A glob without `/` matches the name of a file in any directory; a glob that ends in `/` matches every file below a directory of that name; other globs match the whole path from the project root. Your groups match first, in the order of the file, then the built-in groups: generated, tests, docs, else code. A group named `code` keeps its files in code; `total` is not a name of a group. |
 
 ## [render]
 
