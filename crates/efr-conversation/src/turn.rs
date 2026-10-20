@@ -60,8 +60,9 @@ use efr_permissions::{
 };
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId, Scope,
-    ShellContext, StopReason as WireStop, SurfaceChange, TurnId, TurnSettings, TurnStop, Verdict,
+    ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId,
+    RecentCommand, Scope, ShellContext, StopReason as WireStop, SurfaceChange, TurnId,
+    TurnSettings, TurnStop, Verdict,
 };
 use efr_provider::{
     ContentBlock, EditTool, Message, Provider, ProviderError, Request, Role, StopReason, TokenUsage,
@@ -91,7 +92,7 @@ use crate::fresh::Fresh;
 use crate::gap::CallGap;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls, end_marker};
 use crate::interrupt::Interrupt;
-use crate::preamble::LiveState;
+use crate::preamble::{self, LiveState};
 use crate::presence::PRESENCE_CHECK;
 use crate::questions::Questions;
 use crate::scratch::Scratch;
@@ -156,7 +157,7 @@ pub(crate) struct Shared {
 /// A prompt that waits for its turn, or runs as one; or a turn that job notices
 /// started.
 ///
-/// `Debug` leaves out the last command, which can hold a secret.
+/// `Debug` leaves out the last command and the recent commands, which can hold a secret.
 #[derive(Clone)]
 pub(crate) struct TurnSpec {
     pub(crate) turn_id: TurnId,
@@ -166,6 +167,9 @@ pub(crate) struct TurnSpec {
     pub(crate) context: Option<ShellContext>,
     /// The last command of `prompt.send`. It lives only in memory, for the preamble.
     pub(crate) last_command: Option<String>,
+    /// The recent commands of `prompt.send`, oldest first. They live only in memory,
+    /// for the preamble.
+    pub(crate) recent_commands: Vec<RecentCommand>,
     /// The settings the prompt asked for, resolved when the turn starts.
     pub(crate) settings: TurnSettings,
     /// What started the turn: a prompt, or job notices.
@@ -202,7 +206,8 @@ impl TurnSpec {
 
 impl fmt::Debug for TurnSpec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // NOTE: last_command is deliberately missing; see the type's doc comment.
+        // NOTE: last_command and recent_commands are deliberately missing; see the
+        // type's doc comment.
         f.debug_struct("TurnSpec")
             .field("turn_id", &self.turn_id)
             .field("text", &self.text)
@@ -946,6 +951,11 @@ impl Turn {
             oldpwd: context.and_then(|context| context.oldpwd.clone()),
             last_command: self.spec.last_command.clone(),
             last_status: context.and_then(|context| context.last_status),
+            recent_commands: preamble::newest(
+                &self.spec.recent_commands,
+                self.config.recent_commands,
+            ),
+            now: self.shared.deps.clock.now(),
             repo,
             home: self.shared.deps.home.path().to_path_buf(),
             host: context

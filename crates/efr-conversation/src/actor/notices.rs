@@ -216,6 +216,7 @@ impl ConversationActor {
             origin: first.origin,
             context: None,
             last_command: None,
+            recent_commands: Vec::new(),
             settings,
             kind: TurnKind::Wake { cwd: first.cwd.clone() },
             notices: Vec::new(),

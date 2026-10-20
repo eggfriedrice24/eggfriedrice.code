@@ -44,7 +44,7 @@ use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, CommandId,
     ConversationCompact, ConversationCompactResult, ConversationId, EffectiveSettings, ErrorBody,
     ErrorCode, Event, LateSteer, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, QuestionId, ResentSteers, SandboxSurfaceRespond,
+    PromptWithdrawResult, QuestionId, RecentCommand, ResentSteers, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult,
     TurnSettings, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult, UndoRefused,
     WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
@@ -182,7 +182,8 @@ enum QueueEnd {
 /// A prompt to record and queue: from `prompt.send`, from a late steer, or from the
 /// unread steers of an interrupted turn.
 ///
-/// `Debug` leaves out the last command, which can hold a secret.
+/// `Debug` leaves out the last command and the recent commands, which can hold a
+/// secret.
 struct NewPrompt {
     command_id: CommandId,
     text: String,
@@ -190,6 +191,8 @@ struct NewPrompt {
     context: Option<ShellContext>,
     /// Only for the turn's preamble; never recorded.
     last_command: Option<String>,
+    /// Only for the turn's preamble; never recorded.
+    recent_commands: Vec<RecentCommand>,
     settings: TurnSettings,
     /// The steers that an interrupt sends again as this prompt.
     steers: Vec<Seq>,
@@ -197,7 +200,8 @@ struct NewPrompt {
 
 impl std::fmt::Debug for NewPrompt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // NOTE: last_command is deliberately missing; see the type's doc comment.
+        // NOTE: last_command and recent_commands are deliberately missing; see the
+        // type's doc comment.
         f.debug_struct("NewPrompt")
             .field("command_id", &self.command_id)
             .field("text", &self.text)
@@ -231,6 +235,7 @@ impl NewPrompt {
             origin: self.origin,
             context: self.context,
             last_command: self.last_command,
+            recent_commands: self.recent_commands,
             settings: self.settings,
             kind: TurnKind::Prompt,
             notices: Vec::new(),
@@ -454,6 +459,7 @@ impl ConversationActor {
             origin,
             context: params.context,
             last_command: params.last_command,
+            recent_commands: params.recent_commands,
             settings: params.settings,
             steers: Vec::new(),
         };
@@ -596,10 +602,10 @@ impl ConversationActor {
             }
             Err(late) => late,
         };
-        let (context, last_command, settings) = match params.if_late {
+        let (context, last_command, recent_commands, settings) = match params.if_late {
             None => return Err(late),
-            Some(LateSteer::Queue { context, last_command, settings, .. }) => {
-                (context, last_command, settings)
+            Some(LateSteer::Queue { context, last_command, recent_commands, settings }) => {
+                (context, last_command, recent_commands, settings)
             }
             Some(_) => return Err(ConversationError::Unsupported { what: "if_late" }),
         };
@@ -611,6 +617,7 @@ impl ConversationActor {
             origin,
             context,
             last_command,
+            recent_commands,
             settings,
             steers: Vec::new(),
         };
@@ -684,8 +691,8 @@ impl ConversationActor {
         };
         let resend_as = match params.resend_as.map(|resend_as| *resend_as) {
             None => None,
-            Some(LateSteer::Queue { context, last_command, settings, .. }) => {
-                Some((context, last_command, settings))
+            Some(LateSteer::Queue { context, last_command, recent_commands, settings }) => {
+                Some((context, last_command, recent_commands, settings))
             }
             Some(_) => return Err(ConversationError::Unsupported { what: "resend_as" }),
         };
@@ -706,8 +713,8 @@ impl ConversationActor {
             // prompt holds steers that the turn took already, so it does not count
             // against `max_queued`, and values of the terminal that cannot work now
             // give way to the turn's own, which did.
-            let (context, last_command, settings) = match resend_as {
-                Some((context, last_command, settings)) => {
+            let (context, last_command, recent_commands, settings) = match resend_as {
+                Some((context, last_command, recent_commands, settings)) => {
                     let settings = match self.resolve(&settings, origin) {
                         Ok(_) => settings,
                         Err(error) => {
@@ -715,11 +722,12 @@ impl ConversationActor {
                             running.spec.settings.clone()
                         }
                     };
-                    (context, last_command, settings)
+                    (context, last_command, recent_commands, settings)
                 }
                 None => (
                     running.spec.context.clone(),
                     running.spec.last_command.clone(),
+                    running.spec.recent_commands.clone(),
                     running.spec.settings.clone(),
                 ),
             };
@@ -729,6 +737,7 @@ impl ConversationActor {
                 origin,
                 context,
                 last_command,
+                recent_commands,
                 settings,
                 steers: steers.iter().map(|steer| steer.seq).collect(),
             };
