@@ -92,6 +92,9 @@ const PATH_FILE: &str = "path";
 /// The most bytes of a `PATH` that efrd reads from [`PATH_FILE`].
 const MAX_PATH_BYTES: usize = 64 * 1024;
 
+/// The bus filter's state as the status holds it: on, and the reason when it is off.
+type BusState = (bool, Option<BusProxyOff>);
+
 /// What the service is built from.
 pub(crate) struct ServiceParts {
     pub(crate) dirs: Dirs,
@@ -128,6 +131,9 @@ struct Inner {
     status: watch::Sender<SandboxStatus>,
     /// The last probe's report, for `admin.sandbox_check`.
     last: Mutex<Option<ProbeReport>>,
+    /// The bus filter's state from the last check that ran with `dbus.proxy` on, which
+    /// the status keeps while a later check runs (DV40). `None` before the first one.
+    bus_tested: Mutex<Option<BusState>>,
     /// Runs one probe at a time.
     probing: Semaphore,
     locks: lock::PlanLocks,
@@ -288,6 +294,7 @@ impl SandboxService {
                 registry,
                 status,
                 last: Mutex::new(None),
+                bus_tested: Mutex::new(None),
                 probing: Semaphore::new(1),
                 locks: lock::PlanLocks::default(),
                 turns: report::Turns::default(),
@@ -338,11 +345,19 @@ impl SandboxService {
             warnings.push(proxy::PROXY_FALLBACK.to_owned());
         }
         warnings.extend(proxy::env_keep_warnings(settings));
-        let (bus_proxy, bus_proxy_off) = match (settings.dbus.proxy, current.bus_proxy) {
-            (false, _) => (false, Some(BusProxyOff::Config)),
-            (true, true) => (true, None),
-            (true, false) => (false, current.bus_proxy_off.or(Some(BusProxyOff::SelfTest))),
-        };
+        let (bus_proxy, bus_proxy_off) =
+            match (settings.dbus.proxy, current.bus_proxy, current.bus_proxy_off) {
+                (false, _, _) => (false, Some(BusProxyOff::Config)),
+                (true, true, _) => (true, None),
+                // NOTE: the status still holds the answer for `dbus.proxy = false`, so
+                // the check after the reload that turned it on runs now: the filter
+                // keeps the state of its last check, and only a fresh efrd that never
+                // checked it says `off` with no reason (DV40).
+                (true, false, Some(BusProxyOff::Config)) => {
+                    self.bus_tested().unwrap_or((false, None))
+                }
+                (true, false, off) => (false, off.or(Some(BusProxyOff::SelfTest))),
+            };
         if let Some(off) =
             bus_proxy_off.filter(|off| settings.dbus.proxy && bus::warns(settings, *off))
         {
@@ -742,11 +757,25 @@ impl SandboxService {
 
     /// The bus filter's state for `settings` (DE8): off with `config` while
     /// `dbus.proxy` is false, with no self-test; else the self-test's answer in a fresh
-    /// dir below `$R/sbx/bus-test`.
-    async fn bus_state(&self, settings: &Settings) -> (bool, Option<BusProxyOff>) {
+    /// dir below `$R/sbx/bus-test`, which [`reported`](Self::reported) keeps for the
+    /// next check (DV40).
+    async fn bus_state(&self, settings: &Settings) -> BusState {
         if !settings.dbus.proxy {
             return (false, Some(BusProxyOff::Config));
         }
+        let state = self.self_test_state(settings).await;
+        *self.inner.bus_tested.lock().unwrap_or_else(PoisonError::into_inner) = Some(state);
+        state
+    }
+
+    /// The state of the last bus check that ran with `dbus.proxy` on.
+    fn bus_tested(&self) -> Option<BusState> {
+        // NOTE: the state is replaced whole, so a poisoned lock still holds a usable one.
+        *self.inner.bus_tested.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The self-test's answer with `dbus.proxy` on.
+    async fn self_test_state(&self, settings: &Settings) -> BusState {
         let bus = &self.inner.bus;
         if !bus.has_program() {
             if bus::warns(settings, BusProxyOff::NoProgram) {

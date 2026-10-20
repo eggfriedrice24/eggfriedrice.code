@@ -478,6 +478,91 @@ async fn reload_that_turns_dbus_proxy_on_runs_the_self_test_and_asks_for_the_eng
     follower.stop().await;
 }
 
+/// DV40: while a bus check runs after a reload, `efr status` keeps the filter's last
+/// state, and says `off` only when the new check fails. The fake's `hold-ready` marker
+/// holds each check before its ready byte; the test asserts the status while it is
+/// held.
+#[tokio::test]
+async fn status_keeps_the_bus_filter_on_during_a_reload() {
+    let mut fixture = Fixture::new(Buses::Both).await;
+    let mut on = fixture.settings.clone();
+    on.dbus.proxy = true;
+    let mut off = on.clone();
+    off.dbus.proxy = false;
+    let state = |status: efr_protocol::SandboxStatus| (status.bus_proxy, status.bus_proxy_off);
+
+    // A fresh efrd with `dbus.proxy = false` has never tested the filter: while the
+    // first check runs, the status says `off` with no reason, never `dbus.proxy = false`.
+    fixture.fake.set("hold-ready");
+    let checking = {
+        let (service, on) = (fixture.service.clone(), on.clone());
+        tokio::spawn(async move { service.bus_check(&on).await })
+    };
+    Wait::new("the held first check").until(|| fixture.fake.starts().len() == 1).await.unwrap();
+    let held = fixture.service.reported(&on);
+    assert_eq!(state(held.clone()), (false, None));
+    assert!(held.warnings.is_empty(), "{:?}", held.warnings);
+    fixture.fake.unset("hold-ready");
+    checking.await.unwrap();
+    assert_eq!(state(fixture.service.reported(&on)), (true, None));
+
+    // A reload that changes `[sandbox]` probes again, and the probe checks the bus too.
+    fixture.fake.set("hold-ready");
+    let probing = {
+        let (service, on) = (fixture.service.clone(), on.clone());
+        tokio::spawn(async move { service.probe(&on).await })
+    };
+    Wait::new("the held check of the probe")
+        .until(|| fixture.fake.starts().len() == 2)
+        .await
+        .unwrap();
+    assert_eq!(state(fixture.service.reported(&on)), (true, None));
+    fixture.fake.unset("hold-ready");
+    probing.await.unwrap();
+    assert_eq!(state(fixture.service.reported(&on)), (true, None));
+
+    // A reload that turns `dbus.proxy` off with a change of `[sandbox]`, then one that
+    // turns it on again: the follower checks the bus, and the status stays on.
+    fixture.service.probe(&off).await;
+    assert_eq!(state(fixture.service.current()), (false, Some(BusProxyOff::Config)));
+    assert_eq!(state(fixture.service.reported(&off)), (false, Some(BusProxyOff::Config)));
+    fixture.settings = off.clone();
+    let mut follower = Follower::start(&fixture);
+    fixture.fake.set("hold-ready");
+    follower.settings.send_replace(Arc::new(on.clone()));
+    Wait::new("the held check of the reload")
+        .until(|| fixture.fake.starts().len() == 3)
+        .await
+        .unwrap();
+    assert_eq!(state(fixture.service.reported(&on)), (true, None));
+    fixture.fake.unset("hold-ready");
+    let request =
+        Wait::new("a rebuild").until_some(|| follower.requests.try_recv().ok()).await.unwrap();
+    assert!(matches!(request, crate::reload::Request::Rebuild { .. }), "{request:?}");
+    request.answer(efr_protocol::AdminConfigReloadResult {
+        applied: true,
+        error: None,
+        restart_needed: Vec::new(),
+    });
+    follower.stop().await;
+    assert_eq!(state(fixture.service.reported(&on)), (true, None));
+
+    // The same with a check that fails: on while it runs, off when it ended.
+    fixture.service.probe(&off).await;
+    fixture.fake.set("fail-close");
+    fixture.fake.set("hold-ready");
+    let checking = {
+        let (service, on) = (fixture.service.clone(), on.clone());
+        tokio::spawn(async move { service.bus_check(&on).await })
+    };
+    Wait::new("the held failing check").until(|| fixture.fake.starts().len() == 4).await.unwrap();
+    assert_eq!(state(fixture.service.reported(&on)), (true, None));
+    fixture.fake.unset("hold-ready");
+    checking.await.unwrap();
+    assert_eq!(state(fixture.service.reported(&on)), (false, Some(BusProxyOff::SelfTest)));
+    fixture.fake.unset("fail-close");
+}
+
 /// `bus::follow` on a fixture's service, with the reload task's requests and the
 /// settings it follows in the test's hands.
 struct Follower {
