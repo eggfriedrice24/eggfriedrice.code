@@ -2,9 +2,11 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, ConversationId, Event, Origin, Seq, TurnInterrupt, TurnSteer,
+    ApprovalDecision, ApprovalRespond, ConversationId, Event, Origin, RecentCommand, Seq,
+    TurnInterrupt, TurnSteer,
 };
 use efr_provider::{Message, ProviderEvent, StopReason};
+use efr_stdx::time::Clock as _;
 use efr_store::receipts::ReceiptOutcome;
 use efr_test_support::TestRng;
 use pretty_assertions::assert_eq;
@@ -208,6 +210,46 @@ async fn the_last_command_reaches_the_preamble_but_never_an_event() {
 
     let log = serde_json::to_string(&h.events().await).expect("events serialize");
     assert!(!log.contains("hunter2"), "the last command never enters the log");
+    h.finish();
+}
+
+/// The recent commands of a prompt reach its preamble, as many as the config shows,
+/// and never an event.
+#[tokio::test]
+async fn the_recent_commands_reach_the_preamble_but_never_an_event() {
+    let mut setup = Setup::new();
+    setup.config.recent_commands = 2;
+    let ended = setup.clock.now() - jiff::SignedDuration::from_secs(300);
+    let recent = |command: &str| RecentCommand {
+        status: Some(1),
+        ended_at: Some(ended),
+        ..RecentCommand::new(command)
+    };
+    let sent_commands =
+        vec![recent("echo too-old"), recent("export TOKEN=hunter2 && make"), recent("make")];
+    let mut state = setup.live_state(&setup.cwd, "why did it fail");
+    state.last_command = Some("make".to_owned());
+    state.recent_commands = sent_commands[1..].to_vec();
+    let expected = setup.prompt(&state, "why did it fail");
+    let records = vec![
+        expect_request(request(vec![expected.clone()])),
+        answer(&text_answer("The token is wrong.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "why did it fail");
+    params.last_command = Some("make".to_owned());
+    params.recent_commands = sent_commands;
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.expect("accepted");
+    h.wait_end(sent.turn_id).await;
+
+    let preamble = format!("{expected:?}");
+    assert!(preamble.contains("export TOKEN=[redacted] && make"), "{preamble}");
+    assert!(!preamble.contains("too-old"), "the config shows the newest two: {preamble}");
+    let log = serde_json::to_string(&h.events().await).expect("events serialize");
+    assert!(!log.contains("hunter2"), "a recent command never enters the log");
+    assert!(!log.contains("recent"), "{log}");
     h.finish();
 }
 

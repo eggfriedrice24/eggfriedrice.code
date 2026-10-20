@@ -33,6 +33,7 @@ use efr_provider::{
 };
 use efr_scope::{Derivation, Home};
 use efr_stdx::id::uuid_v7;
+use efr_stdx::time::Clock as _;
 use efr_store::Committed;
 use efr_test_support::{
     Inbound, Outbound, Record, ReplayProvider, TestClock, TestDirs, TestRng, TestStore, Transcript,
@@ -702,6 +703,8 @@ impl Setup {
             oldpwd: None,
             last_command: None,
             last_status: None,
+            recent_commands: Vec::new(),
+            now: self.clock.now(),
             repo: None,
             home: self.home().to_path_buf(),
             host: Some(HOST.to_owned()),

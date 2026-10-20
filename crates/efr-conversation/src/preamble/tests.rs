@@ -4,6 +4,7 @@ use efr_permissions::Egress;
 use efr_protocol::{Mode, ModeFallback};
 use efr_scope::Repo;
 use insta::assert_snapshot;
+use jiff::Timestamp;
 
 use super::LiveState;
 
@@ -13,6 +14,8 @@ fn minimal() -> LiveState {
         oldpwd: None,
         last_command: None,
         last_status: None,
+        recent_commands: Vec::new(),
+        now: Timestamp::UNIX_EPOCH,
         repo: None,
         home: PathBuf::from("/home/u"),
         host: None,
@@ -131,6 +134,51 @@ fn a_hidden_shell_that_could_not_move_says_where_it_stayed() {
 fn debug_leaves_out_the_last_command() {
     let state = LiveState { last_command: Some("export TOKEN=hunter2".to_owned()), ..minimal() };
     assert!(!format!("{state:?}").contains("hunter2"));
+}
+
+#[test]
+fn debug_leaves_out_the_recent_commands() {
+    let state = LiveState {
+        recent_commands: vec![efr_protocol::RecentCommand::new("export TOKEN=hunter2")],
+        ..minimal()
+    };
+    assert!(!format!("{state:?}").contains("hunter2"));
+}
+
+#[test]
+fn the_recent_commands_follow_the_last_command() {
+    let ended = "2026-10-20T11:57:00Z".parse().unwrap();
+    let state = LiveState {
+        last_command: Some("cargo test".to_owned()),
+        last_status: Some(101),
+        recent_commands: vec![
+            efr_protocol::RecentCommand {
+                status: Some(0),
+                ended_at: Some(ended),
+                ..efr_protocol::RecentCommand::new("git pull")
+            },
+            efr_protocol::RecentCommand::new("cargo test"),
+        ],
+        now: "2026-10-20T12:00:00Z".parse().unwrap(),
+        repo: Some(Repo { root: PathBuf::from("/home/u"), branch: Some("main".to_owned()) }),
+        ..minimal()
+    };
+    let text = state.render();
+    assert!(
+        text.contains(
+            "The user's last command was `cargo test`; it exited with status 101.\n\
+             The user's recent commands in this terminal, oldest first:\n\
+             - `git pull` (status 0, ended 3 min ago)\n\
+             Git work tree: /home/u, branch main.\n"
+        ),
+        "{text}"
+    );
+    let without = LiveState { recent_commands: Vec::new(), ..state.clone() };
+    let only_the_last = LiveState {
+        recent_commands: vec![efr_protocol::RecentCommand::new("cargo test")],
+        ..state
+    };
+    assert_eq!(only_the_last.render(), without.render(), "no list, the block as before");
 }
 
 #[test]

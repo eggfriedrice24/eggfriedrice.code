@@ -333,7 +333,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   contract in `crates/efr-conversation/README.md`, section "The history only grows";
   the list of turns and the byte limit in `crates/efr-conversation/src/history.rs`;
   the redaction of the last command in the kept preamble in
-  `crates/efr-conversation/src/preamble/secrets.rs`; the measurement on the OpenAI path
+  `crates/efr-conversation/src/preamble/secrets.rs`; the terminal's recent commands
+  in the preamble in `crates/efr-conversation/src/preamble/recent.rs`, from the
+  plugin's ring in `shell/zsh/efr.plugin.zsh` through `EFR_RECENT_COMMANDS` and
+  `prompt.send` `recent_commands`; the measurement on the OpenAI path
   in `crates/efr-daemon/tests/it/cache_prefix.rs`.
 - The model catalog: the fetch, the cache file and which models are on offer in
   `crates/efr-providers/src/openai/catalog.rs` and

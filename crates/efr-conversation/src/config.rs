@@ -89,6 +89,9 @@ pub struct ConversationConfig {
     /// Whether a turn may run in full mode: `permissions.allow_full`, and why the
     /// daemon refuses it. Read when a prompt arrives and when its turn starts.
     pub full_mode: FullModeStatus,
+    /// The most recent commands of the terminal that a turn's preamble shows
+    /// (`context.recent_commands`); the newest ones stay. 0 shows none.
+    pub recent_commands: usize,
 }
 
 impl ConversationConfig {
@@ -99,7 +102,7 @@ impl ConversationConfig {
     /// 200 ms between updates, 16 ms
     /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
     /// question while the user is away, 6 turns per hour that job notices start, 64
-    /// model calls per turn, 16 queued prompts and no full mode.
+    /// model calls per turn, 16 queued prompts, no full mode and 8 recent commands.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -124,6 +127,7 @@ impl ConversationConfig {
             max_model_calls: 64,
             max_queued: 16,
             full_mode: FullModeStatus { allowed: false, refused: None },
+            recent_commands: 8,
         }
     }
 

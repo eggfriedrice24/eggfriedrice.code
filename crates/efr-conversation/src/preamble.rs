@@ -9,6 +9,9 @@
 //! tells the model that only the newest one is current ([`CURRENT_RULE`]), also under a
 //! system prompt that the user replaced. The last command is shown with its
 //! secrets redacted ([`secrets::redact`]), because the store keeps what the model read.
+//! The terminal's recent commands follow it, redacted and cut the same way
+//! ([`recent`]). Without them the block is byte for byte what it was before they
+//! existed.
 //! The static rules live apart from it, in the system prompt, except the rules about
 //! the turn's settings: they ride here next to the mode, the model and the effort they
 //! are about, and a system prompt that the user replaced in `config.toml` cannot lose
@@ -18,22 +21,26 @@
 //! (`permissions.allow_full`) or the turn runs in it. With full mode off the preamble is
 //! byte for byte what it was before full mode existed, so no prompt cache breaks.
 
+mod recent;
 mod secrets;
+
+pub(crate) use recent::newest;
 
 use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
 use efr_permissions::Egress;
-use efr_protocol::{Mode, ModeFallback};
+use efr_protocol::{Mode, ModeFallback, RecentCommand};
 use efr_scope::Repo;
+use jiff::Timestamp;
 
 /// The longest last command shown, in characters; a longer one is cut with a marker.
 const COMMAND_MAX_CHARS: usize = 400;
 
 /// The state of the user's shell and machine for one turn.
 ///
-/// `Debug` leaves out the last command, which can hold a secret such as
-/// `export TOKEN=...`.
+/// `Debug` leaves out the last command and the recent commands, which can hold a
+/// secret such as `export TOKEN=...`.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct LiveState {
     /// The user's working directory.
@@ -44,6 +51,10 @@ pub(crate) struct LiveState {
     pub(crate) last_command: Option<String>,
     /// The exit status of the last command, `$?`.
     pub(crate) last_status: Option<i32>,
+    /// The terminal's recent commands, oldest first, as many as the config shows.
+    pub(crate) recent_commands: Vec<RecentCommand>,
+    /// When the turn starts, for how long ago each recent command ended.
+    pub(crate) now: Timestamp,
     /// The git work tree around the working directory.
     pub(crate) repo: Option<Repo>,
     /// The user's home directory.
@@ -80,11 +91,13 @@ pub(crate) struct LiveState {
 
 impl fmt::Debug for LiveState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // NOTE: last_command is deliberately missing; see the type's doc comment.
+        // NOTE: last_command and recent_commands are deliberately missing; see the
+        // type's doc comment.
         f.debug_struct("LiveState")
             .field("cwd", &self.cwd)
             .field("oldpwd", &self.oldpwd)
             .field("last_status", &self.last_status)
+            .field("now", &self.now)
             .field("repo", &self.repo)
             .field("home", &self.home)
             .field("host", &self.host)
@@ -153,6 +166,12 @@ impl LiveState {
         } else if let Some(status) = self.last_status {
             let _ = writeln!(text, "The user's last command exited with status {status}.");
         }
+        text.push_str(&recent::render(
+            &self.recent_commands,
+            self.last_command.as_deref(),
+            &self.cwd,
+            self.now,
+        ));
         if let Some(repo) = &self.repo {
             let _ = write!(text, "Git work tree: {}", repo.root.display());
             match &repo.branch {

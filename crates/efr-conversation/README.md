@@ -17,8 +17,9 @@ turns.
   log, as after a restart.
 - `send_prompt` records `prompt_queued` with the command's receipt. A prompt runs at
   once when the conversation is idle; a second prompt queues behind the running turn
-  (`ConversationConfig::max_queued`, 16 by default). The last command of `prompt.send`
-  stays in memory and reaches only the turn's preamble; it never enters an event.
+  (`ConversationConfig::max_queued`, 16 by default). The last command and the recent
+  commands of `prompt.send` stay in memory and reach only the turn's preamble; they
+  never enter an event.
 - Turn settings (`settings.rs`): a prompt may ask for a mode, a model and an effort.
   `send_prompt` resolves them over the config's defaults (`ConversationConfig::mode`,
   `model`, `effort`) and checks them against the model list
@@ -359,7 +360,12 @@ request:
    live-state preamble regenerated every
    turn: first the rule that only the newest live-state block is current, then the
    shell's directory and previous directory, the last command and its exit
-   status, the git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
+   status, the terminal's recent commands (the newest
+   `ConversationConfig::recent_commands`, oldest first, each with its status, its
+   directory when it is not the shell's, and how long ago it ended; the newest goes
+   when it is the last command; at most 2000 characters, the oldest go first; no list
+   and no line when none remain, so the block is then the one of before the list), the
+   git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
    shell's own directory when it differs, one line when the user moved since the
    previous prompt (where from, and whether the hidden shell moved too or where it
    stayed), the turn's permission mode, model and
@@ -1075,9 +1081,10 @@ Third-party crates: `tokio` (the actor, its turn tasks, channels, `spawn_blockin
   before the toolbox deletes anything. A turn without a working sandbox runs as
   `cautious`, never as `auto` with less.
 - The scope is derived again on every turn; it is never cached.
-- The last command of a prompt never enters an event or a log field; `Debug` of the
-  types that hold it leaves it out. It reaches the saved messages only inside the
-  turn's preamble, with its secrets redacted.
+- The last command and the recent commands of a prompt never enter an event or a log
+  field; `Debug` of the types that hold them leaves them out. They reach the saved
+  messages only inside the turn's preamble, with their secrets redacted
+  (`preamble/recent.rs` for the recent commands).
 - Every change a request makes is one batch with its receipt, so a retried command
   runs once.
 - Time and randomness come from the injected clock and generator.

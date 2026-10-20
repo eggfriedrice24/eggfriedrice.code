@@ -1,0 +1,16 @@
+---
+source: crates/efr-conversation/src/preamble/recent/tests.rs
+expression: "list(&commands, Some(\"make check\"))"
+---
+The user's recent commands in this terminal, oldest first:
+- `cat hosts` (status 0, ended 2 d ago, in /etc)
+- `cargo build` (status 101, took 2 min, ended 5 min ago)
+- `git status` (status 0, ended just now)
+- `ls`
+- a command (status 1, ended 2 h ago):
+```
+for f in *.log; do
+  gzip "$f"
+done
+```
+- `make test` (status 0, ended 1 min ago)
