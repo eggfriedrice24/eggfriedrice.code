@@ -75,7 +75,7 @@ pub(crate) fn switch_line(
         Switch::New { from, reason } => {
             let why = match (reason, from) {
                 (NewReason::Scope, Some(from)) => {
-                    format!(" (from {})", from_label(from, home))
+                    format!(" (from {})", from_label(from, scope, home))
                 }
                 (NewReason::Idle { hours }, _) => {
                     format!(" (the last one was idle for {hours} h)")
@@ -109,11 +109,18 @@ fn for_scope(scope: &RouteLabel) -> String {
     }
 }
 
-/// Where the terminal was before: the project's name, or its last directory.
-fn from_label(label: &RouteLabel, home: Option<&Path>) -> String {
+/// Where the terminal was before: the project's name, or the last directory of its
+/// conversation outside projects. That directory can be inside the project of the new
+/// conversation `to` (the prompts there went outside projects while
+/// `conversation.follow_project` was off); then `outside projects` names it.
+fn from_label(label: &RouteLabel, to: &RouteLabel, home: Option<&Path>) -> String {
     match (&label.scope, &label.name) {
         (RouteScope::Project(_), Some(name)) => one_line(name),
         (_, _) if label.dir.as_os_str().is_empty() => "no project".to_owned(),
+        (RouteScope::Project(_), None) => tilde(&label.dir, home),
+        _ if to.scope.project().is_some() && label.dir.starts_with(&to.dir) => {
+            "outside projects".to_owned()
+        }
         _ => tilde(&label.dir, home),
     }
 }

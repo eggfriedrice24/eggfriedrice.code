@@ -134,6 +134,24 @@ fn history_names_the_terminal_of_an_attach() {
 }
 
 #[test]
+fn switch_line_new_from_outside_inside_the_project() {
+    // The prompts in ~/p/lib went outside projects while `follow_project` was off; when
+    // it is on again, the new lib conversation comes from the outside one.
+    let lib = RouteLabel {
+        scope: RouteScope::Project(
+            "0192f0c1-7a00-7000-8000-0000000a4402".parse::<ProjectId>().unwrap(),
+        ),
+        name: Some("lib".to_owned()),
+        dir: PathBuf::from("/home/u/p/lib"),
+    };
+    let new = Switch::New { from: Some(outside("/home/u/p/lib/src")), reason: NewReason::Scope };
+    insta::assert_snapshot!(
+        shown(&routed(lib, Some(new)), None),
+        @"↪ new conversation for lib (from outside projects)"
+    );
+}
+
+#[test]
 fn repo_hint_line() {
     let home = Some(Path::new(HOME));
     let tool = RepoHint { root: PathBuf::from("/home/u/p/tool") };
