@@ -460,26 +460,37 @@ async fn full_mode_on_an_unavailable_sandbox() {
 }
 
 /// A daemon that allows full mode and whose model runs the guarded delete, then says
-/// `done`; the prompt's turn up to its question.
-async fn guard_question() -> (TestDaemon, Client, PromptSendResult, Vec<EventEnvelope>) {
+/// `done`; the prompt's turn up to its question, and the number of 120 s sleeps that
+/// were asked for before the prompt went out.
+async fn guard_question() -> (TestDaemon, Client, PromptSendResult, Vec<EventEnvelope>, usize) {
     let dirs = Arc::new(TestDirs::new().unwrap());
     let model = Recorder::new(vec![shell(GUARDED_DELETE)]);
     let daemon = full_builder(&dirs).custom_provider(model).start().await.unwrap();
     let client = daemon.client_for_tty(TTY).await.unwrap();
+    let wait = Duration::from_secs(120);
+    let before = daemon.clock().requested_sleeps().iter().filter(|d| **d == wait).count();
     let sent = send(&daemon, &client, 1, "clean my home", Some(Mode::Full)).await.unwrap();
     let events = next_stop(&daemon, &client, sent.conversation_id, sent.turn_id, &[]).await;
-    (daemon, client, sent, events)
+    (daemon, client, sent, events, before)
 }
 
 #[tokio::test]
 async fn full_guard_question_expires() {
-    let (daemon, client, sent, events) = guard_question().await;
+    let (daemon, client, sent, events, before) = guard_question().await;
     let (call_id, summary, expires) = question(&events);
     assert!(summary.starts_with(FULL_ASKS), "{summary}");
     assert!(summary.contains("delete of ~ (your home directory)"), "{summary}");
     assert_eq!(expires, Some(120));
 
-    daemon.clock().advance(Duration::from_secs(120));
+    // NOTE: the turn records the question first and starts its 120 s sleep after it, so
+    // the clock moves only once that sleep exists; other timers of efrd sleep too, so
+    // the test waits for one more 120 s sleep than there was before the question.
+    let wait = Duration::from_secs(120);
+    Wait::new("the 120 s sleep of the guard question")
+        .until(|| daemon.clock().requested_sleeps().iter().filter(|d| **d == wait).count() > before)
+        .await
+        .unwrap();
+    daemon.clock().advance(wait);
     let events = next_stop(&daemon, &client, sent.conversation_id, sent.turn_id, &[call_id]).await;
 
     assert_eq!(kinds(&events).last(), Some(&"turn_completed"), "{:?}", kinds(&events));
@@ -492,7 +503,7 @@ async fn full_guard_question_expires() {
 
 #[tokio::test]
 async fn full_guard_question_from_phone_refused() {
-    let (daemon, client, sent, events) = guard_question().await;
+    let (daemon, client, sent, events, _) = guard_question().await;
     let (call_id, _, _) = question(&events);
     let phone = daemon.connect(daemon.connect_options_from(Origin::Phone)).await.unwrap();
 
