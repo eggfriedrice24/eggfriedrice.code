@@ -1915,3 +1915,290 @@ fn e2e_no_question_without_a_terminal_with_keys_waiting_or_with_a_value_set() {
     assert!(!screen.contains(QUERY), "{screen:?}");
     assert_eq!(background(&screen), "light");
 }
+
+// --- full mode ----------------------------------------------------------------------
+//
+// No test here runs a turn: the fake `efr` runs nothing, and the built `efr` only
+// checks settings against a `TestDaemon`.
+
+/// One line as [`RECORD_LINES`] recorded it while it was typed: what showed before the
+/// cursor's line and on it, and where each of the plugin's highlights starts, with its
+/// style.
+type Typed = (String, Vec<(String, String)>);
+
+/// The lines that [`RECORD_LINES`] recorded in `home` while they were typed.
+fn typed_lines(home: &Home) -> Vec<Typed> {
+    let typed = std::fs::read_to_string(home.path().join("typed.txt")).unwrap();
+    typed
+        .lines()
+        .map(|line| {
+            let (shown, highlights) = line.rsplit_once('|').unwrap();
+            let highlights = highlights
+                .split(',')
+                .filter(|entry| !entry.is_empty())
+                .map(|entry| {
+                    let words: Vec<&str> = entry.split(' ').collect();
+                    assert_eq!(words.len(), 4, "{entry}");
+                    assert_eq!(words[3], "memo=efr");
+                    (words[0].to_owned(), words[2].to_owned())
+                })
+                .collect();
+            (shown.to_owned(), highlights)
+        })
+        .collect()
+}
+
+fn typed(shown: &str, highlights: &[(&str, &str)]) -> Typed {
+    let highlights =
+        highlights.iter().map(|(start, style)| ((*start).to_owned(), (*style).to_owned()));
+    (shown.to_owned(), highlights.collect())
+}
+
+/// A `home` whose `efr` is the built one, and a zsh that reaches `daemon` and reads its
+/// config root, running `script` after the plugin is sourced.
+fn built_efr_zsh(home: &Home, daemon: &TestDaemon, script: &str) -> Command {
+    let efr = home.path().join("bin/efr");
+    std::fs::remove_file(&efr).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_efr"), &efr).unwrap();
+    let dirs = daemon.dirs().dirs();
+    let script = format!("source {}\n{script}\n", plugin().display());
+    let mut zsh = home.zsh();
+    zsh.env("EFR_CONFIG_DIR", dirs.config())
+        .env("EFR_DATA_DIR", dirs.data())
+        .env("EFR_STATE_DIR", dirs.state())
+        .env("EFR_RUNTIME_DIR", dirs.runtime())
+        .current_dir(daemon.cwd())
+        .args(["-f", "-i", "-c", &script]);
+    zsh
+}
+
+/// The first line of what full mode's warning says on stderr.
+const FULL_WARNED: &str =
+    "efr: full mode: commands run with your rights, with no sandbox and no questions.";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_mode_full_without_the_gate_keeps_the_old_value() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // The daemon's config does not allow full mode, as by default.
+    let daemon = TestDaemon::start().await.unwrap();
+    let home = Home::new();
+    let mut zsh = built_efr_zsh(
+        &home,
+        &daemon,
+        r#"
+        ,mode cautious
+        ,mode full
+        print -r -- "code $?"
+        ,mode
+        "#,
+    );
+    let output = tokio::task::spawn_blocking(move || zsh.output().unwrap()).await.unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let modes: Vec<&str> = stdout.lines().filter(|line| !line.starts_with("model")).collect();
+    assert_eq!(modes.iter().filter(|line| line.starts_with("mode")).count(), 2, "{stdout}");
+    assert!(
+        modes.iter().all(|line| !line.starts_with("mode")
+            || line.starts_with("mode = cautious  # this terminal (,mode)")),
+        "{stdout}"
+    );
+    assert!(stdout.contains("code 2\n"), "{stdout}");
+    assert!(
+        stderr.contains(
+            "efr: full mode is off; set permissions.allow_full = true in config.toml by hand \
+             to turn it on (docs/permissions.md, \"Full mode\")\n"
+        ),
+        "{stderr}"
+    );
+    assert!(!stderr.contains(FULL_WARNED), "{stderr}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_mode_full_warning_reaches_stderr_once_per_set() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let daemon = TestDaemon::builder()
+        .config(|settings| settings.permissions.allow_full = true)
+        .start()
+        .await
+        .unwrap();
+    let home = Home::new();
+    // Two sets of full mode; a bare `,mode` and a check of another value in between
+    // hand the terminal's mode over as EFR_MODE and warn nothing.
+    let mut zsh = built_efr_zsh(
+        &home,
+        &daemon,
+        r#"
+        ,mode full
+        ,mode
+        ,effort default
+        ,mode full
+        "#,
+    );
+    let output = tokio::task::spawn_blocking(move || zsh.output().unwrap()).await.unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(stderr.matches(FULL_WARNED).count(), 2, "{stderr}");
+    assert_eq!(stderr.matches("efr: a script or a program that a line starts").count(), 2);
+    // The warning goes to stderr only; the setting's line names the terminal.
+    assert!(!stdout.contains("full mode:"), "{stdout}");
+    assert!(stdout.contains("mode = full  # this terminal (,mode)"), "{stdout}");
+    daemon.stop().await.unwrap();
+}
+
+#[test]
+fn e2e_mode_full_shows_the_tag_in_the_full_style_in_sticky_mode() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
+    type_lines_with(
+        &home,
+        &env,
+        &[
+            RECORD_LINES[0],
+            RECORD_LINES[1],
+            ",mode full",
+            ",model gpt-5.4",
+            "<C-Space>",
+            "what changed?\u{18}\u{12}",
+            ",model default",
+            "and now\u{18}\u{12}",
+            ",mode auto",
+            "then\u{18}\u{12}",
+            "<C-Space>",
+        ],
+    );
+    // `full ` is red, the terminal's other values stay dim, and the robot keeps its
+    // own style.
+    assert_eq!(
+        typed_lines(&home),
+        [
+            typed(
+                "full gpt-5.4 🤖 what changed?",
+                &[("P0", "fg=red"), ("P5", "fg=8"), ("P13", "fg=magenta")]
+            ),
+            typed("full 🤖 and now", &[("P0", "fg=red"), ("P5", "fg=magenta")]),
+            typed("auto 🤖 then", &[("P0", "fg=8"), ("P5", "fg=magenta")]),
+        ]
+    );
+    let finished = std::fs::read_to_string(home.path().join("finished.txt")).unwrap();
+    assert!(finished.lines().any(|line| line == "full gpt-5.4 🤖 what changed?"), "{finished}");
+}
+
+#[test]
+fn e2e_mode_full_shows_the_tag_outside_sticky_mode() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(
+        &home,
+        &[("EFR_TEST_TERM", "xterm-256color")],
+        &[
+            RECORD_LINES[0],
+            RECORD_LINES[1],
+            "true before\u{18}\u{12}",
+            ",mode full",
+            "true during\u{18}\u{12}",
+            ", hi\u{18}\u{12}",
+            ",mode default",
+            "true after\u{18}\u{12}",
+        ],
+    );
+    let red = [("P0", "fg=red")];
+    assert_eq!(
+        typed_lines(&home),
+        [
+            typed("true before", &[]),
+            typed("full true during", &red),
+            typed("full , hi", &red),
+            typed("true after", &[]),
+        ]
+    );
+    // On Enter the tag stays only on a line of the plugin: a shell command runs the same
+    // in every mode.
+    let finished = std::fs::read_to_string(home.path().join("finished.txt")).unwrap();
+    let finished: Vec<&str> = finished.lines().collect();
+    assert!(finished.contains(&"true during"), "{finished:?}");
+    assert!(finished.contains(&"full , hi"), "{finished:?}");
+    assert!(finished.contains(&"true after"), "{finished:?}");
+    assert!(!finished.contains(&"full true during"), "{finished:?}");
+}
+
+#[test]
+fn e2e_completion_offers_full() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(&home, &["autoload -Uz compinit; compinit -u -D", ",mode fu\t"]);
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["settings", "--mode=full"]]);
+}
+
+#[test]
+fn e2e_inherited_efr_mode_full_is_ignored_at_load() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let full = format!("source {}\n, hi\n,new there\n", plugin().display());
+    let output =
+        home.zsh().env("EFR_MODE", "full").args(["-f", "-i", "-c", &full]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(stderr.matches("efr: EFR_MODE=full is ignored here; use ,mode full\n").count(), 1);
+    // The terminal starts with the config's default: an empty value hides the variable.
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"], vec!["new"]]);
+    assert!(calls.iter().all(|call| call.mode.as_deref() == Some("")), "{calls:?}");
+    // Any other mode still gives the first value.
+    let home = Home::new();
+    let (_, status) = run_with(&home, &[("EFR_MODE", "auto")], ", hi");
+    assert_eq!(status, Some(0));
+    assert_eq!(home.calls()[0].mode.as_deref(), Some("auto"));
+}
+
+#[test]
+fn e2e_a_config_that_makes_full_the_default_shows_the_tag() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let config = home.path().join(".config/efr");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("config.toml"),
+        "[permissions]\nmode = \"full\"  # every prompt\nallow_full = true\n",
+    )
+    .unwrap();
+    type_lines(
+        &home,
+        &[
+            RECORD_LINES[0],
+            RECORD_LINES[1],
+            "true default\u{18}\u{12}",
+            ",mode cautious",
+            "true cautious\u{18}\u{12}",
+            ",mode default",
+            r#"printf '[permissions]\nmode = "auto"\nallow_full = true\n' > .config/efr/config.toml"#,
+            "true auto\u{18}\u{12}",
+        ],
+    );
+    assert_eq!(
+        typed_lines(&home),
+        [
+            typed("full true default", &[("P0", "fg=red")]),
+            typed("true cautious", &[]),
+            typed("true auto", &[]),
+        ]
+    );
+}

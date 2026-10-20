@@ -15,9 +15,17 @@
 #   ,away          tell efr that you are away from this terminal's conversation: a
 #                  question then waits only a short time (presence.away_wait_secs),
 #                  and its call does not run; your next input there ends it
-#   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious
-#                  or auto; without a value, show it with its source and the
-#                  choices; `default` lets the config decide again
+#   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious,
+#                  auto or full; without a value, show it with its source and the
+#                  choices; `default` lets the config decide again. `,mode full`
+#                  works only when efr's config sets permissions.allow_full = true:
+#                  commands then run with your rights, with no sandbox and no
+#                  questions, and efr says what it still reads and asks. While a
+#                  terminal's prompts run in full mode (its own value, or the
+#                  config's default when it has none), a red `full ` tag stands
+#                  before the typed text, in and out of sticky mode. EFR_MODE=full
+#                  from the environment is ignored when the plugin loads: only
+#                  `,mode full` makes a terminal full
 #   ,model [id]    the same for the model (`efr models` lists them)
 #   ,effort [e]    the same for the reasoning effort
 #   ,<word> ...    a `,` word that names no plugin command and nothing that zsh
@@ -34,7 +42,7 @@
 #                  `,model` or `,effort`; a robot stands before the typed text while
 #                  it is on (shown with PREDISPLAY, so the prompt itself never
 #                  changes), after a dim tag with the terminal's own settings, such
-#                  as `auto `
+#                  as `auto `, whose `full ` is red
 #   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the robot is
 #                  an alias of `,`, so the screen and history keep the line that ran,
 #                  and the line still goes to the agent when history recalls it
@@ -90,7 +98,16 @@ typeset -g _efr_sticky=0
 # permission mode, the model and the reasoning effort. Empty means that the daemon's
 # config decides. They start from EFR_MODE, EFR_MODEL and EFR_EFFORT; re-sourcing keeps
 # what the terminal chose since.
-(( ${+_efr_turn_mode} )) || typeset -g _efr_turn_mode=${EFR_MODE-}
+# Full mode is never inherited: a terminal becomes full only by `,mode full`, which
+# checks the gate and says what full mode does.
+if (( ! ${+_efr_turn_mode} )); then
+  if [[ ${EFR_MODE-} == full ]]; then
+    typeset -g _efr_turn_mode=
+    print -u2 -- "efr: EFR_MODE=full is ignored here; use ,mode full"
+  else
+    typeset -g _efr_turn_mode=${EFR_MODE-}
+  fi
+fi
 (( ${+_efr_turn_model} )) || typeset -g _efr_turn_model=${EFR_MODEL-}
 (( ${+_efr_turn_effort} )) || typeset -g _efr_turn_effort=${EFR_EFFORT-}
 # The model ids for completion and when they were read, so a burst of Tab presses runs
@@ -130,6 +147,13 @@ fi
 # The region_highlight style of the tag with the terminal's settings before the robot.
 # zsh has no dim attribute; colour 8 is the grey that most themes use for it.
 : ${EFR_TAG_STYLE:='fg=8'}
+# The region_highlight style of the `full ` tag, in and out of sticky mode, while the
+# terminal's prompts run in full mode: red, the colour of efr's error role.
+: ${EFR_FULL_STYLE:='fg=red'}
+# The config file and its stamp that _efr_config_full read last, and whether it made
+# full mode the default.
+typeset -g _efr_config_seen
+typeset -gi _efr_config_full_mode
 # What the sticky word (see _efr_sticky_word) expands to. The backslash keeps zsh from
 # expanding the `,` alias inside it again, which would leave a second `#` among the
 # words of a quoted prompt.
@@ -360,13 +384,73 @@ _efr_settings() {
 }
 
 # Sets REPLY to the tag of the terminal's own turn settings, such as `auto gpt-5.4 `:
-# each value that is set, then a blank. Empty when the config decides all of them.
+# each value that is set, then a blank. Empty when the config decides all of them. A
+# terminal whose prompts run in full mode starts it with `full `, also when the
+# config's default makes it so.
 _efr_tag() {
   emulate -L zsh
+  local mode=$_efr_turn_mode
+  [[ -z $mode ]] && _efr_config_full && mode=full
   # Unquoted, an empty value leaves no word.
-  local -a set=($_efr_turn_mode $_efr_turn_model $_efr_turn_effort)
+  local -a set=($mode $_efr_turn_model $_efr_turn_effort)
   REPLY=${(j: :)set}
   [[ -z $REPLY ]] || REPLY+=' '
+}
+
+# True when this terminal's prompts run in full mode: its own value is `full`, or it
+# has none and the config's default is full (see _efr_config_full).
+_efr_full_mode() {
+  [[ $_efr_turn_mode == full ]] && return 0
+  [[ -z $_efr_turn_mode ]] && _efr_config_full
+}
+
+# True when efr's config.toml makes full mode the default of a prompt that names no
+# mode: `mode = "full"` and `allow_full = true` in its [permissions] table (or as the
+# dotted keys permissions.mode and permissions.allow_full). The file is found by the
+# rule of efr's config root: EFR_CONFIG_DIR, else $EFR_HOME/config, else
+# $XDG_CONFIG_HOME/efr, else ~/.config/efr. It is read again only when its time or its
+# size changed. The answer only picks the tag; efrd decides the mode of each turn.
+_efr_config_full() {
+  emulate -L zsh -o extended_glob
+  local file
+  if [[ -n $EFR_CONFIG_DIR ]]; then
+    file=$EFR_CONFIG_DIR/config.toml
+  elif [[ -n $EFR_HOME ]]; then
+    file=$EFR_HOME/config/config.toml
+  elif [[ $XDG_CONFIG_HOME == /* ]]; then
+    file=$XDG_CONFIG_HOME/efr/config.toml
+  else
+    file=$HOME/.config/efr/config.toml
+  fi
+  local -A stat
+  local stamp=$file
+  zstat -H stat -- $file 2>/dev/null && stamp+=":$stat[mtime]:$stat[size]"
+  if [[ $stamp != "$_efr_config_seen" ]]; then
+    _efr_config_seen=$stamp
+    _efr_config_full_mode=0
+    local line table= key value mode= allow=
+    if [[ -f $file && -r $file ]]; then
+      for line in "${(@f)$(<$file)}"; do
+        # Neither key takes a `#` or a blank in its value, so both can go.
+        line=${${line%%\#*}//[[:space:]]/}
+        case $line in
+          (\[\[*) table='[]' ;;
+          (\[*\]) table=${line[2,-2]} ;;
+          (*=*)
+            key=${line%%=*}
+            value=${${line#*=}//[\"\']/}
+            [[ -n $table ]] && key=$table.$key
+            case $key in
+              (permissions.mode) mode=$value ;;
+              (permissions.allow_full) allow=$value ;;
+            esac
+            ;;
+        esac
+      done
+    fi
+    [[ $mode == full && $allow == true ]] && _efr_config_full_mode=1
+  fi
+  (( _efr_config_full_mode ))
 }
 
 # Sets REPLY to the prompt text of a plugin command called with the arguments "$@".
@@ -563,28 +647,41 @@ _efr_print_setting() {
 
 # Shows the indicator before the typed text while sticky mode is on, after the dim tag
 # of the terminal's own turn settings (see _efr_tag). With $1 `tag` only the tag stays,
-# for a prompt line whose first word takes the indicator's place; with `hide`, or with
-# sticky mode off, nothing shows. PREDISPLAY is not part of the buffer and leaves
-# PROMPT alone, so it works with any prompt theme, including one whose prompt starts
-# with a newline, and history never sees it. Only a command line gets it, never a
-# continuation line or a value that vared edits. Runs from the line-init hook, on
-# every toggle and when a line is accepted.
+# for a prompt line whose first word takes the indicator's place; with `hide` nothing
+# shows. With sticky mode off, only a red `full ` shows, while the terminal's prompts
+# run in full mode; in sticky mode the tag's `full ` is red too (EFR_FULL_STYLE).
+# PREDISPLAY is not part of the buffer and leaves PROMPT alone, so it works with any
+# prompt theme, including one whose prompt starts with a newline, and history never
+# sees it. Only a command line gets it, never a continuation line or a value that
+# vared edits. Runs from the line-init hook, on every toggle and when a line is
+# accepted.
 _efr_show_indicator() {
   # NOTE: zle gives region_highlight back with other offsets than it was given, so the
   # plugin's own entries are found by their memo, not by their text.
   region_highlight=(${region_highlight:#*memo=efr*})
   local -a mine
+  local full=0
+  [[ $1 != hide && $CONTEXT == start ]] && _efr_full_mode && full=1
   if (( _efr_sticky )) && [[ $1 != hide && $CONTEXT == start ]]; then
     local REPLY tag
     _efr_tag
     tag=$REPLY
     PREDISPLAY=$tag
-    [[ -n $tag ]] && mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
+    if (( full )); then
+      # The tag starts with `full `, and the terminal's other values follow it.
+      mine+=("P0 5 $EFR_FULL_STYLE memo=efr")
+      (( ${#tag} > 5 )) && mine+=("P5 ${#tag} $EFR_TAG_STYLE memo=efr")
+    elif [[ -n $tag ]]; then
+      mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
+    fi
     if [[ $1 != tag ]]; then
       PREDISPLAY+=$EFR_STICKY_INDICATOR
       mine+=("P${#tag} $(( ${#tag} + ${#EFR_STICKY_INDICATOR} )) $EFR_STICKY_STYLE memo=efr")
     fi
     region_highlight+=($mine)
+  elif (( full )); then
+    PREDISPLAY='full '
+    region_highlight+=("P0 5 $EFR_FULL_STYLE memo=efr")
   else
     PREDISPLAY=''
   fi
@@ -785,6 +882,10 @@ _efr_accept_line() {
     # so nothing moves, and a `!` line shows the command that runs.
     if (( _efr_prompt_line )); then _efr_show_indicator tag; else _efr_show_indicator hide; fi
     _efr_alias_sticky_word
+  elif [[ -n $PREDISPLAY ]] && ! _efr_is_plugin_line "$BUFFER"; then
+    # The `full ` tag stays only on a line of this plugin: a shell command runs the
+    # same in every mode.
+    _efr_show_indicator hide
   fi
   _efr_unknown_comma_line "$BUFFER" && BUFFER=$REPLY
   if _efr_stash_line "$BUFFER"; then
