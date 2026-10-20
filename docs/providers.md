@@ -43,6 +43,10 @@ efr login anthropic --from-env        # read ANTHROPIC_API_KEY of this shell
   at 2026-10-09T12:03:00Z (5m 0s ago)`. The mark goes away when a request of the same
   kind with the key works again, or after a new login. The model calls decide: after
   a model call that worked, a refused fetch of the model list does not show.
+- efrd keeps these refusals in memory only. After a restart of efrd, and until the
+  first request with the key gets an answer, the line says `key sk-ant-...a1b2 not
+  checked since efrd started`. A model call, a fetch of the model list or a login with
+  the check checks the key.
 - `efr logout anthropic` deletes the key from efrd. The key stays valid at Anthropic:
   revoke it in the Claude Console. When the provider is the one of new conversations,
   efr warns that it stays in `[model] provider`, so its turns fail until you log in
@@ -182,7 +186,8 @@ first model then gets the same request once more before efr goes to the next ste
 model that is missing or refuses is skipped for the rest of the conversation. A
 provider that refuses the login fails for every model, so the question then goes to
 you at once. `efr history --verbose` shows the model, the step and the skipped models
-of each review.
+of each review, and `asked again for a real reason` when the first model got its
+request a second time.
 
 Each review is one more request to your provider. With an API key, you pay for it per
 token; with a subscription, it counts against the limits of your plan. A review sends
@@ -237,13 +242,32 @@ cache of the conversation.
 | A pause longer than the time to live | The whole cache | The whole cache (OpenAI keeps an entry for 30 minutes or more) |
 | A restart of efrd | Nothing | Nothing |
 
+`efr history --verbose` shows the tokens of each turn on one muted line, such as
+`18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)`: the input, the output, the part of
+the input that came from the cache, and the cache writes, with `(1h)` when they were
+for one hour (`(800 1h)` when only a part was). An interrupted or failed turn that
+reported its tokens shows the line too.
+
 ### Measure the time to live
 
-With `log = "info,efr_=debug"` in `config.toml`, the log of efrd shows two facts for
-each model call:
+With `log = "info,efr_conversation::usage=debug"` in `config.toml` (the key applies at
+once, with no restart), the log of efrd shows one line for each model call of a turn
+that reported its tokens, such as `usage gap_ms=95000 input=18200 output=1100
+read=16600 write=1200 write_1h=1200`. The line holds numbers only, never the text of a
+prompt or an answer:
 
-- `gap_ms`: the time since the start of the conversation's call before. The first
-  call after a start of efrd has none.
+- `gap_ms`: the time since the start of the conversation's call before, or `none` for
+  the first call after a start of efrd.
+- `input` and `output`: the tokens of the call; `read`: the part of the input that came
+  from the cache; `write`: the cache writes; `write_1h`: the part of the writes for one
+  hour.
+
+Read the lines with `journalctl --user -u efrd --since -7d | grep 'usage gap_ms='`, and
+set `log` back when you have enough of them. With `log = "info,efr_=debug"`, the log
+also shows:
+
+- `gap_ms` on every line of a call: the time since the start of the conversation's
+  call before. The first call after a start of efrd has none.
 - For Claude, one line with the markers of the request, such as `cache_ttl=auto
   markers=S1h,A1h,P1h,T1h`: S is the system prompt and the tools, A an earlier point
   in the conversation (the start of a turn, or about every 20,000 tokens of a tool

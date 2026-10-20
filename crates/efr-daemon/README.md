@@ -138,6 +138,18 @@ the appliers take the new values:
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
 
+The answer of a reload carries its warnings (`AdminConfigReloadResult::warnings`,
+DV44), which went only to the log before: a `[model] name` of another company than
+the running `[model] provider` (only when the reload changed what
+`Settings::foreign_model` gives, so the same name warns once, C3.1), each always rule
+that the new engine disables and the old one did not (`always::warn_disabled` returns
+them), and a bus filter that the reload turned off: `dbus.proxy` went to false, or it
+went to true while the last bus check of this efrd found the filter off for a reason
+that warns (`reload::bus_warning`; the check that a reload to true starts runs after
+the answer). A held change is the answer's `error`, as before, never a warning.
+`efr config reload` prints each warning as a dim line
+(`reload_reply_carries_the_foreign_model_warning`, `unchanged_foreign_model_warns_once`).
+
 The config hold (full mode): a command of a full turn runs as the user and can write
 `config.toml`. `full::FullTurns` counts the full work that runs: a turn from its first
 full call to its end (`Toolbox::turn_changes`, which every ending of a turn calls),
@@ -432,12 +444,17 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   stream counts as working from its first event). The model calls decide: their mark
   shows, and once a model call worked, the mark of the model list does not. A login
   or a logout of the provider clears both, and an answer to the old key that comes
-  after it changes nothing.
+  after it changes nothing. Each answer of either source, refused or not, also marks
+  the key as checked at that time (`key_checked_at`), and so does a login that
+  checked the key. The marks live in memory only: after a restart, a stored key has
+  neither until its first answer, and `efr status` says `not checked since efrd
+  started` (DV32).
 - `prompt.send` refuses a prompt that names no model of its own while `[model] name`
   is a model of another company than `[model] provider` (`efr_config::ForeignModel`):
   `invalid`, with the cause and the fix (set `[model] name` to a model of the provider,
   or remove it) and the setting, the value and the provider as data. efrd also warns
-  about such a name at start and after each reload.
+  about such a name at start, and after a reload that changed what `foreign_model()`
+  gives against the running settings: a reload of the same name warns no more (C3.1).
 - `models.list` answers the effective model list of the latest settings over the
   current catalog (`catalog.rs`, `effective_models`), and where the catalog came from
   (`catalog`: the provider, and `backend`, `cache`, `builtin` or `missing`, with the
@@ -893,11 +910,14 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   small model of the provider's company), then the turn's model, then the user. A step
   that is missing, refuses, times out on the daemon's clock or answers outside the
   schema goes to the next step; refused credentials or a used-up quota go to the user
-  at once. A step that refuses the output form goes once more without it. The schema
-  and the prompt put `rationale` first, so the model writes its reason before its
-  verdict. A rationale that is shorter than 12 characters or a placeholder (`x`, `n/a`,
-  `tbd`) makes the answer unreadable: the classifier model gets the same request once
-  more, and a second such answer goes to the next step. The judge
+  at once. A step that refuses the output form goes once more without it. The prompt
+  and the schema's `required` list put `rationale` first, so the model writes its
+  reason before its verdict; on the wire, `properties` keeps the order of the names
+  (serde_json has no `preserve_order`). A rationale that is shorter than 12 characters
+  or a placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier
+  model gets the same request once more (`JudgeOutcome::reasked`, which the turn
+  records as `exit_judged.reasked`), and a second such answer goes to the next step.
+  The judge
   returns the model's judgement as it is, with the SHA-256 of the record that the model
   read. What it keeps between exits (`judge/memory.rs`): the allow and deny verdicts of
   each conversation's current turn, the models that a conversation skips, and the
@@ -995,9 +1015,9 @@ lies below it, so each reload checks every rule again. Each disabled rule gives 
 `WARN` in the log at the start and when a reload sends an engine that disables it
 (`always::warn_disabled`), and the warning `sandbox.allow[N] is disabled: <reason>` in
 `SandboxStatus::warnings` of `admin.status` and `admin.sandbox_check`
-(`always::disabled_warnings`). The answer of `admin.config_reload` has no field for
-it, so `efr config reload` does not show it; `efr sandbox check` and
-`efr sandbox allow` do.
+(`always::disabled_warnings`). The answer of `admin.config_reload` carries the warning
+of each rule that its reload disabled in `warnings` (DV44), so `efr config reload`
+shows it once; `efr sandbox check` and `efr sandbox allow` show every disabled rule.
 
 `always.rs` (`RuleWriter`) is the `AllowWriter` of the conversations: it saves the rule
 of an `a` answer. It runs `Engine::check_allow` on the running engine first, so it

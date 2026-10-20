@@ -139,7 +139,8 @@ turns.
   exit goes to it. `exit_requested` and `exit_review_started` come in one batch, the
   judge runs while the user can still interrupt, and `exit_judged` (judge
   `classifier`, with the model, the latency, the step of the chain, the skipped models,
-  the record's hash and `cached`) records the answer. A verdict from the judge's cache
+  the record's hash, `cached` and `reasked`, from `JudgeOutcome::reasked`: the judge
+  asked its model again for a real reason) records the answer. A verdict from the judge's cache
   of the turn comes at once and records no `exit_review_started`. efr applies the allow
   rule and the naming rule of the auto spec, section 9.4 (`exit::effective`): an allow
   stands at a low or medium risk, or at a high risk that a user message authorizes; a
@@ -730,6 +731,17 @@ parts `context` and `compacting`, `conversation.compact`).
    not stored. A provider's cache entry lives for a time that counts from the start of
    the request that wrote or last read it, so the field, the provider's debug line
    about its cache markers and the call's usage show which time to live pays.
+6. Each model call of a turn that reported its usage writes one `debug` line with the
+   target `efr_conversation::usage` (`turn/stream.rs`, DV12): `usage gap_ms=95000
+   input=18200 output=1100 read=16600 write=1200 write_1h=1200` (`gap_ms=none` for the
+   first call since efrd started). It holds numbers only, never text, and the gap comes
+   from the shared clock. `log = "info,efr_conversation::usage=debug"` shows it without
+   the rest of the debug lines; an estimator reads it from the journal. The summary
+   calls of a compaction write no such line.
+7. The `phase=model_answer` line of a call names `stop_reason` only for an answer that
+   ended (`end_turn`, `tool_use`, `max_tokens` and the others); a call that the user
+   interrupted, or that failed, says `outcome=interrupted` or `outcome=error`, because
+   neither is a stop reason of the API (C2.8e). The start of the line stays the same.
 
 ### The estimate
 
