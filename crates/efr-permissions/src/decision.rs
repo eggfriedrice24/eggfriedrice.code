@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::exits::ExitNeed;
-use crate::{Access, Construct, PathClass};
+use crate::{Access, Construct, CriticalDelete, PathClass};
 
 /// What happens to a tool call, ordered from the least to the most strict, so the
 /// strictest of several effects is their maximum.
@@ -124,6 +124,15 @@ impl Decision {
         })
     }
 
+    /// The deletes of the call that full mode guards, in the order the engine found
+    /// them.
+    pub fn critical(&self) -> impl Iterator<Item = &CriticalDelete> {
+        self.reasons.iter().filter_map(|reason| match &reason.subject {
+            Subject::CriticalDelete { delete } => Some(delete),
+            _ => None,
+        })
+    }
+
     /// The grants of the views of the call, in the order the engine found them: what
     /// the launch gets with no exit and no question, such as `Grant::NetView`.
     pub fn view_grants(&self) -> impl Iterator<Item = &Grant> {
@@ -199,6 +208,13 @@ pub enum Subject {
         part: String,
         /// The kind of its exit.
         kind: ExitKind,
+    },
+    /// A delete or a move of a tree that full mode guards: home, `/`, a system dir, a
+    /// project, a dir that holds several projects, a floor, efr's files or a secret, or
+    /// a target that efr cannot read.
+    CriticalDelete {
+        /// The delete.
+        delete: CriticalDelete,
     },
     /// A read-only view of the host that the call gets with no exit and no question,
     /// such as `Grant::NetView` (phase D1) or `Grant::BusFilter`, the call's own
@@ -324,6 +340,11 @@ pub enum Cause {
     /// A part of the line cannot run as a background job, in every mode and whatever
     /// the user answers ([`crate::JOB_REFUSAL`]).
     NotAsJob,
+    /// Full mode lets the requirement run with no question.
+    Full,
+    /// A delete that full mode guards: only the user approves it, at their own
+    /// machine, whatever the rules say.
+    CriticalDelete,
 }
 
 /// The policy that a rule belongs to.
@@ -440,6 +461,11 @@ impl Reason {
                 ", because outside auto the user approves each background job before it starts",
             ),
             Cause::NotAsJob => write!(f, ", because {}", crate::JOB_REFUSAL),
+            Cause::Full => f.write_str(", because full mode runs it with no question"),
+            Cause::CriticalDelete => f.write_str(
+                ", because full mode still asks before a delete of this tree, and only the \
+                 user's own machine answers",
+            ),
         }
     }
 }
@@ -490,6 +516,7 @@ impl fmt::Display for Subject {
             Subject::View { grant: Grant::BusFilter { bus: BusKind::Session } } => {
                 f.write_str("the filtered session bus")
             }
+            Subject::CriticalDelete { delete } => write!(f, "delete {}", delete.target),
             Subject::View { .. } => f.write_str("a view of the host"),
             Subject::Nothing => f.write_str("no requirements"),
         }

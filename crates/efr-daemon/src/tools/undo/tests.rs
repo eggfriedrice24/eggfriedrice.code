@@ -10,8 +10,8 @@ use efr_config::Settings;
 use efr_conversation::{Toolbox as _, UndoCandidate, UndoRequest};
 use efr_permissions::CoverAsk;
 use efr_protocol::{
-    CommandId, ConversationId, Origin, TurnId, TurnUndo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused,
+    CommandId, ConversationId, Mode, Origin, TurnId, TurnUndo, TurnUndoResult, UndoAction,
+    UndoEntry, UndoId, UndoReason, UndoRefused,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -677,7 +677,7 @@ async fn undo_of_a_manual_turn_says_that_outside_writes_are_not_covered() {
     std::fs::write(scratch.join("a.txt"), "old\n").unwrap();
     let input = json!({"path": scratch.join("a.txt"), "content": "new\n"});
     let mut call = call_of(2, 1, "write_file", input, &work(&kept));
-    call.context = call.context.with_auto(false);
+    call.context = call.context.with_mode(Mode::Cautious);
     let mut sink = |_: &str, _: u64| {};
     assert!(!kept.toolbox.invoke(call, &mut sink).await.is_error);
     end(&kept, 2).await;

@@ -56,6 +56,7 @@
 mod always;
 pub mod bus;
 mod command;
+mod critical;
 mod decision;
 mod engine;
 mod error;
@@ -71,6 +72,7 @@ mod tables;
 pub use always::{AllowFloor, AllowRule, AlwaysVerdict};
 pub use bus::{BusFilter, BusRule, check_rules};
 pub use command::{Construct, runs_as_another_user};
+pub use critical::{CriticalDelete, CriticalTarget, CriticalWhy};
 pub use decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 pub use engine::{Engine, effective_mode};
 pub use error::{AllowRuleProblem, BusRuleProblem, HostError, PermissionsError};

@@ -1365,7 +1365,7 @@ impl Toolbox for DaemonToolbox {
                 // directories that the model can write, so other modes skip it.
                 let watch = Stopwatch::start();
                 let facts =
-                    if call.context.auto { self.facts(call, &declared).await } else { None };
+                    if call.context.sandboxed() { self.facts(call, &declared).await } else { None };
                 if facts.is_some() {
                     tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase=facts elapsed_ms={}", watch);
                 }
@@ -1413,7 +1413,7 @@ impl Toolbox for DaemonToolbox {
         // PD9, PB13), so `write_file`, `edit`, `apply_patch` and a line in the exit
         // child share it. A copy that fails stops the call.
         let context = call.context.clone();
-        if context.auto {
+        if context.sandboxed() {
             self.mark_auto(context.turn_id);
         }
         let copying = match self.copy_before(&context).await {

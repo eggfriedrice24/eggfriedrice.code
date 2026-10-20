@@ -42,7 +42,7 @@ impl Turn {
     /// True when the classifier judges the exits of `ruling` before the user: see the
     /// module doc.
     pub(super) fn reviews(&self, call: &ToolCall, ruling: &Ruling) -> bool {
-        call.context.auto
+        call.context.sandboxed()
             && self.shared.deps.judge.is_some()
             && self.config.classifier_enabled
             && !self.exits.classifier_off()
@@ -67,7 +67,7 @@ impl Turn {
         ruling: &Ruling,
     ) -> Option<Authorization> {
         let (reason, denials) = self.exits.paused?;
-        let judged = call.context.auto
+        let judged = call.context.sandboxed()
             && self.shared.deps.judge.is_some()
             && self.config.classifier_enabled
             && self.goes_to_classifier(ruling);

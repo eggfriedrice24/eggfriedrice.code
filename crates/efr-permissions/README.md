@@ -16,6 +16,13 @@ built-in policy of a turn, `Policy::base(mode)`, and the user's rules follow it.
 `Engine::with_rules(locations, rules)` builds the three machine policies once; a turn
 from a remote origin runs with at most `cautious` (`effective_mode`).
 
+Full mode (`Mode::Full`) has no rows of its own yet: like any mode that this crate
+does not know, it gets the `manual` policy and fails closed. `critical` holds the types
+of a delete that full mode guards (`CriticalDelete`, `CriticalTarget`, `CriticalWhy`);
+a reason about one has `Subject::CriticalDelete` and `Cause::CriticalDelete`, and
+`Decision::critical` lists them. `Cause::Full` marks a requirement that full mode runs
+with no question.
+
 Modules:
 
 - `path_class`: `PathClass` and `Locations`. Every path a call touches is in one class,

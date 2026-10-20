@@ -128,12 +128,12 @@ impl CallSnapshots {
             shown.push((path, prefix));
         }
         let mut roots = self.undo_roots(shown).await;
-        if call.auto {
+        if call.sandboxed() {
             roots = roots.into_iter().map(|root| root.with_mode("auto")).collect();
         }
         let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
         let seen = turns.entry(call.turn_id).or_default();
-        seen.auto |= call.auto;
+        seen.auto |= call.sandboxed();
         for root in &roots {
             if !seen.roots.iter().any(|(path, _)| path == root.path()) {
                 seen.roots.push((root.path().to_path_buf(), root.shown().to_owned()));

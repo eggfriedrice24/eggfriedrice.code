@@ -403,7 +403,10 @@ by field:
   hidden shell is, which an earlier call may have moved. Once the user approved a call
   whose requirements are `interactive`, the check point sets
   `CallContext::approved_interactive`, from which the daemon lets the call run past the
-  model's timeout while someone who can answer follows it;
+  model's timeout while someone who can answer follows it. `CallContext::mode` is the
+  turn's effective mode: `sandboxed()` (`auto`: the sandbox, the reviewer and
+  always-allow), `predicts()` (`auto` or `full`: the engine predicts exits, so the
+  toolbox collects facts and copies home files first) and `is_full()`;
 - `invoke`: `ToolRegistry::invoke` with the `OutputSink` passed through as the
   `ToolOutputSink` (output and input waits; the daemon itself answers whether a person
   can answer hidden input), and `ToolResult` copied into `ToolOutcome`; a `ToolError`
