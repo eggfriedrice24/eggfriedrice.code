@@ -517,7 +517,7 @@ async fn every_valid_change_asks_in_every_mode_and_a_remote_turn_is_denied() {
 
     for origin in [Origin::Shell, Origin::Cli, Origin::Proxy, Origin::Phone] {
         let requirements = fixture.tool.requirements(&call(3, set.clone(), origin)).await.unwrap();
-        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        for mode in Mode::ALL {
             let decision = engine.decide(&DecisionInput {
                 requirements: requirements.clone(),
                 scope: Scope::Machine,
@@ -904,6 +904,102 @@ fn loosens_dbus_rows() {
     for (row, next) in &closing {
         assert!(!super::dbus_loosens(&on, next), "{row} must not loosen");
     }
+}
+
+/// `COMMENTED` with the gate of full mode on.
+fn gated() -> String {
+    COMMENTED.replace("mode = \"cautious\"\n", "mode = \"cautious\"\nallow_full = true\n")
+}
+
+#[tokio::test]
+async fn settings_tool_refuses_allow_full() {
+    let cases = [
+        (
+            COMMENTED.to_owned(),
+            json!({"operation": "set", "key": "permissions.allow_full", "value": true}),
+        ),
+        (
+            COMMENTED.to_owned(),
+            json!({"operation": "set", "key": "permissions.allow_full", "value": "true"}),
+        ),
+        (
+            COMMENTED.to_owned(),
+            json!({"operation": "set", "key": "permissions.allow_full", "value": false}),
+        ),
+        (gated(), json!({"operation": "set", "key": "permissions.allow_full", "value": false})),
+        (gated(), json!({"operation": "unset", "key": "permissions.allow_full"})),
+        (COMMENTED.to_owned(), json!({"operation": "unset", "key": "permissions.allow_full"})),
+    ];
+    for (n, (file, input)) in (10..).zip(cases) {
+        let fixture = Fixture::new();
+        fixture.write(&file);
+        let call = local(n, input.clone());
+
+        let refused = fixture.tool.requirements(&call).await.unwrap_err();
+
+        assert!(refused.contains("never changes permissions.allow_full"), "{input}: {refused}");
+        assert!(refused.contains("efr config edit"), "{input}: {refused}");
+        assert_eq!(fixture.tool.preview(&call).await, None, "{input}");
+        assert_eq!(fixture.text(), file, "{input}");
+        assert!(fixture.reloads.lock().unwrap().is_empty(), "{input}");
+    }
+}
+
+#[tokio::test]
+async fn settings_tool_refuses_mode_full() {
+    let set_full = json!({"operation": "set", "key": "permissions.mode", "value": "full"});
+    for (n, file) in (10..).zip([COMMENTED.to_owned(), gated()]) {
+        let fixture = Fixture::new();
+        fixture.write(&file);
+        let call = local(n, set_full.clone());
+
+        let refused = fixture.tool.requirements(&call).await.unwrap_err();
+
+        assert!(refused.contains("never sets permissions.mode to full"), "{file}: {refused}");
+        assert!(refused.contains("efr config edit"), "{file}: {refused}");
+        assert_eq!(fixture.tool.preview(&call).await, None, "{file}");
+        assert_eq!(fixture.text(), file);
+    }
+
+    // The other modes stay a change that asks, also with the gate on, and so does a
+    // move away from full that the user set by hand.
+    let full = gated().replace("mode = \"cautious\"", "mode = \"full\"");
+    let cases = [
+        (gated(), json!({"operation": "set", "key": "permissions.mode", "value": "auto"}), true),
+        (
+            full.clone(),
+            json!({"operation": "set", "key": "permissions.mode", "value": "auto"}),
+            false,
+        ),
+        (full, json!({"operation": "unset", "key": "permissions.mode"}), false),
+    ];
+    for (n, (file, input, loosens)) in (20..).zip(cases) {
+        let fixture = Fixture::new();
+        fixture.write(&file);
+
+        let requirements = fixture.tool.requirements(&local(n, input.clone())).await.unwrap();
+
+        let marked = requirements.settings.as_ref().map(|change| change.loosens);
+        assert_eq!(marked, Some(loosens), "{input}");
+    }
+}
+
+#[test]
+fn loosens_allow_full() {
+    let off = Settings::default();
+    assert!(!off.permissions.allow_full, "the gate is off by default");
+    let mut on = Settings::default();
+    on.permissions.allow_full = true;
+    assert!(super::loosens(&off, &on), "turning the gate on loosens");
+    assert!(!super::loosens(&on, &off), "turning it off asks more, so it does not loosen");
+
+    // Full is above auto, so a move to full as the default loosens too.
+    let mut auto = on.clone();
+    auto.permissions.mode = Mode::Auto;
+    let mut full = on.clone();
+    full.permissions.mode = Mode::Full;
+    assert!(super::loosens(&auto, &full), "auto to full loosens");
+    assert!(!super::loosens(&full, &auto), "full to auto does not loosen");
 }
 
 #[tokio::test]
