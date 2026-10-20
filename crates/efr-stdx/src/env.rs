@@ -76,6 +76,10 @@ pub enum Var {
     /// `EFR_LAST_COMMAND`: the last command line of the user's shell, which the zsh
     /// plugin hands to `efr send` and `efr new`. Private: see [`Var::PRIVATE`].
     LastCommand,
+    /// `EFR_RECENT_COMMANDS`: the recent command lines of the user's terminal as JSON,
+    /// which the zsh plugin hands to `efr send` and `efr new`. Private: see
+    /// [`Var::PRIVATE`].
+    RecentCommands,
     /// `EFR_PROMPT`: the prompt that the zsh plugin hands to `efr send` and `efr new`,
     /// and the focus it hands to `efr compact`. Private: see [`Var::PRIVATE`].
     Prompt,
@@ -111,6 +115,7 @@ impl Var {
         Var::Effort,
         Var::Context,
         Var::LastCommand,
+        Var::RecentCommands,
         Var::Prompt,
         Var::TerminalBg,
         Var::DraftFile,
@@ -123,7 +128,8 @@ impl Var {
     /// process's own user. So they stay out of every child process
     /// ([`process::command`](crate::process::command) removes them) and out of `Debug`
     /// output.
-    pub const PRIVATE: &'static [Var] = &[Var::Context, Var::LastCommand, Var::Prompt];
+    pub const PRIVATE: &'static [Var] =
+        &[Var::Context, Var::LastCommand, Var::RecentCommands, Var::Prompt];
 
     /// True for a variable in [`Var::PRIVATE`].
     pub fn is_private(self) -> bool {
@@ -152,6 +158,7 @@ impl Var {
             Var::Effort => "EFR_EFFORT",
             Var::Context => "EFR_CONTEXT",
             Var::LastCommand => "EFR_LAST_COMMAND",
+            Var::RecentCommands => "EFR_RECENT_COMMANDS",
             Var::Prompt => "EFR_PROMPT",
             Var::TerminalBg => "EFR_TERMINAL_BG",
             Var::DraftFile => "EFR_DRAFT_FILE",
