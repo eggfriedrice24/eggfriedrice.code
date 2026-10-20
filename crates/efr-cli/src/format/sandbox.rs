@@ -329,6 +329,19 @@ fn grants_last(record: Option<&ExitRecord>) -> String {
     }
 }
 
+/// The title of the question about a command that full mode still asks for.
+const FULL_TITLE: &str = "allow this command, with no sandbox";
+
+/// How a command of full mode runs after a "yes".
+const FULL_RUNS: &str = "runs as you, with no sandbox";
+
+/// True for a `shell` call that runs direct: only full mode runs a command line with no
+/// sandbox and no launcher (a file tool also runs direct, in every mode).
+fn full_shell(info: &ExitInfo, record: Option<&ExitRecord>) -> bool {
+    matches!(info.launch, Launch::Direct)
+        && record.is_some_and(|record| record.action.tool == "shell")
+}
+
 /// How a call runs after a "yes", as the end of the exit line.
 fn launch_words(info: &ExitInfo, record: Option<&ExitRecord>, home: Option<&Path>) -> String {
     match &info.launch {
@@ -338,6 +351,7 @@ fn launch_words(info: &ExitInfo, record: Option<&ExitRecord>, home: Option<&Path
             let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
             format!("runs in the sandbox with {} {}", opened.join(", "), grants_last(record))
         }
+        Launch::Direct if full_shell(info, record) => FULL_RUNS.to_owned(),
         // NOTE: in auto only a file tool runs direct: efrd reads or writes the path.
         Launch::Direct => "the file tool runs outside the sandbox".to_owned(),
         _ => "runs as typed".to_owned(),
@@ -546,6 +560,8 @@ pub(crate) fn exit_lines(
         && info.kinds.iter().all(|kind| matches!(kind, ExitKind::Privilege | ExitKind::Outside));
     let first = if unsandboxed && program_only {
         format!("runs outside the sandbox: {}", parts.join("; "))
+    } else if full_shell(info, record) {
+        format!("full mode asks: {}; {FULL_RUNS}", parts.join("; "))
     } else {
         format!("leaves the sandbox: {}; {}", parts.join("; "), launch_words(info, record, home))
     };
@@ -612,6 +628,7 @@ pub(crate) fn exit_card(
             let opened: Vec<String> = grants.iter().map(|grant| grant_words(grant, home)).collect();
             format!("allow {} {}", opened.join(", "), grants_last(record))
         }
+        Launch::Direct if full_shell(info, record) => FULL_TITLE.to_owned(),
         Launch::Direct => "allow the file tool outside the sandbox".to_owned(),
         _ => "allow this call".to_owned(),
     };
