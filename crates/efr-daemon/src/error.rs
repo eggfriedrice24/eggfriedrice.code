@@ -535,7 +535,7 @@ pub enum BusProxyProblem {
         /// The bus.
         bus: efr_protocol::BusKind,
     },
-    /// The installed `xdg-dbus-proxy` is older than the oldest version that efr tested.
+    /// The installed `xdg-dbus-proxy` is older than 0.1.9, the version floor.
     OldVersion,
     /// The proxy of the self-test did not end cleanly when its sync pipe closed.
     SelfTest,
@@ -555,9 +555,7 @@ impl fmt::Display for BusProxyProblem {
             BusProxyProblem::BadUpstream { .. } => {
                 "the session bus is missing or not one that efr accepts"
             }
-            BusProxyProblem::OldVersion => {
-                "xdg-dbus-proxy is older than the oldest version that efr tested"
-            }
+            BusProxyProblem::OldVersion => "xdg-dbus-proxy is older than 0.1.9",
             BusProxyProblem::SelfTest => "the filter did not end cleanly in its self-test",
             BusProxyProblem::Rules => "the bus rules do not compile",
         })

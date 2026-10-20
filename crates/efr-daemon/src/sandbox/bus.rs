@@ -70,10 +70,12 @@ pub(crate) const MAX_LOG_BYTES: usize = 256 * 1024;
 /// The byte that a proxy writes on its sync pipe when it is ready.
 const READY: u8 = b'x';
 
-/// The oldest `xdg-dbus-proxy` that efr accepts (DE8, check C4-3): 0.1.5, the version of
-/// Ubuntu 24.04 that CI tests. It has `--fd`, `--call=NAME=IFACE.MEMBER@PATH`, `@/path/*`
-/// and the `--log` lines that efr reads.
-pub(crate) const VERSION_FLOOR: (u32, u32, u32) = (0, 1, 5);
+/// The oldest `xdg-dbus-proxy` that efr accepts (DE8): 0.1.9. Versions before 0.1.6
+/// cannot serve sd-bus clients such as `hostnamectl` (CI saw `Transport endpoint is not
+/// connected` with Ubuntu 24.04's 0.1.5), and versions before 0.1.9 let some messages
+/// past the filter (CVE-2026-34080, CVE-2026-93676, CVE-2026-94422). CI builds 0.1.9
+/// from its release tarball.
+pub(crate) const VERSION_FLOOR: (u32, u32, u32) = (0, 1, 9);
 
 /// The dir of the self-tests below the runtime root's `sbx`.
 pub(crate) const SELF_TEST_DIR: &str = "bus-test";
@@ -252,7 +254,7 @@ impl BusService {
         match parse_version(&text) {
             Some(version) if version >= VERSION_FLOOR => {}
             found => {
-                tracing::warn!(version = ?found, floor = ?VERSION_FLOOR, "xdg-dbus-proxy is older than the oldest version that efr tested, or its version does not parse");
+                tracing::debug!(version = ?found, floor = ?VERSION_FLOOR, "xdg-dbus-proxy is older than the version floor, or its version does not parse");
                 return Err(failed(BusProxyProblem::OldVersion));
             }
         }
@@ -530,11 +532,12 @@ fn make_dir_and_clear(dir: &Path, socket: &Path) -> std::io::Result<()> {
 }
 
 /// True when the filter, off for `off`, is worth a warning: always, but for a missing
-/// `xdg-dbus-proxy` while `dbus.proxy` is true only by its built-in default. The
-/// program is an optional dependency, and the user never asked for the filter, so the
-/// status says `off` with no warning that only an install or `proxy = false` removes.
+/// or too old `xdg-dbus-proxy` while `dbus.proxy` is true only by its built-in default.
+/// The program is an optional dependency, the user never asked for the filter, and a
+/// distribution can ship only an older version, so the status says `off` with no
+/// warning that only an install or `proxy = false` removes.
 pub(crate) fn warns(settings: &efr_config::Settings, off: efr_protocol::BusProxyOff) -> bool {
-    off != efr_protocol::BusProxyOff::NoProgram
+    !matches!(off, efr_protocol::BusProxyOff::NoProgram | efr_protocol::BusProxyOff::OldVersion)
         || settings.source("dbus.proxy") != efr_config::Source::Default
 }
 
@@ -544,7 +547,7 @@ pub(crate) fn off_warning(off: efr_protocol::BusProxyOff) -> String {
     let reason = match off {
         efr_protocol::BusProxyOff::NoProgram => "xdg-dbus-proxy is not installed",
         efr_protocol::BusProxyOff::OldVersion => {
-            "the installed xdg-dbus-proxy is older than the oldest version that efr tested"
+            "the installed xdg-dbus-proxy is older than 0.1.9, the first version without known filter bypasses"
         }
         efr_protocol::BusProxyOff::Config => "dbus.proxy is false",
         _ => "its self-test failed",

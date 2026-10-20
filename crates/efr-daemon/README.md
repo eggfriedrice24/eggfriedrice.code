@@ -639,8 +639,8 @@ spec; `docs/sandbox.md` for the user's view):
   system bus is a path that never exists and there is no session bus.
   `Deps::with_bus_proxy_program` names a test's fake program. While `dbus.proxy` is
   true, each probe also runs the filter's self-test (`BusService::self_test`, in a
-  fresh dir below `$R/sbx/bus-test`): `xdg-dbus-proxy --version` must say 0.1.5 or
-  later, and one proxy with the default system rules and an upstream that no client
+  fresh dir below `$R/sbx/bus-test`): `xdg-dbus-proxy --version` must say 0.1.9 or
+  later (older versions cannot serve sd-bus clients or let messages past the filter), and one proxy with the default system rules and an upstream that no client
   uses must become ready and end cleanly when its sync pipe closes. No self-test runs
   while `dbus.proxy` is false, and a seam's probe sets the result instead.
   `SandboxStatus.bus_proxy` carries the result into `Probed::bus_proxy`, and the engine

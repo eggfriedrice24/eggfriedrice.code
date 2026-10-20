@@ -75,7 +75,7 @@ pub enum BusProxyOff {
     NoProgram,
     /// The self-test of the proxy failed.
     SelfTest,
-    /// The installed `xdg-dbus-proxy` is older than the oldest version that efr tested.
+    /// The installed `xdg-dbus-proxy` is older than the version that efr requires.
     OldVersion,
     /// A reason that this build does not know.
     #[serde(other)]

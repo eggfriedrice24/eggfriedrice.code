@@ -1379,7 +1379,7 @@ note `efr's network proxy is off: its self-test failed; run efr status`. `efr st
 then shows `network none (proxy self-test failed)`.
 
 While `dbus.proxy` is `true`, efrd also checks the bus filter at start and after each
-probe: `xdg-dbus-proxy --version` must say 0.1.5 or newer, and one filter with the
+probe: `xdg-dbus-proxy --version` must say 0.1.9 or newer, and one filter with the
 built-in rules must start under the wrapper, write its ready byte and end cleanly. A
 failure here is a warning too: the filter is off, and the read-only queries of "The bus
 filter" go to the reviewer as `bus` exits, which is stricter, never looser. `efr
@@ -1389,8 +1389,8 @@ These warnings show in `efr sandbox check` and in efrd's log; `auto` still runs:
 
 | Warning | Meaning | Fix |
 |---|---|---|
-| `efr's bus filter is off: xdg-dbus-proxy is not installed; ...` | you set `dbus.proxy = true` in `config.toml`, but efrd found no `xdg-dbus-proxy` that root owns. With the default value, efr shows no warning, and `efr status` shows `bus filter off (xdg-dbus-proxy is not installed)` | Arch: `pacman -S xdg-dbus-proxy`; Debian and Ubuntu: `apt install xdg-dbus-proxy` |
-| `efr's bus filter is off: the installed xdg-dbus-proxy is older than the oldest version that efr tested; ...` | the program is older than 0.1.5 | update the package |
+| `efr's bus filter is off: xdg-dbus-proxy is not installed; ...` | you set `dbus.proxy = true` in `config.toml`, but efrd found no `xdg-dbus-proxy` that root owns. With the default value, efr shows no warning, and `efr status` shows `bus filter off (xdg-dbus-proxy is not installed)` | Arch: `pacman -S xdg-dbus-proxy`. Other systems: a package of version 0.1.9 or later |
+| `efr's bus filter is off: the installed xdg-dbus-proxy is older than 0.1.9, the first version without known filter bypasses; ...` | you set `dbus.proxy = true`, but the program is older than 0.1.9. Older versions cannot serve `hostnamectl` and the other systemd tools, and let some messages past the filter. Ubuntu 24.04 and Debian ship 0.1.5. With the default value, efr shows no warning, and `efr status` shows `bus filter off (xdg-dbus-proxy is too old)` | install 0.1.9 or later, or set `dbus.proxy = false` |
 | `efr's bus filter is off: its self-test failed; ...` | the filter did not start or did not end cleanly | run `efr sandbox check`; efrd's log has the error |
 | `sandbox.allow[1] is disabled: <reason>` | an always rule crosses a floor (see "Always-allow rules") | change or remove the rule: `efr sandbox allow remove 1` |
 
