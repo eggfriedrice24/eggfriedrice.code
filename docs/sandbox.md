@@ -402,7 +402,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
 | `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent, git's credential cache); refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
-| `bus` | `notify-send`, `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `hostnamectl` and `systemctl --failed` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd |
+| `bus` | `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `systemctl --user show-environment`, `notify-send --wait`; `hostnamectl`, `systemctl --failed` and `notify-send` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | for the system bus: the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd. For the session bus: only you, with the note `the whole session bus can start programs outside the sandbox` |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
@@ -959,13 +959,23 @@ the check fails, contained commands have no network, and `efr status` says so.
 
 ## The bus filter
 
-Read-only system queries run in the sandbox with no question. Examples:
-`hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
-`systemctl status nginx.service`, `systemctl --user --failed` and
-`loginctl list-sessions`. Such a command reaches the system or the session bus only
-through efr's bus filter, `xdg-dbus-proxy`, which lets through only a fixed list of
-read methods. The filter runs while `dbus.proxy` is `true`, the default;
-`dbus.proxy = false` turns it off, and these queries go to the reviewer again.
+Read-only system queries and desktop notifications run in the sandbox with no
+question. Examples: `hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
+`systemctl status nginx.service`, `systemctl --user --failed`,
+`loginctl list-sessions` and `notify-send 'build done'`. Such a command reaches the
+system or the session bus only through efr's bus filter, `xdg-dbus-proxy`, which lets
+through only a fixed list of methods. The filter runs while `dbus.proxy` is `true`,
+the default. When `dbus.proxy = false` turns it off, or `xdg-dbus-proxy` is missing,
+these commands need the whole bus again: the system bus queries go to the reviewer,
+and the session bus commands ask you.
+
+The whole session bus is always your own question, never the reviewer's. On that bus,
+the user manager (`systemd --user`) starts any program outside the sandbox
+(`StartTransientUnit`), and an unlocked keyring (the Secret Service,
+`org.freedesktop.secrets`) gives every secret with no prompt. The question says
+`the whole session bus can start programs outside the sandbox`. efr does not first
+look for a keyring on the bus, because a keyring that starts on demand has no owner
+until a program calls it. The whole system bus keeps its approver.
 [`docs/adr/0013-bus-proxy-and-always-allow.md`](adr/0013-bus-proxy-and-always-allow.md)
 records the decision.
 
@@ -980,13 +990,14 @@ read forms, with no option that names another host, machine, root or image (`-H`
 | `systemctl`, `systemctl --user` | no verb, `status`, `list-units`, `list-unit-files`, `list-sockets`, `list-timers`, `list-jobs`, `list-dependencies`, `is-active`, `is-failed`, `is-enabled`, `show`, `cat`, and `--failed` |
 | `loginctl` | no verb, `list-sessions`, `list-users`, `list-seats`, `show-session`, `show-user`, `show-seat`, `session-status`, `user-status`, `seat-status` |
 | `hostnamectl`, `timedatectl`, `localectl` | no verb, `status`, `show`; also `timedatectl timesync-status` and `show-timesync` |
+| `notify-send` | every form except one that waits for the notification to close or for an action (`-w`, `--wait`, `-A`, `--action`): the filter lets no signal back, so such a form would wait for ever |
 
 The rule picks the lines that fit. It is not a security layer: in
 `systemctl --failed; ./x.sh`, the script gets the same filtered bus. The filter, not
 the rule, decides what a call can do on the bus. A `systemctl` form gets the system
-bus, a `systemctl --user` form the session bus. Every other bus form keeps its `bus`
-exit (see "Exits"), such as `systemctl get-default`, `notify-send`, `busctl`,
-`resolvectl`, `coredumpctl`, `nmcli` and `iwctl`. A `systemctl` that changes
+bus, a `systemctl --user` form and `notify-send` the session bus. Every other bus form
+keeps its `bus` exit (see "Exits"), such as `systemctl get-default`,
+`notify-send --wait`, `busctl`, `resolvectl`, `coredumpctl`, `nmcli` and `iwctl`. A `systemctl` that changes
 something, such as `systemctl restart nginx`, stays a `privilege` exit, and
 `systemctl --user enable` a `persistence` exit.
 
@@ -1002,6 +1013,7 @@ calls that efr recorded for the tools above:
 | system | `org.freedesktop.login1` | `Manager.ListSessionsEx`, `ListSessions`, `ListUsers`, `ListSeats`, `GetSession`, `GetUser` and `GetSeat`; `Properties.Get` and `GetAll` below `/org/freedesktop/login1/` |
 | system | `org.freedesktop.timedate1`, `locale1`, `timesync1` | `Properties.Get` and `GetAll` at the service's own path |
 | session | `org.freedesktop.systemd1` | the same `Manager` methods, and `Properties.Get` and `GetAll` at each unit; no property of the manager itself, so its `Environment` stays hidden |
+| session | `org.freedesktop.Notifications` | `Notify`, `GetServerInformation` and `GetCapabilities` at `/org/freedesktop/Notifications`, the calls of `notify-send` |
 
 Every other method, name and path fails with `Access denied` (or `ServiceUnknown` for a
 name that the filter hides), and the service never gets the call. So
@@ -1027,7 +1039,8 @@ Manager.StartUnit`. The record of the call and the end of a job keep the refused
 calls, at most 16 of them with a count.
 
 When the model then asks for `needs.bus`, that is a `bus` exit for the whole bus, for
-one call, and the reviewer or you decide. The next filtered call is filtered again.
+one call. For the system bus the reviewer or you decide; for the session bus only you
+decide. The next filtered call is filtered again.
 
 ### `[[dbus.allow]]`
 
@@ -1115,7 +1128,8 @@ the rule and runs the call. Any other key goes back to the question. A key that 
 typed before the confirm line showed never answers it.
 
 The rule goes to `[[sandbox.allow]]` at the end of `config.toml`, and efr keeps every
-comment and blank line of the file. Then the call runs as with a "yes", and the view
+comment and blank line of the file. A file with no `[sandbox]` table gets no empty
+`[sandbox]` line above the rule. Then the call runs as with a "yes", and the view
 shows `saved as sandbox.allow[2]: write under ~/notes`. When efr cannot save the rule
 (the file is read-only, it changed three times while efr wrote it, or the rule fails a
 floor check), the call still runs once, and the view shows `rule not saved: <reason>;
@@ -1180,7 +1194,9 @@ cannot write `sandbox.allow`. Any program of yours that can write `config.toml` 
 still add a rule: efrd reloads the file when it changes.
 
 efrd checks each rule when it loads the file. A rule of a bad shape, such as
-`under = 5`, stops efrd at start and makes a reload fail. A rule that fails a floor
+`under = 5`, stops efrd at start and makes a reload fail. The error names that rule
+and its line, such as `sandbox.allow[2]` at line 12, also when the rules before it
+are correct. A rule that fails a floor
 check stays in the file but is disabled: efrd logs one warning, `efr sandbox check`
 shows `sandbox.allow[1] is disabled: <reason>`, and the rule covers no call. Such a rule can
 turn bad with no edit, for example when you register a new project below it.
@@ -1497,9 +1513,13 @@ then shows `network none (proxy self-test failed)`.
 While `dbus.proxy` is `true`, efrd also checks the bus filter at start and after each
 probe: `xdg-dbus-proxy --version` must say 0.1.9 or newer, and one filter with the
 built-in rules must start under the wrapper, write its ready byte and end cleanly. A
-failure here is a warning too: the filter is off, and the read-only queries of "The bus
-filter" go to the reviewer as `bus` exits, which is stricter, never looser. `efr
-status` shows `bus filter on`, or `bus filter off` with the reason.
+failure here is a warning too: the filter is off, and the commands of "The bus filter"
+become `bus` exits, which is stricter, never looser: the system bus queries go to the
+reviewer, and the session bus commands ask you. `efr status` shows `bus filter on`, or
+`bus filter off` with the reason. While a check runs after a reload, `efr status` keeps
+the state of the last check; it shows `off` only when the new check fails. A fresh
+efrd that never checked the filter shows `off` with no reason until its first check
+ends.
 
 These warnings show in `efr sandbox check` and in efrd's log; `auto` still runs:
 
@@ -1728,9 +1748,11 @@ it cannot write `dbus.allow` or `sandbox.allow`: only an editor, the `a` answer 
 | the private `/tmp` | wrong paths for you or the model | the prompt text says so; share files through `$SCRATCH` |
 | a large rc file | slower calls | efr compiles large snapshots of your shell |
 | the surface guard checks known places only | a deep nested repository with hooks shows only at the end of the turn | the turn-end check and list |
-| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so; with the proxy, a host that the line shows gets a grant of that one host; a read-only system query gets the bus filter instead |
+| a `bus` grant, or a `host` grant of the whole network, opens more than the line needs | the approved call can use the whole bus or the whole network | the question says so; only you can approve the whole session bus; with the proxy, a host that the line shows gets a grant of that one host; a read-only system query and `notify-send` get the bus filter instead |
 | the bus filter checks no arguments | `Properties.Get` on an allowed path reads every property there, also the environment of a transient user unit | exact paths; no property of the user manager itself |
 | the bus filter runs outside the sandbox with your rights on the bus | a memory bug in `xdg-dbus-proxy` reaches your full bus rights, on the session bus also `StartTransientUnit` | the distribution's program, owned by root; its own Landlock domain, seccomp filter and fd limit; one filter per call that ends with it |
+| without `xdg-dbus-proxy`, or with `dbus.proxy = false`, each command that needs the session bus asks you | more questions, also for `notify-send` and `systemctl --user --failed` | install `xdg-dbus-proxy` 0.1.9 or later, so these commands run through the filter |
+| a call with the filtered session bus can send any notification | a notice can look like one from another program | the filter lets through only the calls of `notify-send`; it cannot read or close a notice |
 | a script that runs `systemctl --user` itself | it fails, because systemd looks only for its private socket | run `systemctl --user` on the line, where the sandbox's shell gives it the session bus |
 | a running job keeps the bus rules of its start | a removed `[[dbus.allow]]` entry or `dbus.proxy = false` does not reach it | `efr jobs stop` ends it |
 | an always rule stays open for every later call | a message or a file that steers the model can use a host or a write dir that a rule opened | narrow kinds; the floors; the confirm step; `efr sandbox allow remove N` |

@@ -269,11 +269,18 @@ Modules:
   all lie in the proxy's default rules (`bus`). A form with `-H`, `--host`, `-M`,
   `--machine`, `--root`, `--image` or `--image-policy` (also a prefix of a long option
   or a cluster of short ones), or a word that only the shell can read, is no read form.
-  `predict` then finds no `bus` exit for the read form, and the view's reason is
-  `Contain`. Every other bus form keeps its `bus` exit and approver: the other read
-  verbs of `systemctl`, `systemctl --user start` and the like, `resolvectl`,
-  `coredumpctl`, `busctl`, `gdbus`, `notify-send`, `nmcli` and `iwctl`, and the model's
-  `needs.bus`. The rule is a fit, not a security layer: `systemctl --failed; ./x.sh`
+  `notify-send` is a read form of the session bus too (v0.0.4, DV18), except a form
+  with `-w`, `--wait`, `-A` or `--action` (`notify_waits`), which waits for a signal
+  that the filter never lets back. `predict` then finds no `bus` exit for the read
+  form, and the view's reason is `Contain`. Every other bus form keeps its `bus` exit
+  and approver: the other read verbs of `systemctl`, `systemctl --user start` and the
+  like, `resolvectl`, `coredumpctl`, `busctl`, `gdbus`, `notify-send --wait`, `nmcli`
+  and `iwctl`, and the model's `needs.bus`. A `bus` exit for the whole session bus
+  (`Grant::Bus { bus: Session }`, from a program, `needs.bus` or a socket need of the
+  bus) is `Approver::User` in every case, with the note `WHOLE_SESSION_BUS_NOTE` (`the
+  whole session bus can start programs outside the sandbox`): the user manager starts
+  programs outside the sandbox, and an unlocked keyring gives its secrets. The engine
+  does not look for a keyring owner first. The whole system bus keeps its approver. The rule is a fit, not a security layer: `systemctl --failed; ./x.sh`
   gives the script the same filtered bus, and the proxy's rules carry the load. A view
   is no exit, so `job_refusal` never sees it: a job reads its own filtered bus. The
   conversation drops the bus view beside the network view and beside an approved
@@ -389,7 +396,9 @@ Modules:
   filtered bus proxy lets a call reach a listed name.
 - `bus` (phase E): the rules of the filtered bus proxy. `DEFAULT_RULES` holds the read
   methods that the probe recorded for the read forms of `systemctl`, `loginctl`,
-  `hostnamectl`, `timedatectl` and `localectl`, each an exact member at a path (no
+  `hostnamectl`, `timedatectl` and `localectl`, and the calls of `notify-send`
+  (`Notify`, `GetServerInformation`, `GetCapabilities` of
+  `org.freedesktop.Notifications`), each an exact member at a path (no
   member glob, no `IFACE.*`, no rule with a path alone). `GetUnitProcesses` and
   `GetUnitByPID` are not in it, and the session bus has no `Properties` rule at
   `/org/freedesktop/systemd1`, so the user manager's `Environment` stays out.

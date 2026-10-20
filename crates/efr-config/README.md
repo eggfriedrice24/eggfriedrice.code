@@ -136,7 +136,11 @@ Modules:
   `[[network.hosts]]`, port 0). `validate::entries` checks each entry of
   `sandbox.allow` (`AllowRule::check_shape`) and `dbus.allow` (`check_rules`), and the
   error (`ConfigError::InvalidEntry`) names the entry's place, such as
-  `sandbox.allow[1]`, and the reason.
+  `sandbox.allow[1]`, and the reason. A type error in a `sandbox.allow` entry (an
+  internally tagged enum, which serde reads whole before it picks the kind) has the
+  parser's span of the array or of the first entry; the load then reads each entry
+  alone and names the first one that fails, with its index and line
+  (`ConfigError::Parse` with the key `sandbox.allow[2]`).
 - `keys`: `keys()`, every dotted key in the order the tables declare them; `kind()`,
   what a key holds, and `description()`, its doc comment, both from the JSON schema;
   `json_schema()`; `RESTART_KEYS`, the keys a change applies to only after a restart;
@@ -185,7 +189,10 @@ Modules:
   `Edit::remove_table_entry`, which change any array of tables of the file
   (`permissions.rules`, `sandbox.allow`, `network.hosts`, `dbus.allow`) and keep the
   form that the file uses: tables, an inline array, an inline parent table or a dotted
-  key. `add_table_entry` returns the new entry's index; `remove_table_entry` fails with
+  key. A parent table that the file lacks is added as an implicit table, so a file with
+  no `[sandbox]` table gets no empty `[sandbox]` line above the first
+  `[[sandbox.allow]]`; a later plain key of that table brings the header back.
+  `add_table_entry` returns the new entry's index; `remove_table_entry` fails with
   `ConfigError::NoEntry` for an index that the file does not have. The settings tool
   never writes `sandbox.allow` or `dbus.allow`.
 

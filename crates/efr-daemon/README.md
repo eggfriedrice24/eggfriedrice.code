@@ -750,7 +750,12 @@ spec; `docs/sandbox.md` for the user's view):
   self-test when a reload turns `dbus.proxy` on, and asks the reload task for a new
   engine when the filter's state differs from the engine's. `admin.status` says
   `bus_proxy_off` (`config`, `no_program`, `self_test`, `old_version`) and warns when
-  `dbus.proxy` is true but the filter is off.
+  `dbus.proxy` is true but the filter is off. While the check after such a reload
+  runs, the status still holds `config`; `SandboxService::reported` then gives the
+  state of the last check that ran with `dbus.proxy` on (`bus_tested`), or `off` with
+  no reason when none ran yet (DV40), so `efr status` never says `dbus.proxy = false`
+  for a filter that is being checked. The built-in session rules also hold the calls
+  of `notify-send` (v0.0.4, DV18).
 
 ### Background jobs
 

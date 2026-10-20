@@ -263,10 +263,12 @@ into the GitHub release notes, and it stops when the section is missing.
 - With `[dbus] proxy = true` in `auto`, read-only system queries run with no review:
   `hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
   `systemctl status <unit>` and the other read forms, `systemctl --user --failed`,
-  `loginctl list-sessions`. The command reaches the system or session bus only through
-  a filter that allows read methods. efr turns the filter off when `xdg-dbus-proxy` is
+  `loginctl list-sessions`, and desktop notifications with `notify-send`. The command
+  reaches the system or session bus only through a filter that allows read methods and
+  the calls of `notify-send`. efr turns the filter off when `xdg-dbus-proxy` is
   missing, older than 0.1.9, or fails its self-test; `efr status` then shows
-  `bus filter off (<reason>)`, and these queries go to the reviewer as before. Older
+  `bus filter off (<reason>)`, the system bus queries go to the reviewer as before, and
+  the session bus commands ask you. Older
   versions cannot serve `hostnamectl` and the other systemd tools, and let some
   messages past the filter. Ubuntu 24.04 and Debian ship an older version, so there the
   filter stays off until they ship 0.1.9.
@@ -282,8 +284,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - Answer `a` (always), then `y`, at an exit question to save a rule in
   `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
   no question and no review. Rules cover one host and port, one write dir, or one
-  socket. efr keeps the comments of the file. A rule of a bad shape stops efrd at start
-  and makes a reload fail; a rule that no longer passes the floor checks is disabled
+  socket. efr keeps the comments of the file, and a file with no `[sandbox]` table gets
+  no empty `[sandbox]` line above the rule. A rule of a bad shape stops efrd at start
+  and makes a reload fail, and the error names that rule and its line, such as
+  `sandbox.allow[2]` at line 12; a rule that no longer passes the floor checks is disabled
   with a warning, and efrd still starts. The question shows the rule next to its keys,
   such as `a always: write under ~/notes`, and `a` first asks
   `save rule "write under ~/notes"? y/n`: any key but `y` goes back to the question.
@@ -296,7 +300,9 @@ into the GitHub release notes, and it stops when the section is missing.
   of the file, and makes efrd read the file again. It removes nothing when the rule at
   N changed after the question.
 - `efr status` and `efr sandbox check` show `bus filter on`, or `bus filter off` with
-  the reason, such as `dbus.proxy = false` or `xdg-dbus-proxy is not installed`. With
+  the reason, such as `dbus.proxy = false` or `xdg-dbus-proxy is not installed`. While
+  efrd checks the filter again after a reload, they keep the state of the last check,
+  and show `off` only when the new check fails. With
   `[dbus] proxy = true`, a command shows each bus call that the filter refused under
   its result, such as `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`.
 - The Arch packages name `xdg-dbus-proxy` as an optional dependency, for the bus
@@ -526,6 +532,10 @@ into the GitHub release notes, and it stops when the section is missing.
   hosts of the repository's remotes for sandboxed commands, as a `!` helper does,
   because it can hand out a token. The note names the helper. A helper for one site
   blocks only that site.
+- A command that needs the whole session bus asks you, not the reviewer, because the
+  whole session bus can start programs outside the sandbox and read an unlocked
+  keyring. The question says so. `notify-send` runs through the bus filter with no
+  question while the filter is on. The whole system bus keeps its approver.
 
 ### Fixed
 
