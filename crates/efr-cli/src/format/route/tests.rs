@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{AttachHow, NewReason, ProjectId, RouteLabel, RouteScope, Routed, Switch};
+use efr_protocol::{
+    AttachHow, NewReason, ProjectId, RepoHint, RouteLabel, RouteScope, Routed, Switch,
+};
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
 
-use super::{age, attached, line};
+use super::{age, attached, hint_line, line, scope_mark};
 
 const HOME: &str = "/home/u";
 
@@ -129,4 +131,34 @@ fn ages_are_one_coarse_unit() {
 fn history_names_the_terminal_of_an_attach() {
     assert_eq!(attached("/dev/pts/7", AttachHow::PickedUp), "picked up in /dev/pts/7");
     assert_eq!(attached("/dev/pts/7", AttachHow::Resumed), "resumed in /dev/pts/7");
+}
+
+#[test]
+fn repo_hint_line() {
+    let home = Some(Path::new(HOME));
+    let tool = RepoHint { root: PathBuf::from("/home/u/p/tool") };
+    insta::assert_snapshot!(
+        hint_line(&tool, home),
+        @"○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it."
+    );
+    // A path that is no plain shell word shows in full and in quotes, so the command can
+    // be pasted.
+    let spaced = RepoHint { root: PathBuf::from("/home/u/my tool's") };
+    insta::assert_snapshot!(
+        hint_line(&spaced, home),
+        @r#"○ ~/my tool's is a git repo but not a project: writes there ask you. efr project add '/home/u/my tool'\''s' registers it."#
+    );
+    let odd = RepoHint { root: PathBuf::from("/srv/evil\u{1b}]52;c;x\u{7}\nrepo") };
+    let text = hint_line(&odd, home);
+    assert!(!text.contains('\u{1b}') && !text.contains('\n'), "{text:?}");
+}
+
+#[test]
+fn the_scope_mark_of_the_status_row() {
+    let home = Some(Path::new(HOME));
+    assert_eq!(scope_mark(&app(), home), "app");
+    assert_eq!(scope_mark(&outside(HOME), home), "○ ~");
+    assert_eq!(scope_mark(&outside("/etc"), home), "○ /etc");
+    let removed = RouteLabel { name: None, ..app() };
+    assert_eq!(scope_mark(&removed, home), "removed project");
 }

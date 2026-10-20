@@ -528,6 +528,9 @@ pub(crate) struct TurnView {
     retained: Option<CallId>,
     /// The home directory, which the sandbox's lines print as `~`.
     home: Option<PathBuf>,
+    /// The scope of the prompt, such as `app` or `○ ~/notes`, at the end of the status
+    /// row (DV52).
+    scope: Option<String>,
     /// The turn runs in a registered project, which its sandbox can write.
     in_project: bool,
     /// A call of this turn runs in the sandbox: the end of the turn says where it can
@@ -634,6 +637,7 @@ impl TurnView {
             interactive: HashSet::new(),
             retained: None,
             home: None,
+            scope: None,
             in_project: false,
             traced: false,
             traced_net_view: false,
@@ -902,9 +906,17 @@ impl TurnView {
                 status.set(State::Queued);
             }
             status.set_away(self.away);
+            status.set_scope(self.scope.clone());
             self.status = Some(status);
             self.dirty = true;
         }
+    }
+
+    /// The same view, whose status row ends with the scope of the prompt, such as `app`
+    /// or `○ ~/notes`.
+    pub(crate) fn with_scope(mut self, scope: Option<String>) -> TurnView {
+        self.scope = scope;
+        self
     }
 
     /// The same view, which prints paths below `home` as `~`.
@@ -2967,6 +2979,7 @@ impl TurnView {
             let mut status = Status::new(self.look.motion);
             status.set(State::Queued);
             status.set_away(self.away);
+            status.set_scope(self.scope.clone());
             if let Some(context) = context {
                 status.set_context(context);
             }

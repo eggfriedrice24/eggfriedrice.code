@@ -11,6 +11,10 @@
 //! the user, with no sandbox and no question. While a call runs and this row hides, the
 //! call's row shows the tag (`call.rs`).
 //!
+//! The row ends with the scope of the prompt, muted: the project's name, such as `app`,
+//! or `○ ~/notes` outside projects (DV52). On a narrow screen the scope leaves the row
+//! first, before the gauge.
+//!
 //! Events only change the state. The times come from the frame that shows the row
 //! ([`Status::at`]): the follow loop writes a frame within one frame time of every
 //! change, so the view needs no clock of its own.
@@ -132,6 +136,8 @@ pub(crate) struct Status {
     away: bool,
     /// The turn runs in full mode.
     full: bool,
+    /// The scope of the prompt, at the row's end.
+    scope: Option<String>,
 }
 
 impl Status {
@@ -150,6 +156,7 @@ impl Status {
             context: None,
             away: false,
             full: false,
+            scope: None,
         }
     }
 
@@ -185,6 +192,11 @@ impl Status {
     /// True while the turn runs in full mode.
     pub(crate) fn full(&self) -> bool {
         self.full
+    }
+
+    /// The row ends with `scope`, or with no scope.
+    pub(crate) fn set_scope(&mut self, scope: Option<String>) {
+        self.scope = scope;
     }
 
     /// The turn started: its time counts from the next frame.
@@ -250,6 +262,7 @@ impl Status {
             .saturating_sub(away)
             .saturating_sub(full);
         let gauge = gauge_room(self.context.as_ref(), &mut room, options);
+        let scope = scope_room(self.scope.as_deref(), &mut room, options);
         let words = if room == 0 {
             String::new()
         } else {
@@ -277,6 +290,10 @@ impl Status {
             row.push_str("  ");
             row.push_str(&gauge.paint(options));
         }
+        if let Some(scope) = scope {
+            row.push_str("  ");
+            row.push_str(&options.paint(Role::Muted, scope));
+        }
         row.push('\n');
         row
     }
@@ -295,6 +312,21 @@ pub(crate) fn gauge_room(
     let left = room.checked_sub(width).filter(|left| *left >= MIN_WORDS)?;
     *room = left;
     Some(gauge)
+}
+
+/// The scope for a row that has `room` columns left after the gauge, which it then
+/// takes with the two spaces before it; `None` when the rest of the row would keep
+/// fewer than [`MIN_WORDS`] columns. So the scope leaves a narrow row before the gauge.
+fn scope_room<'a>(
+    scope: Option<&'a str>,
+    room: &mut usize,
+    options: &RenderOptions,
+) -> Option<&'a str> {
+    let scope = scope.filter(|scope| !scope.is_empty())?;
+    let width = 2 + text_width(scope, options.width_method());
+    let left = room.checked_sub(width).filter(|left| *left >= MIN_WORDS)?;
+    *room = left;
+    Some(scope)
 }
 
 impl Status {

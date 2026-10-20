@@ -879,6 +879,48 @@ async fn the_route_and_the_settings_share_the_first_line_of_the_reply() {
 }
 
 #[tokio::test]
+async fn the_repo_hint_follows_the_head_line() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let line = command(&["send", "--", "next"]);
+    let route = efr_protocol::Routed {
+        scope: efr_protocol::RouteLabel {
+            scope: efr_protocol::RouteScope::Outside,
+            name: None,
+            dir: "/srv/tool/src".into(),
+        },
+        switch: None,
+        hint: Some(efr_protocol::RepoHint { root: "/srv/tool".into() }),
+    };
+    let result = PromptSendResult { route: Some(Box::new(route)), ..sent(false) };
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &result).await;
+        let (sub, _) = conn.request().await;
+        let done = Event::TurnCompleted {
+            turn_id: turn(),
+            usage: None,
+            changes: None,
+            context: None,
+            stop: None,
+            undo: None,
+        };
+        conn.item(sub, &item(12, done)).await;
+        conn.until_closed().await;
+    };
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(
+        captured.stderr(),
+        "○ no project · /srv/tool/src\n○ /srv/tool is a git repo but not a project: writes \
+         there ask you. efr project add /srv/tool registers it.\n"
+    );
+}
+
+#[tokio::test]
 async fn on_a_terminal_the_settings_note_is_dim() {
     let env = TestEnv::new();
     let daemon = env.listen();

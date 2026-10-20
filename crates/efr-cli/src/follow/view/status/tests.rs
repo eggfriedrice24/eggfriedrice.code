@@ -203,3 +203,45 @@ fn the_full_tag_counts_in_the_width_of_the_row() {
     );
     assert!(bare(&row).ends_with("12s  full  away\n"), "{row:?}");
 }
+
+/// A row at 4 s into the turn, thinking, with the context 43% full and `scope` at its
+/// end, `width` columns wide and without colour.
+fn scoped(scope: &str, width: u16) -> String {
+    let mut status = started(false);
+    status.set(State::Thinking(None));
+    status.set_context(efr_protocol::ContextUse {
+        tokens: 43_000,
+        limit: 100_000,
+        window: 272_000,
+    });
+    status.set_scope(Some(scope.to_owned()));
+    status.at(at(4_000), false);
+    bare(&status.row(at(4_000), &RenderOptions::new(width).with_colour(ColourMode::None)))
+}
+
+#[test]
+fn status_row_names_the_project() {
+    insta::assert_snapshot!(scoped("app", 60), @"• thinking  4s  ctx 43%  app");
+}
+
+#[test]
+fn status_row_names_no_project() {
+    insta::assert_snapshot!(scoped("○ ~/notes", 60), @"• thinking  4s  ctx 43%  ○ ~/notes");
+}
+
+#[test]
+fn status_row_drops_the_scope_first_when_narrow() {
+    // 32 columns hold the state, the time and the gauge, but not the scope too.
+    insta::assert_snapshot!(scoped("○ ~/notes", 32), @"• thinking  4s  ctx 43%");
+    // Narrower still, the gauge goes too, and what the turn does stays.
+    insta::assert_snapshot!(scoped("○ ~/notes", 20), @"• thinking  4s");
+    // The scope is muted, as every routing line is.
+    let palette = Palette::new().with(Role::Muted, Colour::Palette(8));
+    let options = RenderOptions::new(60).with_colour(ColourMode::TrueColor).with_palette(palette);
+    let mut status = started(false);
+    status.set_scope(Some("app".to_owned()));
+    status.at(at(2_000), false);
+    let row = status.row(at(2_000), &options);
+    let muted = options.paint(Role::Muted, "app");
+    assert!(row.ends_with(&format!("  {muted}\n")), "{}", readable(&row));
+}

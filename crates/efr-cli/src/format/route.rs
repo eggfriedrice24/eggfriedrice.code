@@ -1,15 +1,19 @@
 //! The line before a reply that names where a prompt went (DV4, DV52): the switch of
 //! the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`,
 //! or, when the conversation did not change, the scope of the prompt: `app`, or
-//! `○ no project · ~/notes`. The view writes it muted, as a note. `efr history` shows a
-//! `terminal_attached` event as `picked up in /dev/pts/7`.
+//! `○ no project · ~/notes`. The view writes it muted, as a note. A prompt outside
+//! projects in a git repository gets a second muted line at most once a day (DV53):
+//! `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add
+//! ~/p/tool registers it.` The status row of a running turn ends with the scope, such
+//! as `app` or `○ ~/notes`. `efr history` shows a `terminal_attached` event as `picked
+//! up in /dev/pts/7`.
 //!
 //! The glyphs `↪` and `○` come from the user's design. efr-cli has no ASCII path for
 //! its other glyphs (`✓`, `·`, the spinner) either, so these have none.
 
 use std::path::Path;
 
-use efr_protocol::{AttachHow, NewReason, RouteLabel, RouteScope, Routed, Switch};
+use efr_protocol::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch};
 use jiff::Timestamp;
 
 use super::one_line;
@@ -70,7 +74,9 @@ pub(crate) fn switch_line(
         ),
         Switch::New { from, reason } => {
             let why = match (reason, from) {
-                (NewReason::Scope, Some(from)) => format!(" (from {})", from_label(from, home)),
+                (NewReason::Scope, Some(from)) => {
+                    format!(" (from {})", from_label(from, home))
+                }
                 (NewReason::Idle { hours }, _) => {
                     format!(" (the last one was idle for {hours} h)")
                 }
@@ -109,6 +115,40 @@ fn from_label(label: &RouteLabel, home: Option<&Path>) -> String {
         (RouteScope::Project(_), Some(name)) => one_line(name),
         (_, _) if label.dir.as_os_str().is_empty() => "no project".to_owned(),
         _ => tilde(&label.dir, home),
+    }
+}
+
+/// The muted line of the hint in a git repository that is not a registered project
+/// (DV53). The command in it is one that the user can paste: a path that a shell word
+/// cannot hold as it is shows in single quotes, in full.
+pub(crate) fn hint_line(hint: &RepoHint, home: Option<&Path>) -> String {
+    let shown = tilde(&hint.root, home);
+    format!(
+        "{OUTSIDE} {shown} is a git repo but not a project: writes there ask you. efr project add {} registers it.",
+        shell_word(&hint.root, &shown)
+    )
+}
+
+/// `shown` when a shell reads it as one word for the path `path` (a `~` at its start
+/// included), else `path` in single quotes.
+fn shell_word(path: &Path, shown: &str) -> String {
+    let plain = shown.chars().enumerate().all(|(at, c)| {
+        c.is_ascii_alphanumeric() || "/._-+,:@%=".contains(c) || (c == '~' && at == 0)
+    });
+    if plain {
+        return shown.to_owned();
+    }
+    let full = one_line(&path.display().to_string());
+    format!("'{}'", full.replace('\'', r"'\''"))
+}
+
+/// The scope at the end of the status row of a running turn: the project's name, or
+/// `○` and the prompt's directory outside projects.
+pub(crate) fn scope_mark(scope: &RouteLabel, home: Option<&Path>) -> String {
+    match (&scope.scope, &scope.name) {
+        (RouteScope::Project(_), Some(name)) => one_line(name),
+        (RouteScope::Project(_), None) => "removed project".to_owned(),
+        _ => format!("{OUTSIDE} {}", tilde(&scope.dir, home)),
     }
 }
 

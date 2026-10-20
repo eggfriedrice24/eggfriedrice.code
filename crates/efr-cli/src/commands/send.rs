@@ -191,10 +191,15 @@ async fn send_and_follow(
         progress: progress::wanted(render.progress, &ctx.term),
         diff_lines: usize::try_from(render.diff_lines).unwrap_or(usize::MAX),
     };
+    let scope = result
+        .route
+        .as_ref()
+        .map(|route| crate::format::route::scope_mark(&route.scope, ctx.home.as_deref()));
     let mut view = TurnView::new(result.turn_id, options)
         .with_home(ctx.home.clone())
         .with_look(look)
-        .with_groups(ctx.settings.diff.groups.clone());
+        .with_groups(ctx.settings.diff.groups.clone())
+        .with_scope(scope);
     if reader.is_some() {
         view = view.with_input();
     }
@@ -203,6 +208,13 @@ async fn send_and_follow(
     // It names where the prompt went (a switch, else the scope) with the settings note
     // after ` · `, so a turn starts with one line (DV4, DV52).
     if let Some(line) = first_line(ctx, &result) {
+        let step = view.note(&line, size);
+        out.err(&step.err);
+        out.out(&step.out)?;
+    }
+    // NOTE: at most once a day for each repository; efrd decides (DV53).
+    if let Some(hint) = result.route.as_ref().and_then(|route| route.hint.as_ref()) {
+        let line = crate::format::route::hint_line(hint, ctx.home.as_deref());
         let step = view.note(&line, size);
         out.err(&step.err);
         out.out(&step.out)?;
