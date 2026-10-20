@@ -440,7 +440,6 @@ impl CallSnapshots {
     }
 }
 
-/// The limits of `settings`, also when `snapshot.enabled` is off.
 /// The mode that the snapshot roots of `call` record: `auto` or `full`, the modes whose
 /// calls copy home files first; `None` for another mode.
 pub(crate) fn predicted_mode(call: &CallContext) -> Option<&'static str> {
@@ -451,6 +450,7 @@ pub(crate) fn predicted_mode(call: &CallContext) -> Option<&'static str> {
     }
 }
 
+/// The limits of `settings`, also when `snapshot.enabled` is off.
 fn limits_of(settings: &Settings) -> Limits {
     let snapshot = &settings.snapshot;
     Limits {
