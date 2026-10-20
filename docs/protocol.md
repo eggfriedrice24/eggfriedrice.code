@@ -476,3 +476,6 @@ No protocol version has shipped yet.
   `events/exit_judged_full.json` freeze them; `modes.json`,
   `events/approval_requested.json` and `admin_status_result.json` now set the new
   members.
+- Before version 1 ships: each `turns` entry of a `turn.undo` result gains `full`
+  (false when absent): the turn ran in full mode, and `auto` is true too then.
+  `turn_undo_result.json` now sets it.

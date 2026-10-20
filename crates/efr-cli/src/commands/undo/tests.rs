@@ -236,7 +236,17 @@ async fn efr_undo_list_shows_undone_turns() {
                 turn_id: turn(),
                 title: Some("change a.txt".to_owned()),
                 auto: true,
+                full: false,
                 undone: true,
+                stopped: false,
+                ended: Some(now()),
+            },
+            UndoableTurn {
+                turn_id: turn(),
+                title: Some("clean up".to_owned()),
+                auto: true,
+                full: true,
+                undone: false,
                 stopped: false,
                 ended: Some(now()),
             },
@@ -244,6 +254,7 @@ async fn efr_undo_list_shows_undone_turns() {
                 turn_id: turn(),
                 title: Some("build it".to_owned()),
                 auto: false,
+                full: false,
                 undone: false,
                 stopped: true,
                 ended: None,
@@ -259,7 +270,8 @@ async fn efr_undo_list_shows_undone_turns() {
     assert_eq!(
         stdout,
         format!(
-            "{turn}  undone   auto  change a.txt\n{turn}  stopped        build it\n",
+            "{turn}  undone   auto  change a.txt\n{turn}           full  clean up\n\
+             {turn}  stopped        build it\n",
             turn = turn()
         )
     );

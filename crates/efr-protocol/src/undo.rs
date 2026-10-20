@@ -224,9 +224,14 @@ pub struct UndoableTurn {
     /// The first line of the turn's prompt. Absent when the log has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// True when the turn ran in `auto`. False when absent.
+    /// True when the turn ran in `auto` or `full`, whose calls copy home files first.
+    /// False when absent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto: bool,
+    /// True when the turn ran in `full`; `auto` is true too then. False when absent, as
+    /// from an efrd before full mode.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub full: bool,
     /// True when an undo took the turn back and no redo returned it. False when absent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,

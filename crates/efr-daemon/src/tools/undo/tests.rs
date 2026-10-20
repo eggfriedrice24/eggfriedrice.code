@@ -714,4 +714,8 @@ async fn full_snapshot_root_says_full() {
     assert_eq!(modes, [(TurnId::from_uuid(id(2)), true)], "the root records full");
     let full = undo(&kept, &[2], 1, |params| params.dry_run = true).await.unwrap();
     assert!(!full.notes.contains(&NOTE_MANUAL.to_owned()), "{:?}", full.notes);
+    // `efr undo --list` names the mode: full, not auto.
+    let listed = undo(&kept, &[2], 1, |params| params.list = true).await.unwrap();
+    let flags: Vec<(bool, bool)> = listed.turns.iter().map(|turn| (turn.auto, turn.full)).collect();
+    assert_eq!(flags, [(true, true)]);
 }

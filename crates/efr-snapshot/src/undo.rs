@@ -187,6 +187,8 @@ pub struct TurnRefs {
     /// True when the turn ran in `auto` or `full`: its first snapshot of a root records
     /// the mode, and efrd copies home files only in those modes.
     pub auto: bool,
+    /// True when the first snapshot of a root records the mode `full`.
+    pub full: bool,
 }
 
 /// What an undo or a redo of one turn does.
@@ -512,6 +514,7 @@ impl Snapshots {
                     {
                         // NOTE: a `full` turn copies home files first as `auto` does.
                         refs.auto = matches!(info.meta.mode.as_deref(), Some("auto" | "full"));
+                        refs.full = info.meta.mode.as_deref() == Some("full");
                     }
                 }
                 refs.undone |= has.undone.is_some();
@@ -1123,6 +1126,7 @@ fn refs_of(turns: &mut BTreeMap<TurnId, TurnRefs>, turn: TurnId) -> &mut TurnRef
         home: false,
         started_undo: None,
         auto: false,
+        full: false,
     })
 }
 

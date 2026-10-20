@@ -352,7 +352,11 @@ pub(crate) fn turns(turns: &[UndoableTurn], options: &RenderOptions) -> String {
             (false, true) => "stopped",
             (false, false) => "",
         };
-        let mode = if turn.auto { "auto" } else { "" };
+        let mode = match (turn.full, turn.auto) {
+            (true, _) => "full",
+            (false, true) => "auto",
+            (false, false) => "",
+        };
         let title = turn.title.as_deref().map(format::one_line).unwrap_or_default();
         let row = format!("{}  {state:<7}  {mode:<4}  {title}", turn.turn_id);
         let tone = if turn.undone { Tone::Dim } else { Tone::Plain };
