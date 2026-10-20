@@ -11,6 +11,8 @@
 //! - [`FakeLauncher`]: a `/bin/sh` script in place of `efr-sbx`, which runs calls and
 //!   background jobs with no sandbox; [`TestDaemonBuilder::job_env`] gives every job an
 //!   environment, and [`TestDaemon::peer_side`] says where a process stands on the socket.
+//! - [`FakeProcView`]: the process facts that routing reads (which shell runs, which
+//!   terminal a peer runs on), set by the test; [`TestDaemonBuilder::proc_view`].
 //! - [`FakePtyHolder`]: a `PtyHolder` over socketpairs, whose shell the test plays
 //!   with scripted bytes ([`PtyScript`], [`FakeTerminal`]).
 //! - [`Replay`]: drives a [`Scenario`], an NDJSON transcript from `fixtures/`, through a
@@ -28,6 +30,7 @@
 
 mod error;
 mod fake_launcher;
+mod fake_procs;
 mod pty_script;
 mod replay;
 mod test_daemon;
@@ -37,6 +40,7 @@ mod test_daemon;
 pub use efr_transport::client::{Client, ClientError, ConnectOptions, ItemStream};
 pub use error::TestDaemonError;
 pub use fake_launcher::FakeLauncher;
+pub use fake_procs::FakeProcView;
 pub use pty_script::{
     FakePtyHolder, FakeTerminal, PROMPT, PtyScript, PtyStep, command_output, typed_command,
 };

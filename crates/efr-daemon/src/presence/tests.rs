@@ -31,7 +31,7 @@ impl Fixture {
     /// A conversation that the log knows.
     async fn conversation(&self, seed: u64) -> ConversationId {
         let id = ConversationId::from_uuid(uuid_v7(&self.clock, &TestRng::new(seed)));
-        let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
+        let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
         self.store.writer().append(Batch::new().event(id, created)).await.unwrap();
         id
     }

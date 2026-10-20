@@ -23,6 +23,7 @@ use crate::engine::EngineParts;
 use crate::full::FullTurns;
 use crate::jobs::JobTable;
 use crate::presence::PresenceTable;
+use crate::proc_view::ProcView;
 use crate::providers::Providers;
 use crate::ptys::Ptys;
 use crate::reload::Reloads;
@@ -96,4 +97,7 @@ pub(crate) struct State {
     pub(crate) runs_as_root: bool,
     /// The full work that runs, for the config hold of a reload.
     pub(crate) full: FullTurns,
+    /// Whether a shell runs and which terminal a peer runs on, for routing: `/proc`,
+    /// or a test's fake.
+    pub(crate) procs: Arc<dyn ProcView>,
 }

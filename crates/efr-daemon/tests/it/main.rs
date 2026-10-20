@@ -34,6 +34,7 @@ mod proxy;
 mod pty_attach;
 mod receipts;
 mod reconcile;
+mod routing;
 mod sandbox;
 mod shell_tool;
 mod snapshots;

@@ -52,6 +52,7 @@ use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
 use crate::presence::PresenceTable;
+use crate::proc_view::{ProcView, SystemProcView};
 use crate::providers::{ProviderFactory, ProviderParts, Providers};
 use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
@@ -128,6 +129,8 @@ pub struct Deps {
     /// `sandbox/peers.rs`; `None` turns that rule off. Only [`Deps::from_process`] sets
     /// it, so a test daemon never applies it.
     pub(crate) unit_cgroup: Option<String>,
+    /// What routing reads about processes and terminals; `None` reads `/proc`.
+    pub(crate) procs: Option<Arc<dyn ProcView>>,
 }
 
 impl fmt::Debug for Deps {
@@ -151,6 +154,7 @@ impl fmt::Debug for Deps {
             .field("seams", &self.seams)
             .field("programs_path", &self.programs_path)
             .field("unit_cgroup", &self.unit_cgroup)
+            .field("procs", &self.procs)
             .finish_non_exhaustive()
     }
 }
@@ -186,6 +190,7 @@ impl Deps {
             seams: Seams::default(),
             programs_path: None,
             unit_cgroup: None,
+            procs: None,
         }
     }
 
@@ -314,6 +319,14 @@ impl Deps {
         self.isolated_git = true;
         self
     }
+
+    /// Reads whether a shell runs and which terminal a peer runs on through `procs`,
+    /// in place of `/proc`, as a routing test does.
+    #[must_use]
+    pub fn with_proc_view(mut self, procs: Arc<dyn ProcView>) -> Self {
+        self.procs = Some(procs);
+        self
+    }
 }
 
 /// A started daemon: the socket is open and `daemon.json` written; nothing is served
@@ -389,6 +402,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         seams,
         programs_path,
         unit_cgroup,
+        procs,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -679,7 +693,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         drafts: drafts.clone(),
         allow_writer: Some(Arc::new(allow_writer)),
     };
-    let ttys = conversations::load_ttys(&readers).await?;
+    let slots = conversations::load_slots(&readers).await?;
     let roots = roots(&dirs, root_sources);
     let state = Arc::new(State {
         settings: settings_sender,
@@ -703,7 +717,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         drafts,
         recordings,
         recording: Arc::clone(&recording),
-        conversations: Conversations::new(Arc::new(live_settings), conversation_deps, ttys),
+        conversations: Conversations::new(Arc::new(live_settings), conversation_deps, slots),
         connections,
         shells,
         ptys,
@@ -714,6 +728,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         jobs,
         runs_as_root,
         full,
+        procs: procs.unwrap_or_else(|| Arc::new(SystemProcView)),
     });
     let peer_state = Arc::downgrade(&state);
     // NOTE: weak, so the probe that the seams keep never keeps the state alive.
@@ -820,6 +835,13 @@ impl Daemon {
     #[cfg(test)]
     pub(crate) fn connections(&self) -> Arc<Connections> {
         Arc::clone(&self.state.connections)
+    }
+
+    /// The shared state, for the tests that compare the terminals' slots with the
+    /// projection.
+    #[cfg(test)]
+    pub(crate) fn state(&self) -> Arc<State> {
+        Arc::clone(&self.state)
     }
 
     /// The settings watch, for the tests that send new settings as a reload does.

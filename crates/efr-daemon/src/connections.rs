@@ -229,6 +229,21 @@ impl Connections {
         self.lock().conns.get(&conn_id).and_then(|conn| conn.hello.tty.clone())
     }
 
+    /// The terminals with an open subscription to `conversation`: a terminal that
+    /// follows a conversation holds it for routing (S-21). A subscription from a
+    /// connection whose hello named no tty, such as the phone's, is not counted.
+    pub(crate) fn followed_from(&self, conversation: ConversationId) -> Vec<String> {
+        let mut ttys: Vec<String> = self
+            .lock()
+            .follows
+            .iter()
+            .filter(|((_, followed), follow)| *followed == conversation && !follow.open.is_empty())
+            .map(|((tty, _), _)| tty.clone())
+            .collect();
+        ttys.sort();
+        ttys
+    }
+
     /// Records an open subscription of `conn_id` to `conversation` until the guard is
     /// dropped, which happens when the request ends however it ends. The subscription
     /// raises [`SubscriptionGuard::reached`] as it hands events over; when the guard

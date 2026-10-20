@@ -100,6 +100,9 @@ pub struct ScenarioSpec {
     pub restart_after_event: Option<usize>,
     /// A registered project: its id and its root relative to the working directory.
     pub project: Option<(&'static str, &'static str)>,
+    /// `conversation.follow_project = false`: a terminal keeps one conversation,
+    /// whatever the scope of its prompts.
+    pub one_conversation_per_terminal: bool,
 }
 
 impl ScenarioSpec {
@@ -112,6 +115,7 @@ impl ScenarioSpec {
             update_interval_ms: None,
             restart_after_event: None,
             project: None,
+            one_conversation_per_terminal: false,
         }
     }
 
@@ -140,6 +144,11 @@ impl ScenarioSpec {
         self.project = Some((id, root));
         self
     }
+
+    const fn one_conversation_per_terminal(mut self) -> Self {
+        self.one_conversation_per_terminal = true;
+        self
+    }
 }
 
 /// The milestone 1 scenarios (structure document, section 7), one fixture each.
@@ -149,8 +158,11 @@ pub const SCENARIOS: &[ScenarioSpec] = &[
     ScenarioSpec::new("tool_call_shell_nonzero_exit"),
     ScenarioSpec::new("approval_ask_then_allow"),
     ScenarioSpec::new("approval_deny"),
+    // NOTE: one conversation that moves into a project between its turns; with routing
+    // by scope the prompt in the project would start a conversation of its own.
     ScenarioSpec::new("cwd_move_between_turns")
-        .project("0192f0c1-7a00-7000-8000-00000000be7a", "beta"),
+        .project("0192f0c1-7a00-7000-8000-00000000be7a", "beta")
+        .one_conversation_per_terminal(),
     ScenarioSpec::new("interrupt_mid_stream"),
     ScenarioSpec::new("queue_second_prompt"),
     ScenarioSpec::new("subscribe_resume_after_seq"),
@@ -301,6 +313,9 @@ impl Replay {
         let mut builder = TestDaemon::builder().dirs(Arc::clone(&dirs));
         if let Some(ms) = spec.update_interval_ms {
             builder = builder.config(|config| config.conversation.update_interval_ms = ms);
+        }
+        if spec.one_conversation_per_terminal {
+            builder = builder.config(|config| config.conversation.follow_project = false);
         }
         if spec.persistent {
             builder = builder.persistent();

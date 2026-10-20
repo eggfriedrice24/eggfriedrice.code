@@ -83,7 +83,7 @@ impl Scene {
             full: crate::full::FullTurns::default(),
         });
         let conversation = ConversationId::from_uuid(id(1));
-        let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
+        let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
         store.writer().append(Batch::new().event(conversation, created)).await.unwrap();
         Scene { dirs, clock, store, table, conversation }
     }

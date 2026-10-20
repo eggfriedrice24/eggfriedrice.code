@@ -48,7 +48,7 @@ pub use self::messages::{MessagesAnswer, MessagesRequest, MessagesServer, Models
 pub use self::responses::{
     ModelsAnswer, ModelsRequest, ReceivedRequest, ResponsesAnswer, ResponsesServer, TokenRequest,
 };
-use crate::{FakePtyHolder, TestDaemonError};
+use crate::{FakeProcView, FakePtyHolder, TestDaemonError};
 
 /// The system prompt of a test daemon: short, so provider requests in fixtures stay
 /// readable.
@@ -166,6 +166,8 @@ struct Launch {
     as_root: Option<bool>,
     /// Reload when `config.toml` changes on disk, as the real daemon does.
     config_watch: bool,
+    /// The process facts of routing; `None` reads `/proc`.
+    procs: Option<FakeProcView>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -185,7 +187,7 @@ pub enum PeerSide {
 pub struct TestDaemonBuilder {
     dirs: Option<Arc<TestDirs>>,
     clock: Option<TestClock>,
-    settings: Launch,
+    settings: Box<Launch>,
 }
 
 impl Default for TestDaemonBuilder {
@@ -206,7 +208,7 @@ impl Default for TestDaemonBuilder {
         TestDaemonBuilder {
             dirs: None,
             clock: None,
-            settings: Launch {
+            settings: Box::new(Launch {
                 config,
                 seed: DEFAULT_SEED,
                 holder: HolderChoice::Fake(FakePtyHolder::new()),
@@ -223,7 +225,8 @@ impl Default for TestDaemonBuilder {
                 bus_proxy_program: None,
                 as_root: None,
                 config_watch: false,
-            },
+                procs: None,
+            }),
         }
     }
 }
@@ -437,6 +440,14 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Reads which shell runs and which terminal a peer runs on from `procs`, in
+    /// place of `/proc`, as a routing test does. A restart keeps it.
+    #[must_use]
+    pub fn proc_view(mut self, procs: FakeProcView) -> Self {
+        self.settings.procs = Some(procs);
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -457,7 +468,7 @@ pub struct TestDaemon {
     clock: TestClock,
     cwd: PathBuf,
     redactor: Redactor,
-    settings: Launch,
+    settings: Box<Launch>,
     generation: u64,
     socket: PathBuf,
     daemon_id: DaemonId,
@@ -480,7 +491,7 @@ impl TestDaemon {
     async fn launch(
         dirs: Arc<TestDirs>,
         clock: TestClock,
-        settings: Launch,
+        settings: Box<Launch>,
         generation: u64,
     ) -> Result<TestDaemon, TestDaemonError> {
         let (cwd, redactor) = working_dir(&dirs)?;
@@ -543,6 +554,9 @@ impl TestDaemon {
         }
         if settings.config_watch {
             deps = deps.with_config_watch();
+        }
+        if let Some(procs) = &settings.procs {
+            deps = deps.with_proc_view(Arc::new(procs.clone()));
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());

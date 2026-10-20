@@ -336,13 +336,40 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   every sequence number, also those inside the result
   (`efr_conversation::completed_result`). A late steer that became a prompt and resent
   steers hold the notices of the terminal, as `prompt.send` does.
-- `prompt.send` routes to the named conversation, to a new one with `new_conversation`
-  (`,new`), or to the active conversation of the prompt's terminal (the context's tty,
-  else the hello's), starting one when the terminal has none. The terminal's
-  conversation ends after `conversation.tty_idle_hours` (12 by default) without
-  activity, and when a prompt comes from another shell while the shell that took the
-  terminal has exited, so a new tab that reuses a closed tab's `/dev/pts` number
-  starts fresh.
+- `prompt.send` routes to the named conversation; for a prompt from a terminal (the
+  context's tty, else the hello's) with no conversation id, to the conversation of the
+  terminal's slot for the prompt's scope key (`routing.rs` holds the rules,
+  `conversations.rs` the slots). The key is the registered project whose root holds
+  the prompt's `pwd` (as given, or with its links resolved; the deepest root wins), or
+  `outside` for every other place; efrd reads the registry once per prompt and runs no
+  git for it. So the conversation follows the scope when a prompt is sent, not on
+  `cd`. `new_conversation` (`,new`) starts a new one in that slot; the other slots
+  stay. The slot's conversation ends when the prompt comes from another shell while the
+  slot's shell has exited (checked first: a new tab that reuses a closed tab's
+  `/dev/pts` number starts fresh), or after `conversation.tty_idle_hours` (12 by
+  default) without activity; each slot has its own clock. Any event of the
+  conversation counts as activity, so a background job that still writes keeps its
+  slot alive. Then, for a project key only, the prompt picks up the project's single
+  newest conversation when it is idle, was active within those hours, and no open
+  terminal holds it (a slot whose shell runs or is not known, or an open subscription
+  from a connection with a tty; a phone never holds one). The pick-up needs the
+  shell's or `efr`'s connection, never a phone's or a proxy's, whose process runs on
+  the claimed terminal: efrd compares field 7 (`tty_nr`) of `/proc/<peer pid>/stat`
+  with the device number of the tty (`proc_view.rs`; a test daemon injects a fake).
+  The claim and its checks are one lock section, so two new splits never get the same
+  conversation; the pick-up records `terminal_attached` in the prompt's batch, and a
+  prompt that then fails gives the slot back. Else a new conversation starts. The
+  outside key never picks one up. With `conversation.follow_project = false` a prompt
+  goes to the terminal's current slot (the one of its last prompt, `,new` or pick-up),
+  whatever its key, with no pick-up. A prompt with no terminal starts a conversation of
+  its own and holds no slot. The result's `route` names the scope of the prompt and
+  the switch (`back`, `picked_up`, or `new` with its reason); the receipt keeps it, so
+  a retry answers the same. Each change of the slots follows one recorded event, and
+  the store's projection applies the same rule to it, so a restart reads the same
+  slots from the `route`, `shell_pid` and `routed_seq` columns. `jobs.stop`,
+  `conversation.diff`, `turn.undo` and the presence of a terminal's input take the
+  terminal's current slot. `conversations.list` with `tty` lists that terminal's
+  conversations, its current one first.
   A prompt's `settings` (mode, model, effort) are checked by the conversation
   against the latest settings (`settings.rs` gives it the defaults and the model list
   of `catalog.rs`, both from memory): a model outside the list, or an effort the model does not take,

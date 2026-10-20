@@ -51,7 +51,7 @@ fn call_started(turn: TurnId, call: CallId) -> Event {
 }
 
 fn created() -> Event {
-    Event::ConversationCreated { origin: Origin::Shell, tty: None }
+    Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None }
 }
 
 struct Scene {
@@ -252,8 +252,11 @@ async fn terminal_scene() -> (TestStore, ConversationId, [TurnId; 3], Seq) {
     let (running, waiting, held) =
         (TurnId::from_uuid(id(41)), TurnId::from_uuid(id(42)), TurnId::from_uuid(id(43)));
     let long = format!("deploy\nthe {} now", "x".repeat(80));
-    let created =
-        Event::ConversationCreated { origin: Origin::Shell, tty: Some("/dev/pts/7".to_owned()) };
+    let created = Event::ConversationCreated {
+        origin: Origin::Shell,
+        tty: Some("/dev/pts/7".to_owned()),
+        route: None,
+    };
     let batch = Batch::new()
         .event(tty, created)
         .event(tty, queued(held, 3))

@@ -104,7 +104,10 @@ async fn job_stop_of_ended_job_returns_state() {
         wakes: 0,
     };
     let batch = Batch::new()
-        .event(conversation, Event::ConversationCreated { origin: Origin::Shell, tty: None })
+        .event(
+            conversation,
+            Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None },
+        )
         .event(
             conversation,
             Event::JobStarted {

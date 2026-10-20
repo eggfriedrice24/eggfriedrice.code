@@ -66,7 +66,7 @@ impl Scene {
             full: full.clone(),
         });
         let conversation = ConversationId::from_uuid(id(1));
-        let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
+        let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
         store.writer().append(Batch::new().event(conversation, created)).await.unwrap();
         let notices = std::sync::Mutex::new(notices);
         Scene { dirs, clock, store, table, conversation, notices, full }
@@ -622,8 +622,11 @@ fn end_of_a_job_from_its_result_and_its_stop() {
 async fn restart_writes_a_notice_for_each_ended_job() {
     let scene = Scene::new().await;
     let other = ConversationId::from_uuid(id(2));
-    let created =
-        Event::ConversationCreated { origin: Origin::Shell, tty: Some("/dev/pts/5".to_owned()) };
+    let created = Event::ConversationCreated {
+        origin: Origin::Shell,
+        tty: Some("/dev/pts/5".to_owned()),
+        route: None,
+    };
     scene.store.writer().append(Batch::new().event(other, created)).await.unwrap();
     for number in [1, 2] {
         let info = JobInfo { conversation_id: other, ..scene.info(number) };

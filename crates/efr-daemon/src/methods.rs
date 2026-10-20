@@ -135,9 +135,12 @@ enum Input {
     None,
     /// Input in this conversation.
     Conversation(ConversationId),
-    /// A prompt without a conversation id from this terminal: the conversation is the
-    /// terminal's active one after the prompt.
+    /// Input without a conversation id from this terminal: its current conversation.
     Terminal(String),
+    /// A prompt without a conversation id from a terminal: `prompt.send` marks the
+    /// conversation that routing picks, before and after the prompt, because the
+    /// terminal's current one may be another scope's.
+    Routed,
 }
 
 impl Input {
@@ -150,7 +153,7 @@ impl Input {
                 None => {
                     let hello_tty = state.connections.tty(context.conn_id());
                     return prompt_send::prompt_tty(params, hello_tty)
-                        .map_or(Input::None, Input::Terminal);
+                        .map_or(Input::None, |_| Input::Routed);
                 }
             },
             Method::TurnInterrupt(params) => Some(params.conversation_id),
@@ -203,10 +206,10 @@ impl Input {
     /// terminal, the terminal's active conversation.
     fn conversation(&self, state: &State) -> Option<ConversationId> {
         match self {
-            Input::None => None,
+            Input::None | Input::Routed => None,
             Input::Conversation(conversation_id) => Some(*conversation_id),
             Input::Terminal(tty) => {
-                state.conversations.active(tty).map(|active| active.conversation_id)
+                state.conversations.current(tty).map(|(_, slot)| slot.conversation_id)
             }
         }
     }

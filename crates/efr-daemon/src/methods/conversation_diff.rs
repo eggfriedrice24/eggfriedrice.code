@@ -33,8 +33,8 @@ pub(crate) async fn handle(
         (None, None) => state
             .connections
             .tty(context.conn_id())
-            .and_then(|tty| state.conversations.active(&tty))
-            .map(|active| active.conversation_id)
+            .and_then(|tty| state.conversations.current(&tty))
+            .map(|(_, slot)| slot.conversation_id)
             .ok_or(DaemonError::NoActiveConversation)?,
     };
     let turn_id = match named {

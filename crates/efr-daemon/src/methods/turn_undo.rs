@@ -67,8 +67,8 @@ async fn undo(
         (None, None) => state
             .connections
             .tty(context.conn_id())
-            .and_then(|tty| state.conversations.active(&tty))
-            .map(|active| active.conversation_id)
+            .and_then(|tty| state.conversations.current(&tty))
+            .map(|(_, slot)| slot.conversation_id)
             .ok_or(DaemonError::NoActiveConversation)?,
     };
     ensure_exists(state, conversation_id).await?;

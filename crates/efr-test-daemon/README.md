@@ -19,7 +19,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   fetches the one of `set_models`); without one, every model call fails, so no test
   reaches the network by accident. The daemon serves in a task of its
   own. The test gets `efr_transport::client::Client`s (`client`, `client_for_tty`, `connect`),
-  moves time through `clock()`, reads a conversation's log with `events` (paging
+  moves time through `clock()`, sets which shell runs and which terminal a peer runs on
+  through a `FakeProcView` (`proc_view`; without one, routing reads `/proc`), reads a
+  conversation's log with `events` (paging
   `conversation.history`), and calls `stop` or `restart` (the same tree, clock, holder
   and provider; a new generator seed so ids never collide). For the `auto` sandbox,
   `sandbox_launcher` names the `efr-sbx` to copy (the real one from

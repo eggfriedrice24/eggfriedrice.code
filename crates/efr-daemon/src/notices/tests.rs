@@ -421,7 +421,8 @@ async fn the_store_names_a_job_notice_turn_and_its_answer() {
         not_user_input: true,
         text: "<job/>".to_owned(),
     };
-    let created = Event::ConversationCreated { origin: efr_protocol::Origin::Shell, tty: None };
+    let created =
+        Event::ConversationCreated { origin: efr_protocol::Origin::Shell, tty: None, route: None };
     let said = Event::AssistantMessageCompleted {
         turn_id: turn(),
         index: 0,
