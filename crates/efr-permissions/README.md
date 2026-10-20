@@ -11,18 +11,29 @@ the rules for users: the permission modes, the built-in tables, how a command li
 read, config protection, and the `[[permissions.rules]]` of `config.toml` with
 examples.
 
-The permission mode (`efr_protocol::Mode`: `manual`, `cautious`, `auto`) picks the
-built-in policy of a turn, `Policy::base(mode)`, and the user's rules follow it.
-`Engine::with_rules(locations, rules)` builds the three machine policies once; a turn
-from a remote origin runs with at most `cautious` (`effective_mode`).
+The permission mode (`efr_protocol::Mode`: `manual`, `cautious`, `auto`, `full`) picks
+the built-in policy of a turn, `Policy::base(mode)`, and the user's rules follow it.
+`Engine::with_rules(locations, rules)` builds the three machine policies once (full
+mode uses the one of `auto`); a turn from a remote origin runs with at most `cautious`
+(`effective_mode`). A mode newer than this crate gets the `manual` policy and fails
+closed.
 
-Full mode (`Mode::Full`) has no rows of its own yet: like any mode that this crate
-does not know, it gets the `manual` policy and fails closed. `critical` holds the types
-of a delete that full mode guards (`CriticalDelete`, `CriticalTarget`, `CriticalWhy`),
-and `exits::critical_deletes` finds them in a line (`exits/critical.rs`, below);
-a reason about one has `Subject::CriticalDelete` and `Cause::CriticalDelete`, and
-`Decision::critical` lists them. `Cause::Full` marks a requirement that full mode runs
-with no question.
+Full mode (`Mode::Full`) runs the model's commands as the user, with no sandbox and no
+question. `Engine::decide` decides a full call as an `auto` call on a machine with no
+sandbox (`AutoSupport::for_full`), so it finds the same exits, home copies and undo
+cover, and then settles the reasons (`full.rs`, `settle`): what the sandbox would hold
+(`Contain`) and what a built-in row asks about run with `Cause::Full`; each exit runs
+and keeps its reason, so `Decision::exits` lists it for the record; a floor stays
+denied; a privileged program, a `privilege`, `persistence` or `destructive` exit, a
+change of efr's settings, a file tool delete that undo does not cover and a user's or a
+conversation's `ask` or `deny` rule still decide; a view of the host is dropped. For a
+full shell call the engine adds one reason per delete that `exits::critical_deletes`
+finds (`exits/critical.rs`, below): `Subject::CriticalDelete` with `Cause::CriticalDelete`
+asks, whatever the rules say, and in a background job it is denied with
+`Cause::NotAsJob`, as a job's `destructive` exit is. `Decision::critical` lists them,
+and `CriticalDelete::describe` gives the line for the user. Full mode guards against
+mistakes, not against a hostile model: it reads only the line, so a script or a program
+that the line starts can do what the user can.
 
 Modules:
 
@@ -109,7 +120,7 @@ Modules:
   reason); `auto` is a table of its own: reading allowed, writing allowed
   in the project, `$SCRATCH` and, for a shell call, the envelope roots
   (`Locations::with_envelope_root`), secrets denied, and every command line
-  `contain`. `policy/defaults.md` is the read-only table for the docs, and tests keep
+  `contain`; `full` has the rows of `auto`. `policy/defaults.md` is the read-only table for the docs, and tests keep
   it, the table in `docs/permissions.md` and the data equal. `Policy::new` and
   `Policy::push` refuse a rule with the effect `contain` and the `envelope`
   resource, which only the `auto` policy uses. Rules deserialize from TOML with
@@ -125,7 +136,10 @@ Modules:
 - `engine`: `Engine::decide` and `effective_mode`; `Engine::with_support` sets what the
   machine's sandbox supports (`AutoSupport`: the egress, the bus proxy, undo with
   `sandbox.ask_destructive = "unless_undoable"`, the home store that copies each home
-  write, the mount view, the network view). With `undo`, a delete or a move of a file tool in `auto`
+  write, the mount view, the network view). A full call decides with
+  `AutoSupport::for_full`: no egress (each network use is a `host` exit), no bus proxy
+  (each bus use is a `bus` exit), the host's mounts and network, and `undo` and the
+  home store as efrd set them; it needs no probe. With `undo`, a delete or a move of a file tool in `auto`
   asks no question when each path that it writes is covered: by the turn's snapshot
   in the turn's project and `$SCRATCH`, by the home store elsewhere.
   `Engine::path_facts` tells where a path stands for a call in `auto` (`PathFacts`: its
@@ -192,6 +206,8 @@ Modules:
   every place of the line, a zsh builtin or reserved word such as `:`, `cd` or
   `printf` (a fixed list, `exits/programs.rs`); behind `env`, `sudo`, `command`,
   `exec` or `find -exec` only a file runs.
+- `full`: `settle`, the settle pass of a full call (DF3), a pure function of the
+  reasons, the job flag and which causes are built-in rows of the deciding machine.
 - `exits/critical.rs` (full mode, DF4): `exits::critical_deletes` finds the deletes of
   a line that full mode guards, each a `CriticalDelete` with its simple command and
   its target. It is pure and reads only the line, the locations and the turn's roots.
@@ -427,7 +443,8 @@ decisions follow these rules, each covered by a decision table in
 `src/engine/tests/protection.rs`, `src/engine/tests/settings.rs` and, where marked, a
 proptest property:
 
-- The floors hold in every mode: an interactive call and a privileged program ask, a
+- The floors hold in every mode: a privileged program asks, an interactive call asks
+  (but in `auto`, where it runs contained, and in full mode, where it runs), a
   remote origin runs with at most `cautious` and asks outside `$SCRATCH`, secrets stay
   denied unless a user rule names them, a conversation's rules only tighten, and no
   tool writes a write-sealed root.
@@ -436,8 +453,8 @@ proptest property:
 - A delete or a move of a file (`Requirements::destructive`) asks in every mode, from
   every origin and also when every rule allows everything, on its own reason
   (`Subject::Destructive`, `Cause::Destructive`). The one exception is a turn in `auto`
-  on a machine with undo, when the facts say that `efr undo` can bring back every path
-  that the call writes. Its paths are judged as writes on their own reasons, so a
+  or full mode on a machine with undo, when the facts say that `efr undo` can bring
+  back every path that the call writes. Its paths are judged as writes on their own reasons, so a
   denied path stays denied (`src/engine/tests/destructive.rs`).
 - A change of efr's settings (the settings tool) asks in every mode, also in `auto`
   and also when every rule allows everything; no rule is read for it. A turn from a
@@ -509,10 +526,28 @@ proptest property:
   of the same line in the foreground, except that no delete counts as covered by undo:
   the job's call answers at once, and undo of its turn needs `--force` while it may
   still write. A part that no job may hold is denied in every mode
-  (`Cause::NotAsJob`). Outside `auto` each job asks the user (`Subject::Job`,
-  `Cause::JobAsks`), whatever the rules say, and a remote turn runs as `cautious`, so it
-  asks too (`src/engine/tests/jobs.rs`, and the corpus table
-  `background_flag_does_not_change_prediction`).
+  (`Cause::NotAsJob`). Outside `auto` and full mode each job asks the user
+  (`Subject::Job`, `Cause::JobAsks`), whatever the rules say, and a remote turn runs as
+  `cautious`, so it asks too (`src/engine/tests/jobs.rs`, and the corpus table
+  `background_flag_does_not_change_prediction`). A full job starts with no question,
+  and also refuses a `destructive` exit and a delete that full mode guards; with no
+  sandbox there is no filtered bus, so a read form of the bus is a `bus` exit, which no
+  job may hold.
+- In full mode (`src/engine/tests/full.rs`, `src/full/tests.rs`) the effect is never
+  `Contain`, and a call asks only for a privileged program, a `privilege`,
+  `persistence` or `destructive` exit, a delete that full mode guards, a change of
+  efr's settings, a file tool delete that undo does not cover, or a user's or a
+  conversation's rule (property `full_never_contains`). Every other exit runs and stays
+  in `Decision::exits`. Each floor of `auto` holds: a secret, efr's config and efr's
+  own dirs stay denied, also when the delete of such a dir is a guarded delete too
+  (the denial is stricter). No rule lifts a guarded delete's question; a user's `deny`
+  rule still denies it. `nested_shell` runs. The decision does not change with the
+  sandbox support of the machine. `tests/it/corpus.rs` checks the `full` column of each
+  corpus row on the phase E machine and on one with no sandbox support
+  (`full_corpus_rows_match`): the derived result of its phase D1 result, or the
+  explicit `G` of rows 49, 53, 60, 95 and 106, the deletes that full mode guards; no row
+  goes to the classifier, the floor rows are those of `auto`, and `auto` keeps every
+  result (`auto_is_unchanged_by_full`).
 - On a machine that runs NetView calls, a shell line in `auto` that only reads the
   host's network (`exits/view.rs`) runs contained with `Grant::NetView` and no exit, so
   no classifier and no question. A line that does anything else gets no view and keeps

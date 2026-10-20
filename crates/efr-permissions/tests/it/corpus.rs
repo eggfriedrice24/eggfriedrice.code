@@ -5,7 +5,9 @@
 //! none (`tests/fixtures/auto-corpus.toml`). With efr's network proxy it gets the phase
 //! D2 result of `pd2`, and with the filtered bus proxy the phase E result of `pe`, each
 //! the earlier result where the line has none. The `p1` column keeps the phase 1 result
-//! of spec Appendix A.
+//! of spec Appendix A. In full mode every line gets the result of its `full` column,
+//! which a line has only where the result differs from the one that its phase D1 result
+//! gives (efr's full mode, DF25).
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -16,7 +18,7 @@ use efr_permissions::{
     AllowRule, AlwaysVerdict, Approver, AutoSupport, CallFacts, Cause, ConversationPolicy,
     CoverAsk, Coverage, Decision, DecisionInput, Effect, Egress, Engine, HostList, Locations,
     Policy, Preset, RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact,
-    TargetKind,
+    Subject, TargetKind,
 };
 use efr_protocol::{BusKind, ExitKind, Grant, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
@@ -53,6 +55,9 @@ struct Line {
     /// The phase E result, when it differs from the phase D2 result.
     #[serde(default)]
     pe: Option<String>,
+    /// The full mode result, when it differs from the one that [`full_default`] gives.
+    #[serde(default)]
+    full: Option<String>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -161,6 +166,38 @@ fn pe_engine() -> Engine {
 /// The phase E result of `line`: its `pe` column, else its phase D2 result.
 fn pe(line: &Line) -> &str {
     line.pe.as_deref().unwrap_or_else(|| pd2(line))
+}
+
+/// The machine of full mode: the phase E machine. Full mode reads only its `undo` and
+/// its home store; it decides as if no sandbox ran (`AutoSupport::for_full`), which is
+/// the support of the phase D1 machine.
+fn full_engine() -> Engine {
+    pe_engine()
+}
+
+/// The full mode result that the phase D1 result of `line` gives, in the words of the
+/// `full` column: a line that runs with no exit runs (`R`); an exit runs at once and is
+/// recorded (`A(kind)`), but a `privilege`, `persistence` or `destructive` exit asks the
+/// user (`U(kind)`); a floor stays a floor (`D`), and the settings floor asks.
+fn full_default(line: &Line) -> String {
+    let auto = pd(line);
+    if matches!(auto, "R" | "C") {
+        return "R".to_owned();
+    }
+    let kind = auto
+        .strip_prefix(['K', 'N', 'U'])
+        .and_then(|rest| rest.strip_prefix('('))
+        .and_then(|rest| rest.strip_suffix(')'));
+    match kind {
+        Some(kind @ ("privilege" | "persistence" | "destructive")) => format!("U({kind})"),
+        Some(kind) => format!("A({kind})"),
+        None => auto.to_owned(),
+    }
+}
+
+/// The full mode result of `line`: its `full` column, else [`full_default`].
+fn full(line: &Line) -> String {
+    line.full.clone().unwrap_or_else(|| full_default(line))
 }
 
 /// The machine of the fixture's header, whose sandbox supports `support`.
@@ -383,6 +420,78 @@ fn mismatches(engine: &Engine, phase_b: bool, column: impl Fn(&Line) -> &str) ->
         }
     }
     failures
+}
+
+/// The lines of the corpus whose result in full mode is not the one of the `full`
+/// column, each with what it found. A line that runs with no exit in phase D1 has none
+/// in full mode; any other line has the exits of the fixture.
+fn full_mismatches(engine: &Engine) -> Vec<String> {
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let mut failures = Vec::new();
+    for line in &corpus.line {
+        let expected = full(line);
+        let input = DecisionInput { mode: Mode::Full, ..input(line) };
+        let decision = engine.decide(&input);
+        let found = full_verdict(&decision, &expected);
+        let exits: BTreeSet<ExitKind> = decision.exits().map(|need| need.kind).collect();
+        let wanted: BTreeSet<ExitKind> = if matches!(pd(line), "R" | "C") {
+            BTreeSet::new()
+        } else {
+            line.exits.iter().copied().collect()
+        };
+        let text = line.line.as_deref().or(line.settings.as_deref()).unwrap_or_default();
+        if found != expected || exits != wanted {
+            failures.push(format!(
+                "line {} {text:?}: expected {expected} with {wanted:?}, found {found} with {exits:?}",
+                line.n
+            ));
+        }
+    }
+    failures
+}
+
+/// The kind that `expected` names, such as `host` in `A(host)`.
+fn named_kind(expected: &str) -> &str {
+    expected
+        .strip_prefix(['A', 'K', 'N', 'U'])
+        .and_then(|rest| rest.strip_prefix('('))
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or_default()
+}
+
+/// The result of a full mode `decision` in the words of the `full` column: `R` for a
+/// line that runs with no exit, `A(kind)` for one that runs with its exits recorded,
+/// `G` for a question about a delete that full mode guards, `U(kind)` for a question
+/// about an exit, `D` for a floor.
+fn full_verdict(decision: &Decision, expected: &str) -> String {
+    let named = named_kind(expected);
+    let pick = |kinds: Vec<ExitKind>| {
+        kinds.iter().map(|kind| kind.as_str()).find(|kind| *kind == named).unwrap_or("none of them")
+    };
+    match decision.effect() {
+        Effect::Deny => "D".to_owned(),
+        Effect::Contain => "contain".to_owned(),
+        Effect::Allow if decision.exits().next().is_none() => "R".to_owned(),
+        Effect::Allow => format!("A({})", pick(decision.exits().map(|need| need.kind).collect())),
+        Effect::Ask
+            if decision.reasons().iter().any(|reason| reason.cause == Cause::SettingsChange) =>
+        {
+            "asks (settings floor)".to_owned()
+        }
+        Effect::Ask if decision.critical().next().is_some() => "G".to_owned(),
+        Effect::Ask => {
+            let asking = decision
+                .reasons()
+                .iter()
+                .filter(|reason| reason.effect == Effect::Ask)
+                .filter_map(|reason| match &reason.subject {
+                    Subject::Exit { need } => Some(need.kind),
+                    _ => None,
+                })
+                .collect();
+            format!("U({})", pick(asking))
+        }
+    }
 }
 
 /// The result of `decision` in the words of the `pa` column: `R` for a line that runs
@@ -694,4 +803,75 @@ fn background_flag_does_not_change_prediction() {
         }
     }
     assert_eq!(changed, [54, 57, 59]);
+}
+
+#[test]
+fn full_corpus_rows_match() {
+    assert_eq!(full_mismatches(&full_engine()), Vec::<String>::new());
+    // Full mode needs no sandbox support: the phase A machine with undo decides the same.
+    let bare = machine(AutoSupport { undo: true, floor_backup: true, ..AutoSupport::default() });
+    assert_eq!(full_mismatches(&bare), Vec::<String>::new());
+}
+
+#[test]
+fn full_never_judges_by_the_classifier() {
+    // Full mode has no reviewer: a line runs, asks the user, or is refused.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        let full = full(line);
+        assert!(
+            !full.starts_with('K') && !full.starts_with('N') && !full.starts_with('C'),
+            "line {}: {full}",
+            line.n
+        );
+    }
+}
+
+#[test]
+fn full_floor_rows_equal_auto_floor_rows() {
+    // A drift guard for the floors that full mode and `auto` share.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    for line in &corpus.line {
+        for auto in [pd(line), pe(line)] {
+            assert_eq!(auto == "D", full(line) == "D", "line {} {:?}", line.n, line.line);
+        }
+    }
+}
+
+#[test]
+fn full_column_only_where_it_differs_from_the_default() {
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let mut explicit = BTreeSet::new();
+    for line in &corpus.line {
+        if let Some(full) = &line.full {
+            assert_ne!(
+                *full,
+                full_default(line),
+                "line {}: a `full` that equals the default",
+                line.n
+            );
+            explicit.insert(line.n);
+        }
+    }
+    // The deletes that full mode guards: `..` (it holds three projects), a project
+    // root, `~/.config` (it holds efr's config) and `~`.
+    assert_eq!(explicit, BTreeSet::from([49, 53, 60, 95, 106]));
+}
+
+#[test]
+fn auto_is_unchanged_by_full() {
+    // Only a full call settles: every line of `auto` keeps its phase E result, with no
+    // reason of full mode and no guarded delete.
+    assert_eq!(mismatches(&pe_engine(), true, pe), Vec::<String>::new());
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let engine = pe_engine();
+    for line in &corpus.line {
+        let decision = engine.decide(&input(line));
+        assert_eq!(decision.critical().count(), 0, "line {}", line.n);
+        assert!(
+            !decision.reasons().iter().any(|reason| reason.cause == Cause::Full),
+            "line {}",
+            line.n
+        );
+    }
 }
