@@ -681,6 +681,23 @@ fn an_exit_of_a_file_tool_keeps_its_summary_and_says_where_it_runs() {
     );
 }
 
+/// Full mode runs a command line direct, with no sandbox: its question never names a
+/// file tool or a sandbox that the line leaves.
+#[test]
+fn a_full_mode_command_question_says_it_runs_with_no_sandbox() {
+    let mut record = record("false && rm -rf ~");
+    record.facts.targets = vec![target("/home/u")];
+    let mut info = info(&[ExitKind::AboveRoot], Launch::Direct);
+    info.user_only = true;
+    let card = exit_card(&info, Some(&record), home(), Vec::new(), None);
+    assert_eq!(card.title, "allow this command, with no sandbox");
+    let lines: Vec<String> =
+        exit_lines(&info, Some(&record), home()).iter().map(|line| plain(line)).collect();
+    assert!(lines[0].starts_with("full mode asks: "), "{lines:?}");
+    assert!(lines[0].ends_with("; runs as you, with no sandbox"), "{lines:?}");
+    assert!(lines.iter().all(|line| !line.contains("file tool")), "{lines:?}");
+}
+
 #[test]
 fn format_characters_in_a_question_show_as_a_stand_in() {
     // U+202E turns the rest of a line around on the screen; U+200B and U+2066 draw
