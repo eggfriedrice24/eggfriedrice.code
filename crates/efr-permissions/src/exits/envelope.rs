@@ -14,7 +14,10 @@ use crate::path_class::normalize;
 use crate::tables::{
     GIT_SURFACE, PROTECTED_NAMES, floor_group, is_env_file, persistence_floors, sandbox_masks,
 };
-use crate::{Access, AutoSupport, CallFacts, CoverAsk, FloorGroup, Locations, Source, TargetKind};
+use crate::{
+    Access, AutoSupport, CallFacts, CoverAsk, CriticalWhy, FloorGroup, Locations, Source,
+    TargetKind,
+};
 
 /// The write roots of one call and the locations that classify the rest.
 #[derive(Debug)]
@@ -196,21 +199,38 @@ impl<'a> Envelope<'a> {
     /// classifier.
     pub(crate) fn above_root_approver(&self, path: &Path) -> Approver {
         let locations = self.locations;
+        let user = locations.is_at_or_above_home(path)
+            || !path.starts_with(locations.home())
+            || self.holds(path).is_some();
+        if user { Approver::User } else { Approver::ClassifierWhenNamed }
+    }
+
+    /// Why a write that removes `path`, a path in normal form under the home directory,
+    /// is critical: it is or holds efr's config or one of efr's own paths, a secret, a
+    /// built-in or added floor, or two or more registered projects or real write roots.
+    /// `None` when it holds none of them. [`above_root_approver`](Self::above_root_approver)
+    /// gives [`Approver::User`] exactly when this is `Some`, or when the path is at or
+    /// above the home directory or outside it; the guard of full mode reads the same
+    /// test (`exits::critical`), so the two never drift.
+    pub(crate) fn holds(&self, path: &Path) -> Option<CriticalWhy> {
+        let locations = self.locations;
         let below = |root: &PathBuf| root.starts_with(path);
+        if locations.write_sealed_roots().iter().chain(locations.efr_paths()).any(below) {
+            return Some(CriticalWhy::HoldsEfr);
+        }
+        if locations.is_secret(path) || !locations.secrets_below(path).is_empty() {
+            return Some(CriticalWhy::HoldsSecret);
+        }
+        if self.floors.iter().chain(locations.floor_roots()).any(below) {
+            return Some(CriticalWhy::HoldsFloor);
+        }
         let mut held: Vec<&Path> = locations.projects_below(path);
         for root in self.real_roots.iter().filter(|root| below(root)) {
             if !held.contains(&root.as_path()) {
                 held.push(root);
             }
         }
-        let holds = locations.is_at_or_above_home(path)
-            || !path.starts_with(locations.home())
-            || held.len() >= 2
-            || self.floors.iter().chain(locations.floor_roots()).any(below)
-            || locations.write_sealed_roots().iter().chain(locations.efr_paths()).any(below)
-            || locations.is_secret(path)
-            || !locations.secrets_below(path).is_empty();
-        if holds { Approver::User } else { Approver::ClassifierWhenNamed }
+        (held.len() >= 2).then_some(CriticalWhy::HoldsProjects)
     }
 
     /// True when `path` runs code later outside the sandbox: a built-in or added floor
