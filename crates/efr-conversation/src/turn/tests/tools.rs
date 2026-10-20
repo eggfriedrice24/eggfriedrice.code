@@ -26,7 +26,7 @@ async fn start(setup: Setup, records: Vec<Record>, models: Vec<ModelInfo>) -> Ha
     let transcript = Transcript::from_records(records);
     let provider =
         ReplayProvider::new(&transcript).expect("transcript").paced().with_models(models);
-    let start = ConversationStart::New { origin: Origin::Shell, tty: None };
+    let start = ConversationStart::New { origin: Origin::Shell, tty: None, route: None };
     setup.start_provider(Arc::new(provider), start, None).await
 }
 

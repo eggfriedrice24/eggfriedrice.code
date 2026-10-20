@@ -81,7 +81,9 @@ mod turn;
 mod unoffered;
 mod wake;
 
-pub use actor::{ConversationActor, ConversationHandle, ConversationState, completed_result};
+pub use actor::{
+    ConversationActor, ConversationHandle, ConversationState, PromptRouting, completed_result,
+};
 pub use config::{
     AllowWriter, ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo,
 };

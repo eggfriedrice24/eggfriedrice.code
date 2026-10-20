@@ -481,7 +481,7 @@ fn whole_turn(t: TurnId, prompt: &str, body: Vec<Event>, end: Event) -> Vec<Even
 async fn store_with(batches: Vec<Vec<Event>>) -> TestStore {
     let clock = TestClock::new();
     let store = TestStore::open(clock.shared()).await.expect("store");
-    let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
+    let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
     let mut all = vec![vec![created]];
     all.extend(batches);
     for events in all {

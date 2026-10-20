@@ -728,8 +728,12 @@ impl Setup {
     }
 
     pub(crate) async fn start(self, records: Vec<Record>) -> Harness {
-        self.start_with(records, ConversationStart::New { origin: Origin::Shell, tty: None }, None)
-            .await
+        self.start_with(
+            records,
+            ConversationStart::New { origin: Origin::Shell, tty: None, route: None },
+            None,
+        )
+        .await
     }
 
     /// Starts the actor over the transcript `records`, with a store that holds the
@@ -759,7 +763,7 @@ impl Setup {
     /// no exchanges.
     pub(crate) async fn start_model(self, model: Arc<dyn Provider>) -> Harness {
         let replay = ReplayProvider::new(&Transcript::from_records(Vec::new())).expect("replay");
-        let start = ConversationStart::New { origin: Origin::Shell, tty: None };
+        let start = ConversationStart::New { origin: Origin::Shell, tty: None, route: None };
         self.launch(Arc::new(replay), model, start, None).await
     }
 

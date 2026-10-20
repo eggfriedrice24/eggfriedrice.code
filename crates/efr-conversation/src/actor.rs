@@ -48,8 +48,8 @@ use efr_protocol::{
     ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
     ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, LateSteer, Mode, Origin,
     PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand,
-    ResentSteers, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, ShellContext, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnUndo,
+    ResentSteers, Routed, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, ShellContext,
+    TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnUndo,
     TurnUndoResult, UndoRefused, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
@@ -133,6 +133,24 @@ struct Compacting {
     command_id: CommandId,
     /// The retries of the same command that came while it ran.
     retries: Vec<Reply<ConversationCompactResult>>,
+}
+
+/// What the daemon's routing adds to a prompt ([`ConversationHandle::send_routed_prompt`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PromptRouting {
+    /// An event of the conversation that the prompt's append records right before its
+    /// `prompt_queued`, such as `terminal_attached`.
+    pub before: Option<Event>,
+    /// Where the prompt went, for its result and its receipt.
+    pub route: Option<Routed>,
+}
+
+impl PromptRouting {
+    /// The routing of a prompt that records `before` and answers with `route`.
+    pub fn new(before: Option<Event>, route: Option<Routed>) -> Self {
+        PromptRouting { before, route }
+    }
 }
 
 /// A cheap, cloneable handle to a conversation's actor.
@@ -267,6 +285,8 @@ enum Request {
     Prompt {
         params: Box<PromptSend>,
         origin: Origin,
+        /// What the daemon's routing adds to the prompt.
+        routing: Box<PromptRouting>,
         reply: Reply<PromptSendResult>,
     },
     Steer {
@@ -416,8 +436,8 @@ impl ConversationActor {
     async fn handle(&mut self, request: Request) {
         // A caller that stopped waiting does not need the answer; the work is done.
         match request {
-            Request::Prompt { params, origin, reply } => {
-                let _ = reply.send(self.prompt(*params, origin).await);
+            Request::Prompt { params, origin, routing, reply } => {
+                let _ = reply.send(self.prompt(*params, origin, *routing).await);
             }
             Request::Steer { params, origin, reply } => {
                 let _ = reply.send(self.steer(params, origin).await);
@@ -460,7 +480,9 @@ impl ConversationActor {
         &mut self,
         params: PromptSend,
         origin: Origin,
+        routing: PromptRouting,
     ) -> Result<PromptSendResult, ConversationError> {
+        let PromptRouting { before, route } = routing;
         self.check_conversation(params.conversation_id)?;
         let effective = self.admit(&params.settings, origin)?;
         let turn_id = self.new_turn_id();
@@ -476,13 +498,14 @@ impl ConversationActor {
             settings: params.settings,
             steers: Vec::new(),
         };
-        let (events, index) = self.queued_events(turn_id, &prompt);
+        let (events, index) = self.queued_events(turn_id, &prompt, before);
         let result = PromptSendResult {
             conversation_id: self.conversation_id(),
             turn_id,
             seq: Seq::ZERO,
             queued,
             settings: Some(effective),
+            route: route.map(Box::new),
         };
         let receipt = receipt(prompt.command_id, PROMPT_SEND, &result)?.seq_of_event(index);
         let committed = self.append(events, receipt).await?;
@@ -571,13 +594,23 @@ impl ConversationActor {
     }
 
     /// The events that record `prompt` as the turn `turn_id`, with
-    /// `conversation_created` first for a conversation that is not recorded yet, and
-    /// the index of `prompt_queued` among them.
-    fn queued_events(&self, turn_id: TurnId, prompt: &NewPrompt) -> (Vec<Event>, usize) {
-        let mut events = Vec::with_capacity(2);
-        if let ConversationStart::New { origin, tty } = &self.start {
-            events.push(Event::ConversationCreated { origin: *origin, tty: tty.clone() });
+    /// `conversation_created` first for a conversation that is not recorded yet, then
+    /// `before` when the daemon gave one, and the index of `prompt_queued` among them.
+    fn queued_events(
+        &self,
+        turn_id: TurnId,
+        prompt: &NewPrompt,
+        before: Option<Event>,
+    ) -> (Vec<Event>, usize) {
+        let mut events = Vec::with_capacity(3);
+        if let ConversationStart::New { origin, tty, route } = &self.start {
+            events.push(Event::ConversationCreated {
+                origin: *origin,
+                tty: tty.clone(),
+                route: route.clone(),
+            });
         }
+        events.extend(before);
         let index = events.len();
         events.push(prompt.event(turn_id));
         (events, index)
@@ -635,7 +668,7 @@ impl ConversationActor {
             settings,
             steers: Vec::new(),
         };
-        let (events, index) = self.queued_events(turn_id, &prompt);
+        let (events, index) = self.queued_events(turn_id, &prompt, None);
         let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: true };
         let receipt = receipt(prompt.command_id, TURN_STEER, &result)?.seq_of_event(index);
         let committed = self.append(events, receipt).await?;
@@ -1467,7 +1500,27 @@ impl ConversationHandle {
         params: PromptSend,
         origin: Origin,
     ) -> Result<PromptSendResult, ConversationError> {
-        self.request(|reply| Request::Prompt { params: Box::new(params), origin, reply }).await
+        self.send_routed_prompt(params, origin, PromptRouting::default()).await
+    }
+
+    /// Sends a prompt as [`send_prompt`](Self::send_prompt) does, with what the
+    /// daemon's routing adds: an event that the same append records right before its
+    /// `prompt_queued` (`terminal_attached`, so the log never holds the attach without
+    /// its prompt; when the prompt fails, neither is recorded), and the route that the
+    /// result and its receipt carry, so a retry answers the same.
+    pub async fn send_routed_prompt(
+        &self,
+        params: PromptSend,
+        origin: Origin,
+        routing: PromptRouting,
+    ) -> Result<PromptSendResult, ConversationError> {
+        self.request(|reply| Request::Prompt {
+            params: Box::new(params),
+            origin,
+            routing: Box::new(routing),
+            reply,
+        })
+        .await
     }
 
     /// Adds guidance to the running turn; the model reads it at its next step. A late

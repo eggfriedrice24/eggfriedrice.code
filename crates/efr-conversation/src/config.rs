@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_permissions::{AllowRule, Engine, Policy};
-use efr_protocol::{AlwaysSaved, FullModeStatus, Mode, ModelInfo, Origin, SandboxStatus};
+use efr_protocol::{
+    AlwaysSaved, FullModeStatus, Mode, ModelInfo, Origin, RouteScope, SandboxStatus,
+};
 use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
@@ -259,6 +261,9 @@ pub enum ConversationStart {
         origin: Origin,
         /// The terminal it becomes the active conversation of.
         tty: Option<String>,
+        /// The scope key of the terminal's slot that it takes, recorded on
+        /// `conversation_created`.
+        route: Option<RouteScope>,
     },
     /// The conversation exists in the log, as after a restart or when the daemon
     /// started its actor again after an idle stop.

@@ -522,8 +522,12 @@ else changes.
   rejected receipt from the daemon, which owns the mapping to wire errors.
 - It reconciles after a restart (cancels in-flight turns, expires pending approvals,
   records queued prompts as not run); the actor starts with an empty queue.
-- It routes `prompt.send` to the tty's active conversation and spawns or reuses its
-  actor.
+- It routes `prompt.send` to the conversation of the terminal's slot for the prompt's
+  scope and spawns or reuses its actor. `ConversationStart::New` carries the slot's
+  `route` for `conversation_created`, and `ConversationHandle::send_routed_prompt`
+  takes a `PromptRouting`: an event that the prompt's append records right before its
+  `prompt_queued` (`terminal_attached`, so the log never holds a pick-up without its
+  prompt) and the `route` that the result and its receipt carry.
 
 ### Provider items survive a restart
 

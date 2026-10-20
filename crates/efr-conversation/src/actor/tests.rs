@@ -136,14 +136,14 @@ async fn a_new_conversation_is_recorded_once_with_its_first_prompt() {
     ];
     setup.config.max_queued = 4;
     let tty = Some("/dev/pts/3".to_owned());
-    let start = ConversationStart::New { origin: Origin::Cli, tty: tty.clone() };
+    let start = ConversationStart::New { origin: Origin::Cli, tty: tty.clone(), route: None };
     let mut h = setup.start_with(records, start, None).await;
 
     let first = h.prompt("first").await;
     h.wait_end(first.turn_id).await;
 
     let events = h.events().await;
-    assert_eq!(events[0], Event::ConversationCreated { origin: Origin::Cli, tty });
+    assert_eq!(events[0], Event::ConversationCreated { origin: Origin::Cli, tty, route: None });
     let created = events.iter().filter(|e| matches!(e, Event::ConversationCreated { .. })).count();
     assert_eq!(created, 1);
     h.finish();
