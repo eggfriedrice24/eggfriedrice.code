@@ -30,24 +30,24 @@ use crate::{
     ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots,
     DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode,
     Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange,
-    FileChanges, GitCounts, Grant, HeldReason, Hello, HelloResult, HostFact, InputRespond,
-    InputRespondResult, InputWait, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult,
-    JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport,
-    LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList,
-    ModelsListResult, NetworkMode, NotSavedReason, NoticeKind, Origin, OverriddenSettings,
-    PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence, PresenceSet,
-    PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList,
-    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
-    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, QuestionId, RefChange, ReportedFile, RequestId, ResentSteers, Risk, RootDir,
-    RootFiles, RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange, TargetFact, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
-    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    FileChanges, FullModeStatus, FullRefusal, GitCounts, Grant, HeldConfig, HeldReason, Hello,
+    HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState,
+    JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer,
+    Launch, LeaseReport, LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo,
+    ModelSource, ModelsList, ModelsListResult, NetworkMode, NotSavedReason, NoticeKind, Origin,
+    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
+    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
+    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RefChange, ReportedFile, RequestId,
+    ResentSteers, Risk, RootDir, RootFiles, RootSource, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange,
+    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
+    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
+    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -106,6 +106,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.extend(event_samples().iter().map(|event| fixture(event_path(event), event)));
     fixtures.push(fixture("events/tool_call_started_freeform.json", &freeform_call_sample()));
     fixtures.push(fixture("events/exit_requested_floor_edit.json", &floor_edit_exit_sample()));
+    fixtures.push(fixture("events/exit_judged_full.json", &full_judged_sample()));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -128,6 +129,8 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("always_saved.json", &always_saved_samples()));
     fixtures.push(fixture("not_saved_reasons.json", &NotSavedReason::ALL.to_vec()));
     fixtures.push(fixture("bus_proxy_off_reasons.json", &BusProxyOff::ALL.to_vec()));
+    fixtures.push(fixture("judge_kinds.json", &JudgeKind::ALL.to_vec()));
+    fixtures.push(fixture("full_refusals.json", &FullRefusal::ALL.to_vec()));
     fixtures
 }
 
@@ -594,6 +597,27 @@ fn floor_edit_record() -> ExitRecord {
             }],
             ..ExitFacts::default()
         },
+    }
+}
+
+/// An `exit_judged` of an exit that full mode let through: no model, no review. The
+/// sample of `events/exit_judged.json` is the classifier's, with every member set.
+pub(crate) fn full_judged_sample() -> Event {
+    Event::ExitJudged {
+        turn_id: turn_id(),
+        call_id: call_id(),
+        judge: JudgeKind::Full,
+        verdict: Verdict::Allow,
+        model: None,
+        latency_ms: None,
+        risk: None,
+        user_authorization: None,
+        category: None,
+        rationale: None,
+        record_sha256: None,
+        cached: false,
+        chain_step: None,
+        skipped: Vec::new(),
     }
 }
 
@@ -1134,6 +1158,9 @@ fn answer_fixtures() -> Vec<Fixture> {
                     symlink_target: Some("/home/me/dotfiles/efr/config.toml".into()),
                     reload_error: Some(config_file_error()),
                     restart_needed: vec!["screen".into()],
+                    held: Some(HeldConfig {
+                        loosens: vec!["permissions.rules".into(), "permissions.allow_full".into()],
+                    }),
                 }),
                 sandbox: Some(sandbox_status()),
                 sandbox_paths: Some(SandboxPaths {
@@ -1142,6 +1169,10 @@ fn answer_fixtures() -> Vec<Fixture> {
                     launcher_sha256_ok: Some(true),
                     state: "/home/me/.local/state/efr/sandbox".into(),
                     runtime: "/run/user/1000/efr/sbx".into(),
+                }),
+                full_mode: Some(FullModeStatus {
+                    allowed: true,
+                    refused: Some(FullRefusal::SnapshotOff),
                 }),
             },
         ),
@@ -1474,6 +1505,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 user_only: true,
                 always: Some("write under ~/Documents".into()),
             }),
+            expires_in_secs: Some(120),
         },
         Event::ApprovalResolved {
             turn_id: turn_id(),

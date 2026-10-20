@@ -89,6 +89,7 @@ fn asked(n: u8, summary: &str, exit: Option<ExitInfo>) -> Event {
         diff_preview: None,
         interactive: false,
         exit,
+        expires_in_secs: None,
     }
 }
 
@@ -824,6 +825,7 @@ fn patch_asked(n: u8) -> Event {
         diff_preview: Some(patch_diff(true)),
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     }
 }
 
@@ -919,6 +921,7 @@ fn an_edit_names_its_file_and_its_question_shows_the_diff() {
         diff_preview: Some(ZSHRC_EDIT.to_owned()),
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
     let resolved = Event::ApprovalResolved {
         turn_id: turn(),

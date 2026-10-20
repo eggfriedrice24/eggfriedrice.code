@@ -366,14 +366,14 @@ async fn a_reload_reaches_the_rules_of_every_mode_at_the_next_tool_call() {
         Mode::ALL.map(|mode| decide(&engine, &dirs, mode, rm()))
     };
     // Manual asks for everything; cautious asks for a writer program; auto runs it in
-    // its sandbox.
-    assert_eq!(effects(&daemon), [Effect::Ask, Effect::Ask, Effect::Contain]);
+    // its sandbox. Full has no rows of its own yet, so it fails closed and asks.
+    assert_eq!(effects(&daemon), [Effect::Ask, Effect::Ask, Effect::Contain, Effect::Ask]);
 
     let rule = "[[permissions.rules]]\naction = \"execute\"\nresource = { command = { program = \"rm\" } }\neffect = \"deny\"\n";
     std::fs::write(config_file(&dirs), rule).unwrap();
     assert!(reload(&daemon.socket).await.applied);
 
-    assert_eq!(effects(&daemon), [Effect::Deny; 3], "the user's rule follows every mode");
+    assert_eq!(effects(&daemon), [Effect::Deny; 4], "the user's rule follows every mode");
     daemon.stop().await;
 }
 

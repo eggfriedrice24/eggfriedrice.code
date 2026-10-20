@@ -58,7 +58,13 @@
     },
     "restart_needed": [
       "screen"
-    ]
+    ],
+    "held": {
+      "loosens": [
+        "permissions.rules",
+        "permissions.allow_full"
+      ]
+    }
   },
   "sandbox": {
     "available": true,
@@ -81,5 +87,9 @@
     "launcher_sha256_ok": true,
     "state": "/home/me/.local/state/efr/sandbox",
     "runtime": "/run/user/1000/efr/sbx"
+  },
+  "full_mode": {
+    "allowed": true,
+    "refused": "snapshot_off"
   }
 }

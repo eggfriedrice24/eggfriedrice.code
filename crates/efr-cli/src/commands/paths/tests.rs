@@ -148,6 +148,7 @@ fn status(roots: DaemonRoots) -> AdminStatusResult {
         config: None,
         sandbox: None,
         sandbox_paths: None,
+        full_mode: None,
     }
 }
 

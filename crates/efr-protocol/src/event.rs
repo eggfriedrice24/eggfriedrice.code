@@ -277,6 +277,11 @@ pub enum Event {
         /// does not know it shows `summary` as before.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exit: Option<ExitInfo>,
+        /// How many seconds the question waits before the call does not run, for a
+        /// question with a fixed limit, such as a delete that full mode guards. Absent:
+        /// no fixed limit.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_in_secs: Option<u32>,
     },
 
     /// The user answered an approval request.

@@ -41,6 +41,7 @@ fn result() -> AdminStatusResult {
         config: None,
         sandbox: None,
         sandbox_paths: None,
+        full_mode: None,
     }
 }
 
@@ -199,6 +200,7 @@ async fn status_shows_the_config_file_its_reload_error_and_the_keys_that_wait_fo
             key: Some("shell.idle_minuets".to_owned()),
         }),
         restart_needed: vec!["screen".to_owned(), "model.provider".to_owned()],
+        held: None,
     });
     let script = async {
         let mut conn = daemon.accept().await;

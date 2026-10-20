@@ -272,7 +272,8 @@ impl NetworkMode {
 }
 
 /// Why a turn that asked for one mode runs with a stricter one: `auto` without a
-/// working sandbox, or in a project at the home directory, runs as `cautious`.
+/// working sandbox, or in a project at the home directory, runs as `cautious`, and a
+/// `full` turn that a job notice starts runs with at most `auto`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct ModeFallback {
     /// The mode that the prompt or the config asked for.
@@ -290,6 +291,10 @@ impl ModeFallback {
     /// The reason of an `auto` turn when the probe says the sandbox is unavailable but
     /// gives no reason of its own.
     pub const UNAVAILABLE_REASON: &str = "the sandbox is not available";
+
+    /// The reason of a full conversation's turn that a job notice started: such a turn
+    /// runs with at most `auto`.
+    pub const WAKE_REASON: &str = "a turn that a job notice starts runs with at most auto";
 }
 
 #[cfg(test)]

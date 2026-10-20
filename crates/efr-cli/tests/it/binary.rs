@@ -221,6 +221,7 @@ fn status_prints_the_daemons_health() {
                 config: None,
                 sandbox: None,
                 sandbox_paths: None,
+                full_mode: None,
             },
         );
         conn.drain();
@@ -482,7 +483,7 @@ fn an_unknown_mode_in_the_variable_exits_two_before_any_connection() {
     assert_eq!(
         stderr_of(&output),
         "efr: EFR_MODE names the mode \"yolo\", which does not exist; choose one of: manual, \
-         cautious, auto\n"
+         cautious, auto, full\n"
     );
 }
 
@@ -525,7 +526,7 @@ fn settings_reads_the_config_file_and_the_variables() {
     assert_eq!(
         stdout_of(&output),
         format!(
-            "mode = manual  # {path}; choices: manual, cautious, auto\n\
+            "mode = manual  # {path}; choices: manual, cautious, auto, full\n\
              model = gpt-5.4  # EFR_MODEL; choices: gpt-5.5, gpt-5.4\n\
              effort = low  # {path}; choices: low, medium, high\n",
             path = config.display()

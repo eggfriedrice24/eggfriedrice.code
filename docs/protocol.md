@@ -456,3 +456,23 @@ No protocol version has shipped yet.
   `events/tool_call_completed.json`, `events/job_ended.json`,
   `admin_status_result.json` and `admin_sandbox_check_result.json` now set the new
   members.
+- Version 1, additive: full mode. The wire enum `mode` gains `full`, after `auto`: every
+  call runs as the user with no sandbox and no question, and efr still reads each line
+  for a small set of floors. An `efr` from before this version cannot read a
+  `turn_started` or a `prompt.send` result with `mode: full`; `efr` and `efrd` ship
+  together. New wire enum `full_refusal` (`root`, `snapshot_off`, `undo_off`,
+  `no_zsh`): why the daemon refuses full mode although `permissions.allow_full` is
+  true. The `judge` of `exit_judged` gains `full`: full mode let the exit run with no
+  review and no question, or a question of full mode expired. `approval_requested`
+  gains `expires_in_secs` (absent when the question has no fixed limit), such as 120
+  for a delete that full mode guards; the target and the reason stay in `summary`. The
+  `admin.status` result gains `full_mode` (absent when not reported), with `allowed`
+  (`permissions.allow_full`) and `refused` (a `full_refusal`, absent when the daemon
+  does not refuse it). Its `config` object gains `held` (absent when nothing is held):
+  a change of `config.toml` that loosens permissions and came while full mode ran, with
+  `loosens`, the config keys that loosen. A turn of a full conversation that a job
+  notice starts records the fallback reason `a turn that a job notice starts runs with
+  at most auto`. The new fixtures `judge_kinds.json`, `full_refusals.json` and
+  `events/exit_judged_full.json` freeze them; `modes.json`,
+  `events/approval_requested.json` and `admin_status_result.json` now set the new
+  members.

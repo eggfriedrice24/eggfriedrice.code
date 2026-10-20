@@ -61,6 +61,7 @@ fn status(config: ConfigStatus) -> AdminStatusResult {
         config: Some(config),
         sandbox: None,
         sandbox_paths: None,
+        full_mode: None,
     }
 }
 
@@ -71,6 +72,7 @@ fn config_status(path: &str) -> ConfigStatus {
         symlink_target: None,
         reload_error: None,
         restart_needed: vec![],
+        held: None,
     }
 }
 

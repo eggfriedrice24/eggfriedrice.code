@@ -33,6 +33,7 @@ fn write_question(always: Option<&str>) -> Event {
             always: always.map(str::to_owned),
             ..exit_info(&[ExitKind::Write], Launch::Contained { grants })
         }),
+        expires_in_secs: None,
     }
 }
 

@@ -1417,6 +1417,7 @@ impl Turn {
             diff_preview,
             interactive,
             exit,
+            expires_in_secs: None,
         });
         if let Err(error) = self.record(events).await {
             self.shared.approvals.withdraw(call_id);

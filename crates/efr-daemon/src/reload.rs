@@ -159,6 +159,7 @@ pub(crate) async fn status(state: &State) -> ConfigStatus {
         symlink_target: file.symlink_target,
         reload_error: error,
         restart_needed,
+        held: None,
     }
 }
 

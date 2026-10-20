@@ -60,6 +60,7 @@ fn status(path: &Path, warnings: &[&str]) -> AdminStatusResult {
             symlink_target: None,
             reload_error: None,
             restart_needed: Vec::new(),
+            held: None,
         }),
         sandbox: Some(SandboxStatus {
             available: true,
@@ -69,6 +70,7 @@ fn status(path: &Path, warnings: &[&str]) -> AdminStatusResult {
             ..SandboxStatus::unavailable("not used")
         }),
         sandbox_paths: None,
+        full_mode: None,
     }
 }
 

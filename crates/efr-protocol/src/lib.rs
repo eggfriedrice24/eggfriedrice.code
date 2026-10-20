@@ -71,8 +71,8 @@ pub use methods::admin_project_add::{AdminProjectAdd, AdminProjectAddResult};
 pub use methods::admin_project_remove::{AdminProjectRemove, AdminProjectRemoveResult};
 pub use methods::admin_sandbox_check::{AdminSandboxCheck, AdminSandboxCheckResult};
 pub use methods::admin_status::{
-    AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, LoginKind, ProviderStatus, RootDir,
-    RootSource,
+    AdminStatus, AdminStatusResult, ConfigStatus, DaemonRoots, FullModeStatus, HeldConfig,
+    LoginKind, ProviderStatus, RootDir, RootSource,
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
 pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
@@ -125,7 +125,7 @@ pub use scope::{Origin, ProjectId, Scope, ScopeName};
 pub use screen::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Size};
 pub use secret_prompt::looks_secret;
 pub use secret_text::SecretText;
-pub use settings::{EffectiveSettings, Mode, OverriddenSettings, TurnSettings};
+pub use settings::{EffectiveSettings, FullRefusal, Mode, OverriddenSettings, TurnSettings};
 pub use shell_context::{DesktopEnv, ShellContext};
 pub use undo::{
     MAX_NOT_COVERED, MAX_UNDO_ENTRIES, RefChange, RootFiles, SnapshotPhase, TurnUndoInfo,

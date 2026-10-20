@@ -109,6 +109,7 @@ async fn scene() -> Scene {
                 diff_preview: None,
                 interactive: false,
                 exit: None,
+                expires_in_secs: None,
             },
         )
         .event(busy, queued(t2, 2))

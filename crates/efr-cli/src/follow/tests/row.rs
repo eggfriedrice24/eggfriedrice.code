@@ -791,6 +791,7 @@ async fn a_question_takes_the_keys_and_the_row_keeps_its_text() {
             diff_preview: None,
             interactive: false,
             exit: None,
+            expires_in_secs: None,
         };
         conn.item(sub, &item(11, request)).await;
         shows(&seen, "y allow").await;
@@ -823,6 +824,7 @@ fn approval() -> Event {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     }
 }
 

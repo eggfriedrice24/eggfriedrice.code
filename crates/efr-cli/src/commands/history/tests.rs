@@ -75,6 +75,7 @@ fn events() -> Vec<EventEnvelope> {
                 diff_preview: None,
                 interactive: false,
                 exit: None,
+                expires_in_secs: None,
             },
         ),
         envelope(
@@ -440,6 +441,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
                 user_only: true,
                 ..exit_info(&[ExitKind::Privilege], Launch::Unsandboxed)
             }),
+            expires_in_secs: None,
         },
         Event::ExitJudged {
             turn_id: turn(),
@@ -723,6 +725,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             diff_preview: None,
             interactive: false,
             exit: Some(info),
+            expires_in_secs: None,
         },
         started(other, FROM_SRC),
         Event::ApprovalRequested {
@@ -732,6 +735,7 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
             diff_preview: None,
             interactive: false,
             exit: None,
+            expires_in_secs: None,
         },
     ];
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
@@ -781,6 +785,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
             diff_preview: Some("delete old.rs\n--- a/old.rs\n+++ /dev/null\n".to_owned()),
             interactive: false,
             exit: None,
+            expires_in_secs: None,
         },
         Event::ApprovalResolved {
             turn_id: turn(),
@@ -1083,6 +1088,7 @@ fn always_events() -> Vec<EventEnvelope> {
                 always: Some("write under ~/notes".to_owned()),
                 ..exit_info(&[ExitKind::Write], Launch::Contained { grants: vec![write] })
             }),
+            expires_in_secs: None,
         },
         Event::ApprovalResolved {
             turn_id: turn(),

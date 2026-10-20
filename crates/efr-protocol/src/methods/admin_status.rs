@@ -7,7 +7,7 @@ use jiff::Timestamp;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{CatalogStatus, ConfigFileError, DaemonId, SandboxPaths, SandboxStatus};
+use crate::{CatalogStatus, ConfigFileError, DaemonId, FullRefusal, SandboxPaths, SandboxStatus};
 
 /// The params of `admin.status`, an admin method (Unix socket only). It takes none.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -55,6 +55,21 @@ pub struct AdminStatusResult {
     /// the daemon does not report it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox_paths: Option<SandboxPaths>,
+    /// Whether a turn may run in full mode. Absent when the daemon does not report it,
+    /// as before full mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_mode: Option<FullModeStatus>,
+}
+
+/// Whether a turn may run in full mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FullModeStatus {
+    /// `permissions.allow_full` of the daemon's config.
+    pub allowed: bool,
+    /// Why the daemon refuses full mode although it is allowed. Absent when it does
+    /// not refuse it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<FullRefusal>,
 }
 
 /// The state of one model provider.
@@ -153,4 +168,16 @@ pub struct ConfigStatus {
     /// such as `screen`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub restart_needed: Vec<String>,
+    /// A change of the file that the daemon did not load because it loosens
+    /// permissions and came while full mode ran. Absent once a reload applies the file
+    /// or the file no longer loosens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<HeldConfig>,
+}
+
+/// A change of `config.toml` that the daemon holds back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HeldConfig {
+    /// The config keys whose change loosens permissions, such as `permissions.rules`.
+    pub loosens: Vec<String>,
 }

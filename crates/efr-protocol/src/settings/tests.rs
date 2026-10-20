@@ -1,16 +1,32 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::{EffectiveSettings, Mode, OverriddenSettings, ProtocolError, TurnSettings};
+use crate::{
+    EffectiveSettings, FullRefusal, Mode, OverriddenSettings, ProtocolError, TurnSettings,
+};
 
 #[test]
 fn modes_are_snake_case_names_on_the_wire() {
     let names: Vec<_> = Mode::ALL.iter().map(|mode| serde_json::to_value(mode).unwrap()).collect();
-    assert_eq!(names, [json!("manual"), json!("cautious"), json!("auto")]);
+    assert_eq!(names, [json!("manual"), json!("cautious"), json!("auto"), json!("full")]);
     for mode in Mode::ALL {
         assert_eq!(serde_json::to_value(mode).unwrap(), json!(mode.as_str()));
         assert_eq!(mode.to_string(), mode.as_str());
     }
+}
+
+#[test]
+fn full_refusals_are_snake_case_names_on_the_wire_with_a_sentence_each() {
+    let names: Vec<_> =
+        FullRefusal::ALL.iter().map(|refusal| serde_json::to_value(refusal).unwrap()).collect();
+    assert_eq!(names, [json!("root"), json!("snapshot_off"), json!("undo_off"), json!("no_zsh")]);
+    for refusal in FullRefusal::ALL {
+        assert_eq!(serde_json::to_value(refusal).unwrap(), json!(refusal.as_str()));
+        assert_eq!(refusal.to_string(), refusal.as_str());
+        let text = refusal.describe();
+        assert!(!text.is_empty() && !text.ends_with('.'), "{text}");
+    }
+    assert_eq!(FullRefusal::Root.describe(), "efrd runs as root");
 }
 
 #[test]
@@ -21,7 +37,9 @@ fn cautious_is_the_default_mode() {
 #[test]
 fn modes_are_ordered_from_the_strictest_so_min_caps_a_remote_turn() {
     assert!(Mode::Manual < Mode::Cautious && Mode::Cautious < Mode::Auto);
+    assert!(Mode::Auto < Mode::Full, "full is the loosest");
     assert_eq!(Mode::Auto.min(Mode::Cautious), Mode::Cautious);
+    assert_eq!(Mode::Full.min(Mode::Cautious), Mode::Cautious);
     assert_eq!(Mode::Manual.min(Mode::Cautious), Mode::Manual);
 }
 

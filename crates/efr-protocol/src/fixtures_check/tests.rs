@@ -11,9 +11,9 @@ use super::{
     undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
-    AlwaysSaved, ApprovalDecision, BlockReason, BusProxyOff, DraftPart, Event, ExitKind, Grant,
-    InputWait, Launch, Method, Mode, ModelSource, NotSavedReason, RootSource, UndoAction,
-    UndoReason, UndoRefused, WithdrawTarget,
+    AlwaysSaved, ApprovalDecision, BlockReason, BusProxyOff, DraftPart, Event, ExitKind,
+    FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource, NotSavedReason,
+    RootSource, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -155,10 +155,38 @@ fn mode_index(mode: Mode) -> usize {
         Mode::Manual => 0,
         Mode::Cautious => 1,
         Mode::Auto => 2,
+        Mode::Full => 3,
     }
 }
 
-const MODE_COUNT: usize = 3;
+const MODE_COUNT: usize = 4;
+
+/// The position of a judge in the enum, for the same purpose as `method_index`.
+fn judge_kind_index(judge: JudgeKind) -> usize {
+    match judge {
+        JudgeKind::Classifier => 0,
+        JudgeKind::User => 1,
+        JudgeKind::Floor => 2,
+        JudgeKind::Always => 3,
+        JudgeKind::PresenceExpired => 4,
+        JudgeKind::Full => 5,
+    }
+}
+
+const JUDGE_KIND_COUNT: usize = 6;
+
+/// The position of a full mode refusal in the enum, for the same purpose as
+/// `method_index`.
+fn full_refusal_index(refusal: FullRefusal) -> usize {
+    match refusal {
+        FullRefusal::Root => 0,
+        FullRefusal::SnapshotOff => 1,
+        FullRefusal::UndoOff => 2,
+        FullRefusal::NoZsh => 3,
+    }
+}
+
+const FULL_REFUSAL_COUNT: usize = 4;
 
 /// The position of a model source in the enum, for the same purpose as `method_index`.
 fn model_source_index(source: ModelSource) -> usize {
@@ -473,6 +501,21 @@ fn every_input_wait_has_a_sample() {
 fn every_mode_has_a_sample() {
     let covered: Vec<usize> = Mode::ALL.into_iter().map(mode_index).collect();
     assert_eq!(covered, (0..MODE_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_judge_kind_has_a_sample() {
+    let covered: Vec<usize> = JudgeKind::ALL.into_iter().map(judge_kind_index).collect();
+    assert_eq!(covered, (0..JUDGE_KIND_COUNT).collect::<Vec<_>>());
+    for judge in JudgeKind::ALL {
+        assert_eq!(serde_json::to_value(judge).unwrap(), judge.as_str());
+    }
+}
+
+#[test]
+fn every_full_refusal_has_a_sample() {
+    let covered: Vec<usize> = FullRefusal::ALL.into_iter().map(full_refusal_index).collect();
+    assert_eq!(covered, (0..FULL_REFUSAL_COUNT).collect::<Vec<_>>());
 }
 
 #[test]
