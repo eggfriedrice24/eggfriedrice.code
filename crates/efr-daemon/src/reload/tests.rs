@@ -1064,3 +1064,88 @@ fn a_held_change_is_told_once() {
     );
     assert_eq!(notice(&held, &held), None);
 }
+
+/// A daemon started on `dirs` as `efrd` starts: with the settings of the file as it is.
+async fn restarted(dirs: &TestDirs, clock: &TestClock) -> (Running, Reloads, FullTurns) {
+    let file = Settings::load(dirs.dirs().config()).unwrap();
+    let daemon = crate::start(file, deps(dirs, clock)).await.unwrap();
+    let (reloads, full) = (daemon.reloads(), daemon.full_turns());
+    let socket = daemon.socket_path().to_path_buf();
+    let connections = daemon.connections();
+    let (settings, engine) = (daemon.settings(), daemon.engine());
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let served = tokio::spawn(daemon.serve(shutdown.clone()));
+    (Running { socket, shutdown, served, connections, settings, engine }, reloads, full)
+}
+
+#[tokio::test]
+async fn held_change_stays_held_after_a_restart() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    let kept = dirs.dirs().state().join(super::kept::KEPT_FILE);
+    assert!(kept.is_file(), "the running settings are kept while the change is held");
+    daemon.stop().await;
+
+    let (daemon, _reloads, _full) = restarted(&dirs, &clock).await;
+    assert!(daemon.settings.borrow().permissions.rules.rules().is_empty(), "still held");
+    assert_eq!(held(&daemon.socket).await, held_of(&["permissions.rules"]));
+
+    let result = reload(&daemon.socket).await;
+    assert!(result.applied, "efr config reload applies it: {result:?}");
+    assert_eq!(daemon.settings.borrow().permissions.rules.rules().len(), 1);
+    assert_eq!(held(&daemon.socket).await, None);
+    assert!(!kept.exists(), "no change is held, so nothing is kept");
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn restart_with_the_change_taken_out_ends_the_hold() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    daemon.stop().await;
+
+    std::fs::write(config_file(&dirs), "[shell]\nidle_minutes = 5\n").unwrap();
+    let (daemon, _reloads, _full) = restarted(&dirs, &clock).await;
+
+    assert_eq!(held(&daemon.socket).await, None);
+    assert_eq!(daemon.settings.borrow().shell.idle_minutes, 5);
+    assert!(!dirs.dirs().state().join(super::kept::KEPT_FILE).exists());
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn restart_keeps_the_gate_off_that_applied_while_held() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    let gated = "[permissions]\nallow_full = true\n";
+    std::fs::write(config_file(&dirs), gated).unwrap();
+    assert!(reloads.request("file").await.unwrap().applied);
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), format!("{gated}\n{ALLOW_RULE}")).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    let off = format!("[permissions]\nallow_full = false\n\n{ALLOW_RULE}");
+    std::fs::write(config_file(&dirs), off).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    assert!(!daemon.settings.borrow().permissions.allow_full);
+    daemon.stop().await;
+
+    // A script turns the gate on again while efrd is down.
+    std::fs::write(config_file(&dirs), format!("{gated}\n{ALLOW_RULE}")).unwrap();
+    let (daemon, _reloads, _full) = restarted(&dirs, &clock).await;
+
+    assert!(!daemon.settings.borrow().permissions.allow_full, "the gate stays off");
+    assert_eq!(
+        held(&daemon.socket).await,
+        held_of(&["permissions.rules", "permissions.allow_full"])
+    );
+    daemon.stop().await;
+}

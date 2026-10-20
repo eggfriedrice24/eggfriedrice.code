@@ -31,7 +31,9 @@
 //! after the full work ended, each reload holds again while the file still loosens
 //! against the running settings. Only `admin.config_reload`, which the user's own
 //! `efr config reload` sends, applies a held change, and only when no full work runs;
-//! while it runs, that reload is refused with a text that says so. A reload whose
+//! while it runs, that reload is refused with a text that says so. While a change is
+//! held, the running settings are kept in the state dir ([`kept`]), so a restart of
+//! efrd starts with them and the change stays held. A reload whose
 //! settings loosen nothing applies as before and ends the hold. A held reload still
 //! applies the keys that turn full mode off or down (the gate off, a lower default mode,
 //! undo or the snapshots off), so the user can stop a full turn while a change is held.
@@ -69,6 +71,7 @@ use crate::notices::{self, NOTICES_DIR};
 use crate::shells;
 use crate::state::State;
 
+pub(crate) mod kept;
 pub(crate) mod watcher;
 
 /// How many conversations one read for the reload notices asks for at a time.
@@ -194,6 +197,12 @@ impl Reloads {
 
     pub(crate) fn last(&self) -> Outcome {
         self.lock().clone()
+    }
+
+    /// Marks `held` as the change that the hold keeps back since before this start
+    /// ([`kept::restore`]).
+    pub(crate) fn held_at_start(&self, held: Option<HeldConfig>) {
+        self.lock().held = held;
     }
 
     /// Asks the reload task to read the config file again and apply it, and returns
@@ -417,6 +426,16 @@ async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadRe
         }
     };
     *state.reloads.lock() = now.clone();
+    // NOTE: the settings that run while a change is held are kept on disk, so a restart
+    // of efrd does not apply the change (`kept`).
+    match (&previous.held, &now.held) {
+        (_, Some(_)) => {
+            let running = Arc::clone(&state.settings.borrow());
+            kept::write(state.dirs.state(), &running).await;
+        }
+        (Some(_), None) => kept::remove(state.dirs.state()).await,
+        (None, None) => {}
+    }
     if let Some(line) = notice(&previous, &now) {
         tell_terminals(state, line).await;
     }

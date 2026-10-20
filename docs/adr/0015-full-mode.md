@@ -59,9 +59,11 @@ efr uses for the mode set what users expect of it.
    change of the gate stops a running full turn at its next call.
 6. **The config hold.** While a full turn or a job that it started runs, efrd does not
    load a change of `config.toml` that loosens permissions. The hold stays after the
-   full work ends, for every automatic reload, until the user runs `efr config reload`
-   while no full work runs, or the change leaves the file. `efr status` names the keys
-   that loosen.
+   full work ends, for every automatic reload and over a restart of efrd (the running
+   settings are kept in the state dir while a change is held), until the user runs
+   `efr config reload` while no full work runs, or the change leaves the file. A change
+   that turns full mode off or down applies also while the rest is held. `efr status`
+   names the keys that loosen.
 7. **The words.** Every text of full mode (the `,mode full` lines, the turn-start line,
    the docs, the changelog) says the same: full mode guards against mistakes, not
    against a hostile model or a prompt injection; a script or a program that a line
