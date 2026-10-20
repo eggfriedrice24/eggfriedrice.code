@@ -801,9 +801,15 @@ async fn a_home_write_beside_a_repository_runs_is_covered_and_undone() {
     let call = call_of(2, 1, "write_file", json!({"path": x, "content": "x\n"}), &work(&kept));
 
     let answers = kept.toolbox.cover_facts(&call.context, &asks, Vec::new()).await;
-    home_turn(&kept, 2, &x, "x\n", vec![need]).await;
+    run(&kept, 2, 1, "write_file", json!({"path": x, "content": "x\n"}), vec![need]).await;
+    let ended = kept.toolbox.turn_changes(conversation(), TurnId::from_uuid(id(2))).await;
     let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
 
+    let ended = ended.undo.unwrap();
+    assert_eq!(
+        (ended.home_files, ended.not_covered),
+        (1, vec!["~/notes/.git (no copy)".to_owned()])
+    );
     assert_eq!(
         answers,
         [(asks[0].clone(), Coverage::Covered), (asks[1].clone(), Coverage::Covered)],
