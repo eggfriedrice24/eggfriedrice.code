@@ -33,6 +33,7 @@ fn result() -> AdminStatusResult {
             login: None,
             key_hint: None,
             key_refused_at: None,
+            key_checked_at: None,
         }],
         catalog: Some(efr_protocol::CatalogStatus {
             provider: None,
@@ -88,6 +89,7 @@ async fn a_logged_in_provider_needs_no_login_hint() {
         login: None,
         key_hint: None,
         key_refused_at: None,
+        key_checked_at: None,
     });
     let script = async {
         let mut conn = daemon.accept().await;
@@ -112,6 +114,7 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
         login: None,
         key_hint: None,
         key_refused_at: None,
+        key_checked_at: None,
     };
     vec![
         ProviderStatus {
@@ -126,6 +129,9 @@ fn three_providers(anthropic_key: Option<&str>) -> Vec<ProviderStatus> {
             active: true,
             login: anthropic_key.map(|_| LoginKind::ApiKey),
             key_hint: anthropic_key.map(str::to_owned),
+            // NOTE: a key that a request already used; a key that efrd has not checked
+            // since it started says so (`format::tests`).
+            key_checked_at: anthropic_key.map(|_| now()),
             ..provider("anthropic-api")
         },
     ]

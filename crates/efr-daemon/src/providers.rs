@@ -312,6 +312,9 @@ impl Providers {
             .map_err(|_| DaemonError::TaskPanicked { task: "store an API key" })?
             .map_err(|source| DaemonError::Credentials { source })?;
         self.refusals.reset(provider);
+        if check {
+            self.refusals.checked(provider);
+        }
         let active = provider == self.configured;
         if active {
             self.models.refresh_now();
@@ -368,6 +371,7 @@ impl Providers {
                 let mut status = provider_status(id, record.as_ref(), id == self.configured);
                 if status.login == Some(LoginKind::ApiKey) {
                     status.key_refused_at = self.refusals.refused_at(id);
+                    status.key_checked_at = self.refusals.checked_at(id);
                 }
                 status
             })
@@ -399,6 +403,7 @@ pub(crate) fn provider_status(
         login,
         key_hint,
         key_refused_at: None,
+        key_checked_at: None,
     }
 }
 

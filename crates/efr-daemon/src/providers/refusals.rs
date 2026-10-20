@@ -12,6 +12,11 @@
 //! reports only into the generation that it started in: an answer to the old key that
 //! comes after a new login does not mark the new key.
 //!
+//! Each answer to a request with the key, refused or not, also marks when efrd last
+//! checked the key ([`KeyRefusals::checked_at`], DV32), and so does a login that checked
+//! it. The state lives in memory only: after a restart, `efr status` says that efrd has
+//! not checked the key since it started, until the first answer.
+//!
 //! A refusal holds a time and nothing of the key.
 
 use std::collections::HashMap;
@@ -50,6 +55,9 @@ struct KeyState {
     call: Option<Answer>,
     /// When a fetch of the model list last refused the key; `None` while it works.
     list_refused_at: Option<Timestamp>,
+    /// When a request of either source last got an answer about the key, or a login
+    /// checked it; `None` before that in this generation.
+    checked_at: Option<Timestamp>,
 }
 
 impl KeyState {
@@ -105,14 +113,30 @@ impl KeyRefusals {
         self.lock().get(provider).and_then(KeyState::refused_at)
     }
 
+    /// When efrd last learned whether `provider` takes its stored key: the last answer to
+    /// a request with the key, or a login that checked it. `None` when efrd has not
+    /// checked the key since it started, or since a login that did not check it.
+    pub(crate) fn checked_at(&self, provider: &str) -> Option<Timestamp> {
+        self.lock().get(provider).and_then(|state| state.checked_at)
+    }
+
+    /// Marks the key of `provider` as checked now: a login checked it before it stored
+    /// it. Call it after [`reset`](Self::reset).
+    pub(crate) fn checked(&self, provider: &str) {
+        let now = self.clock.now();
+        self.lock().entry(provider.to_owned()).or_default().checked_at = Some(now);
+    }
+
     /// Records the end of `used`: refused at the clock's time, or working.
     fn report(&self, used: &KeyUse, refused: bool) {
-        let now = refused.then(|| self.clock.now());
+        let at = self.clock.now();
+        let now = refused.then_some(at);
         let mut keys = self.lock();
         let state = keys.entry(used.provider.clone()).or_default();
         if state.generation != used.generation {
             return;
         }
+        state.checked_at = Some(at);
         let shown = state.refused_at();
         match used.source {
             KeySource::Call => {

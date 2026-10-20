@@ -14,7 +14,8 @@ use std::time::Duration;
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, CatalogOrigin, CatalogStatus,
     ConfigFileError, ContextUse, ConversationStatus, ConversationsListResult, EffectiveSettings,
-    FullModeStatus, HeldConfig, Mode, Origin, StopReason, TurnStop, Usage,
+    FullModeStatus, HeldConfig, LoginKind, Mode, Origin, ProviderStatus, StopReason, TurnStop,
+    Usage,
 };
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
@@ -1015,10 +1016,12 @@ pub(crate) fn status(
         if let Some(hint) = &provider.key_hint {
             let _ = write!(state, ", key {}", one_line(hint));
         }
+        let what = if provider.key_hint.is_some() { "" } else { ", key" };
         if let Some(refused) = provider.key_refused_at {
-            let what = if provider.key_hint.is_some() { "" } else { ", key" };
             let at = local_time(refused, zone);
             let _ = write!(state, "{what} refused at {at} ({})", ago(refused, now));
+        } else if key_unchecked(provider) {
+            let _ = write!(state, "{what} {KEY_UNCHECKED}");
         }
         if provider.active {
             state.push_str(" (active)");
@@ -1070,6 +1073,19 @@ pub(crate) fn status(
         }
     }
     out
+}
+
+/// What `efr status` says of a stored API key that efrd has not checked since it
+/// started (DV32): the refusals of a key live in efrd's memory only.
+pub(crate) const KEY_UNCHECKED: &str = "not checked since efrd started";
+
+/// True when `provider` is logged in with an API key and efrd knows nothing of it yet:
+/// no request with the key got an answer since efrd started, and no checked login.
+fn key_unchecked(provider: &ProviderStatus) -> bool {
+    provider.logged_in
+        && provider.login == Some(LoginKind::ApiKey)
+        && provider.key_refused_at.is_none()
+        && provider.key_checked_at.is_none()
 }
 
 /// Which provider's model catalog the daemon has and where it came from, at `now`:

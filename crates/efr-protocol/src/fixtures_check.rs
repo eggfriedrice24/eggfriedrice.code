@@ -1216,6 +1216,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                         login: Some(LoginKind::Subscription),
                         key_hint: None,
                         key_refused_at: None,
+                        key_checked_at: None,
                     },
                     ProviderStatus {
                         provider: "anthropic-api".into(),
@@ -1225,6 +1226,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                         login: Some(LoginKind::ApiKey),
                         key_hint: Some("sk-ant-...a1b2".into()),
                         key_refused_at: Some(at("2026-10-03T07:45:00Z")),
+                        key_checked_at: Some(at("2026-10-03T07:45:00Z")),
                     },
                 ],
                 catalog: Some(CatalogStatus {

@@ -541,3 +541,7 @@ No protocol version has shipped yet.
   disables, or a bus filter that is now off. Each comes once, from the reload that
   changed it; a held change stays in `error`. `admin_config_reload_result.json` now
   sets it.
+- Version 1, additive: each `providers` entry of the `admin.status` result gains
+  `key_checked_at` (absent when unknown): for an API key, when the provider last
+  answered a request with the key since the daemon started, refused or not, or when a
+  login checked it. `admin_status_result.json` now sets it.

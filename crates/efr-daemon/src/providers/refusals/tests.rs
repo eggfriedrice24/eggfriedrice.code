@@ -52,6 +52,35 @@ fn a_refusal_keeps_its_time_until_a_request_with_the_key_works() {
 }
 
 #[test]
+fn each_answer_about_the_key_marks_it_checked_and_a_login_starts_unchecked() {
+    let clock = TestClock::new();
+    let refusals = refusals(&clock);
+    assert_eq!(refusals.checked_at(PROVIDER), None, "nothing checked since the start");
+
+    refusals
+        .start(PROVIDER, KeySource::Call)
+        .failed(&ProviderError::RateLimited { retry_after: None });
+    assert_eq!(refusals.checked_at(PROVIDER), None, "a rate limit says nothing about the key");
+
+    let start = clock.shared().now();
+    refusals.start(PROVIDER, KeySource::ModelList).worked();
+    assert_eq!(refusals.checked_at(PROVIDER), Some(start));
+    clock.advance(Duration::from_secs(60));
+    refusals.start(PROVIDER, KeySource::Call).failed(&unauthorized());
+    assert_eq!(refusals.checked_at(PROVIDER), Some(start + Duration::from_secs(60)));
+    assert_eq!(refusals.checked_at("openai-api"), None, "each provider has its own key");
+
+    let before_login = refusals.start(PROVIDER, KeySource::Call);
+    refusals.reset(PROVIDER);
+    assert_eq!(refusals.checked_at(PROVIDER), None, "the new key is not checked yet");
+    before_login.worked();
+    assert_eq!(refusals.checked_at(PROVIDER), None, "the old key's answer came late");
+
+    refusals.checked(PROVIDER);
+    assert_eq!(refusals.checked_at(PROVIDER), Some(start + Duration::from_secs(60)));
+}
+
+#[test]
 fn a_login_forgets_the_refusal_and_an_answer_to_the_old_key_does_not_mark_the_new_one() {
     let clock = TestClock::new();
     let refusals = refusals(&clock);

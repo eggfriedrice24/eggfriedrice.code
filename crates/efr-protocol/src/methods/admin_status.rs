@@ -98,6 +98,13 @@ pub struct ProviderStatus {
     /// from an earlier daemon. A request with the key that works again removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_refused_at: Option<Timestamp>,
+    /// For an API key: when the provider last answered a request with the key, refused
+    /// or not, since the daemon started. Absent before the first such answer, after a
+    /// login that did not check the key, and from an earlier daemon. With neither this
+    /// nor `key_refused_at`, the daemon does not know whether the provider takes the
+    /// key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_checked_at: Option<Timestamp>,
 }
 
 /// How a provider is logged in.

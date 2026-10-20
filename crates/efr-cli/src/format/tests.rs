@@ -262,6 +262,7 @@ fn status_result() -> AdminStatusResult {
                 login: None,
                 key_hint: None,
                 key_refused_at: None,
+                key_checked_at: None,
             },
             ProviderStatus {
                 provider: "anthropic".to_owned(),
@@ -271,6 +272,7 @@ fn status_result() -> AdminStatusResult {
                 login: None,
                 key_hint: None,
                 key_refused_at: None,
+                key_checked_at: None,
             },
         ],
         catalog: Some(efr_protocol::CatalogStatus {
@@ -338,6 +340,64 @@ fn a_refused_key_says_when_with_or_without_its_hint() {
         text.contains("key sk-ant-...a1b2 refused at 2026-10-04 11:57:00 UTC (3m 0s ago)\n"),
         "{text}"
     );
+}
+
+/// The status of a stored API key of `anthropic-api`, the provider of new
+/// conversations, that efrd has not checked.
+fn unchecked_key() -> AdminStatusResult {
+    let mut result = status_result();
+    let key = &mut result.providers[1];
+    key.provider = "anthropic-api".to_owned();
+    key.logged_in = true;
+    key.active = true;
+    key.login = Some(efr_protocol::LoginKind::ApiKey);
+    key.key_hint = Some("sk-ant-...a1b2".to_owned());
+    result
+}
+
+#[test]
+fn status_says_key_not_checked_since_start() {
+    let result = unchecked_key();
+    let text = status(&result, Path::new("/s"), now(), &TimeZone::UTC, None);
+    assert!(
+        text.contains(
+            "provider       anthropic-api: logged in, key sk-ant-...a1b2 not checked since efrd \
+             started (active)\n"
+        ),
+        "{text}"
+    );
+
+    let mut hidden = unchecked_key();
+    hidden.providers[1].key_hint = None;
+    let text = status(&hidden, Path::new("/s"), now(), &TimeZone::UTC, None);
+    assert!(
+        text.contains("anthropic-api: logged in, key not checked since efrd started (active)\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "provider       openai: logged in, token expires 2026-10-04 12:52:00 UTC (in 52m 0s)\n"
+        ),
+        "a login with tokens has no key: {text}"
+    );
+}
+
+#[test]
+fn status_after_a_good_request_says_nothing_about_the_key() {
+    let mut result = unchecked_key();
+    result.providers[1].key_checked_at = Some(before(60));
+    let text = status(&result, Path::new("/s"), now(), &TimeZone::UTC, None);
+    assert!(
+        text.contains("provider       anthropic-api: logged in, key sk-ant-...a1b2 (active)\n"),
+        "{text}"
+    );
+    assert!(!text.contains("checked"), "{text}");
+
+    // A refusal says when, whether or not efrd checked the key since.
+    result.providers[1].key_refused_at = Some(before(3 * 60));
+    let text = status(&result, Path::new("/s"), now(), &TimeZone::UTC, None);
+    assert!(text.contains("key sk-ant-...a1b2 refused at 2026-10-04 11:57:00 UTC"), "{text}");
+    assert!(!text.contains("not checked"), "{text}");
 }
 
 #[test]

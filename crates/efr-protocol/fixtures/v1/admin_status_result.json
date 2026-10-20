@@ -20,7 +20,8 @@
       "active": true,
       "login": "api_key",
       "key_hint": "sk-ant-...a1b2",
-      "key_refused_at": "2026-10-03T07:45:00Z"
+      "key_refused_at": "2026-10-03T07:45:00Z",
+      "key_checked_at": "2026-10-03T07:45:00Z"
     }
   ],
   "catalog": {
