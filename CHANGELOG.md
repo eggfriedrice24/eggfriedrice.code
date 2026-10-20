@@ -344,9 +344,31 @@ into the GitHub release notes, and it stops when the section is missing.
   shows another conversation, `--model` counts for another model, and `--json` gives
   the same facts to scripts. `,context <words>` was a prompt; it now runs this
   command with the words.
+- A new terminal in a registered project picks up the project's newest conversation
+  when no open terminal holds it and it was active within
+  `conversation.tty_idle_hours`. The reply then starts with one dim line, such as
+  `↪ picked up "fix the proxy test" in app (25 min ago); ,new starts fresh`. A
+  conversation is never open in two terminals: a terminal whose shell still runs, or
+  that follows the conversation, holds it. A phone never holds one. `efr history`
+  shows `picked up in /dev/pts/7` where it happened.
 
 ### Changed
 
+- A terminal keeps one conversation for each registered project that you worked in,
+  and one for everything outside registered projects. The conversation changes when
+  you send a prompt, not when you `cd`: a prompt in `~/p/app` (or below) continues the
+  terminal's `app` conversation, and `cd ~` and a prompt go back to its conversation
+  outside projects. A dim line before the reply names each change, such as
+  `↪ back to "fix the tests" in app (2 h ago)` or `↪ new conversation for app (from
+  ~)`, and the first line of each reply names the scope (`app`, or
+  `○ no project · ~`); the settings of a prompt follow on the same line after ` · `.
+  `conversation.tty_idle_hours` now applies to each of these conversations on its own.
+  `,new` starts a new conversation for the current scope only. `efr history`,
+  `efr undo`, `efr diff`, `efr jobs` and the other commands act on the conversation of
+  the terminal's last prompt. `conversation.follow_project = false` keeps one
+  conversation per terminal, as before. `efr send` typed by hand in a terminal names
+  its shell, so a new shell on the same terminal starts fresh. The first start of the
+  new efrd updates its database once.
 - A phone that answers a question that only your own machine answers gets the text
   `only the user's own machine answers a privilege exit, a delete that full mode guards,
   or a background job`.
