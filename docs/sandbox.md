@@ -1134,6 +1134,11 @@ A job can start in every mode.
   because undo of the start turn needs `--force`.
 - In `cautious` and `manual`, efr asks you before each job starts. No reviewer
   decides it. An approved job runs in the exit child with your rights.
+- In full mode, a job starts with no question and runs in the exit child with your
+  rights. It also refuses a delete that full mode guards, a delete that undo cannot
+  revert, and every use of the bus, also a read-only query: with no sandbox, efr
+  cannot hold the job to the bus filter. docs/permissions.md, "Full mode", has the
+  rest.
 - In every mode, efr refuses a job whose line asks for one of these kinds: `sudo` and
   other ways to more rights, a read of a masked file, a change of a file that runs code later (also one
   that you name), a desktop command that types or starts programs, the whole D-Bus
@@ -1345,6 +1350,12 @@ again after a reload that changes `[sandbox]`, after a launch fails, and before 
 `auto` needs every part. When one part is missing, an `auto` turn runs as `cautious`.
 There is no partial sandbox. A contained call that fails to start returns an error to
 the model; efr never runs it outside the sandbox.
+
+Full mode (docs/permissions.md, "Full mode") uses no sandbox, so the probe and
+`sandbox.enabled` have no effect on it: a full turn runs as full mode also where
+`auto` cannot run, and it never falls back to another mode for the sandbox. It still
+reads each line for the same exits, with no egress and no bus filter, and records
+them. Where `auto` can run, `auto` is the safer choice.
 
 What you see:
 
