@@ -13,6 +13,7 @@ use efr_protocol::{
     ApprovalDecision, ApprovalRespond, CallId, ErrorCode, Event, ExitKind, FullModeStatus,
     FullRefusal, JudgeKind, Launch, Mode, Origin, SandboxStatus, TurnId, TurnSettings, Verdict,
 };
+use efr_provider::ContentBlock;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 
@@ -300,6 +301,36 @@ async fn a_phone_steer_with_mode_full_runs_as_cautious() {
     assert!(queued.queued, "no turn runs, so the steer queues as a prompt");
     h.wait_end(queued.turn_id).await;
     assert_eq!(started(&h, queued.turn_id).await, (Mode::Cautious, None));
+}
+
+#[tokio::test]
+async fn a_phone_steer_into_a_running_full_turn_is_not_read() {
+    // The full turn waits at a question, so it runs while the phone steers.
+    let (mut h, script, turn_id) =
+        start(full(None), vec![shell(PERSIST)], Vec::new(), "start it").await;
+    let (call_id, _, _) = next_question(&mut h).await;
+
+    let params = h.steer_params(Some(turn_id), "delete my notes", false);
+    let refused = h.handle.steer(params, Origin::Phone).await;
+    assert!(
+        matches!(refused, Err(ConversationError::RemoteFullSteer { origin: Origin::Phone })),
+        "{refused:?}"
+    );
+    let queued = steer_as_prompt(&mut h, Mode::Full, Origin::Phone).await.unwrap();
+    assert!(queued.queued, "the phone's text waits as a prompt of its own");
+    assert_ne!(queued.turn_id, turn_id);
+    assert_eq!(count(&h, "turn_steered").await, 0, "nothing goes into the full turn");
+
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Shell).await.unwrap();
+    h.wait_end(turn_id).await;
+    h.wait_end(queued.turn_id).await;
+    assert_eq!(started(&h, queued.turn_id).await, (Mode::Cautious, None));
+    let read = script.requests().into_iter().any(|request| {
+        request.messages.iter().flat_map(|message| &message.content).any(|block| {
+            matches!(block, ContentBlock::Text { text } if text.contains("delete my notes"))
+        })
+    });
+    assert!(!read, "no model read the refused steer");
 }
 
 #[tokio::test]

@@ -53,7 +53,11 @@ turns.
   actor records it as `prompt_queued` in the same step, with the steer's command id,
   the origin of the caller and the context and settings of `if_late`, and the result
   says `queued`. The turn waits for a steer that the actor is recording at that moment
-  and reads it, so a steer is either read or late, never lost.
+  and reads it, so a steer is either read or late, never lost. A steer from the phone
+  into a turn that runs in full mode (or asks for it and has not resolved its mode yet,
+  `Control::mode`) is late too: without `if_late` it gets `RemoteFullSteer`
+  (`forbidden`), and with `if_late: queue` it runs as a prompt of its own with at most
+  `cautious` (`a_phone_steer_into_a_running_full_turn_is_not_read`).
 - `interrupt` is two-phase: the actor records `turn_interrupt_requested`, the turn
   drops the provider's stream (or the parked approval, or the running tool call, which
   the toolbox is asked to `cancel`), completes the text that streamed so far, and only

@@ -584,7 +584,7 @@ impl ConversationActor {
         origin: Origin,
     ) -> Result<TurnSteerResult, ConversationError> {
         self.check_conversation(Some(params.conversation_id))?;
-        let late = match self.reserve_steer(params.turn_id) {
+        let late = match self.reserve_steer(params.turn_id, origin) {
             Ok((turn_id, reservation)) => {
                 let event = Event::TurnSteered { turn_id, text: params.text.clone() };
                 let result = TurnSteerResult { turn_id, seq: Seq::ZERO, queued: false };
@@ -622,12 +622,14 @@ impl ConversationActor {
         Ok(TurnSteerResult { seq: seq_of(&committed, index), ..result })
     }
 
-    /// A place for a steer in the running turn, or the error that refuses a late
-    /// steer: no turn runs, the request names another turn, an interrupt was asked
-    /// for, or the turn made its last model call.
+    /// A place for a steer from `origin` in the running turn, or the error that refuses
+    /// a late steer: no turn runs, the request names another turn, an interrupt was
+    /// asked for, or the turn made its last model call. A steer from a surface that never
+    /// runs full mode, such as the phone, never goes into a full turn.
     fn reserve_steer(
         &self,
         requested: Option<TurnId>,
+        origin: Origin,
     ) -> Result<(TurnId, Reservation), ConversationError> {
         let turn_id = self.running_turn(requested)?;
         let no_turn =
@@ -640,8 +642,27 @@ impl ConversationActor {
         if running.interrupt_requested {
             return Err(no_turn());
         }
+        // NOTE: a full turn's model acts on a steer with no sandbox and no question, so
+        // the phone's text goes the late way: refused, or a prompt of its own that runs
+        // with at most `cautious` (efr's full mode: the phone is never full).
+        if efr_permissions::effective_mode(Mode::Full, origin) != Mode::Full
+            && self.may_run_full(running)
+        {
+            return Err(ConversationError::RemoteFullSteer { origin });
+        }
         let reservation = running.control.steering.reserve().ok_or_else(no_turn)?;
         Ok((turn_id, reservation))
+    }
+
+    /// True when `running` runs in full mode. Until the turn resolved its mode, a turn
+    /// that asks for full mode counts.
+    fn may_run_full(&self, running: &Running) -> bool {
+        if let Some(mode) = running.control.mode.get() {
+            return *mode == Mode::Full;
+        }
+        let asked = running.spec.settings.mode.unwrap_or(self.shared.config.current().mode);
+        !running.spec.is_wake()
+            && efr_permissions::effective_mode(asked, running.spec.origin) == Mode::Full
     }
 
     /// Asks the running turn to stop. In the same step and the same append, it
