@@ -175,6 +175,7 @@ pub(crate) fn ended(job_id: &JobId, end: &Ended<'_>) -> String {
             };
             (what.to_owned(), false)
         }
+        (_, Some(JobStopBy::FullOff)) => ("stopped: full mode was turned off".to_owned(), false),
         (Some(JobState::TimedOut), _) | (_, Some(JobStopBy::TimeLimit)) => {
             ("timed out".to_owned(), true)
         }
@@ -295,6 +296,7 @@ fn state_words(job: &JobInfo) -> String {
         (_, Some(JobStopBy::DaemonRestart)) => "stopped (efrd restarted)".to_owned(),
         (_, Some(JobStopBy::DaemonStop)) => "stopped (efrd stopped)".to_owned(),
         (_, Some(JobStopBy::Guard)) => "stopped (git settings)".to_owned(),
+        (_, Some(JobStopBy::FullOff)) => "stopped (full mode off)".to_owned(),
         (JobState::TimedOut, _) | (_, Some(JobStopBy::TimeLimit)) => "timed out".to_owned(),
         (_, Some(JobStopBy::User)) => "stopped by you".to_owned(),
         (_, Some(JobStopBy::Model)) => "stopped by the model".to_owned(),

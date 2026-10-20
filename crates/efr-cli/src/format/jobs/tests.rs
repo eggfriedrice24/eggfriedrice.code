@@ -93,6 +93,10 @@ fn each_end_has_its_line() {
         line(job_ended(JobState::Failed, None, None)),
         "job j3 failed after 92 minutes; 1.2 MB output"
     );
+    assert_eq!(
+        line(job_ended(JobState::Stopped, None, Some(JobStopBy::FullOff))),
+        "job j3 stopped: full mode was turned off"
+    );
 }
 
 #[test]
