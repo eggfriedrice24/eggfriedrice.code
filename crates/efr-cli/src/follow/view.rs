@@ -3159,8 +3159,6 @@ struct Request<'a> {
     expires_in_secs: Option<u32>,
 }
 
-/// The note for a turn that ended as `end` while a prompt of this view waits after it:
-/// the command goes on, so a failure is not its error.
 /// What the lines at the end of a turn name, gathered while it runs.
 #[derive(Debug, Default)]
 struct Ending {
@@ -3171,6 +3169,8 @@ struct Ending {
     full_exits: Vec<String>,
 }
 
+/// The note for a turn that ended as `end` while a prompt of this view waits after it:
+/// the command goes on, so a failure is not its error.
 /// A file outside the roots that a call of the turn changed (`home_file_changed`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct HomeChange {
