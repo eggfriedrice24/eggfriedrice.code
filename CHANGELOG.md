@@ -256,6 +256,11 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- The settings tool refuses to change `permissions.allow_full`, the new key that
+  allows full mode, and refuses to set `permissions.mode = "full"`. You set them by
+  hand or with `efr config set`. `permissions.mode = "full"` in `config.toml` needs
+  `permissions.allow_full = true`; without it, efrd does not load the file, and the
+  error says to set the key.
 - `network.mode` is now `"proxy"` by default. Package fetches such as `cargo build`
   with a new dependency, `npm install` and `pip install` run with no review. Set
   `network.mode = "none"` to get the old behavior: no network, and a review that opens

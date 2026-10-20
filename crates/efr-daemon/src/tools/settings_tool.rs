@@ -27,6 +27,11 @@
 //! The tool never declares the file as a path: config protection denies every tool's
 //! write there, and the settings tool writes through `efr-config`'s writer after the
 //! user approved the change itself.
+//!
+//! The tool never changes `permissions.allow_full`, the gate of full mode, and never
+//! sets `permissions.mode = "full"`: in full mode commands run as the user with no
+//! sandbox and no questions, so only the user turns it on, by hand or with
+//! `efr config set`. Such a change goes back to the model, and nobody is asked.
 
 use std::collections::VecDeque;
 use std::fmt::Write as _;
@@ -40,7 +45,7 @@ use efr_config::{
 };
 use efr_conversation::{ToolCall, ToolOutcome};
 use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
-use efr_protocol::{AdminConfigReloadResult, CallId, ModelInfo, NetworkMode};
+use efr_protocol::{AdminConfigReloadResult, CallId, Mode, ModelInfo, NetworkMode};
 use efr_provider::ToolDefinition;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -466,6 +471,7 @@ fn apply(
             if efr_config::kind(key) == Some(Kind::Rules) {
                 return Err(tables_key(key));
             }
+            refuse_full(key, Some(value))?;
             set(edit, key, value).map_err(refused)?;
             let shown = shown_value(edit, key);
             Ok((key.to_owned(), format!("set {key} = {shown}")))
@@ -478,6 +484,7 @@ fn apply(
             if efr_config::kind(key) == Some(Kind::Rules) {
                 return Err(tables_key(key));
             }
+            refuse_full(key, None)?;
             if !edit.unset(key).map_err(refused)? {
                 return Err(format!(
                     "{key} is not set in config.toml, so its default applies already; \
@@ -595,6 +602,32 @@ fn refuse_secrets(engine: &Engine, rule: &Rule) -> Result<(), String> {
     Ok(())
 }
 
+/// Refuses a change of the gate of full mode, `permissions.allow_full`, set or unset,
+/// and `permissions.mode = "full"` (`value` is the new value of a set): full mode runs
+/// commands with no sandbox and no questions, so only the user turns it on, by hand.
+fn refuse_full(key: &str, value: Option<&Value>) -> Result<(), String> {
+    let full = Mode::Full.as_str();
+    if key == "permissions.allow_full" {
+        return Err("The settings tool never changes permissions.allow_full; nothing was \
+                    asked or changed. The key lets a terminal, a prompt or permissions.mode \
+                    choose full mode, where commands run as the user with no sandbox and no \
+                    questions. Only the user changes it: tell the user to edit config.toml \
+                    by hand (efr config edit) or to run efr config set \
+                    permissions.allow_full in their own terminal if they want it."
+            .to_owned());
+    }
+    if key == "permissions.mode" && value.and_then(Value::as_str) == Some(full) {
+        return Err(format!(
+            "The settings tool never sets permissions.mode to {full}; nothing was asked or \
+             changed. In {full} mode commands run as the user with no sandbox and no \
+             questions. Only the user makes it the default: tell the user to edit \
+             config.toml by hand (efr config edit) if they want it. It also needs \
+             permissions.allow_full = true. For one terminal, the user types ,mode {full}."
+        ));
+    }
+    Ok(())
+}
+
 /// The default model must be in the model list, and the default effort one it takes.
 fn check_models(settings: &Settings, list: &ModelList) -> Result<(), String> {
     let (models, _) = catalog::effective_models(settings, list);
@@ -626,7 +659,8 @@ fn ids(models: &[ModelInfo]) -> String {
 }
 
 /// True when `next` lets more run without a question than `before`: a new allow rule,
-/// a removed deny or ask rule, a mode toward `auto`, `per_call` to `keep`, a secret
+/// a removed deny or ask rule, a mode toward `full` (the order of `Mode`), the gate of
+/// full mode turned on, `per_call` to `keep`, a secret
 /// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
 /// a model can allow exits that asked the user, undo turned on or covering more, so
 /// more destructive lines run without a question, a `[jobs]` key that lets jobs run
@@ -641,6 +675,7 @@ fn loosens(before: &Settings, next: &Settings) -> bool {
     added.iter().any(|rule| rule.effect == Effect::Allow)
         || removed.iter().any(|rule| rule.effect != Effect::Allow)
         || next.permissions.mode > before.permissions.mode
+        || (next.permissions.allow_full && !before.permissions.allow_full)
         || (before.shell.sudo_cache == SudoCache::PerCall
             && next.shell.sudo_cache == SudoCache::Keep)
         || before
