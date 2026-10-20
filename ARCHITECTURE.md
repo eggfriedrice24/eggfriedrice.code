@@ -228,7 +228,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   (`Approver`) in `crates/efr-permissions/src/exits.rs`, and the words that name an
   exit and the one check of them (`names_match`) in
   `crates/efr-permissions/src/exits/names.rs`; every user message of a conversation,
-  which that check reads, in `crates/efr-store/src/user_messages.rs`; the seam
+  which the record keeps, in `crates/efr-store/src/user_messages.rs`, and the newest
+  turns of them that that check reads (`exit::naming_messages`); the seam
   `ExitJudge` in `crates/efr-conversation/src/judge.rs`; who decides an exit (`exit::route`) and the
   allow rule and the naming rule (`exit::effective`) in
   `crates/efr-conversation/src/exit.rs`; the review and the denial pause in

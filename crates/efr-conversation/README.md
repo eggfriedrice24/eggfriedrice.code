@@ -28,7 +28,12 @@ turns.
   and nothing is recorded. `prompt_queued` keeps what the prompt asked for, so a queued
   prompt keeps it; the result carries the effective settings. When the turn starts it
   resolves them again against the settings of that moment, fails with `invalid` and
-  the choices when they no longer fit, and records them on `turn_started`. A turn
+  the choices when they no longer fit, and records them on `turn_started`. A turn that
+  names no model of its own fails with `ForeignModel` (`invalid`, with the cause and
+  the fix of efrd's refusal of a new prompt) while the config's default model is a
+  model of another company than its provider (`ConversationConfig::foreign_model`), so
+  a prompt that queued before a reload made the default foreign gets the same text
+  (v0.0.4). A turn
   from a remote origin runs with at most `cautious`, and a wake turn with at most
   `auto`: a wake turn of `full` runs as `auto` with a `ModeFallback` whose `asked` is
   `full` and whose reason is `ModeFallback::WAKE_REASON` (plus the reason of `auto`
@@ -107,10 +112,13 @@ turns.
   `Launch::Contained` in `CallContext::launch`, and `tool_call_started` names the
   launch. An exit goes to the classifier or to the user. The engine gives each exit an
   approver; `exit::route` finishes one that the classifier judges only when a user
-  message names it, with `efr_permissions::exits::names_match` on every prompt and
-  steer of the conversation (`efr_store::user_messages`, never the page of newest
-  events or the cut list of the record), and the same check fills
-  `named_in_user_messages` in the record. A file tool's edit of a file that runs code
+  message names it, with `efr_permissions::exits::names_match` on the messages of the
+  naming window (`exit::naming_messages`, v0.0.4): the prompt of the turn, its steers,
+  and the prompt and the steers of the user's turn before it, never a turn before the
+  newest `terminal_attached` (a pick-up or a resume), read from the whole log
+  (`efr_store::user_messages`, never the page of newest events or the cut list of the
+  record). The same check fills `named_in_user_messages` in the record, which keeps
+  every message of the conversation for the reviewer (`exit::UserMessages`). A file tool's edit of a file that runs code
   later (an exit of the kind `persistence`) puts its payload in the record
   (`ActionFacts::edit`, `exit::Payload`): the new content, the old and the new text, or
   the parts of a patch for that file; a payload over 8 KiB, or one that efr cannot read
@@ -138,7 +146,8 @@ turns.
   write, a floor file edit or an `above_root` exit needs a user message that names
   each target outside a cache, build output, efr's trash and the write roots; a host
   needs one that names it, except the registries of a package manager's fetch when a
-  message asks to build, install, update or fetch (`exit::REGISTRY_EXCEPTION`). Under
+  message of the naming window asks to build, install, update or fetch
+  (`exit::REGISTRY_EXCEPTION`, `exit::fetch_asked`). Under
   efr's network proxy (phase D2, DP23) a host needs no name when it is `on_allow_list`:
   only `host` exits with `Grant::Host` grants name it, the list allows it on each of
   their ports, and no `upload` or `outside` exit names it. An exit that opens the whole
@@ -279,7 +288,9 @@ turns.
   names the rest (`N more job notices; call jobs to read them`). The turn records one
   `job_notice` per notice in the batch of its `turn_started`, before it. While the
   conversation is idle (no turn, compaction, undo or queued prompt), a notice starts a
-  wake turn: its first message is the preamble and the notices, with no prompt, it
+  wake turn: its first message is the preamble and the notices, with no prompt (the
+  first line of its preamble says that a job notice started the turn and that the user
+  sent no prompt, and it names the job turn's directory as where the turn works), it
   runs with the origin, the settings and the directory of the job's turn, and its
   `job_notice` events say `woke`. It starts only when the actor ran the job's turn and
   that turn was no wake turn (a job of a wake turn never wakes, so wake turns never
@@ -298,7 +309,8 @@ turns.
   runs at most 20 tool calls (`WAKE_TURN_MAX_CALLS`); then it ends as completed, and
   its last message tells the next turn why. Its classifier record says `wake_turn`,
   its user messages are those before its notices (a prompt queued behind it is no
-  earlier request), its questions start with `(job notice turn)`, and a question
+  earlier request), its naming window is the user's newest turn before it and the turn
+  before that, its questions start with `(job notice turn)`, and a question
   counts the user away unless a client that can answer follows the conversation
   (`PresenceReader::followed`). The classifier's denial counts and its pause go on
   from one wake turn to the next until a prompt starts a turn. A user's prompt queues
@@ -616,8 +628,13 @@ The design:
    (`mysql -p[redacted]`, `sshpass -p`, `docker login -p`, `curl -u user:[redacted]`).
    The list is per program because the same option means something else elsewhere
    (`docker run -p 8080:80`, `psql --password`), and a subcommand such as `login`
-   counts only as one of the first two words after the program. A value that names
-   another value (`$TOKEN`) stays. The events keep only the prompt's text; a turn
+   counts only as one of the first two words after the program. It also redacts the
+   keys of other services by their prefix (`AKIA`, `xoxb-`, `xoxp-`, `glpat-`, `AIza`,
+   `npm_`, `hf_`, `pypi-`), a JSON web token, and a long random word: 32 or more
+   characters of base64 or url-safe base64 with upper and lower case letters and
+   digits, but not hex of the length of a git id or a sha256 sum and not a path. A key
+   of only lower case hex or base32 stays visible. A value that names another value
+   (`$TOKEN`) stays. The events keep only the prompt's text; a turn
    rebuilt from its events has no preamble.
 2. The list of earlier turns comes from the conversation's turns
    (`efr_store::conversations::turns`) and the saved messages, never from the
@@ -1210,7 +1227,9 @@ deletes (`turn/tests/cache.rs`), the snapshots and the undo info at the end of a
 `efr-permissions`, which make no judge call (`turn/tests/corpus.rs`). `exit/tests.rs`
 checks `grant`, the question facts and the record against the real engine, and
 `exit/tests/review.rs` the route, the payload, the allow rule and the naming rule,
-`exit/tests/naming.rs` the naming rule under the proxy. The undo of the actor (busy, a call that
+`exit/tests/naming.rs` the naming rule under the proxy and its window (the turn
+before, a `terminal_attached`, a wake turn, the record that keeps every message);
+`turn/tests/review.rs` runs the window through turns. The undo of the actor (busy, a call that
 runs on, the queue, one record per apply, a phone) is in `actor/tests/undo.rs`. Job
 notices and wake turns (the wake limits, the mode, the chain rule, the call cap, the
 held notices, the presence of a wake turn) are in `actor/tests/jobs.rs` and the table

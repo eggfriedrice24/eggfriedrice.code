@@ -536,6 +536,11 @@ into the GitHub release notes, and it stops when the section is missing.
   whole session bus can start programs outside the sandbox and read an unlocked
   keyring. The question says so. `notify-send` runs through the bus filter with no
   question while the filter is on. The whole system bus keeps its approver.
+- In `auto`, a host, a path or an upload that a message of yours names lets the
+  reviewer decide only when the message is in the current turn or in your turn before
+  it. An older message does not count, and then you decide: a "now do it" three turns
+  after "commit and push" asks you. After another terminal picked up the conversation,
+  only your messages since then count. The reviewer still reads all your messages.
 
 ### Fixed
 
@@ -571,6 +576,12 @@ into the GitHub release notes, and it stops when the section is missing.
   as `~/notes` with `~/notes/.git`, no longer stops the call. efr copies the files of
   the directory but not its `.git`, so `efr undo` reverts the files, and the end of
   the turn says that it does not cover `~/notes/.git`.
+- A prompt that waited in the queue while a config reload made `[model] name` a model
+  of another company than `[model] provider` now fails with the same error as a new
+  prompt, which names the cause and the fix. Before, it failed with a general error.
+- The live state of a turn that a job notice started no longer says that you sent a
+  prompt, or that your shell is in the directory of the job's turn. It says that a job
+  notice started the turn and that the turn works in that directory.
 
 ### Security
 
@@ -694,6 +705,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `network.deny`. Only an answer in your own terminal saves a rule; efr never writes one
   for a phone or the model. Any program of yours that can write `config.toml` can still
   add one.
+- efr redacts more kinds of tokens from the last command and the recent commands that
+  go to the model: AWS, Slack, GitLab, Google, npm, Hugging Face and PyPI keys, JSON
+  web tokens, and long random words of upper and lower case letters and digits. Git
+  ids, sha256 sums and paths stay. A key of only lower case hex stays visible.
 
 ## [0.0.3] - 2026-10-09
 
