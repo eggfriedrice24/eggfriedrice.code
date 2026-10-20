@@ -11,6 +11,7 @@ Commands:
   new       Start a new conversation for this terminal with its first prompt
   status    Show whether the daemon runs, and its health
   history   List recent conversations, or show the events of one
+  resume    List the recent conversations, or make one this terminal's conversation again
   diff      Show what the last turn changed in the files of its project and $SCRATCH
   undo      Take back what the last turn changed in files and branches
   compact   Make room in the model's context of this terminal's conversation now
@@ -31,4 +32,4 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 
-In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]`, `,context` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings.
+In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]`, `,context`, `,resume [N]` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings.

@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/format/resume/tests.rs
+expression: text
+---
+ 1  fix the proxy test                                                        app              25 min ago   6 turns   this terminal
+ 2  why is the build slow                                                     app              2 h ago      3 turns   open in /dev/pts/4
+ 3  clean up the nixos config and the old home manager modules of the laptop  no project       1 d ago     12 turns
+ 4  (no title)                                                                removed project  3 d ago       1 turn
+efr resume N continues one here

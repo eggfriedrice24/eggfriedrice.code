@@ -32,6 +32,7 @@ pub(crate) mod context_report;
 pub(crate) mod groups;
 pub(crate) mod jobs;
 pub(crate) mod patch;
+pub(crate) mod resume;
 pub(crate) mod route;
 pub(crate) mod sandbox;
 

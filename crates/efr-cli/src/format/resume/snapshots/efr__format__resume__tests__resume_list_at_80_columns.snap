@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/format/resume/tests.rs
+expression: readable(&text)
+---
+ 1  fix the proxy t…  app              25 min ago   6 turns   \e[2mthis terminal\e[0m
+ 2  why is the buil…  app              2 h ago      3 turns   \e[2mopen in /dev/pts/4\e[0m
+ 3  clean up the ni…  no project       1 d ago     12 turns
+ 4  (no title)        removed project  3 d ago       1 turn
+\e[2m,resume N continues one here\e[0m

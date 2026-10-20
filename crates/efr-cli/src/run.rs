@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use crate::cli::{Cli, Command};
 use crate::commands::{
     away, compact, config, context, diff, history, jobs, login, logout, models, new, paths,
-    project, sandbox, send, settings, status, undo,
+    project, resume, sandbox, send, settings, status, undo,
 };
 use crate::context::Context;
 use crate::error::{CliError, Exit};
@@ -43,6 +43,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         Command::New(args) => Box::pin(new::run(ctx, out, args)).await,
         Command::Status => status::run(ctx, out).await,
         Command::History(args) => history::run(ctx, out, args).await,
+        Command::Resume(args) => resume::run(ctx, out, args).await,
         Command::Diff(args) => diff::run(ctx, out, args).await,
         Command::Undo(args) => Box::pin(undo::run(ctx, out, args)).await,
         Command::Compact(args) => compact::run(ctx, out, args).await,

@@ -35,7 +35,7 @@ use efr_protocol::{ConversationId, JobId, Mode, TurnId};
     version,
     about = "Talk to the efr daemon: send prompts, follow replies, check status",
     long_about = None,
-    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]`, `,context` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
+    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]`, `,context`, `,resume [N]` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -53,6 +53,14 @@ pub(crate) enum Command {
     Status,
     /// List recent conversations, or show the events of one.
     History(HistoryArgs),
+    /// List the recent conversations, or make one this terminal's conversation again.
+    ///
+    /// Without an argument it lists them, the ones of the current project first, with
+    /// their number, title, project, age and turns. With N (one or two digits) or an id
+    /// (or at least 4 characters of one), the next prompt in that conversation's project
+    /// continues it, its hidden shell starts in its last directory and its jobs report
+    /// here. When another open terminal holds it, efr asks first.
+    Resume(ResumeArgs),
     /// Show what the last turn changed in the files of its project and $SCRATCH.
     Diff(DiffArgs),
     /// Take back what the last turn changed in files and branches.
@@ -281,6 +289,20 @@ pub(crate) struct HistoryArgs {
     /// Also show the facts that efr recorded for each exit from the auto sandbox.
     #[arg(long, short = 'v')]
     pub(crate) verbose: bool,
+}
+
+/// The arguments of `efr resume`.
+#[derive(Debug, Args)]
+pub(crate) struct ResumeArgs {
+    /// N, the number of a row of the list, or a conversation: its id, or the start of
+    /// it. Without it, the list.
+    #[arg(value_name = "N|CONVERSATION")]
+    pub(crate) conversation: Option<String>,
+
+    /// Move the conversation here also when another open terminal holds it, with no
+    /// question.
+    #[arg(long, requires = "conversation")]
+    pub(crate) take: bool,
 }
 
 /// The arguments of `efr diff`.

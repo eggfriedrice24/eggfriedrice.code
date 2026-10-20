@@ -168,6 +168,31 @@ pub(crate) enum CliError {
     #[error("{query:?} matches {matches} conversations; type more of the id")]
     AmbiguousConversation { query: String, matches: usize },
 
+    /// `efr resume N` names a row that the list of recent conversations does not have.
+    #[error("the list of recent conversations has no row {n}; it has {count}")]
+    NoResumeRow { n: usize, count: usize },
+
+    /// The id start of `efr resume` matches more than one conversation; each match is
+    /// its id and its title.
+    #[error("{query:?} matches {} conversations: {}; type more of the id", .matches.len(), .matches.join(", "))]
+    ResumeAmbiguous { query: String, matches: Vec<String> },
+
+    /// `efr resume` with a conversation came without a terminal, which it moves the
+    /// conversation to.
+    #[error(
+        "efr resume needs a terminal: run it in the shell that is to continue the conversation"
+    )]
+    ResumeNeedsTerminal,
+
+    /// Another open terminal holds the conversation, and there is no terminal to ask
+    /// on. Nothing moved.
+    #[error("{} is open in {tty}; efr resume --take {target} moves it", .title.as_deref().map_or_else(|| "the conversation".to_owned(), |title| format!("{title:?}")))]
+    ResumeHeld { title: Option<String>, tty: String, target: String },
+
+    /// The daemon does not know a method of this efr: it is an older build.
+    #[error("efrd is older than this efr; restart it: systemctl --user restart efrd")]
+    OlderDaemon,
+
     /// `efr diff` found no conversation, so there is no turn to show.
     #[error("there is no conversation yet, so no turn changed a file")]
     NoConversation,
@@ -357,7 +382,10 @@ impl CliError {
             | CliError::UndoNeedsYes
             | CliError::NoAllowRule { .. }
             | CliError::AllowRemoveNeedsTerminal
-            | CliError::AmbiguousConversation { .. } => Exit::Usage,
+            | CliError::AmbiguousConversation { .. }
+            | CliError::NoResumeRow { .. }
+            | CliError::ResumeAmbiguous { .. }
+            | CliError::ResumeNeedsTerminal => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
             CliError::ConfigInvalid
