@@ -368,6 +368,13 @@ into the GitHub release notes, and it stops when the section is missing.
   with the numbers of each model call, such as `usage gap_ms=95000 input=18200
   output=1100 read=16600 write=1200 write_1h=1200`, so you can measure which
   `[anthropic] cache_ttl` costs less. The line holds no text of a prompt or an answer.
+- `,resume` and `efr resume` list the recent conversations, the ones of the current
+  project first, with their title, project, age and turn count. `,resume N` (or an
+  id start) makes one this terminal's conversation again: the next prompt in its
+  project continues it, its hidden shell starts in its last directory, and its jobs
+  report here. When another open terminal holds it, efr names that terminal and asks
+  first; `efr resume --take N` moves it with no question. `efr history` shows
+  `resumed in /dev/pts/7` where it happened.
 
 ### Changed
 
