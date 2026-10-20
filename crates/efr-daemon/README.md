@@ -175,7 +175,7 @@ the list came from and when.
   for OpenAI, and Anthropic has no list. So a start while offline offers the last
   list.
 - In the background (a task of `run.rs`), efrd fetches the subscription's catalog
-  with the login's token (`efr_provider_openai::CatalogClient`): at start, after a
+  with the login's token (`efr_providers::openai::CatalogClient`): at start, after a
   login, then every hour (`REFRESH_INTERVAL`). The list that efrd has goes with its
   tag in `If-None-Match`, so an unchanged list costs a 304, which confirms it. A new
   list or a confirmed one goes to the cache file in one step. Without a login, efrd
@@ -190,11 +190,11 @@ the list came from and when.
 - The API key backend fetches its `/v1/models` the same way, with the stored key and
   the `[openai] organization` and `project` headers, at start, after a login and
   hourly. That list holds ids only, so it cuts the built-in table down to the models
-  that the key lists (`efr_provider_openai::Catalog::from_api`); windows, efforts and
+  that the key lists (`efr_providers::openai::Catalog::from_api`); windows, efforts and
   tool forms stay those of the table. Without a stored key, efrd waits for a login.
 - The Anthropic catalog comes from the API's `GET /v1/models`, page by page, with the
   stored `anthropic-api` key, the `anthropic-version` header and the workspace of
-  `[anthropic]` (`efr_provider_anthropic::CatalogClient`), at the same times and with
+  `[anthropic]` (`efr_providers::anthropic::CatalogClient`), at the same times and with
   the same waits after a failure. Only `active` models are on offer, with the window,
   the output limit and the efforts that the API gives. efr has no table of Claude
   models, so while there is no list a prompt and `conversation.compact` first wait for
@@ -341,9 +341,9 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   takes a key for `openai-api` or `anthropic-api`. It refuses another provider and a
   key that is empty or holds whitespace or a character outside ASCII (`invalid`), and
   an OpenAI admin key (`sk-admin-`). Unless `check` is false, it checks the key with
-  one request that runs no model, sent once: `efr_provider_openai::check_key` (the
+  one request that runs no model, sent once: `efr_providers::openai::check_key` (the
   API's `/models` with the organization and project headers) or
-  `efr_provider_anthropic::check_key` (with the base URL and the workspace of
+  `efr_providers::anthropic::check_key` (with the base URL and the workspace of
   `[anthropic]`). A refused key is `unauthorized` with the server's message, a busy
   provider `busy`, and a check without an answer `internal`. Then it stores the key in
   the 0600 file store under the provider's id, records `login_completed`, and, when
@@ -1022,7 +1022,7 @@ Every library crate except `efr-client` and the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen` (with its vt100 backend), `efr-provider`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,
-`efr-provider-openai`, `efr-provider-anthropic` (the provider of `anthropic-api`, its
+`efr-providers` (the OpenAI providers, and the provider of `anthropic-api` with its
 catalog and the key check of a login), `efr-oauth-openai`,
 `efr-config`,
 `efr-conversation`,

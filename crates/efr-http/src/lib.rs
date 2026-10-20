@@ -16,7 +16,7 @@
 //!   NDJSON transcript.
 //!
 //! Allowed dependencies: `efr-stdx` only. What does not belong here: any provider's
-//! endpoints, headers or event names (`efr-provider-openai`), token handling
+//! endpoints, headers or event names (`efr_providers::openai`), token handling
 //! (`efr-oauth-openai`), and the transcript file format (`efr-daemon`,
 //! `efr-test-support`).
 //!

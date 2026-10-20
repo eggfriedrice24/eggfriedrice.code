@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::{ContentBlock, Message, Role};
 
-/// A Responses API reasoning item and function call, as `efr-provider-openai` stores
+/// A Responses API reasoning item and function call, as `efr_providers::openai` stores
 /// them: nested objects, arrays, an opaque blob, numbers and non-ASCII text.
 fn responses_raw() -> Value {
     json!([

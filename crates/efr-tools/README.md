@@ -209,7 +209,7 @@ Definition:
 - A provider sends the freeform form (a Responses `custom` tool with the grammar) to
   a model that takes it, and the function form (one string member `input`) to every
   other model. Which models take which form comes from the model catalog
-  (`efr-provider-openai/src/catalog.rs`, `ModelInfo::freeform_tools`): a model whose
+  (`efr-providers/src/openai/catalog.rs`, `ModelInfo::freeform_tools`): a model whose
   `apply_patch_tool_type` is `freeform` takes the freeform form, as every model of
   Codex's catalog does today.
 - The description tells the model the format with a short example, says that the

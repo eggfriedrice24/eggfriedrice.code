@@ -49,8 +49,7 @@ shipped binary.
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter) and `dbus-proxy` (runs `xdg-dbus-proxy` for one filtered bus of a call, with its own Landlock domain, seccomp filter and fd limit); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions; `patch`: the patch engine of apply_patch and edit (the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio) | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
-| `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
-| `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
+| `efr-providers` | lib | 2 | `openai`: the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource`; `anthropic`: the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource`; the two modules share no code | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
 | `efr-snapshot` | lib | 2 | efr's own snapshot store: one bare git repository per project or `$SCRATCH` in the data root, hardened git through `efr_scope::Git::command`, the trees before and after each call that can write, the turn's `pre`, `last` and `post` refs and the paths that its calls touched, the mirror of a project's refs and objects from the git dirs that efrd trusts, the check that a snapshot covers each file below a target, the changes of a call or a turn, the diff of a turn, the plan of an undo or a redo (pure: it writes no file of a root), the home store of the files outside the roots, the collector | `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-config` | lib | 2 | `config.toml` for `efrd` and `efr`: the schema of every key, defaults, validation, the effective view with sources, the JSON schema, the example file and the format-preserving writer; no async, no network | `efr-permissions`, `efr-protocol`, `efr-stdx` |
@@ -75,8 +74,7 @@ and `efr-daemon -> (everything)`.
 1. a member depends on a workspace crate that is not on its allowlist, or a member
    has no allowlist entry;
 2. one of these edges exists, directly or through any chain of normal dependencies:
-   `efr-tools -> efr-permissions`, `efr-provider-openai -> efr-oauth-openai`,
-   `efr-provider-anthropic -> efr-oauth-openai`,
+   `efr-tools -> efr-permissions`, `efr-providers -> efr-oauth-openai`,
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
    `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`,
@@ -311,8 +309,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
-  `crates/efr-provider-openai/src/catalog.rs` (`ModelInfo::freeform_tools` from the
-  catalog's `apply_patch_tool_type`), the `custom` items in `crates/efr-provider-openai/src/convert.rs`. The patch engine of
+  `crates/efr-providers/src/openai/catalog.rs` (`ModelInfo::freeform_tools` from the
+  catalog's `apply_patch_tool_type`), the `custom` items in `crates/efr-providers/src/openai/convert.rs`. The patch engine of
   `apply_patch`: `crates/efr-tools/src/patch/`; the tool: `crates/efr-tools/src/apply_patch.rs`
   and its contract in `crates/efr-tools/README.md`; the question for each delete and
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
@@ -339,9 +337,9 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-conversation/src/preamble/secrets.rs`; the measurement on the OpenAI path
   in `crates/efr-daemon/tests/it/cache_prefix.rs`.
 - The model catalog: the fetch, the cache file and which models are on offer in
-  `crates/efr-provider-openai/src/catalog.rs` and
-  `crates/efr-provider-anthropic/src/catalog.rs`; the built-in OpenAI table, the last
-  fallback, in `crates/efr-provider-openai/src/models.rs` (Claude models have none);
+  `crates/efr-providers/src/openai/catalog.rs` and
+  `crates/efr-providers/src/anthropic/catalog.rs`; the built-in OpenAI table, the last
+  fallback, in `crates/efr-providers/src/openai/models.rs` (Claude models have none);
   the catalog of either company and its cache file name in
   `crates/efr-daemon/src/catalog/list.rs`; when efrd fetches, the wait of a prompt for
   a first Claude list (`Models::ready`), the effective model list, the default model
@@ -353,25 +351,25 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-daemon/src/methods/admin_login_api_key.rs`; the checks of the key's text,
   its hint and the check with its provider in
   `crates/efr-daemon/src/providers/api_key.rs`; the requests of the check in
-  `crates/efr-provider-openai/src/catalog/client.rs` and
-  `crates/efr-provider-anthropic/src/catalog/client.rs` (`check_key`); when the
+  `crates/efr-providers/src/openai/catalog/client.rs` and
+  `crates/efr-providers/src/anthropic/catalog/client.rs` (`check_key`); when the
   provider refused a stored key, for `admin.status`, in
   `crates/efr-daemon/src/providers/refusals.rs`. The user's
   guide to the providers, their logins and the Claude settings: `docs/providers.md`.
 - The Responses WebSocket transport: the contract in
-  `crates/efr-provider-openai/README.md`, section "WebSocket transport"; the
+  `crates/efr-providers/README.md`, section "WebSocket transport"; the
   connection of each conversation and the fallback to HTTP in
-  `crates/efr-provider-openai/src/websocket.rs`; incremental input in
-  `crates/efr-provider-openai/src/websocket/continuation.rs`; the WebSocket client in
+  `crates/efr-providers/src/openai/websocket.rs`; incremental input in
+  `crates/efr-providers/src/openai/websocket/continuation.rs`; the WebSocket client in
   `crates/efr-http/src/websocket.rs`; `[openai] websocket` in
   `crates/efr-config/src/tables.rs`.
 - The Anthropic provider: the contract (the request, the prompt cache markers, the
-  catalog, the token counts and the failures) in `crates/efr-provider-anthropic/README.md`;
+  catalog, the token counts and the failures) in `crates/efr-providers/README.md`;
   the placement of the cache markers and their debug line in
-  `crates/efr-provider-anthropic/src/convert/breakpoints.rs`, and the gap before each
+  `crates/efr-providers/src/anthropic/convert/breakpoints.rs`, and the gap before each
   model call (`gap_ms`, for the measurement of the time to live) in
   `crates/efr-conversation/src/gap.rs`; which error answers are
-  sent again in `crates/efr-provider-anthropic/src/failure.rs`; the fake Messages API
+  sent again in `crates/efr-providers/src/anthropic/failure.rs`; the fake Messages API
   and model list for daemon tests, `MessagesServer`, in
   `crates/efr-test-daemon/src/test_daemon/messages.rs` (`TestDaemonBuilder::messages`
   runs the real provider against it), and a whole Claude conversation over it in

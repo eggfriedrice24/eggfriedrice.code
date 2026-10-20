@@ -8,7 +8,7 @@
 //!   ahead of expiry and returns the access token with its ChatGPT account id;
 //! - `openai-api`: the public OpenAI API with the `openai-api` credential, an API key,
 //!   read at each request and handed over through `StaticToken`;
-//! - `anthropic-api`: Anthropic's Messages API (`efr_provider_anthropic`) with the
+//! - `anthropic-api`: Anthropic's Messages API (`efr_providers::anthropic`) with the
 //!   `anthropic-api` credential, an API key read the same way, and the settings of
 //!   `[anthropic]`.
 //!
@@ -43,8 +43,8 @@ use efr_provider::{
     AccessToken, ExposeSecret as _, ModelInfo, Provider, ProviderError, ProviderId, SecretString,
     StaticToken, TokenSource,
 };
-use efr_provider_anthropic::{AnthropicConfig, AnthropicProvider, CacheTtl};
-use efr_provider_openai::{OpenAiConfig, OpenAiProvider, WebSocketMode};
+use efr_providers::anthropic::{AnthropicConfig, AnthropicProvider, CacheTtl};
+use efr_providers::openai::{OpenAiConfig, OpenAiProvider, WebSocketMode};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
@@ -161,7 +161,7 @@ impl Providers {
                         openai_config(OpenAiConfig::subscription(), &config.openai, base_url)?;
                     (openai, Arc::clone(&subscription) as Arc<dyn TokenSource>)
                 };
-                let client = efr_provider_openai::CatalogClient::new(
+                let client = efr_providers::openai::CatalogClient::new(
                     openai,
                     http.clone(),
                     tokens,
@@ -170,7 +170,7 @@ impl Providers {
                 Some(Fetcher::OpenAi(shared.clone(), client))
             }
             (ANTHROPIC, ProviderCatalog::Anthropic(shared)) => {
-                let client = efr_provider_anthropic::CatalogClient::new(
+                let client = efr_providers::anthropic::CatalogClient::new(
                     anthropic.clone(),
                     http.clone(),
                     stored_key(&store, ANTHROPIC)?,

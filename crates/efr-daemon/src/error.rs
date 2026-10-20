@@ -20,8 +20,8 @@ use efr_protocol::{
     CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, PtyId, ScopeName, TurnId,
 };
 use efr_provider::ProviderError;
-use efr_provider_anthropic::AnthropicError;
-use efr_provider_openai::OpenAiError;
+use efr_providers::anthropic::AnthropicError;
+use efr_providers::openai::OpenAiError;
 use efr_scope::{RegistryProblem, ScopeError};
 use efr_screen::ScreenError;
 use efr_shell::ShellError;

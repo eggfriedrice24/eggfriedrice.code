@@ -20,7 +20,7 @@
 //! line or an [`OAuthError`].
 //!
 //! Allowed dependencies: `efr-http`, `efr-credentials`, `efr-provider` and `efr-stdx`.
-//! What does not belong here: the Responses API and its headers (`efr-provider-openai`,
+//! What does not belong here: the Responses API and its headers (`efr_providers::openai`,
 //! which must never depend on this crate, so it never sees a refresh token), opening a
 //! browser or printing the URL (`efr-cli`), and choosing the credential id or composing
 //! providers (`efr-daemon`).

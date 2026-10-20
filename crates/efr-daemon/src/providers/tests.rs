@@ -5,8 +5,8 @@ use efr_credentials::{CredentialId, CredentialRecord, FileStore, OAuthTokens, Se
 use efr_http::{HttpClient, HttpConfig};
 use efr_protocol::{CatalogOrigin, LoginKind, SecretText};
 use efr_provider::{ExposeSecret as _, ProviderError, SecretString, TokenSource as _};
-use efr_provider_anthropic::CacheTtl;
-use efr_provider_openai::{Backend, Catalog, ModelCatalog, OpenAiConfig, WebSocketMode};
+use efr_providers::anthropic::CacheTtl;
+use efr_providers::openai::{Backend, Catalog, ModelCatalog, OpenAiConfig, WebSocketMode};
 use efr_stdx::time::Clock as _;
 use efr_test_support::{TestClock, TestRng};
 use jiff::Timestamp;
@@ -114,7 +114,7 @@ fn the_websocket_switch_reaches_the_provider_config() {
 
 #[test]
 fn the_config_default_originator_is_the_provider_default() {
-    assert_eq!(Settings::default().openai.originator, efr_provider_openai::DEFAULT_ORIGINATOR);
+    assert_eq!(Settings::default().openai.originator, efr_providers::openai::DEFAULT_ORIGINATOR);
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn the_anthropic_provider_is_built_and_fetches_its_catalog_without_a_list_yet() 
     let mut config = Settings::default();
     config.model.provider = ANTHROPIC.to_owned();
     let mut parts = parts(&clock, dir.path(), None);
-    parts.catalog = ProviderCatalog::Anthropic(efr_provider_anthropic::ModelCatalog::new());
+    parts.catalog = ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new());
 
     let providers = Providers::build(&config, store(dir.path()), parts).unwrap();
 
@@ -282,7 +282,7 @@ fn the_anthropic_provider_is_built_and_fetches_its_catalog_without_a_list_yet() 
     let status = models.status();
     assert_eq!(status.provider.as_deref(), Some("anthropic-api"));
     assert_eq!(status.origin, CatalogOrigin::Missing);
-    assert_eq!(models.default_model(&config), efr_provider_anthropic::DEFAULT_MODEL);
+    assert_eq!(models.default_model(&config), efr_providers::anthropic::DEFAULT_MODEL);
 }
 
 #[test]
@@ -359,7 +359,7 @@ async fn a_login_or_a_logout_forgets_that_the_old_key_was_refused() {
     let mut config = Settings::default();
     config.model.provider = ANTHROPIC.to_owned();
     let mut parts = parts(&clock, dir.path(), None);
-    parts.catalog = ProviderCatalog::Anthropic(efr_provider_anthropic::ModelCatalog::new());
+    parts.catalog = ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new());
     let providers = Providers::build(&config, store(dir.path()), parts).unwrap();
     let key = SecretText::new("sk-ant-api03-efr-test-a1b2");
     providers.login_api_key(ANTHROPIC, &key, false).await.unwrap();

@@ -621,7 +621,7 @@ parts `context` and `compacting`, `conversation.compact`).
 4. Each request carries the conversation id as `prompt_cache_key` unless
    `ConversationConfig::provider_options` names one. OpenAI caches on its own; the key
    sends the requests of one conversation to the same cache. On the subscription
-   backend, `efr-provider-openai` also sends the key as the `session-id` header, as
+   backend, `efr_providers::openai` also sends the key as the `session-id` header, as
    Codex does.
 5. Each model call of the conversation runs in a `provider_request` span with the
    field `gap_ms`: the time from the start of the conversation's call before to the

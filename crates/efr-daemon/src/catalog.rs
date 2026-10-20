@@ -7,7 +7,7 @@
 //! ([`Vendor::cache_file`]), so a change of `[model] provider` never reads the list of
 //! the other company.
 //!
-//! The subscription's catalog comes from its backend (`efr_provider_openai`'s
+//! The subscription's catalog comes from its backend (`efr_providers::openai`'s
 //! `CatalogClient`). efrd starts with the cache file of the last fetch, else with the
 //! table built into efr, and fetches in the background: at start, after a login, then
 //! every [`REFRESH_INTERVAL`] with the tag of the list it has, so an unchanged list
@@ -19,7 +19,7 @@
 //! list says nothing about windows or tools.
 //!
 //! The Anthropic catalog comes from `GET /v1/models` with the stored key
-//! (`efr_provider_anthropic`'s `CatalogClient`), at the same times and with the same
+//! (`efr_providers::anthropic`'s `CatalogClient`), at the same times and with the same
 //! waits. efr has no table of Claude models, so without a cache file there is no list
 //! until a fetch works. Then a prompt waits for one fetch before it goes to its
 //! conversation ([`Models::ready`]): a turn without a list cannot know the output limit
@@ -134,9 +134,9 @@ pub(crate) enum NoList {
 #[derive(Debug)]
 pub(crate) enum Fetcher {
     /// An OpenAI backend and its catalog.
-    OpenAi(efr_provider_openai::ModelCatalog, efr_provider_openai::CatalogClient),
+    OpenAi(efr_providers::openai::ModelCatalog, efr_providers::openai::CatalogClient),
     /// The Anthropic API and its catalog.
-    Anthropic(efr_provider_anthropic::ModelCatalog, efr_provider_anthropic::CatalogClient),
+    Anthropic(efr_providers::anthropic::ModelCatalog, efr_providers::anthropic::CatalogClient),
 }
 
 impl Fetcher {
@@ -339,11 +339,11 @@ impl Models {
 /// One fetch of an OpenAI catalog: a new or confirmed list becomes current and goes to
 /// the cache file.
 async fn fetch_openai(
-    catalog: &efr_provider_openai::ModelCatalog,
-    client: &efr_provider_openai::CatalogClient,
+    catalog: &efr_providers::openai::ModelCatalog,
+    client: &efr_providers::openai::CatalogClient,
     refresh: &Refresh,
 ) -> Result<(), ProviderError> {
-    use efr_provider_openai::Applied;
+    use efr_providers::openai::Applied;
 
     let fetched = client.fetch(&catalog.current()).await?;
     match catalog.apply(fetched, refresh.clock.now()) {
@@ -354,12 +354,12 @@ async fn fetch_openai(
                 default = ?catalog.default_model(),
                 "the model catalog came from the backend"
             );
-            write(&refresh.cache, move |path| efr_provider_openai::write_cache(path, &catalog))
+            write(&refresh.cache, move |path| efr_providers::openai::write_cache(path, &catalog))
                 .await;
         }
         Applied::Revalidated(catalog) => {
             tracing::debug!("the backend says that the model catalog did not change");
-            write(&refresh.cache, move |path| efr_provider_openai::write_cache(path, &catalog))
+            write(&refresh.cache, move |path| efr_providers::openai::write_cache(path, &catalog))
                 .await;
         }
         Applied::Refused { listed } => {
@@ -381,11 +381,11 @@ async fn fetch_openai(
 /// One fetch of the Anthropic catalog: a list with an active model becomes current
 /// and goes to the cache file.
 async fn fetch_anthropic(
-    catalog: &efr_provider_anthropic::ModelCatalog,
-    client: &efr_provider_anthropic::CatalogClient,
+    catalog: &efr_providers::anthropic::ModelCatalog,
+    client: &efr_providers::anthropic::CatalogClient,
     refresh: &Refresh,
 ) -> Result<(), ProviderError> {
-    use efr_provider_anthropic::Applied;
+    use efr_providers::anthropic::Applied;
 
     let fetched = client.fetch().await?;
     match catalog.apply(fetched) {
@@ -396,8 +396,10 @@ async fn fetch_anthropic(
                 default = ?catalog.default_model(),
                 "the model catalog came from the API"
             );
-            write(&refresh.cache, move |path| efr_provider_anthropic::write_cache(path, &catalog))
-                .await;
+            write(&refresh.cache, move |path| {
+                efr_providers::anthropic::write_cache(path, &catalog)
+            })
+            .await;
         }
         Applied::Refused { listed } => {
             tracing::warn!(
@@ -439,12 +441,12 @@ pub(crate) async fn load(settings: &Settings, path: &Path) -> ProviderCatalog {
     match Vendor::of(&settings.model.provider) {
         Vendor::OpenAi => {
             let catalog = load_openai(settings, path).await;
-            ProviderCatalog::OpenAi(efr_provider_openai::ModelCatalog::new(catalog))
+            ProviderCatalog::OpenAi(efr_providers::openai::ModelCatalog::new(catalog))
         }
         Vendor::Anthropic => {
             let catalog = match load_anthropic(settings, path).await {
-                Some(catalog) => efr_provider_anthropic::ModelCatalog::with_catalog(catalog),
-                None => efr_provider_anthropic::ModelCatalog::new(),
+                Some(catalog) => efr_providers::anthropic::ModelCatalog::with_catalog(catalog),
+                None => efr_providers::anthropic::ModelCatalog::new(),
             };
             ProviderCatalog::Anthropic(catalog)
         }
@@ -452,14 +454,14 @@ pub(crate) async fn load(settings: &Settings, path: &Path) -> ProviderCatalog {
 }
 
 /// The OpenAI catalog of the cache file at `path`, else the built-in table.
-async fn load_openai(settings: &Settings, path: &Path) -> efr_provider_openai::Catalog {
-    use efr_provider_openai::Catalog;
+async fn load_openai(settings: &Settings, path: &Path) -> efr_providers::openai::Catalog {
+    use efr_providers::openai::Catalog;
 
     let backend = backend(&settings.model.provider);
     let base_url = openai_base_url(settings, backend).unwrap_or_default();
     let owned = path.to_path_buf();
     let read = tokio::task::spawn_blocking(move || {
-        efr_provider_openai::read_cache(&owned, backend, &base_url)
+        efr_providers::openai::read_cache(&owned, backend, &base_url)
     })
     .await;
     match read {
@@ -488,16 +490,17 @@ async fn load_openai(settings: &Settings, path: &Path) -> efr_provider_openai::C
 async fn load_anthropic(
     settings: &Settings,
     path: &Path,
-) -> Option<efr_provider_anthropic::Catalog> {
+) -> Option<efr_providers::anthropic::Catalog> {
     let base_url = settings
         .anthropic
         .base_url
         .clone()
-        .unwrap_or_else(|| efr_provider_anthropic::API_BASE_URL.to_owned());
+        .unwrap_or_else(|| efr_providers::anthropic::API_BASE_URL.to_owned());
     let owned = path.to_path_buf();
-    let read =
-        tokio::task::spawn_blocking(move || efr_provider_anthropic::read_cache(&owned, &base_url))
-            .await;
+    let read = tokio::task::spawn_blocking(move || {
+        efr_providers::anthropic::read_cache(&owned, &base_url)
+    })
+    .await;
     match read {
         Ok(Ok(Some(catalog))) if !catalog.models().is_empty() => {
             tracing::info!(
@@ -524,8 +527,8 @@ async fn load_anthropic(
 
 /// The base URL of the OpenAI `backend` in `settings`, or `None` when it is not one
 /// (the config's checks refuse such a file before this runs).
-fn openai_base_url(settings: &Settings, backend: efr_provider_openai::Backend) -> Option<String> {
-    use efr_provider_openai::{Backend, OpenAiConfig};
+fn openai_base_url(settings: &Settings, backend: efr_providers::openai::Backend) -> Option<String> {
+    use efr_providers::openai::{Backend, OpenAiConfig};
 
     let (config, url) = match backend {
         Backend::Api => (OpenAiConfig::api(), settings.openai.api_base_url.as_deref()),

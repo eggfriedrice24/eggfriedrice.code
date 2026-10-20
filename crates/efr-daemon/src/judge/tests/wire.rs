@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use efr_http::{HttpClient, HttpConfig};
 use efr_provider::{EditTool, ModelInfo, Provider, ProviderId, SecretString, StaticToken};
-use efr_provider_anthropic::{AnthropicConfig, AnthropicProvider};
-use efr_provider_openai::{OpenAiConfig, OpenAiProvider};
+use efr_providers::anthropic::{AnthropicConfig, AnthropicProvider};
+use efr_providers::openai::{OpenAiConfig, OpenAiProvider};
 use efr_stdx::rng::Rng;
 use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;

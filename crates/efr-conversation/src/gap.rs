@@ -7,7 +7,7 @@
 //! summary call and a manual compaction's summary call all count, because each one
 //! reads and writes the same cache. The gap goes into the `gap_ms` field of the
 //! call's `provider_request` span, so every line of the call carries it, also the
-//! provider's own line about its cache markers (`efr-provider-anthropic`). With the
+//! provider's own line about its cache markers (`efr_providers::anthropic`). With the
 //! token counts of the calls, it measures which time to live of the prompt cache, five
 //! minutes or one hour, fits the pauses of a shell agent, so that the default of
 //! `[anthropic] cache_ttl` can follow the data. Nothing else reads it.

@@ -41,7 +41,7 @@ Everything efr needs to speak HTTP, with no knowledge of any provider:
 - `recorder`: the `Recorder` hook that receives provider traffic, for capturing a
   transcript later; no binary installs one yet. Recording is opt-in per request.
 
-Consumers: `efr-provider-openai` (the streaming Responses API over HTTP and over a
+Consumers: `efr_providers::openai` (the streaming Responses API over HTTP and over a
 WebSocket), `efr-oauth-openai`
 (token exchange and refresh), and later the daemon's tailnet whois check.
 

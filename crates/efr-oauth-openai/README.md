@@ -57,7 +57,7 @@ Tier 2.
 
 `efr-http` (the token requests), `efr-credentials` (the `SecretStore` the tokens live
 in), `efr-provider` (the `TokenSource` trait) and `efr-stdx` (the `Clock` and `Rng`).
-`xtask/src/deps.rs` holds the allowlist; `efr-provider-openai -> efr-oauth-openai` is
+`xtask/src/deps.rs` holds the allowlist; `efr-providers -> efr-oauth-openai` is
 a forbidden edge, so the Responses client never sees a refresh token.
 
 Third-party crates: `hyper` (with `server`), `hyper-util`, `http-body-util` and `bytes`

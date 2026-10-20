@@ -1,0 +1,37 @@
+[package]
+name = "efr-providers"
+description = "The model providers of efr: the OpenAI Responses API client (subscription or API key) and the Anthropic Messages API client (API key)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+efr-http.workspace = true
+efr-provider.workspace = true
+efr-stdx.workspace = true
+futures.workspace = true
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+fastwebsockets.workspace = true
+insta.workspace = true
+pretty_assertions.workspace = true
+rstest.workspace = true
+tempfile.workspace = true
+tracing-subscriber.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true
