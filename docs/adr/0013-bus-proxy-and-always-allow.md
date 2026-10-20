@@ -104,8 +104,12 @@ also under prompt injection.
 
 10. **The filter is on by default after its tests.** `dbus.proxy` was `false` while
     phase E was built, and is `true` from its last commit. efrd turns the filter off
-    when the program is missing, older than 0.1.5, or fails its self-test, and says
+    when the program is missing, older than 0.1.9, or fails its self-test, and says
     why. Every bus form then keeps its `bus` exit, which is stricter, never looser.
+    The floor is 0.1.9 because 0.1.5 (Ubuntu 24.04) cannot serve sd-bus clients
+    such as `hostnamectl`, and versions before 0.1.9 let some messages past the filter
+    (CVE-2026-34080, CVE-2026-93676, CVE-2026-94422). CI builds 0.1.9 from its release
+    tarball.
 
 ## Consequences
 

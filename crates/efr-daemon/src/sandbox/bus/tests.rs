@@ -407,7 +407,9 @@ async fn bus_proxy_off_below_the_version_floor() {
     for (version, off) in [
         ("xdg-dbus-proxy 0.1.4", Some(BusProxyOff::OldVersion)),
         ("xdg-dbus-proxy", Some(BusProxyOff::OldVersion)),
-        ("xdg-dbus-proxy 0.1.5", None),
+        ("xdg-dbus-proxy 0.1.5", Some(BusProxyOff::OldVersion)),
+        ("xdg-dbus-proxy 0.1.8", Some(BusProxyOff::OldVersion)),
+        ("xdg-dbus-proxy 0.1.9", None),
         ("xdg-dbus-proxy 0.2", None),
     ] {
         fixture.fake.version(version);
@@ -416,6 +418,20 @@ async fn bus_proxy_off_below_the_version_floor() {
 
         assert_eq!(fixture.service.current().bus_proxy_off, off, "{version}");
     }
+    // A distribution's older package is a warning only when the user set the key.
+    fixture.fake.version("xdg-dbus-proxy 0.1.5");
+    fixture.service.probe(&fixture.settings).await;
+    fixture.settings.set_source("dbus.proxy", efr_config::Source::File);
+    let reported = fixture.service.reported(&fixture.settings);
+    assert!(
+        reported.warnings.iter().any(|warning| warning.contains("older than 0.1.9")),
+        "{:?}",
+        reported.warnings
+    );
+    fixture.settings.set_source("dbus.proxy", efr_config::Source::Default);
+    let reported = fixture.service.reported(&fixture.settings);
+    assert_eq!(reported.bus_proxy_off, Some(BusProxyOff::OldVersion));
+    assert!(reported.warnings.is_empty(), "{:?}", reported.warnings);
     assert_eq!(super::parse_version("xdg-dbus-proxy 0.1.9\n"), Some((0, 1, 9)));
     assert_eq!(super::parse_version("xdg-dbus-proxy 1.x"), None);
 }

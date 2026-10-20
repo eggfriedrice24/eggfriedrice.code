@@ -22,7 +22,7 @@ makedepends=('cargo')
 checkdepends=('git')
 optdepends=('bubblewrap: the kernel sandbox of the auto mode (also needs Linux 7.1 or newer)'
             'git: project roots and the git facts of a turn'
-            'xdg-dbus-proxy: read-only system queries in the auto mode'
+            'xdg-dbus-proxy: read-only system queries in the auto mode (0.1.9 or newer)'
             'xdg-utils: let efr login openai open the browser with EFR_OPEN_BROWSER=1')
 conflicts=("$pkgname-bin")
 install=efr-code.install
