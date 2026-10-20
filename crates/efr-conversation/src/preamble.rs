@@ -356,7 +356,12 @@ fn last_command(command: &str, status: Option<i32>) -> String {
 
 /// `text` cut to [`COMMAND_MAX_CHARS`] characters, with a marker when cut.
 fn cut(text: &str) -> String {
-    match text.char_indices().nth(COMMAND_MAX_CHARS) {
+    cut_to(text, COMMAND_MAX_CHARS)
+}
+
+/// `text` cut to `max` characters, with a marker when cut.
+fn cut_to(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
         Some((at, _)) => format!("{} [cut]", &text[..at]),
         None => text.to_owned(),
     }

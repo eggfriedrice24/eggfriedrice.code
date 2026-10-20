@@ -7,11 +7,14 @@ use std::path::Path;
 use efr_protocol::RecentCommand;
 use jiff::Timestamp;
 
-use super::{cut, secrets};
+use super::{cut, cut_to, secrets};
 
 /// The most characters of all the entries together. The oldest entries go first, so
-/// the commands nearest to the prompt stay.
+/// the commands nearest to the prompt stay. The newest entry always stays.
 pub(crate) const LIST_MAX_CHARS: usize = 2_000;
+
+/// The most characters of the directory of an entry.
+const DIR_MAX_CHARS: usize = 200;
 
 /// The newest `count` of `commands`, which are oldest first.
 pub(crate) fn newest(commands: &[RecentCommand], count: usize) -> Vec<RecentCommand> {
@@ -41,7 +44,7 @@ pub(super) fn render(
         }
         let entry = entry(command, cwd, now);
         total += entry.chars().count();
-        if total > LIST_MAX_CHARS {
+        if total > LIST_MAX_CHARS && !kept.is_empty() {
             break;
         }
         kept.push(entry);
@@ -77,7 +80,7 @@ fn entry(command: &RecentCommand, cwd: &Path, now: Timestamp) -> String {
         }
     }
     if let Some(dir) = command.cwd.as_deref().filter(|dir| *dir != cwd) {
-        facts.push(format!("in {}", dir.display()));
+        facts.push(format!("in {}", cut_to(&dir.display().to_string(), DIR_MAX_CHARS)));
     }
     let facts = facts.join(", ");
     let mut text = String::new();
