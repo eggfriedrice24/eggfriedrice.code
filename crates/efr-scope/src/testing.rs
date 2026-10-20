@@ -94,7 +94,13 @@ impl Sandbox {
     /// Runs real git in `cwd` with the sandbox as its whole world and asserts that it
     /// succeeds.
     pub(crate) async fn git(&self, cwd: &Path, args: &[&str]) {
-        let status = efr_stdx::process::command("git", cwd)
+        let mut command = efr_stdx::process::command("git", cwd);
+        // NOTE: a git hook exports GIT_DIR and the like (in a linked worktree too), and
+        // then the fixture's git would work on the repository that runs the hook.
+        for name in crate::git::SCRUBBED_ENV {
+            command.env_remove(name);
+        }
+        let status = command
             .args([
                 "-c",
                 "init.defaultBranch=main",

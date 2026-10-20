@@ -37,7 +37,7 @@ pub const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Variables that would make git look at another repository than the one around the
 /// working directory, or read configuration from the environment.
-const SCRUBBED_ENV: &[&str] = &[
+pub(crate) const SCRUBBED_ENV: &[&str] = &[
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_COMMON_DIR",
