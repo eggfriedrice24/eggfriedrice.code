@@ -228,7 +228,7 @@ where
     async fn request(&mut self, id: RequestId, method: Method) -> Next {
         match gate(self.context.is_some(), method, PROTOCOL_VERSION) {
             Gate::Hello(hello) => self.hello(id, hello).await,
-            Gate::Dispatch(method) => self.dispatch(id, method).await,
+            Gate::Dispatch(method) => self.dispatch(id, *method).await,
             Gate::Refuse(body) => self.send(ServerFrame::error(Some(id), body)).await,
             Gate::RefuseAndClose(body) => {
                 tracing::info!(request_id = %id, error = %body.message, "refused a hello");

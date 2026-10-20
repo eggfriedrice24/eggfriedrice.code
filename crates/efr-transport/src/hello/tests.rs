@@ -70,7 +70,7 @@ fn a_mismatch_carries_both_versions() {
 
 #[test]
 fn hello_and_dispatch_pass_the_method_through_unchanged() {
-    assert_eq!(gate(true, list(), DAEMON), Gate::Dispatch(list()));
+    assert_eq!(gate(true, list(), DAEMON), Gate::Dispatch(Box::new(list())));
     let Method::Hello(params) = hello(DAEMON) else { unreachable!() };
     assert_eq!(gate(false, hello(DAEMON), DAEMON), Gate::Hello(params));
 }
