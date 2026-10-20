@@ -335,5 +335,11 @@ pub struct JobInfo {
     pub wakes: u8,
 }
 
+/// What the summary of a question in a job notice turn starts with. efrd puts it in
+/// front of the summary, so a present user sees that a notice, not the user, led to the
+/// question; a client shows it in the question's title and reads the rest as any
+/// summary.
+pub const WAKE_QUESTION: &str = "(job notice turn) ";
+
 #[cfg(test)]
 mod tests;

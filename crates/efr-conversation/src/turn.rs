@@ -125,7 +125,7 @@ pub(crate) const STOPPED: &str =
     "The user interrupted the turn while this call ran; it was stopped.";
 
 /// What the summary of a question in a wake turn starts with.
-pub(crate) const WAKE_QUESTION: &str = "(job notice turn) ";
+pub(crate) const WAKE_QUESTION: &str = efr_protocol::WAKE_QUESTION;
 
 /// What the model reads for a call whose approval request expired unanswered.
 const EXPIRED: &str = "The approval request expired before the user answered; the call did \
