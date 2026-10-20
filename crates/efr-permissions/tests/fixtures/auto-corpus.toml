@@ -164,11 +164,13 @@ exits = ["bus"]
 reads = ["/home/u/p/efr/status", "/home/u/p/efr/nginx"]
 
 [[line]]
+# v0.0.4 (DV18): the whole session bus is the user's own question, so phases A to D2
+# ask the user here; with the bus filter the line reads its filtered bus.
 n = 10
 line = "systemctl --user --failed"
 p1 = "X(bus)"
-pa = "K(bus)"
-pb = "K(bus)"
+pa = "U(bus)"
+pb = "U(bus)"
 pe = "R"
 exits = ["bus"]
 

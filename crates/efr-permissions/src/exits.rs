@@ -35,7 +35,7 @@ mod view;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{ExitKind, ExitSource, Grant, Needs};
+use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
 pub(crate) use self::cover::set_copies;
 pub use self::critical::critical_deletes;
@@ -666,6 +666,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 need.approver = need.approver.max(outside_approver(input, &envelope));
             }
             ExitKind::Host => need.package_fetch = fetch,
+            ExitKind::Bus if need.grants.contains(&WHOLE_SESSION_BUS) => {
+                whole_session_bus(need);
+            }
             _ => {}
         }
     }
@@ -706,6 +709,27 @@ pub fn views(input: &ExitInput<'_>) -> Vec<Grant> {
     let mut grants = view::grants(&segments, input.support);
     grants.extend(view::bus_grants(&segments, input.support));
     grants
+}
+
+/// The grant of the whole session bus, which a `bus` exit of a session bus program or
+/// of `needs.bus = "session"` asks for.
+const WHOLE_SESSION_BUS: Grant = Grant::Bus { bus: BusKind::Session };
+
+/// The note of a `bus` exit for the whole session bus.
+pub(crate) const WHOLE_SESSION_BUS_NOTE: &str =
+    "the whole session bus can start programs outside the sandbox";
+
+/// A `bus` exit for the whole session bus is the user's own question, never the
+/// reviewer's (v0.0.4, DV18): the user manager on that bus starts any program outside
+/// the sandbox (`StartTransientUnit`), and an unlocked keyring there (the Secret
+/// Service) hands out every secret with no prompt. efr does not look for a keyring
+/// first, because one that starts on demand has no owner yet. The system bus keeps its
+/// approver.
+fn whole_session_bus(need: &mut ExitNeed) {
+    need.approver = Approver::User;
+    if !need.notes.iter().any(|note| note == WHOLE_SESSION_BUS_NOTE) {
+        need.notes.push(WHOLE_SESSION_BUS_NOTE.to_owned());
+    }
 }
 
 /// Who approves an `outside` exit of `input` (spec 9.1): the user when a program word of

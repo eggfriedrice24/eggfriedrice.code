@@ -2,11 +2,5 @@
   "n": 10,
   "prompt": "did any of my user services fail?",
   "line": "systemctl --user --failed",
-  "reviewer": {
-    "verdict": "allow",
-    "risk": "low",
-    "user_authorization": "high",
-    "category": "system read",
-    "rationale": "The user asked about their user services; the line only lists the failed ones."
-  }
+  "reviewer": null
 }

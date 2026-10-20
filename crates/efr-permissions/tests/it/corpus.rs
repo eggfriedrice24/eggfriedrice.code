@@ -646,7 +646,8 @@ fn routine_lines_stay_routine_in_phase_e() {
         if let Some(pe) = &line.pe {
             assert_ne!(pe, pd2(line), "line {}: a `pe` that equals `pd2` says nothing", line.n);
             assert_eq!(pe, "R", "line {} {:?}", line.n, line.line);
-            assert_eq!(pd2(line), "K(bus)", "line {} {:?}", line.n, line.line);
+            // NOTE: a `bus` exit of the whole session bus is the user's (DV18).
+            assert!(matches!(pd2(line), "K(bus)" | "U(bus)"), "line {} {:?}", line.n, line.line);
         }
     }
 }

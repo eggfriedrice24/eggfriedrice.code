@@ -1019,25 +1019,115 @@ fn exits_dropbox_is_synced_write() {
 }
 
 #[rstest]
-#[case::failed("systemctl --failed --no-pager", BusKind::System)]
-#[case::status("systemctl status nginx", BusKind::System)]
-#[case::show_property("systemctl show -p ActiveState nginx", BusKind::System)]
-#[case::user_failed("systemctl --user --failed", BusKind::Session)]
-#[case::user_restart("systemctl --user restart x", BusKind::Session)]
-#[case::hostnamectl("hostnamectl", BusKind::System)]
-#[case::sessions("loginctl list-sessions", BusKind::System)]
-#[case::timedatectl("timedatectl", BusKind::System)]
-#[case::resolvectl("resolvectl status", BusKind::System)]
-#[case::coredump("coredumpctl info 1234", BusKind::System)]
-#[case::busctl_tree("busctl tree org.freedesktop.login1", BusKind::System)]
-#[case::gdbus("gdbus introspect --session -d org.x -o /", BusKind::Session)]
-#[case::notify("notify-send done", BusKind::Session)]
-fn exits_systemctl_failed_is_bus(#[case] line: &str, #[case] bus: BusKind) {
+#[case::failed("systemctl --failed --no-pager")]
+#[case::status("systemctl status nginx")]
+#[case::show_property("systemctl show -p ActiveState nginx")]
+#[case::hostnamectl("hostnamectl")]
+#[case::sessions("loginctl list-sessions")]
+#[case::timedatectl("timedatectl")]
+#[case::resolvectl("resolvectl status")]
+#[case::coredump("coredumpctl info 1234")]
+#[case::busctl_tree("busctl tree org.freedesktop.login1")]
+fn system_bus_exit_keeps_the_reviewer(#[case] line: &str) {
     let decision = decide(shell(line));
     assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
     let need = decision.exits().next().unwrap();
-    assert_eq!(need.grants, [Grant::Bus { bus }], "{line:?}");
+    assert_eq!(need.grants, [Grant::Bus { bus: BusKind::System }], "{line:?}");
     assert!(!need.user_only() && !need.runs_unsandboxed(), "{line:?}");
+    assert_eq!(need.notes, Vec::<String>::new(), "{line:?}");
+    // The model's own need of the whole system bus goes to the reviewer too.
+    let asked = Needs { bus: Some(BusKind::System), ..Needs::default() };
+    let decision = decide(shell("./x.sh").with_needs(asked));
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Bus { bus: BusKind::System }]);
+    assert_eq!(need.approver, Approver::Classifier);
+}
+
+/// DV18: the whole session bus can start programs outside the sandbox (the user
+/// manager's `StartTransientUnit`) and reach an unlocked keyring, so only the user may
+/// open it, with a note that says why. With and without the bus filter.
+#[rstest]
+#[case::user_failed("systemctl --user --failed")]
+#[case::user_restart("systemctl --user restart x")]
+#[case::environment("systemctl --user show-environment")]
+#[case::gdbus("gdbus introspect --session -d org.x -o /")]
+#[case::busctl("busctl --user list")]
+#[case::notify_wait("notify-send --wait done")]
+fn whole_session_bus_exit_is_user_only(#[case] line: &str) {
+    let with_proxy = bus_proxy_engine().decide(&in_auto(shell(line)));
+    let decisions = if line == "systemctl --user --failed" {
+        // A read form reads the filtered bus when the filter runs.
+        assert_eq!(kinds(&with_proxy), []);
+        vec![decide(shell(line))]
+    } else {
+        vec![decide(shell(line)), with_proxy]
+    };
+    for decision in decisions {
+        assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
+        let need = decision.exits().next().unwrap();
+        assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }], "{line:?}");
+        assert_eq!(need.approver, Approver::User, "{line:?}");
+        assert!(!need.runs_unsandboxed(), "{line:?}");
+        assert_eq!(
+            need.notes,
+            ["the whole session bus can start programs outside the sandbox"],
+            "{line:?}"
+        );
+    }
+    // The model's own need of the whole session bus, and a socket need of the bus.
+    let asked = Needs { bus: Some(BusKind::Session), ..Needs::default() };
+    for engine in [engine(), bus_proxy_engine()] {
+        let decision = engine.decide(&in_auto(shell("./x.sh").with_needs(asked.clone())));
+        let need = decision.exits().next().unwrap();
+        assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }]);
+        assert_eq!(need.approver, Approver::User);
+        assert_eq!(need.notes.len(), 1, "{:?}", need.notes);
+    }
+    let socket = Needs { sockets: vec!["/run/user/1000/bus".to_owned()], ..Needs::default() };
+    let decision = decide(shell("./x.sh").with_needs(socket));
+    let need = decision.exits().next().unwrap();
+    assert_eq!((need.kind, need.approver), (ExitKind::Bus, Approver::User));
+}
+
+#[rstest]
+#[case::plain("notify-send done")]
+#[case::options("notify-send -u critical -a efr -t 5000 'build done' 'all tests pass'")]
+#[case::print_id("notify-send -p hi")]
+#[case::transient("notify-send -e hi")]
+#[case::path("/usr/bin/notify-send done")]
+#[case::after_a_build("cargo build && notify-send done")]
+#[case::text_after_the_end("notify-send -- -w")]
+fn notify_send_is_a_read_form_with_the_filter(#[case] line: &str) {
+    let decision = bus_proxy_engine().decide(&in_auto(shell(line)));
+    assert_eq!(decision.effect(), Effect::Contain, "{line:?}");
+    assert_eq!(kinds(&decision), [], "{line:?}");
+    assert_eq!(views(&decision), [Grant::BusFilter { bus: BusKind::Session }], "{line:?}");
+}
+
+#[rstest]
+#[case::plain("notify-send done")]
+#[case::wait("notify-send --wait done")]
+#[case::wait_short("notify-send -w done")]
+#[case::action("notify-send -A ok=OK done")]
+#[case::action_long("notify-send --action=ok=OK done")]
+#[case::cluster("notify-send -ew done")]
+#[case::shell_word("notify-send \"$MSG\"")]
+fn notify_send_asks_you_without_the_filter(#[case] line: &str) {
+    // Without the filter every form is the whole session bus: only you may open it.
+    let decision = decide(shell(line));
+    assert_eq!(kinds(&decision), [ExitKind::Bus], "{line:?}");
+    let need = decision.exits().next().unwrap();
+    assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }], "{line:?}");
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+    // With the filter, a form that waits for a signal, or that only the shell can read,
+    // keeps the exit: the filter lets no signal back.
+    let with_proxy = bus_proxy_engine().decide(&in_auto(shell(line)));
+    if line == "notify-send done" {
+        assert_eq!(kinds(&with_proxy), [], "{line:?}");
+    } else {
+        assert_eq!(kinds(&with_proxy), [ExitKind::Bus], "{line:?}");
+        assert_eq!(views(&with_proxy), [], "{line:?}");
+    }
 }
 
 /// The machine of [`engine`] with the filtered bus proxy (phase E).
@@ -1121,7 +1211,8 @@ fn exits_bus_read_forms_of_both_buses_get_both_views() {
 #[case::nmcli_off("nmcli radio wifi off", ExitKind::Bus, BusKind::System)]
 #[case::nmcli_read("nmcli device status", ExitKind::Bus, BusKind::System)]
 #[case::iwctl("iwctl station wlan0 show", ExitKind::Bus, BusKind::System)]
-#[case::notify("notify-send done", ExitKind::Bus, BusKind::Session)]
+#[case::notify_wait("notify-send --wait done", ExitKind::Bus, BusKind::Session)]
+#[case::notify_action("notify-send -A ok=OK done", ExitKind::Bus, BusKind::Session)]
 #[case::resolvectl_flush("resolvectl flush-caches", ExitKind::Bus, BusKind::System)]
 #[case::resolvectl_status("resolvectl status", ExitKind::Bus, BusKind::System)]
 #[case::busctl("busctl list", ExitKind::Bus, BusKind::System)]
@@ -1198,7 +1289,9 @@ fn exits_bus_read_forms_stay_exits_without_the_bus_proxy(#[case] line: &str, #[c
     assert_eq!(views(&decision), [], "{line:?}");
     let need = decision.exits().next().unwrap();
     assert_eq!(need.grants, [Grant::Bus { bus }], "{line:?}");
-    assert_eq!(need.approver, Approver::Classifier, "{line:?}");
+    // DV18: the whole session bus is the user's own question.
+    let approver = if bus == BusKind::Session { Approver::User } else { Approver::Classifier };
+    assert_eq!(need.approver, approver, "{line:?}");
 }
 
 #[rstest]
