@@ -27,7 +27,9 @@ into the GitHub release notes, and it stops when the section is missing.
   can do what you can, also answer efr's questions. A phone turn, a turn that a job
   notice starts, an efrd that runs as root and a hidden shell that is no zsh never run
   in full mode, and a steer from the phone never goes into a running full turn. When you turn full mode off while a full turn runs, its next call does
-  not run and the turn stops. Full mode offers no protection against prompt injection
+  not run and the turn stops. When you turn full mode off, efrd also stops each
+  background job that a full call started (`stopped: full mode was turned off`), with
+  no job notice turn. Full mode offers no protection against prompt injection
   or a mistake in a script.
 - In `auto`, a reviewer model now decides most actions that leave the sandbox, so you
   see far fewer questions. It reads your messages and the facts that efr collects, and
@@ -135,7 +137,9 @@ into the GitHub release notes, and it stops when the section is missing.
   a normal command; in `cautious` and `manual` efr asks you before each job starts,
   and the job runs as an approved command does. A job runs at low CPU and disk
   priority, with no terminal. efr writes its output to `$SCRATCH/jobs/<id>.out`: the
-  first 1 MiB and the last 8 MiB. A job ends when its command ends, when you or the
+  first 1 MiB and the last 8 MiB. A job outside the sandbox keeps the variables that
+  place efr's own dirs (`EFR_HOME`, `EFR_RUNTIME_DIR` and the others), so an `efr` in it
+  reaches the efrd that runs it; so does a command outside the sandbox. A job ends when its command ends, when you or the
   model stop it, after its time limit (60 minutes unless the model asks for more, at
   most `jobs.max_minutes`), or when efrd stops. After a restart, efrd ends each job
   that still ran. Esc and the end of a turn do not stop a job. At most
@@ -169,8 +173,10 @@ into the GitHub release notes, and it stops when the section is missing.
   conversation. A `watch` pattern can also wake the model on a matching output line.
   The turn runs in the mode of your newest prompt, so outside `auto` its commands ask
   you as usual. Every end of a job starts such a turn, also a stop by you. Only the
-  notice of a job that the model stopped starts no turn, because the model read the
-  output when it stopped the job. A notice over the limits rides in your next prompt.
+  notice of a job that the model stopped, or that efrd stopped because full mode went
+  off, starts no turn: the model read the output when it stopped the job, and a turn
+  must not run in the mode that you turned off. A notice over the limits rides in your
+  next prompt.
 - While a job runs in the sandbox, efr checks the git settings and hooks in its
   projects every 5 minutes and before each sandboxed command there: also those of the
   submodules at any depth, of the git dir that a `.git` file names, and of the include
@@ -189,7 +195,11 @@ into the GitHub release notes, and it stops when the section is missing.
   when a job ends, such as `efr: job j3 ended (exit 0): <title>`, and when a job notice
   waits for your next prompt, such as `efr: job j3 waits for your next prompt: <title>;
   no wake turn (wake limit reached)`. The line also names a lost launcher and the
-  processes of the job that may still run.
+  processes of the job that may still run. After a job notice turn, the line names the
+  jobs and the first line of the answer: `efr: job notice turn finished (job j3):
+  <title>: <first line>; efr history shows all`. After a restart, efrd writes a line for
+  each job that it ended. A notice from before your terminal opened, such as one for an
+  earlier terminal of the same name before a reboot, does not show.
 - In the input row of a followed turn, Ctrl+X stops the newest running job of the
   conversation. It asks first: `stop job j3 (npm run dev)`, `y` yes, `n` no. With no
   running job it says `no job runs`. Esc still stops only the turn, never a job.
@@ -507,7 +517,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - A full call clears sudo's cached password before and after the call. When your
   sudoers shares the cache across terminals (`timestamp_type=global`), this also clears
   your own terminal's cache. A hidden shell without efr's zsh integration does not run
-  a full call.
+  a full call. A background job of full mode cannot gain rights through `sudo` or
+  another setuid program (`no_new_privs`), so it cannot use sudo's cached password; a
+  polkit rule with no authentication still works there.
+- A process that a background job outside the sandbox left behind can no longer
+  approve efr's questions or change its settings, also after it left the job's session
+  and lost its launcher: under the systemd unit, every process in efrd's own cgroup but
+  efrd gets only the `read` scope on efr's socket.
 - While a full turn or its job runs, efr does not load a change of `config.toml` that
   loosens permissions, and keeps it held after, also over a restart of efrd: `efr
   status` names what loosens, and your terminal hears it once. If you did not make the
