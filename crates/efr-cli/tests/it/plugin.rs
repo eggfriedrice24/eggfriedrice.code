@@ -1012,11 +1012,11 @@ fn notice(root: &Path, text: &str) -> PathBuf {
     file
 }
 
-/// Gives `file` a time an hour from now: the plugin of a shell that a test starts after
+/// Gives `file` a time in the year 2100: the plugin of a shell that a test starts after
 /// the write must take it as written after its own start, also when a second boundary
 /// passes between the two. Never a sleep.
 fn written_after_the_shell_started(file: &Path) {
-    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    let later = std::time::UNIX_EPOCH + std::time::Duration::from_secs(4_102_444_800);
     std::fs::File::options().write(true).open(file).unwrap().set_modified(later).unwrap();
 }
 
