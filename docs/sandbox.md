@@ -1173,9 +1173,14 @@ A job can start in every mode.
   has no terminal and its own session, and its stdin is `/dev/null`. It runs at nice
   `jobs.nice` (19) in the idle IO class, each file that it writes can grow to at most
   4 GiB, and the kernel's out-of-memory killer takes it before your programs. A job in
-  the exit child cannot gain rights through a setuid program (`no_new_privs`).
+  the exit child cannot gain rights through a setuid program (`no_new_privs`), also a
+  job of full mode: `sudo` gets no rights there.
 - The job gets the environment of the hidden shell, which the shell writes to a file
-  at each prompt where it changed, and starts in the hidden shell's directory.
+  at each prompt where it changed, and starts in the hidden shell's directory. A job in
+  the exit child also gets the variables that place efr's own dirs (`EFR_HOME`,
+  `EFR_RUNTIME_DIR`, `EFR_DATA_DIR`, `EFR_CONFIG_DIR` and `EFR_STATE_DIR`) that efrd
+  has, so an `efr` in it reaches the efrd that runs it. A contained job never gets
+  them.
 - A contained job writes where the sandbox of its turn writes. Its tool caches are
   layers of its own on the disk, so a job never makes a foreground call wait, and efr
   never applies the deletes of a job in your real caches. The private `/tmp` is the
@@ -1201,8 +1206,9 @@ A job can start in every mode.
 
 A job ends when its command ends, when the model stops it (`job_stop`), when you stop
 it (`efr jobs stop <id>`, or Ctrl+X in the input row of a followed turn), at its time
-limit, when the surface guard stops it, or when efrd stops. Esc and the end of a turn
-never stop a job. The time limit counts the time on the clock, so a suspend counts
+limit, when the surface guard stops it, or when efrd stops. A job that a full call
+started also stops when a config reload turns full mode off (`stopped: full mode was
+turned off`). Esc and the end of a turn never stop a job. The time limit counts the time on the clock, so a suspend counts
 too.
 
 A stop sends SIGTERM to the job's processes, then SIGKILL after a short wait. Then efrd
@@ -1210,7 +1216,8 @@ ends every process that still has the job's session (the sweep). The end names t
 processes that may still run, and a launcher that efr lost. When efrd stops, it stops
 every job. When efrd dies, each launcher sees that and stops its job. At the next
 start, efrd records each job that the last efrd left as `stopped because efrd
-restarted`, checks its git surface, and ends what is left of it.
+restarted`, checks its git surface, and ends what is left of it. The terminal of the
+job's conversation gets that end line at its next prompt.
 
 ### Notices and wake turns
 
@@ -1236,9 +1243,11 @@ format characters. A notice never enters a running turn. It waits until the turn
   reviewer's refusals count on from one wake turn to the next, until a turn of yours.
 - A notice of a job that ended at a restart of efrd never starts a turn. It rides in
   your next prompt.
-- A job that you stop also starts a wake turn. Only the notice of a job that the model
-  stopped never starts a turn, because the model read the output when it stopped the
-  job. That notice rides in your next prompt.
+- A job that you stop also starts a wake turn. Only two notices never start a turn.
+  The notice of a job that the model stopped, because the model read the output when
+  it stopped the job. And the notice of a job that efrd stopped because full mode went
+  off, because a wake turn would run in the mode that you just turned off. Such a
+  notice rides in your next prompt.
 
 ### What you see
 
@@ -1247,7 +1256,12 @@ format characters. A notice never enters a running turn. It waits until the turn
   It shows each end of a job of the conversation, such as `job j3 stopped by you after
   92 minutes; 1.2 MB output`, a matched line (`job j3 matched: <line>`) and a notice
   that did not start a turn (`job j3: no wake turn (wake limit reached)`).
-- Between turns, your next prompt shows `efr: job j3 ended (exit 0): <title>`.
+- Between turns, your next prompt shows `efr: job j3 ended (exit 0): <title>`. After a
+  wake turn, it shows the jobs and the first line of the model's answer: `efr: job
+  notice turn finished (job j3): <title>: The tests pass.; efr history shows all`.
+- A notice file that is older than your shell does not show: it belongs to an earlier
+  terminal with the same name, such as one before a reboot. The rule works per file, so
+  one new line in it also shows the older lines of that file.
 - `efr jobs` lists the jobs of this terminal's conversation; `--all` lists them all.
   `efr jobs stop j3` stops one and shows its last lines.
 - `efr history` shows each start and end, and marks a wake turn; `--verbose` adds the

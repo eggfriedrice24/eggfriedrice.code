@@ -606,7 +606,13 @@ spec; `docs/sandbox.md` for the user's view):
   above `sandbox.cache_max_gib` (`sandbox/gc.rs`), never those of a running call.
 - Socket peers (`sandbox/peers.rs`): a process that descends from a hidden zsh, or
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
-  only (`methods.rs`, `granted(surface, peer)`).
+  only (`methods.rs`, `granted(surface, peer)`). Under the systemd user unit, a peer
+  whose cgroup is efrd's own and that is not efrd gets `read` too (DV49): an orphan of
+  an exit child job that called `setsid` and lost its launcher leaves the job's session
+  and tree, but not the unit's cgroup. `Deps::from_process` reads efrd's cgroup once
+  (`peers::unit_cgroup`, the `0::` line of `/proc/self/cgroup` when it ends in
+  `/efrd.service`); a hand-started efrd and a test daemon have none, and the rule is
+  off. The rule only reduces a peer that the walk cleared.
 - The network proxy (phase D2, `sandbox/proxy.rs`, the tokio tasks of `efr-proxy`).
   The engine's egress is the proxy only with `network.mode = "proxy"` and a probe
   whose proxy self-test passed (`Probed::proxy`); else a network need stays a review
@@ -726,6 +732,11 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   `.efr-jobs`, below the descriptor of `$SCRATCH`) before every contained call, so no
   command can make it first; an entry of that name without the marker goes aside to
   `jobs.moved-<n>`.
+- The env file of a job in the exit child gets efrd's own root variables that are set
+  (`jobs/launch.rs`, `root_vars` and `with_roots`: `EFR_HOME`, `EFR_RUNTIME_DIR`,
+  `EFR_DATA_DIR`, `EFR_CONFIG_DIR`, `EFR_STATE_DIR`, from `Deps::shell_env`), in place of
+  any that the hidden shell held, so an `efr` in the job reaches this efrd (DV47). A
+  contained job's env file stays as it is.
 - The spawn (`jobs/launch.rs`): `efr-sbx run --job` with efrd's own `PATH`, `HOME` and
   `XDG_RUNTIME_DIR`, the job's start dir as its working directory, the lifeline pipe as
   stdin (its write end only in efrd, close-on-exec), the output pipe as stdout and
@@ -747,8 +758,14 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   start time that the scan found). Then it reads the rest of the output and
   `result.json`, records `job_ended` (with the processes that may still run and whether
   the launcher was lost), hands the conversation's actor the notice, and removes the
-  job's dirs. A job that the model stopped gets a notice that wakes no turn; every
-  other end, also a stop by the user, wakes the conversation.
+  job's dirs. A job that the model stopped, or that efrd stopped because full mode went
+  off (`full_off`), gets a notice that wakes no turn; every other end, also a stop by
+  the user, wakes the conversation.
+- `JobTable::stop_full` asks every running job that a full call started to stop with
+  `full_off`, and only those, with no wait. The reload calls it after `install`
+  (`reload::follow_full_gate`), when the installed settings refuse full mode, and marks
+  full mode off in `FullTurns` first: a full job that enters the table after the look
+  sees the mark in `JobTable::begin` and stops at once.
   A session that a process still has stays model-side; the table looks again every 10 s.
 - Socket peers: `methods::model_side_roots` adds each running launcher and each such
   session to the hidden shells, so a process of a job holds `read` only, also after its
@@ -761,9 +778,12 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   launcher runs with that start time, or it is gone and the boot time with its start
   says the same boot (`sweep::sweep_left`); then only processes that started at or after
   the launcher count. A session that a process outlived stays model-side. Then efrd
-  reads a `result.json` that the launcher left, and removes every job dir. Then each
-  actor gets the notices of the last day that no turn took, which never start a turn of
-  their own.
+  reads a `result.json` that the launcher left, and removes every job dir. `recover`
+  returns each `job_ended` that it recorded, and `run.rs` writes its notice line to the
+  terminal of its conversation (`jobs::restart_notices`, as `reconcile` writes the line
+  of a prompt that did not run): the notices task starts later and never sees those
+  events. Then each actor gets the notices of the last day that no turn took, which
+  never start a turn of their own.
 - The job's files (`jobs.rs`, `efr-snapshot`'s `Snapshots::after_job`): at the job's
   end, before the job leaves the table, the snapshot of its roots right after its
   start is compared with the roots now, and what the job changed joins the turn that
@@ -1038,6 +1058,13 @@ whose event no subscription from the terminal was handed goes back to the notice
 and is written; any other is dropped. A terminal whose subscription received a turn's
 last event never hears about that turn.
 
+The end of a turn that job notices started has no prompt to name. Its line names the
+jobs and adds the first line of the turn's last answer, cut to the line's limit, then
+`; efr history shows all`: `efr: job notice turn finished (job j3): <title>: The tests
+pass.; efr history shows all`, or `efr: job notice turn failed (job j3): <title>:
+<error>` (`notices::Wake`, read from the turn's row and its events through the end).
+Control and format characters go, as in every notice.
+
 ### Full mode
 
 Full mode runs the model's commands as the user, with no sandbox and no questions,
@@ -1065,6 +1092,10 @@ while efr still reads each line for a small set of floors. efrd's part:
   sudo's cache before and after its line (`shell.sudo_cache` above).
 - While a full turn or a job that a full call started runs, a reload that loosens
   permissions is held (the config hold, under Live reload).
+- A reload whose installed settings refuse full mode (the gate off, undo or the
+  snapshots off) stops every job that a full call started (`JobStopBy::FullOff`, under
+  Background jobs). Such a stop starts no wake turn; its notice rides in the next
+  prompt.
 
 ### Features
 

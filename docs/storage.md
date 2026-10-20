@@ -50,7 +50,10 @@ is below `EFR_HOME` when that is set (`$EFR_HOME/config`, `data`, `state`, `runt
 else the XDG directory above; the runtime root falls back to `/run/user/<uid>/efr` when
 `XDG_RUNTIME_DIR` is unset and `/run/user/<uid>` is the user's own with mode 0700.
 `efr paths` shows each root and where it came from. The zsh plugin follows
-`EFR_RUNTIME_DIR` too, so a shell pointed at a `just run` daemon shows its notices.
+`EFR_RUNTIME_DIR` too, so a shell pointed at a `just run` daemon shows its notices. It drops
+a notice file whose time is before the shell loaded the plugin, unseen: such a file is for
+an earlier terminal with the same name, such as one before a reboot. The time of the file is
+the time of its last line, so one new line shows the older lines of the file too.
 `config.toml` may be a symbolic link (into a dotfiles repository); the daemon watches
 the directory of its target too, and `efr config set` writes the target and keeps the
 link.

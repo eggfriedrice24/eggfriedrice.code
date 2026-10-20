@@ -580,9 +580,11 @@ full turn left behind can turn the gate on again after you turned it off.
 - When you turn the gate off, or turn undo or the snapshots off, while a full turn
   runs, the next call of that turn does not run, and the turn stops with `full mode
   was turned off while this turn ran; send the prompt again`. A full prompt that waits
-  in the queue fails when it starts. A background job that a full call started does
-  not stop: it runs on until it ends or reaches its time limit. Stop it with `efr jobs
-  stop`.
+  in the queue fails when it starts. efrd also stops each background job that a full
+  call started, as `efr jobs stop` does, right after it loads the new settings. A job
+  of another mode runs on. `efr jobs` and the notice line say `stopped: full mode was
+  turned off`. Such a stop starts no job notice turn: the notice goes to the model
+  with your next prompt.
 
 ### What still holds
 
@@ -685,9 +687,11 @@ call. Limits:
   full call starts get root with no question.
 - One yes runs every command of the line: `sudo a; sudo rm -rf /etc` is one question.
 - The forget covers the calls that run in the hidden shell. A background job that a
-  full call starts does not run there, so efr does not forget sudo's cache before it.
-  When your sudoers shares the cache, a script in such a job can use a password that
-  you typed in your own terminal.
+  full call starts does not run there, and it needs no forget: efr starts it with
+  `no_new_privs`, so `sudo` and every other setuid program get no rights in it. A
+  script in such a job cannot use sudo's cached password, also when your sudoers
+  shares the cache. `no_new_privs` does not stop a polkit rule with no authentication
+  (the line above): `run0` and `systemd-run --uid=0` ask a service outside the job.
 
 ### The config hold
 

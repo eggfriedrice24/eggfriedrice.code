@@ -279,8 +279,10 @@ turns.
   runs with the origin, the settings and the directory of the job's turn, and its
   `job_notice` events say `woke`. It starts only when the actor ran the job's turn and
   that turn was no wake turn (a job of a wake turn never wakes, so wake turns never
-  chain), the model did not stop the job (it read the output in the tool result; that
-  notice records no `job_notice_held`), and both `jobs.max_wakes_per_hour` (`ConversationConfig::max_wakes_per_hour`, counted over
+  chain), the model did not stop the job (it read the output in the tool result) and
+  efrd did not stop it because full mode went off (`full_off`; such a notice and the
+  one of a job that the model stopped record no `job_notice_held`
+  and ride in the next turn), and both `jobs.max_wakes_per_hour` (`ConversationConfig::max_wakes_per_hour`, counted over
   the stored starts of the last hour, so a restart keeps it) and the daemon-wide limit
   (`Toolbox::wake_allowed`) allow one more. The wake turn runs in the mode of the
   newest turn that a prompt started, or of the job's turn when no prompt came since,

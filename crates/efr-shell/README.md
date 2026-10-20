@@ -322,7 +322,10 @@ The live tail (`live_tail.rs`), the `tail` of each `OutputUpdate` while a comman
 Environment hygiene: the shell inherits `ShellConfig::base_env` (the user's
 environment, passed in by the daemon; this crate reads no environment) without
 `efr_stdx::process::SCRUBBED_ENV` (the daemon's systemd unit), the `EFR_*` and
-`_EFR_*` variables, the session variables of terminals and multiplexers
+`_EFR_*` variables but the five that place efr's roots (`EFR_HOME`, `EFR_RUNTIME_DIR`,
+`EFR_DATA_DIR`, `EFR_CONFIG_DIR`, `EFR_STATE_DIR`: with them, an `efr` that a command
+outside the sandbox runs reaches the daemon of the shell, never the one of the default
+runtime root; the sandbox drops every `EFR_` name), the session variables of terminals and multiplexers
 (`TERM_PROGRAM`, `TERMINFO`, `TMUX`, `GHOSTTY_*`, `KITTY_*` and the like), `COLUMNS`,
 `LINES`, `SHLVL`, `OLDPWD` and `_`. It sets `TERM` and `COLORTERM` (default
 `xterm-256color` and `truecolor`), `PWD`, and `EFR_HIDDEN_SHELL=1`, which nothing in

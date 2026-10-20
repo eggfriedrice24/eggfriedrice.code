@@ -437,7 +437,8 @@ Replies:
   `presence_changed`, while it follows any turn of the conversation, each as a muted
   line shown whole: `job j3 stopped by you after 92 minutes; 1.2 MB output`, `job j3
   ended with exit 3 after 1 minute; 2.0 KB output`, `job j3 timed out after 60
-  minutes; 4.0 KB output`, `job j3 stopped because efrd restarted`, `job j3 stopped: it
+  minutes; 4.0 KB output`, `job j3 stopped because efrd restarted`, `job j3 stopped: full
+  mode was turned off` (`efr jobs` lists it as `stopped (full mode off)`), `job j3 stopped: it
   changed git settings (quarantined)`, with `; its launcher was lost, and its processes
   may still run`, `; 2 processes of the job may still run`, `; efr could not write
   all of its output to the file` and the refusals of efr's proxy (`; network: blocked
