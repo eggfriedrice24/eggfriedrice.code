@@ -11,8 +11,8 @@
 //!
 //! A job ends when its command ends, at its time limit (on efrd's clock), when the
 //! model (`job_stop`), the user (`jobs.stop`) or efrd's stop ends it, and a job that a
-//! full call started when a reload turns full mode off ([`JobTable::stop_full`]). Every stop by efrd
-//! sends SIGCONT and SIGTERM to the launcher through its pidfd, SIGKILL after
+//! full call started when a reload turns full mode off ([`JobTable::stop_full`]). Every
+//! stop by efrd sends SIGCONT and SIGTERM to the launcher through its pidfd, SIGKILL after
 //! [`STOP_GRACE`], and then the sweep: SIGKILL to every process of the job's session
 //! (`jobs/sweep.rs`). The table records `job_ended` with the tail, the processes that
 //! may still run and whether the launcher was lost, hands the actor the notice (not
