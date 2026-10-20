@@ -1128,8 +1128,8 @@ conventions that `efr_stdx::env::Var` does not name.
   `From<DaemonError> for ErrorFrame` in `error.rs` is the only mapping of daemon errors
   to wire codes.
 - A retried write never runs twice: receipts answer it.
-- The last command of a prompt reaches the turn in memory only; it never enters an
-  event, a receipt or a log field.
+- The last command and the recent commands of a prompt reach the turn in memory only;
+  they never enter an event, a receipt or a log field.
 - An API key reaches the credential file only; it never enters an event, a receipt,
   a log field or the text of an error.
 - Shutdown releases the lock last, after the database is closed.
