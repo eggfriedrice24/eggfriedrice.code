@@ -30,6 +30,7 @@ pub(crate) mod context_report;
 pub(crate) mod groups;
 pub(crate) mod jobs;
 pub(crate) mod patch;
+pub(crate) mod route;
 pub(crate) mod sandbox;
 
 /// Keys of a tool's input that best describe a call in one line, in order of

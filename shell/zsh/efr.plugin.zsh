@@ -1,9 +1,15 @@
 # efr.plugin.zsh - talk to the eggfriedrice.code daemon from an interactive zsh.
 #
-#   , <prompt>     send a prompt with this shell's context (queues behind a running turn)
+#   , <prompt>     send a prompt with this shell's context (queues behind a running turn).
+#                  It goes to this terminal's conversation of the scope where you send
+#                  it: the registered project that holds $PWD (also below its root), or
+#                  the one conversation for every place outside projects. The
+#                  conversation changes when you send a prompt, not when you cd, and a
+#                  dim line before the reply says when it changes
 #   ,              a line of just `,` toggles sticky agent mode, as Ctrl+Space does
-#   ,new [prompt]  start a new conversation for this terminal; without a prompt,
-#                  the next `,` line starts it
+#   ,new [prompt]  start a new conversation for the scope where you are; this
+#                  terminal's other scopes keep theirs. Without a prompt, the next `,`
+#                  line starts it
 #   ,! <text>      steer the running turn instead of queueing (from another terminal;
 #                  the input row below steers from this one)
 #   ,compact [focus]
@@ -556,7 +562,7 @@ function ,new {
   _efr_available || { _efr_missing; return 127 }
   if [[ -z ${text//[[:space:]]/} ]]; then
     _efr_new_pending=1
-    print -u2 -- "efr: the next , line starts a new conversation"
+    print -u2 -- "efr: the next , line starts a new conversation for its scope"
     return 0
   fi
   [[ -n $_efr_last_command ]] && last_status=$_efr_last_command_status

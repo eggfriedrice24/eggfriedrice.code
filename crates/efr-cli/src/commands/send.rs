@@ -9,6 +9,7 @@
 //! wins over its variable. The recent commands have no argument.
 
 mod recent;
+mod shell;
 
 use efr_protocol::{
     ConversationId, ConversationsList, ConversationsListResult, EffectiveSettings, Method, Origin,
@@ -197,10 +198,12 @@ async fn send_and_follow(
     if reader.is_some() {
         view = view.with_input();
     }
-    // NOTE: the note comes from the prompt.send result, so it is the reply's first line
+    // NOTE: the line comes from the prompt.send result, so it is the reply's first line
     // even before the first event arrives; the follow loop writes it in its first frame.
-    if let Some(note) = result.settings.as_ref().and_then(overrides) {
-        let step = view.note(&note, size);
+    // It names where the prompt went (a switch, else the scope) with the settings note
+    // after ` · `, so a turn starts with one line (DV4, DV52).
+    if let Some(line) = first_line(ctx, &result) {
+        let step = view.note(&line, size);
         out.err(&step.err);
         out.out(&step.out)?;
     }
@@ -234,6 +237,21 @@ pub(crate) async fn send_prompt(
         settings: prompt.settings,
     });
     Ok(client.call(method).await?)
+}
+
+/// The first line of a reply: where the prompt went, with the settings note; `None`
+/// for a prompt from no terminal whose settings came from the config.
+fn first_line(ctx: &Context, result: &PromptSendResult) -> Option<String> {
+    let note = result.settings.as_ref().and_then(overrides);
+    match &result.route {
+        Some(route) => Some(crate::format::route::line(
+            route,
+            note.as_deref(),
+            ctx.clock.now(),
+            ctx.home.as_deref(),
+        )),
+        None => note,
+    }
 }
 
 /// The values of `settings` that the prompt set, such as `mode auto, model gpt-5.4`;
@@ -281,7 +299,10 @@ async fn steer(
     }
 }
 
-/// The conversation that is active in `tty`.
+/// The current conversation of `tty`: the one of its last prompt, `,new` or resume.
+/// efrd answers the `tty` filter with that terminal's conversations, the current one
+/// first, in one page; an older efrd ignores it and lists every conversation, which
+/// the scan of the pages reads as before.
 pub(crate) async fn active_conversation(
     client: &Client,
     tty: &str,
@@ -291,6 +312,7 @@ pub(crate) async fn active_conversation(
         let method = Method::ConversationsList(ConversationsList {
             cursor: cursor.take(),
             limit: Some(PAGE),
+            tty: Some(tty.to_owned()),
         });
         let page: ConversationsListResult = client.call(method).await?;
         if let Some(found) =
@@ -321,6 +343,9 @@ fn shell_context(
         None => {
             let mut context = ShellContext::new(ctx.cwd.clone().unwrap_or_default());
             context.tty.clone_from(&ctx.tty);
+            // NOTE: typed by hand in a terminal, the shell is efr's parent when it runs
+            // on the same terminal (VR1-9); efrd then lets the slot go once it ends.
+            context.shell_pid = ctx.tty.as_deref().and_then(shell::parent_on);
             context
         }
     };

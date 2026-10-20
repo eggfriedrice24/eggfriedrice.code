@@ -9,6 +9,9 @@
 //! tokens, kept 3 turns, summary 3.2k`. `--verbose` adds what the user asked the
 //! summary to keep and the summary itself.
 //!
+//! A conversation that came to another terminal shows one muted line at its
+//! `terminal_attached` event, such as `picked up in /dev/pts/7`.
+//!
 //! Background jobs show as the view shows them: a job's start, its end, a line that
 //! matched its `watch` pattern and a notice that did not start a turn. A turn that a
 //! job notice started shows `🤖 (job notice, not your input)` where a prompt would
@@ -58,7 +61,11 @@ pub(crate) async fn run(
             None => return out.out("no conversations yet\n"),
         },
         (None, false) => {
-            let method = Method::ConversationsList(ConversationsList { cursor, limit: args.limit });
+            let method = Method::ConversationsList(ConversationsList {
+                cursor,
+                limit: args.limit,
+                tty: None,
+            });
             let list: ConversationsListResult = client.call(method).await?;
             return out.out(&format::conversations(&list, ctx.clock.now()));
         }
@@ -117,7 +124,8 @@ pub(crate) async fn pick(
             Err(error) => return Err(error),
         }
     }
-    let method = Method::ConversationsList(ConversationsList { cursor: None, limit: Some(1) });
+    let method =
+        Method::ConversationsList(ConversationsList { cursor: None, limit: Some(1), tty: None });
     let list: ConversationsListResult = client.call(method).await?;
     Ok(list.conversations.first().map(|summary| (summary.id, Picked::Newest)))
 }
@@ -149,6 +157,7 @@ pub(crate) async fn resolve(client: &Client, query: &str) -> Result<Conversation
         let method = Method::ConversationsList(ConversationsList {
             cursor: cursor.take(),
             limit: Some(PAGE),
+            tty: None,
         });
         let page: ConversationsListResult = client.call(method).await?;
         matches.extend(
@@ -363,6 +372,11 @@ impl<'a> Transcript<'a> {
                 self.note(&line);
             }
             Event::JobStarted { job, .. } => self.note(&jobs::started(job)),
+            // NOTE: the conversation came to another terminal: a new split picked it up,
+            // or the user resumed it there.
+            Event::TerminalAttached { tty, how, .. } => {
+                self.note(&format::route::attached(tty, *how));
+            }
             Event::JobNotice { turn_id, woke, job_id, text, .. } => {
                 // Each notice of a turn that notices started says so; the mark shows once.
                 if *woke && self.woken.insert(*turn_id) {

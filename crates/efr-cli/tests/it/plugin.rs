@@ -2430,3 +2430,169 @@ fn e2e_a_config_that_makes_full_the_default_shows_the_tag() {
         ]
     );
 }
+
+/// Drives several interactive `zsh -f -i` terminals on pseudo-terminals from zsh's own
+/// zpty module, one step of `$EFR_STEPS` per line: `start <t>` opens the terminal `t`,
+/// `type <t> <line>` types the line and Enter and waits until the next prompt is drawn
+/// (the line ran), and `close <t>` ends the terminal and waits until its zsh is gone or
+/// a zombie (VR1-11; efrd counts a zombie as gone). What each terminal showed goes to
+/// `$HOME/screen.<t>`. A terminal that a step must close first writes its pid to
+/// `$HOME/pid.<t>`.
+const TERMINALS: &str = r#"
+zmodload zsh/zpty || exit 90
+zmodload zsh/datetime || exit 90
+ready=$'*\e\\[\\?2004h*'
+for step in "${(@f)EFR_STEPS}"; do
+  op=${step%% *}; rest=${step#* }; t=${rest%% *}; line=${rest#* }
+  case $op in
+    (start)
+      zpty $t "TERM=xterm zsh -f -i" || exit 91
+      zpty -r $t screen $ready || exit 92
+      print -rn -- "$screen" >> $HOME/screen.$t ;;
+    (type)
+      zpty -w -n $t "$line"$'\r'
+      zpty -r $t screen $ready || exit 93
+      print -rn -- "$screen" >> $HOME/screen.$t ;;
+    (close)
+      pid=$(<$HOME/pid.$t)
+      zpty -d $t
+      deadline=$(( EPOCHREALTIME + 30 ))
+      while [[ -e /proc/$pid && "$(</proc/$pid/stat)" != *') Z '* ]]; do
+        (( EPOCHREALTIME < deadline )) || exit 94
+        sleep 0.05
+      done ;;
+  esac
+done
+"#;
+
+/// A home with the built `efr` in its `bin`, `~/p/app` registered as the project `app`
+/// of a `TestDaemon` with the real `/proc`, and efr's settings with no input row.
+struct Routed {
+    home: Home,
+    daemon: TestDaemon,
+    server: ResponsesServer,
+    app: PathBuf,
+}
+
+impl Routed {
+    async fn start() -> Routed {
+        let server = ResponsesServer::start().await;
+        let daemon = TestDaemon::builder()
+            .responses(&server)
+            .config(|config| config.jobs.max_wakes_per_hour = 0)
+            .start()
+            .await
+            .unwrap();
+        let home = Home::new();
+        let efr = home.path().join("bin/efr");
+        std::fs::remove_file(&efr).unwrap();
+        std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_efr"), &efr).unwrap();
+        let app = home.path().join("p/app");
+        std::fs::create_dir_all(&app).unwrap();
+        let config = daemon.dirs().dirs().config();
+        std::fs::create_dir_all(config).unwrap();
+        std::fs::write(
+            config.join("projects.toml"),
+            format!(
+                "[[project]]\nid = \"0192f0c1-7a00-7000-8000-0000000a4401\"\nroot = \"{}\"\n\
+                 name = \"app\"\n",
+                app.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(config.join("config.toml"), "[render]\nturn_input = false\n").unwrap();
+        Routed { home, daemon, server, app }
+    }
+
+    /// Runs the `steps` of [`TERMINALS`] off the runtime's workers, which must keep
+    /// serving the daemon.
+    async fn drive(&self, steps: &[String]) {
+        let dirs = self.daemon.dirs().dirs();
+        let mut zsh = self.home.zsh();
+        zsh.env("EFR_CONFIG_DIR", dirs.config())
+            .env("EFR_DATA_DIR", dirs.data())
+            .env("EFR_STATE_DIR", dirs.state())
+            .env("EFR_RUNTIME_DIR", dirs.runtime())
+            .env("EFR_STEPS", steps.join("\n"))
+            .args(["-f", "-c", TERMINALS]);
+        let output = tokio::task::spawn_blocking(move || zsh.output().unwrap()).await.unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "the driver failed: {stderr}");
+    }
+
+    /// The steps that open the terminal `t` with the plugin, its pid written down.
+    fn open(&self, t: &str) -> Vec<String> {
+        vec![
+            format!("start {t}"),
+            format!("type {t} source {}", plugin().display()),
+            format!("type {t} print $$ > ~/pid.{t}"),
+        ]
+    }
+
+    /// What the terminal `t` showed.
+    fn screen(&self, t: &str) -> String {
+        std::fs::read_to_string(self.home.path().join(format!("screen.{t}"))).unwrap()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_a_new_terminal_picks_up_through_the_plugin() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let routed = Routed::start().await;
+    for answer in ["one", "two", "three"] {
+        routed.server.push(ResponsesAnswer::text(answer));
+    }
+    let app = routed.app.display().to_string();
+    let mut steps = Vec::new();
+    for t in ["t1", "t2"] {
+        steps.extend(routed.open(t));
+        steps.push(format!("type {t} cd {app}"));
+    }
+    steps.push("type t1 , first in app".to_owned());
+    steps.push("type t2 , second in app".to_owned());
+    // The second split closes: its conversation is the project's newest, and no open
+    // terminal holds it.
+    steps.push("close t2".to_owned());
+    steps.extend(routed.open("t3"));
+    steps.push(format!("type t3 cd {app}"));
+    steps.push("type t3 , third in app".to_owned());
+
+    routed.drive(&steps).await;
+
+    let third = routed.screen("t3");
+    assert!(third.contains("picked up \"second in app\" in app"), "{third}");
+    assert!(!routed.screen("t2").contains("picked up"), "t1's shell held the first one");
+    let requests = routed.server.received();
+    let last = requests.last().unwrap().body["input"].to_string();
+    assert!(last.contains("second in app") && !last.contains("first in app"), "{last}");
+    routed.daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_cd_home_and_back_switches_and_says_so() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let routed = Routed::start().await;
+    for answer in ["one", "two", "three"] {
+        routed.server.push(ResponsesAnswer::text(answer));
+    }
+    let app = routed.app.display().to_string();
+    let mut steps = routed.open("t1");
+    steps.push(format!("type t1 cd {app}"));
+    steps.push("type t1 , fix the tests".to_owned());
+    steps.push("type t1 cd ~".to_owned());
+    steps.push("type t1 , what is in my home".to_owned());
+    steps.push(format!("type t1 cd {app}"));
+    steps.push("type t1 , and now".to_owned());
+
+    routed.drive(&steps).await;
+
+    let screen = routed.screen("t1");
+    let new = screen.find("new conversation outside projects (from app)").expect(&screen);
+    let back = screen.find("back to \"fix the tests\" in app").expect(&screen);
+    assert!(new < back, "{screen}");
+    routed.daemon.stop().await.unwrap();
+}

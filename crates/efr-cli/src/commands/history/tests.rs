@@ -846,6 +846,17 @@ async fn verbose_without_a_conversation(
     tty: Option<&str>,
     listed: Vec<ConversationSummary>,
 ) -> (Exit, String, Option<efr_protocol::ConversationId>) {
+    verbose_from(tty, listed, false).await
+}
+
+/// As [`verbose_without_a_conversation`], from a daemon that answers the `tty` filter
+/// of `conversations.list` when `filters`, as a daemon with routing by scope does: only
+/// that terminal's rows, in the order of `listed`.
+async fn verbose_from(
+    tty: Option<&str>,
+    listed: Vec<ConversationSummary>,
+    filters: bool,
+) -> (Exit, String, Option<efr_protocol::ConversationId>) {
     let env = TestEnv::new();
     let daemon = env.listen();
     let mut ctx = env.context();
@@ -860,6 +871,9 @@ async fn verbose_without_a_conversation(
             match method {
                 Method::ConversationsList(params) => {
                     let mut conversations = listed.clone();
+                    if filters && let Some(tty) = &params.tty {
+                        conversations.retain(|summary| summary.tty.as_ref() == Some(tty));
+                    }
                     if let Some(limit) = params.limit {
                         conversations.truncate(limit as usize);
                     }
@@ -924,6 +938,54 @@ async fn history_verbose_without_a_conversation_falls_back_to_the_newest() {
 
     let (exit, stdout, shown) = Box::pin(verbose_without_a_conversation(None, Vec::new())).await;
     assert_eq!((exit, stdout.as_str(), shown), (Exit::Success, "no conversations yet\n", None));
+}
+
+#[tokio::test]
+async fn pick_takes_the_current_slot_of_the_terminal() {
+    let other = "019a9b1c-3d00-7a10-8b20-0000000000a1";
+    let older_slot = "019a9b1c-3d00-7a10-8b20-0000000000a2";
+    let mut current = summary(CONVERSATION);
+    current.tty = Some("/dev/pts/3".to_owned());
+    let mut slot = summary(older_slot);
+    slot.tty = Some("/dev/pts/3".to_owned());
+    // The newest conversation of all is another terminal's; this terminal's current
+    // slot comes first in its own rows, though another slot was updated later.
+    let listed = vec![summary(other), current, slot];
+    let (exit, _, shown) = Box::pin(verbose_from(Some("/dev/pts/3"), listed, true)).await;
+    assert_eq!((exit, shown), (Exit::Success, Some(conversation())));
+}
+
+#[tokio::test]
+async fn pick_scans_rows_on_an_older_efrd() {
+    let mut mine = summary(CONVERSATION);
+    mine.tty = Some("/dev/pts/3".to_owned());
+    let listed = vec![summary("019a9b1c-3d00-7a10-8b20-0000000000a1"), mine];
+    let (exit, _, shown) = Box::pin(verbose_from(Some("/dev/pts/3"), listed, false)).await;
+    assert_eq!((exit, shown), (Exit::Success, Some(conversation())));
+}
+
+#[test]
+fn history_shows_picked_up_in_tty() {
+    let route: efr_protocol::RouteScope = serde_json::from_value(
+        json!({"kind": "project", "value": "0192f0c1-7a00-7000-8000-0000000a4401"}),
+    )
+    .unwrap();
+    let mut events = events();
+    events.insert(
+        0,
+        envelope(
+            0,
+            Event::TerminalAttached {
+                tty: "/dev/pts/7".to_owned(),
+                route,
+                shell_pid: Some(4242),
+                how: efr_protocol::AttachHow::PickedUp,
+            },
+        ),
+    );
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(60).with_terminal(false);
+    insta::assert_snapshot!(show(&page, &options));
 }
 
 #[tokio::test]

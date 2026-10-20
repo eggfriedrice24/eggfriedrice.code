@@ -30,6 +30,7 @@ fn sent(queued: bool) -> PromptSendResult {
         seq: Seq::new(10),
         queued,
         settings: None,
+        route: None,
     }
 }
 
@@ -826,6 +827,55 @@ async fn overridden_settings_are_the_first_line_of_the_reply() {
     let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
     assert_eq!(exit, Exit::Success);
     assert_eq!(captured.stderr(), "mode auto, model gpt-5.4\nqueued behind the running turn\n");
+}
+
+#[tokio::test]
+async fn the_route_and_the_settings_share_the_first_line_of_the_reply() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let line = command(&["send", "--mode", "auto", "--", "next"]);
+    let overridden = OverriddenSettings { mode: true, ..OverriddenSettings::default() };
+    let route = efr_protocol::Routed {
+        scope: efr_protocol::RouteLabel {
+            scope: efr_protocol::RouteScope::Outside,
+            name: None,
+            dir: "/etc/nixos".into(),
+        },
+        switch: Some(efr_protocol::Switch::New {
+            from: None,
+            reason: efr_protocol::NewReason::Idle { hours: 13 },
+        }),
+        hint: None,
+    };
+    let result = PromptSendResult {
+        settings: Some(effective(overridden)),
+        route: Some(Box::new(route)),
+        ..sent(false)
+    };
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &result).await;
+        let (sub, _) = conn.request().await;
+        let done = Event::TurnCompleted {
+            turn_id: turn(),
+            usage: None,
+            changes: None,
+            context: None,
+            stop: None,
+            undo: None,
+        };
+        conn.item(sub, &item(12, done)).await;
+        conn.until_closed().await;
+    };
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(
+        captured.stderr(),
+        "↪ new conversation outside projects (the last one was idle for 13 h) · mode auto\n"
+    );
 }
 
 #[tokio::test]
