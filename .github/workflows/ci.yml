@@ -4,9 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Each Monday the `sandbox` job runs with the full launch cost gate, which takes about
+  # 13 minutes in the VM; a push or a pull request runs the cost tests without it.
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # A push to main must not cancel the weekly run on main, nor the weekly run a push.
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -252,18 +258,39 @@ jobs:
         env:
           EFR_TEST_ZSH: "1"
 
+  # Whether the `sandbox` job must run: a scheduled or a manual run, or a changed file
+  # that can change what the job tests. The script prints the reason in the log.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      sandbox: ${{ steps.paths.outputs.sandbox }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: .github/sandbox-paths.sh "$EVENT" "$BASE" >>"$GITHUB_OUTPUT"
+
   # The tests of `just test-sandbox` on real bwrap, Landlock ABI 9 and seccomp. The
   # runner's kernel is older than 7.1 and its AppArmor blocks unprivileged user
   # namespaces, so .github/sandbox-vm.sh boots the kernel that it pins with virtme-ng in
   # QEMU and runs the tests of the build job's archive inside, where a skipped test
   # fails. `just test-sandbox-vm` runs the same step in a container set up like this
   # runner.
+  #
+  # The job runs only when `changes` says that a changed file can change what it tests
+  # (.github/sandbox-paths.sh). A skipped job counts as passed for the required check.
   sandbox:
-    needs: build
+    needs: [build, changes]
+    if: needs.changes.outputs.sandbox == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
       INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+      SBX_GATE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '0' }}
     steps:
       - uses: actions/checkout@v7
       # GitHub gives public repositories KVM on its standard Linux runners, but only the
