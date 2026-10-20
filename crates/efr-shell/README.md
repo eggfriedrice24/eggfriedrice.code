@@ -244,8 +244,10 @@ and `D`, or the two sentinels):
   call of full mode). At a ready prompt the session types the key and then the line
   in one write: the line editor runs the key's widget before it reads the line, so
   `sudo -k` runs before the command, and a cache from an earlier call or from the
-  user's own terminal is gone. When the key went out at that prompt already (the end
-  of a run that forgets), no second key goes. Such a run waits for the next `B` like
+  user's own terminal is gone. Only when the key went out at that prompt in the same
+  step that starts the queued run (the end of a run that forgets) does no second key
+  go; a run that comes later types its own key, because the user's own `sudo` may
+  have filled a shared cache since. Such a run waits for the next `B` like
   a run after a forget, and for a new shell's first prompt, because only a mark says
   whether the shell has the integration. In a shell without it (no mark before the
   startup timeout, or a program that is no zsh), the run fails with

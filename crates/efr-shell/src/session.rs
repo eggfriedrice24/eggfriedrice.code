@@ -280,8 +280,9 @@ pub(crate) struct SessionCore {
     forget_pending: bool,
     /// The warning that this shell cannot forget credentials was logged.
     forget_warned: bool,
-    /// [`FORGET_CREDENTIALS`] went out at this prompt and no line came after it yet, so
-    /// a run that forgets before its line needs no second key.
+    /// [`FORGET_CREDENTIALS`] went out at this prompt in the same step that starts a
+    /// queued run, so a run that forgets before its line needs no second key. A run
+    /// that comes later types its own key ([`submit`](Self::submit)).
     forgot_at_prompt: bool,
     /// A sandboxed run's end to check once the current chunk is read.
     check: Option<CheckOrder>,
@@ -347,6 +348,16 @@ impl SessionCore {
     /// caller has stopped waiting is dropped, never typed: the turn that asked for it
     /// may have been interrupted, and an approved command must not run after that.
     pub(crate) fn submit(&mut self, order: RunOrder) -> Vec<Bytes> {
+        // NOTE: a key that went out at this prompt may be minutes old, and the user's
+        // own `sudo` in another terminal may have filled a shared cache since; a run
+        // that forgets before its line types its own key.
+        self.forgot_at_prompt = false;
+        self.place(order)
+    }
+
+    /// [`submit`](Self::submit), also for a queued run that starts in the step that
+    /// typed the forget key.
+    fn place(&mut self, order: RunOrder) -> Vec<Bytes> {
         if order.reply.is_closed() {
             return Vec::new();
         }
@@ -655,7 +666,7 @@ impl SessionCore {
         let Some(order) = self.queued.take() else {
             return Vec::new();
         };
-        self.submit(order)
+        self.place(order)
     }
 
     fn next(&self) -> Seq {
