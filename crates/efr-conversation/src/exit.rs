@@ -111,6 +111,12 @@ pub(crate) const EXIT_DENIED: &str = "The user said no to this action; it did no
                                       turn. Finish the work that stays in the sandbox, then \
                                       tell the user what you wanted to do and why.";
 
+/// [`EXIT_DENIED`] for a turn in full mode, which runs with no sandbox.
+pub(crate) const EXIT_DENIED_FULL: &str = "The user said no to this action; it did not run. Do \
+                                           not ask again for this action or a similar one in \
+                                           this turn. Finish the rest of the work, then tell \
+                                           the user what you wanted to do and why.";
+
 /// What the model reads when nobody answered a question while the user was away (efr's
 /// auto spec, section 9.5).
 pub(crate) const AWAY_EXPIRED: &str = "Nobody could approve this now; it did not run. Continue \

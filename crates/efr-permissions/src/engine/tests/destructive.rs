@@ -103,7 +103,7 @@ fn the_reason_says_why_a_person_approves_it() {
     assert_eq!(
         deciding,
         ["delete or move files: ask, because the user approves each delete and move that efr \
-          undo cannot bring back in the auto mode"]
+          undo cannot bring back"]
     );
 }
 
