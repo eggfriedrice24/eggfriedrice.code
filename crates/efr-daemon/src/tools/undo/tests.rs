@@ -719,3 +719,42 @@ async fn full_snapshot_root_says_full() {
     let flags: Vec<(bool, bool)> = listed.turns.iter().map(|turn| (turn.auto, turn.full)).collect();
     assert_eq!(flags, [(true, true)]);
 }
+
+#[tokio::test]
+async fn a_home_write_beside_a_repository_runs_is_covered_and_undone() {
+    use efr_permissions::Coverage;
+
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let notes = kept.home.join("notes");
+    std::fs::create_dir_all(notes.join(".git/refs/heads")).unwrap();
+    std::fs::write(notes.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(notes.join(".git/config"), "[core]\n").unwrap();
+    std::fs::write(notes.join("a.md"), "a\n").unwrap();
+    let x = notes.join("x");
+    // NOTE: a contained call that gets the parent dir (`WriteBind::Parent`).
+    let mut need = home_write(&x);
+    need.copies = vec![CoverAsk::Home(x.clone()), CoverAsk::HomeDir(notes.clone())];
+    let asks = need.copies.clone();
+    let call = call_of(2, 1, "write_file", json!({"path": x, "content": "x\n"}), &work(&kept));
+
+    let answers = kept.toolbox.cover_facts(&call.context, &asks, Vec::new()).await;
+    home_turn(&kept, 2, &x, "x\n", vec![need]).await;
+    let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
+
+    assert_eq!(
+        answers,
+        [(asks[0].clone(), Coverage::Covered), (asks[1].clone(), Coverage::Covered)],
+        "the repository stays out of the copy and keeps the dir covered"
+    );
+    assert_eq!(
+        done.entries,
+        [
+            entry(UndoAction::NotCovered, "~/notes/.git", Some(UndoReason::LeftOut)),
+            entry(UndoAction::Trash, "~/notes/x", None),
+        ]
+    );
+    assert!(!x.exists());
+    assert_eq!(read(&notes.join("a.md")), "a\n");
+    assert_eq!(read(&notes.join(".git/HEAD")), "ref: refs/heads/main\n");
+}

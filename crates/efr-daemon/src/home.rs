@@ -38,7 +38,7 @@ use efr_permissions::{CoverAsk, Coverage, ExitNeed};
 use efr_protocol::{ExitKind, UndoReason};
 use efr_sandbox::{FsView as _, is_within, resolve};
 use efr_snapshot::{
-    HomeDelta, HomeEntry, HomeReader, HomeState, MAX_HOME_FILE_BYTES, SnapshotError,
+    HomeDelta, HomeEntry, HomeReader, HomeState, MAX_HOME_FILE_BYTES, SnapshotError, git_refuses,
 };
 use rustix::fs::{FileType, OFlags};
 
@@ -174,15 +174,35 @@ impl Prepared {
     }
 
     /// True when the copy covers the target `ask`: no entry for it says "not covered".
+    /// A git dir below a directory target is left out and does not count, as the
+    /// snapshot of a root leaves out a nested repository.
     pub(crate) fn covers(&self, ask: &CoverAsk) -> bool {
         let path = match ask {
             CoverAsk::Home(path) | CoverAsk::HomeDir(path) => path,
             _ => return false,
         };
-        !self.not_covered.iter().any(|(known, _)| {
-            known == path || (matches!(ask, CoverAsk::HomeDir(_)) && known.starts_with(path))
+        !self.not_covered.iter().any(|(known, reason)| {
+            !left_out_below(ask, known, *reason)
+                && (known == path
+                    || (matches!(ask, CoverAsk::HomeDir(_)) && known.starts_with(path)))
         })
     }
+}
+
+/// True for a path that a copy left out strictly below the directory target `ask`,
+/// such as its `.git`: it does not keep the copy from covering the target.
+fn left_out_below(ask: &CoverAsk, path: &Path, reason: UndoReason) -> bool {
+    matches!(ask, CoverAsk::HomeDir(dir) if path.starts_with(dir) && path != dir)
+        && reason == UndoReason::LeftOut
+}
+
+/// True when git can hold `path` in a tree: no part of it is a name that git refuses
+/// ([`efr_snapshot::git_refuses`]), such as `.git`. `link` is for a symbolic link.
+fn git_holds(path: &Path, link: bool) -> bool {
+    !path.components().any(|part| match part {
+        std::path::Component::Normal(name) => git_refuses(name, link),
+        _ => false,
+    })
 }
 
 /// Reads what the copy of `targets` holds now, without the bytes. `masks` are the
@@ -276,8 +296,19 @@ fn file_entries(
         prepared.push(entry(&real, HomeState::NotCovered(UndoReason::Masked), target.floor));
         return Ok(());
     }
+    if !git_holds(named, false) || !git_holds(&real, false) {
+        if target.floor {
+            return Err(format!(
+                "efr cannot copy {}: it lies in a git directory. The call did not run.",
+                named.display()
+            ));
+        }
+        prepared.push(entry(&real, HomeState::NotCovered(UndoReason::LeftOut), target.floor));
+        return Ok(());
+    }
     for link in &resolved.links {
         let state = match fs::read_link(link) {
+            Ok(_) if !git_holds(link, true) => HomeState::NotCovered(UndoReason::LeftOut),
             Ok(to) => HomeState::Link { target: os_bytes(to.into_os_string()) },
             Err(error) => return Err(failed(&error)),
         };
@@ -343,6 +374,10 @@ fn dir_entries(
 ) -> Result<(), String> {
     if masked(dir, masks) {
         prepared.push(entry(dir, HomeState::NotCovered(UndoReason::Masked), floor));
+        return Ok(());
+    }
+    if !git_holds(dir, false) {
+        prepared.push(entry(dir, HomeState::NotCovered(UndoReason::LeftOut), floor));
         return Ok(());
     }
     match fs::symlink_metadata(dir) {
@@ -427,6 +462,12 @@ fn walk(dir: &Path, masks: &[PathBuf], limits: HomeLimits) -> Walk {
                 Err(error) => return Walk::Failed(error),
             };
             let kind = meta.file_type();
+            // NOTE: a `.git` stays out whole, unread and uncounted, as a snapshot
+            // leaves a nested repository out: git refuses it in a tree.
+            if !git_holds(&path, kind.is_symlink()) {
+                found.push((path, HomeState::NotCovered(UndoReason::LeftOut), None));
+                continue;
+            }
             if kind.is_dir() {
                 if depth + 1 >= MAX_WALK_DEPTH {
                     return Walk::Over;
@@ -472,7 +513,9 @@ pub(crate) fn coverage(ask: &CoverAsk, masks: &[PathBuf], limits: HomeLimits) ->
         _ => return Coverage::Unknown,
     };
     let Ok(prepared) = prepared else { return Coverage::Unknown };
-    match prepared.not_covered.iter().map(|(_, reason)| *reason).next() {
+    let gaps =
+        prepared.not_covered.iter().filter(|(path, reason)| !left_out_below(ask, path, *reason));
+    match gaps.map(|(_, reason)| *reason).next() {
         None => Coverage::Covered,
         Some(UndoReason::Masked) => Coverage::Masked,
         Some(UndoReason::OverLimit) => Coverage::OverLimit,
