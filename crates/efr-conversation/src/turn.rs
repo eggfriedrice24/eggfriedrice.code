@@ -1570,7 +1570,9 @@ impl Turn {
             // NOTE: a decision added to the protocol later denies, so a newer client
             // can never run a call that this build would not.
             Waited::Answer(Some(_)) if !kinds.is_empty() => {
-                Authorization::Denied { message: exit::EXIT_DENIED.to_owned(), refusal: None }
+                let message =
+                    if call.context.is_full() { exit::EXIT_DENIED_FULL } else { exit::EXIT_DENIED };
+                Authorization::Denied { message: message.to_owned(), refusal: None }
             }
             Waited::Answer(Some(_)) => {
                 Authorization::Denied { message: user_denied(&call.name), refusal: None }

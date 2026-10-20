@@ -438,14 +438,16 @@ impl Reason {
             ),
             Cause::Destructive => f.write_str(
                 ", because the user approves each delete and move that efr undo cannot \
-                 bring back in the auto mode",
+                 bring back",
             ),
             Cause::NoRequirements => Ok(()),
             Cause::Contained => f.write_str(", because the auto sandbox holds it"),
             Cause::Exit { kind } if kind.is_floor() => {
-                f.write_str(", because it leaves the auto sandbox and no approval opens it")
+                f.write_str(", because it reaches a floor of efr, which no approval opens")
             }
-            Cause::Exit { .. } => f.write_str(", because it leaves the auto sandbox"),
+            Cause::Exit { .. } => {
+                f.write_str(", because it is an action that the auto sandbox holds back")
+            }
             Cause::ExitDecides => {
                 f.write_str(", because efr writes it outside the sandbox and its exit decides")
             }

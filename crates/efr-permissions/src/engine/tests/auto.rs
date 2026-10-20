@@ -260,7 +260,10 @@ fn exits_redirect_home_is_write() {
     assert_eq!(needs[0].part, "echo x");
     assert_eq!(
         decision.reasons().last().unwrap().to_string(),
-        format!("exit write {}: ask, because it leaves the auto sandbox", target.display())
+        format!(
+            "exit write {}: ask, because it is an action that the auto sandbox holds back",
+            target.display()
+        )
     );
 }
 
@@ -2689,13 +2692,13 @@ fn the_exit_reason_reads_well_and_debug_hides_the_line() {
     assert!(!format!("{need:?}").contains("s3cret"));
     assert_eq!(
         decision.reasons().last().unwrap().to_string(),
-        "exit upload: ask, because it leaves the auto sandbox"
+        "exit upload: ask, because it is an action that the auto sandbox holds back"
     );
     let secret = decide(shell("cat ~/.ssh/id_rsa").with_read("/home/u/.ssh/id_rsa"));
     let floor = secret.reasons().last().unwrap().to_string();
     assert_eq!(
         floor,
-        "exit secret /home/u/.ssh/id_rsa: deny, because it leaves the auto sandbox and no approval opens it"
+        "exit secret /home/u/.ssh/id_rsa: deny, because it reaches a floor of efr, which no approval opens"
     );
 }
 

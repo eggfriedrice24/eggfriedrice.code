@@ -554,7 +554,7 @@ async fn full_floor_question_offers_no_always() {
     let judge = FakeJudge::answering(vec![allows()]);
     let mut setup = full(Some(Arc::clone(&judge)));
     setup.allow_writer = Some(FakeAllowWriter::saving());
-    let (mut h, _, turn_id) = start(setup, vec![shell(PERSIST)], Vec::new(), "start it").await;
+    let (mut h, script, turn_id) = start(setup, vec![shell(PERSIST)], Vec::new(), "start it").await;
     let asked = h.wait_for(|e| matches!(e, Event::ApprovalRequested { .. })).await;
     let Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } = asked else {
         panic!("the question shows the exit: {asked:?}");
@@ -571,6 +571,9 @@ async fn full_floor_question_offers_no_always() {
     h.wait_end(turn_id).await;
     assert_eq!(judge.calls(), 0);
     assert_eq!(judgements(&h).await, vec![(JudgeKind::User, Verdict::Deny)]);
+    // NOTE: no sandbox runs in full mode, so the "no" names none.
+    assert_eq!(script.results(), vec![(exit::EXIT_DENIED_FULL.to_owned(), true)]);
+    assert!(!exit::EXIT_DENIED_FULL.contains("sandbox"));
 }
 
 #[tokio::test]
