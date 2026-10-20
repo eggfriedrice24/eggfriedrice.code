@@ -293,7 +293,8 @@ pub(crate) struct DiffArgs {
     pub(crate) stat: bool,
 
     /// With --stat, add up every turn of the conversation instead of one turn. A turn
-    /// that efr undo took back does not count.
+    /// that efr undo took back does not count. A path is relative to the project of
+    /// its turn, so the same path in two projects counts as one file.
     #[arg(long, requires = "stat", conflicts_with = "turn")]
     pub(crate) all: bool,
 }

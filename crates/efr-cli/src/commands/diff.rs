@@ -125,8 +125,12 @@ async fn all_turns(
 
 /// The number of turns among `events` (in the order of the log) that changed files
 /// and that no undo took back, and their files added up: one entry per path with the
-/// lines of every turn, the kind that each turn gave it when they agree, else
-/// `modified`.
+/// lines of every turn and the kind of [`summed_kind`].
+///
+/// Two limits: a path is relative to the project root of its turn, so the same path in
+/// the turns of two projects is one entry. And the count of the files that the lists
+/// leave out (`more`) is the sum of the turns, so a file that one turn lists and
+/// another leaves out counts twice.
 pub(crate) fn sum_turns<'a>(events: impl IntoIterator<Item = &'a Event>) -> (usize, FileChanges) {
     let mut ended: Vec<(TurnId, &FileChanges)> = Vec::new();
     let mut undone: HashSet<TurnId> = HashSet::new();
@@ -153,7 +157,8 @@ pub(crate) fn sum_turns<'a>(events: impl IntoIterator<Item = &'a Event>) -> (usi
         .filter(|(turn, _)| !undone.contains(turn))
         .map(|(_, changes)| *changes)
         .collect();
-    let mut files: BTreeMap<&str, FileChange> = BTreeMap::new();
+    // NOTE: each path keeps the kind that its first turn gave it, next to the entry.
+    let mut files: BTreeMap<&str, (ChangeKind, FileChange)> = BTreeMap::new();
     let mut summed = FileChanges::default();
     for changes in &kept {
         summed.more = summed.more.saturating_add(changes.more);
@@ -161,23 +166,42 @@ pub(crate) fn sum_turns<'a>(events: impl IntoIterator<Item = &'a Event>) -> (usi
         summed.removed = summed.removed.saturating_add(changes.removed);
         for file in &changes.files {
             match files.get_mut(file.path.as_str()) {
-                Some(known) => {
-                    if known.kind != file.kind {
-                        known.kind = ChangeKind::Modified;
+                Some((first, known)) => {
+                    let kind = summed_kind(*first, known.kind, file.kind);
+                    if kind != ChangeKind::Renamed {
                         known.from = None;
                     }
+                    known.kind = kind;
                     known.added = known.added.saturating_add(file.added);
                     known.removed = known.removed.saturating_add(file.removed);
                     known.binary |= file.binary;
                 }
                 None => {
-                    files.insert(&file.path, file.clone());
+                    files.insert(&file.path, (file.kind, file.clone()));
                 }
             }
         }
     }
-    summed.files = files.into_values().collect();
+    summed.files = files.into_values().map(|(_, file)| file).collect();
     (kept.len(), summed)
+}
+
+/// The kind of a path over several turns: `first` from its first turn, `so_far` from
+/// the turns up to the last one, `last` from the last one. The kind stays when the
+/// turns agree. Else it follows whether the file was there before the first turn and
+/// after the last: a file that the first turn made is new, or deleted when a later turn
+/// deleted it; a file that a turn deleted is deleted; a renamed file that later turns
+/// changed stays renamed; anything else is modified.
+fn summed_kind(first: ChangeKind, so_far: ChangeKind, last: ChangeKind) -> ChangeKind {
+    match (first, last) {
+        _ if so_far == last => last,
+        (_, ChangeKind::Deleted) => ChangeKind::Deleted,
+        (ChangeKind::Added, _) => ChangeKind::Added,
+        (ChangeKind::Renamed, ChangeKind::Modified) if so_far == ChangeKind::Renamed => {
+            ChangeKind::Renamed
+        }
+        _ => ChangeKind::Modified,
+    }
 }
 
 /// What `efr diff` writes to stdout for `result`: the list of files with `stat` or when
