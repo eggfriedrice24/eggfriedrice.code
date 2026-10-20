@@ -6,7 +6,7 @@ default-members = [
   "crates/efr-stdx", "crates/efr-protocol", "crates/efr-store", "crates/efr-credentials",
   "crates/efr-permissions", "crates/efr-scope", "crates/efr-holder", "crates/efr-http",
   "crates/efr-screen", "crates/efr-provider", "crates/efr-test-support", "crates/efr-render",
-  "crates/efr-screen-vt100", "crates/efr-pty", "crates/efr-provider-openai",
+  "crates/efr-pty", "crates/efr-provider-openai",
   "crates/efr-oauth-openai", "crates/efr-transport", "crates/efr-client", "crates/efr-cli",
   "crates/efr-shell", "crates/efr-tools", "crates/efr-conversation", "crates/efr-daemon",
   "crates/efr-test-daemon", "crates/efr-config", "crates/efr-sandbox", "crates/efr-sbx", "crates/efr-snapshot",
@@ -159,7 +159,6 @@ efr-screen = { path = "crates/efr-screen" }
 efr-provider = { path = "crates/efr-provider" }
 efr-test-support = { path = "crates/efr-test-support" }
 efr-render = { path = "crates/efr-render" }
-efr-screen-vt100 = { path = "crates/efr-screen-vt100" }
 efr-screen-ghostty = { path = "crates/efr-screen-ghostty" }
 efr-pty = { path = "crates/efr-pty" }
 efr-shell = { path = "crates/efr-shell" }

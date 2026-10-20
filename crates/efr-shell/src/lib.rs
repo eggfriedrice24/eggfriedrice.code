@@ -29,8 +29,8 @@
 //! Allowed dependencies: `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox` and
 //! `efr-stdx`.
 //! What does not belong here: opening PTYs (`efr-pty`), terminal emulation
-//! (`efr-screen-vt100`, `efr-screen-ghostty`), storing the recording and turning
-//! notices into events (`efr-daemon`), and anything about tools or permissions
+//! (`efr-screen`'s vt100 backend, `efr-screen-ghostty`), storing the recording and
+//! turning notices into events (`efr-daemon`), and anything about tools or permissions
 //! (`efr-tools`, `efr-conversation`).
 
 mod capture;

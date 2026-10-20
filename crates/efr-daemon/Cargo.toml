@@ -53,7 +53,6 @@ efr-sandbox.workspace = true
 efr-scope.workspace = true
 efr-screen.workspace = true
 efr-screen-ghostty = { workspace = true, optional = true }
-efr-screen-vt100.workspace = true
 efr-shell.workspace = true
 efr-snapshot.workspace = true
 efr-stdx.workspace = true

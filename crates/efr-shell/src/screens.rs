@@ -9,7 +9,7 @@ use efr_screen::{ScreenError, ScreenEvents, ScreenHandle};
 /// command's output.
 ///
 /// The daemon implements it with `ScreenActor::spawn` and the factory of the backend
-/// it chose (`efr_screen_vt100::factory` or the ghostty one), so this crate never names
+/// it chose (`efr_screen::vt100::factory` or the ghostty one), so this crate never names
 /// a backend. `name` is the screen thread's name: `screen-<conversation short id>` for
 /// a shell's screen, `replay-<conversation short id>` for a capture screen, which is
 /// shut down as soon as the output is read.

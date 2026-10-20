@@ -83,7 +83,7 @@ fn exclusive_crate_outside_its_owner_fails() {
 
 #[test]
 fn ghostty_outside_the_ghostty_screen_fails() {
-    let g = graph(&["efr-screen-vt100"], &[("efr-screen-vt100", "libghostty-vt")], &[]);
+    let g = graph(&["efr-screen"], &[("efr-screen", "libghostty-vt")], &[]);
     assert_eq!(check(&g).len(), 1);
 }
 

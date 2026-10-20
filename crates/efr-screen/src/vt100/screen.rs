@@ -3,10 +3,10 @@
 use std::fmt;
 use std::panic::{self, AssertUnwindSafe};
 
-use efr_screen::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
+use crate::{Cursor, RowCells, Screen, ScreenSink, ScreenSnapshot, Size};
 
-use crate::cells;
-use crate::recorder::Recorder;
+use crate::vt100::cells;
+use crate::vt100::recorder::Recorder;
 
 /// The rows of scrollback [`Vt100Screen::new`] keeps. A vt100 cell takes 32 bytes, so
 /// a full scrollback at 200 columns costs about 6 MiB per screen. Attach snapshots

@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 
 use super::*;
-use crate::test_sink::{Call, TestSink};
+use crate::vt100::test_sink::{Call, TestSink};
 
 /// What the recorder holds after vt100 parsed `bytes`.
 fn parse(bytes: &[u8]) -> Recorder {

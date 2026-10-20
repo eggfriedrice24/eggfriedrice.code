@@ -1,6 +1,6 @@
 //! A sink for this crate's tests that keeps every call in order.
 
-use efr_screen::ScreenSink;
+use crate::ScreenSink;
 
 /// One call a screen made on its sink.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -32,9 +32,9 @@ tracing.workspace = true
 which.workspace = true
 
 [dev-dependencies]
-# The e2e_ tests spawn a real zsh on a real PTY and watch it through a vt100 screen.
+# The e2e_ tests spawn a real zsh on a real PTY and watch it through efr-screen's vt100
+# screen.
 efr-pty.workspace = true
-efr-screen-vt100.workspace = true
 efr-test-support.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true

@@ -6,8 +6,8 @@ The screen model boundary. Everything that turns PTY output into a terminal scre
 goes through this crate, whichever backend renders it:
 
 - `screen`: the `Screen` trait (`feed`, `resize`, `snapshot`, `row`, `cursor`, `title`,
-  `pwd`), implemented by `efr-screen-vt100` and `efr-screen-ghostty`. It has no `Send`
-  bound.
+  `pwd`), implemented by the `vt100` module of this crate and by
+  `efr-screen-ghostty`. It has no `Send` bound.
 - `sink`: the `ScreenSink` trait through which a backend reports PTY replies (DA, DSR,
   DECRQM, OSC 10 and 11 answers), bells and title changes while it processes bytes.
 - `actor`: `ScreenActor::spawn`, which runs one screen on its own named std thread,
@@ -26,6 +26,7 @@ goes through this crate, whichever backend renders it:
 - The wire types a backend builds (`ScreenSnapshot`, `RowCells`, `Cell`, `Color`,
   `Cursor`, `Size`, `Seq`) are re-exported from `efr-protocol`, so a backend crate implements
   `Screen` with `efr-screen` as its only workspace dependency.
+- `vt100`: the backend that needs no Zig (see "The vt100 backend" below).
 - `conformance` (feature `conformance`, enabled only by test targets): the suite that
   drives the real `ScreenActor` with a backend factory over the NDJSON fixtures in
   `fixtures/vt/` and `fixtures/shell_marks/`.
@@ -65,7 +66,7 @@ that will not compile:
   `ScreenHandle::snapshot` itself; it uses `request_snapshot`, whose result arrives in
   order on the event stream. When `ScreenEvents` is dropped, the actor discards
   events and keeps serving snapshots.
-- `efr-screen-vt100` is `Send` in practice but implements the same trait and is
+- The vt100 backend is `Send` in practice but implements the same trait and is
   spawned through the same factory, so the conformance suite exercises the identical
   actor code and only swaps the factory. A future blocking libghostty callback shows
   up as a conformance timeout (nextest's slow-timeout), not a production hang.
@@ -115,6 +116,74 @@ that will not compile:
 - OSC 7 in the forms `file://host/path` (percent-decoded, query and fragment cut) and
   `kitty-shell-cwd://host/path` (the raw path). An empty URL is not a mark.
 
+### The vt100 backend
+
+The screen backend that needs no Zig, in the module `efr_screen::vt100`.
+`Vt100Screen` implements `Screen` over the pure-Rust `vt100` crate (0.16.2), and
+`factory(size)` builds one on its screen thread for `ScreenActor::spawn`:
+
+```rust
+let (handle, events) = ScreenActor::spawn("screen-1a2b", efr_screen::vt100::factory(size), size)?;
+```
+
+Every test in the workspace and every build without libghostty-vt runs on this
+backend, including the daemon when `efr-screen-ghostty` is not compiled in. It goes
+through the same `ScreenActor` and the same conformance suite as the ghostty backend;
+only the factory differs. Shell marks (OSC 133 and OSC 7) never come from here: the
+actor's `ShellMarkScanner` finds them before the bytes reach the backend.
+
+The backend has no cargo feature: every user of this crate (`efr-shell`, `efr-daemon`)
+needs it, and the `vt100` crate is small and pure Rust. It was a crate of its own
+until ADR 0014 folded it into this one.
+
+- `vt100/screen`: `Vt100Screen`, `factory` and `DEFAULT_SCROLLBACK_ROWS` (1000 rows; a
+  vt100 cell is 32 bytes, so about 6 MiB per screen at 200 columns).
+  `Vt100Screen::with_scrollback` sets another capacity. Snapshots read the scrollback
+  through vt100's scrolled view a screen at a time and leave the view at the bottom.
+- `vt100/cells`: vt100 cells to wire cells. The default colour is no colour, indexed
+  and RGB colours map one to one, bold, italic, underline and inverse carry over, dim is
+  dropped (the wire has no field for it), and the second cell of a wide character has
+  no text.
+- `vt100/recorder`: the `vt100::Callbacks` value. vt100 owns it for the life of the parser
+  while a `ScreenSink` is lent to one `feed` call only, so it keeps bells and title
+  changes in order and the screen hands them to the sink after each `process`. It
+  also keeps the title and the OSC 7 URL.
+
+#### What vt100 does and does not do
+
+- It answers no terminal queries (DA, DSR, DECRQM, OSC 10 and 11), so nothing ever
+  reaches `ScreenSink::pty_reply`. The fixtures that check replies (`da1_reply`,
+  `dsr_reply`) list `vt100` in their `differs`.
+- It sends no in-band resize report (mode 2048), and it does not reflow on resize: a
+  narrower grid cuts rows, and fewer rows drop the bottom rows instead of pushing the
+  top ones into the scrollback.
+- Lines that scroll inside a scroll region (DECSTBM) never enter the scrollback, even
+  when the region starts at the top row.
+- `pwd()` is the raw OSC 7 URL as the program sent it, the form libghostty-vt's
+  `Terminal::pwd` returns. The title and the URL follow libghostty-vt's limits (1024
+  and 4096 bytes) and an empty value clears them. vte splits an OSC at every `;`, so
+  the recorder joins the pieces of a title or URL that holds one; vte keeps 16 pieces
+  with the OSC number, so a value with more than 14 `;` loses its tail.
+
+#### Guards against vt100 panics
+
+Fuzzing vt100 0.16.2 found inputs that make it panic; none of them at 2 by 2 or
+larger without a resize:
+
+- A line that wraps on a grid of one row underflows a row index. A one-row screen
+  therefore runs on two rows of vt100 and shows the row the cursor is on, so text that
+  arrives line by line looks as it would on a single row. Moving the cursor up or
+  down, a no-op on a real single row, switches between the two.
+- A wide character on a grid of one column, and printing over the first half of a
+  wide character that a narrower resize cut at the right edge, index past the row.
+  `feed` catches the panic, logs a warning and starts over with a blank grid of the
+  same size, keeping the title and the working directory; the rest of that chunk is
+  lost. Without the guard the panic would end the screen actor and the shell would
+  lose its screen for good.
+
+A dimension of 0 becomes 1, because vt100 subtracts 1 from both when it builds or
+resizes a grid.
+
 ## Tier
 
 Tier 1.
@@ -125,7 +194,9 @@ Tier 1.
 `efr-stdx` (the named thread builder). `xtask/src/deps.rs` holds the allowlist.
 
 Third-party crates: `tokio` (the event channel, `oneshot` and `Notify`), `bytes`,
-`memchr` (finding `ESC` in long runs of output) and `thiserror`. The `conformance`
+`memchr` (finding `ESC` in long runs of output), `thiserror`, `vt100` (the terminal
+emulator of the vt100 backend) and `tracing` (the warning when the vt100 backend
+catches a vt100 panic). The `conformance`
 feature adds `serde_json` (the fixture reader) and `insta` (one rendered-screen
 snapshot per vt fixture per backend).
 
@@ -138,6 +209,13 @@ snapshot per vt fixture per backend).
   suite compares marks for every backend, even for fixtures that list the backend in
   their `differs` list.
 - Nothing in the actor waits on real time; backpressure is the bounded queues.
+- A `Vt100Screen` reports exactly what vt100 renders, normalised by the actor like
+  every backend. It never answers a query, so PTY replies come only from the ghostty
+  backend.
+- No input and no size makes the vt100 backend's `feed`, `resize` or `snapshot` panic
+  out of the backend.
+- The vt100 backend uses only this crate's public surface (the traits and the wire
+  types), as an outside backend crate would.
 
 ## Tests
 
@@ -147,20 +225,32 @@ Run the tests of this crate alone, without the rest of the workspace:
 cargo nextest run -p efr-screen
 ```
 
-The tests use a small in-crate fake screen (the real backends are separate crates)
-that is deliberately `!Send`, which proves the actor needs no `Send` screen. The
-scanner has unit tests per file and a proptest that checks that any split of a byte
-stream yields the same marks. The conformance suite runs against the fake screen
-through a dev-dependency of the crate on itself with the `conformance` feature.
+The unit tests of the actor use a small in-crate fake screen that is deliberately
+`!Send`, which proves the actor needs no `Send` screen. The scanner has unit tests per
+file and a proptest that checks that any split of a byte stream yields the same marks.
+The conformance suite runs against the fake screen through a dev-dependency of the
+crate on itself with the `conformance` feature.
 
-A backend crate runs the suite from `tests/it/conformance.rs`:
+The vt100 backend has unit tests for the cell conversion, the recorder (titles, URLs,
+limits, order) and the screen (scrollback paging, the one-row view, the panic guard,
+the cursor at a pending wrap). A proptest feeds random escape fragments between random
+resizes (sizes 0 to 6) and snapshots, and checks that nothing panics out of the
+screen.
+
+The integration test binary runs the suite against the vt100 backend
+(`tests/it/conformance.rs`), and `efr-screen-ghostty` runs it the same way against
+libghostty-vt:
 
 ```rust
 #[test]
-fn conformance() {
-    efr_screen::conformance::run("vt100", efr_screen_vt100::factory);
+fn vt100() {
+    efr_screen::conformance::run("vt100", efr_screen::vt100::factory);
 }
 ```
+
+The vt100 backend's rendered screens are the `*__vt100.snap` files in
+`fixtures/vt/snapshots/`; they match the fake backend's except for the replies vt100
+does not give.
 
 A fixture is one JSON object per line: a `case` header with the grid size and the
 `differs` list, then `feed`, `resize` and `expect_*` records (see
