@@ -311,7 +311,7 @@ pub(crate) fn code_block(info: &str, body: &str) -> String {
 }
 
 /// A tool call in one line, such as `$ ls -la`, `read /etc/hosts` or `apply_patch
-/// src/a.rs +3 −1, src/b.rs +1`.
+/// src/a.rs +3 -1, src/b.rs +1`.
 ///
 /// A command of several lines shows its first line and how many lines follow, such as
 /// `$ cd src (and 2 more lines)`: lines joined by spaces would look like one command

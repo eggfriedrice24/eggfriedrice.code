@@ -96,7 +96,7 @@
 //! store, `changed ~/.zshrc; backup at <path>`), and for each file outside the roots
 //! that efr could not copy, shown whole. An `auto` turn that `efr undo` can take back
 //! says so in its line instead, also when it failed or was interrupted: `changed 4
-//! files (+12 −3) in <project> and 2 in ~; efr undo reverts this turn`, then a line
+//! files (+12 -3) in <project> and 2 in ~; efr undo reverts this turn`, then a line
 //! `not covered: ...` for what no snapshot holds.
 //!
 //! In `auto`, a turn with a call that ran in the sandbox ends with one muted line that

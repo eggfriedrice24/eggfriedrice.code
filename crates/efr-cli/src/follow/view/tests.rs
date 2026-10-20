@@ -2368,7 +2368,7 @@ fn a_patch_that_the_model_writes_shows_its_size_then_its_files() {
     let running = view.frame(SIZE, at(20));
     // The running row is cut to the width of the screen.
     assert!(
-        running.contains("apply_patch src/a.rs +2 \u{2212}1, delete ol\u{2026}"),
+        running.contains("apply_patch src/a.rs +2 -1, delete ol\u{2026}"),
         "{}",
         readable(&running)
     );

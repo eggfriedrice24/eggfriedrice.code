@@ -7,14 +7,14 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
 \e[33m·\e[0m \e[36m$ cargo fmt && rm old.rs && touch \e[0m\e[2m\\e[0m
         \e[36mnotes.md\e[0m
   \e[32m✓ 1.4s\e[0m
-  \e[2mchanged src/a.rs \e[0m\e[32m+3\e[0m\e[2m \e[0m\e[31m−1\e[0m\e[2m · deleted\e[0m
+  \e[2mchanged src/a.rs \e[0m\e[32m+3\e[0m\e[2m \e[0m\e[31m-1\e[0m\e[2m · deleted\e[0m
     \e[2mold.rs · new notes.md (+2 more)\e[0m
 
 \e[33m·\e[0m \e[36m$ git mv src/parse/expr.rs \e[0m\e[2m\\e[0m
         \e[36msrc/parse/expression.rs\e[0m
   \e[32m✓\e[0m
   \e[2mrenamed src/parse/expr.rs →\e[0m
-    \e[2msrc/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m−2\e[0m\e[2m ·\e[0m
+    \e[2msrc/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m\e[2m ·\e[0m
     \e[2mchanged assets/logo.png (binary)\e[0m
 
 \e[33m·\e[0m \e[36m$ cargo test\e[0m
@@ -26,14 +26,14 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
 \e[1m·\e[0m $ cargo fmt && rm old.rs && touch \e[2m\\e[0m
         notes.md
   ✓ 1.4s
-  \e[2mchanged src/a.rs \e[0m+3\e[2m \e[0m\e[1m−1\e[0m\e[2m · deleted\e[0m
+  \e[2mchanged src/a.rs \e[0m+3\e[2m \e[0m\e[1m-1\e[0m\e[2m · deleted\e[0m
     \e[2mold.rs · new notes.md (+2 more)\e[0m
 
 \e[1m·\e[0m $ git mv src/parse/expr.rs \e[2m\\e[0m
         src/parse/expression.rs
   ✓
   \e[2mrenamed src/parse/expr.rs →\e[0m
-    \e[2msrc/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m−2\e[0m\e[2m ·\e[0m
+    \e[2msrc/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m\e[2m ·\e[0m
     \e[2mchanged assets/logo.png (binary)\e[0m
 
 \e[1m·\e[0m $ cargo test
@@ -44,11 +44,11 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
 [end]
 \e[33m·\e[0m \e[36m$ cargo fmt && rm old.rs && touch notes.md\e[0m
   \e[32m✓ 1.4s\e[0m
-  \e[2mchanged src/a.rs \e[0m\e[32m+3\e[0m\e[2m \e[0m\e[31m−1\e[0m\e[2m · deleted old.rs · new notes.md (+2 more)\e[0m
+  \e[2mchanged src/a.rs \e[0m\e[32m+3\e[0m\e[2m \e[0m\e[31m-1\e[0m\e[2m · deleted old.rs · new notes.md (+2 more)\e[0m
 
 \e[33m·\e[0m \e[36m$ git mv src/parse/expr.rs src/parse/expression.rs\e[0m
   \e[32m✓\e[0m
-  \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m−2\e[0m\e[2m · changed\e[0m
+  \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m\e[2m · changed\e[0m
     \e[2massets/logo.png (binary)\e[0m
 
 \e[33m·\e[0m \e[36m$ cargo test\e[0m
@@ -59,11 +59,11 @@ expression: "every_way(&[Sent(0, turn_started()),\nSent(10, shell(1, \"cargo fmt
 [end]
 \e[1m·\e[0m $ cargo fmt && rm old.rs && touch notes.md
   ✓ 1.4s
-  \e[2mchanged src/a.rs \e[0m+3\e[2m \e[0m\e[1m−1\e[0m\e[2m · deleted old.rs · new notes.md (+2 more)\e[0m
+  \e[2mchanged src/a.rs \e[0m+3\e[2m \e[0m\e[1m-1\e[0m\e[2m · deleted old.rs · new notes.md (+2 more)\e[0m
 
 \e[1m·\e[0m $ git mv src/parse/expr.rs src/parse/expression.rs
   ✓
-  \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m−2\e[0m\e[2m · changed\e[0m
+  \e[2mrenamed src/parse/expr.rs → src/parse/expression.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m\e[2m · changed\e[0m
     \e[2massets/logo.png (binary)\e[0m
 
 \e[1m·\e[0m $ cargo test
@@ -76,11 +76,11 @@ stdout:
 stderr:
 · $ cargo fmt && rm old.rs && touch notes.md
   ✓ 1.4s
-  changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)
+  changed src/a.rs +3 -1 · deleted old.rs · new notes.md (+2 more)
 
 · $ git mv src/parse/expr.rs src/parse/expression.rs
   ✓
-  renamed src/parse/expr.rs → src/parse/expression.rs +2 −2 · changed assets/logo.png (binary)
+  renamed src/parse/expr.rs → src/parse/expression.rs +2 -2 · changed assets/logo.png (binary)
 
 · $ cargo test
   ✓

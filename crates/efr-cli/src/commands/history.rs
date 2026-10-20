@@ -660,7 +660,7 @@ impl<'a> Transcript<'a> {
 
     /// The lines of a turn's end: for a turn that `efr undo` could take back, what it
     /// changed and what no snapshot covers; for another turn, the line of the files that
-    /// it changed, such as `3 files changed, +24 −7`, as the turn showed it.
+    /// it changed, such as `3 files changed, +24 -7`, as the turn showed it.
     fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
         let Some(undo) = undo.filter(|undo| undo.undoable) else {
             if let Some(line) = changes.and_then(|changes| changes::turn_line(changes, self.groups))

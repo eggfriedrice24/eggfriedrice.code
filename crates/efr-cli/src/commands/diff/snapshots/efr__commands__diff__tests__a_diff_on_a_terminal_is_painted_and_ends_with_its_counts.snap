@@ -19,7 +19,7 @@ expression: "out.join(\"\\n\")"
 \e[36m@@ -0,0 +1 @@\e[0m
 \e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
 
-\e[2m2 files changed, +2 −1 (docs +1)\e[0m
+\e[2m2 files changed, +2 -1 (docs +1)\e[0m
 
 === 40 columns, NO_COLOR
 \e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
@@ -38,7 +38,7 @@ expression: "out.join(\"\\n\")"
 @@ -0,0 +1 @@
 \e[1m+\e[0m# Notes
 
-\e[2m2 files changed, +2 −1 (docs +1)\e[0m
+\e[2m2 files changed, +2 -1 (docs +1)\e[0m
 
 === 80 columns, colour
 \e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
@@ -57,7 +57,7 @@ expression: "out.join(\"\\n\")"
 \e[36m@@ -0,0 +1 @@\e[0m
 \e[1;32m+\e[0m\e[34m#\e[0m \e[34mNotes\e[0m
 
-\e[2m2 files changed, +2 −1 (docs +1)\e[0m
+\e[2m2 files changed, +2 -1 (docs +1)\e[0m
 
 === 80 columns, NO_COLOR
 \e[1mdiff --git a/src/main.rs b/src/main.rs\e[0m
@@ -76,4 +76,4 @@ expression: "out.join(\"\\n\")"
 @@ -0,0 +1 @@
 \e[1m+\e[0m# Notes
 
-\e[2m2 files changed, +2 −1 (docs +1)\e[0m
+\e[2m2 files changed, +2 -1 (docs +1)\e[0m

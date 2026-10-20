@@ -63,11 +63,11 @@ I will greet the user and run the formatter.
 
 \e[33m·\e[0m \e[36m$ cargo fmt\e[0m
   \e[32m✓ 1.3s\e[0m
-  \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m−2\e[0m
+  \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m
 
 The greeting is in \e[36msrc/main.rs\e[0m.
 
-\e[2m2 files changed, +25 −3\e[0m
+\e[2m2 files changed, +25 -3\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 40 columns, NO_COLOR
@@ -131,11 +131,11 @@ I will greet the user and run the formatter.
 
 \e[1m·\e[0m $ cargo fmt
   ✓ 1.3s
-  \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m−2\e[0m
+  \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m
 
 The greeting is in `src/main.rs`.
 
-\e[2m2 files changed, +25 −3\e[0m
+\e[2m2 files changed, +25 -3\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out…\e[0m
 
 === 80 columns, colour
@@ -197,11 +197,11 @@ I will greet the user and run the formatter.
 
 \e[33m·\e[0m \e[36m$ cargo fmt\e[0m
   \e[32m✓ 1.3s\e[0m
-  \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m−2\e[0m
+  \e[2mchanged src/lib.rs \e[0m\e[32m+2\e[0m\e[2m \e[0m\e[31m-2\e[0m
 
 The greeting is in \e[36msrc/main.rs\e[0m.
 
-\e[2m2 files changed, +25 −3\e[0m
+\e[2m2 files changed, +25 -3\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === 80 columns, NO_COLOR
@@ -263,11 +263,11 @@ I will greet the user and run the formatter.
 
 \e[1m·\e[0m $ cargo fmt
   ✓ 1.3s
-  \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m−2\e[0m
+  \e[2mchanged src/lib.rs \e[0m+2\e[2m \e[0m\e[1m-2\e[0m
 
 The greeting is in `src/main.rs`.
 
-\e[2m2 files changed, +25 −3\e[0m
+\e[2m2 files changed, +25 -3\e[0m
 \e[2mdone in 3.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === not a terminal
@@ -331,6 +331,6 @@ stderr:
 
 · $ cargo fmt
   ✓ 1.3s
-  changed src/lib.rs +2 −2
+  changed src/lib.rs +2 -2
 
-2 files changed, +25 −3
+2 files changed, +25 -3

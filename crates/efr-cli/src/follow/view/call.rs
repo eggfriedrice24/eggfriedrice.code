@@ -41,7 +41,7 @@
 //!
 //! · $ cargo fmt
 //!   ✓ 1.2s
-//!   changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)
+//!   changed src/a.rs +3 -1 · deleted old.rs · new notes.md (+2 more)
 //! ```
 //!
 //! A file write shows its diff above its result: the first lines of `render.diff_lines`

@@ -1416,7 +1416,7 @@ fn turn_line_counts_home_files_and_names_undo() {
     ]);
     assert_eq!(
         err,
-        "changed 3 files (+24 \u{2212}7) in eggfriedrice.code and 2 in ~; efr undo reverts this \
+        "changed 3 files (+24 -7) in eggfriedrice.code and 2 in ~; efr undo reverts this \
          turn\n"
     );
     let undo = undo_info(&[("app", 2), ("$SCRATCH", 1), ("lib", 1)], 0, &[], 0);
@@ -1424,7 +1424,7 @@ fn turn_line_counts_home_files_and_names_undo() {
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
     assert!(
         err.starts_with(
-            "changed 3 files (+24 \u{2212}7) in app, $SCRATCH and lib; efr undo reverts this turn\n"
+            "changed 3 files (+24 -7) in app, $SCRATCH and lib; efr undo reverts this turn\n"
         ),
         "{err}"
     );
@@ -1490,7 +1490,7 @@ fn turn_line_lists_not_covered_paths() {
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
     assert!(
         err.starts_with(
-            "changed 3 files (+24 \u{2212}7) in app; efr undo reverts this turn\nnot covered: \
+            "changed 3 files (+24 -7) in app; efr undo reverts this turn\nnot covered: \
              target/ (ignored, large), .env.large (over 10 MiB), a, b, c and 6 more\n"
         ),
         "{err}"
@@ -1514,7 +1514,7 @@ fn turn_line_of_manual_turn_has_no_undo_hint() {
     let undo = TurnUndoInfo { undoable: false, ..undo_info(&[("app", 3)], 0, &["x (big)"], 0) };
     let err =
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
-    assert_eq!(err, "3 files changed, +24 \u{2212}7\n");
+    assert_eq!(err, "3 files changed, +24 -7\n");
 }
 
 /// Files of every kind of group: code, tests, a group of `[diff.groups]` and a lock file.

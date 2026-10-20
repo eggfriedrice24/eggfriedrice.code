@@ -99,8 +99,8 @@ fn the_stat_lists_the_files() {
     let options = RenderOptions::new(80).with_terminal(false);
     assert_eq!(
         shown(&result(None), true, &DiffGroups::default(), &options),
-        "code   +1  \u{2212}1\ndocs   +1\ntotal  +2  \u{2212}1\n\n\
-         changed src/main.rs  +1 \u{2212}1\nnew     notes.md     +1\n2 files changed, +2 \u{2212}1\n"
+        "code   +1  -1\ndocs   +1\ntotal  +2  -1\n\n\
+         changed src/main.rs  +1 -1\nnew     notes.md     +1\n2 files changed, +2 -1\n"
     );
     // A turn that changed only code shows no table.
     let mut code = result(None);
@@ -108,7 +108,7 @@ fn the_stat_lists_the_files() {
     (code.changes.added, code.changes.removed) = (1, 1);
     assert_eq!(
         shown(&code, true, &DiffGroups::default(), &options),
-        "changed src/main.rs  +1 \u{2212}1\n1 file changed, +1 \u{2212}1\n"
+        "changed src/main.rs  +1 -1\n1 file changed, +1 -1\n"
     );
 }
 
@@ -401,8 +401,8 @@ async fn efr_diff_stat_all_adds_up_every_turn_of_the_conversation() {
     assert_eq!(stderr, "2 turns of the newest conversation that changed files\n");
     assert_eq!(
         stdout,
-        "tests  +30\ncode   +14  \u{2212}2\ndocs    +5\ntotal  +49  \u{2212}2\n\nnew     docs/b.md   +5\nnew     src/a.rs    +14 \u{2212}2\nnew     tests/a.rs  \
-         +30\n\u{2026} 1 more file\n4 files changed, +49 \u{2212}2\n"
+        "tests  +30\ncode   +14  -2\ndocs    +5\ntotal  +49  -2\n\nnew     docs/b.md   +5\nnew     src/a.rs    +14 -2\nnew     tests/a.rs  \
+         +30\n\u{2026} 1 more file\n4 files changed, +49 -2\n"
     );
 }
 

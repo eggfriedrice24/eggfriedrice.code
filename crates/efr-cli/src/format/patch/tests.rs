@@ -56,8 +56,8 @@ fn the_files_of_a_patch_with_their_counts_in_order() {
     );
     assert_eq!(
         summary(&files(PATCH)),
-        "src/a.rs +2 \u{2212}1, src/b.rs +1, new notes.md +2, delete old.rs, \
-         move src/expr.rs \u{2192} src/expression.rs +1 \u{2212}1"
+        "src/a.rs +2 -1, src/b.rs +1, new notes.md +2, delete old.rs, \
+         move src/expr.rs \u{2192} src/expression.rs +1 -1"
     );
 }
 
@@ -79,16 +79,16 @@ fn the_entries_flow_into_rows_cut_only_between_two_of_them() {
     assert_eq!(
         rows,
         [
-            "src/a.rs +2 \u{2212}1,",
+            "src/a.rs +2 -1,",
             "src/b.rs +1,",
             "new notes.md +2,",
             "delete old.rs,",
             "move src/expr.rs \u{2192}",
-            "src/expression.rs +1 \u{2212}1",
+            "src/expression.rs +1 -1",
         ]
     );
     let wide = flow(&entries, 40, WidthMethod::CodePoint);
-    assert_eq!(wide[0], "src/a.rs +2 \u{2212}1, src/b.rs +1,");
+    assert_eq!(wide[0], "src/a.rs +2 -1, src/b.rs +1,");
     for row in &rows {
         assert!(display_width(row, WidthMethod::CodePoint) <= 26, "{rows:?}");
     }
@@ -111,7 +111,7 @@ fn an_apply_patch_call_is_named_by_its_files() {
     let short = "*** Begin Patch\n*** Update File: src/a.rs\n-a\n+b\n+c\n*** Update File: src/b.rs\n+d\n*** End Patch\n";
     assert_eq!(
         tool_call("apply_patch", &json!(short), None),
-        "apply_patch src/a.rs +2 \u{2212}1, src/b.rs +1"
+        "apply_patch src/a.rs +2 -1, src/b.rs +1"
     );
     // A patch without a file shows the tool alone.
     assert_eq!(tool_call("apply_patch", &json!("*** Begin Patch\n"), None), "apply_patch");

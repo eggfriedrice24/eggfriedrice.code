@@ -5,10 +5,10 @@
 //! snapshot covers; `efr history` names each undo and, with `--verbose`, each snapshot.
 //!
 //! ```text
-//! changed src/a.rs +3 −1 · deleted old.rs · new notes.md (+2 more)
-//! 3 files changed, +24 −7
-//! 9 files changed, +635 −44 (evals +503, tests +77)
-//! changed 3 files (+24 −7) in app and 2 in ~; efr undo reverts this turn
+//! changed src/a.rs +3 -1 · deleted old.rs · new notes.md (+2 more)
+//! 3 files changed, +24 -7
+//! 9 files changed, +635 -44 (evals +503, tests +77)
+//! changed 3 files (+24 -7) in app and 2 in ~; efr undo reverts this turn
 //! not covered: target/ (ignored, large), refs of app (shallow)
 //! ```
 //!
@@ -79,8 +79,8 @@ pub(crate) fn add_home_change(changes: &mut Vec<HomeChange>, change: HomeChange)
     }
 }
 
-/// The minus sign of a count of removed lines: wider and clearer than a hyphen.
-pub(crate) const MINUS: char = '\u{2212}';
+/// The sign of a count of removed lines: a plain hyphen-minus, as a diff writes it.
+pub(crate) const MINUS: char = '-';
 
 /// The files that a call's row names; the rest are counted.
 const ROW_FILES: usize = 3;
@@ -111,7 +111,7 @@ fn path(file: &FileChange) -> String {
     }
 }
 
-/// `+3 −1` as pieces, a part left out when it is 0; nothing when both are.
+/// `+3 -1` as pieces, a part left out when it is 0; nothing when both are.
 pub(crate) fn counts(added: u32, removed: u32) -> Vec<Piece> {
     let mut pieces = Vec::new();
     if added > 0 {
@@ -146,7 +146,7 @@ fn row_counts(file: &FileChange) -> Vec<Piece> {
     }
 }
 
-/// The row of changes under a call, such as `changed src/a.rs +3 −1 · deleted old.rs ·
+/// The row of changes under a call, such as `changed src/a.rs +3 -1 · deleted old.rs ·
 /// new notes.md (+2 more)`: the first files, grouped by their kind in the order the
 /// kinds first come, then how many more files changed. Empty when nothing changed.
 pub(crate) fn call_row(changes: &FileChanges) -> Vec<Piece> {
@@ -194,7 +194,7 @@ fn file_count(changes: &FileChanges) -> usize {
 /// The most groups that the line of a turn names.
 const LINE_GROUPS: usize = 2;
 
-/// `+24 −7` as plain text; empty when both are 0.
+/// `+24 -7` as plain text; empty when both are 0.
 fn counts_text(added: u32, removed: u32) -> String {
     counts(added, removed).into_iter().map(|(text, _)| text).collect()
 }
@@ -214,8 +214,8 @@ fn groups_text(changes: &FileChanges, groups: &DiffGroups) -> String {
         .join(", ")
 }
 
-/// The line at the end of a turn that changed files, such as `3 files changed, +24 −7`
-/// or `9 files changed, +635 −44 (evals +503, tests +77)`; `None` when it changed none.
+/// The line at the end of a turn that changed files, such as `3 files changed, +24 -7`
+/// or `9 files changed, +635 -44 (evals +503, tests +77)`; `None` when it changed none.
 pub(crate) fn turn_line(changes: &FileChanges, groups: &DiffGroups) -> Option<String> {
     let mut line = total_line(changes)?;
     let named = groups_text(changes, groups);
@@ -225,7 +225,7 @@ pub(crate) fn turn_line(changes: &FileChanges, groups: &DiffGroups) -> Option<St
     Some(line)
 }
 
-/// [`turn_line`] without the groups, such as `3 files changed, +24 −7`.
+/// [`turn_line`] without the groups, such as `3 files changed, +24 -7`.
 fn total_line(changes: &FileChanges) -> Option<String> {
     let count = file_count(changes);
     if count == 0 {
@@ -251,9 +251,9 @@ fn files(count: usize) -> String {
 }
 
 /// The line at the end of an `auto` turn that `efr undo` can take back, such as
-/// `changed 4 files (+12 −3) in eggfriedrice.code and 2 in ~; efr undo reverts this
+/// `changed 4 files (+12 -3) in eggfriedrice.code and 2 in ~; efr undo reverts this
 /// turn`: the files in the roots, named by the roots, with the groups of the files
-/// after the counts (`(+635 −44; evals +503, tests +77)`), and the files outside the
+/// after the counts (`(+635 -44; evals +503, tests +77)`), and the files outside the
 /// roots that efr copied first; for a turn that only moved refs, `moved 1 ref in
 /// eggfriedrice.code; efr undo reverts this turn`. `None` when the turn changed no file
 /// or ref that undo covers, or undo cannot take the turn back now.
@@ -465,7 +465,7 @@ pub(crate) fn stat(changes: &FileChanges, groups: &DiffGroups, options: &RenderO
 
 /// The table of the groups at the top of `efr diff --stat`: one row per group with
 /// changed lines, the largest first, then the files that the list leaves out and the
-/// total. A muted label, then `+N` in the `success` role and `−N` in the `error` role,
+/// total. A muted label, then `+N` in the `success` role and `-N` in the `error` role,
 /// each column aligned; a count of 0 is left out. A row without changed lines, such as
 /// a group of binary files, is left out, but the total always shows. Empty when every
 /// group with changed lines is code, as the line of the turn names no group then.

@@ -39,7 +39,7 @@ fn a_row_names_the_first_files_by_kind_and_counts_the_rest() {
     );
     assert_eq!(
         text(&call_row(&changes)),
-        "changed src/a.rs +3 \u{2212}1 \u{b7} deleted old.rs \u{b7} new notes.md (+2 more)"
+        "changed src/a.rs +3 -1 \u{b7} deleted old.rs \u{b7} new notes.md (+2 more)"
     );
 }
 
@@ -53,10 +53,7 @@ fn files_of_one_kind_share_their_word() {
         ],
         0,
     );
-    assert_eq!(
-        text(&call_row(&changes)),
-        "changed a.rs +3 \u{2212}1, b.rs \u{2212}2 \u{b7} deleted gone.rs"
-    );
+    assert_eq!(text(&call_row(&changes)), "changed a.rs +3 -1, b.rs -2 \u{b7} deleted gone.rs");
 }
 
 #[test]
@@ -68,7 +65,7 @@ fn a_rename_shows_both_paths_and_a_binary_file_no_counts() {
     let changes = changes(vec![renamed, logo], 0);
     assert_eq!(
         text(&call_row(&changes)),
-        "renamed src/old.rs \u{2192} src/new.rs +1 \u{2212}1 \u{b7} changed logo.png (binary)"
+        "renamed src/old.rs \u{2192} src/new.rs +1 -1 \u{b7} changed logo.png (binary)"
     );
 }
 
@@ -77,7 +74,7 @@ fn the_counts_are_in_the_success_and_error_roles_and_the_rest_is_muted() {
     let changes = changes(vec![file("a.rs", ChangeKind::Modified, 3, 1)], 0);
     let row = call_row(&changes);
     assert!(row.contains(&("+3".to_owned(), Tone::Success)), "{row:?}");
-    assert!(row.contains(&("\u{2212}1".to_owned(), Tone::Failure)), "{row:?}");
+    assert!(row.contains(&("-1".to_owned(), Tone::Failure)), "{row:?}");
     assert!(row.iter().all(|(_, tone)| matches!(tone, Tone::Dim | Tone::Success | Tone::Failure)));
 }
 
@@ -108,7 +105,7 @@ fn the_line_of_a_turn_counts_files_and_lines() {
         ],
         0,
     );
-    assert_eq!(turn_line(&three, &no_groups()).as_deref(), Some("3 files changed, +24 \u{2212}7"));
+    assert_eq!(turn_line(&three, &no_groups()).as_deref(), Some("3 files changed, +24 -7"));
     let one = changes(vec![file("a.rs", ChangeKind::Modified, 5, 0)], 0);
     assert_eq!(turn_line(&one, &no_groups()).as_deref(), Some("1 file changed, +5"));
 }
@@ -241,12 +238,12 @@ fn the_line_of_a_turn_names_at_most_two_groups_that_are_not_code() {
     );
     assert_eq!(
         turn_line(&many, &evals()).as_deref(),
-        Some("5 files changed, +638 \u{2212}45 (evals +503, tests +77)")
+        Some("5 files changed, +638 -45 (evals +503, tests +77)")
     );
     // Without the group of the file, its files are code.
     assert_eq!(
         turn_line(&many, &no_groups()).as_deref(),
-        Some("5 files changed, +638 \u{2212}45 (tests +77, docs +3 \u{2212}1)")
+        Some("5 files changed, +638 -45 (tests +77, docs +3 -1)")
     );
     // A group without changed lines is left out of the line.
     let binary = changes(
@@ -264,9 +261,7 @@ fn the_undo_line_names_the_groups_after_the_counts() {
     );
     assert_eq!(
         super::undo_line(Some(&two), &undo(&[("app", 2)], 0), &no_groups()).as_deref(),
-        Some(
-            "changed 2 files (+10 \u{2212}2; tests +9 \u{2212}2) in app; efr undo reverts this turn"
-        )
+        Some("changed 2 files (+10 -2; tests +9 -2) in app; efr undo reverts this turn")
     );
 }
 

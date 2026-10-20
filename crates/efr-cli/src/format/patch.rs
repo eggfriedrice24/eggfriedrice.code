@@ -3,7 +3,7 @@
 //! file.
 //!
 //! ```text
-//! · apply_patch src/a.rs +3 −1, new notes.md +2, delete old.rs
+//! · apply_patch src/a.rs +3 -1, new notes.md +2, delete old.rs
 //!   src/a.rs
 //!   │ @@ -1,2 +1,2 @@
 //!   │ -    old();
@@ -137,15 +137,15 @@ pub(crate) fn files(text: &str) -> Vec<PatchFile> {
     files
 }
 
-/// The files of a patch as the line of its call, such as `src/a.rs +3 −1, new
-/// notes.md +2, delete old.rs, move a.rs → b.rs +1 −1`. Empty for a patch without a
+/// The files of a patch as the line of its call, such as `src/a.rs +3 -1, new
+/// notes.md +2, delete old.rs, move a.rs → b.rs +1 -1`. Empty for a patch without a
 /// file.
 pub(crate) fn summary(files: &[PatchFile]) -> String {
     entries(files).join(JOIN)
 }
 
 /// Each file of a patch as its entry in the line of its call, such as `src/a.rs +3
-/// −1` or `delete old.rs`, safe to print.
+/// -1` or `delete old.rs`, safe to print.
 pub(crate) fn entries(files: &[PatchFile]) -> Vec<String> {
     files
         .iter()

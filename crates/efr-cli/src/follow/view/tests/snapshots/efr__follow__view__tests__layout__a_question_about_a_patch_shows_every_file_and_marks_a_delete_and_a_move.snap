@@ -106,12 +106,12 @@ expression: shown
 \e[2m│ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
 \e[2m│ \e[0m }
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36mapply_patch src/main.rs +1 −1,\e[0m
+\e[33m·\e[0m \e[36mapply_patch src/main.rs +1 -1,\e[0m
               \e[36msrc/lib.rs +1,\e[0m
               \e[36mnew notes.md +2,\e[0m
               \e[36mdelete old.rs,\e[0m
               \e[36mmove src/expr.rs →\e[0m
-              \e[36msrc/expression.rs +1 −1\e[0m
+              \e[36msrc/expression.rs +1 -1\e[0m
   \e[36msrc/main.rs\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
 \e[2m  │ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
@@ -259,12 +259,12 @@ expression: shown
 \e[2m│ \e[0m\e[1m+\e[0m    let a = 2;
 \e[2m│ \e[0m }
 ✓ allowed
-\e[1m·\e[0m apply_patch src/main.rs +1 −1,
+\e[1m·\e[0m apply_patch src/main.rs +1 -1,
               src/lib.rs +1,
               new notes.md +2,
               delete old.rs,
               move src/expr.rs →
-              src/expression.rs +1 −1
+              src/expression.rs +1 -1
   src/main.rs
 \e[2m  │ \e[0m@@ -1,3 +1,24 @@
 \e[2m  │ \e[0m fn main() {
@@ -406,8 +406,8 @@ expression: shown
 \e[2m│ \e[0m\e[1;32m+\e[0m    \e[35mlet\e[0m a \e[35m=\e[0m \e[33m2\e[0m;
 \e[2m│ \e[0m }
 \e[32m✓ allowed\e[0m
-\e[33m·\e[0m \e[36mapply_patch src/main.rs +1 −1, src/lib.rs +1, new notes.md +2, delete old.rs,\e[0m
-              \e[36mmove src/expr.rs → src/expression.rs +1 −1\e[0m
+\e[33m·\e[0m \e[36mapply_patch src/main.rs +1 -1, src/lib.rs +1, new notes.md +2, delete old.rs,\e[0m
+              \e[36mmove src/expr.rs → src/expression.rs +1 -1\e[0m
   \e[36msrc/main.rs\e[0m
 \e[2m  │ \e[0m\e[36m@@ -1,3 +1,24 @@\e[0m
 \e[2m  │ \e[0m \e[35mfn\e[0m \e[34mmain\e[0m() {
@@ -548,8 +548,8 @@ expression: shown
 \e[2m│ \e[0m\e[1m+\e[0m    let a = 2;
 \e[2m│ \e[0m }
 ✓ allowed
-\e[1m·\e[0m apply_patch src/main.rs +1 −1, src/lib.rs +1, new notes.md +2, delete old.rs,
-              move src/expr.rs → src/expression.rs +1 −1
+\e[1m·\e[0m apply_patch src/main.rs +1 -1, src/lib.rs +1, new notes.md +2, delete old.rs,
+              move src/expr.rs → src/expression.rs +1 -1
   src/main.rs
 \e[2m  │ \e[0m@@ -1,3 +1,24 @@
 \e[2m  │ \e[0m fn main() {
@@ -695,7 +695,7 @@ stderr:
 │  }
 │ y allow · n deny
 ✓ allowed
-· apply_patch src/main.rs +1 −1, src/lib.rs +1, new notes.md +2, delete old.rs, move src/expr.rs → src/expression.rs +1 −1
+· apply_patch src/main.rs +1 -1, src/lib.rs +1, new notes.md +2, delete old.rs, move src/expr.rs → src/expression.rs +1 -1
   src/main.rs
   │ @@ -1,3 +1,24 @@
   │  fn main() {

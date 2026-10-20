@@ -832,7 +832,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
     assert!(!piped.contains("Begin Patch"), "{piped}");
     assert!(
         piped.contains(
-            "apply_patch src/a.rs +1 \u{2212}1, new notes.md +1, delete old.rs, move src/expr.rs \u{2192} src/expression.rs"
+            "apply_patch src/a.rs +1 -1, new notes.md +1, delete old.rs, move src/expr.rs \u{2192} src/expression.rs"
         ),
         "{piped}"
     );
@@ -1556,11 +1556,11 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
 
     let text = show(&page, &options);
 
-    assert!(text.contains("2 files changed, +10 \u{2212}1 (tests +7)\n"), "{text}");
+    assert!(text.contains("2 files changed, +10 -1 (tests +7)\n"), "{text}");
     let groups = DiffGroups::new(vec![("checks".to_owned(), vec!["tests/".to_owned()])]);
     let shown = Shown { options: &options, verbose: false, home: None, groups: &groups };
     let text = transcript(conversation(), &page, &shown);
-    assert!(text.contains("2 files changed, +10 \u{2212}1 (checks +7)\n"), "{text}");
+    assert!(text.contains("2 files changed, +10 -1 (checks +7)\n"), "{text}");
     // A turn that changed no file shows no line.
     let none = ConversationHistoryResult {
         events: vec![envelope(

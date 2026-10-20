@@ -4,18 +4,18 @@ expression: "shown.join(\"\\n\")"
 ---
 === manual, 80 columns, colour
 [end]
-\e[2m4 files changed, +635 −44 (evals +503, tests +77)\e[0m
+\e[2m4 files changed, +635 -44 (evals +503, tests +77)\e[0m
 \e[2mdone in 1.0s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
 === manual, not a terminal
 [end]
 stdout:
 stderr:
-4 files changed, +635 −44 (evals +503, tests +77)
+4 files changed, +635 -44 (evals +503, tests +77)
 
 === auto, 80 columns, colour
 [end]
-\e[2mchanged 4 files (+635 −44; evals +503, tests +77) in app; efr undo reverts this\e[0m
+\e[2mchanged 4 files (+635 -44; evals +503, tests +77) in app; efr undo reverts this\e[0m
   \e[2mturn\e[0m
 \e[2mdone in 1.0s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
 
@@ -23,4 +23,4 @@ stderr:
 [end]
 stdout:
 stderr:
-changed 4 files (+635 −44; evals +503, tests +77) in app; efr undo reverts this turn
+changed 4 files (+635 -44; evals +503, tests +77) in app; efr undo reverts this turn
