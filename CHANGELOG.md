@@ -532,6 +532,13 @@ into the GitHub release notes, and it stops when the section is missing.
   Before, systemd 262 looked only for its private socket, and the command failed, also
   after you allowed the whole session bus. A script that runs `systemctl --user`
   itself still fails.
+- `efr undo` now removes the empty directories that the turn made outside the
+  project, such as the `*.wants` directory that `systemctl --user enable` made. It
+  removes only an empty directory: a directory that holds a file of yours stays.
+- In `auto`, a change in a directory of your home that holds a git repository, such
+  as `~/notes` with `~/notes/.git`, no longer stops the call. efr copies the files of
+  the directory but not its `.git`, so `efr undo` reverts the files, and the end of
+  the turn says that it does not cover `~/notes/.git`.
 
 ### Security
 
