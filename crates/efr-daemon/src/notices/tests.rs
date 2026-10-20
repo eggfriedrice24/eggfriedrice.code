@@ -1,12 +1,12 @@
 use std::os::unix::fs::PermissionsExt as _;
 
 use efr_protocol::{
-    CallId, ConversationId, ErrorBody, ErrorCode, Event, HeldReason, JobId, JobState, JobStopBy,
-    Seq, TurnId,
+    CallId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, HeldReason, JobId,
+    JobState, JobStopBy, Seq, TurnId,
 };
 use pretty_assertions::assert_eq;
 
-use crate::notices::{append, file_name, line, not_run};
+use crate::notices::{Wake, append, file_name, line, not_run, wake_of};
 
 fn turn() -> TurnId {
     TurnId::from_uuid(uuid::Uuid::from_u128(1))
@@ -58,15 +58,15 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
     };
 
     assert_eq!(
-        line(&completed, Some("fix nginx")).as_deref(),
+        line(&completed, Some("fix nginx"), None).as_deref(),
         Some("efr: turn finished: fix nginx")
     );
     assert_eq!(
-        line(&failed, Some("fix nginx")).as_deref(),
+        line(&failed, Some("fix nginx"), None).as_deref(),
         Some("efr: turn failed: fix nginx: the provider stream broke")
     );
     assert_eq!(
-        line(&approval, None).as_deref(),
+        line(&approval, None, None).as_deref(),
         Some("efr: approval waiting: a conversation: write /etc/hosts")
     );
 }
@@ -83,7 +83,7 @@ fn a_turn_that_failed_for_want_of_a_login_says_how_to_log_in() {
     };
 
     assert_eq!(
-        line(&failed, Some("fix nginx")).as_deref(),
+        line(&failed, Some("fix nginx"), None).as_deref(),
         Some(
             "efr: turn failed: fix nginx: no provider credentials are stored; run efr login openai"
         )
@@ -102,7 +102,7 @@ fn the_parts_that_ask_follow_the_summary_on_the_same_line() {
         expires_in_secs: None,
     };
     assert_eq!(
-        line(&approval, Some("fix nginx")).as_deref(),
+        line(&approval, Some("fix nginx"), None).as_deref(),
         Some(
             "efr: approval waiting: fix nginx: shell: run \"uptime; hostnamectl\"; asks for: \
              hostnamectl"
@@ -122,7 +122,7 @@ fn the_login_hint_survives_a_long_title() {
     };
     let title = "x".repeat(400);
 
-    let text = line(&failed, Some(&title)).unwrap();
+    let text = line(&failed, Some(&title), None).unwrap();
 
     assert_eq!(text.chars().count(), 200);
     assert!(text.ends_with("...; run efr login openai"), "{text}");
@@ -139,11 +139,12 @@ fn other_events_get_no_line() {
                 changes: None,
                 undo: None
             },
-            Some("x")
+            Some("x"),
+            None
         ),
         None
     );
-    assert_eq!(line(&Event::TurnCancelled { turn_id: turn() }, Some("x")), None);
+    assert_eq!(line(&Event::TurnCancelled { turn_id: turn() }, Some("x"), None), None);
 }
 
 #[test]
@@ -158,7 +159,7 @@ fn a_notice_stays_on_one_short_line() {
     };
     let title = format!("two\nlines\x1b[31m{}", "x".repeat(400));
 
-    let text = line(&event, Some(&title)).unwrap();
+    let text = line(&event, Some(&title), None).unwrap();
 
     assert!(!text.contains('\n') && !text.contains('\x1b'), "{text:?}");
     assert_eq!(text.chars().count(), 200);
@@ -214,7 +215,7 @@ fn a_notice_shows_a_stand_in_for_each_format_character() {
         expires_in_secs: None,
     };
 
-    let text = line(&approval, Some("title\u{2066}")).unwrap();
+    let text = line(&approval, Some("title\u{2066}"), None).unwrap();
 
     assert!(!text.contains(['\u{202e}', '\u{200b}', '\u{2066}']), "{text:?}");
     assert!(text.ends_with("write /home/u/\u{fffd}fdp.sh\u{fffd}"), "{text:?}");
@@ -259,7 +260,7 @@ fn job_ended_notice_line() {
     ];
     for (event, what) in cases {
         assert_eq!(
-            line(&event, title).as_deref(),
+            line(&event, title, None).as_deref(),
             Some(format!("efr: job j3 {what}: run the dev server").as_str())
         );
     }
@@ -287,7 +288,7 @@ fn job_ended_notice_line() {
         bus_refused_more: 0,
     };
     assert_eq!(
-        line(&lost, title).as_deref(),
+        line(&lost, title, None).as_deref(),
         Some(
             "efr: job j3 stopped: it changed git settings (quarantined): run the dev server; its \
              launcher was lost, and its processes may still run; 2 processes of the job may \
@@ -295,7 +296,7 @@ fn job_ended_notice_line() {
         )
     );
     // The end of the line survives a long title.
-    let text = line(&lost, Some(&"x".repeat(300))).unwrap();
+    let text = line(&lost, Some(&"x".repeat(300)), None).unwrap();
     assert!(text.ends_with("2 processes of the job may still run"), "{text}");
     assert!(text.chars().count() <= 200, "{text}");
 }
@@ -313,11 +314,137 @@ fn held_notice_line_names_reason() {
     ];
     for (reason, why) in cases {
         assert_eq!(
-            line(&held(reason), Some("fix nginx")).as_deref(),
+            line(&held(reason), Some("fix nginx"), None).as_deref(),
             Some(
                 format!("efr: job j2 waits for your next prompt: fix nginx; no wake turn ({why})")
                     .as_str()
             )
         );
     }
+}
+
+fn completed() -> Event {
+    Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
+}
+
+/// An event of the page of a turn.
+fn envelope(seq: u64, event: Event) -> EventEnvelope {
+    EventEnvelope {
+        seq: Seq::new(seq),
+        conversation_id: None,
+        at: jiff::Timestamp::UNIX_EPOCH,
+        event,
+    }
+}
+
+/// An answer of the model in the turn `turn_id`.
+fn answer(seq: u64, turn_id: TurnId, index: u32, text: &str) -> EventEnvelope {
+    envelope(seq, Event::AssistantMessageCompleted { turn_id, index, text: text.to_owned() })
+}
+
+#[test]
+fn wake_turn_finished_names_the_job() {
+    let wake = wake_of(turn(), "job notice: j2", &[]);
+    assert_eq!(wake, Wake { jobs: "j2".to_owned(), answer: None });
+    assert_eq!(
+        line(&completed(), Some("fix nginx"), Some(&wake)).as_deref(),
+        Some("efr: job notice turn finished (job j2): fix nginx")
+    );
+    let two = Wake { jobs: "j2, j3".to_owned(), answer: None };
+    assert_eq!(
+        line(&completed(), Some("fix nginx"), Some(&two)).as_deref(),
+        Some("efr: job notice turn finished (jobs j2, j3): fix nginx")
+    );
+    let failed = Event::TurnFailed {
+        turn_id: turn(),
+        error: ErrorBody::new(ErrorCode::Internal, "the provider stream broke"),
+        usage: None,
+        context: None,
+        changes: None,
+        undo: None,
+    };
+    assert_eq!(
+        line(&failed, Some("fix nginx"), Some(&wake)).as_deref(),
+        Some("efr: job notice turn failed (job j2): fix nginx: the provider stream broke")
+    );
+}
+
+#[test]
+fn wake_turn_notice_shows_first_answer_line() {
+    let other = TurnId::from_uuid(uuid::Uuid::from_u128(9));
+    let page = [
+        answer(10, turn(), 0, "I look at the log."),
+        answer(
+            11,
+            turn(),
+            1,
+            "\n  The build passed:\x1b[31m 12 tests\u{202e} ran.\nDetails follow.",
+        ),
+        answer(12, other, 0, "another turn's answer"),
+    ];
+
+    let wake = wake_of(turn(), "job notice: j2", &page);
+    let text = line(&completed(), Some("fix nginx"), Some(&wake)).unwrap();
+
+    assert_eq!(
+        text,
+        "efr: job notice turn finished (job j2): fix nginx: The build passed: [31m 12 tests\u{fffd} \
+         ran.; efr history shows all"
+    );
+    // A long answer is cut, and the hint stays at the end of the one line.
+    let long = Wake { jobs: "j2".to_owned(), answer: Some("y".repeat(400)) };
+    let text = line(&completed(), Some("fix nginx"), Some(&long)).unwrap();
+    assert_eq!(text.chars().count(), 200);
+    assert!(text.ends_with("...; efr history shows all"), "{text}");
+    assert!(!text.contains('\n'), "{text:?}");
+}
+
+#[tokio::test]
+async fn the_store_names_a_job_notice_turn_and_its_answer() {
+    let clock = efr_test_support::TestClock::new();
+    let store = efr_test_support::TestStore::open(clock.shared()).await.unwrap();
+    let conversation: ConversationId = "0192f0c1-7a00-7000-8000-000000000003".parse().unwrap();
+    let notice = |job: u32, woke: bool| Event::JobNotice {
+        conversation_id: conversation,
+        turn_id: turn(),
+        job_id: JobId::nth(job),
+        notice_kind: efr_protocol::NoticeKind::Exited,
+        woke,
+        source_seq: Seq::new(1),
+        not_user_input: true,
+        text: "<job/>".to_owned(),
+    };
+    let created = Event::ConversationCreated { origin: efr_protocol::Origin::Shell, tty: None };
+    let said = Event::AssistantMessageCompleted {
+        turn_id: turn(),
+        index: 0,
+        text: "Both jobs passed.".to_owned(),
+    };
+    let committed = store
+        .writer()
+        .append(
+            efr_store::Batch::new()
+                .event(conversation, created)
+                .event(conversation, notice(2, true))
+                .event(conversation, notice(3, true))
+                .event(conversation, said)
+                .event(conversation, completed()),
+        )
+        .await
+        .unwrap();
+    let end = committed.events().last().unwrap().clone();
+
+    let wake = crate::notices::wake_turn(store.readers(), conversation, &end).await;
+
+    let jobs = "j2, j3".to_owned();
+    assert_eq!(wake, Some(Wake { jobs, answer: Some("Both jobs passed.".to_owned()) }));
+    let other = envelope(end.seq.get(), Event::TurnCancelled { turn_id: turn() });
+    assert_eq!(crate::notices::wake_turn(store.readers(), conversation, &other).await, None);
 }

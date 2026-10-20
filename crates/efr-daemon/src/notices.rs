@@ -8,6 +8,12 @@
 //! removes the file at its next prompt. `<tty>` is `$TTY` without `/dev/`, with `/` as
 //! `-`, so `/dev/pts/3` is `pts-3`.
 //!
+//! The end of a turn that job notices started (a wake turn) has no prompt of the user
+//! to name, so its line names the jobs and shows the first line of the model's answer,
+//! then `; efr history shows all` ([`Wake`], DV29). The file is 0600 below the runtime
+//! root, and a wake turn needs a live conversation, so its terminal is the one that
+//! the conversation uses now.
+//!
 //! The decision waits while a client in the terminal may still show the event: `efr`
 //! sends a prompt and then follows its turn, which may already have ended, and it
 //! leaves as soon as it has shown the end, often before this task reads the commit.
@@ -21,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_protocol::{
-    ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, JobState, JobStopBy,
+    ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, JobState, JobStopBy, TurnId,
 };
 use efr_stdx::text::is_format;
 use tokio::sync::broadcast::error::RecvError;
@@ -53,20 +59,62 @@ pub(crate) fn file_name(tty: &str) -> Option<String> {
 /// notice has no other place to learn it.
 const LOGIN_HINT: &str = "; run efr login openai";
 
+/// What follows the first line of a job notice turn's answer: the rest is in the
+/// history.
+const HISTORY_HINT: &str = "; efr history shows all";
+
+/// A turn that job notices started (a wake turn), for its notice: the jobs that it
+/// names and the first line of its answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Wake {
+    /// The ids of the jobs whose notices started the turn, as the turn's prompt names
+    /// them: `j3` or `j3, j4`.
+    pub(crate) jobs: String,
+    /// The first line of the turn's last answer that is not empty; `None` without one.
+    pub(crate) answer: Option<String>,
+}
+
+/// The [`Wake`] of the job notice turn `turn`, whose prompt column is `prompt` (such as
+/// `job notice: j3, j4`) and whose events through its end are `page`.
+pub(crate) fn wake_of(turn: TurnId, prompt: &str, page: &[EventEnvelope]) -> Wake {
+    let jobs = prompt.strip_prefix(efr_store::conversations::WAKE_PROMPT).unwrap_or(prompt);
+    let answer = page.iter().rev().find_map(|envelope| match &envelope.event {
+        Event::AssistantMessageCompleted { turn_id, text, .. } if *turn_id == turn => {
+            text.lines().map(str::trim).find(|line| !line.is_empty()).map(str::to_owned)
+        }
+        _ => None,
+    });
+    Wake { jobs: jobs.trim().to_owned(), answer }
+}
+
 /// The notice for `event` of a conversation titled `title`, if the event deserves one.
-pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
+/// `wake` is the job notice turn that a `turn_completed` or `turn_failed` ends.
+pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> Option<String> {
     let title = title.filter(|title| !title.trim().is_empty()).unwrap_or("a conversation");
     let text = match event {
-        Event::TurnCompleted { .. } => format!("efr: turn finished: {title}"),
-        Event::TurnFailed { error, .. } if error.code == ErrorCode::Unauthorized => {
-            // NOTE: the hint goes on after the cut, so a long title cannot push it out.
-            let text = format!("efr: turn failed: {title}: {}", error.message);
-            let mut line = one_line(&text, MAX_CHARS - LOGIN_HINT.chars().count());
-            line.push_str(LOGIN_HINT);
-            return Some(line);
+        Event::TurnCompleted { .. } => {
+            let Some(wake) = wake else {
+                return Some(one_line(&format!("efr: turn finished: {title}"), MAX_CHARS));
+            };
+            let head =
+                format!("efr: job notice turn finished ({}): {title}", job_words(&wake.jobs));
+            // NOTE: the hint goes on after the cut, so a long answer cannot push it out.
+            return Some(match &wake.answer {
+                Some(answer) => with_extra(&format!("{head}: {answer}"), HISTORY_HINT),
+                None => one_line(&head, MAX_CHARS),
+            });
         }
         Event::TurnFailed { error, .. } => {
-            format!("efr: turn failed: {title}: {}", error.message)
+            let head = match wake {
+                Some(wake) => format!("efr: job notice turn failed ({})", job_words(&wake.jobs)),
+                None => "efr: turn failed".to_owned(),
+            };
+            let text = format!("{head}: {title}: {}", error.message);
+            if error.code == ErrorCode::Unauthorized {
+                // NOTE: the hint goes on after the cut, so a long title cannot push it out.
+                return Some(with_extra(&text, LOGIN_HINT));
+            }
+            text
         }
         Event::ApprovalRequested { summary, .. } => {
             // NOTE: a summary's second line names the parts of a command line that
@@ -103,6 +151,11 @@ pub(crate) fn line(event: &Event, title: Option<&str>) -> Option<String> {
         _ => return None,
     };
     Some(one_line(&text, MAX_CHARS))
+}
+
+/// `job j3`, or `jobs j3, j4` for the ids `jobs` of a job notice turn.
+fn job_words(jobs: &str) -> String {
+    if jobs.contains(',') { format!("jobs {jobs}") } else { format!("job {jobs}") }
 }
 
 /// `text` cut so that `extra` fits after it on one line of [`MAX_CHARS`], then `extra`:
@@ -251,7 +304,7 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
     let Some(conversation_id) = envelope.conversation_id else {
         return;
     };
-    if line(&envelope.event, None).is_none() {
+    if line(&envelope.event, None, None).is_none() {
         return;
     }
     let summary =
@@ -267,7 +320,8 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
     let Some(tty) = summary.tty else {
         return;
     };
-    let Some(text) = line(&envelope.event, summary.title.as_deref()) else {
+    let wake = wake_turn(&state.readers, conversation_id, envelope).await;
+    let Some(text) = line(&envelope.event, summary.title.as_deref(), wake.as_ref()) else {
         return;
     };
     let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
@@ -275,6 +329,42 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
         Decision::Write(notice) => write(state, notice).await,
         Decision::Shown | Decision::Held => {}
     }
+}
+
+/// The [`Wake`] of the turn that `envelope` ends, when it is a `turn_completed` or a
+/// `turn_failed` of a job notice turn; `None` for any other event or turn.
+pub(crate) async fn wake_turn(
+    readers: &efr_store::Readers,
+    conversation_id: ConversationId,
+    envelope: &EventEnvelope,
+) -> Option<Wake> {
+    let (Event::TurnCompleted { turn_id, .. } | Event::TurnFailed { turn_id, .. }) =
+        &envelope.event
+    else {
+        return None;
+    };
+    let (turn_id, through) = (*turn_id, envelope.seq);
+    let read = readers
+        .with(move |conn| {
+            let Some(turn) = efr_store::conversations::turn(conn, turn_id)? else {
+                return Ok(None);
+            };
+            if !turn.wake {
+                return Ok(None);
+            }
+            let page = efr_store::events::read_turn_range(
+                conn,
+                conversation_id,
+                turn.queued_seq,
+                through,
+            )?;
+            Ok(Some(wake_of(turn.id, &turn.prompt, &page)))
+        })
+        .await;
+    read.unwrap_or_else(|error| {
+        tracing::warn!(error = %error, %conversation_id, "the turn of a notice could not be read");
+        None
+    })
 }
 
 /// Appends a decided notice to its terminal's file under the runtime root.
