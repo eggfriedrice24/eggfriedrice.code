@@ -360,6 +360,14 @@ into the GitHub release notes, and it stops when the section is missing.
   conversation is never open in two terminals: a terminal whose shell still runs, or
   that follows the conversation, holds it. A phone never holds one. `efr history`
   shows `picked up in /dev/pts/7` where it happened.
+- `efr history --verbose` shows the tokens of each turn on one muted line, such as
+  `18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)`: the input, the output, the cache
+  share and the cache writes, also for an interrupted or failed turn. It also shows
+  `asked again for a real reason` when the reviewer asked its model again.
+- With `log = "info,efr_conversation::usage=debug"`, the log of efrd shows one line
+  with the numbers of each model call, such as `usage gap_ms=95000 input=18200
+  output=1100 read=16600 write=1200 write_1h=1200`, so you can measure which
+  `[anthropic] cache_ttl` costs less. The line holds no text of a prompt or an answer.
 
 ### Changed
 
@@ -548,6 +556,13 @@ into the GitHub release notes, and it stops when the section is missing.
   minus sign.
 - `efr status` shows its times in your time zone, such as `started 2026-10-20 12:00:00
   CEST (2h 0m ago)`.
+- `efr config reload`, `efr config set`, `unset` and `edit` show the warnings of the
+  reload, one dim line each: a `[model] name` of another company than `[model]
+  provider`, an always rule that a floor now disables, and a bus filter that the
+  reload turned off. Before, they went only to the log.
+- After a restart of efrd, `efr status` says `key sk-ant-...a1b2 not checked since
+  efrd started` for a stored API key until the first request with the key gets an
+  answer, because efrd keeps the refusals of a key in memory only.
 
 ### Fixed
 
@@ -589,6 +604,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - The live state of a turn that a job notice started no longer says that you sent a
   prompt, or that your shell is in the directory of the job's turn. It says that a job
   notice started the turn and that the turn works in that directory.
+- `efr history` prints the partial answer of an interrupted turn once. Before, it
+  printed it twice.
+- The warning about a `[model] name` of another company shows once in the log. Before,
+  each reload of the same file wrote it again, also a start that reloaded once.
+- The `phase=model_answer` log line of an interrupted or failed model call says
+  `outcome=interrupted` or `outcome=error`. Before, it said `stop_reason=interrupted`,
+  which is no stop reason of the API.
 
 ### Security
 
