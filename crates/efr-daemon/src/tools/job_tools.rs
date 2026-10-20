@@ -405,6 +405,7 @@ impl DaemonToolbox {
             contained: prepared.contained,
             proxy: None,
             bus: None,
+            full: call.context.is_full(),
         };
         let new =
             NewJob { wakes: new.info.watch.as_ref().map_or(0, |watch| watch.max_wakes), ..new };

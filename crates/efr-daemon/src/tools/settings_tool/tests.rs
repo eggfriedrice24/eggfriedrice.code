@@ -773,7 +773,7 @@ fn each_sandbox_key_that_opens_the_sandbox_loosens() {
         ),
     ];
     for (row, next) in &opening {
-        assert!(super::sandbox_loosens(&base, next), "{row} must loosen");
+        assert!(crate::loosens::sandbox_loosens(&base, next), "{row} must loosen");
     }
     let closing: Vec<(&str, SandboxSettings)> = vec![
         ("sandbox.enabled", changed(|s| s.enabled = false)),
@@ -788,7 +788,7 @@ fn each_sandbox_key_that_opens_the_sandbox_loosens() {
         ("sandbox.offline_hints", changed(|s| s.offline_hints = false)),
     ];
     for (row, next) in &closing {
-        assert!(!super::sandbox_loosens(&base, next), "{row} must not loosen");
+        assert!(!crate::loosens::sandbox_loosens(&base, next), "{row} must not loosen");
     }
 }
 
@@ -797,8 +797,8 @@ fn loosens_classifier_enabled() {
     let mut off = Settings::default();
     off.classifier.enabled = false;
     let on = Settings::default();
-    assert!(super::loosens(&off, &on), "turning the classifier on loosens");
-    assert!(!super::loosens(&on, &off), "turning it off asks more, so it does not loosen");
+    assert!(crate::loosens::loosens(&off, &on), "turning the classifier on loosens");
+    assert!(!crate::loosens::loosens(&on, &off), "turning it off asks more, so it does not loosen");
 
     let changed = |change: fn(&mut Settings)| {
         let mut next = Settings::default();
@@ -818,7 +818,7 @@ fn loosens_classifier_enabled() {
         ("presence.push", changed(|s| s.presence.push = false)),
     ];
     for (row, next) in &others {
-        assert!(!super::loosens(&on, next), "{row} must not loosen");
+        assert!(!crate::loosens::loosens(&on, next), "{row} must not loosen");
     }
 }
 
@@ -830,9 +830,9 @@ fn keep_downloads_does_not_loosen() {
     off.sandbox.keep_downloads = false;
     let mut on = Settings::default();
     on.sandbox.keep_downloads = true;
-    assert!(!super::loosens(&off, &on), "false to true does not loosen");
-    assert!(!super::sandbox_loosens(&off.sandbox, &on.sandbox));
-    assert!(!super::loosens(&on, &off), "true to false does not loosen");
+    assert!(!crate::loosens::loosens(&off, &on), "false to true does not loosen");
+    assert!(!crate::loosens::sandbox_loosens(&off.sandbox, &on.sandbox));
+    assert!(!crate::loosens::loosens(&on, &off), "true to false does not loosen");
 }
 
 #[test]
@@ -843,9 +843,9 @@ fn loosens_ask_destructive_unless_undoable() {
     always.sandbox.ask_destructive = AskDestructive::Always;
     let unless = Settings::default();
     assert_eq!(unless.sandbox.ask_destructive, AskDestructive::UnlessUndoable);
-    assert!(super::loosens(&always, &unless), "always to unless_undoable asks less");
-    assert!(super::sandbox_loosens(&always.sandbox, &unless.sandbox));
-    assert!(!super::loosens(&unless, &always), "unless_undoable to always asks more");
+    assert!(crate::loosens::loosens(&always, &unless), "always to unless_undoable asks less");
+    assert!(crate::loosens::sandbox_loosens(&always.sandbox, &unless.sandbox));
+    assert!(!crate::loosens::loosens(&unless, &always), "unless_undoable to always asks more");
 }
 
 #[test]
@@ -879,12 +879,12 @@ fn loosens_dbus_rows() {
         ("dbus.allow other bus", changed(&|d| d.allow[0].bus = BusKind::System)),
     ];
     for (row, next) in &opening {
-        assert!(super::dbus_loosens(&base, next), "{row} must loosen");
+        assert!(crate::loosens::dbus_loosens(&base, next), "{row} must loosen");
         let mut before = Settings::default();
         before.dbus = base.clone();
         let mut after = Settings::default();
         after.dbus = next.clone();
-        assert!(super::loosens(&before, &after), "{row} must loosen the whole file");
+        assert!(crate::loosens::loosens(&before, &after), "{row} must loosen the whole file");
     }
     let mut on = base.clone();
     on.proxy = true;
@@ -902,7 +902,7 @@ fn loosens_dbus_rows() {
         }),
     ];
     for (row, next) in &closing {
-        assert!(!super::dbus_loosens(&on, next), "{row} must not loosen");
+        assert!(!crate::loosens::dbus_loosens(&on, next), "{row} must not loosen");
     }
 }
 
@@ -990,16 +990,16 @@ fn loosens_allow_full() {
     assert!(!off.permissions.allow_full, "the gate is off by default");
     let mut on = Settings::default();
     on.permissions.allow_full = true;
-    assert!(super::loosens(&off, &on), "turning the gate on loosens");
-    assert!(!super::loosens(&on, &off), "turning it off asks more, so it does not loosen");
+    assert!(crate::loosens::loosens(&off, &on), "turning the gate on loosens");
+    assert!(!crate::loosens::loosens(&on, &off), "turning it off asks more, so it does not loosen");
 
     // Full is above auto, so a move to full as the default loosens too.
     let mut auto = on.clone();
     auto.permissions.mode = Mode::Auto;
     let mut full = on.clone();
     full.permissions.mode = Mode::Full;
-    assert!(super::loosens(&auto, &full), "auto to full loosens");
-    assert!(!super::loosens(&full, &auto), "full to auto does not loosen");
+    assert!(crate::loosens::loosens(&auto, &full), "auto to full loosens");
+    assert!(!crate::loosens::loosens(&full, &auto), "full to auto does not loosen");
 }
 
 #[tokio::test]
@@ -1036,10 +1036,10 @@ fn loosens_network_rows() {
     assert!(on.network.netview, "the network view is on by default");
     let mut off = Settings::default();
     off.network.netview = false;
-    assert!(super::loosens(&off, &on), "false to true runs more lines with no review");
-    assert!(super::network_loosens(&off.network, &on.network));
-    assert!(!super::loosens(&on, &off), "true to false sends them to the reviewer again");
-    assert!(!super::network_loosens(&on.network, &on.network));
+    assert!(crate::loosens::loosens(&off, &on), "false to true runs more lines with no review");
+    assert!(crate::loosens::network_loosens(&off.network, &on.network));
+    assert!(!crate::loosens::loosens(&on, &off), "true to false sends them to the reviewer again");
+    assert!(!crate::loosens::network_loosens(&on.network, &on.network));
 
     // The proxy keys of phase D2.
     use efr_config::{NetworkHost, NetworkSettings};
@@ -1083,12 +1083,12 @@ fn loosens_network_rows() {
         ("network.max_upload_bytes higher", changed(&|n| n.max_upload_bytes += 1)),
     ];
     for (row, next) in &opening {
-        assert!(super::network_loosens(&base, next), "{row} must loosen");
+        assert!(crate::loosens::network_loosens(&base, next), "{row} must loosen");
         let mut before = Settings::default();
         before.network = base.clone();
         let mut after = Settings::default();
         after.network = next.clone();
-        assert!(super::loosens(&before, &after), "{row} must loosen the whole file");
+        assert!(crate::loosens::loosens(&before, &after), "{row} must loosen the whole file");
     }
 
     let mut wide = base.clone();
@@ -1109,7 +1109,7 @@ fn loosens_network_rows() {
         ("network.max_upload_bytes lower", narrowing(&|n| n.max_upload_bytes = 65_536)),
     ];
     for (row, next) in &closing {
-        assert!(!super::network_loosens(&wide, next), "{row} must not loosen");
+        assert!(!crate::loosens::network_loosens(&wide, next), "{row} must not loosen");
     }
 }
 
@@ -1118,18 +1118,18 @@ fn loosens_undo_and_snapshot_enabled() {
     let mut off = Settings::default();
     off.undo.enabled = false;
     let on = Settings::default();
-    assert!(super::loosens(&off, &on), "turning undo on loosens");
-    assert!(!super::loosens(&on, &off), "turning undo off asks more");
+    assert!(crate::loosens::loosens(&off, &on), "turning undo on loosens");
+    assert!(!crate::loosens::loosens(&on, &off), "turning undo off asks more");
 
     let mut no_snapshots = Settings::default();
     no_snapshots.snapshot.enabled = false;
-    assert!(super::loosens(&no_snapshots, &on), "turning snapshots on loosens");
-    assert!(!super::loosens(&on, &no_snapshots), "turning snapshots off asks more");
+    assert!(crate::loosens::loosens(&no_snapshots, &on), "turning snapshots on loosens");
+    assert!(!crate::loosens::loosens(&on, &no_snapshots), "turning snapshots off asks more");
 
     let mut no_ignored = Settings::default();
     no_ignored.snapshot.ignored = efr_config::IgnoredFiles::None;
-    assert!(super::loosens(&no_ignored, &on), "taking small ignored files loosens");
-    assert!(!super::loosens(&on, &no_ignored), "leaving them out asks more");
+    assert!(crate::loosens::loosens(&no_ignored, &on), "taking small ignored files loosens");
+    assert!(!crate::loosens::loosens(&on, &no_ignored), "leaving them out asks more");
 }
 
 #[test]
@@ -1148,15 +1148,15 @@ fn loosens_more_coverage_limits() {
         ("snapshot.max_files", changed(|s| s.snapshot.max_files += 1)),
     ];
     for (row, next) in &higher {
-        assert!(super::loosens(&base, next), "a higher {row} must loosen");
-        assert!(!super::loosens(next, &base), "a lower {row} must not loosen");
+        assert!(crate::loosens::loosens(&base, next), "a higher {row} must loosen");
+        assert!(!crate::loosens::loosens(next, &base), "a lower {row} must not loosen");
     }
     let others: Vec<(&str, Settings)> = vec![
         ("snapshot.keep_turns", changed(|s| s.snapshot.keep_turns += 1)),
         ("snapshot.max_age_days", changed(|s| s.snapshot.max_age_days += 1)),
     ];
     for (row, next) in &others {
-        assert!(!super::loosens(&base, next), "{row} must not loosen");
+        assert!(!crate::loosens::loosens(&base, next), "{row} must not loosen");
     }
 }
 
@@ -1170,8 +1170,8 @@ fn loosens_jobs_rows() {
     let mut off = Settings::default();
     off.jobs.enabled = false;
     let on = Settings::default();
-    assert!(super::loosens(&off, &on), "turning jobs on loosens");
-    assert!(!super::loosens(&on, &off), "turning jobs off asks more");
+    assert!(crate::loosens::loosens(&off, &on), "turning jobs on loosens");
+    assert!(!crate::loosens::loosens(&on, &off), "turning jobs off asks more");
 
     let base = changed(|s| {
         s.jobs.default_minutes = 30;
@@ -1197,8 +1197,8 @@ fn loosens_jobs_rows() {
     for (row, change) in more {
         let mut next = base.clone();
         change(&mut next);
-        assert!(super::loosens(&base, &next), "{row} must loosen");
-        assert!(super::jobs_loosens(&base.jobs, &next.jobs), "{row}");
-        assert!(!super::loosens(&next, &base), "the way back from {row} must not loosen");
+        assert!(crate::loosens::loosens(&base, &next), "{row} must loosen");
+        assert!(crate::loosens::jobs_loosens(&base.jobs, &next.jobs), "{row}");
+        assert!(!crate::loosens::loosens(&next, &base), "the way back from {row} must not loosen");
     }
 }

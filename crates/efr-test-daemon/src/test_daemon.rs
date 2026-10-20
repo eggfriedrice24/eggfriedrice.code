@@ -164,6 +164,8 @@ struct Launch {
     bus_proxy_program: Option<PathBuf>,
     /// Whether the daemon counts as running as root, which refuses full mode.
     as_root: Option<bool>,
+    /// Reload when `config.toml` changes on disk, as the real daemon does.
+    config_watch: bool,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -220,6 +222,7 @@ impl Default for TestDaemonBuilder {
                 buses: (None, None),
                 bus_proxy_program: None,
                 as_root: None,
+                config_watch: false,
             },
         }
     }
@@ -426,6 +429,14 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Reloads `config.toml` when it changes on disk, as the real daemon does, so a test
+    /// sees the reload of the file watcher (and the config hold of full mode).
+    #[must_use]
+    pub fn config_watch(mut self) -> Self {
+        self.settings.config_watch = true;
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -529,6 +540,9 @@ impl TestDaemon {
         }
         if let Some(root) = settings.as_root {
             deps = deps.with_runs_as_root(root);
+        }
+        if settings.config_watch {
+            deps = deps.with_config_watch();
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());

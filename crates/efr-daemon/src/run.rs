@@ -46,6 +46,7 @@ use crate::connections::Connections;
 use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
 use crate::engine::{EngineParts, Probed};
+use crate::full::FullTurns;
 use crate::jobs::{JobParts, JobTable, SpawnEnv};
 use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
@@ -551,6 +552,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     }
     // NOTE: the jobs that the last efrd left running end before anything can start a
     // new one, so a pid or a dir of the old job never meets a new one.
+    // NOTE: the full work that runs, which the toolbox and the job table count and a
+    // reload reads (the config hold).
+    let full = FullTurns::default();
     let (jobs, job_notices) = JobTable::new(JobParts {
         clock: Arc::clone(&clock),
         writer: writer.clone(),
@@ -562,6 +566,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             home: home.path().to_path_buf(),
             user_runtime: sandbox.host().user_runtime.clone(),
         },
+        full: full.clone(),
     });
     jobs.recover().await?;
     // NOTE: boxed, so the start future stays small.
@@ -602,6 +607,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     ])
     .with_programs(programs)
     .with_jobs(jobs.clone(), job_seams.job_env())
+    .with_full_turns(full.clone())
     .with_wake_starts(wake_starts(&readers, clock.now()).await);
     let resolver = GitScopeResolver::new(home.clone(), git.clone()).with_registry(registry_path);
     let host = match host {
@@ -686,6 +692,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         presence,
         jobs,
         runs_as_root,
+        full,
     });
     let peer_state = Arc::downgrade(&state);
     // NOTE: weak, so the probe that the seams keep never keeps the state alive.
@@ -816,6 +823,12 @@ impl Daemon {
     #[cfg(test)]
     pub(crate) fn reloads(&self) -> Reloads {
         self.state.reloads.clone()
+    }
+
+    /// The full work that runs, for the tests of the config hold.
+    #[cfg(test)]
+    pub(crate) fn full_turns(&self) -> FullTurns {
+        self.state.full.clone()
     }
 
     /// The probe's status, for the tests that check that a rebuild never probes.

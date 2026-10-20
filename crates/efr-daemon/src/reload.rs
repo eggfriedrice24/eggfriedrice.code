@@ -23,6 +23,17 @@
 //! A reloaded `[model] name` of another company than the running `[model] provider`
 //! gets a warning in the log, as at the start.
 //!
+//! The config hold (full mode, DF17): a command of a full turn runs as the user, so it
+//! can write `config.toml`. While full work runs ([`crate::full::FullTurns`]), a reload
+//! whose new settings loosen permissions ([`crate::loosens::loosening`]) is held: the
+//! old settings stay, one WARN goes to the log, terminals hear it once, and
+//! `admin.status` names the keys that loosen (`ConfigStatus::held`). The hold is sticky:
+//! after the full work ended, each reload holds again while the file still loosens
+//! against the running settings. Only `admin.config_reload`, which the user's own
+//! `efr config reload` sends, applies a held change, and only when no full work runs;
+//! while it runs, that reload is refused with a text that says so. A reload whose
+//! settings loosen nothing applies as before and ends the hold.
+//!
 //! Reloads run one at a time in one task ([`serve`]), so two triggers at once never
 //! interleave their sends; a trigger asks it through [`reload`] and waits for the
 //! outcome.
@@ -43,7 +54,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use efr_config::{CONFIG_FILE, ConfigError, FileState, Reloaded, Settings};
 use efr_permissions::{Egress, Engine};
 use efr_protocol::{
-    AdminConfigReloadResult, ConfigFileError, ConfigStatus, Mode, NetworkMode, SandboxStatus,
+    AdminConfigReloadResult, ConfigFileError, ConfigStatus, HeldConfig, Mode, NetworkMode,
+    SandboxStatus,
 };
 use jiff::SignedDuration;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -106,6 +118,69 @@ pub(crate) struct Outcome {
     pub(crate) error: Option<ConfigFileError>,
     /// The keys whose new values wait for a restart.
     pub(crate) restart_needed: Vec<String>,
+    /// The change of the file that loosens permissions and that the config hold keeps
+    /// back, until a reload applies the file or the file no longer loosens.
+    pub(crate) held: Option<HeldConfig>,
+}
+
+/// The trigger of the user's own `efr config reload`: the only one that applies a held
+/// change, and only while no full work runs.
+const USER_RELOAD: &str = "admin.config_reload";
+
+/// What `efr config reload` reads while full work runs and the file loosens
+/// permissions.
+pub(crate) const HELD_WHILE_FULL: &str = "efr does not load a change that loosens \
+     permissions while a full turn or its job runs; run efr config reload again after it ends";
+
+/// What the config hold does with a reload of `trigger` whose new settings loosen the
+/// keys `loosening`, while full work runs when `full_runs` is true and with a held
+/// change when `held` is true.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Hold {
+    /// The reload applies, as before full mode.
+    Apply,
+    /// The old settings stay and the change is held, with the keys that loosen.
+    Keep(Vec<&'static str>),
+    /// The user's reload while full work runs: refused, and the change stays held.
+    Refuse(Vec<&'static str>),
+}
+
+/// See [`Hold`]. Every trigger but the user's own reload holds: the file watcher,
+/// SIGHUP and the project methods, and also the settings tool and the writer of an
+/// always rule, whose reload reads the whole file and so would apply a held change
+/// that the user never saw.
+pub(crate) fn hold(
+    trigger: &str,
+    loosening: Vec<&'static str>,
+    full_runs: bool,
+    held: bool,
+) -> Hold {
+    if loosening.is_empty() {
+        return Hold::Apply;
+    }
+    if trigger == USER_RELOAD {
+        return if full_runs { Hold::Refuse(loosening) } else { Hold::Apply };
+    }
+    if full_runs || held { Hold::Keep(loosening) } else { Hold::Apply }
+}
+
+/// The text of a held change with the keys of `held` that loosen, for the log, the
+/// terminals and the result of the reload.
+pub(crate) fn held_text(held: &HeldConfig) -> String {
+    format!(
+        "config.toml changed while a full turn ran, and the change loosens {}. If you did \
+         not make this change, take it out of the file. Then run efr config reload.",
+        held.loosens.join(", ")
+    )
+}
+
+/// What [`apply`] did.
+enum Applied {
+    /// The new settings apply; the keys that wait for a restart.
+    Done(Vec<String>),
+    /// The config hold kept the old settings: the keys that loosen, and whether it
+    /// refused the user's own reload ([`Hold::Refuse`]).
+    Held { loosens: Vec<&'static str>, refused: bool },
 }
 
 impl Reloads {
@@ -152,14 +227,14 @@ impl Reloads {
 pub(crate) async fn status(state: &State) -> ConfigStatus {
     let path = state.dirs.config().join(CONFIG_FILE);
     let file = file_state(&path).await;
-    let Outcome { error, restart_needed } = state.reloads.last();
+    let Outcome { error, restart_needed, held } = state.reloads.last();
     ConfigStatus {
         path,
         exists: file.exists,
         symlink_target: file.symlink_target,
         reload_error: error,
         restart_needed,
-        held: None,
+        held,
     }
 }
 
@@ -304,21 +379,38 @@ pub(crate) async fn follow_mirrors(
 #[tracing::instrument(skip_all, fields(trigger = trigger))]
 async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadResult {
     let outcome = match read(state).await {
-        Ok(next) => apply(state, next).await,
+        Ok(next) => apply(state, next, trigger).await,
         Err(error) => Err(error.file_error()),
     };
     let previous = state.reloads.last();
     let (now, result) = match outcome {
-        Ok(restart_needed) => {
+        Ok(Applied::Done(restart_needed)) => {
             tracing::info!(restart_needed = ?restart_needed, "config reloaded");
-            let now = Outcome { error: None, restart_needed: restart_needed.clone() };
+            let now = Outcome { error: None, restart_needed: restart_needed.clone(), held: None };
             (now, AdminConfigReloadResult { applied: true, error: None, restart_needed })
+        }
+        Ok(Applied::Held { loosens, refused }) => {
+            let held =
+                HeldConfig { loosens: loosens.iter().map(|key| (*key).to_owned()).collect() };
+            if previous.held.as_ref() != Some(&held) {
+                tracing::warn!(loosens = ?held.loosens, trigger, "{}", held_text(&held));
+            }
+            let message = if refused { HELD_WHILE_FULL.to_owned() } else { held_text(&held) };
+            let error = ConfigFileError { message, line: None, column: None, key: None };
+            let restart_needed = previous.restart_needed.clone();
+            // NOTE: the file loads, so no error stays; the change waits as held.
+            let now =
+                Outcome { error: None, restart_needed: restart_needed.clone(), held: Some(held) };
+            (now, AdminConfigReloadResult { applied: false, error: Some(error), restart_needed })
         }
         Err(error) => {
             tracing::warn!(error = %error.message, "config.toml has an error; the old settings stay");
             let restart_needed = previous.restart_needed.clone();
-            let now =
-                Outcome { error: Some(error.clone()), restart_needed: restart_needed.clone() };
+            let now = Outcome {
+                error: Some(error.clone()),
+                restart_needed: restart_needed.clone(),
+                held: previous.held.clone(),
+            };
             (now, AdminConfigReloadResult { applied: false, error: Some(error), restart_needed })
         }
     };
@@ -364,12 +456,25 @@ async fn read(state: &State) -> Result<Settings, ConfigError> {
     }
 }
 
-/// Lays `next` over the running settings and hands each applier its new value.
-/// Returns the keys that wait for a restart, or why nothing was applied.
-async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileError> {
+/// Lays `next` over the running settings and hands each applier its new value, unless
+/// the config hold keeps it back for a reload of `trigger`. Returns the keys that wait
+/// for a restart, or what the hold kept, or why nothing was applied.
+async fn apply(
+    state: &State,
+    next: Settings,
+    trigger: &'static str,
+) -> Result<Applied, ConfigFileError> {
     let running = Arc::clone(&state.settings.borrow());
     let Reloaded { settings, restart_needed, .. } =
         running.reloaded(next).map_err(|error| error.file_error())?;
+    // NOTE: before anything is built or sent, so a held change changes nothing.
+    let held = state.reloads.last().held.is_some();
+    let loosening = crate::loosens::loosening(&running, &settings);
+    match hold(trigger, loosening, state.full.running(), held) {
+        Hold::Apply => {}
+        Hold::Keep(loosens) => return Ok(Applied::Held { loosens, refused: false }),
+        Hold::Refuse(loosens) => return Ok(Applied::Held { loosens, refused: true }),
+    }
     if settings.log != running.log {
         crate::telemetry::parse(&settings.log).map_err(|error| refused(&error, Some("log")))?;
     }
@@ -448,7 +553,7 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     if probe_again {
         state.sandbox.reprobe(Arc::clone(&state.settings.borrow()));
     }
-    Ok(restart_needed)
+    Ok(Applied::Done(restart_needed))
 }
 
 /// True when a reload from `running` to `next` must run the sandbox probe again: the
@@ -488,8 +593,13 @@ fn refused(error: &DaemonError, key: Option<&str>) -> ConfigFileError {
 }
 
 /// The line each terminal hears when the outcome changed from `previous` to `now`: a
-/// new error, or a new set of keys that wait for a restart.
+/// new error, a new held change, or a new set of keys that wait for a restart.
 pub(crate) fn notice(previous: &Outcome, now: &Outcome) -> Option<String> {
+    if let Some(held) = &now.held
+        && previous.held.as_ref() != Some(held)
+    {
+        return Some(format!("efr: {}", held_text(held)));
+    }
     if let Some(error) = &now.error {
         if previous.error.as_ref() == Some(error) {
             return None;

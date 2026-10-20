@@ -440,6 +440,11 @@ into the GitHub release notes, and it stops when the section is missing.
   sudoers shares the cache across terminals (`timestamp_type=global`), this also clears
   your own terminal's cache. A hidden shell without efr's zsh integration does not run
   a full call.
+- While a full turn or its job runs, efr does not load a change of `config.toml` that
+  loosens permissions, and keeps it held after: `efr status` names what loosens, and
+  your terminal hears it once. If you did not make the change, take it out of the file;
+  then run `efr config reload`. `efr config reload` does not load such a change while
+  full work runs.
 - A command that gets the network view runs in your machine's network namespace.
   Only Unix and netlink sockets work there, `listen` fails, and Landlock refuses TCP
   and connects to abstract Unix sockets outside the sandbox. Any program in such a

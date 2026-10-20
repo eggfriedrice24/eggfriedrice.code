@@ -45,6 +45,7 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::DaemonError;
+use crate::full::FullTurns;
 use crate::sandbox::bus::{BusCall, BusReport};
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::sandbox::proxy::ProxyCall;
@@ -128,6 +129,8 @@ pub(crate) struct JobParts {
     /// The launcher's copy, `$R/bin/efr-sbx`.
     pub(crate) launcher: PathBuf,
     pub(crate) spawn_env: SpawnEnv,
+    /// The full work that runs, which counts each job that a full call started.
+    pub(crate) full: FullTurns,
 }
 
 /// A job that the toolbox prepared: the launcher may start it.
@@ -155,6 +158,9 @@ pub(crate) struct NewJob {
     /// The job's filtered bus proxies, for its whole life with the rules of its start
     /// (DE1, DE12); `None` without a bus view.
     pub(crate) bus: Option<BusCall>,
+    /// True when a call of full mode started the job: it counts as full work until it
+    /// ends, so a reload holds a loosening change of the config meanwhile.
+    pub(crate) full: bool,
 }
 
 /// A launcher that efrd spawned and that waits for its start byte, with the reader of
@@ -195,6 +201,7 @@ struct Inner {
     dirs: Dirs,
     launcher: PathBuf,
     spawn_env: SpawnEnv,
+    full: FullTurns,
     table: Mutex<Table>,
     notices: mpsc::UnboundedSender<Notice>,
     /// Cancelled once efrd recorded the end of every job at its stop.
@@ -264,7 +271,7 @@ struct Entry {
 impl JobTable {
     /// The table, and the queue of notices that `run.rs` hands to the actors.
     pub(crate) fn new(parts: JobParts) -> (JobTable, mpsc::UnboundedReceiver<Notice>) {
-        let JobParts { clock, writer, readers, dirs, launcher, spawn_env } = parts;
+        let JobParts { clock, writer, readers, dirs, launcher, spawn_env, full } = parts;
         let (notices, queue) = mpsc::unbounded_channel();
         let inner = Inner {
             clock,
@@ -273,6 +280,7 @@ impl JobTable {
             dirs,
             launcher,
             spawn_env,
+            full,
             table: Mutex::new(Table::default()),
             notices,
             cancel: CancellationToken::new(),
@@ -472,6 +480,11 @@ impl JobTable {
             proxy,
             bus,
         };
+        // NOTE: counted before the job is in the table, so no reload between the two
+        // finds the job running and not counted.
+        if job.full {
+            self.inner.full.begin_job(key);
+        }
         self.lock().running.insert(key, entry);
         let watching = (job.matcher.is_some() && job.wakes > 0)
             .then(|| tokio::spawn(self.clone().follow_matches(info.clone(), matches, job.wakes)));
@@ -1073,6 +1086,7 @@ impl JobTask {
             join_start_turn(snapshot, limits, info.started_at).await;
         }
         table.lock().running.remove(&self.key);
+        table.inner.full.end_job(self.key);
         remove_dirs(self.call_dir.clone(), self.state_dir.clone()).await;
         match committed {
             Ok(committed) => {
