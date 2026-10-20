@@ -1472,6 +1472,36 @@ fn e2e_away_runs_efr_away() {
 }
 
 #[test]
+fn e2e_context_runs_efr_context_with_its_words() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    // `,context <words>` was a prompt; now the words are arguments of `efr context`.
+    let (_, status) = run_with(
+        &home,
+        &[],
+        "_efr_turn_mode=auto\n_efr_preexec 'make test'\nfalse; _efr_precmd\n,context\n,context 019a9b1c --json",
+    );
+    assert_eq!(status, Some(0));
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["context"], vec!["context", "019a9b1c", "--json"]]);
+    for call in &calls {
+        assert_eq!((call.prompt.as_deref(), call.context.as_deref()), (None, None));
+        assert_eq!(call.last_command(), None);
+        assert_eq!(call.settings(), [None, None, None], "it hands over no turn settings");
+    }
+
+    // A typo of it stays on the line with a hint; two edits from it is a prompt.
+    let home = Home::new();
+    let screen = type_lines(&home, &[",contxet", "\x15", ",cortex is a part of the brain"]);
+    assert!(screen.contains("efr: ,contxet is no command; did you mean ,context?"), "{screen}");
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"]]);
+    assert_eq!(calls[0].prompt.as_deref(), Some("cortex is a part of the brain"));
+}
+
+#[test]
 fn e2e_a_setting_takes_one_value() {
     if !zsh_tests_enabled() {
         return;

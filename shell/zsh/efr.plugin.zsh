@@ -12,6 +12,12 @@
 #                  ones word for word and starts no turn; the focus says what the
 #                  summary must keep. While a turn runs, efrd refuses it: the turn
 #                  compacts on its own when its context is full
+#   ,context [id]  show what fills the model's context of this terminal's
+#                  conversation: the model's last count, efr's estimate of the next
+#                  request by part, the largest items, the compactions and the cache
+#                  use; it shows no text of a message and starts no turn. The words
+#                  go to `efr context` as they are, such as a conversation id or
+#                  --json
 #   ,away          tell efr that you are away from this terminal's conversation: a
 #                  question then waits only a short time (presence.away_wait_secs),
 #                  and its call does not run; your next input there ends it
@@ -33,8 +39,8 @@
 #                  sends `run make`; a `,word` command of the user's own still runs,
 #                  as does a line that defines one (`,mine() { ... }`),
 #                  `,!word` steers with `word`, and a typo of a plugin command such
-#                  as `,moed`, `,compcat` or `,aawy` stays on the line with a hint
-#                  instead of running
+#                  as `,moed`, `,compcat`, `,contxet` or `,aawy` stays on the line
+#                  with a hint instead of running
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just `mode`, `model` or `effort`,
@@ -610,6 +616,16 @@ function ,compact {
   _efr_call "$REPLY" '' "$text" compact
 }
 
+# Shows what fills the model's context of this terminal's conversation, through `efr
+# context`. It starts no turn, so it hands nothing over: no prompt, no context and no
+# turn settings. The words are arguments of `efr context`, such as a conversation id,
+# --model or --json, not a prompt.
+function ,context {
+  emulate -L zsh
+  _efr_available || { _efr_missing; return 127 }
+  efr context "$@"
+}
+
 # Tells efr that you are away from this terminal's conversation, through `efr away`:
 # the reviewer of auto still decides most actions, but a question for you then waits
 # only presence.away_wait_secs, and its call does not run. Your next input in the
@@ -854,9 +870,9 @@ _efr_one_edit() {
 
 # Sets REPLY to a hint when the first word of the line $1 is a typo of a plugin
 # command's `,` word, such as `,moed` for `,mode`: one edit away from `,mode`,
-# `,model`, `,effort` or `,compact`, or the letters of `,new` or `,away` in another
-# order. Only the order counts for the short `,new` and `,away`, because one edit from
-# them is also the start of a prompt such as `,now` or `,sway`.
+# `,model`, `,effort`, `,compact` or `,context`, or the letters of `,new` or `,away`
+# in another order. Only the order counts for the short `,new` and `,away`, because one
+# edit from them is also the start of a prompt such as `,now` or `,sway`.
 # A word that zsh could run is no typo. Returns 1 for any other line.
 _efr_mistyped_command() {
   emulate -L zsh -o extended_glob
@@ -865,7 +881,7 @@ _efr_mistyped_command() {
   whence -- ",$word" >/dev/null && return 1
   # `model` first: `,modl` is one edit from both, and more likely `,model` with a
   # letter lost.
-  for name in model mode effort compact; do
+  for name in model mode effort compact context; do
     if _efr_one_edit $word $name; then
       meant=$name
       break
