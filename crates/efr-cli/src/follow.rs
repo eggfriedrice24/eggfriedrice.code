@@ -79,7 +79,7 @@ use efr_protocol::{
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
     ErrorCode, Event, InputRespond, InputRespondResult, JobId, JobState, JobsList, JobsListResult,
     JobsStop, JobsStopResult, LateSteer, Method, Origin, PromptSend, PromptSendResult,
-    PromptWithdraw, PromptWithdrawResult, QuestionId, SandboxSurfaceRespond,
+    PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, TurnId, TurnInterrupt,
     TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
@@ -101,13 +101,14 @@ use view::AnswerKind;
 
 pub(crate) use view::{Ask, Look, Step, TICK, TurnEnd, TurnView, spinner};
 
-/// What the input row sends with: the shell context, the last command line and the
-/// turn settings that the plugin handed to this command, so a prompt or a late steer
-/// from the row goes as a prompt from this terminal would.
+/// What the input row sends with: the shell context, the last command line, the recent
+/// command lines and the turn settings that the plugin handed to this command, so a
+/// prompt or a late steer from the row goes as a prompt from this terminal would.
 #[derive(Debug, Clone)]
 pub(crate) struct Compose {
     pub(crate) context: ShellContext,
     pub(crate) last_command: Option<LastCommand>,
+    pub(crate) recent_commands: Vec<RecentCommand>,
     pub(crate) settings: TurnSettings,
 }
 
@@ -1149,7 +1150,7 @@ impl Follower<'_> {
             if_late: Some(LateSteer::Queue {
                 context: Some(compose.context),
                 last_command: compose.last_command.map(LastCommand::into_string),
-                recent_commands: Vec::new(),
+                recent_commands: compose.recent_commands,
                 settings: compose.settings,
             }),
         });
@@ -1196,7 +1197,7 @@ impl Follower<'_> {
             text: text.clone(),
             context: Some(compose.context),
             last_command: compose.last_command.map(LastCommand::into_string),
-            recent_commands: Vec::new(),
+            recent_commands: compose.recent_commands,
             settings: compose.settings,
         });
         let answer = self.send::<PromptSendResult>(method).await.inspect_err(|_| {
@@ -1257,7 +1258,7 @@ impl Follower<'_> {
             Box::new(LateSteer::Queue {
                 context: Some(compose.context),
                 last_command: compose.last_command.map(LastCommand::into_string),
-                recent_commands: Vec::new(),
+                recent_commands: compose.recent_commands,
                 settings: compose.settings,
             })
         });

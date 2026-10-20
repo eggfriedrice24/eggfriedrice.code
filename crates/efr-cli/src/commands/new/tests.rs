@@ -79,6 +79,7 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
     let vars = [
         (Var::Context, r#"{"pwd":"/srv","tty":"/dev/pts/2"}"#),
         (Var::LastCommand, "ls"),
+        (Var::RecentCommands, r#"[{"command":"cd /srv"}]"#),
         (Var::Prompt, "start fresh"),
     ];
     let ctx = Context { env: Env::fixed(vars), ..env.context() };
@@ -114,6 +115,8 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
     assert!(params.new_conversation);
     assert_eq!(params.text, "start fresh");
     assert_eq!(params.last_command.as_deref(), Some("ls"));
+    assert_eq!(params.recent_commands.len(), 1);
+    assert_eq!(params.recent_commands[0].command, "cd /srv");
     assert_eq!(params.context.unwrap().tty.as_deref(), Some("/dev/pts/2"));
 }
 

@@ -39,8 +39,8 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         }
     }
     let result = match command {
-        Command::Send(args) => send::run(ctx, out, args).await,
-        Command::New(args) => new::run(ctx, out, args).await,
+        Command::Send(args) => Box::pin(send::run(ctx, out, args)).await,
+        Command::New(args) => Box::pin(new::run(ctx, out, args)).await,
         Command::Status => status::run(ctx, out).await,
         Command::History(args) => history::run(ctx, out, args).await,
         Command::Diff(args) => diff::run(ctx, out, args).await,

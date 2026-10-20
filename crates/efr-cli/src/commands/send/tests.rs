@@ -4,7 +4,8 @@ use std::sync::Arc;
 use efr_protocol::{
     ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
     DesktopEnv, EffectiveSettings, ErrorBody, ErrorCode, Event, Method, Mode, Origin,
-    OverriddenSettings, PageCursor, PromptSendResult, Seq, TurnSettings, TurnSteerResult,
+    OverriddenSettings, PageCursor, PromptSendResult, RecentCommand, Seq, TurnSettings,
+    TurnSteerResult,
 };
 use efr_stdx::env::{Env, Var};
 use efr_test_support::Wait;
@@ -190,6 +191,52 @@ async fn send_reads_what_the_plugin_hands_over_in_the_environment() {
     assert_eq!(context.pwd, PathBuf::from("/etc/nginx"));
     assert_eq!(context.last_status, Some(1));
     assert_eq!(captured.stdout(), "A typo.\n");
+}
+
+#[tokio::test]
+async fn send_relays_the_recent_commands_of_the_plugin() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [
+        (Var::Context, CONTEXT),
+        (Var::RecentCommands, r#"[{"command":"git pull","status":0},{"command":"nginx -t"}]"#),
+        (Var::Prompt, "why"),
+    ];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "ok").await
+    };
+    let line = command(&["send"]);
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(
+        params.recent_commands,
+        [
+            RecentCommand { status: Some(0), ..RecentCommand::new("git pull") },
+            RecentCommand::new("nginx -t"),
+        ]
+    );
+    let wire = serde_json::to_string(&params.context).unwrap();
+    assert!(!wire.contains("git pull"), "never in the context: {wire}");
+}
+
+#[tokio::test]
+async fn recent_commands_that_do_not_parse_still_send_the_prompt() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [(Var::Context, CONTEXT), (Var::RecentCommands, "[{"), (Var::Prompt, "why")];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        answer(&mut conn, sent(false), "ok").await
+    };
+    let line = command(&["send"]);
+    let (exit, params) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    assert!(params.recent_commands.is_empty());
 }
 
 #[tokio::test]

@@ -9,9 +9,9 @@ use efr_protocol::{
     ApprovalDecision, ApprovalRespondResult, ClientFrame, ConversationHistoryResult, ErrorBody,
     ErrorCode, Event, InputRespondResult, InputWait, JobId, JobState, JobStopBy, JobsListResult,
     JobsStopResult, LateSteer, Method, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    PromptWithdrawResult, RecentCommand, RequestId, ResentSteers, Scope, Seq, ShellContext, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
@@ -60,6 +60,7 @@ fn compose() -> Compose {
     Compose {
         context,
         last_command: Some(LastCommand::from("cargo test".to_owned())),
+        recent_commands: vec![RecentCommand::new("git pull")],
         settings: TurnSettings { mode: Some(Mode::Auto), model: None, effort: None },
     }
 }
@@ -249,11 +250,14 @@ async fn enter_steers_and_the_steer_waits_until_a_model_call_reads_it() {
         assert_eq!(params.conversation_id, conversation());
         assert_eq!(params.turn_id, Some(turn()));
         assert_eq!(params.text, "use the release build");
-        let Some(LateSteer::Queue { context, last_command, settings, .. }) = params.if_late else {
+        let Some(LateSteer::Queue { context, last_command, recent_commands, settings }) =
+            params.if_late
+        else {
             panic!("a late steer is queued: {:?}", params.if_late);
         };
         assert_eq!(context.and_then(|context| context.tty).as_deref(), Some("/dev/pts/7"));
         assert_eq!(last_command.as_deref(), Some("cargo test"));
+        assert_eq!(recent_commands, [RecentCommand::new("git pull")]);
         assert_eq!(settings.mode, Some(Mode::Auto));
         conn.reply(id, &TurnSteerResult { turn_id: turn(), seq: Seq::new(11), queued: false })
             .await;
@@ -290,6 +294,7 @@ async fn tab_queues_a_prompt_and_the_view_follows_it_after_the_turn() {
         assert_eq!(params.text, "then update the docs");
         assert_eq!(params.context.and_then(|context| context.tty).as_deref(), Some("/dev/pts/7"));
         assert_eq!(params.last_command.as_deref(), Some("cargo test"));
+        assert_eq!(params.recent_commands, [RecentCommand::new("git pull")]);
         assert_eq!(params.settings.mode, Some(Mode::Auto));
         let queued = PromptSendResult {
             conversation_id: conversation(),
@@ -358,7 +363,7 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         let resend_as = LateSteer::Queue {
             context: Some(compose.context),
             last_command: Some("cargo test".to_owned()),
-            recent_commands: Vec::new(),
+            recent_commands: vec![RecentCommand::new("git pull")],
             settings: compose.settings,
         };
         assert_eq!(params.resend_as, Some(Box::new(resend_as)), "this terminal's values");
