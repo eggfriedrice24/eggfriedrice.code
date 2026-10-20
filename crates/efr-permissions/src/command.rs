@@ -260,6 +260,16 @@ pub(crate) fn privileged(command: &SimpleCommand) -> Option<&str> {
     None
 }
 
+/// True when `line` runs a program as another user, such as `sudo`, as the engine reads
+/// it: in a simple command or behind a wrapper, or anywhere in a line that [`analyze`]
+/// cannot split. Only the user's own machine answers the question of such a line.
+pub fn runs_as_another_user(line: &str) -> bool {
+    match analyze(line) {
+        Ok(commands) => commands.iter().any(|command| privileged(command).is_some()),
+        Err(_) => privileged_anywhere(line).is_some(),
+    }
+}
+
 /// True when `command` changes the shell's directory, so the commands after it may run
 /// elsewhere.
 pub(crate) fn changes_directory(command: &SimpleCommand) -> bool {

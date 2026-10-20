@@ -4,7 +4,9 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::{Construct, SimpleCommand, analyze, privileged, privileged_anywhere};
+use super::{
+    Construct, SimpleCommand, analyze, privileged, privileged_anywhere, runs_as_another_user,
+};
 
 fn words(line: &str) -> Vec<Vec<String>> {
     match analyze(line) {
@@ -262,4 +264,16 @@ proptest! {
             prop_assert!(analyze(&line).is_err(), "{:?} split", line);
         }
     }
+}
+
+#[rstest]
+#[case::plain("sudo pacman -Syu", true)]
+#[case::behind_a_wrapper("nice -n 5 doas true", true)]
+#[case::second_part("cargo build && sudo make install", true)]
+#[case::in_a_substitution("echo $(sudo id)", true)]
+#[case::by_path("/usr/bin/sudo -v", true)]
+#[case::none("cargo build", false)]
+#[case::a_word_only("echo pseudo", false)]
+fn a_line_that_runs_as_another_user(#[case] line: &str, #[case] expected: bool) {
+    assert_eq!(runs_as_another_user(line), expected, "{line}");
 }

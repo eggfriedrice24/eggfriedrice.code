@@ -395,6 +395,8 @@ proptest property:
   remote origin runs with at most `cautious` and asks outside `$SCRATCH`, secrets stay
   denied unless a user rule names them, a conversation's rules only tighten, and no
   tool writes a write-sealed root.
+  `runs_as_another_user` reads a line for a privileged program as the engine does, so
+  the check point makes the question of such a line local only in every mode.
 - A delete or a move of a file (`Requirements::destructive`) asks in every mode, from
   every origin and also when every rule allows everything, on its own reason
   (`Subject::Destructive`, `Cause::Destructive`). The one exception is a turn in `auto`

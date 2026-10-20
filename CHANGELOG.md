@@ -423,6 +423,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Security
 
+- A question for a line that runs `sudo` or another program as another user now takes
+  an answer only from your own machine, never from a phone, also in `manual` and
+  `cautious`.
 - A command that gets the network view runs in your machine's network namespace.
   Only Unix and netlink sockets work there, `listen` fails, and Landlock refuses TCP
   and connects to abstract Unix sockets outside the sandbox. Any program in such a
