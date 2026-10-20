@@ -447,7 +447,7 @@ async fn sandbox_explain_answers_from_the_plan() {
 }
 
 /// The fake launcher of these tests. `probe` prints `<fake>/report.json` and counts in
-/// `<fake>/probes`; `run` keeps a copy of the call's spec, fails before it starts when
+/// `<fake>/probes`; `run` keeps a copy of the call's spec (written to a temp name, then moved, so a reader never sees half of it), fails before it starts when
 /// `<fake>/fail` exists, and otherwise runs the child script directly, with no sandbox,
 /// and writes the launcher's files. With `<fake>/survivors` the result names one survivor,
 /// once.
@@ -459,7 +459,7 @@ run) ;;
 *) exit 2 ;;
 esac
 dir=$3
-cp "$dir/spec.json" "$fake/spec-${dir##*/}.json"
+cp "$dir/spec.json" "$fake/.spec-${dir##*/}.tmp" && mv "$fake/.spec-${dir##*/}.tmp" "$fake/spec-${dir##*/}.json"
 if [ -e "$fake/fail" ]; then echo "efr-sbx: a fake setup failure" >&2; exit 125; fi
 : > "$dir/started"
 mkdir -p "$dir/fake-child"
