@@ -98,11 +98,19 @@
 
 [permissions]
 # The default permission mode of a turn: manual (every call asks, except what your
-# rules allow), cautious (read-only commands and reads run at once) or auto (cautious
-# plus writes, builds and tests in the project). A prompt may choose another one for
-# its turn. A turn from the phone runs with at most cautious. docs/permissions.md
-# lists what each mode allows.
+# rules allow), cautious (read-only commands and reads run at once), auto (cautious
+# plus writes, builds and tests in the project) or full (commands run as you, with no
+# sandbox and no questions; it needs allow_full = true below). A prompt may choose
+# another one for its turn. A turn from the phone runs with at most cautious, and a
+# turn that a job notice starts with at most auto. docs/permissions.md lists what each
+# mode allows.
 # mode = "cautious"
+
+# Lets a terminal (,mode full), a prompt (--mode=full) or mode above choose full mode:
+# commands run as you, with no sandbox and no questions. Set it by hand or with efr
+# config set; the settings tool never changes it. It is a config value, not a lock: a
+# program that can write this file can change it.
+# allow_full = false
 
 # Files and directories that count as secrets on top of the built-in ones, so the model
 # may never read or write them: absolute, or below the home directory as ~/...

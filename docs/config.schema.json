@@ -899,6 +899,11 @@
       "additionalProperties": false,
       "description": "`[permissions]`: the permission mode, extra secrets and the user's rules.",
       "properties": {
+        "allow_full": {
+          "default": false,
+          "description": "Lets a terminal (`,mode full`), a prompt (`--mode=full`) or `permissions.mode`\nchoose full mode: commands run as you with no sandbox and no questions. Set it\nby hand or with `efr config set`; the settings tool never changes it. It is a\nconfig value, not a lock: a program that can write this file can change it.",
+          "type": "boolean"
+        },
         "mode": {
           "$ref": "#/$defs/ConfigMode",
           "default": "cautious",
@@ -1766,6 +1771,7 @@
     "permissions": {
       "$ref": "#/$defs/PermissionSettings",
       "default": {
+        "allow_full": false,
         "mode": "cautious",
         "rules": [],
         "secret_paths": []

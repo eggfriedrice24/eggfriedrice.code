@@ -6,12 +6,17 @@ use std::path::{Path, PathBuf};
 use std::slice;
 
 use efr_permissions::{HostError, HostList, PermissionsError, check_rules};
+use efr_protocol::Mode;
 
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
     ClassifierSettings, CompactionSettings, JobsSettings, ModelEntry, NetworkSettings, PROVIDERS,
     PresenceSettings, RenderColors, SandboxSettings, Settings, SnapshotSettings,
 };
+
+/// What `permissions.mode = "full"` needs: the gate key next to it.
+const FULL_NEEDS_THE_GATE: &str = "valid without permissions.allow_full = true; set \
+     permissions.allow_full = true in [permissions] to allow full mode";
 
 /// A value outside its allowed set or range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +145,11 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         )?;
     }
 
+    // NOTE: full mode runs commands with no sandbox and no questions, so the file
+    // names it as the default only next to the gate key that allows it at all.
+    if permissions.mode == Mode::Full && !permissions.allow_full {
+        return Err(invalid("permissions.mode", text(Mode::Full.as_str()), FULL_NEEDS_THE_GATE));
+    }
     if let Some(path) =
         permissions.secret_paths.iter().find(|path| !path.is_absolute() && !path.starts_with("~"))
     {

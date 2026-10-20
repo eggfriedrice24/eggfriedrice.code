@@ -74,6 +74,7 @@ The permission mode, extra secrets and the user's rules.
 | Key | Default | Applies | Description |
 |---|---|---|---|
 | `mode` | `"cautious"` | live | The default permission mode of a turn: `manual`, `cautious`, `auto` or `full`. A prompt may choose another one for its turn. `full` needs `permissions.allow_full = true`; without it, efrd does not load the file. A turn from the phone runs with at most `cautious`, and a turn that a job notice starts with at most `auto`. |
+| `allow_full` | `false` | live | Lets a terminal (`,mode full`), a prompt (`--mode=full`) or `permissions.mode` choose full mode: commands run as you with no sandbox and no questions. Set it by hand or with `efr config set`; the settings tool never changes it. It is a config value, not a lock: a program that can write this file can change it. |
 | `secret_paths` | `[]` | live | Files and directories that count as secrets on top of the built-in ones, so the model may never read or write them: absolute, or below the home directory as `~/...`. |
 | `rules` | `[]` | live | The user's rules, `[[permissions.rules]]`, after the built-in rules: the last rule that matches wins. |
 

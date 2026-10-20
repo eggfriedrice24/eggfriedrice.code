@@ -117,7 +117,8 @@ Modules:
   (one lowercase word; the daemon checks it against the model), numeric ranges,
   absolute paths, `~/` secret and sandbox paths (never `~` or `/` as an extra write
   root), variable names and patterns, relative name patterns, http and https URLs,
-  non-empty names, and the host list of `[network]`: the error names the first entry
+  non-empty names, `permissions.mode = "full"` only with `permissions.allow_full =
+  true`, and the host list of `[network]`: the error names the first entry
   of `allow`, `deny` or `hosts` that `HostList::compile` refuses (`*` alone, a suffix
   of one label, a name outside ASCII, an unknown preset, an IP address outside
   `[[network.hosts]]`, port 0). `validate::entries` checks each entry of
@@ -178,7 +179,15 @@ Modules:
 
 `permissions.mode` is the mode of a turn whose prompt names none;
 `PermissionSettings::policy(mode)` is that mode's built-in policy followed by the
-user's rules. `model.name` and `model.effort` are checked here for their form only: the
+user's rules. The file reads it as the protocol's `Mode`, and the JSON schema gives its
+values through `ConfigMode`, with a description of each mode for this file.
+`permissions.allow_full` (default `false`, live) is the gate of full mode: a terminal,
+a prompt or `permissions.mode` can choose `full` only when it is true. `validate`
+refuses `permissions.mode = "full"` without it, with an error that says to set
+`permissions.allow_full = true`, so efrd does not start with such a file and a reload
+of it changes nothing. The check holds for an override too. The settings tool of efrd
+never writes either key; the user sets them by hand or with `efr config set`. The gate
+is a config value, not a lock: a program that can write the file can change it. `model.name` and `model.effort` are checked here for their form only: the
 model list belongs to the provider, so the daemon checks them against it, with a
 warning at start and an `invalid` error for a turn that uses them.
 `render.theme`, `render.theme_dark` and `render.theme_light` are checked for a
