@@ -485,6 +485,30 @@ fn e2e_a_prompt_carries_the_recent_commands_of_the_terminal() {
 }
 
 #[test]
+fn e2e_a_line_with_a_blank_in_front_is_never_the_last_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    run_in(
+        &home,
+        r#"
+        _efr_preexec 'git pull'
+        true; _efr_precmd
+        _efr_preexec ' export TOKEN=s3cret'
+        true; _efr_precmd
+        , what now
+    "#,
+    );
+    let calls = home.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    // Neither the private line nor the line before it counts as the last command.
+    assert_eq!(calls[0].last_command(), None);
+    assert_eq!(calls[0].recent_lines(), ["git pull"]);
+    assert!(!calls[0].cmdline.contains("s3cret"), "{}", calls[0].cmdline);
+}
+
+#[test]
 fn e2e_the_recent_commands_keep_the_newest_ten_and_their_text_as_typed() {
     if !zsh_tests_enabled() {
         return;

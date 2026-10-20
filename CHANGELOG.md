@@ -67,7 +67,8 @@ into the GitHub release notes, and it stops when the section is missing.
   command: each one with its exit status, its directory when that is not the current
   one, and how long ago it ended. The zsh plugin keeps the last 10 command lines of
   each terminal, but never a `,` line, an `efr` command or a line that starts with a
-  space. The new key `context.recent_commands` sets how many the model sees (8 by
+  space. A line that starts with a space is not sent as the last command either. The
+  new key `context.recent_commands` sets how many the model sees (8 by
   default, 0 for none). Like the last command, they go to the model with their secrets
   redacted, and never into the event log. The plugin keeps the first 2,000 characters
   of each line and at most 64 KiB of recent commands, so a very long line never stops

@@ -1001,11 +1001,17 @@ _efr_preexec() {
 }
 
 # Keeps the line that just finished, with its status, unless it ran a plugin command.
-# It keeps the first _efr_command_max characters of the line.
+# It keeps the first _efr_command_max characters of the line. A line that starts with a
+# blank stays private (HIST_IGNORE_SPACE's rule): efr gets no last command for it, and
+# not the line before it either.
 _efr_remember_command() {
   emulate -L zsh
   if [[ -n $_efr_running ]] && ! _efr_is_plugin_line "$_efr_running"; then
-    _efr_last_command=${_efr_running[1,_efr_command_max]}
+    if [[ $_efr_running == [[:blank:]]* ]]; then
+      _efr_last_command=''
+    else
+      _efr_last_command=${_efr_running[1,_efr_command_max]}
+    fi
     _efr_last_command_status=$1
     _efr_remember_recent $1
   fi
