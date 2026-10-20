@@ -872,6 +872,11 @@ fn block_sentence(reason: BlockReason, hosts: &str, max_upload_bytes: u64) -> St
             "[efr: the network proxy cut {hosts}: the command sent more than the upload limit \
              of a call (network.max_upload_bytes).]"
         ),
+        BlockReason::Denied => format!(
+            "{refused} efr denies this host for this command (the deny list, or a credential \
+             that the sandbox cannot hide; a note above says which). A host grant does not \
+             help. Do not try another way.]"
+        ),
         BlockReason::Method => format!("{refused} plain http allows only GET and HEAD.]"),
         BlockReason::BadRequest => format!("{refused} the request was malformed.]"),
         BlockReason::Limit => format!("{refused} the command had too many open connections.]"),

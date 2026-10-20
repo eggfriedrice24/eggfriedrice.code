@@ -74,6 +74,28 @@ fn blocked_note_one_sentence_per_reason() {
 }
 
 #[test]
+fn blocked_note_denied() {
+    let entries = [
+        blocked("github.com", 443, BlockReason::Denied),
+        blocked("registry.test", 443, BlockReason::Denied),
+        blocked("other.test", 443, BlockReason::NotAllowed),
+    ];
+    let note = blocked_note(&entries, 0, 0).unwrap();
+    let lines: Vec<&str> = note.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "[efr: the network proxy refused github.com:443, registry.test:443: efr denies this \
+             host for this command (the deny list, or a credential that the sandbox cannot \
+             hide; a note above says which). A host grant does not help. Do not try another \
+             way.]",
+            "[efr: the network proxy refused other.test:443: not on the allow list. To reach a \
+             host, call shell again with needs.hosts.]",
+        ]
+    );
+}
+
+#[test]
 fn hosts_member_text_holds_in_both_modes() {
     let (_, text) = NEEDS_MEMBERS.iter().find(|(name, _)| *name == "hosts").unwrap();
     // NOTE: the tool spec is static and part of the cache prefix, so the text must hold
