@@ -1012,3 +1012,10 @@ fn a_clean_git_code_check_stays_out_of_the_record() {
     assert_eq!(record.facts.git_code, Some(late));
     assert_eq!(info.facts, ["efr could not check the git code of ~/p/app"]);
 }
+
+#[test]
+fn a_publish_question_says_what_it_runs() {
+    let (_, info) = git_code_record("npm publish", None);
+    assert!(info.user_only);
+    assert_eq!(info.facts, ["runs the project's prepublishOnly and prepack scripts"]);
+}

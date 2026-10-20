@@ -1,6 +1,7 @@
 //! The git code of a git or gh line that runs outside the sandbox (v0.0.4, B4): a part
 //! that a sandboxed command can write, or a check that efrd could not make, asks only
-//! the user (DV22); git options that choose the code ask only the user (DV50).
+//! the user (DV22); git options that choose the code ask only the user (DV50); and a
+//! package publish runs project code, so only the user approves it (DV25).
 
 use std::path::PathBuf;
 
@@ -246,6 +247,49 @@ fn gh_pr_create_with_a_writable_hook_is_user_only() {
         CallFacts { git_code: Some(checked(APP, &[])), ..CallFacts::default() },
     );
     assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+}
+
+#[rstest]
+#[case::npm("npm publish")]
+#[case::pnpm("pnpm publish --access public")]
+#[case::yarn("yarn npm publish")]
+#[case::bun("bun publish")]
+fn npm_publish_user_only(#[case] line: &str) {
+    let need = one(line, CallFacts::default());
+    assert_eq!(need.kind, ExitKind::Upload, "{line:?}");
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.names, ["publish"], "{line:?}");
+    assert_eq!(need.notes, ["runs the project's prepublishOnly and prepack scripts"], "{line:?}");
+}
+
+#[test]
+fn cargo_publish_user_only() {
+    let need = one("cargo publish -p efr-cli", CallFacts::default());
+    assert_eq!(need.approver, Approver::User);
+    assert_eq!(
+        need.notes,
+        [
+            "builds the crate (build.rs) with your rights",
+            "reads .cargo/config.toml, which can name a credential program",
+        ]
+    );
+}
+
+#[test]
+fn cargo_publish_no_verify_user_only() {
+    let need = one("cargo publish --no-verify", CallFacts::default());
+    assert_eq!(need.approver, Approver::User);
+    assert_eq!(need.notes, ["reads .cargo/config.toml, which can name a credential program"]);
+}
+
+#[rstest]
+#[case::yank("cargo yank --version 1.0.0 efx", "yank")]
+#[case::owner("cargo owner --add someone efx", "owner")]
+fn cargo_yank_user_only(#[case] line: &str, #[case] verb: &str) {
+    let need = one(line, CallFacts::default());
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.names, [verb], "{line:?}");
+    assert_eq!(need.notes, ["reads .cargo/config.toml, which can name a credential program"]);
 }
 
 #[test]

@@ -77,6 +77,17 @@ impl Found {
         Found { approver: Approver::ClassifierWhenNamed, names, ..Found::of(ExitKind::Upload) }
     }
 
+    /// The `upload` of a package publish, which only the user may approve (v0.0.4,
+    /// DV25): it runs project code with the user's rights, which a sandboxed command
+    /// can write, and `notes` say which.
+    fn publish(verb: &str, notes: &[&str]) -> Self {
+        Found {
+            approver: Approver::User,
+            notes: notes.iter().map(|note| (*note).to_owned()).collect(),
+            ..Found::upload(vec![verb.to_owned()])
+        }
+    }
+
     /// A `desktop_ipc` exit of `program` with `args`: the classifier judges a read or
     /// reload form of [`DESKTOP_IPC_READ`], the user every other form. Its grant is the
     /// socket of the desktop that the program talks to ([`desktop_kind`]).
@@ -515,8 +526,11 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
         "git" => found.extend(git(args, &network)),
         "npm" | "pnpm" | "yarn" | "bun" => found.extend(node(program, args, &network)),
         "cargo" => found.extend(match verb(args, &["--color", "-Z", "--config"]) {
+            Some("publish") if !has(args, "--no-verify") => {
+                Some(Found::publish("publish", &[CARGO_BUILDS, CARGO_CONFIG]))
+            }
             Some(verb @ ("publish" | "yank" | "owner")) => {
-                Some(Found::upload(vec![verb.to_owned()]))
+                Some(Found::publish(verb, &[CARGO_CONFIG]))
             }
             Some(
                 "fetch" | "update" | "install" | "search" | "add" | "login" | "generate-lockfile",
@@ -1650,11 +1664,20 @@ const NODE_FETCH: &[&str] = &[
     "import",
 ];
 
+/// The note of a node package publish (DV25).
+const NODE_PUBLISH: &str = "runs the project's prepublishOnly and prepack scripts";
+
+/// The note of `cargo publish` without `--no-verify` (DV25).
+const CARGO_BUILDS: &str = "builds the crate (build.rs) with your rights";
+
+/// The note of every cargo upload verb (DV25).
+const CARGO_CONFIG: &str = "reads .cargo/config.toml, which can name a credential program";
+
 fn node(program: &str, args: &[String], network: &Network<'_>) -> Option<Found> {
     match verb(args, &["--prefix", "-C", "--dir", "--cwd", "--filter"]) {
-        Some("publish") => Some(Found::upload(vec!["publish".to_owned()])),
+        Some("publish") => Some(Found::publish("publish", &[NODE_PUBLISH])),
         Some("npm") if program == "yarn" && args.iter().any(|arg| arg == "publish") => {
-            Some(Found::upload(vec!["publish".to_owned()]))
+            Some(Found::publish("publish", &[NODE_PUBLISH]))
         }
         // NOTE: `yarn` alone installs.
         None if program == "yarn" => network.host(),
