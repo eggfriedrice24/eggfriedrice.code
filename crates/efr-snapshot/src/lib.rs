@@ -79,7 +79,7 @@ pub use gc::GcReport;
 pub use history::TurnDiff;
 pub use home::{
     HomeCopy, HomeDelta, HomeEntries, HomeEntry, HomePlan, HomeReader, HomeState, HomeStep,
-    MAX_HOME_FILE_BYTES,
+    MAX_HOME_FILE_BYTES, git_refuses,
 };
 pub use object::{ObjectId, blob_id, link_id};
 pub use project_git::GitDirs;

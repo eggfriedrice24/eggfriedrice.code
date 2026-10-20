@@ -12,6 +12,10 @@
 //! the real file behind it is an entry of its own), a missing path, a state, or why no
 //! copy covers it. A path that the "after" lists and the "before" does not, such as a
 //! file that a call made in a directory that it could write, was missing before.
+//!
+//! A path with a part that git refuses in a tree, such as a `.git` dir in a copied
+//! directory, is not covered ([`git_refuses`]), as a snapshot leaves a nested
+//! repository out.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -31,8 +35,8 @@ use crate::undo::{Expect, undo_ref, valid_undo_id};
 mod copy;
 mod plan;
 
-pub use copy::MAX_HOME_FILE_BYTES;
 pub(crate) use copy::{Item, Kind, MANIFEST, Manifest};
+pub use copy::{MAX_HOME_FILE_BYTES, git_refuses};
 
 /// The id of the home store in the store directory: `home.git`.
 pub(crate) const HOME_ID: &str = "home";

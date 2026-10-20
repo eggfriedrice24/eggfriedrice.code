@@ -333,3 +333,45 @@ async fn an_empty_copy_has_no_step() {
     assert!(deltas.is_empty());
     assert!(plan(&world, false).await.home.steps.is_empty());
 }
+
+#[tokio::test]
+async fn home_copy_of_a_dir_with_a_repository_leaves_git_out() {
+    let world = World::new();
+    let notes = world.home().join("notes");
+    let note = notes.join("a.md");
+    write(&note, "first\n");
+    write(&notes.join(".git/HEAD"), "ref: refs/heads/main\n");
+    write(&notes.join(".git/config"), "[core]\n");
+    let (head, config) = (notes.join(".git/HEAD"), notes.join(".git/config"));
+    let all: [&Path; 3] = [&note, &head, &config];
+    let copy = world.snapshots.home_before(conversation(1), turn(1), entries(&all)).await;
+    let copy = copy.expect("a copy of a dir with a repository runs");
+    write(&note, "second\n");
+    let deltas = world.snapshots.home_after(&copy, entries(&all)).await.unwrap();
+    let shown: Vec<(PathBuf, bool, bool)> =
+        deltas.iter().map(|delta| (delta.path.clone(), delta.changed, delta.covered)).collect();
+    assert_eq!(
+        shown,
+        [
+            (notes.join(".git/HEAD"), true, false),
+            (notes.join(".git/config"), true, false),
+            (note.clone(), true, true),
+        ]
+    );
+
+    let env = [("GIT_DIR", home_git(&world))];
+    let env: Vec<(&str, &Path)> = env.iter().map(|(name, path)| (*name, path.as_path())).collect();
+    let home = world.home();
+    let args = ["ls-tree", "-r", "--name-only", copy.before.as_str()];
+    let tree = git(&home, &home, &env, &args).await;
+    assert!(!tree.contains(".git/"), "{tree}");
+    assert!(tree.contains("notes/a.md"), "{tree}");
+
+    let plan = plan(&world, false).await;
+    let git_head = step(&plan, &notes.join(".git/HEAD"));
+    assert_eq!(git_head.write, HomeState::NotCovered(UndoReason::LeftOut));
+    assert!(!git_head.acts());
+    apply_home(&world, &plan).await;
+    assert_eq!(fs::read_to_string(&note).unwrap(), "first\n");
+    assert_eq!(fs::read_to_string(notes.join(".git/HEAD")).unwrap(), "ref: refs/heads/main\n");
+}

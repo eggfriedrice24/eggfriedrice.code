@@ -2,7 +2,9 @@
 //! fast-import` of the home store, with a manifest `efr-home.json` that names the
 //! state of each path. git never reads a home path itself, and no filter runs.
 
+use std::ffi::OsStr;
 use std::io::Read;
+use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Component, Path};
 
 use efr_protocol::UndoReason;
@@ -89,10 +91,37 @@ impl Manifest {
     }
 }
 
+/// The prefixes of the NTFS short names of `.gitmodules`, which git refuses for a link.
+const SHORT_GITMODULES: [&[u8]; 2] = [b"gitmod~", b"gi7eba~"];
+
+/// True when git refuses `name` as a part of a path in a tree, so no copy can hold a
+/// path with it: `.git` in any case, and the names that mean `.git` on NTFS, which git
+/// refuses on every system (`git~1`, `.git.`, `.git `, `.git::$INDEX_ALLOCATION`).
+/// With `link` (the path is a symbolic link), also `.gitmodules` and its NTFS short
+/// names. A home copy leaves such a path out, as a snapshot leaves out a nested
+/// repository; it never escapes the name.
+pub fn git_refuses(name: &OsStr, link: bool) -> bool {
+    let name = name.as_bytes().to_ascii_lowercase();
+    let gitmodules = || {
+        means(&name, b".gitmodules") || SHORT_GITMODULES.iter().any(|short| name.starts_with(short))
+    };
+    means(&name, b".git") || name == b"git~1" || (link && gitmodules())
+}
+
+/// True when `name` is `base` with only dots and spaces after it, up to its end, an
+/// NTFS stream (`:`) or an NTFS separator (`\`): NTFS drops what follows.
+fn means(name: &[u8], base: &[u8]) -> bool {
+    let Some(rest) = name.strip_prefix(base) else { return false };
+    rest.iter()
+        .find(|byte| !matches!(byte, b'.' | b' '))
+        .is_none_or(|byte| matches!(byte, b':' | b'\\'))
+}
+
 /// The path of `path` in the tree of a copy: `files/<path without its leading />` for
 /// an absolute path, `state/<name>` for `@<name>`. `Ok(None)` for a name that is not
-/// UTF-8, which no copy holds.
-pub(crate) fn tree_path(path: &Path) -> Result<Option<String>, SnapshotError> {
+/// UTF-8 or that git refuses ([`git_refuses`]; `link` for a link), which no copy
+/// holds.
+pub(crate) fn tree_path(path: &Path, link: bool) -> Result<Option<String>, SnapshotError> {
     let bad = || SnapshotError::BadHomeEntry { path: path.to_path_buf() };
     let Some(text) = path.to_str() else {
         return if path.is_absolute() { Ok(None) } else { Err(bad()) };
@@ -118,7 +147,11 @@ pub(crate) fn tree_path(path: &Path) -> Result<Option<String>, SnapshotError> {
     if !any || out.strip_prefix("files") != Some(text) {
         return Err(bad());
     }
-    Ok(Some(out))
+    let refused = path.components().any(|part| match part {
+        Component::Normal(name) => git_refuses(name, link),
+        _ => false,
+    });
+    Ok((!refused).then_some(out))
 }
 
 /// `path` in the C-style quotes of `fast-import`, so any byte but NUL is safe.
@@ -239,7 +272,7 @@ fn take(
     entry: HomeEntry,
     bytes: Option<Box<dyn Read + Send>>,
 ) -> Result<Item, SnapshotError> {
-    let tree = tree_path(&entry.path)?;
+    let tree = tree_path(&entry.path, matches!(entry.state, HomeState::Link { .. }))?;
     let mut item = Item {
         path: entry.path.to_string_lossy().into_owned(),
         floor: entry.floor,
