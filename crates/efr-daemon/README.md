@@ -643,7 +643,22 @@ spec; `docs/sandbox.md` for the user's view):
   `git config` run per repository, one more over a `.gitmodules`; a remote of a pinned
   project git dir is the project's own while its config files have not changed since
   the conversation's first fact request and its URLs equal the first read) and the
-  hosts that the proxy refused in the conversation's last call and its jobs. In a
+  hosts that the proxy refused in the conversation's last call and its jobs. For a
+  line with a `FactRequest::git_code` ask, the facts carry its git code (v0.0.4, B4):
+  `tools/git_code.rs` first runs the surface guard of every running contained job,
+  then `sandbox/facts/git_code.rs` asks git in hardened runs (no ceiling, with the git
+  variables of the hidden shell's `env` file, else efrd's start environment) for the
+  git dir, the common dir, the work tree and the config with its include files (an
+  include file that git did not read, such as an `includeIf` whose condition it did not
+  take, gets a run of its own), lists the hooks, the code keys and the programs that
+  they start (resolved with the hidden shell's `PATH`), and walks the module git dirs
+  for a line that can reach the submodules. A part is writable below a `$SCRATCH`, a
+  write rule, a config write root, a running contained job's or a timed-out call's
+  write root, or in a registered project outside the git floors that its plans pin. A
+  run that fails or passes 200 ms gives `checked = false`. The toolbox keeps the check
+  of each call; right before an exit child starts, under the plan lock, it checks
+  again, and a change of the writable parts stops the call with `GIT_CODE_CHANGED`.
+  Before every other foreground upload in the exit child it runs every job's guard. In a
   build with the test seams, `Seams::proxy_deps` gives the proxy a table of test names
   (`Deps::with_proxy_hosts`, `EFR_TEST_PROXY_HOSTS` for the smoke's `efrd`), or refuses
   every name and address with no table, and the pacman files are `/dev/null`.

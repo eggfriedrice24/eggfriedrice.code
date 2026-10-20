@@ -343,6 +343,24 @@ Modules:
   with no fact keeps the line's own hosts. A `git push` with no host at all (its facts
   dropped, a `cd` first, a local path, a URL that efrd could not read) is for the user:
   the naming rule would have nothing to check.
+- `exits/git_code.rs` (v0.0.4, B4): the git code of a line that runs git outside the
+  sandbox. `fact_requests` names a `GitCodeAsk` in `FactRequest::git_code` for each git
+  command that reaches a remote and each gh command that runs git in the repository
+  (`pr create`, `pr merge`, `pr checkout`, `repo sync`, `repo create --push`, `repo fork
+  --clone`), with the line's `-C` (each one from the one before), `--git-dir` and
+  `--work-tree`, and whether the line can reach the submodules. efrd answers in
+  `CallFacts::git_code` (`efr_protocol::GitCodeFacts`). The prediction makes each
+  `outside` and `upload` exit of such a line `Approver::User` when a part is writable,
+  when the fact says not checked, when no fact came, or when efr cannot tell the
+  repository (a `cd` first, a variable); `ExitNeed::notes` names each writable part
+  (at most three, then a count) or says that efr could not check it. A git option that
+  chooses the code (`-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree`,
+  `--namespace`, `--receive-pack`, `--exec`, `--upload-pack`, `--template`, `clone -u`
+  and `clone -c`) makes every `outside` and `upload` exit of the line `Approver::User`
+  (DV50). With no facts at all (no sandbox in efrd), the route stays.
+- `exits/programs.rs` (v0.0.4, DV25): `npm`, `pnpm`, `yarn` and `bun publish` and
+  every cargo upload verb (`publish` with or without `--no-verify`, `yank`, `owner`)
+  are `upload` exits that only the user approves, with notes that say what they run.
   Under the proxy `ssh`, `mosh`, `autossh` and a git command with an ssh URL on its
   line (`git clone git@host:o/r.git`, `ssh://`) are `outside` exits too (the proxy
   carries no ssh): each carries its host in `ExitNeed::hosts` and as its name, so the

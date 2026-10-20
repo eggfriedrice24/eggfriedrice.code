@@ -120,7 +120,11 @@ turns.
   a cache, the build output of a project or efr's trash can make it again, and whether
   efrd copies it into its home store first. `snapshot_covers` is false when one exit's
   copy is not covered (a masked file, a directory over the limits) and absent when no
-  exit has a file to copy.
+  exit has a file to copy. The git code of a git or gh line that runs outside (v0.0.4,
+  B4) reaches the record (`ExitFacts::git_code`) only when it made the exit one for
+  the user alone, so the reviewer never reads a clean check as a reason to allow; the
+  engine's `ExitNeed::notes` (the writable git code, what a publish runs) join the
+  question's facts.
 - The classifier (`turn/review.rs`) judges first when the turn runs in `auto`,
   `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on, the
   classifier has not stopped for the turn, every reason that asks is an exit, and every

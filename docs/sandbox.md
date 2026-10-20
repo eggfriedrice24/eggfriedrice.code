@@ -306,6 +306,54 @@ keep it? y = yes, n = no
 turn is interrupted, the change stays in quarantine. This question is not an approval
 of a tool call: the call already ended.
 
+### Git code before an outside git line
+
+An approved `git push` runs outside the sandbox with your full rights, and git runs
+the code that the repository names. So before a git or gh line can run outside the
+sandbox, efrd checks the git code that it runs. The check applies to a git command
+that reaches a remote (`push`, `fetch`, `pull`, `ls-remote`, `remote update`,
+`submodule update`) and to a gh command that runs git in the repository (`pr create`,
+`pr merge`, `pr checkout`, `repo sync`, `repo create --push`, `repo fork --clone`),
+when it gets an `outside` or `upload` exit.
+
+- efrd asks git itself, as the exit child's git finds it: the repository of the line
+  (its `-C`, `--git-dir` and `--work-tree`, through a `.git` file and a `commondir`),
+  with your system, global and include files and the git variables of the hidden
+  shell. It reads the hooks that are not samples (in `core.hooksPath` or the `hooks`
+  dir), the config keys that run programs (the ones of the surface guard, a remote URL
+  through a `<transport>::` helper or `ext::`, `protocol.allow`, `remote.*.vcs`,
+  `submodule.*.update` with `!`, `gpg.ssh.defaultKeyCommand`, `hook.*.command`), and
+  the program that each one starts, also `ssh` from your `PATH`. A line that can reach
+  the submodules (`push`, `fetch`, `pull`, `submodule update`) checks each module git
+  dir too.
+- A part is writable when a sandboxed command can write its file: it lies in a
+  registered project, in the `$SCRATCH` of any conversation, below a write rule or a
+  write root of the config, or in a write root of a running contained job or of a call
+  that runs on past its timeout. The git floors of a project (its `.git` config, hooks,
+  include files and hooks path, also of worktrees and submodules) are not writable,
+  except while a running contained job has them in its write roots.
+- When a part is writable, or efrd could not check the code (git did not answer in
+  200 ms, git found no repository, the submodules lie too deep or behind a link), only
+  you approve, and the question names the file:
+
+  ```
+  git runs ~/p/app/vendor/x/.git/hooks/pre-push, which a sandboxed command can write
+  ```
+
+  Your own hooks and settings in a registered project keep working with no extra
+  question.
+- Before the check, efrd runs the surface guard of every running contained job, not
+  only those of the line's dir, because a `.git` file, a `commondir` or an
+  `include.path` can point anywhere. A plant stops its job and goes to quarantine.
+  efrd runs the guards before every other upload too.
+- Right before the exit child starts, under the plan lock, efrd checks again. When the
+  writable parts changed after your answer, the line does not run, and the model reads
+  why; its next call gets a new question.
+- A git option that chooses the code that git runs (`-c`, `--config-env`,
+  `--exec-path`, `--git-dir`, `--work-tree`, `--namespace`, `--receive-pack`, `--exec`,
+  `--upload-pack`, `--template`, and `clone -u` or `clone -c`) makes every git line
+  that runs outside a question for you alone.
+
 ## Code that runs later
 
 The model can write a `Makefile`, a `build.rs`, a `package.json` script or a project
@@ -349,10 +397,10 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
 | `masked_read` | read a project `.env` | the sandbox, with that one mask removed | only you |
 | `destructive` | `git reset --hard`, `git clean -fd`, `rm -r` of tracked files | the same sandbox | in `auto`, nobody when efr's snapshot holds every file that the part can change ([Undo](#undo)); else the reviewer when every target lies in a write root; else only you |
-| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`). An ssh line needs a message of yours that names the host, or a remote of your project; an ssh submodule URL, a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link` asks only you |
+| `outside` | `crontab -l`, `df` and `findmnt` while the mount view is off or behind a path or a wrapper, `rustup toolchain install stable` and the other `rustup` installs, or the model asks to run outside, such as `gdb`; with the proxy also `ssh`, `mosh`, `autossh`, and `git fetch` or `git clone` from an ssh remote | outside the sandbox | the reviewer; only you when a program of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read (`python3 -c`, `sh -c`, `node build.js`). An ssh line needs a message of yours that names the host, or a remote of your project; an ssh submodule URL, a `rustup` line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link` asks only you. A git line, such as `git fetch` from an ssh remote, also asks only you when its git code is writable or not checked ("Git settings") |
 | `privilege` | `sudo`, `doas`, `pkexec`, `yay`, `docker`, `podman` | outside the sandbox, and you can type your password | only you |
 | `persistence` | `~/.zshrc`, a Hyprland config; `crontab`, `systemctl --user enable` | outside the sandbox | the reviewer for a floor file, a unit, cron or linger that a message of yours names, after a copy into the home store ("Named changes of units, cron and linger"); else only you |
-| `upload` | `git push`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you |
+| `upload` | `git push`, `gh pr create`, `npm publish`, `cargo publish`, `curl -d` | outside the sandbox | the reviewer when a message of yours names it; else only you. Only you for `npm publish`, `cargo publish`, `cargo yank` and `cargo owner`, which run project code or read `.cargo/config.toml`, and for a git or gh line whose git code a sandboxed command can write ("Git settings") |
 | `synced_write` | `~/Dropbox` and the others of `sandbox.synced_dirs` | outside the sandbox | only you |
 | `above_root` | `rm -rf ..`, `rm -rf ~/p/old-app` | outside the sandbox | the reviewer for one path that a message of yours names and that holds no floor; else only you |
 | `secret` | a read or write of a secret | never: denied | nobody |
@@ -1667,6 +1715,10 @@ it cannot write `dbus.allow` or `sandbox.allow`: only an editor, the `a` answer 
 | a long job keeps the mount snapshot of its start | old sizes in a job's output | none |
 | a hung NFS or FUSE mount, an automount | `df` could hang or mount a share | the helper ends after one second, the mount shows `-` for a minute; no `statvfs` for `autofs` and the other dummy types |
 | an approved exit outside the sandbox has your full rights | it can read secrets, use the network, or start a service through `systemd-run --user` that the call end cannot stop | one command per exit; the question shows the whole line, each program and the untrusted mark; privilege, upload and persistence are yours only |
+| a process that runs as you, outside the sandbox, can change the git code after efrd's last check | git runs that code with your rights | efrd checks right before the exit child starts, and runs the guard of every job first, so the window is small |
+| a pinned hook that runs project code, such as `.husky/pre-push` that runs `npx lint-staged` | that project code runs with your rights, also when a sandboxed command wrote it | efr checks the hook file and the program of its `#!` line, not what the hook calls; the turn-end list names changed files that run code later |
+| the hidden shell writes its environment at a prompt | before its first prompt, efrd checks the git code with its own start environment, not with the git variables that your startup files set | a sandboxed command cannot change `HOME`, `XDG_*` or `GIT_*` of the hidden shell |
+| an outside background job that runs git | efrd checks its git code for the question, but not again when the job starts | the question names each writable part that efrd found |
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
 | no network with `network.mode = "none"`, or a host that is not on the allow list | a build that must download fails | with the proxy, the registries are on the default list; a host that the line shows is a review for that one host; without the proxy, the network is an exit, and `sandbox.offline_hints` tells package managers to use the cache |
 | the proxy cannot see inside TLS | a command can send data to a host on your allow list, with no credentials: at most `max_upload_bytes` (4 MiB) per command, counted from the first byte of each connection | no credentials in the sandbox (masks, the environment filter, the token deny); the server name check; the cut of Encrypted Client Hello; a short default list |
