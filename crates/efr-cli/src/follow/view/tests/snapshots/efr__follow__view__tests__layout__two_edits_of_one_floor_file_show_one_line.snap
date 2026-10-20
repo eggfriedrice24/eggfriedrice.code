@@ -1,0 +1,22 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "format!(\"### covered\\n{covered}### not covered\\n{not_covered}\")"
+---
+### covered
+· $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+· $ echo 'export A=1' >> ~/.zshrc
+  ✓
+
+changed ~/.zshrc; efr undo reverts it
+changed 1 file in ~; efr undo reverts this turn
+### not covered
+· $ echo 'alias k=kubectl' >> ~/.zshrc
+  ✓
+
+· $ echo 'export A=1' >> ~/.zshrc
+  ✓
+
+changed ~/.zshrc; efr undo cannot revert it
+changed 1 file in ~; efr undo reverts this turn

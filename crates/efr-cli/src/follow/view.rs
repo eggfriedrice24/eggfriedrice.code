@@ -144,6 +144,7 @@ use jiff::Timestamp;
 use unicode_width::UnicodeWidthChar as _;
 
 use crate::format::card::{self, Card, Footer};
+use crate::format::changes::HomeChange;
 use crate::format::context::{self as gauge, GaugedLine};
 use crate::format::{self, Block, Spacing, Tone, jobs, sandbox};
 use crate::keys::Key;
@@ -1619,14 +1620,10 @@ impl TurnView {
                 self.answer_came(*call_id);
                 self.expired(*call_id, *away, size)
             }
-            Event::HomeFileChanged { path, real, backup, floor, covered, .. } => {
-                self.ending.home_changes.push(HomeChange {
-                    path: path.clone(),
-                    real: real.clone(),
-                    backup: backup.clone(),
-                    floor: *floor,
-                    covered: *covered,
-                });
+            Event::HomeFileChanged { .. } => {
+                if let Some(change) = HomeChange::of(event) {
+                    format::changes::add_home_change(&mut self.ending.home_changes, change);
+                }
                 Step::default()
             }
             Event::ClassifierPaused { reason, denials, .. } => {
@@ -3206,7 +3203,8 @@ struct Request<'a> {
 /// What the lines at the end of a turn name, gathered while it runs.
 #[derive(Debug, Default)]
 struct Ending {
-    /// The files outside the project that the turn changed (`home_file_changed`).
+    /// The files outside the project that the turn changed (`home_file_changed`), one
+    /// entry for each path.
     home_changes: Vec<HomeChange>,
     /// What full mode let through in this turn (`exit_judged` with the judge `full`),
     /// each action once.
@@ -3215,17 +3213,6 @@ struct Ending {
 
 /// The note for a turn that ended as `end` while a prompt of this view waits after it:
 /// the command goes on, so a failure is not its error.
-/// A file outside the roots that a call of the turn changed (`home_file_changed`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct HomeChange {
-    path: PathBuf,
-    real: Option<PathBuf>,
-    /// The copy in efr's phase A backup store, in an event from before the home store.
-    backup: Option<PathBuf>,
-    floor: bool,
-    covered: bool,
-}
-
 /// The reason that `names` (what no snapshot of the turn covers, such as
 /// `~/.aws/config (masked)`) gives for `shown`, taken out of `names`; `None` when it
 /// names `shown` with no reason, or not at all.

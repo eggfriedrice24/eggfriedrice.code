@@ -1451,6 +1451,38 @@ fn a_home_file_with_its_own_line_is_not_counted_again() {
 }
 
 #[test]
+fn two_edits_of_one_floor_file_show_one_line() {
+    // efrd reports a file once for each call that changed it: the end of the turn names
+    // it once, and the line of the turn does not count it twice.
+    let edits = |covered: bool| {
+        let mut acts = vec![Sent(0, turn_started())];
+        for (n, line) in
+            [(1, "echo 'alias k=kubectl' >> ~/.zshrc"), (2, "echo 'export A=1' >> ~/.zshrc")]
+        {
+            let millis = i64::from(n) * 1_000;
+            acts.push(Sent(millis, shell(n, line)));
+            acts.push(Sent(millis + 100, ended(n, Some(0), None)));
+            acts.push(Sent(
+                millis + 110,
+                home_copied(n, "/home/user/.zshrc", true, covered || n == 1),
+            ));
+        }
+        acts.push(Sent(3_000, home_copied(2, "/home/user/notes.md", false, true)));
+        // efrd counts the files that undo reverts.
+        let home = if covered { 2 } else { 1 };
+        acts.push(Sent(3_500, turn_undone(None, undo_info(&[], home, &[], 0))));
+        piped(&acts)
+    };
+    let covered = edits(true);
+    assert_eq!(covered.matches("changed ~/.zshrc").count(), 1, "{covered}");
+    // The second edit was not copied: undo cannot revert the file.
+    let not_covered = edits(false);
+    assert_eq!(not_covered.matches("changed ~/.zshrc").count(), 1, "{not_covered}");
+    assert!(not_covered.contains("changed ~/.zshrc; efr undo cannot revert it\n"), "{not_covered}");
+    insta::assert_snapshot!(format!("### covered\n{covered}### not covered\n{not_covered}"));
+}
+
+#[test]
 fn turn_line_lists_not_covered_paths() {
     let names = ["target/ (ignored, large)", ".env.large (over 10 MiB)", "a", "b", "c", "d", "e"];
     let undo = undo_info(&[("app", 3)], 0, &names, 4);

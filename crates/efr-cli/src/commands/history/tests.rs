@@ -1349,6 +1349,47 @@ fn undo_events() -> Vec<EventEnvelope> {
 }
 
 #[test]
+fn history_names_a_home_file_that_two_calls_changed_once() {
+    let changed = |covered| Event::HomeFileChanged {
+        turn_id: turn(),
+        call_id: call(),
+        path: PathBuf::from("/home/user/.zshrc"),
+        floor: true,
+        covered,
+        backup: None,
+        real: None,
+    };
+    let page = |second_covered| ConversationHistoryResult {
+        events: [changed(true), changed(second_covered)]
+            .into_iter()
+            .zip(1..)
+            .map(|(event, seq)| envelope(seq, event))
+            .collect(),
+        next_cursor: None,
+    };
+    let options = RenderOptions::new(80).with_terminal(false);
+    let shown = |page| {
+        transcript(
+            conversation(),
+            &page,
+            &Shown {
+                options: &options,
+                verbose: false,
+                home: Some(Path::new("/home/user")),
+                groups: &DiffGroups::default(),
+            },
+        )
+    };
+    let covered = shown(page(true));
+    assert_eq!(covered.matches("changed ~/.zshrc").count(), 1, "{covered}");
+    assert!(covered.contains("changed ~/.zshrc; efr undo reverts it\n"), "{covered}");
+    // The second change was not copied: undo cannot revert the file.
+    let not_covered = shown(page(false));
+    assert_eq!(not_covered.matches("changed ~/.zshrc").count(), 1, "{not_covered}");
+    assert!(not_covered.contains("changed ~/.zshrc; efr undo cannot revert it\n"), "{not_covered}");
+}
+
+#[test]
 fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
     let page = ConversationHistoryResult { events: undo_events(), next_cursor: None };
     let options = RenderOptions::new(80).with_terminal(false);

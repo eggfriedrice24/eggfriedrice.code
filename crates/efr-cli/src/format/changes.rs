@@ -20,15 +20,64 @@
 //! the `success` role and removed lines in the `error` role; the rest is muted.
 
 use std::fmt::Write as _;
+use std::path::PathBuf;
 
 use efr_config::DiffGroups;
 use efr_protocol::{
-    ChangeKind, FileChange, FileChanges, RefChange, RootFiles, SnapshotPhase, TurnId, TurnUndoInfo,
+    ChangeKind, Event, FileChange, FileChanges, RefChange, RootFiles, SnapshotPhase, TurnId,
+    TurnUndoInfo,
 };
 use efr_render::{RenderOptions, WidthMethod, text_width};
 
 use super::groups::{self, GroupCount};
 use super::{Tone, one_line, paint};
+
+/// A file outside the roots that the calls of a turn changed (`home_file_changed`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HomeChange {
+    pub(crate) path: PathBuf,
+    pub(crate) real: Option<PathBuf>,
+    /// The copy in efr's phase A backup store, in an event from before the home store.
+    pub(crate) backup: Option<PathBuf>,
+    pub(crate) floor: bool,
+    pub(crate) covered: bool,
+}
+
+impl HomeChange {
+    /// The change that `event` reports; `None` for an event that is not a
+    /// `home_file_changed`.
+    pub(crate) fn of(event: &Event) -> Option<HomeChange> {
+        match event {
+            Event::HomeFileChanged { path, real, backup, floor, covered, .. } => Some(HomeChange {
+                path: path.clone(),
+                real: real.clone(),
+                backup: backup.clone(),
+                floor: *floor,
+                covered: *covered,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Adds `change` to `changes`, which hold one entry for each path, in the order of the
+/// first change: efrd reports a file once for each call that changed it, and the end
+/// of a turn names it once. The backup and the real file of the last change count. A
+/// file is covered only when each change says so, because undo cannot revert a change
+/// that efr did not copy.
+pub(crate) fn add_home_change(changes: &mut Vec<HomeChange>, change: HomeChange) {
+    match changes.iter_mut().find(|known| known.path == change.path) {
+        Some(known) => {
+            known.covered &= change.covered;
+            known.floor |= change.floor;
+            known.backup = change.backup;
+            if change.real.is_some() {
+                known.real = change.real;
+            }
+        }
+        None => changes.push(change),
+    }
+}
 
 /// The minus sign of a count of removed lines: wider and clearer than a hyphen.
 pub(crate) const MINUS: char = '\u{2212}';

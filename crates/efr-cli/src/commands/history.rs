@@ -34,6 +34,7 @@ use efr_transport::client::Client;
 use crate::cli::HistoryArgs;
 use crate::context::Context;
 use crate::error::CliError;
+use crate::format::changes::HomeChange;
 use crate::format::{self, Block, Spacing, Tone, changes, context, jobs, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
@@ -202,6 +203,7 @@ pub(crate) fn transcript(
     }
     let mut transcript = Transcript::new(shown, out);
     for group in in_turn_order(&page.events) {
+        transcript.home_changes(&group);
         for envelope in group {
             transcript.event(envelope);
         }
@@ -298,6 +300,9 @@ struct Transcript<'a> {
     partial: Option<(TurnId, u32, String)>,
     /// The turns that a job notice started, whose mark shows once.
     woken: HashSet<TurnId>,
+    /// The files outside the roots that the calls of the current group changed, one
+    /// entry for each path. A file's line shows at its first change.
+    home_changes: Vec<HomeChange>,
 }
 
 impl<'a> Transcript<'a> {
@@ -315,6 +320,16 @@ impl<'a> Transcript<'a> {
             commands: HashMap::new(),
             partial: None,
             woken: HashSet::new(),
+            home_changes: Vec::new(),
+        }
+    }
+
+    /// Gathers the files outside the roots that the events of `group` changed, so that
+    /// a file that several calls changed shows one line.
+    fn home_changes(&mut self, group: &[&EventEnvelope]) {
+        self.home_changes.clear();
+        for change in group.iter().filter_map(|envelope| HomeChange::of(&envelope.event)) {
+            changes::add_home_change(&mut self.home_changes, change);
         }
     }
 
@@ -552,20 +567,28 @@ impl<'a> Transcript<'a> {
             Event::CacheDeleteApplied { paths, freed_bytes, .. } => {
                 self.note(&sandbox::cache_freed(paths, *freed_bytes, self.home));
             }
-            Event::HomeFileChanged { path, real, backup: Some(backup), .. } => {
-                // NOTE: whole, not cut to the screen: the line names where the copy is.
-                let line = sandbox::home_changed(path, real.as_deref(), Some(backup), self.home);
-                self.dim_lines(&[line]);
-            }
-            Event::HomeFileChanged { path, real, floor, covered, .. } => {
-                let line = sandbox::home_undo_line(
-                    path,
-                    real.as_deref(),
-                    *floor,
-                    *covered,
-                    None,
-                    self.home,
-                );
+            Event::HomeFileChanged { path, .. } => {
+                // NOTE: a later change of a file that already has its line shows nothing.
+                let Some(at) = self.home_changes.iter().position(|change| change.path == *path)
+                else {
+                    return;
+                };
+                let change = self.home_changes.remove(at);
+                let real = change.real.as_deref();
+                let line = match change.backup.as_deref() {
+                    // NOTE: whole, not cut to the screen: the line names where the copy is.
+                    Some(backup) => {
+                        Some(sandbox::home_changed(path, real, Some(backup), self.home))
+                    }
+                    None => sandbox::home_undo_line(
+                        path,
+                        real,
+                        change.floor,
+                        change.covered,
+                        None,
+                        self.home,
+                    ),
+                };
                 if let Some(line) = line {
                     self.dim_lines(&[line]);
                 }
