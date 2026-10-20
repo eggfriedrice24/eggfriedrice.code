@@ -310,7 +310,8 @@ turns.
   its last message tells the next turn why. Its classifier record says `wake_turn`,
   its user messages are those before its notices (a prompt queued behind it is no
   earlier request), its naming window is the user's newest turn before it and the turn
-  before that, its questions start with `(job notice turn)`, and a question
+  before that, its questions start with `(job notice turn) `
+  (`efr_protocol::WAKE_QUESTION`; the CLI moves it into the card title), and a question
   counts the user away unless a client that can answer follows the conversation
   (`PresenceReader::followed`). The classifier's denial counts and its pause go on
   from one wake turn to the next until a prompt starts a turn. A user's prompt queues
