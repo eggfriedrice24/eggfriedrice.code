@@ -243,6 +243,47 @@ fn an_invalid_change_is_refused_before_anything_is_written() {
     assert_eq!(fs::read_to_string(&path).unwrap(), ORIGINAL);
 }
 
+/// What `efr config set` does from the user's terminal: the gate key is a plain
+/// boolean, and full as the default needs the gate in the same file.
+#[test]
+fn efr_config_set_allow_full() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(&path, ORIGINAL);
+    let invalid_mode = |error: ConfigError| {
+        assert!(matches!(error, ConfigError::Invalid { key: "permissions.mode", .. }), "{error:?}");
+        assert!(error.to_string().contains("set permissions.allow_full = true"), "{error}");
+    };
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.set_text("permissions.mode", "full").unwrap();
+    invalid_mode(file.write(&edit).unwrap_err());
+    assert_eq!(fs::read_to_string(&path).unwrap(), ORIGINAL);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.set_text("permissions.allow_full", "true").unwrap();
+    let settings = file.write(&edit).unwrap();
+    assert!(settings.permissions.allow_full);
+    let gated = format!("{ORIGINAL}\n[permissions]\nallow_full = true\n");
+    assert_eq!(fs::read_to_string(&path).unwrap(), gated);
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.set_text("permissions.mode", "full").unwrap();
+    let settings = file.write(&edit).unwrap();
+    assert_eq!(settings.permissions.mode, efr_protocol::Mode::Full);
+    let full = fs::read_to_string(&path).unwrap();
+
+    // The gate cannot go while full is the default of the file.
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    assert!(edit.unset("permissions.allow_full").unwrap());
+    invalid_mode(file.write(&edit).unwrap_err());
+    assert_eq!(fs::read_to_string(&path).unwrap(), full);
+}
+
 #[test]
 fn values_of_the_wrong_kind_rules_and_unknown_keys_cannot_be_set() {
     let dir = tempfile::tempdir().unwrap();

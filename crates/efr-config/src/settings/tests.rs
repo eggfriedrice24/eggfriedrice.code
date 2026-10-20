@@ -817,6 +817,66 @@ fn max_upload_bytes_range() {
 }
 
 #[test]
+fn allow_full_defaults_to_false_and_is_live() {
+    let settings = Settings::parse(path(), None).unwrap();
+    assert!(!settings.permissions.allow_full);
+    assert!(crate::keys().iter().any(|known| known == "permissions.allow_full"));
+    assert_eq!(crate::Applies::of("permissions.allow_full"), crate::Applies::Live);
+    assert!(!crate::RESTART_KEYS.contains(&"permissions.allow_full"));
+    assert_eq!(crate::kind("permissions.allow_full"), Some(crate::Kind::Boolean));
+
+    let on = parse("[permissions]\nallow_full = true\n").unwrap();
+    assert!(on.permissions.allow_full);
+    assert_eq!(on.permissions.mode, Mode::Cautious, "the gate alone changes no mode");
+    assert_eq!(on.source("permissions.allow_full"), Source::File);
+}
+
+/// Full as the default of the file needs the gate key next to it; without it the file
+/// does not load, and the error says how to allow it.
+#[test]
+fn config_mode_full_needs_the_gate_key() {
+    for text in
+        ["[permissions]\nmode = \"full\"\n", "[permissions]\nmode = \"full\"\nallow_full = false\n"]
+    {
+        let error = parse(text).unwrap_err();
+        let ConfigError::Invalid { key, value, .. } = &error else {
+            panic!("{text}: {error:?}");
+        };
+        assert_eq!((*key, value.as_str()), ("permissions.mode", "\"full\""), "{text}");
+        assert_eq!(error.location().map(|at| at.line), Some(2), "{text}");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "the config value permissions.mode = \"full\" in {PATH} is not valid without \
+                 permissions.allow_full = true; set permissions.allow_full = true in \
+                 [permissions] to allow full mode"
+            ),
+            "{text}"
+        );
+    }
+
+    let full = parse("[permissions]\nmode = \"full\"\nallow_full = true\n").unwrap();
+    assert_eq!(full.permissions.mode, Mode::Full);
+    assert!(full.permissions.allow_full);
+
+    // An override is checked like the file: full needs the gate there too.
+    let mut settings = Settings::default();
+    let error =
+        settings.apply_override("permissions.mode", "full", Source::Flag("--x")).unwrap_err();
+    assert!(error.to_string().contains("set permissions.allow_full = true"), "{error}");
+    assert_eq!(settings.permissions.mode, Mode::Cautious, "a refused override changes nothing");
+    settings.apply_override("permissions.allow_full", "true", Source::Flag("--x")).unwrap();
+    settings.apply_override("permissions.mode", "full", Source::Flag("--x")).unwrap();
+    assert_eq!(settings.permissions.mode, Mode::Full);
+    // The gate cannot go while full is the default.
+    let error = settings
+        .apply_override("permissions.allow_full", "false", Source::Flag("--x"))
+        .unwrap_err();
+    assert!(error.to_string().contains("set permissions.allow_full = true"), "{error}");
+    assert!(settings.permissions.allow_full);
+}
+
+#[test]
 fn network_mode_is_a_live_key() {
     for key in ["network.mode", "network.allow", "network.deny", "network.hosts"] {
         assert!(crate::keys().iter().any(|known| known == key), "{key}");
