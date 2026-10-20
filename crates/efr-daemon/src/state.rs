@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, watch};
 use crate::connections::Connections;
 use crate::conversations::Conversations;
 use crate::engine::EngineParts;
+use crate::full::FullTurns;
 use crate::jobs::JobTable;
 use crate::presence::PresenceTable;
 use crate::providers::Providers;
@@ -90,4 +91,6 @@ pub(crate) struct State {
     pub(crate) jobs: JobTable,
     /// True when efrd runs as root, read once at the start: full mode is refused then.
     pub(crate) runs_as_root: bool,
+    /// The full work that runs, for the config hold of a reload.
+    pub(crate) full: FullTurns,
 }

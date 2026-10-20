@@ -6,9 +6,67 @@
 //! before each call (`settings.rs`), and `admin.status` reports the same value, so the
 //! CLI shows what a turn would meet. The value follows the latest settings, so a reload
 //! that turns undo off stops full mode from the next resolve on.
+//!
+//! [`FullTurns`] counts the full work that runs: a full turn from its first full call
+//! to its end, and a job that a full call started until the job ends. While it runs, a
+//! reload holds a change of `config.toml` that loosens permissions (`reload.rs`, the
+//! config hold): a command of a full turn can write the file.
+
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::Settings;
-use efr_protocol::{FullModeStatus, FullRefusal, Mode};
+use efr_protocol::{FullModeStatus, FullRefusal, Mode, TurnId};
+
+use crate::jobs::JobKey;
+
+/// The full work that runs now: the turns that made a full call and have not ended, and
+/// the jobs that a full call started and that have not ended. Cheap to clone; clones
+/// share the count.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FullTurns {
+    work: Arc<Mutex<Work>>,
+}
+
+#[derive(Debug, Default)]
+struct Work {
+    turns: HashSet<TurnId>,
+    jobs: HashSet<JobKey>,
+}
+
+impl FullTurns {
+    /// A full call of `turn` runs; the turn counts until [`end_turn`](Self::end_turn).
+    pub(crate) fn begin_turn(&self, turn: TurnId) {
+        self.lock().turns.insert(turn);
+    }
+
+    /// The turn `turn` ended, whatever its ending.
+    pub(crate) fn end_turn(&self, turn: TurnId) {
+        self.lock().turns.remove(&turn);
+    }
+
+    /// A full call started the job `job`; it counts until [`end_job`](Self::end_job).
+    pub(crate) fn begin_job(&self, job: JobKey) {
+        self.lock().jobs.insert(job);
+    }
+
+    /// The job `job` ended.
+    pub(crate) fn end_job(&self, job: JobKey) {
+        self.lock().jobs.remove(&job);
+    }
+
+    /// True while a full turn or a job of one runs.
+    pub(crate) fn running(&self) -> bool {
+        let work = self.lock();
+        !work.turns.is_empty() || !work.jobs.is_empty()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Work> {
+        // Each change is one insert or one remove, so a poisoned lock still holds a
+        // usable set.
+        self.work.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 /// Whether a turn may run in full mode with `settings` in an efrd that runs as root
 /// when `root` is true: `permissions.allow_full`, and the first refusal that holds, in

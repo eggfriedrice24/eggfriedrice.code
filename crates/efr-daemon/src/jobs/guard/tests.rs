@@ -79,6 +79,7 @@ impl Scene {
                 home: dirs.home().to_path_buf(),
                 user_runtime: dirs.dirs().runtime().to_path_buf(),
             },
+            full: crate::full::FullTurns::default(),
         });
         let conversation = ConversationId::from_uuid(id(1));
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
@@ -138,6 +139,7 @@ impl Scene {
             contained: true,
             proxy: None,
             bus: None,
+            full: false,
         };
         let mut spawned = self.table.spawn(&job).unwrap();
         self.table.start(&mut spawned, &job).await.unwrap();

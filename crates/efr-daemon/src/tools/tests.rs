@@ -429,6 +429,7 @@ async fn job_table(home: &Path) -> (crate::jobs::JobTable, efr_test_support::Tes
         dirs,
         launcher: home.join("efr-sbx"),
         spawn_env: crate::jobs::SpawnEnv::default(),
+        full: crate::full::FullTurns::default(),
     });
     (table, store)
 }
@@ -1789,6 +1790,35 @@ async fn full_call_collects_facts_without_an_available_sandbox() {
     let file = file.unwrap();
     assert_eq!(file.target(&app.join("new.txt")), Some(None), "a new file is missing");
     assert_eq!(cautious, None, "cautious reads no facts");
+}
+
+#[tokio::test]
+async fn a_full_call_counts_its_turn_as_full_work_until_the_turn_ends() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = kept.home.join("work/scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let write = |turn: u128, mode: Mode| {
+        let input = json!({"path": scratch.join(format!("{turn}.txt")), "content": "x\n"});
+        let mut call = call_of(turn, 1, "write_file", input, &kept.home.join("work"));
+        call.context = call.context.with_mode(mode);
+        call
+    };
+    let mut sink = |_: &str, _: u64| {};
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let conversation = ConversationId::from_uuid(id(1));
+
+    assert!(!kept.toolbox.invoke(write(2, Mode::Auto), &mut sink).await.is_error);
+    let after_auto = kept.toolbox.full.running();
+    assert!(!kept.toolbox.invoke(write(3, Mode::Full), &mut sink).await.is_error);
+    let after_full = kept.toolbox.full.running();
+    kept.toolbox.turn_changes(conversation, TurnId::from_uuid(id(2))).await;
+    let other_ended = kept.toolbox.full.running();
+    kept.toolbox.turn_changes(conversation, TurnId::from_uuid(id(3))).await;
+
+    assert!(!after_auto, "an auto call is no full work");
+    assert!(after_full && other_ended, "the full turn counts until its own end");
+    assert!(!kept.toolbox.full.running(), "the end of the full turn drops it");
 }
 
 #[tokio::test]

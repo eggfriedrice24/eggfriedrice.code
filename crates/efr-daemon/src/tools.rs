@@ -67,6 +67,7 @@ use tokio::sync::watch;
 
 use crate::DaemonError;
 use crate::connections::Connections;
+use crate::full::FullTurns;
 use crate::home::state::{self, StateCopy};
 use crate::home::{self, HomeLimits};
 use crate::jobs::JobTable;
@@ -192,6 +193,9 @@ pub(crate) struct DaemonToolbox {
     /// The wake turns of every conversation in the last hour, for
     /// `jobs.max_wakes_per_hour_daemon`.
     wakes: Arc<crate::jobs::wakes::DaemonWakes>,
+    /// The full work that runs: each turn from its first full call to its end, which a
+    /// reload reads for the config hold.
+    full: FullTurns,
 }
 
 /// What the facts of one call said efr covers: its turn and each ask with its answer.
@@ -250,7 +254,14 @@ impl DaemonToolbox {
             jobs: None,
             job_env: None,
             wakes: Arc::default(),
+            full: FullTurns::default(),
         }
+    }
+
+    /// Counts each turn with a full call in `full` until the turn ends.
+    pub(crate) fn with_full_turns(mut self, full: FullTurns) -> Self {
+        self.full = full;
+        self
     }
 
     /// Counts the wake turns of `starts`, which the store recorded in the last hour,
@@ -1462,6 +1473,12 @@ impl Toolbox for DaemonToolbox {
         if context.predicts() {
             self.mark_auto(context.turn_id);
         }
+        // NOTE: from the first full call on, a command of the turn can write the config
+        // file, so a reload holds a change that loosens permissions until the turn ends
+        // (DF17).
+        if context.is_full() {
+            self.full.begin_turn(context.turn_id);
+        }
         let copying = match self.copy_before(&context).await {
             Ok(copying) => copying,
             Err(reason) => {
@@ -1582,6 +1599,9 @@ impl Toolbox for DaemonToolbox {
     }
 
     async fn turn_changes(&self, conversation_id: ConversationId, turn_id: TurnId) -> TurnChanges {
+        // NOTE: the turn asks for its changes at every ending, also a failed or an
+        // interrupted one, so a full turn never stays counted.
+        self.full.end_turn(turn_id);
         self.covered
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

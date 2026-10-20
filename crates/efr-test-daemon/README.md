@@ -45,7 +45,10 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   all, so it never reaches the machine's buses.
 - For full mode, `TestDaemonBuilder::as_root(true)` makes the daemon count as running
   as root, so `admin.status` and every full turn see `FullRefusal::Root` without the
-  test being root.
+  test being root, and `config_watch()` turns the file watcher on, so a change of
+  `config.toml` reloads by itself (with the trigger `file`) as in the real daemon; its
+  quiet time of 200 ms runs on the test's clock. Without it, the file reloads only
+  when a test asks (`admin.config_reload`, the project methods).
 - `fake_launcher`: `FakeLauncher`, one `/bin/sh` script in place of `efr-sbx` for the
   tests of `efr-daemon`, `efr-cli` and the eval. `run --call-dir D` runs a call's line
   with `/bin/sh`; `run --call-dir D --job` runs a job as the real launcher's contract

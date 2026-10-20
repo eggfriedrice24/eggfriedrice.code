@@ -33,6 +33,7 @@ mod home;
 mod jobs;
 mod judge;
 mod lock;
+mod loosens;
 mod methods;
 mod notices;
 mod presence;

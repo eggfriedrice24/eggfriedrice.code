@@ -137,6 +137,26 @@ the appliers take the new values:
   filter is an error of the file.
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
+
+The config hold (full mode): a command of a full turn runs as the user and can write
+`config.toml`. `full::FullTurns` counts the full work that runs: a turn from its first
+full call to its end (`Toolbox::turn_changes`, which every ending of a turn calls),
+and a job that a full call started until the job ends (the job table). While it runs,
+a reload whose new settings loosen permissions against the running ones
+(`loosens::loosening`) is held: the old settings stay, one WARN goes to the log,
+each terminal with a recent conversation hears it once, and `admin.status` names the
+keys in `ConfigStatus::held`. The text: `config.toml changed while a full turn ran,
+and the change loosens permissions.rules. If you did not make this change, take it out
+of the file. Then run efr config reload.` The hold is sticky: after the full work
+ended, every reload holds again while the file still loosens against the running
+settings: the file watcher, SIGHUP, `admin.project_add` and `admin.project_remove`, and
+also the settings tool and the writer of an always rule, whose reload reads the whole
+file. Only `admin.config_reload` (the user's `efr config reload`) applies a held change,
+and only when no full work runs; while it runs, it is refused with `efr does not load a
+change that loosens permissions while a full turn or its job runs; run efr config
+reload again after it ends`. A reload that loosens nothing applies as before and ends
+the hold. The hold works against a line or a script of a full turn; a process that the
+turn left behind runs as the user and can call `admin.config_reload` itself.
 A reload runs the sandbox probe again when `[sandbox]` changed in any key but `allow`,
 or when the new engine has other projects or another support (`reload::probes_again`);
 a change of the always rules alone, as an `a` answer makes, starts no probe.
@@ -255,11 +275,13 @@ offers it after the registry's tools, as `settings`.
   refused, to add and to remove. A change that fails any of this goes back to the
   model, and nobody is asked.
 - A valid change declares a `SettingsChange` (a summary and whether it loosens
-  permissions: a new allow rule, a removed deny or ask rule, a mode toward `auto`,
-  `per_call` to `keep`, a removed secret path, and the `[network]` rows of
-  `network_loosens`: `netview` on, `mode` to `proxy`, an added `allow` entry, a
-  removed `deny` entry, a `[[network.hosts]]` entry that no earlier entry covers, a
-  higher `max_upload_bytes`). The engine asks about it in every mode
+  permissions, from `loosens.rs`, which the config hold of a reload reads too: a new
+  allow rule, a removed deny or ask rule, a mode toward `full`, the gate
+  `permissions.allow_full` turned on, `per_call` to `keep`, a removed secret path,
+  and the rows of `[sandbox]`, `[snapshot]`, `undo`, the classifier, `[jobs]`,
+  `[network]` (`netview` on, `mode` to `proxy`, an added `allow` entry, a removed
+  `deny` entry, a `[[network.hosts]]` entry that no earlier entry covers, a higher
+  `max_upload_bytes`) and `[dbus]`; `loosens::loosening` names each such key). The engine asks about it in every mode
   and whatever the rules say, and denies it for a remote turn. The approval shows the
   unified diff of the file (`efr_tools::unified_diff`, as for `write_file`; for a new
   file, the diff from the example), headed by "This change loosens permissions." when
@@ -270,7 +292,10 @@ offers it after the registry's tools, as `settings`.
   file's hash once more right before it writes, and keeps a link and the comments.
   Then the tool asks the reload task to reload, so the change applies from the next
   turn (rules from the next tool call), and its result says when it applies and
-  whether a restart is needed.
+  whether a restart is needed. While full work runs or a held change waits (the config
+  hold, `reload.rs`), a reload that loosens is held, and the result says so.
+- The tool refuses `permissions.allow_full` and `permissions.mode = "full"`: the user
+  sets them by hand or with `efr config set`.
 - The tool never declares the file as a path: config protection still denies every
   tool's write to it, `write_file` and the shell included.
 
@@ -1030,6 +1055,8 @@ while efr still reads each line for a small set of floors. efrd's part:
   call does (`CallContext::predicts`), with no sandbox, and its snapshot roots record
   the mode `full`, so undo covers what the turn wrote outside its roots. It clears
   sudo's cache before and after its line (`shell.sudo_cache` above).
+- While a full turn or a job that a full call started runs, a reload that loosens
+  permissions is held (the config hold, under Live reload).
 
 ### Features
 

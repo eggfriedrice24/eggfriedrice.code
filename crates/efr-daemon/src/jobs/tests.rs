@@ -38,6 +38,8 @@ struct Scene {
     table: JobTable,
     conversation: ConversationId,
     notices: std::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<super::Notice>>,
+    /// The full work that the table counts.
+    full: crate::full::FullTurns,
 }
 
 impl Scene {
@@ -48,6 +50,7 @@ impl Scene {
         let launcher = dirs.root().join("efr-sbx");
         std::fs::write(&launcher, LAUNCHER).unwrap();
         std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let full = crate::full::FullTurns::default();
         let (table, notices) = JobTable::new(JobParts {
             clock: clock.shared(),
             writer: store.writer().clone(),
@@ -59,11 +62,13 @@ impl Scene {
                 home: dirs.home().to_path_buf(),
                 user_runtime: dirs.dirs().runtime().to_path_buf(),
             },
+            full: full.clone(),
         });
         let conversation = ConversationId::from_uuid(id(1));
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None };
         store.writer().append(Batch::new().event(conversation, created)).await.unwrap();
-        Scene { dirs, clock, store, table, conversation, notices: std::sync::Mutex::new(notices) }
+        let notices = std::sync::Mutex::new(notices);
+        Scene { dirs, clock, store, table, conversation, notices, full }
     }
 
     fn info(&self, number: u32) -> JobInfo {
@@ -113,6 +118,7 @@ impl Scene {
             contained: true,
             proxy: None,
             bus: None,
+            full: false,
         }
     }
 
@@ -180,6 +186,26 @@ async fn launcher_waits_for_start_byte_after_peer_list() {
     scene.table.drop_lifeline(scene.key(1));
     scene.ended(1).await;
     assert!(!scene.table.model_side().contains(&pid), "a launcher that ended is not listed");
+}
+
+#[tokio::test]
+async fn a_job_of_a_full_call_counts_as_full_work_until_it_ends() {
+    let scene = Scene::new().await;
+    let mut job = scene.new_job(1);
+    job.full = true;
+    let mut spawned = scene.table.spawn(&job).unwrap();
+    scene.table.start(&mut spawned, &job).await.unwrap();
+    scene.table.begin(spawned, job, None).await.unwrap();
+    scene.start(2).await;
+    assert!(scene.full.running(), "the job of a full call counts");
+
+    scene.table.drop_lifeline(scene.key(1));
+    scene.ended(1).await;
+    Wait::new("the end of the full job").until(|| !scene.full.running()).await.unwrap();
+
+    assert!(scene.table.live(scene.key(2)).is_some(), "a job of another mode does not count");
+    scene.table.drop_lifeline(scene.key(2));
+    scene.ended(2).await;
 }
 
 #[tokio::test]

@@ -39,19 +39,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_config::{
-    Applies, AskDestructive, CONFIG_FILE, ConfigError, ConfigFile, DbusSettings, Edit, FileState,
-    IgnoredFiles, JobsSettings, Kind, NetworkHost, NetworkSettings, SandboxSettings, Settings,
-    SnapshotSettings, Source, SudoCache, WriteProjects,
+    Applies, CONFIG_FILE, ConfigError, ConfigFile, Edit, FileState, Kind, Settings, Source,
 };
 use efr_conversation::{ToolCall, ToolOutcome};
-use efr_permissions::{Effect, Engine, Requirements, Rule, SettingsChange};
-use efr_protocol::{AdminConfigReloadResult, CallId, Mode, ModelInfo, NetworkMode};
+use efr_permissions::{Engine, Requirements, Rule, SettingsChange};
+use efr_protocol::{AdminConfigReloadResult, CallId, Mode, ModelInfo};
 use efr_provider::ToolDefinition;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
 use crate::catalog::{self, ModelList, Models};
+use crate::loosens::loosens;
 use crate::reload::{Outcome, Reloads};
 
 /// The tool's name.
@@ -664,152 +663,6 @@ fn check_models(settings: &Settings, list: &ModelList) -> Result<(), String> {
 
 fn ids(models: &[ModelInfo]) -> String {
     models.iter().map(|info| info.id.as_str()).collect::<Vec<_>>().join(", ")
-}
-
-/// True when `next` lets more run without a question than `before`: a new allow rule,
-/// a removed deny or ask rule, a mode toward `full` (the order of `Mode`), the gate of
-/// full mode turned on, `per_call` to `keep`, a secret
-/// path less, a `[sandbox]` key that opens the sandbox, the classifier turned on, so
-/// a model can allow exits that asked the user, undo turned on or covering more, so
-/// more destructive lines run without a question, a `[jobs]` key that lets jobs run
-/// longer, more often or at a higher priority, a `[network]` key that opens the
-/// network view or efr's proxy, or a `[dbus]` key that opens the filtered bus (efr's
-/// auto spec, section 13.1).
-fn loosens(before: &Settings, next: &Settings) -> bool {
-    let old = before.permissions.rules.rules();
-    let new = next.permissions.rules.rules();
-    let added = without(new, old);
-    let removed = without(old, new);
-    added.iter().any(|rule| rule.effect == Effect::Allow)
-        || removed.iter().any(|rule| rule.effect != Effect::Allow)
-        || next.permissions.mode > before.permissions.mode
-        || (next.permissions.allow_full && !before.permissions.allow_full)
-        || (before.shell.sudo_cache == SudoCache::PerCall
-            && next.shell.sudo_cache == SudoCache::Keep)
-        || before
-            .permissions
-            .secret_paths
-            .iter()
-            .any(|path| !next.permissions.secret_paths.contains(path))
-        || sandbox_loosens(&before.sandbox, &next.sandbox)
-        || (next.classifier.enabled && !before.classifier.enabled)
-        || (next.undo.enabled && !before.undo.enabled)
-        || snapshot_loosens(&before.snapshot, &next.snapshot)
-        || jobs_loosens(&before.jobs, &next.jobs)
-        || network_loosens(&before.network, &next.network)
-        || dbus_loosens(&before.dbus, &next.dbus)
-}
-
-/// True when `next` lets more bus calls run without a question than `before` (phase
-/// E): the filtered bus turned on, or a `[[dbus.allow]]` method that no entry of
-/// `before` names on the same bus and service.
-fn dbus_loosens(before: &DbusSettings, next: &DbusSettings) -> bool {
-    let known = |bus, name: &str, call: &String| {
-        before
-            .allow
-            .iter()
-            .any(|entry| entry.bus == bus && entry.name == name && entry.call.contains(call))
-    };
-    (next.proxy && !before.proxy)
-        || next
-            .allow
-            .iter()
-            .any(|entry| entry.call.iter().any(|call| !known(entry.bus, &entry.name, call)))
-}
-
-/// True when `next` lets more lines run without a question than `before`: the network
-/// view turned on, so `ss` and the read forms of `ip` run in the host's network
-/// namespace with no review; or, for efr's proxy (phase D2), `mode` to `proxy`, an
-/// added `allow` entry, a removed `deny` entry, a `[[network.hosts]]` entry that no
-/// entry of `before` covers (a new host or port, or `http` or `private` that becomes
-/// true), or a higher `max_upload_bytes`.
-fn network_loosens(before: &NetworkSettings, next: &NetworkSettings) -> bool {
-    fn adds(before: &[String], next: &[String]) -> bool {
-        next.iter().any(|item| !before.contains(item))
-    }
-    let covered = |host: &NetworkHost| {
-        before.hosts.iter().any(|known| {
-            known.host == host.host
-                && known.port == host.port
-                && (known.http || !host.http)
-                && (known.private || !host.private)
-        })
-    };
-    (next.netview && !before.netview)
-        || (next.mode == NetworkMode::Proxy && before.mode != NetworkMode::Proxy)
-        || adds(&before.allow, &next.allow)
-        || adds(&next.deny, &before.deny)
-        || next.hosts.iter().any(|host| !covered(host))
-        || next.max_upload_bytes > before.max_upload_bytes
-}
-
-/// True when `next` lets the model's background jobs do more than `before`: jobs
-/// turned on, a longer default or longest time limit, more jobs at one time, more turns
-/// that notices start, more wakes of a watch pattern, or a higher CPU priority (a lower
-/// nice value).
-fn jobs_loosens(before: &JobsSettings, next: &JobsSettings) -> bool {
-    (next.enabled && !before.enabled)
-        || next.default_minutes > before.default_minutes
-        || next.max_minutes > before.max_minutes
-        || next.max_running > before.max_running
-        || next.max_running_daemon > before.max_running_daemon
-        || next.max_wakes_per_hour > before.max_wakes_per_hour
-        || next.max_wakes_per_hour_daemon > before.max_wakes_per_hour_daemon
-        || next.max_wakes_per_watch > before.max_wakes_per_watch
-        || next.nice < before.nice
-}
-
-/// True when `next` makes efr's snapshots cover more than `before`, so more lines that
-/// delete or overwrite files count as undoable and run without a question: snapshots
-/// turned on, small ignored files taken, or a higher size or count limit.
-fn snapshot_loosens(before: &SnapshotSettings, next: &SnapshotSettings) -> bool {
-    (next.enabled && !before.enabled)
-        || (next.ignored == IgnoredFiles::Small && before.ignored != IgnoredFiles::Small)
-        || next.max_file_mib > before.max_file_mib
-        // NOTE: a root with more files than `max_files` has no snapshot, so a higher
-        // limit covers more roots.
-        || next.max_files > before.max_files
-        || next.mirror_max_mib > before.mirror_max_mib
-        || next.home_max_files > before.home_max_files
-        || next.home_max_mib > before.home_max_mib
-}
-
-/// True when `next` opens the sandbox more than `before`: another bwrap, all projects
-/// writable, a new write root, cache, kept or promoted variable or rebuildable dir, a
-/// mask glob or synced folder less, `ask_destructive` from `always` to
-/// `unless_undoable`, or a new always-allow rule (`sandbox.allow`).
-fn sandbox_loosens(before: &SandboxSettings, next: &SandboxSettings) -> bool {
-    fn adds<T: PartialEq>(before: &[T], next: &[T]) -> bool {
-        next.iter().any(|item| !before.contains(item))
-    }
-    next.bwrap != before.bwrap
-        || (next.write_projects == WriteProjects::All
-            && before.write_projects != WriteProjects::All)
-        || adds(&before.write_roots, &next.write_roots)
-        || adds(&before.caches, &next.caches)
-        || adds(&next.mask_globs, &before.mask_globs)
-        || adds(&before.env_keep, &next.env_keep)
-        || adds(&before.promote_env, &next.promote_env)
-        || adds(&next.synced_dirs, &before.synced_dirs)
-        || adds(&before.rebuildable, &next.rebuildable)
-        || (next.ask_destructive == AskDestructive::UnlessUndoable
-            && before.ask_destructive != AskDestructive::UnlessUndoable)
-        || adds(&before.allow, &next.allow)
-}
-
-/// The rules of `rules` that `other` does not hold, each counted as often as it occurs.
-fn without<'a>(rules: &'a [Rule], other: &[Rule]) -> Vec<&'a Rule> {
-    let mut left: Vec<&Rule> = other.iter().collect();
-    let mut extra = Vec::new();
-    for rule in rules {
-        match left.iter().position(|known| *known == rule) {
-            Some(at) => {
-                left.swap_remove(at);
-            }
-            None => extra.push(rule),
-        }
-    }
-    extra
 }
 
 /// The text of `read`; `models_key` is the config's list of models of the provider's

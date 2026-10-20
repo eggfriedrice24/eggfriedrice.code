@@ -77,6 +77,7 @@ async fn job_stop_of_ended_job_returns_state() {
         dirs,
         launcher: home.path().join("efr-sbx"),
         spawn_env: crate::jobs::SpawnEnv::default(),
+        full: crate::full::FullTurns::default(),
     });
     let id = |n: u128| uuid::Uuid::from_u128(n);
     // NOTE: the conversation of the tools' test calls.

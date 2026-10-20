@@ -7,15 +7,16 @@ use efr_permissions::{
 };
 use efr_protocol::{
     AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, CacheMode,
-    CommandId, ConfigFileError, Method, Mode, NetworkMode, Origin, PromptSend, PromptSendResult,
-    RootSource, SandboxStatus, Scope, ShellContext, TurnSettings,
+    CommandId, ConfigFileError, HeldConfig, Method, Mode, NetworkMode, Origin, PromptSend,
+    PromptSendResult, RootSource, SandboxStatus, Scope, ShellContext, TurnId, TurnSettings,
 };
 use efr_scope::Registry;
 use efr_test_support::{TestClock, TestDirs};
 use pretty_assertions::assert_eq;
 use tokio::sync::watch;
 
-use super::{Outcome, Reloads, Request, follow_probes, notice, probes_again};
+use super::{Hold, Outcome, Reloads, Request, follow_probes, hold, notice, probes_again};
+use crate::full::FullTurns;
 use crate::testing::{RawClient, Running, deps, logged, serve_with};
 use crate::{ScreenChoice, Settings};
 
@@ -46,10 +47,10 @@ fn error(message: &str) -> ConfigFileError {
 #[test]
 fn a_new_error_is_told_once() {
     let none = Outcome::default();
-    let broken = Outcome { error: Some(error("bad")), restart_needed: Vec::new() };
+    let broken = Outcome { error: Some(error("bad")), ..Outcome::default() };
     let keyed = Outcome {
         error: Some(ConfigFileError { key: Some("shell.login".to_owned()), ..error("worse") }),
-        restart_needed: Vec::new(),
+        ..Outcome::default()
     };
 
     assert_eq!(
@@ -67,10 +68,10 @@ fn a_new_error_is_told_once() {
 #[test]
 fn new_keys_that_wait_for_a_restart_are_told_once() {
     let none = Outcome::default();
-    let screen = Outcome { error: None, restart_needed: vec!["screen".to_owned()] };
+    let screen = Outcome { restart_needed: vec!["screen".to_owned()], ..Outcome::default() };
     let both = Outcome {
-        error: None,
         restart_needed: vec!["screen".to_owned(), "model.provider".to_owned()],
+        ..Outcome::default()
     };
 
     assert_eq!(notice(&none, &screen).as_deref(), Some("efr: restart efrd to apply: screen"));
@@ -774,4 +775,258 @@ async fn stale_allow_rule_is_disabled_not_fatal() {
     let stale = Some(AllowFloor::WriteRoot { root: home.join("code/site") });
     assert_eq!(marks(&daemon.engine.borrow()), [stale, None]);
     daemon.stop().await;
+}
+
+/// A file with one allow rule: a change that loosens permissions.
+const ALLOW_RULE: &str = "[[permissions.rules]]\naction = \"execute\"\nresource = { command = { \
+                          program = \"cargo\" } }\neffect = \"allow\"\n";
+
+/// A daemon that serves, with the way to its reload task and its count of full work.
+async fn holding(dirs: &TestDirs, clock: &TestClock) -> (Running, Reloads, FullTurns) {
+    let daemon = crate::start(Settings::default(), deps(dirs, clock)).await.unwrap();
+    let (reloads, full) = (daemon.reloads(), daemon.full_turns());
+    let socket = daemon.socket_path().to_path_buf();
+    let connections = daemon.connections();
+    let (settings, engine) = (daemon.settings(), daemon.engine());
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let served = tokio::spawn(daemon.serve(shutdown.clone()));
+    (Running { socket, shutdown, served, connections, settings, engine }, reloads, full)
+}
+
+fn turn(n: u128) -> TurnId {
+    TurnId::from_uuid(uuid::Uuid::from_u128(n))
+}
+
+/// The held change of the last reload, as `admin.status` reports it.
+async fn held(socket: &Path) -> Option<HeldConfig> {
+    status(socket).await.config.unwrap().held
+}
+
+fn held_of(keys: &[&str]) -> Option<HeldConfig> {
+    Some(HeldConfig { loosens: keys.iter().map(|key| (*key).to_owned()).collect() })
+}
+
+#[test]
+fn hold_decides_by_the_trigger_the_work_and_the_held_change() {
+    let rules = || vec!["permissions.rules"];
+    let held = Hold::Keep(rules());
+    for trigger in ["file", "SIGHUP", "admin.project_add", "admin.project_remove"] {
+        assert_eq!(hold(trigger, rules(), true, false), held, "{trigger} while full work runs");
+        assert_eq!(hold(trigger, rules(), false, true), held, "{trigger} with a held change");
+        assert_eq!(hold(trigger, rules(), false, false), Hold::Apply, "{trigger}");
+        assert_eq!(hold(trigger, Vec::new(), true, true), Hold::Apply, "{trigger}: nothing");
+    }
+    // NOTE: these read the whole file too, so they never apply a held change.
+    for trigger in ["settings tool", "always rule"] {
+        assert_eq!(hold(trigger, rules(), true, false), held, "{trigger}");
+        assert_eq!(hold(trigger, rules(), false, true), held, "{trigger}");
+    }
+    assert_eq!(hold("admin.config_reload", rules(), true, true), Hold::Refuse(rules()));
+    assert_eq!(hold("admin.config_reload", rules(), false, true), Hold::Apply);
+}
+
+#[tokio::test]
+async fn reload_held_while_a_full_turn_runs() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    let result = reloads.request("file").await.unwrap();
+
+    assert!(!result.applied);
+    let message = result.error.unwrap().message;
+    assert!(message.starts_with("config.toml changed while a full turn ran"), "{message}");
+    assert!(daemon.settings.borrow().permissions.rules.rules().is_empty(), "the old rules stay");
+    assert_eq!(held(&daemon.socket).await, held_of(&["permissions.rules"]));
+    assert_eq!(status(&daemon.socket).await.config.unwrap().reload_error, None, "it loads");
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn reload_held_while_a_full_job_runs() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    let job = crate::jobs::JobKey {
+        conversation: efr_protocol::ConversationId::from_uuid(uuid::Uuid::from_u128(1)),
+        number: 1,
+    };
+    full.begin_job(job);
+
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    let held_result = reloads.request("SIGHUP").await.unwrap();
+    full.end_job(job);
+    let user = reload(&daemon.socket).await;
+
+    assert!(!held_result.applied, "the job of a full turn counts as full work");
+    assert!(user.applied, "efr config reload applies it once the job ended");
+    assert_eq!(daemon.settings.borrow().permissions.rules.rules().len(), 1);
+    assert_eq!(held(&daemon.socket).await, None);
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn held_reload_stays_held_after_the_turn_ends() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+
+    full.end_turn(turn(2));
+    let file = reloads.request("file").await.unwrap();
+    let hangup = reloads.request("SIGHUP").await.unwrap();
+    let tool = reloads.request("settings tool").await.unwrap();
+
+    assert!(!file.applied && !hangup.applied && !tool.applied, "the hold is sticky");
+    assert!(daemon.settings.borrow().permissions.rules.rules().is_empty());
+    assert_eq!(held(&daemon.socket).await, held_of(&["permissions.rules"]));
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn project_add_does_not_apply_a_held_change() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    full.end_turn(turn(2));
+    let project = dirs.home().join("code/app");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
+    let added: efr_protocol::AdminProjectAddResult = client
+        .call(Method::AdminProjectAdd(efr_protocol::AdminProjectAdd {
+            path: project,
+            name: None,
+            git_root: false,
+        }))
+        .await
+        .unwrap();
+
+    assert!(!added.reload.applied, "{:?}", added.reload);
+    assert!(daemon.settings.borrow().permissions.rules.rules().is_empty());
+    assert_eq!(held(&daemon.socket).await, held_of(&["permissions.rules"]));
+    drop(client);
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn admin_config_reload_refuses_a_loosening_change_during_full_work() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, _reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    let result = reload(&daemon.socket).await;
+
+    assert!(!result.applied);
+    assert_eq!(result.error.unwrap().message, super::HELD_WHILE_FULL);
+    assert!(daemon.settings.borrow().permissions.rules.rules().is_empty());
+    assert_eq!(held(&daemon.socket).await, held_of(&["permissions.rules"]));
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn admin_config_reload_applies_a_held_change_after_full_work() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    full.end_turn(turn(2));
+
+    let result = reload(&daemon.socket).await;
+
+    assert!(result.applied, "{result:?}");
+    assert_eq!(daemon.settings.borrow().permissions.rules.rules().len(), 1);
+    assert_eq!(held(&daemon.socket).await, None, "the applied file ends the hold");
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn reload_that_does_not_loosen_applies_during_a_full_turn() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+
+    let file = "[shell]\nidle_minutes = 5\n[undo]\nenabled = false\n";
+    std::fs::write(config_file(&dirs), file).unwrap();
+    let result = reloads.request("file").await.unwrap();
+
+    assert!(result.applied, "{result:?}");
+    assert_eq!(daemon.settings.borrow().shell.idle_minutes, 5);
+    assert!(!daemon.settings.borrow().undo.enabled, "a change that asks more applies");
+    assert_eq!(held(&daemon.socket).await, None);
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn held_names_the_loosening_keys() {
+    // NOTE: the first call sets up the log that the test reads at its end.
+    assert!(!logged().contains("config.toml changed while a full turn ran"));
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+
+    let file =
+        format!("[permissions]\nallow_full = true\n\n{ALLOW_RULE}\n[jobs]\nmax_minutes = 600\n");
+    std::fs::write(config_file(&dirs), file).unwrap();
+    let result = reloads.request("file").await.unwrap();
+
+    let keys = ["permissions.rules", "permissions.allow_full", "jobs.max_minutes"];
+    assert_eq!(held(&daemon.socket).await, held_of(&keys));
+    let text = "config.toml changed while a full turn ran, and the change loosens \
+                permissions.rules, permissions.allow_full, jobs.max_minutes. If you did not \
+                make this change, take it out of the file. Then run efr config reload.";
+    assert_eq!(result.error.unwrap().message, text);
+    let log = logged();
+    assert!(log.lines().any(|line| line.contains("WARN") && line.contains(text)), "{log}");
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn held_clears_when_the_file_no_longer_loosens() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), ALLOW_RULE).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied);
+    assert!(held(&daemon.socket).await.is_some());
+
+    std::fs::write(config_file(&dirs), "[shell]\nidle_minutes = 5\n").unwrap();
+    let result = reloads.request("file").await.unwrap();
+
+    assert!(result.applied, "{result:?}");
+    assert_eq!(held(&daemon.socket).await, None);
+    assert_eq!(daemon.settings.borrow().shell.idle_minutes, 5);
+    daemon.stop().await;
+}
+
+#[test]
+fn a_held_change_is_told_once() {
+    let none = Outcome::default();
+    let held = Outcome { held: held_of(&["permissions.rules"]), ..Outcome::default() };
+
+    let told = notice(&none, &held);
+
+    assert_eq!(
+        told.as_deref(),
+        Some(
+            "efr: config.toml changed while a full turn ran, and the change loosens \
+             permissions.rules. If you did not make this change, take it out of the file. \
+             Then run efr config reload."
+        )
+    );
+    assert_eq!(notice(&held, &held), None);
 }
