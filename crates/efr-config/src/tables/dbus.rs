@@ -11,9 +11,10 @@ use serde::{Deserialize, Serialize};
 #[non_exhaustive]
 pub struct DbusSettings {
     /// `true`: in `auto`, the read forms of `systemctl`, `loginctl`, `hostnamectl`,
-    /// `timedatectl` and `localectl` run in the sandbox with no question, through a
-    /// filtered bus that lets through only read methods. `false`: they go to the
-    /// reviewer, as a look at the whole bus. efrd turns the filter off when
+    /// `timedatectl` and `localectl`, and `notify-send`, run in the sandbox with no
+    /// question, through a filtered bus that lets through only a fixed list of methods.
+    /// `false`: they need the whole bus, which the reviewer approves for the system bus
+    /// and only you for the session bus. efrd turns the filter off when
     /// `xdg-dbus-proxy` is missing or fails its self-test. A change applies to new
     /// calls; a running background job keeps the bus rules of its start.
     pub proxy: bool,
