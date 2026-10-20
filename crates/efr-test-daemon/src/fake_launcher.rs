@@ -8,7 +8,8 @@
 //!
 //! - `probe ...`: prints `<dir>/report.json` and counts in `<dir>/probes`.
 //! - `run --call-dir D`: a call of the hidden shell's wrapper. It keeps a copy of the
-//!   spec, writes `D/started`, runs `D/line` with `/bin/sh`, and writes the result.
+//!   spec (to a temp name, then moved, so a test never reads half of it), writes
+//!   `D/started`, runs `D/line` with `/bin/sh`, and writes the result.
 //! - `run --call-dir D --job`: a job. It closes the descriptors from 3 to 9 that it
 //!   inherited, leads a session of its own (`setsid`, when the program exists), reads
 //!   the start byte from its stdin and starts nothing before it, writes `D/started`,
@@ -61,7 +62,7 @@ dbus-proxy)
 esac
 dir=$3
 for fd in 3 4 5 6 7 8 9; do eval "exec $fd>&-"; done
-cp "$dir/spec.json" "$fake/spec-${dir##*/}.json"
+cp "$dir/spec.json" "$fake/.spec-${dir##*/}.tmp" && mv "$fake/.spec-${dir##*/}.tmp" "$fake/spec-${dir##*/}.json"
 result() {
     if [ -e "$fake/no-result" ]; then exit "$1"; fi
     extra=''
