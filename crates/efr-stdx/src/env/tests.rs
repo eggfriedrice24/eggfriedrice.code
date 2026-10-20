@@ -148,6 +148,7 @@ fn all_lists_every_variant() {
         Var::Effort,
         Var::Context,
         Var::LastCommand,
+        Var::RecentCommands,
         Var::Prompt,
         Var::TerminalBg,
         Var::DraftFile,
@@ -173,6 +174,7 @@ fn all_lists_every_variant() {
             | Var::Effort
             | Var::Context
             | Var::LastCommand
+            | Var::RecentCommands
             | Var::Prompt
             | Var::TerminalBg
             | Var::DraftFile => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
@@ -185,7 +187,7 @@ fn all_lists_every_variant() {
 fn the_plugins_handover_variables_are_the_private_ones() {
     let private: Vec<_> =
         Var::ALL.iter().filter(|var| var.is_private()).map(|var| var.name()).collect();
-    assert_eq!(private, ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_PROMPT"]);
+    assert_eq!(private, ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_RECENT_COMMANDS", "EFR_PROMPT"]);
     assert_eq!(Var::PRIVATE.len(), private.len());
 }
 
