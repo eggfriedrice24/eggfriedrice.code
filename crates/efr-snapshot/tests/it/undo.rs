@@ -817,6 +817,28 @@ async fn turns_with_refs_read_the_mode_of_the_first_snapshot() {
 }
 
 #[tokio::test]
+async fn undo_reader_counts_full_as_covered() {
+    let world = World::new();
+    let dir = world.dir("p");
+    write(&dir.join("a.txt"), "a\n");
+    for (n, mode) in [(1, "full"), (2, "cautious")] {
+        let root = root(&dir).with_mode(mode);
+        let call =
+            world.snapshots.before_call(conversation(1), turn(n), vec![root], limits()).await;
+        write(&dir.join("a.txt"), &format!("{n}\n"));
+        world.snapshots.after_call(call, limits()).await;
+        world.snapshots.turn_end(turn(n), limits()).await;
+    }
+
+    // efrd restarts: only the store knows the mode.
+    let restarted = store(world.base.path(), &world.clock);
+    let turns = restarted.turns_with_refs(conversation(1)).await;
+    let modes: Vec<(efr_protocol::TurnId, bool)> =
+        turns.iter().map(|refs| (refs.turn, refs.auto)).collect();
+    assert_eq!(modes, [(turn(2), false), (turn(1), true)], "a full turn copies as auto does");
+}
+
+#[tokio::test]
 async fn turn_end_counts_the_refs_that_the_turn_moved() {
     let world = World::new();
     let home = world.home();

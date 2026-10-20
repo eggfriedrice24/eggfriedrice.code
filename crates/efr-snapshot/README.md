@@ -131,7 +131,9 @@ auto spec, section 10).
   at the next plan of its turn, under its own id. `Snapshots::plan_redo` takes back
   the newest undo: the paths that it wrote go from the state after it (or `pre`, for
   an undo that stopped half way) to the state before it. `turns_with_refs` lists the
-  turns, newest first; `stack_blocker` names the newer turn that is not undone, since
+  turns, newest first, each with `auto` set when its first snapshot of a root recorded
+  the mode `auto` or `full`, or when it has home copies: undo then covers what the
+  turn wrote outside the roots; `stack_blocker` names the newer turn that is not undone, since
   undo is a stack.
 - The refs of an undo (`undo/refs.rs`): each ref that differs between the mirror's
   record at `pre` and the record at `post` moves back by compare and swap; a ref that

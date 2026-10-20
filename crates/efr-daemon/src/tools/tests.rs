@@ -1552,6 +1552,36 @@ async fn covered_line_stops_when_the_capture_fails() {
 }
 
 #[tokio::test]
+async fn full_covered_line_stops_when_coverage_changes_before_it_runs() {
+    use efr_permissions::CoverAsk;
+
+    let (_temp, root) = canonical_temp();
+    let mut settings = Settings::default();
+    settings.snapshot.max_file_mib = 1;
+    let kept = kept(&root, settings).await;
+    let work = kept.home.join("work");
+    let scratch = work.join("scratch");
+    std::fs::create_dir_all(scratch.join("build")).unwrap();
+    std::fs::write(scratch.join("build/out.txt"), "out\n").unwrap();
+    let mut call = call_of(2, 1, "shell", json!({"command": "false && rm -r build"}), &work);
+    call.context = call.context.with_mode(Mode::Full);
+    let ask = CoverAsk::Path(scratch.join("build"));
+
+    let answers =
+        kept.toolbox.cover_facts(&call.context, std::slice::from_ref(&ask), Vec::new()).await;
+    assert!(answers[0].1.is_covered(), "{answers:?}");
+    std::fs::write(scratch.join("build/big.bin"), vec![1_u8; 2 * 1024 * 1024]).unwrap();
+    let mut sink = |_: &str, _: u64| {};
+    let outcome = kept.toolbox.invoke(call, &mut sink).await;
+
+    // NOTE: a full call runs with no plan, so the toolbox asks again itself, after the
+    // snapshot and before the line reaches the shell.
+    assert!(outcome.is_error, "{outcome:?}");
+    assert_eq!(outcome.output, crate::tools::COVERAGE_CHANGED);
+    assert!(scratch.join("build/out.txt").exists());
+}
+
+#[tokio::test]
 async fn turn_end_counts_home_files() {
     let (_temp, root) = canonical_temp();
     let kept = kept(&root, Settings::default()).await;
@@ -1712,4 +1742,51 @@ fn home_copy_masks_the_env_files_of_a_project_it_reaches() {
     let above = crate::tools::env_masks(&projects, &[root.join("p")], &globs);
     assert_eq!(above, [app.join(".env"), other.join(".env")]);
     assert!(crate::tools::env_masks(&projects, &[root.join("elsewhere")], &globs).is_empty());
+}
+
+#[tokio::test]
+async fn full_call_collects_facts_without_an_available_sandbox() {
+    let (_temp, root) = canonical_temp();
+    let toolbox = sandboxed(&root, Settings::default()).await;
+    let (sandbox, _) = toolbox.sandbox.as_ref().unwrap();
+    assert!(!sandbox.current().available, "no probe ran, so the sandbox is not available");
+    let app = root.join("home/p/app");
+    std::fs::create_dir_all(&app).unwrap();
+    let facts = async |mode: Mode, name: &str, input: serde_json::Value| {
+        let mut tool_call = call(name, input, &app);
+        tool_call.context = tool_call.context.with_mode(mode);
+        toolbox.requirements(&tool_call).await.unwrap().facts
+    };
+
+    let shell = facts(Mode::Full, "shell", json!({"command": "cat notes.txt"})).await;
+    let file = facts(Mode::Full, "write_file", json!({"path": "new.txt", "content": "x"})).await;
+    let cautious = facts(Mode::Cautious, "shell", json!({"command": "cat notes.txt"})).await;
+
+    assert!(shell.is_some(), "a full shell call gets the facts of its line");
+    let file = file.unwrap();
+    assert_eq!(file.target(&app.join("new.txt")), Some(None), "a new file is missing");
+    assert_eq!(cautious, None, "cautious reads no facts");
+}
+
+#[tokio::test]
+async fn full_call_marks_the_turn_undoable_outside_its_roots() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let notes = kept.home.join("notes.md");
+    std::fs::write(&notes, "old\n").unwrap();
+    let mut write =
+        call_of(2, 1, "write_file", json!({"path": notes, "content": "new\n"}), &kept.home);
+    write.context = write.context.with_mode(Mode::Full).with_exits(vec![home_write(&notes)]);
+    let mut sink = |_: &str, _: u64| {};
+
+    let outcome = kept.toolbox.invoke(write, &mut sink).await;
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let changes =
+        kept.toolbox.turn_changes(ConversationId::from_uuid(id(1)), TurnId::from_uuid(id(2))).await;
+
+    assert!(!outcome.is_error, "{outcome:?}");
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "new\n");
+    let undo = changes.undo.unwrap();
+    assert_eq!(undo.home_files, 1, "the copy before the write covers the home file");
+    assert!(undo.undoable, "a full turn is undoable outside its roots: {undo:?}");
 }

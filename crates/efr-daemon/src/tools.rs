@@ -180,7 +180,7 @@ pub(crate) struct DaemonToolbox {
     covered: Arc<Mutex<HashMap<CallId, Answers>>>,
     /// What the home copies of each running turn found, for its end.
     home_turns: Arc<Mutex<HashMap<TurnId, HomeTally>>>,
-    /// The turns that ran in `auto` since efrd started.
+    /// The turns that ran in `auto` or `full` since efrd started.
     auto_turns: Arc<Mutex<HashSet<TurnId>>>,
     /// The `crontab` and `loginctl` that efrd runs for the state copies of cron and
     /// linger (`trusted_programs.rs`).
@@ -643,6 +643,28 @@ impl DaemonToolbox {
         Some(sandbox.locks().lock(&roots).await)
     }
 
+    /// The registered projects besides the turn's own that hold a target which the facts
+    /// of the full call `call` said a snapshot covers, with their plan lock; none
+    /// without a sandbox service or such a target.
+    async fn lock_full_projects(
+        &self,
+        call: &CallContext,
+    ) -> (Vec<PathBuf>, Option<lock::PlanGuard>) {
+        let Some((sandbox, _)) = &self.sandbox else { return (Vec::new(), None) };
+        let named = self.covered_root_paths(call);
+        if named.is_empty() {
+            return (Vec::new(), None);
+        }
+        let projects: Vec<PathBuf> = sandbox
+            .projects()
+            .await
+            .into_iter()
+            .filter(|root| named.iter().any(|path| path.starts_with(root)))
+            .collect();
+        let guard = sandbox.locks().lock(&projects).await;
+        (projects, Some(guard))
+    }
+
     /// Runs a shell call through the sandbox's launcher: prepares its call dir under the
     /// plan lock, which it releases once the launcher has opened every bind source,
     /// runs the wrapper line, and checks the sandbox again when it could not start.
@@ -851,7 +873,25 @@ impl DaemonToolbox {
         // never races the plan of a call that is about to start there.
         let _writing = self.lock_write(&call).await;
         let shell = call.name == ShellTool::NAME;
-        let snapshot = if shell { self.snapshot_before(&call.context, &[]).await } else { None };
+        // NOTE: a full call runs here with no plan, so it names the projects that hold a
+        // target which its facts said a snapshot covers, as the plan of `auto` does: it
+        // takes their plan lock and their snapshot, and asks again under the lock.
+        let (full_projects, _locked) = if shell && call.context.is_full() {
+            self.lock_full_projects(&call.context).await
+        } else {
+            (Vec::new(), None)
+        };
+        let snapshot =
+            if shell { self.snapshot_before(&call.context, &full_projects).await } else { None };
+        if shell
+            && call.context.is_full()
+            && let Some(stop) = self.check_covered(&call.context, &full_projects).await
+        {
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
+            return ToolOutcome::error(stop);
+        }
         if FILE_WRITERS.contains(&call.name.as_str()) {
             self.snapshot_before_write(&call).await;
             let projects = match &self.sandbox {
@@ -1150,7 +1190,8 @@ impl DaemonToolbox {
         state::Runner { programs: &self.programs, clock: &*self.clock }
     }
 
-    /// Notes that the turn `turn` ran in `auto`; the oldest turns go past
+    /// Notes that the turn `turn` ran in `auto` or `full`, whose calls copy home files
+    /// first, so undo covers them outside the roots; the oldest turns go past
     /// [`MAX_AUTO_TURNS`].
     fn mark_auto(&self, turn: TurnId) {
         let mut auto = self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1361,11 +1402,12 @@ impl Toolbox for DaemonToolbox {
         tracing::debug!(phase = "real_paths", elapsed_ms = %watch, "phase=real_paths elapsed_ms={}", watch);
         match resolved {
             Ok(declared) => {
-                // NOTE: only `auto` reads the facts, and collecting them runs git in
-                // directories that the model can write, so other modes skip it.
+                // NOTE: only `auto` and `full` read the facts, and collecting them runs
+                // git in directories that the model can write, so other modes skip it.
+                // Full mode needs no sandbox for them: efrd always builds the service.
                 let watch = Stopwatch::start();
                 let facts =
-                    if call.context.sandboxed() { self.facts(call, &declared).await } else { None };
+                    if call.context.predicts() { self.facts(call, &declared).await } else { None };
                 if facts.is_some() {
                     tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase=facts elapsed_ms={}", watch);
                 }
@@ -1413,7 +1455,7 @@ impl Toolbox for DaemonToolbox {
         // PD9, PB13), so `write_file`, `edit`, `apply_patch` and a line in the exit
         // child share it. A copy that fails stops the call.
         let context = call.context.clone();
-        if context.sandboxed() {
+        if context.predicts() {
             self.mark_auto(context.turn_id);
         }
         let copying = match self.copy_before(&context).await {
@@ -1554,7 +1596,8 @@ impl Toolbox for DaemonToolbox {
         if ended.auto {
             self.mark_auto(turn_id);
         }
-        // NOTE: a turn of `auto` whose calls wrote only home files snapshotted no root.
+        // NOTE: a turn of `auto` or `full` whose calls wrote only home files snapshotted
+        // no root.
         ended.auto |=
             self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner).contains(&turn_id);
         let enabled = self.settings.borrow().undo.enabled;

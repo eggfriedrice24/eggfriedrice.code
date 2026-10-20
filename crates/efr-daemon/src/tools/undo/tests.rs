@@ -692,3 +692,26 @@ async fn undo_of_a_manual_turn_says_that_outside_writes_are_not_covered() {
     assert_eq!(auto.turn_id, Some(TurnId::from_uuid(id(3))));
     assert!(!auto.notes.contains(&NOTE_MANUAL.to_owned()), "{:?}", auto.notes);
 }
+
+#[tokio::test]
+async fn full_snapshot_root_says_full() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = scratch(&kept);
+    std::fs::write(scratch.join("a.txt"), "old\n").unwrap();
+    let input = json!({"path": scratch.join("a.txt"), "content": "new\n"});
+    let mut call = call_of(2, 1, "write_file", input, &work(&kept));
+    call.context = call.context.with_mode(Mode::Full);
+    let mut sink = |_: &str, _: u64| {};
+    assert!(!kept.toolbox.invoke(call, &mut sink).await.is_error);
+    end(&kept, 2).await;
+
+    // NOTE: after a restart of efrd only the store knows the mode: the turn wrote only
+    // in $SCRATCH, so no home copy marks it.
+    let turns =
+        kept.toolbox.snapshots.as_ref().unwrap().store().turns_with_refs(conversation()).await;
+    let modes: Vec<(TurnId, bool)> = turns.iter().map(|refs| (refs.turn, refs.auto)).collect();
+    assert_eq!(modes, [(TurnId::from_uuid(id(2)), true)], "the root records full");
+    let full = undo(&kept, &[2], 1, |params| params.dry_run = true).await.unwrap();
+    assert!(!full.notes.contains(&NOTE_MANUAL.to_owned()), "{:?}", full.notes);
+}

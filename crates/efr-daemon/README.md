@@ -549,10 +549,13 @@ spec; `docs/sandbox.md` for the user's view):
   parent's (`ns/mnt`, else the mount ids of `mountinfo`, which every process may read;
   the systemd user manager's link does not read), and with another namespace
   `mount_view()` is false and `df` stays an `outside` exit.
-- Before the engine decides a shell call of an `auto` turn, the toolbox collects its
-  facts (`sandbox/facts.rs`): what each target is, the tracked files below each `rm -r`
-  directory through the hardened `git ls-files`, and where each program word leads
-  and whether it changed in the turn. A word that the shell runs itself
+- Before the engine decides a shell call of an `auto` or a `full` turn
+  (`CallContext::predicts`), the toolbox collects its facts (`sandbox/facts.rs`). A
+  full call collects them also when the probe says that the sandbox is not available:
+  efrd always builds the sandbox service, and the facts need no sandbox. The facts
+  are: what each target is, the tracked files below each `rm -r` directory through
+  the hardened `git ls-files`, and where each program word leads and whether it
+  changed in the turn. A word that the shell runs itself
   (`FactRequest::builtins`) leads to `builtin`, never to a file of its name on the
   `PATH`. For the always-allow rules (phase E), each path of `FactRequest::real_paths`
   gets its real path after every link (`CallFacts::real_paths`): for a path that does
@@ -899,8 +902,13 @@ A model-side peer holds no `approve` scope at all.
 - A `shell` call: a snapshot of each root before and after it, and the changes go to
   `tool_call_completed`. The roots are the turn's registered project and `$SCRATCH`
   in every mode, and in `auto` the registered projects that the line names (the
-  plan's project roots; that snapshot is taken under the plan lock). Nothing outside
-  these roots is snapshotted, git repository or not.
+  plan's project roots; that snapshot is taken under the plan lock). A `full` call
+  runs with no plan; it takes the plan lock and the snapshot of each registered
+  project that holds a target which its facts said a snapshot covers, and asks the
+  covered asks again under that lock. Nothing outside these roots is snapshotted, git
+  repository or not. The first snapshot of a root in a turn records the turn's mode
+  for `auto` and `full`, so a later efrd knows that undo covers what the turn wrote
+  outside the roots.
 - A `write_file`, `apply_patch` or `edit` call: the tool's own diffs and line counts (the
   `efr_tools::WrittenFile` of each file it changed) go to `tool_call_completed` as
   `changes` and `diff`, in every directory. A created file is `added`, a deleted one
@@ -919,8 +927,8 @@ A model-side peer holds no `approve` scope at all.
   directory. Only such a root gets the mirror of its refs; `snapshot.mirror_max_mib`
   is the store's budget (0 turns the mirror off). A file tool's writes join the turn's
   `touched` paths, which undo takes back.
-- The coverage facts (plan PB15): in `auto`, `DaemonToolbox::facts` answers each
-  `CoverAsk` of the engine's `FactRequest::covers` in `CallFacts::covered`. A snapshot
+- The coverage facts (plan PB15): in `auto` and `full`, `DaemonToolbox::facts`
+  answers each `CoverAsk` of the engine's `FactRequest::covers` in `CallFacts::covered`. A snapshot
   ask (a path, the tracked or untracked files, the refs or the stash of a root) is
   answered by `Snapshots::covers` from a snapshot taken now, under the plan lock of
   its root; a home ask outside the roots from the sizes, the walk and the masks
@@ -935,8 +943,8 @@ A model-side peer holds no `approve` scope at all.
   changed files of each root by the name that a person sees, the home files that a
   copy covers, and what no copy covers (a left-out file, a failed snapshot, a store
   that changed, refs without a mirror, a home path over the limits or masked, a call
-  that still runs). `undoable` is true only for an `auto` turn with a kept snapshot
-  while `undo.enabled` holds and no launcher of the conversation runs
+  that still runs). `undoable` is true only for an `auto` or a `full` turn with a
+  kept snapshot while `undo.enabled` holds and no launcher of the conversation runs
   (`SandboxService::launcher_runs`, plan PB39).
 - Undo (`tools/undo.rs`, `Toolbox::undo`): `efr-snapshot` plans; efrd writes. It
   refuses with `undo.enabled = false`, from a phone, while a newer turn is not undone
