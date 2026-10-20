@@ -161,6 +161,21 @@ fn compact_takes_a_conversation_and_the_words_of_a_focus() {
 }
 
 #[test]
+fn context_takes_a_conversation_a_model_and_json() {
+    // The plugin's call is bare, or with the words after `,context`.
+    let Command::Context(args) = command(&["context"]) else { panic!("not context") };
+    assert_eq!((args.conversation, args.model, args.json), (None, None, false));
+    let Command::Context(args) = command(&["context", "019a9b1c", "--model", "gpt-5.4", "--json"])
+    else {
+        panic!("not context");
+    };
+    assert_eq!(args.conversation.as_deref(), Some("019a9b1c"));
+    assert_eq!(args.model.as_deref(), Some("gpt-5.4"));
+    assert!(args.json);
+    assert_eq!(parse_error(&["context", "a", "b"]), ErrorKind::UnknownArgument);
+}
+
+#[test]
 fn away_takes_a_conversation_and_nothing_else() {
     // The plugin's call is bare.
     let Command::Away(args) = command(&["away"]) else { panic!("not away") };

@@ -1,0 +1,24 @@
+---
+source: crates/efr-cli/src/format/context_report/tests.rs
+expression: "readable(&lines(&report(), now(), &options))"
+---
+model        claude-opus-5-5, window 1.0M, compacts at 760k (76%)
+counted      98.4k at the end of the last turn, 3m 0s ago, \e[32mctx 12%\e[0m
+estimate     about 96.7k for the next request, without its prompt
+  system          6.1k
+  tools           4.8k  \e[2m9 tools\e[0m
+  summary         3.2k  \e[2m2 messages\e[0m
+  prompts         2.0k  \e[2m14 prompts\e[0m
+  preambles       9.8k  \e[2m14 preambles; only the newest is current\e[0m
+  notices          300  \e[2m1 notice\e[0m
+  answers        18.0k  \e[2m14 answers\e[0m
+  tool calls      4.1k  \e[2m31 calls\e[0m
+  tool outputs   48.3k  \e[2m28 outputs\e[0m
+  pruned           100  \e[2m3 outputs replaced with a stub\e[0m
+largest          12.3k  output of $ cargo test --workspace, turn 12
+                  8.0k  output of read crates/efr-daemon/src/run.rs, turn 2
+                  2.1k  notice of j3, turn 9
+                  1.9k  call apply_patch src/a.rs, src/b.rs, turn 7
+                  1.2k  answer, turn 14
+compactions  1, the newest 2h 5m ago (auto): 231k -> 24.0k with a summary
+cache        last turn 91%; conversation 83% read, 210k written (200k for 1h)

@@ -35,7 +35,7 @@ use efr_protocol::{ConversationId, JobId, Mode, TurnId};
     version,
     about = "Talk to the efr daemon: send prompts, follow replies, check status",
     long_about = None,
-    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
+    after_help = "In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]`, `,context` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings."
 )]
 pub(crate) struct Cli {
     #[command(subcommand)]
@@ -65,6 +65,13 @@ pub(crate) enum Command {
     /// efrd writes a summary of the earlier turns and keeps the newest ones word for
     /// word. It starts no turn.
     Compact(CompactArgs),
+    /// Show what fills the model's context of this terminal's conversation.
+    ///
+    /// The model's last count, then efr's estimate of the next request by part (the
+    /// system prompt, the tools, the summary, the prompts, the answers, the tool
+    /// outputs), the largest items, the compactions and the cache use. It shows no text
+    /// of a message.
+    Context(ContextArgs),
     /// Tell efr that you are away from this terminal's conversation.
     ///
     /// A question then waits only a short time (presence.away_wait_secs), and its call
@@ -345,6 +352,24 @@ pub(crate) struct CompactArgs {
     /// joined with spaces [env: EFR_PROMPT]
     #[arg(trailing_var_arg = true, allow_hyphen_values = true, value_name = "FOCUS")]
     pub(crate) focus: Vec<String>,
+}
+
+/// The arguments of `efr context`.
+#[derive(Debug, Args)]
+pub(crate) struct ContextArgs {
+    /// The conversation: its id, or the start of it. Without it, this terminal's
+    /// conversation, else the newest of all.
+    #[arg(value_name = "CONVERSATION")]
+    pub(crate) conversation: Option<String>,
+
+    /// Count for this model instead of the conversation's: its window, and whether the
+    /// model's own items of earlier turns go back.
+    #[arg(long, value_name = "MODEL")]
+    pub(crate) model: Option<String>,
+
+    /// Print the daemon's answer as JSON, for scripts.
+    #[arg(long)]
+    pub(crate) json: bool,
 }
 
 /// The arguments of `efr away`.

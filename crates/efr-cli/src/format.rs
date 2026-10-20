@@ -26,6 +26,7 @@ pub(crate) mod always;
 pub(crate) mod card;
 pub(crate) mod changes;
 pub(crate) mod context;
+pub(crate) mod context_report;
 pub(crate) mod groups;
 pub(crate) mod jobs;
 pub(crate) mod patch;

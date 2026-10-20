@@ -14,6 +14,7 @@ Commands:
   diff      Show what the last turn changed in the files of its project and $SCRATCH
   undo      Take back what the last turn changed in files and branches
   compact   Make room in the model's context of this terminal's conversation now
+  context   Show what fills the model's context of this terminal's conversation
   away      Tell efr that you are away from this terminal's conversation
   jobs      List the background jobs of this terminal's conversation, or stop one
   settings  Show the mode, model and effort that a prompt would use, with where each comes from
@@ -30,4 +31,4 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 
-In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings.
+In zsh, the efr plugin runs these for you: `, <prompt>`, `,new`, `,! <text>`, `,compact [focus]`, `,context` and `,away`, and `,mode`, `,model` and `,effort` set the terminal's turn settings.
