@@ -63,6 +63,7 @@ impl Settings {
             })?;
         settings.path = next.path.clone();
         settings.permissions.rules = next.permissions.rules.clone();
+        settings.diff.groups = next.diff.groups.clone();
         settings.copy_sources(&next);
         for (key, source) in kept {
             settings.set_source(&key, source);

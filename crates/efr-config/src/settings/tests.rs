@@ -1070,3 +1070,52 @@ host = \"*.example.org\"
         assert!(matches!(error, ConfigError::Parse { .. }), "{text}: {error:?}");
     }
 }
+
+#[test]
+fn diff_groups_keep_the_order_of_the_file() {
+    let text = "[diff.groups]\nzeta = [\"z/\"]\nalpha = [\"a/\", \"*.a\"]\nmid = [\"m/\"]\n";
+    let names = |settings: &Settings| -> Vec<String> {
+        settings.diff.groups.iter().map(|(name, _)| name.to_owned()).collect()
+    };
+    let mut settings = parse(text).unwrap();
+
+    assert_eq!(names(&settings), ["zeta", "alpha", "mid"]);
+    assert_eq!(settings.source("diff.groups"), Source::File);
+    assert_eq!(settings.diff.groups.group_of("x/y.a"), Some("alpha"));
+    let inline = parse("[diff]\ngroups = { zeta = [\"z/\"], alpha = [\"a/\"] }\n").unwrap();
+    assert_eq!(names(&inline), ["zeta", "alpha"]);
+
+    // An override of another key and a reload read the settings again; the order stays.
+    settings.apply_override("log", "debug", Source::Env(Var::Log)).unwrap();
+    assert_eq!(names(&settings), ["zeta", "alpha", "mid"]);
+    let reloaded = settings.reloaded(parse(text).unwrap()).unwrap().settings;
+    assert_eq!(names(&reloaded), ["zeta", "alpha", "mid"]);
+
+    assert_eq!(crate::kind("diff.groups"), Some(crate::Kind::Groups));
+    assert_eq!(crate::Applies::of("diff.groups"), crate::Applies::Client);
+    assert!(settings.apply_override("diff.groups", "x", Source::Env(Var::Log)).is_err());
+}
+
+#[test]
+fn diff_groups_with_a_bad_name_or_glob_are_refused_with_the_key_and_place() {
+    let cases = [
+        ("[diff.groups]\n\"has space\" = [\"a/\"]\n", "\"has space\""),
+        ("[diff.groups]\nevals = []\n", "\"evals\""),
+        ("[diff.groups]\nevals = [\"evals/\", \"a//b\"]\n", "\"a//b\""),
+        ("[diff.groups]\nevals = [\"../evals/\"]\n", "\"../evals/\""),
+        ("[diff.groups]\nevals = [\"\"]\n", "\"\""),
+    ];
+    for (text, value) in cases {
+        let error = parse(text).unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                ConfigError::Invalid { key: "diff.groups", value: found, .. } if found == value
+            ),
+            "{text}: {error:?}"
+        );
+        assert_eq!(error.location().map(|at| at.line), Some(1), "{text}");
+    }
+    let error = parse("[diff.groups]\nevals = \"evals/\"\n").unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+}

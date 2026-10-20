@@ -232,6 +232,14 @@ Background jobs: whether the model can start them, their limits, and how often t
 | `max_wakes_per_watch` | `3` | live | The most times that one `watch` pattern of a job can wake the model, from 0 to 10. A higher `max_wakes` of the model is cut to it. |
 | `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
 
+## [diff]
+
+How `efr` groups the changed files of a turn.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `groups` | `{}` | client | Groups of your own for the changed files of a turn: a name, then a list of globs, such as `evals = ["evals/", "*.eval.toml"]`. `*` matches inside one part of a path, `**` matches any number of parts, and `?` one character. A glob without `/` matches the name of a file in any directory; a glob that ends in `/` matches every file below a directory of that name; other globs match the whole path from the project root. Your groups match first, in the order of the file, then the built-in groups: generated, tests, docs, else code. |
+
 ## [render]
 
 How `efr` shows replies.

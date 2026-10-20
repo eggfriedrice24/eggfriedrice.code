@@ -439,6 +439,15 @@
 # priority of a job is always the lowest.
 # nice = 19
 
+[diff]
+# Groups of your own for the changed files of a turn: a name, then a list of globs.
+# The end of a turn and efr diff --stat count the lines of each group. A glob without
+# / matches a file name in any directory, a glob that ends in / every file below a
+# directory of that name, and ** any number of directories. Your groups match first,
+# in this order, then the built-in ones: generated, tests, docs, else code. Only efr
+# reads it.
+# groups = { evals = ["evals/", "*.eval.toml"] }
+
 [render]
 # The colour theme of code blocks and diffs, such as catppuccin-mocha, gruvbox-dark or
 # nord. Unset: the terminal's own 16 colours. "auto" takes theme_dark or theme_light,

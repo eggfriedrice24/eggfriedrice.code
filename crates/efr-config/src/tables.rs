@@ -17,6 +17,7 @@ pub(crate) mod classifier;
 pub(crate) mod compaction;
 pub(crate) mod context;
 pub(crate) mod dbus;
+pub(crate) mod diff;
 pub(crate) mod jobs;
 pub(crate) mod network;
 pub(crate) mod presence;
