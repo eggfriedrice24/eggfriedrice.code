@@ -172,6 +172,10 @@ pub enum JobStopBy {
     /// The surface guard found a git setting or another file that runs code, which the
     /// job changed.
     Guard,
+    /// A call of full mode started the job, and a config reload turned full mode off
+    /// (`permissions.allow_full`, `undo.enabled` or `snapshot.enabled`). Its notice
+    /// starts no turn of its own and waits for the next prompt.
+    FullOff,
     /// A cause that this build does not know.
     #[serde(other)]
     Unknown,
@@ -179,13 +183,14 @@ pub enum JobStopBy {
 
 impl JobStopBy {
     /// Every cause, in the order of the enum.
-    pub const ALL: [JobStopBy; 7] = [
+    pub const ALL: [JobStopBy; 8] = [
         JobStopBy::Model,
         JobStopBy::User,
         JobStopBy::TimeLimit,
         JobStopBy::DaemonStop,
         JobStopBy::DaemonRestart,
         JobStopBy::Guard,
+        JobStopBy::FullOff,
         JobStopBy::Unknown,
     ];
 
@@ -198,6 +203,7 @@ impl JobStopBy {
             JobStopBy::DaemonStop => "daemon_stop",
             JobStopBy::DaemonRestart => "daemon_restart",
             JobStopBy::Guard => "guard",
+            JobStopBy::FullOff => "full_off",
             JobStopBy::Unknown => "unknown",
         }
     }

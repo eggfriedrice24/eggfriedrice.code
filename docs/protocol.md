@@ -486,3 +486,7 @@ No protocol version has shipped yet.
   `duration_ms`. Like `last_command`, they reach only the turn's preamble: never a
   `shell_context`, an event or the store. `prompt_send_params.json`,
   `turn_steer_params.json` and `turn_interrupt_params.json` now set them.
+- Version 1, additive: `job_stop_by` gains `full_off`, before `unknown`: a call of full
+  mode started the job, and a config reload turned full mode off, so efrd stopped it.
+  Its notice starts no turn of its own. A reader from before reads it as `unknown`.
+  `job_stop_causes.json` now lists it.
