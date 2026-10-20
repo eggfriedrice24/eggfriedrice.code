@@ -404,7 +404,7 @@ async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadRe
             let held =
                 HeldConfig { loosens: loosens.iter().map(|key| (*key).to_owned()).collect() };
             if previous.held.as_ref() != Some(&held) {
-                tracing::warn!(loosens = ?held.loosens, trigger, "{}", held_text(&held));
+                tracing::warn!(loosens = ?held.loosens, "{}", held_text(&held));
             }
             let message = if refused { HELD_WHILE_FULL.to_owned() } else { held_text(&held) };
             let error = ConfigFileError { message, line: None, column: None, key: None };
