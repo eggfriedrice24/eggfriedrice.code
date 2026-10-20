@@ -75,7 +75,7 @@ impl Vendor {
     pub(crate) fn fallback_model(self) -> Option<&'static str> {
         match self {
             Vendor::OpenAi => None,
-            Vendor::Anthropic => Some(efr_provider_anthropic::DEFAULT_MODEL),
+            Vendor::Anthropic => Some(efr_providers::anthropic::DEFAULT_MODEL),
         }
     }
 
@@ -84,8 +84,8 @@ impl Vendor {
     /// provider serves it is decided at run time.
     pub(crate) fn classifier_model(self) -> &'static str {
         match self {
-            Vendor::OpenAi => efr_provider_openai::CLASSIFIER_MODEL,
-            Vendor::Anthropic => efr_provider_anthropic::CLASSIFIER_MODEL,
+            Vendor::OpenAi => efr_providers::openai::CLASSIFIER_MODEL,
+            Vendor::Anthropic => efr_providers::anthropic::CLASSIFIER_MODEL,
         }
     }
 }
@@ -95,9 +95,9 @@ impl Vendor {
 #[derive(Debug, Clone)]
 pub(crate) enum ProviderCatalog {
     /// The catalog of `openai-subscription` or `openai-api`.
-    OpenAi(efr_provider_openai::ModelCatalog),
+    OpenAi(efr_providers::openai::ModelCatalog),
     /// The catalog of `anthropic-api`.
-    Anthropic(efr_provider_anthropic::ModelCatalog),
+    Anthropic(efr_providers::anthropic::ModelCatalog),
 }
 
 impl ProviderCatalog {
@@ -124,22 +124,22 @@ impl ProviderCatalog {
     /// efrd loads the catalog of `[model] provider`, so it never needs the new one.
     pub(crate) fn openai(
         &self,
-        backend: efr_provider_openai::Backend,
-    ) -> efr_provider_openai::ModelCatalog {
+        backend: efr_providers::openai::Backend,
+    ) -> efr_providers::openai::ModelCatalog {
         match self {
             ProviderCatalog::OpenAi(catalog) => catalog.clone(),
-            ProviderCatalog::Anthropic(_) => efr_provider_openai::ModelCatalog::new(
-                efr_provider_openai::Catalog::builtin(backend),
+            ProviderCatalog::Anthropic(_) => efr_providers::openai::ModelCatalog::new(
+                efr_providers::openai::Catalog::builtin(backend),
             ),
         }
     }
 
     /// The Anthropic catalog to share with the Anthropic provider: this one, or a new
     /// one without a list when this is the catalog of another company.
-    pub(crate) fn anthropic(&self) -> efr_provider_anthropic::ModelCatalog {
+    pub(crate) fn anthropic(&self) -> efr_providers::anthropic::ModelCatalog {
         match self {
             ProviderCatalog::Anthropic(catalog) => catalog.clone(),
-            ProviderCatalog::OpenAi(_) => efr_provider_anthropic::ModelCatalog::new(),
+            ProviderCatalog::OpenAi(_) => efr_providers::anthropic::ModelCatalog::new(),
         }
     }
 }
@@ -157,10 +157,10 @@ pub(crate) struct ModelList {
 
 impl ModelList {
     /// The list of an OpenAI `catalog`.
-    pub(crate) fn openai(catalog: &efr_provider_openai::Catalog) -> ModelList {
+    pub(crate) fn openai(catalog: &efr_providers::openai::Catalog) -> ModelList {
         let origin = match catalog.origin() {
-            efr_provider_openai::CatalogOrigin::Backend => WireOrigin::Backend,
-            efr_provider_openai::CatalogOrigin::Cache => WireOrigin::Cache,
+            efr_providers::openai::CatalogOrigin::Backend => WireOrigin::Backend,
+            efr_providers::openai::CatalogOrigin::Cache => WireOrigin::Cache,
             _ => WireOrigin::Builtin,
         };
         ModelList {
@@ -174,7 +174,7 @@ impl ModelList {
 
     /// The list of an Anthropic `catalog`, or an empty one with the origin `missing`
     /// while there is none.
-    pub(crate) fn anthropic(catalog: Option<&efr_provider_anthropic::Catalog>) -> ModelList {
+    pub(crate) fn anthropic(catalog: Option<&efr_providers::anthropic::Catalog>) -> ModelList {
         let Some(catalog) = catalog else {
             return ModelList {
                 vendor: Vendor::Anthropic,
@@ -185,7 +185,7 @@ impl ModelList {
             };
         };
         let origin = match catalog.origin() {
-            efr_provider_anthropic::CatalogOrigin::Cache => WireOrigin::Cache,
+            efr_providers::anthropic::CatalogOrigin::Cache => WireOrigin::Cache,
             _ => WireOrigin::Backend,
         };
         ModelList {
@@ -233,10 +233,10 @@ impl ModelList {
 }
 
 /// The OpenAI backend of the provider `id`.
-pub(crate) fn backend(id: &str) -> efr_provider_openai::Backend {
+pub(crate) fn backend(id: &str) -> efr_providers::openai::Backend {
     if id == API {
-        efr_provider_openai::Backend::Api
+        efr_providers::openai::Backend::Api
     } else {
-        efr_provider_openai::Backend::Subscription
+        efr_providers::openai::Backend::Subscription
     }
 }

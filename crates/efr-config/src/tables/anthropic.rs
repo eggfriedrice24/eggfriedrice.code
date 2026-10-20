@@ -1,5 +1,5 @@
 //! `[anthropic]`: the Anthropic provider, `anthropic-api`. The rules of the provider
-//! are in the README of `efr-provider-anthropic`.
+//! are in the README of `efr-providers`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

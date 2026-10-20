@@ -7,7 +7,7 @@ use efr_config::{ModelLimits, Settings};
 use efr_http::{HttpClient, HttpConfig, RetryPolicy};
 use efr_protocol::{CatalogOrigin as WireOrigin, ModelInfo, ModelSource};
 use efr_provider::{AccessToken, ProviderError, SecretString, StaticToken, TokenSource};
-use efr_provider_openai::{
+use efr_providers::openai::{
     Backend, CLIENT_VERSION, Catalog, CatalogClient, ModelCatalog, OpenAiConfig,
 };
 use efr_stdx::time::Clock as _;
@@ -66,11 +66,11 @@ fn write_cache_file(path: &Path, base_url: &str, list: &Value) {
 fn cached_catalog() -> Catalog {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join(CATALOG_FILE);
-    write_cache_file(&path, efr_provider_openai::SUBSCRIPTION_BASE_URL, &backend_list());
-    efr_provider_openai::read_cache(
+    write_cache_file(&path, efr_providers::openai::SUBSCRIPTION_BASE_URL, &backend_list());
+    efr_providers::openai::read_cache(
         &path,
         Backend::Subscription,
-        efr_provider_openai::SUBSCRIPTION_BASE_URL,
+        efr_providers::openai::SUBSCRIPTION_BASE_URL,
     )
     .unwrap()
     .unwrap()
@@ -202,7 +202,7 @@ async fn an_offline_start_reads_the_cache_then_falls_back_to_the_builtin_table()
 
     assert_eq!(load(&settings, &path).await.list().origin(), WireOrigin::Builtin, "no cache");
 
-    write_cache_file(&path, efr_provider_openai::SUBSCRIPTION_BASE_URL, &backend_list());
+    write_cache_file(&path, efr_providers::openai::SUBSCRIPTION_BASE_URL, &backend_list());
     let cached = load(&settings, &path).await.list();
     assert_eq!(cached.origin(), WireOrigin::Cache);
     assert_eq!(cached.default_model(), Some("gpt-7-luna"));
@@ -227,7 +227,7 @@ async fn an_offline_start_reads_the_cache_then_falls_back_to_the_builtin_table()
     assert_eq!(load(&settings, &path).await.list().origin(), WireOrigin::Builtin, "a broken file");
 
     let nothing = json!({"models": [{"slug": "gpt-8", "apply_patch_tool_type": "grammar"}]});
-    write_cache_file(&path, efr_provider_openai::SUBSCRIPTION_BASE_URL, &nothing);
+    write_cache_file(&path, efr_providers::openai::SUBSCRIPTION_BASE_URL, &nothing);
     assert_eq!(
         load(&settings, &path).await.list().origin(),
         WireOrigin::Builtin,
@@ -308,7 +308,7 @@ async fn a_fetched_list_applies_and_goes_to_the_cache_and_a_304_keeps_it() {
     assert_eq!(current.origin(), WireOrigin::Backend);
     assert_eq!(current.default_model(), Some("gpt-7-luna"));
     let cached =
-        efr_provider_openai::read_cache(&setup.cache, Backend::Subscription, &base_url(&server))
+        efr_providers::openai::read_cache(&setup.cache, Backend::Subscription, &base_url(&server))
             .unwrap()
             .unwrap();
     assert_eq!(cached.etag(), Some("\"v1\""));
@@ -322,7 +322,7 @@ async fn a_fetched_list_applies_and_goes_to_the_cache_and_a_304_keeps_it() {
     assert_eq!(confirmed.models(), current.models(), "a 304 keeps the list");
     assert_eq!(confirmed.fetched_at(), Some(setup.clock.now()), "with the time of the answer");
     let cached =
-        efr_provider_openai::read_cache(&setup.cache, Backend::Subscription, &base_url(&server))
+        efr_providers::openai::read_cache(&setup.cache, Backend::Subscription, &base_url(&server))
             .unwrap()
             .unwrap();
     assert_eq!(cached.fetched_at(), Some(setup.clock.now()));
@@ -545,7 +545,7 @@ async fn an_anthropic_start_reads_its_cache_else_has_no_list() {
 
     write_anthropic_cache(
         &path,
-        efr_provider_anthropic::API_BASE_URL,
+        efr_providers::anthropic::API_BASE_URL,
         &[claude("claude-opus-5-5")],
     );
     let cached = load(&settings, &path).await.list();
@@ -569,7 +569,7 @@ async fn an_anthropic_start_reads_its_cache_else_has_no_list() {
 fn the_anthropic_default_is_the_config_then_the_list_then_claude_codes_model() {
     let mut settings = anthropic_settings();
     let none = ModelList::anthropic(None);
-    assert_eq!(default_model(&settings, &none), efr_provider_anthropic::DEFAULT_MODEL);
+    assert_eq!(default_model(&settings, &none), efr_providers::anthropic::DEFAULT_MODEL);
 
     settings.anthropic.models = Some(vec!["claude-next".into()]);
     assert_eq!(default_model(&settings, &none), "claude-next", "the config's model before a guess");
@@ -605,11 +605,11 @@ fn anthropic_fetching(server: &MockServer) -> AnthropicFetching {
     let clock = TestClock::new();
     let http =
         HttpClient::new(&HttpConfig::default(), clock.shared(), Arc::new(TestRng::new(1))).unwrap();
-    let config = efr_provider_anthropic::AnthropicConfig::new()
+    let config = efr_providers::anthropic::AnthropicConfig::new()
         .with_base_url(&format!("{}/v1", server.uri()))
         .unwrap()
         .with_retry(RetryPolicy::none());
-    let client = efr_provider_anthropic::CatalogClient::new(
+    let client = efr_providers::anthropic::CatalogClient::new(
         config,
         http,
         token(),
@@ -618,7 +618,7 @@ fn anthropic_fetching(server: &MockServer) -> AnthropicFetching {
     );
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_path(&anthropic_settings(), &dir.path().join("state"));
-    let fetcher = Fetcher::Anthropic(efr_provider_anthropic::ModelCatalog::new(), client);
+    let fetcher = Fetcher::Anthropic(efr_providers::anthropic::ModelCatalog::new(), client);
     let models = Models::fetched(ANTHROPIC, fetcher, cache.clone(), clock.shared());
     AnthropicFetching { models: Arc::new(models), clock, cache, _dir: dir }
 }
@@ -649,9 +649,10 @@ async fn a_fetched_anthropic_list_applies_and_goes_to_its_cache() {
     assert_eq!(list.default_model(), Some("claude-opus-5-5"), "Claude Code's default");
     let status = setup.models.status();
     assert_eq!(status.provider.as_deref(), Some("anthropic-api"));
-    let cached = efr_provider_anthropic::read_cache(&setup.cache, &format!("{}/v1", server.uri()))
-        .unwrap()
-        .unwrap();
+    let cached =
+        efr_providers::anthropic::read_cache(&setup.cache, &format!("{}/v1", server.uri()))
+            .unwrap()
+            .unwrap();
     assert_eq!(cached.models(), list.models());
 }
 
@@ -748,7 +749,7 @@ async fn a_prompt_waits_for_one_fetch_while_there_is_no_list() {
 async fn a_prompt_never_waits_for_a_catalog_that_has_a_list_or_is_never_fetched() {
     let fixed = Models::fixed(
         ANTHROPIC,
-        ProviderCatalog::Anthropic(efr_provider_anthropic::ModelCatalog::new()),
+        ProviderCatalog::Anthropic(efr_providers::anthropic::ModelCatalog::new()),
     );
     fixed.ready().await;
     assert_eq!(fixed.list().origin(), WireOrigin::Missing, "a test's provider is never fetched");

@@ -3,8 +3,8 @@
 ## Purpose
 
 The model boundary. The conversation talks to every model through the types in this
-crate and never sees a provider's API: `efr-provider-openai` and
-`efr-provider-anthropic` convert them to and from the wire.
+crate and never sees a provider's API: `efr_providers::openai` and
+`efr_providers::anthropic` convert them to and from the wire.
 
 Modules:
 
@@ -97,7 +97,7 @@ Modules:
 
 Freeform tools. Which models take the freeform form is a fact about the model, so
 each provider knows it in its own model catalog and says it as
-`ModelInfo::freeform_tools`; `efr-provider-openai` reads it from the backend's
+`ModelInfo::freeform_tools`; `efr_providers::openai` reads it from the backend's
 `apply_patch_tool_type`. A provider sends a freeform tool in its
 freeform form only to a model that takes it, and in its function form to every other
 model. A call in the freeform form is a `ContentBlock::ToolCall` with `freeform` set
@@ -162,7 +162,7 @@ Third-party crates: `async-trait`, `futures`, `secrecy`, `serde`, `serde_json` a
 - The conversation never depends on a provider's API: everything it sends or receives
   is a type from this crate.
 - A provider client never sees how its token was obtained: tokens arrive only through
-  `TokenSource`, which is why `efr-provider-openai` may not depend on
+  `TokenSource`, which is why `efr-providers` may not depend on
   `efr-oauth-openai` (a forbidden edge in `xtask/src/deps.rs`). Tokens never reach a
   `Debug` string.
 - `provider_raw` is opaque outside the provider that wrote it and survives storage

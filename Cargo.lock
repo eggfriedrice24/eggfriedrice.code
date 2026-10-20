@@ -832,8 +832,7 @@ dependencies = [
  "efr-permissions",
  "efr-protocol",
  "efr-provider",
- "efr-provider-anthropic",
- "efr-provider-openai",
+ "efr-providers",
  "efr-proxy",
  "efr-pty",
  "efr-sandbox",
@@ -996,13 +995,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "efr-provider-anthropic"
+name = "efr-providers"
 version = "0.0.3"
 dependencies = [
  "async-trait",
  "efr-http",
  "efr-provider",
  "efr-stdx",
+ "fastwebsockets",
  "futures",
  "insta",
  "jiff",
@@ -1015,28 +1015,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "wiremock",
-]
-
-[[package]]
-name = "efr-provider-openai"
-version = "0.0.3"
-dependencies = [
- "async-trait",
- "efr-http",
- "efr-provider",
- "efr-stdx",
- "fastwebsockets",
- "futures",
- "jiff",
- "pretty_assertions",
- "rstest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
  "wiremock",
 ]
 

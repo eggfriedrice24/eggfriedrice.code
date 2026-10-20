@@ -282,8 +282,9 @@ impl std::io::Write for LogWriter {
 
 /// The models of the subscription's built-in table, never fetched.
 pub(crate) fn builtin_models() -> Arc<crate::catalog::Models> {
-    let catalog = efr_provider_openai::Catalog::builtin(efr_provider_openai::Backend::Subscription);
-    let catalog = efr_provider_openai::ModelCatalog::new(catalog);
+    let catalog =
+        efr_providers::openai::Catalog::builtin(efr_providers::openai::Backend::Subscription);
+    let catalog = efr_providers::openai::ModelCatalog::new(catalog);
     Arc::new(crate::catalog::Models::fixed(
         crate::providers::SUBSCRIPTION,
         crate::catalog::ProviderCatalog::OpenAi(catalog),

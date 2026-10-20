@@ -46,8 +46,7 @@ efr-permissions.workspace = true
 efr-proxy.workspace = true
 efr-protocol.workspace = true
 efr-provider.workspace = true
-efr-provider-anthropic.workspace = true
-efr-provider-openai.workspace = true
+efr-providers.workspace = true
 efr-pty = { workspace = true, optional = true }
 efr-sandbox.workspace = true
 efr-scope.workspace = true

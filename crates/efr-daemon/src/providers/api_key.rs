@@ -8,8 +8,8 @@
 
 use efr_http::HttpClient;
 use efr_provider::{ProviderError, SecretString};
-use efr_provider_anthropic::AnthropicConfig;
-use efr_provider_openai::OpenAiConfig;
+use efr_providers::anthropic::AnthropicConfig;
+use efr_providers::openai::OpenAiConfig;
 
 use super::{ANTHROPIC, API};
 use crate::{DaemonError, KeyProblem};
@@ -90,10 +90,12 @@ impl KeyChecks {
         key: &SecretString,
     ) -> Result<(), ProviderError> {
         match provider {
-            ANTHROPIC => efr_provider_anthropic::check_key(&self.http, &self.anthropic, key).await,
+            ANTHROPIC => {
+                efr_providers::anthropic::check_key(&self.http, &self.anthropic, key).await
+            }
             // NOTE: a login refuses every provider outside `KEY_PROVIDERS` before it
             // checks, so this is `openai-api`.
-            _ => efr_provider_openai::check_key(&self.http, &self.openai, key).await,
+            _ => efr_providers::openai::check_key(&self.http, &self.openai, key).await,
         }
     }
 }

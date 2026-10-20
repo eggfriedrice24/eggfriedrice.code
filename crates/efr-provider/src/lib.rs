@@ -21,7 +21,7 @@
 //!
 //! Allowed dependencies: `efr-protocol` (for `Base64Bytes` and `Usage`) and
 //! `efr-stdx`. What does not belong here: any provider's API, endpoints or event names
-//! (`efr-provider-openai`), HTTP (`efr-http`), how a token is obtained or refreshed
+//! (`efr_providers::openai`), HTTP (`efr-http`), how a token is obtained or refreshed
 //! (`efr-oauth-openai`), and tools themselves (`efr-tools`).
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a

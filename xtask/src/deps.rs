@@ -46,9 +46,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-pty", &["efr-holder", "efr-stdx"]),
     ("efr-shell", &["efr-holder", "efr-screen", "efr-protocol", "efr-sandbox", "efr-stdx"]),
     ("efr-tools", &["efr-shell", "efr-scope", "efr-protocol", "efr-stdx"]),
-    ("efr-provider-openai", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
-    // The Anthropic Messages API client; the key arrives through TokenSource.
-    ("efr-provider-anthropic", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
+    // The OpenAI Responses API client and the Anthropic Messages API client, one module
+    // each; tokens and keys arrive through TokenSource.
+    ("efr-providers", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
     ("efr-oauth-openai", &["efr-http", "efr-credentials", "efr-provider", "efr-stdx"]),
     // The sandbox launcher: efr-sbx run, inner, bridge and probe. No async runtime.
     ("efr-sbx", &["efr-sandbox", "efr-protocol"]),
@@ -100,8 +100,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-pty",
             "efr-shell",
             "efr-tools",
-            "efr-provider-openai",
-            "efr-provider-anthropic",
+            "efr-providers",
             "efr-oauth-openai",
             "efr-config",
             "efr-conversation",
@@ -123,8 +122,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
 /// The target may be a workspace crate or a third-party crate.
 pub(crate) const FORBIDDEN: &[(&str, &str)] = &[
     ("efr-tools", "efr-permissions"),
-    ("efr-provider-openai", "efr-oauth-openai"),
-    ("efr-provider-anthropic", "efr-oauth-openai"),
+    ("efr-providers", "efr-oauth-openai"),
     ("efr-conversation", "efr-shell"),
     ("efr-conversation", "efr-transport"),
     ("efr-transport", "efr-store"),
