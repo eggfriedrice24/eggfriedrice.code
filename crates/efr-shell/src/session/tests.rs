@@ -291,6 +291,34 @@ fn a_forget_before_run_after_a_run_that_forgets_types_one_key() {
 }
 
 #[test]
+fn a_forget_before_run_submitted_after_the_forget_key_types_its_own() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, mut answer, _) = order(1, "sudo true", RunMode::Auto);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+    feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% ");
+    assert!(answer.try_recv().unwrap().is_ok());
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;B\x07");
+    assert_eq!(at_prompt, [b"\x1b[efr-forget~".to_vec()], "the key of the first run");
+
+    // NOTE: the next call comes later, at the same prompt: the user's own sudo may have
+    // filled a shared cache in between.
+    let (mut second, _second_answer, _) = order(2, "ls", RunMode::Auto);
+    second.forget_before = true;
+    let writes: Vec<Vec<u8>> =
+        core.submit(second).into_iter().map(|bytes| bytes.to_vec()).collect();
+
+    assert_eq!(
+        writes,
+        [b"\x1b[efr-forget~".to_vec(), b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()],
+        "a key of its own before the line"
+    );
+}
+
+#[test]
 fn a_forget_before_run_into_a_nested_shell_forgets_at_the_outer_prompt() {
     let (mut core, _) = core(true);
     let mut at = 0;
