@@ -40,6 +40,16 @@
 #               (else `pd`, else `pb`): a read form of a systemd tool runs with the view
 #               `Grant::BusFilter` of its bus and no exit. The view is asserted by named
 #               engine tests
+#   full        the result in full mode (efr's full mode, DF25), on the phase E machine,
+#               which full mode reads as one with no sandbox (`AutoSupport::for_full`,
+#               the support of the phase D1 machine); only where it differs from the
+#               result that the phase D1 result gives: R and C give R, a line that runs
+#               as the user with no exit; K, N or U of a `privilege`, `persistence` or
+#               `destructive` exit give U of the same kind, a question for the user; any
+#               other exit gives A(kind), it runs at once and its exits are recorded with
+#               `judge: full`; D stays D; the settings floor stays. G is a question about
+#               a delete that full mode guards (`exits::critical_deletes`). No line is
+#               judged by the classifier in full mode
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
@@ -844,6 +854,8 @@ line = "rm -rf .."
 p1 = "U(above_root)"
 pa = "U(above_root)"
 pb = "U(above_root)"
+# full: the delete of .. that full mode guards: ~/p holds three projects
+full = "G"
 exits = ["above_root", "destructive"]
 writes = ["/home/u/p"]
 
@@ -881,6 +893,8 @@ line = "rm -rf ~/p/project-x"
 p1 = "U(above_root)"
 pa = "N(above_root)"
 pb = "N(above_root)"
+# full: the delete of a registered project's root that full mode guards
+full = "G"
 exits = ["above_root", "destructive"]
 writes = ["/home/u/p/project-x"]
 
@@ -978,6 +992,8 @@ line = "rm -rf ~/.config"
 p1 = "U(above_root)"
 pa = "U(above_root)"
 pb = "U(above_root)"
+# full: the delete of ~/.config that full mode guards: it holds efr's config
+full = "G"
 exits = ["above_root", "destructive"]
 writes = ["/home/u/.config"]
 
@@ -1423,6 +1439,8 @@ line = "rm -rf ~/.config"
 p1 = "U(above_root)"
 pa = "U(above_root)"
 pb = "U(above_root)"
+# full: the delete of ~/.config that full mode guards: it holds efr's config
+full = "G"
 exits = ["above_root", "destructive"]
 writes = ["/home/u/.config"]
 
@@ -1523,6 +1541,8 @@ line = "rm -rf ~"
 p1 = "U(above_root)"
 pa = "U(above_root)"
 pb = "U(above_root)"
+# full: the delete of ~ that full mode guards
+full = "G"
 exits = ["above_root", "destructive"]
 writes = ["/home/u"]
 
