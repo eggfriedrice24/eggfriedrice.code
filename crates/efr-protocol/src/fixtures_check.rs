@@ -39,12 +39,12 @@ use crate::{
     PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
     ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
     PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RefChange, ReportedFile, RequestId,
-    ResentSteers, Risk, RootDir, RootFiles, RootSource, RowCells, SandboxCheck, SandboxExplain,
-    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
-    SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange,
-    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RefChange, ReportedFile,
+    RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RowCells, SandboxCheck,
+    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
+    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason,
+    SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
     TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
     UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
     WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
@@ -378,6 +378,20 @@ fn question_id() -> QuestionId {
 
 fn at(text: &str) -> Timestamp {
     parse(text)
+}
+
+/// The recent commands of a prompt: one with every member and one with none.
+fn recent_commands() -> Vec<RecentCommand> {
+    vec![
+        RecentCommand {
+            command: "journalctl --disk-usage".into(),
+            status: Some(0),
+            cwd: Some("/home/me".into()),
+            ended_at: Some(at("2026-10-20T09:58:12Z")),
+            duration_ms: Some(840),
+        },
+        RecentCommand::new("du -sh /var/log"),
+    ]
 }
 
 fn shell_context() -> ShellContext {
@@ -771,6 +785,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             text: "why is the disk full".into(),
             context: Some(shell_context()),
             last_command: Some("du -sh /var/log".into()),
+            recent_commands: recent_commands(),
             settings: turn_settings(),
         }),
         Method::TurnInterrupt(TurnInterrupt {
@@ -781,6 +796,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             resend_as: Some(Box::new(LateSteer::Queue {
                 context: Some(shell_context()),
                 last_command: Some("du -sh /var/log".into()),
+                recent_commands: recent_commands(),
                 settings: turn_settings(),
             })),
             withdraw_steers: vec![Seq::new(46)],
@@ -794,6 +810,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             if_late: Some(LateSteer::Queue {
                 context: Some(shell_context()),
                 last_command: Some("du -sh /var/log".into()),
+                recent_commands: recent_commands(),
                 settings: turn_settings(),
             }),
         }),

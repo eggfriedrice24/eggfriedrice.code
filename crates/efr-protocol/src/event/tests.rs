@@ -9,8 +9,8 @@ use crate::{
     AlwaysSaved, ApprovalDecision, BlockReason, Blocked, BusKind, BusRefusal, CallId, CommandId,
     Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope,
     HeldReason, InputWait, JobId, JobState, Mode, NotSavedReason, NoticeKind, Origin,
-    OverriddenSettings, PromptSend, PtyId, Scope, Seq, ShellContext, SnapshotPhase, StopReason,
-    TurnId, TurnSettings, TurnStop, UndoId, Usage,
+    OverriddenSettings, PromptSend, PtyId, RecentCommand, Scope, Seq, ShellContext, SnapshotPhase,
+    StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -48,8 +48,10 @@ fn prompt_with_a_secret() -> PromptSend {
             "tty": "/dev/pts/3",
             "last_status": 1,
             "last_command": "export TOKEN=hunter2",
+            "recent_commands": [{ "command": "export KEY=sw0rdfish" }],
         },
         "last_command": "export TOKEN=hunter2",
+        "recent_commands": [{ "command": "export KEY=sw0rdfish", "status": 0 }],
     }))
     .unwrap()
 }
@@ -58,6 +60,10 @@ fn prompt_with_a_secret() -> PromptSend {
 fn a_prompt_queued_event_never_contains_the_last_command() {
     let prompt = prompt_with_a_secret();
     assert_eq!(prompt.last_command.as_deref(), Some("export TOKEN=hunter2"));
+    assert_eq!(
+        prompt.recent_commands,
+        [RecentCommand { status: Some(0), ..RecentCommand::new("export KEY=sw0rdfish") }]
+    );
     let event = Event::PromptQueued {
         turn_id: turn(),
         command_id: prompt.command_id,
@@ -80,6 +86,8 @@ fn a_prompt_queued_event_never_contains_the_last_command() {
     ] {
         assert!(!text.contains("hunter2"), "{text}");
         assert!(!text.contains("last_command"), "{text}");
+        assert!(!text.contains("sw0rdfish"), "{text}");
+        assert!(!text.contains("recent_commands"), "{text}");
     }
     assert_eq!(
         serde_json::to_value(&event).unwrap()["context"],
@@ -92,6 +100,7 @@ fn the_debug_output_of_a_prompt_leaves_out_the_last_command() {
     let prompt = prompt_with_a_secret();
     let text = format!("{prompt:?}");
     assert!(!text.contains("hunter2"), "{text}");
+    assert!(!text.contains("sw0rdfish"), "{text}");
     assert!(text.contains("why did that fail"), "{text}");
 }
 
@@ -104,10 +113,12 @@ fn the_last_command_of_a_prompt_is_a_member_of_the_params_not_of_the_context() {
         text: "why".to_owned(),
         context: Some(ShellContext::new("/srv")),
         last_command: Some("make".to_owned()),
+        recent_commands: vec![RecentCommand::new("make clean")],
         settings: TurnSettings::default(),
     };
     let value = serde_json::to_value(&prompt).unwrap();
     assert_eq!(value["last_command"], json!("make"));
+    assert_eq!(value["recent_commands"], json!([{ "command": "make clean" }]));
     assert_eq!(value["context"], json!({ "pwd": "/srv" }));
     let back: PromptSend = serde_json::from_value(value).unwrap();
     assert_eq!(back, prompt);

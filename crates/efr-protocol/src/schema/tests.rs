@@ -96,6 +96,7 @@ fn the_last_command_is_a_member_of_prompt_send_and_never_of_a_shell_context() {
     let context = &doc["$defs"]["ShellContext"]["properties"];
     assert!(context.is_object(), "{doc:#}");
     assert!(context.get("last_command").is_none(), "{context:#}");
+    assert!(context.get("recent_commands").is_none(), "{context:#}");
     let prompt_send = doc["methods"]
         .as_array()
         .unwrap()
@@ -105,4 +106,5 @@ fn the_last_command_is_a_member_of_prompt_send_and_never_of_a_shell_context() {
     assert_eq!(prompt_send["params"], json!({ "$ref": "#/$defs/PromptSend" }));
     let params = &doc["$defs"]["PromptSend"]["properties"];
     assert!(params["last_command"].is_object(), "{params:#}");
+    assert!(params["recent_commands"].is_object(), "{params:#}");
 }

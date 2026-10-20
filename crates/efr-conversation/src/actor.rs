@@ -598,7 +598,7 @@ impl ConversationActor {
         };
         let (context, last_command, settings) = match params.if_late {
             None => return Err(late),
-            Some(LateSteer::Queue { context, last_command, settings }) => {
+            Some(LateSteer::Queue { context, last_command, settings, .. }) => {
                 (context, last_command, settings)
             }
             Some(_) => return Err(ConversationError::Unsupported { what: "if_late" }),
@@ -684,7 +684,7 @@ impl ConversationActor {
         };
         let resend_as = match params.resend_as.map(|resend_as| *resend_as) {
             None => None,
-            Some(LateSteer::Queue { context, last_command, settings }) => {
+            Some(LateSteer::Queue { context, last_command, settings, .. }) => {
                 Some((context, last_command, settings))
             }
             Some(_) => return Err(ConversationError::Unsupported { what: "resend_as" }),

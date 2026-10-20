@@ -29,6 +29,18 @@
         }
       },
       "last_command": "du -sh /var/log",
+      "recent_commands": [
+        {
+          "command": "journalctl --disk-usage",
+          "status": 0,
+          "cwd": "/home/me",
+          "ended_at": "2026-10-20T09:58:12Z",
+          "duration_ms": 840
+        },
+        {
+          "command": "du -sh /var/log"
+        }
+      ],
       "settings": {
         "mode": "auto",
         "model": "gpt-5.4",

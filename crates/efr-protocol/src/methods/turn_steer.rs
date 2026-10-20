@@ -5,7 +5,7 @@ use std::fmt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::{CommandId, ConversationId, Seq, ShellContext, TurnId, TurnSettings};
+use crate::{CommandId, ConversationId, RecentCommand, Seq, ShellContext, TurnId, TurnSettings};
 
 /// The params of `turn.steer` (`,!` in the shell, Enter in the input row of a turn).
 /// Unlike `prompt.send`, it does not queue: the text joins the running turn, and the
@@ -46,7 +46,8 @@ pub enum LateSteer {
     /// the running turn and the prompts already queued, or starts at once when nothing
     /// runs.
     ///
-    /// `Debug` leaves out `last_command`, as for [`PromptSend`](crate::PromptSend).
+    /// `Debug` leaves out `last_command` and `recent_commands`, as for
+    /// [`PromptSend`](crate::PromptSend).
     Queue {
         /// The user's shell when the steer was sent, for the prompt.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -55,6 +56,10 @@ pub enum LateSteer {
         /// live-state preamble only; never recorded, as in `prompt.send`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_command: Option<String>,
+        /// The recent commands of the terminal, oldest first, for the turn's live-state
+        /// preamble only; never recorded, as in `prompt.send`. Absent means none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        recent_commands: Vec<RecentCommand>,
         /// The settings that the prompt asks for. Absent means none.
         #[serde(default, skip_serializing_if = "TurnSettings::is_empty")]
         settings: TurnSettings,
@@ -64,8 +69,8 @@ pub enum LateSteer {
 impl fmt::Debug for LateSteer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            // NOTE: last_command is deliberately missing; a command line can hold a
-            // secret, and requests are logged.
+            // NOTE: last_command and recent_commands are deliberately missing; a
+            // command line can hold a secret, and requests are logged.
             LateSteer::Queue { context, settings, .. } => f
                 .debug_struct("Queue")
                 .field("context", context)

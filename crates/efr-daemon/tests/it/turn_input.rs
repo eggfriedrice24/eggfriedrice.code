@@ -101,6 +101,7 @@ fn steer(n: u128, conversation_id: ConversationId, turn_id: TurnId, queue: bool)
     let if_late = queue.then(|| LateSteer::Queue {
         context: None,
         last_command: None,
+        recent_commands: Vec::new(),
         settings: TurnSettings::default(),
     });
     Method::TurnSteer(TurnSteer {

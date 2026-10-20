@@ -929,6 +929,7 @@ impl Harness {
             text: text.to_owned(),
             context: Some(ShellContext::new(cwd)),
             last_command: None,
+            recent_commands: Vec::new(),
             settings: TurnSettings::default(),
         }
     }
@@ -955,6 +956,7 @@ impl Harness {
         let if_late = queue.then(|| LateSteer::Queue {
             context: Some(ShellContext::new(&self.cwd)),
             last_command: None,
+            recent_commands: Vec::new(),
             settings: TurnSettings::default(),
         });
         TurnSteer {

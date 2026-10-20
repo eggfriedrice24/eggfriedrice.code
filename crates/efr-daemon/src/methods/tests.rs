@@ -52,6 +52,7 @@ fn every_method() -> Vec<Method> {
             text: "hi".to_owned(),
             context: None,
             last_command: None,
+            recent_commands: Vec::new(),
             settings: efr_protocol::TurnSettings::default(),
         }),
         Method::TurnInterrupt(TurnInterrupt {

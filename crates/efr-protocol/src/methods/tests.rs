@@ -7,8 +7,9 @@ use crate::{
     ConversationId, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
     EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, LateSteer, LoginKind, Mode,
     ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo,
-    PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RootSource, Seq, ShellContext,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RecentCommand, RootSource, Seq,
+    ShellContext, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
+    WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -498,17 +499,25 @@ fn a_late_steer_that_queues_carries_what_a_prompt_carries() {
         "if_late": { "kind": "queue", "context": { "pwd": "/tmp" }, "settings": { "mode": "auto" } },
     });
     let steer: TurnSteer = serde_json::from_value(value.clone()).unwrap();
-    let Some(LateSteer::Queue { context, last_command, settings }) = &steer.if_late else {
+    let Some(LateSteer::Queue { context, last_command, recent_commands, settings }) =
+        &steer.if_late
+    else {
         panic!("{steer:?}");
     };
     assert_eq!(context.as_ref().map(|context| context.pwd.as_path()), Some("/tmp".as_ref()));
     assert_eq!(*last_command, None);
+    assert!(recent_commands.is_empty());
     assert_eq!(settings.mode, Some(Mode::Auto));
     assert_eq!(serde_json::to_value(&steer).unwrap(), value);
     let bare: LateSteer = serde_json::from_value(json!({ "kind": "queue" })).unwrap();
     assert_eq!(
         bare,
-        LateSteer::Queue { context: None, last_command: None, settings: TurnSettings::default() }
+        LateSteer::Queue {
+            context: None,
+            last_command: None,
+            recent_commands: Vec::new(),
+            settings: TurnSettings::default(),
+        }
     );
 }
 
@@ -517,10 +526,12 @@ fn a_late_steer_hides_the_last_command_from_debug() {
     let late = LateSteer::Queue {
         context: Some(ShellContext::new("/tmp")),
         last_command: Some("export TOKEN=hunter2".to_owned()),
+        recent_commands: vec![RecentCommand::new("export KEY=sw0rdfish")],
         settings: TurnSettings::default(),
     };
     let text = format!("{late:?}");
     assert!(!text.contains("hunter2"), "{text}");
+    assert!(!text.contains("sw0rdfish"), "{text}");
     assert!(text.contains("/tmp"), "{text}");
 }
 
@@ -569,4 +580,31 @@ fn a_withdraw_names_its_target_by_kind() {
         "target": { "kind": "oldest" },
     });
     assert!(serde_json::from_value::<PromptWithdraw>(unknown).is_err());
+}
+
+#[test]
+fn a_prompt_from_a_client_older_than_recent_commands_has_none() {
+    let value = json!({ "command_id": COMMAND, "text": "why", "last_command": "make" });
+    let prompt: PromptSend = serde_json::from_value(value.clone()).unwrap();
+    assert!(prompt.recent_commands.is_empty());
+    assert_eq!(serde_json::to_value(&prompt).unwrap(), value);
+}
+
+#[test]
+fn a_recent_command_reads_with_only_its_command_and_shows_it_in_debug_by_length() {
+    let recent: RecentCommand =
+        serde_json::from_value(json!({ "command": "export TOKEN=hunter2" })).unwrap();
+    assert_eq!(recent, RecentCommand::new("export TOKEN=hunter2"));
+    let full: RecentCommand = serde_json::from_value(json!({
+        "command": "make",
+        "status": 2,
+        "cwd": "/src",
+        "ended_at": "2026-10-20T10:00:00Z",
+        "duration_ms": 1500,
+    }))
+    .unwrap();
+    assert_eq!((full.status, full.duration_ms), (Some(2), Some(1500)));
+    let text = format!("{recent:?}");
+    assert!(!text.contains("hunter2"), "{text}");
+    assert!(text.contains("<20 bytes>"), "{text}");
 }
