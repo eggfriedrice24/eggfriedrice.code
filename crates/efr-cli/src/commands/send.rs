@@ -1,15 +1,19 @@
 //! `efr send`: send a prompt to the terminal's conversation and follow the reply, or,
 //! with `--steer`, add text to the running turn.
 //!
-//! The zsh plugin hands the shell context, the last command line and the prompt over
-//! in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`, not as arguments: any local
-//! user can read a command line in `/proc/<pid>/cmdline`, while `/proc/<pid>/environ`
-//! is readable only by the user's own processes. The arguments stay for use by hand,
-//! and an argument wins over its variable.
+//! The zsh plugin hands the shell context, the last command line, the recent command
+//! lines and the prompt over in `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
+//! `EFR_RECENT_COMMANDS` and `EFR_PROMPT`, not as arguments: any local user can read a
+//! command line in `/proc/<pid>/cmdline`, while `/proc/<pid>/environ` is readable only
+//! by the user's own processes. The arguments stay for use by hand, and an argument
+//! wins over its variable. The recent commands have no argument.
+
+mod recent;
 
 use efr_protocol::{
     ConversationId, ConversationsList, ConversationsListResult, EffectiveSettings, Method, Origin,
-    PromptSend, PromptSendResult, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
+    PromptSend, PromptSendResult, RecentCommand, ShellContext, TurnSettings, TurnSteer,
+    TurnSteerResult,
 };
 use efr_render::render_trace;
 use efr_stdx::env::Var;
@@ -39,6 +43,8 @@ pub(crate) struct Prompt {
     pub(crate) text: String,
     pub(crate) context: ShellContext,
     pub(crate) last_command: Option<LastCommand>,
+    /// The terminal's recent commands, oldest first.
+    pub(crate) recent_commands: Vec<RecentCommand>,
     /// The turn settings that the prompt asks for.
     pub(crate) settings: TurnSettings,
 }
@@ -51,6 +57,8 @@ pub(crate) struct Handover {
     /// `shell` when the context came from the plugin, `cli` when it is the process's.
     pub(crate) origin: Origin,
     pub(crate) last_command: Option<LastCommand>,
+    /// From the variable only: no argument takes them.
+    pub(crate) recent_commands: Vec<RecentCommand>,
     pub(crate) text: String,
 }
 
@@ -73,12 +81,14 @@ impl Handover {
             Some(line) => Some(line.clone()),
             None => var(Var::LastCommand)?.map(LastCommand::from),
         };
+        let recent_commands =
+            var(Var::RecentCommands)?.map(|json| recent::parse(&json)).unwrap_or_default();
         let text = if prompt.is_empty() {
             var(Var::Prompt)?.unwrap_or_default()
         } else {
             prompt_text(prompt)
         };
-        Ok(Handover { context, origin, last_command, text })
+        Ok(Handover { context, origin, last_command, recent_commands, text })
     }
 }
 
@@ -89,12 +99,13 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
         args.last_command.as_ref(),
         &args.prompt,
     )?;
-    let Handover { context, origin, last_command, text } = handover;
+    let Handover { context, origin, last_command, recent_commands, text } = handover;
     if text.trim().is_empty() {
         return Err(CliError::EmptyPrompt);
     }
     if args.steer {
-        // A steer joins a turn whose context is set, so a last command has no place.
+        // A steer joins a turn whose context is set, so a last command and the recent
+        // commands have no place.
         return steer(ctx, out, args.conversation, &context, origin, text).await;
     }
     let prompt = Prompt {
@@ -103,6 +114,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
         text,
         context,
         last_command,
+        recent_commands,
         settings: Asked::read(ctx, &args.settings)?.to_wire(),
     };
     send(ctx, out, origin, prompt).await
@@ -164,6 +176,7 @@ async fn send_and_follow(
     let compose = Compose {
         context: prompt.context.clone(),
         last_command: prompt.last_command.clone(),
+        recent_commands: prompt.recent_commands.clone(),
         settings: prompt.settings.clone(),
     };
     let client = ctx.connect(origin, prompt.context.tty.as_deref()).await?;
@@ -215,7 +228,7 @@ pub(crate) async fn send_prompt(
         text: prompt.text,
         context: Some(prompt.context),
         last_command: prompt.last_command.map(LastCommand::into_string),
-        recent_commands: Vec::new(),
+        recent_commands: prompt.recent_commands,
         settings: prompt.settings,
     });
     Ok(client.call(method).await?)

@@ -19,7 +19,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &NewArgs) -> Resu
         args.last_command.as_ref(),
         &args.prompt,
     )?;
-    let Handover { context, origin, last_command, text } = handover;
+    let Handover { context, origin, last_command, recent_commands, text } = handover;
     if text.trim().is_empty() {
         return Err(CliError::NewWithoutPrompt);
     }
@@ -29,6 +29,7 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &NewArgs) -> Resu
         text,
         context,
         last_command,
+        recent_commands,
         settings: Asked::read(ctx, &args.settings)?.to_wire(),
     };
     send::send(ctx, out, origin, prompt).await

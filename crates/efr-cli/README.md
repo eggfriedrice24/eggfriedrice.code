@@ -48,13 +48,15 @@ daemon, the commands that change the file say that it reads the file when it sta
 
 The zsh plugin runs a bare `efr send`, `efr send --steer`, `efr new` or `efr compact`
 (and `efr away` for `,away`, which hands nothing over)
-and hands the shell context, the last command line and the prompt over in the
-environment: `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`. For `efr compact`,
-`EFR_PROMPT` holds the focus, and the plugin hands over no last command and no turn
+and hands the shell context, the last command line, the recent command lines and the
+prompt over in the environment: `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
+`EFR_RECENT_COMMANDS` and `EFR_PROMPT`. For `efr compact`, `EFR_PROMPT` holds the
+focus, and the plugin hands over no last command, no recent commands and no turn
 settings. Any local user can read a command
 line in `/proc/<pid>/cmdline`; `/proc/<pid>/environ` is readable only by the user's
 own processes. `--context-json`, `--last-command` and the prompt words do the same by
-hand, and each wins over its variable. The variables reach no child process (`efr`
+hand, and each wins over its variable; the recent commands have no argument. The
+variables reach no child process (`efr`
 starts only `xdg-open`, through `efr_stdx::process::command`, which removes them) and
 no log: `LastCommand` and `efr_stdx::env::Env` show them in `Debug` by length only.
 The plugin also sets `EFR_DRAFT_FILE`, where `efr send` and `efr new` put the text that
@@ -81,6 +83,11 @@ effort.
 
 The last command travels as `prompt.send` `params.last_command`, never inside the
 context: the daemon gives it to the turn's preamble and records it in no event. The
+recent commands travel the same way, as `params.recent_commands` (and in the `queue`
+of a late steer from the input row). `EFR_RECENT_COMMANDS` is a JSON array, oldest
+first, of `command`, `status`, `cwd`, `ended` (Unix seconds) and `duration_ms`
+(`commands/send/recent.rs`); `efr` reads the newest 10, and a value that does not
+parse sends the prompt without them. The
 context is decoded as a `ShellContext`, so a `last_command` member that a caller puts
 there is dropped. Without a context (typed by hand), the context is the working
 directory and the terminal on stdin, and the connection's origin is `cli` instead of
@@ -911,9 +918,10 @@ sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme f
 - The text of the input row leaves `efr` only as a steer, a prompt, or the hand-back
   to the shell's file in the runtime directory, never in an argument. Keys read for an
   answer line that may be a password never reach the row.
-- The last command line never reaches the shell context, and so never an event.
-- What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`
-  reaches no child process and no log.
+- The last command line and the recent command lines never reach the shell context,
+  and so never an event.
+- What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
+  `EFR_RECENT_COMMANDS` and `EFR_PROMPT` reaches no child process and no log.
 
 ## Tests
 

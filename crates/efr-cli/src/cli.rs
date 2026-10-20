@@ -1,12 +1,13 @@
 //! The command line: what `efr` accepts, as clap derive types.
 //!
 //! The zsh plugin is the main caller, so its four calls are the contract this file
-//! must keep. The plugin passes the shell context, the last command line and the prompt
-//! in `EFR_CONTEXT`, `EFR_LAST_COMMAND` and `EFR_PROMPT`, so that no other user can
-//! read them in the command line:
+//! must keep. The plugin passes the shell context, the last command line, the recent
+//! command lines and the prompt in `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
+//! `EFR_RECENT_COMMANDS` and `EFR_PROMPT`, so that no other user can read them in the
+//! command line:
 //!
 //! - `efr send`
-//! - `efr send --steer` (without `EFR_LAST_COMMAND`)
+//! - `efr send --steer` (without `EFR_LAST_COMMAND` and `EFR_RECENT_COMMANDS`)
 //! - `efr new`
 //! - `efr compact` (`,compact`, with the focus in `EFR_PROMPT`)
 //! - `efr away` (`,away`, with no prompt and no context)
