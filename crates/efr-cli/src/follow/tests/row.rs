@@ -1438,23 +1438,24 @@ async fn a_prompt_behind_a_turn_that_a_job_notice_started_says_so() {
         not_user_input: true,
         text: "<job id=\"j1\">".to_owned(),
     };
-    let (result, out, _) = run_row_view(&setup, &ctx, queued_view(), |mut conn, seen| async move {
-        let (id, method) = conn.request().await;
-        let Method::ConversationHistory(_) = method else {
-            panic!("expected conversation.history, got {}", method.name());
-        };
-        let page = ConversationHistoryResult {
-            events: vec![crate::testing::envelope(4, notice)],
-            next_cursor: None,
-        };
-        conn.reply(id, &page).await;
-        let sub = subscribed(&mut conn, 10).await;
-        shows(&seen, "(job notice, not your input)").await;
-        conn.item(sub, &item(11, started(turn()))).await;
-        conn.item(sub, &item(12, turn_completed())).await;
-        conn.until_closed().await;
-    })
-    .await;
+    let (result, out, _) =
+        Box::pin(run_row_view(&setup, &ctx, queued_view(), |mut conn, seen| async move {
+            let (id, method) = conn.request().await;
+            let Method::ConversationHistory(_) = method else {
+                panic!("expected conversation.history, got {}", method.name());
+            };
+            let page = ConversationHistoryResult {
+                events: vec![crate::testing::envelope(4, notice)],
+                next_cursor: None,
+            };
+            conn.reply(id, &page).await;
+            let sub = subscribed(&mut conn, 10).await;
+            shows(&seen, "(job notice, not your input)").await;
+            conn.item(sub, &item(11, started(turn()))).await;
+            conn.item(sub, &item(12, turn_completed())).await;
+            conn.until_closed().await;
+        }))
+        .await;
     result.unwrap();
     assert_eq!(
         out.matches("\u{1f916} (job notice, not your input)").count(),
