@@ -34,7 +34,7 @@ cat /proc/$$/cmdline > "$record.cmdline"
 if [ "$n" = 0 ] && [ -f "$EFR_ARGS.draft" ] && [ -n "$EFR_DRAFT_FILE" ]; then
   mkdir -p "${EFR_DRAFT_FILE%/*}" && cat "$EFR_ARGS.draft" > "$EFR_DRAFT_FILE"
 fi
-for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE; do
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE; do
   eval "isset=\${$var+x} value=\${$var-}"
   if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
 done
@@ -57,6 +57,7 @@ struct Call {
     cmdline: String,
     context: Option<String>,
     last_command: Option<String>,
+    recent_commands: Option<String>,
     prompt: Option<String>,
     /// The terminal's turn settings, as the plugin handed them over.
     mode: Option<String>,
@@ -87,6 +88,7 @@ impl Call {
             cmdline: cmdline.replace('\0', " "),
             context: var("EFR_CONTEXT"),
             last_command: var("EFR_LAST_COMMAND"),
+            recent_commands: var("EFR_RECENT_COMMANDS"),
             prompt: var("EFR_PROMPT"),
             mode: var("EFR_MODE"),
             model: var("EFR_MODEL"),
@@ -110,6 +112,22 @@ impl Call {
     /// The last command, where an empty variable means none, as `efr` reads it.
     fn last_command(&self) -> Option<&str> {
         self.last_command.as_deref().filter(|line| !line.is_empty())
+    }
+
+    /// The recent commands, oldest first, where an empty variable means none, as `efr`
+    /// reads it. Each one must be a JSON object with its command.
+    fn recent(&self) -> Vec<serde_json::Value> {
+        let Some(text) = self.recent_commands.as_deref().filter(|text| !text.is_empty()) else {
+            return Vec::new();
+        };
+        let recent: Vec<serde_json::Value> = serde_json::from_str(text).unwrap();
+        assert!(recent.iter().all(|entry| entry["command"].is_string()), "{text}");
+        recent
+    }
+
+    /// The command lines of [`Call::recent`].
+    fn recent_lines(&self) -> Vec<String> {
+        self.recent().iter().map(|entry| entry["command"].as_str().unwrap().to_owned()).collect()
     }
 
     /// The mode, model and effort as `efr` reads them: an empty variable is none.
@@ -283,7 +301,7 @@ fn e2e_no_typed_text_reaches_the_command_line_of_efr() {
         , why is s3cret-prompt slow
         ,new start s3cret-new
         ,! steer s3cret-steer
-        efr leftover ${+EFR_CONTEXT} ${+EFR_LAST_COMMAND} ${+EFR_PROMPT}
+        efr leftover ${+EFR_CONTEXT} ${+EFR_LAST_COMMAND} ${+EFR_PROMPT} ${+EFR_RECENT_COMMANDS}
     "#,
     );
     let calls = home.calls();
@@ -294,16 +312,17 @@ fn e2e_no_typed_text_reaches_the_command_line_of_efr() {
     }
     assert_eq!(calls[0].prompt.as_deref(), Some("why is s3cret-prompt slow"));
     assert_eq!(calls[0].last_command(), Some("export TOKEN=s3cret-token"));
+    assert_eq!(calls[0].recent_lines(), ["export TOKEN=s3cret-token"]);
     assert_eq!(calls[1].prompt.as_deref(), Some("start s3cret-new"));
     assert_eq!(calls[2].prompt.as_deref(), Some("steer s3cret-steer"));
     assert!(calls[2].context.as_deref().unwrap().contains("\"pwd\""));
     // The variables lived only in the environment of each efr: the shell has none of
     // them, and the next command inherits none.
     let leftover = &calls[3];
-    assert_eq!(leftover.args, ["leftover", "0", "0", "0"]);
+    assert_eq!(leftover.args, ["leftover", "0", "0", "0", "0"]);
     assert_eq!(
-        (&leftover.context, &leftover.last_command, &leftover.prompt),
-        (&None, &None, &None)
+        (&leftover.context, &leftover.last_command, &leftover.prompt, &leftover.recent_commands),
+        (&None, &None, &None, &None)
     );
 }
 
@@ -320,7 +339,11 @@ async fn e2e_the_built_efr_answers_a_prompt_that_the_plugin_hands_over() {
     std::fs::remove_file(&efr).unwrap();
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_efr"), &efr).unwrap();
     let dirs = daemon.dirs().dirs();
-    let script = format!("source {}\n, say hello\n", plugin().display());
+    let script = format!(
+        "source {}\n_efr_preexec 'git fetch'\n(exit 1); _efr_precmd\n\
+         _efr_preexec 'git status'\ntrue; _efr_precmd\n, say hello\n",
+        plugin().display()
+    );
     let mut zsh = home.zsh();
     zsh.env("EFR_CONFIG_DIR", dirs.config())
         .env("EFR_DATA_DIR", dirs.data())
@@ -338,6 +361,8 @@ async fn e2e_the_built_efr_answers_a_prompt_that_the_plugin_hands_over() {
     let [request] = server.received().try_into().unwrap();
     let input = request.body["input"].to_string();
     assert!(input.contains("say hello"), "{input}");
+    assert!(input.contains("The user's last command was `git status`"), "{input}");
+    assert!(input.contains("oldest first:\\n- `git fetch` (status 1, ended just now"), "{input}");
     daemon.stop().await.unwrap();
 }
 
@@ -348,11 +373,13 @@ fn e2e_an_exported_variable_of_the_shell_never_joins_a_prompt() {
     }
     let calls = run(r#"
         export EFR_LAST_COMMAND='stale line' EFR_PROMPT='stale prompt'
+        export EFR_RECENT_COMMANDS='[{"command":"stale"}]'
         , fresh prompt
     "#);
     let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
     assert_eq!(call.prompt.as_deref(), Some("fresh prompt"));
     assert_eq!(call.last_command(), None, "{call:?}");
+    assert_eq!(call.recent(), Vec::<serde_json::Value>::new(), "{call:?}");
 }
 
 #[test]
@@ -404,7 +431,77 @@ fn e2e_a_steer_carries_no_last_command() {
     let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
     assert_eq!(call.args, ["send", "--steer"]);
     assert_eq!(call.last_command(), None);
+    assert_eq!(call.recent_lines(), Vec::<String>::new());
     assert_eq!(call.prompt.as_deref(), Some("use the other file"));
+}
+
+#[test]
+fn e2e_a_prompt_carries_the_recent_commands_of_the_terminal() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    run_in(
+        &home,
+        r#"
+        _efr_preexec 'git pull'
+        true; _efr_precmd
+        mkdir -p sub && cd sub
+        _efr_preexec ' export TOKEN=s3cret'
+        true; _efr_precmd
+        _efr_preexec 'efr diff --stat'
+        true; _efr_precmd
+        _efr_preexec ', why'
+        , why
+        _efr_precmd
+        _efr_preexec '  ,new start over'
+        ,new start over
+        _efr_precmd
+        cd ..
+        _efr_preexec 'make test'
+        _efr_running_start=$(( EPOCHREALTIME - 2.5 ))
+        (exit 2); _efr_precmd
+        , why did it fail
+    "#,
+    );
+    let calls = home.calls();
+    assert_eq!(calls.len(), 3, "{calls:?}");
+    // The plugin lines, efr's own command and the line with a blank in front never
+    // join; each prompt hands over the list as it stands.
+    assert_eq!(calls[0].recent_lines(), ["git pull"]);
+    assert_eq!(calls[1].recent_lines(), ["git pull"]);
+    let last = &calls[2];
+    assert_eq!(last.recent_lines(), ["git pull", "make test"]);
+    assert!(!last.cmdline.contains("git pull"), "{}", last.cmdline);
+    let recent = last.recent();
+    let home_dir = std::fs::canonicalize(home.path()).unwrap();
+    assert_eq!(recent[0]["status"], 0);
+    assert_eq!(recent[1]["status"], 2);
+    assert_eq!(recent[1]["cwd"], home_dir.display().to_string());
+    assert!(recent[1]["ended"].as_i64().unwrap() > 1_700_000_000, "{recent:?}");
+    let ms = recent[1]["duration_ms"].as_u64().unwrap();
+    assert!((2_400..60_000).contains(&ms), "{ms}");
+    assert!(!last.recent_commands.as_deref().unwrap().contains("s3cret"));
+}
+
+#[test]
+fn e2e_the_recent_commands_keep_the_newest_ten_and_their_text_as_typed() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let calls = run(r#"
+        for n in {1..11}; do _efr_preexec "echo $n"; true; _efr_precmd; done
+        _efr_preexec $'for f in *; do
+  print -r -- "$f" \\ \'x\'
+ done'
+        true; _efr_precmd
+        , go
+    "#);
+    let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
+    let lines = call.recent_lines();
+    assert_eq!(lines.len(), 10, "{lines:?}");
+    assert_eq!(lines[0], "echo 3");
+    assert_eq!(lines[9], "for f in *; do\n  print -r -- \"$f\" \\ 'x'\n done");
 }
 
 #[test]
@@ -424,6 +521,7 @@ fn e2e_compact_hands_its_focus_over_as_the_prompt_and_nothing_of_a_turn() {
     assert_eq!(focused.prompt.as_deref(), Some("the failing test"));
     assert!(!focused.cmdline.contains("failing"), "{}", focused.cmdline);
     assert_eq!(focused.last_command(), None);
+    assert_eq!(focused.recent_lines(), Vec::<String>::new());
     assert_eq!(focused.settings(), [None, None, None], "the conversation's model compacts");
     assert!(focused.context()["pwd"].is_string(), "{:?}", focused.context);
     assert_eq!(bare.args, ["compact"]);

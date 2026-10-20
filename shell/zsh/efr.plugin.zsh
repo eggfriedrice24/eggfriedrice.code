@@ -60,8 +60,9 @@
 # permissions, so nothing here runs git or forks per prompt.
 #
 # What the user typed reaches efr in its environment, never in its arguments: the
-# context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND and the prompt as
-# EFR_PROMPT (the focus of `,compact` too). Any local user can read a command line in
+# context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND, the terminal's
+# recent command lines as EFR_RECENT_COMMANDS and the prompt as EFR_PROMPT (the focus
+# of `,compact` too). Any local user can read a command line in
 # /proc/<pid>/cmdline, while /proc/<pid>/environ is readable only by this user. The
 # terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
@@ -123,6 +124,15 @@ typeset -g _efr_run_user=${_efr_run_user:-/run/user}
 # The last shell command line and its exit status, for the next `,` line, and the line
 # that is running now. Declared without values so that re-sourcing keeps them.
 typeset -g _efr_last_command _efr_last_command_status _efr_running
+# Where the line that is running now started, and when (EPOCHREALTIME).
+typeset -g _efr_running_cwd _efr_running_start
+# The terminal's recent command lines for the next `,` line, oldest first, at most
+# _efr_recent_max of them: each one a JSON object with its command, status, directory,
+# end (EPOCHSECONDS) and duration in milliseconds, built once when it ends. A `,` line,
+# an efr command and a line that starts with a blank (HIST_IGNORE_SPACE's rule) never
+# go in. Declared without values so that re-sourcing keeps them.
+typeset -ga _efr_recent
+typeset -gi _efr_recent_max=10
 # 1 after a bare `,new`: the next `,` line starts a new conversation. A conversation
 # exists only once it has a prompt, so a bare `,new` can only remember the wish.
 typeset -gi _efr_new_pending
@@ -282,20 +292,23 @@ _efr_rewrite_line() {
 }
 
 # Runs efr with the arguments after the first three, and hands it the context JSON $1,
-# the last command line $2, the prompt $3, the terminal's turn settings and the file
-# for the text of the input row (see _efr_draft_file) in its environment. The last
-# command travels on its own, never inside the context: it can hold a secret, and the
-# daemon keeps the context in its event log. Prefix assignments set the variables for
+# the last command line $2, the prompt $3, the terminal's recent command lines (see
+# _efr_recent) as a JSON array, the terminal's turn settings and the file for the text
+# of the input row (see _efr_draft_file) in its environment. The last command and the
+# recent ones travel on their own, never inside the context: they can hold a secret,
+# and the daemon keeps the context in its event log. Prefix assignments set the variables for
 # this one command, so they never stay in the shell, and an empty one hides a value
 # that the shell may have exported.
 _efr_call() {
   # NOTE: not named prompt, which is zsh's special parameter for PS1.
   local context=$1 last_command=$2 text=$3
   shift 3
-  local REPLY draft=
+  local REPLY draft= recent=
   _efr_draft_file && draft=$REPLY
+  (( $#_efr_recent )) && recent="[${(j:,:)_efr_recent}]"
   _efr_called=1
-  EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_PROMPT=$text \
+  EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_RECENT_COMMANDS=$recent \
+    EFR_PROMPT=$text \
     EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
     EFR_DRAFT_FILE=$draft efr "$@"
 }
@@ -534,7 +547,8 @@ _efr_new() {
 }
 
 # Steering goes through `efr send --steer`, the CLI side of turn.steer. A steer joins
-# the running turn, whose context is already set, so it carries no last command.
+# the running turn, whose context is already set, so it carries no last command and no
+# recent commands.
 function ,! {
   local last_status=$?
   emulate -L zsh
@@ -549,14 +563,16 @@ function ,! {
   # A running turn keeps its settings, so a steer hands none over. The locals hide the
   # terminal's values from _efr_call, which sees them through zsh's dynamic scope.
   local _efr_turn_mode= _efr_turn_model= _efr_turn_effort=
+  local -a _efr_recent=()
   _efr_call "$REPLY" '' "$text" send --steer
 }
 
 # Makes room in the model's context of this terminal's conversation now, through
 # `efr compact`: efrd prunes old tool output and writes a summary of the earlier turns.
 # The words are the focus, which says what the summary must keep, and reach efr as
-# EFR_PROMPT, as a prompt does. It starts no turn, so it hands over no last command and
-# none of the terminal's turn settings: the compaction uses the conversation's model.
+# EFR_PROMPT, as a prompt does. It starts no turn, so it hands over no last command, no
+# recent commands and none of the terminal's turn settings: the compaction uses the
+# conversation's model.
 function ,compact {
   emulate -L zsh
   _efr_prompt_text "$@"
@@ -565,6 +581,7 @@ function ,compact {
   _efr_context_json ''
   # The locals hide the terminal's values from _efr_call, as for `,!`.
   local _efr_turn_mode= _efr_turn_model= _efr_turn_effort=
+  local -a _efr_recent=()
   _efr_call "$REPLY" '' "$text" compact
 }
 
@@ -953,6 +970,8 @@ _efr_print_notices() {
 # a plugin line's own options can go.
 _efr_preexec() {
   _efr_running=$1
+  _efr_running_cwd=$PWD
+  _efr_running_start=${EPOCHREALTIME-}
   _efr_restore_options
 }
 
@@ -961,8 +980,34 @@ _efr_remember_command() {
   if [[ -n $_efr_running ]] && ! _efr_is_plugin_line "$_efr_running"; then
     _efr_last_command=$_efr_running
     _efr_last_command_status=$1
+    _efr_remember_recent $1
   fi
   _efr_running=''
+}
+
+# Adds the line that just finished, with its status $1, to the terminal's recent
+# commands (see _efr_recent), unless it starts with a blank or runs efr itself. The
+# JSON is built here, once, without a fork, so a `,` line only joins the entries.
+_efr_remember_recent() {
+  emulate -L zsh -o extended_glob
+  local line=$_efr_running REPLY entry
+  [[ $line == [[:blank:]]* || -z ${line//[[:space:]]/} ]] && return 0
+  [[ $line == efr([[:space:]]*|) ]] && return 0
+  _efr_json_string "$line"
+  entry="{\"command\":$REPLY"
+  [[ $1 == <-> ]] && entry+=",\"status\":$1"
+  if [[ -n $_efr_running_cwd ]]; then
+    _efr_json_string "$_efr_running_cwd"
+    entry+=",\"cwd\":$REPLY"
+  fi
+  [[ ${EPOCHSECONDS-} == <-> ]] && entry+=",\"ended\":$EPOCHSECONDS"
+  if [[ -n $_efr_running_start && -n ${EPOCHREALTIME-} ]]; then
+    local -i ms=$(( (EPOCHREALTIME - _efr_running_start) * 1000 ))
+    (( ms >= 0 )) && entry+=",\"duration_ms\":$ms"
+  fi
+  _efr_recent+=("$entry}")
+  (( $#_efr_recent > _efr_recent_max )) && _efr_recent=("${(@)_efr_recent[-_efr_recent_max,-1]}")
+  return 0
 }
 
 # Shows the cursor after a line that ran efr. efr hides it while a turn runs and shows
