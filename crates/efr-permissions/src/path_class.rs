@@ -107,6 +107,12 @@ const HOME_SECRETS: &[&str] = &[
     ".git-credentials",
     ".config/git/credentials",
     ".config/gh/hosts.yml",
+    // Other GitHub tokens: hub's `oauth_token`, Copilot's token files and the plain
+    // store of Git Credential Manager. github.com is open in the sandbox when gh's
+    // helper is safe, so they must stay hidden in every mode.
+    ".config/hub",
+    ".config/github-copilot",
+    ".gcm",
     ".npmrc",
     ".config/npm/npmrc",
     ".config/pnpm/rc",

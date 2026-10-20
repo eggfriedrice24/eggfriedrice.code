@@ -25,8 +25,6 @@ pub const SANDBOX_MASKS: &[&str] = &[
     ".local/share/opencode",
     ".config/op",
     ".config/rclone",
-    ".config/hub",
-    ".config/github-copilot",
     ".config/containers/auth.json",
     ".local/share/kwalletd",
     ".pki",
@@ -38,7 +36,6 @@ pub const SANDBOX_MASKS: &[&str] = &[
     ".config/KeePassXC",
     // Package tool and forge configs that can hold a registry token or a password in
     // a URL: a contained call reaches the allowed hosts through efr's proxy.
-    ".gcm",
     ".config/glab-cli",
     ".yarnrc.yml",
     ".yarnrc",

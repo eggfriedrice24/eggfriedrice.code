@@ -2072,8 +2072,9 @@ fn xdg_git_credentials_masked() {
 
 #[test]
 fn gcm_store_masked() {
-    // git-credential-manager keeps a plaintext store below `~/.gcm/store`.
-    assert_masked("/home/u/.gcm/store/git/https/github.com/u.credential");
+    // git-credential-manager keeps a plaintext store below `~/.gcm/store`: a secret
+    // since github.com opens in the sandbox (v0.0.4, DV51).
+    assert_secret("/home/u/.gcm/store/git/https/github.com/u.credential");
     assert_masked("/home/u/.config/glab-cli/config.yml");
 }
 

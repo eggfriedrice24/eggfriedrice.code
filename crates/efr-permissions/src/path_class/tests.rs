@@ -172,6 +172,9 @@ fn scratch_outside_home_is_scratch() {
     "/home/u/.git-credentials",
     "/home/u/.config/git/credentials",
     "/home/u/.config/gh/hosts.yml",
+    "/home/u/.config/hub",
+    "/home/u/.config/github-copilot",
+    "/home/u/.gcm",
     "/home/u/.npmrc",
     "/home/u/.config/npm/npmrc",
     "/home/u/.config/pnpm/rc",
@@ -190,6 +193,8 @@ fn scratch_outside_home_is_scratch() {
     "/home/u/.config/gcloud",
     "/home/u/.config/git/credentials",
     "/home/u/.config/gh/hosts.yml",
+    "/home/u/.config/hub",
+    "/home/u/.config/github-copilot",
     "/home/u/.config/npm/npmrc",
     "/home/u/.config/pnpm/rc",
     "/home/u/.config/pypoetry/auth.toml",
@@ -236,6 +241,26 @@ fn secrets_below_a_linked_home_are_named_under_the_home() {
         locations.secrets_below(Path::new("/var/home/u/.aws")),
         [PathBuf::from("/home/u/.aws/credentials"), PathBuf::from("/home/u/.aws/sso/cache")]
     );
+}
+
+#[test]
+fn hub_copilot_gcm_files_are_secrets() {
+    for path in [
+        "/home/u/.config/hub",
+        "/home/u/.config/github-copilot/apps.json",
+        "/home/u/.config/github-copilot/hosts.json",
+        "/home/u/.gcm/store/git/https/github.com/u.credential",
+    ] {
+        assert_eq!(
+            locations().classify(Path::new(path), Path::new(SCRATCH)),
+            Some(PathClass::Secrets),
+            "{path}"
+        );
+    }
+    let secrets = locations().secret_paths();
+    for path in ["/home/u/.config/hub", "/home/u/.config/github-copilot", "/home/u/.gcm"] {
+        assert!(secrets.contains(&PathBuf::from(path)), "the sandbox masks {path}");
+    }
 }
 
 #[test]
