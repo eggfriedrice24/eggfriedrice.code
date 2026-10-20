@@ -133,6 +133,13 @@ typeset -g _efr_running_cwd _efr_running_start
 # go in. Declared without values so that re-sourcing keeps them.
 typeset -ga _efr_recent
 typeset -gi _efr_recent_max=10
+# The most characters of a command line that the last command and each recent one keep.
+# efrd shows only the first 400, and Linux refuses to start a program with one variable
+# of more than 128 KiB.
+typeset -gi _efr_command_max=2000
+# The most bytes of the recent commands together, as the JSON that efr gets. The oldest
+# go first.
+typeset -gi _efr_recent_max_bytes=65536
 # 1 after a bare `,new`: the next `,` line starts a new conversation. A conversation
 # exists only once it has a prompt, so a bare `,new` can only remember the wish.
 typeset -gi _efr_new_pending
@@ -305,12 +312,30 @@ _efr_call() {
   shift 3
   local REPLY draft= recent=
   _efr_draft_file && draft=$REPLY
-  (( $#_efr_recent )) && recent="[${(j:,:)_efr_recent}]"
+  _efr_recent_json && recent=$REPLY
   _efr_called=1
   EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_RECENT_COMMANDS=$recent \
     EFR_PROMPT=$text \
     EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
     EFR_DRAFT_FILE=$draft efr "$@"
+}
+
+# Sets REPLY to the recent commands (see _efr_recent) as one JSON array, or to an empty
+# string when there is none. While the text has more than _efr_recent_max_bytes bytes,
+# the oldest entries go.
+_efr_recent_json() {
+  # NOTE: without multibyte, ${#REPLY} counts bytes, which is what Linux limits.
+  emulate -L zsh +o multibyte
+  local -a entries=("${(@)_efr_recent}")
+  REPLY=
+  (( $#entries )) || return 0
+  REPLY="[${(j:,:)entries}]"
+  while (( ${#REPLY} > _efr_recent_max_bytes && $#entries > 1 )); do
+    shift entries
+    REPLY="[${(j:,:)entries}]"
+  done
+  (( ${#REPLY} <= _efr_recent_max_bytes )) || REPLY=
+  return 0
 }
 
 # The pid namespace of this shell, by the inode of its link in /proc; empty when it
@@ -976,9 +1001,11 @@ _efr_preexec() {
 }
 
 # Keeps the line that just finished, with its status, unless it ran a plugin command.
+# It keeps the first _efr_command_max characters of the line.
 _efr_remember_command() {
+  emulate -L zsh
   if [[ -n $_efr_running ]] && ! _efr_is_plugin_line "$_efr_running"; then
-    _efr_last_command=$_efr_running
+    _efr_last_command=${_efr_running[1,_efr_command_max]}
     _efr_last_command_status=$1
     _efr_remember_recent $1
   fi
@@ -987,10 +1014,11 @@ _efr_remember_command() {
 
 # Adds the line that just finished, with its status $1, to the terminal's recent
 # commands (see _efr_recent), unless it starts with a blank or runs efr itself. The
-# JSON is built here, once, without a fork, so a `,` line only joins the entries.
+# JSON is built here, once, without a fork, so a `,` line only joins the entries. It
+# keeps the first _efr_command_max characters of the line, as the last command does.
 _efr_remember_recent() {
   emulate -L zsh -o extended_glob
-  local line=$_efr_running REPLY entry
+  local line=${_efr_running[1,_efr_command_max]} REPLY entry
   [[ $line == [[:blank:]]* || -z ${line//[[:space:]]/} ]] && return 0
   [[ $line == efr([[:space:]]*|) ]] && return 0
   _efr_json_string "$line"

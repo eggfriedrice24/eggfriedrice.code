@@ -505,6 +505,43 @@ fn e2e_the_recent_commands_keep_the_newest_ten_and_their_text_as_typed() {
 }
 
 #[test]
+fn e2e_a_huge_command_line_is_cut_and_a_prompt_still_reaches_efr() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // NOTE: Linux refuses to start a program with one variable of more than 128 KiB.
+    let calls = run(r#"
+        _efr_preexec "${(l:200000::x:)}"
+        true; _efr_precmd
+        , hi
+    "#);
+    let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
+    assert_eq!(call.prompt.as_deref(), Some("hi"));
+    assert_eq!(call.last_command(), Some("x".repeat(2_000).as_str()));
+    assert_eq!(call.recent_lines(), ["x".repeat(2_000)]);
+}
+
+#[test]
+fn e2e_the_oldest_recent_commands_go_when_their_json_is_too_long() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // Each line of 2,000 control characters is 12,000 bytes as JSON: ten of them are
+    // more than the 64 KiB that the plugin hands over.
+    let calls = run(r#"
+        line=; repeat 2000 line+=$'\1'
+        for n in {0..9}; do _efr_preexec "$n$line"; true; _efr_precmd; done
+        , hi
+    "#);
+    let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
+    let json = call.recent_commands.as_deref().unwrap();
+    assert!(json.len() <= 65_536, "{}", json.len());
+    let firsts: Vec<String> =
+        call.recent_lines().iter().map(|line| line.chars().take(1).collect()).collect();
+    assert_eq!(firsts, ["5", "6", "7", "8", "9"], "the newest stay, in their order");
+}
+
+#[test]
 fn e2e_compact_hands_its_focus_over_as_the_prompt_and_nothing_of_a_turn() {
     if !zsh_tests_enabled() {
         return;
