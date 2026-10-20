@@ -45,6 +45,11 @@ pub struct RunRequest {
     /// takes effect for a run delimited by marks: the integration's key runs
     /// `sudo -k` and `doas -L` without printing anything.
     pub forget_credentials: bool,
+    /// Make the shell forget sudo's and doas's cached credentials also right before the
+    /// line, at the ready prompt, so a cache from an earlier call or from the user's
+    /// own terminal is gone before the command runs (full mode). A shell without the
+    /// integration fails the run with [`ShellError::NoIntegration`] before the line.
+    pub forget_before: bool,
     /// The longest the run waits for its command in all, past [`timeout`](Self::timeout),
     /// while [`RunProgress::can_answer`] says that a person who can type answers
     /// follows it: for a command that the user approved because it may wait for input.
@@ -72,6 +77,7 @@ impl RunRequest {
             output_limit: Self::DEFAULT_OUTPUT_LIMIT,
             call: None,
             forget_credentials: false,
+            forget_before: false,
             interactive_limit: None,
             sandbox: None,
         }
@@ -118,6 +124,14 @@ impl RunRequest {
     #[must_use]
     pub fn with_forget_credentials(mut self, forget: bool) -> Self {
         self.forget_credentials = forget;
+        self
+    }
+
+    /// Sets whether the shell forgets the cached sudo and doas credentials before the
+    /// command too.
+    #[must_use]
+    pub fn with_forget_before(mut self, forget: bool) -> Self {
+        self.forget_before = forget;
         self
     }
 

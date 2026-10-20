@@ -974,6 +974,32 @@ async fn e2e_per_call_makes_the_shell_forget_sudos_credentials_after_each_call()
 }
 
 #[tokio::test]
+async fn e2e_forget_before_clears_a_cached_sudo_before_the_line() {
+    let test = "e2e_forget_before_clears_a_cached_sudo_before_the_line";
+    let (bin, log) = fake_sudo();
+    let Some(zsh) = with_bin(test, bin.path()) else {
+        return;
+    };
+    // NOTE: a call that keeps the cache, as an earlier `keep` call or the user's own
+    // terminal would leave it.
+    let first = zsh.run("sudo true").await;
+    let before =
+        |command: &str| zsh.request(command).with_forget_credentials(true).with_forget_before(true);
+
+    // The forget key goes out at the ready prompt before this line, so the shell runs
+    // `sudo -k` before it reads the line.
+    let read_log = before(&format!("cat '{}'", log.display()));
+    let second =
+        zsh.sessions.run_command(zsh.conversation, read_log, &mut NoProgress).await.unwrap();
+
+    assert_eq!(first.output, "sudo ran\n");
+    assert_eq!(second.output, "true\n-k\n", "sudo -k ran before the line");
+    let recording = zsh.recording().await;
+    assert!(!recording.contains("efr-forget"), "{recording:?}");
+    assert_eq!(recording.matches("-k").count(), 1, "only cat shows it: {recording:?}");
+}
+
+#[tokio::test]
 async fn e2e_keep_leaves_sudos_credentials_to_sudo() {
     let test = "e2e_keep_leaves_sudos_credentials_to_sudo";
     let (bin, log) = fake_sudo();

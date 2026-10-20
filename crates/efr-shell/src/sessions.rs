@@ -663,6 +663,7 @@ impl ShellSessions {
             output_limit: request.output_limit,
             call: request.call,
             forget_credentials: request.forget_credentials,
+            forget_before: request.forget_before,
             token: sentinel::token(&*deps.rng),
             sandbox: request.sandbox,
             reply,

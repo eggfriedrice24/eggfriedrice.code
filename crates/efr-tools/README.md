@@ -47,7 +47,11 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
   the home directory (`efr_scope::Home`), the clock, the write journal,
   `forget_credentials`, which the shell tool passes on to the run so the hidden shell
-  forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`), and
+  forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`, and
+  every call of full mode), `forget_before`, which the shell tool passes on as
+  `RunRequest::forget_before` so the shell forgets them before the line too (full
+  mode; a shell without efr's zsh integration fails the call with a text that says
+  that full mode needs it, and the command does not run), and
   `interactive_limit`, set for a call that the user approved because it may wait for
   input (`shell.interactive_timeout_minutes`), which the shell tool passes on as
   `RunRequest::interactive_limit`, and `sandbox` (`efr_shell::SandboxRun`), set for

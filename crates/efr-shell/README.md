@@ -240,6 +240,18 @@ and `D`, or the two sentinels):
   its credentials. A shell without the integration (not a zsh, or
   the integration did not load) has no binding and no marks, so it keeps the cache;
   the session logs a warning once when such a shell gets a run that should forget.
+- A run can also ask to forget before its line (`RunRequest::forget_before`, every
+  call of full mode). At a ready prompt the session types the key and then the line
+  in one write: the line editor runs the key's widget before it reads the line, so
+  `sudo -k` runs before the command, and a cache from an earlier call or from the
+  user's own terminal is gone. When the key went out at that prompt already (the end
+  of a run that forgets), no second key goes. Such a run waits for the next `B` like
+  a run after a forget, and for a new shell's first prompt, because only a mark says
+  whether the shell has the integration. In a shell without it (no mark before the
+  startup timeout, or a program that is no zsh), the run fails with
+  `ShellError::NoIntegration` and nothing is typed. A sentinel run into a program that
+  holds the terminal (a nested shell) cannot reach the outer zsh's line editor: its
+  line goes in, and the outer zsh forgets at its next `B`.
 
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:

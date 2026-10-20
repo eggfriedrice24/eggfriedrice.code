@@ -431,6 +431,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - A question for a line that runs `sudo` or another program as another user now takes
   an answer only from your own machine, never from a phone, also in `manual` and
   `cautious`.
+- A full call clears sudo's cached password before and after the call. When your
+  sudoers shares the cache across terminals (`timestamp_type=global`), this also clears
+  your own terminal's cache. A hidden shell without efr's zsh integration does not run
+  a full call.
 - A command that gets the network view runs in your machine's network namespace.
   Only Unix and netlink sockets work there, `listen` fails, and Landlock refuses TCP
   and connects to abstract Unix sockets outside the sandbox. Any program in such a

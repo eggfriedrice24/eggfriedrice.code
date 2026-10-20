@@ -112,6 +112,17 @@ pub enum ShellError {
         status: Option<ChildStatus>,
     },
 
+    /// A run had to make the shell forget sudo's cached credentials before its line,
+    /// and the shell has no efr integration, which binds the key that does it. Nothing
+    /// was typed.
+    #[error(
+        "the hidden shell of conversation {conversation} has no efr integration, so it cannot forget sudo's cached credentials before a command"
+    )]
+    NoIntegration {
+        /// The conversation.
+        conversation: ConversationId,
+    },
+
     /// The command cannot be typed into a shell as written.
     #[error("the command cannot be typed into the shell: {reason}")]
     InvalidCommand {
