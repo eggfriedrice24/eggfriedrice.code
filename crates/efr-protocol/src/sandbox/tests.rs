@@ -449,6 +449,10 @@ fn a_surface_change_says_what_it_does_in_words() {
     assert_eq!(change("config_code_key", Some("core.fsmonitor")).what(), "core.fsmonitor");
     assert_eq!(change("config_worktree_appeared", None).what(), "a new config.worktree");
     assert_eq!(change("hook_planted", None).what(), "a new hook");
+    let link = change("module_link", None).what();
+    assert_eq!(link, "a link to a submodule git dir that efr cannot pin");
+    let deep = change("modules_too_deep", None).what();
+    assert_eq!(deep, "submodule git dirs deeper than efr checks");
     assert_eq!(change("a_later_rule", None).what(), "a later rule");
 }
 

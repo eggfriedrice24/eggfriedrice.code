@@ -288,7 +288,8 @@ look in the `objects`, `refs`, `logs` and `lfs` dirs of a git dir. A relative
 `core.hooksPath` of a submodule is relative to its work tree: its `core.worktree`, else
 its path in `.gitmodules`. A symbolic link below `modules/` stops the call, because git
 would follow it to a git dir that efr cannot make read-only. A deeper tree keeps what
-efr found read-only, and the surface guard reports `modules too deep`.
+efr found read-only, and the surface guard reports `submodule git dirs deeper than
+efr checks`.
 
 A call can still add new files to a git dir, such as `commondir`. After each call, the
 surface guard checks the git dirs: those of the projects and their submodules, the git

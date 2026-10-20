@@ -214,6 +214,8 @@ impl SurfaceChange {
             "hook_planted" => "a new hook",
             "module_code_key" => "a submodule key that runs a program",
             "module_hook" => "a new submodule hook",
+            "module_link" => "a link to a submodule git dir that efr cannot pin",
+            "modules_too_deep" => "submodule git dirs deeper than efr checks",
             "alternates_changed" => "git objects from another place",
             "protected_name_created" => "a new agent or editor config",
             other => return other.replace('_', " "),
