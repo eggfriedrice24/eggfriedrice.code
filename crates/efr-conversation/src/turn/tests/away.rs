@@ -1,11 +1,11 @@
 //! Who answers a question: while the user is away it waits `presence.away_wait_secs`,
 //! then the call does not run and the model goes on without it; a phone never answers a
-//! privilege exit.
+//! privilege exit, nor a question for sudo in any mode.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_protocol::{ApprovalDecision, ApprovalRespond, Event, JudgeKind, Origin, Verdict};
+use efr_protocol::{ApprovalDecision, ApprovalRespond, Event, JudgeKind, Mode, Origin, Verdict};
 use pretty_assertions::assert_eq;
 
 use super::review::{judgements, reviewed, shell};
@@ -161,6 +161,30 @@ async fn phone_never_answers_privilege() {
     answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Shell).await.unwrap();
     h.wait_end(sent.turn_id).await;
     assert_eq!(h.toolbox.invoked().len(), 1);
+}
+
+#[tokio::test]
+async fn phone_never_answers_a_cautious_sudo_question() {
+    let setup = Setup::new();
+    assert_eq!(setup.config.mode, Mode::Cautious);
+    let script = Script::new(vec![shell("sudo pacman -Syu")]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    let sent = h.prompt("update the system").await;
+    let call_id = h.wait_approval().await;
+
+    let refused = answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Phone).await;
+    assert!(
+        matches!(
+            refused,
+            Err(ConversationError::RemotePrivilegeAnswer { origin: Origin::Phone, call_id: id })
+                if id == call_id
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(h.handle.state().await.unwrap().pending_approvals, vec![call_id], "still open");
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Shell).await.unwrap();
+    h.wait_end(sent.turn_id).await;
+    assert!(h.toolbox.invoked().is_empty());
 }
 
 #[tokio::test]

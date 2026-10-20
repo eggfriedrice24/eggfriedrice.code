@@ -49,8 +49,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use efr_permissions::{
-    AllowRule, AlwaysVerdict, Approver, ConversationPolicy, Decision, DecisionInput, Effect,
-    Engine, Requirements,
+    AllowRule, AlwaysVerdict, Approver, Cause, ConversationPolicy, Decision, DecisionInput, Effect,
+    Engine, Requirements, runs_as_another_user,
 };
 use efr_protocol::{
     ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
@@ -1398,10 +1398,17 @@ impl Turn {
             summary.push_str(&crate::job_lifetime_fact(minutes));
         }
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
-        // NOTE: a privilege exit needs the password at the terminal, so a phone never
-        // answers it (efr's auto spec, section 9.5). Nor does it answer a job's question:
-        // its "yes" is not one-shot, it lasts while nobody watches the job.
-        let local_only = kinds.contains(&ExitKind::Privilege) || ruling.requirements.background;
+        // NOTE: a privilege exit, and a program such as sudo that runs as another user in
+        // any mode, needs the password at the terminal, so a phone never answers it
+        // (efr's auto spec, section 9.5). Nor does it answer a job's question: its "yes"
+        // is not one-shot, it lasts while nobody watches the job.
+        let privileged = decision
+            .reasons()
+            .iter()
+            .any(|reason| matches!(reason.cause, Cause::Privileged { .. }))
+            || ruling.requirements.command.as_deref().is_some_and(runs_as_another_user);
+        let local_only =
+            kinds.contains(&ExitKind::Privilege) || privileged || ruling.requirements.background;
         let answer = self.shared.approvals.park(turn_id, call_id, local_only, offer.clone());
         events.push(Event::ApprovalRequested {
             turn_id,

@@ -195,8 +195,10 @@ turns.
   records `approval_expired` with `away`, and `exit_judged` (judge `presence_expired`)
   for an exit, and the model reads "Nobody could approve this now; it did not run.
   Continue without it, and name it in your final answer." The turn goes on. An answer
-  always wins during the wait. A phone never answers a privilege exit
-  (`RemotePrivilegeAnswer`), because the password needs the terminal.
+  always wins during the wait. A phone never answers a privilege exit, nor the
+  question of a line that runs a program as another user, such as `sudo`, in any mode
+  (`efr_permissions::runs_as_another_user`; `RemotePrivilegeAnswer`), because the
+  password needs the terminal.
 - Background jobs at the check point (phase C). A `shell` call with `background: true`
   goes through the engine like any call. In `auto` a job with no exit starts at once,
   with no question and no classifier call; an exit goes to the classifier or the user
