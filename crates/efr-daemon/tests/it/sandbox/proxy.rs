@@ -139,10 +139,13 @@ async fn proxy_daemon(
     // NOTE: `admin.project_add` reloads `config.toml`, so the file holds what the
     // builder sets; else the reload gives the defaults back.
     let words: Vec<String> = options.allow.iter().map(|host| format!("{host:?}")).collect();
+    // NOTE: no test here is a wake test: a job's end must not start a turn that takes
+    // the scripted answers of the test's next turn.
     write(
         &dirs.dirs().config().join("config.toml"),
         &format!(
-            "[permissions]\nmode = \"auto\"\n\n[network]\nmode = \"proxy\"\nallow = [{}]\n",
+            "[permissions]\nmode = \"auto\"\n\n[network]\nmode = \"proxy\"\nallow = [{}]\n\n\
+             [jobs]\nmax_wakes_per_hour = 0\n",
             words.join(", ")
         ),
     );
@@ -157,6 +160,7 @@ async fn proxy_daemon(
         .config(move |config| {
             config.permissions.mode = Mode::Auto;
             config.network.allow = allow;
+            config.jobs.max_wakes_per_hour = 0;
         })
         .custom_provider(model)
         .start()
@@ -383,7 +387,27 @@ enum Store {
     /// must read. (A test daemon's git ignores `~/.gitconfig`, so the same rule for the
     /// user's git config has its test in efrd's unit tests.)
     InsteadOf,
+    /// gh's credential helper (a fake `gh` that prints the token of its `hosts.yml`) in
+    /// the project's git config, with the token in `~/.config/gh/hosts.yml`, which the
+    /// sandbox hides (v0.0.4, DV15).
+    Gh,
+    /// [`Store::Gh`] with the hidden shell's `GH_CONFIG_DIR` at a dir that the sandbox
+    /// does not hide, which holds the token too.
+    GhConfigDir,
 }
+
+/// The dir of [`Store::GhConfigDir`] below the home.
+const GH_DIR: &str = "ghcfg";
+
+/// The fake `gh`: for `gh auth git-credential get` it prints the token of the
+/// `hosts.yml` of gh's config dir, when it can read one.
+const FAKE_GH: &str = "\
+[ \"$1 $2 $3\" = \"auth git-credential get\" ] || exit 0
+cat >/dev/null
+dir=\"${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/gh}\"
+token=$(sed -n 's/^ *oauth_token: *//p' \"$dir/hosts.yml\" 2>/dev/null)
+[ -n \"$token\" ] || exit 0
+printf 'username=u\\npassword=%s\\n' \"$token\"";
 
 /// A project that is a git repository with one commit, and `./push.sh`, which pushes
 /// to `git.test`.
@@ -414,10 +438,32 @@ async fn push_project(project: &Path) {
 /// host with and without the server's port, because git matches a credential by host
 /// and port.
 fn push_home(home: &Path, project: &Path, ca: &TestCa, port: u16, store: Store) {
-    let config =
-        format!("[http]\n\tsslCAInfo = {}\n[credential]\n\thelper = store\n", ca.pem.display());
+    let mut config = format!("[http]\n\tsslCAInfo = {}\n", ca.pem.display());
+    if !matches!(store, Store::Gh | Store::GhConfigDir) {
+        config.push_str("[credential]\n\thelper = store\n");
+    }
     let lines = format!("https://u:tok@git.test\nhttps://u:tok@git.test:{port}\n");
     match store {
+        Store::Gh | Store::GhConfigDir => {
+            let gh = home.join("bin/gh");
+            script(&gh, FAKE_GH);
+            let hosts = "git.test:\n    oauth_token: tok\n    user: u\n";
+            write(&home.join(".config/gh/hosts.yml"), hosts);
+            if store == Store::GhConfigDir {
+                write(&home.join(GH_DIR).join("hosts.yml"), hosts);
+            }
+            // NOTE: as `gh auth setup-git` writes it, for the host with and without the
+            // server's port of the control outside the sandbox.
+            let file = project.join(".git/config");
+            let mut text = std::fs::read_to_string(&file).unwrap();
+            for scope in ["https://git.test".to_owned(), format!("https://git.test:{port}")] {
+                text.push_str(&format!(
+                    "[credential \"{scope}\"]\n\thelper = \n\thelper = !{} auth git-credential\n",
+                    gh.display()
+                ));
+            }
+            std::fs::write(file, text).unwrap();
+        }
         Store::Files => {
             write(&home.join(".git-credentials"), &lines);
             write(&home.join(".config/git/credentials"), &lines);
@@ -476,19 +522,39 @@ async fn push_case(
     let project = dirs.home().join("project");
     push_project(&project).await;
     push_home(dirs.home(), &project, &ca, server.address().port(), store);
-    let model =
-        ScriptedModel::reviewed(vec![("shell", json!({ "command": "./push.sh" }))], REVIEWER_ASKS);
+    let gh = matches!(store, Store::Gh | Store::GhConfigDir);
+    let mut calls = vec![("shell", json!({ "command": "./push.sh" }))];
+    if gh {
+        // NOTE: efrd knows where gh reads its token from the `env` file of a hidden shell,
+        // which the first call of the conversation starts; without it, the first call
+        // denies the hosts of gh's helper.
+        calls.insert(0, ("shell", json!({ "command": "true" })));
+    }
+    let model = ScriptedModel::reviewed(calls, REVIEWER_ASKS);
     let provider = Arc::clone(&model) as Arc<dyn Provider>;
     let mut options = Options::new(&["git"]);
     options.hosts = vec![(GIT.0, server.address())];
     options.allow = vec![GIT.0.to_owned()];
     // NOTE: a token in the environment that a script could send; the scrub drops it.
     options.env = BTreeMap::from([("GITHUB_TOKEN".to_owned(), "tok".to_owned())]);
+    if store == Store::GhConfigDir {
+        let dir = dirs.home().join(GH_DIR).display().to_string();
+        options.env.insert("GH_CONFIG_DIR".to_owned(), dir);
+    }
     let daemon = proxy_daemon(test, &dirs, provider, options).await?;
     let (_, events) = run_turn(&daemon, "run ./push.sh", Mode::Auto, ApprovalDecision::Deny).await;
     assert_routine(&events, model.reviews());
     daemon.stop().await.unwrap();
-    let (output, summary, _) = one_call(&events);
+    let (output, summary) = if gh {
+        let [_, output] = outputs(&events).try_into().unwrap_or_else(|all| panic!("{all:?}"));
+        let [_, (summary, _)] =
+            summaries(&events).try_into().unwrap_or_else(|all| panic!("{all:?}"));
+        let summary = summary.unwrap_or_else(|| panic!("no sandbox summary: {output}"));
+        (output, summary)
+    } else {
+        let (output, summary, _) = one_call(&events);
+        (output, summary)
+    };
     let inside = server.log();
     push_outside(&project, dirs.home(), server.address()).await;
     let outside = server.log()[inside.len()..].to_vec();
@@ -534,6 +600,62 @@ async fn shell_escape_push_with_repo_insteadof_token_is_denied() {
     assert_eq!(summary.blocked, [refused(GIT.0, BlockReason::Denied)], "{report}");
     assert!(output.contains("efr blocks git.test for this command"), "{report}");
     assert!(outside.iter().any(Logged::authorized), "the control sent the token: {report}");
+}
+
+#[tokio::test]
+async fn shell_gh_helper_reaches_its_host_without_the_token() {
+    let test = "shell_gh_helper_reaches_its_host_without_the_token";
+    let Some((output, summary, inside, outside)) = push_case(test, Store::Gh).await else {
+        return;
+    };
+    let report = format!("summary: {summary:#?}\noutput:\n{output}");
+    assert!(summary.proxied, "{report}");
+    assert_eq!(summary.blocked, Vec::new(), "efrd did not deny git.test: {report}");
+    assert!(!output.contains("efr blocks"), "{report}");
+    assert_push_without_credentials(&output, &inside, &outside);
+}
+
+#[tokio::test]
+async fn shell_gh_helper_with_open_config_dir_is_denied() {
+    let test = "shell_gh_helper_with_open_config_dir_is_denied";
+    let Some((output, summary, inside, outside)) = push_case(test, Store::GhConfigDir).await else {
+        return;
+    };
+    let report = format!("inside: {inside:#?}\noutside: {outside:#?}\noutput:\n{output}");
+    assert_eq!(inside, Vec::new(), "efrd denied git.test for the call: {report}");
+    assert_eq!(summary.blocked, [refused(GIT.0, BlockReason::Denied)], "{report}");
+    assert!(output.contains("which the sandbox does not hide"), "{report}");
+    assert!(output.contains("efr denies this host for this command"), "{report}");
+    assert!(outside.iter().any(Logged::authorized), "the control sent the token: {report}");
+}
+
+#[tokio::test]
+async fn shell_job_start_outcome_is_proxied() {
+    let test = "shell_job_start_outcome_is_proxied";
+    if !can_run(test) {
+        return;
+    }
+    let dirs = target_dirs();
+    let job = json!({ "command": "true", "background": true });
+    let model = Recorder::new(vec![Some(("shell", job)), None]);
+    let provider = Arc::clone(&model) as Arc<dyn Provider>;
+    let Some(daemon) = proxy_daemon(test, &dirs, provider, Options::new(&[])).await else {
+        return;
+    };
+    let (sent, events) = turn(&daemon, 1, "run true", Mode::Auto, ApprovalDecision::Deny).await;
+    let [(summary, _)] = summaries(&events).try_into().unwrap_or_else(|all| panic!("{all:?}"));
+    let expected = SandboxSummary { confined: true, proxied: true, ..SandboxSummary::default() };
+    assert_eq!(summary, Some(expected), "{:?}", outputs(&events));
+    let client = daemon.client().await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+    efr_test_daemon::events_until(
+        &mut follow,
+        |event| matches!(event, Event::JobEnded { job_id, .. } if job_id.as_str() == "j1"),
+    )
+    .await
+    .unwrap();
+    drop(client);
+    daemon.stop().await.unwrap();
 }
 
 #[tokio::test]

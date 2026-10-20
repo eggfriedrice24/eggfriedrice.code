@@ -588,21 +588,37 @@ impl SandboxService {
     }
 
     /// The variables of gh's config dir in the `env` file that the zsh integration of
-    /// the conversation's hidden shell writes at a prompt; `None` when it wrote none. A
-    /// sandboxed call does not change them: the export filter returns only the names of
-    /// `sandbox.promote_env`, never `XDG_*`.
+    /// the conversation's hidden shell writes at a prompt. Before that shell's first
+    /// prompt (the first call of a conversation opens it after the prepare), the newest
+    /// `env` file of any hidden shell, since they all run the same startup files and no
+    /// hook of the user; `None` when no hidden shell wrote one. A sandboxed call does not
+    /// change them: the export filter returns only the names of `sandbox.promote_env`,
+    /// never `XDG_*`.
     async fn shell_gh_env(
         &self,
         conversation: ConversationId,
     ) -> Option<std::collections::BTreeMap<String, String>> {
-        let file = self.shell_dir(conversation).join(efr_sandbox::ENV_FILE);
+        let own = self.shell_dir(conversation).join(efr_sandbox::ENV_FILE);
+        let shells = self.inner.dirs.runtime().join(plan::SHELL_DIR);
         tokio::task::spawn_blocking(move || {
-            fs::DaemonFs::read(&file, efr_sandbox::MAX_ENV_BYTES).ok()
+            let read = |file: &Path| {
+                fs::DaemonFs::read(file, efr_sandbox::MAX_ENV_BYTES)
+                    .ok()
+                    .filter(|bytes| !bytes.is_empty())
+            };
+            read(&own).or_else(|| {
+                let newest = std::fs::read_dir(&shells)
+                    .ok()?
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path().join(efr_sandbox::ENV_FILE))
+                    .filter_map(|file| Some((file.metadata().ok()?.modified().ok()?, file)))
+                    .max_by_key(|(modified, _)| *modified)?;
+                read(&newest.1)
+            })
         })
         .await
         .ok()
         .flatten()
-        .filter(|bytes| !bytes.is_empty())
         .map(|bytes| proxy::tokens::HelperFacts::gh_env(&bytes))
     }
 
