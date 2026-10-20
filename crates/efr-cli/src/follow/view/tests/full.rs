@@ -81,6 +81,7 @@ fn judged(call_id: CallId, judge: JudgeKind, verdict: Verdict) -> Event {
         cached: false,
         chain_step: None,
         skipped: Vec::new(),
+        reasked: false,
     }
 }
 

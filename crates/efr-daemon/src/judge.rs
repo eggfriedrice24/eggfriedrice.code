@@ -166,7 +166,7 @@ impl ClassifierJudge {
 
     /// Runs one step within `classifier.timeout_secs`: the request, then once more
     /// without the output form when the model does not take it, and once more when the
-    /// classifier model wrote a placeholder as its rationale.
+    /// classifier model wrote a placeholder as its rationale, which sets `reasked`.
     async fn run_step(
         &self,
         step: &Step,
@@ -174,6 +174,7 @@ impl ClassifierJudge {
         models: &[ModelInfo],
         record: &str,
         egress: Egress,
+        reasked: &mut bool,
     ) -> Result<Judgement, Failure> {
         let info = models.iter().find(|info| info.id == step.model);
         if step.check_list && !models.is_empty() && info.is_none() {
@@ -196,6 +197,7 @@ impl ClassifierJudge {
                     Err(Failure::Placeholder) if ask_again => {
                         tracing::debug!(model = %step.model, "the classifier model wrote no real rationale; efrd asks it once more");
                         ask_again = false;
+                        *reasked = true;
                     }
                     done => return done,
                 }
@@ -227,6 +229,7 @@ impl ClassifierJudge {
         judgement: Option<(Judgement, &Step)>,
         skipped: Vec<String>,
         record_sha256: Option<String>,
+        reasked: bool,
     ) -> JudgeOutcome {
         let (judgement, model, chain_step) = match judgement {
             Some((judgement, step)) => (Some(judgement), Some(step.model.clone()), step.chain_step),
@@ -240,6 +243,7 @@ impl ClassifierJudge {
             latency_ms: millis(started, self.clock.now()),
             record_sha256,
             cached: false,
+            reasked,
         }
     }
 }
@@ -252,7 +256,7 @@ impl ExitJudge for ClassifierJudge {
         let Ok(record) = serde_json::to_string(input.record) else {
             // NOTE: a record always serializes, since its maps have string keys; this
             // arm only keeps the code free of a panic.
-            return self.outcome(started, None, Vec::new(), None);
+            return self.outcome(started, None, Vec::new(), None, false);
         };
         let record_sha256 = Some(sha256_hex(record.as_bytes()));
         let conversation = input.conversation_id;
@@ -268,16 +272,21 @@ impl ExitJudge for ClassifierJudge {
                 latency_ms: millis(started, self.clock.now()),
                 record_sha256,
                 cached: true,
+                reasked: false,
             };
         }
         let models = self.provider.models();
         let mut skipped = Vec::new();
+        let mut reasked = false;
         for step in self.steps(&settings, &input) {
             if let Some(reason) = self.memory.skipped(conversation, &step.model) {
                 skipped.push(format!("{}: {reason} earlier in this conversation", step.model));
                 continue;
             }
-            match self.run_step(&step, &settings, &models, &record, input.egress).await {
+            match self
+                .run_step(&step, &settings, &models, &record, input.egress, &mut reasked)
+                .await
+            {
                 Ok(judgement) => {
                     if let Some(key) = key
                         && matches!(judgement.verdict, Verdict::Allow | Verdict::Deny)
@@ -289,7 +298,8 @@ impl ExitJudge for ClassifierJudge {
                         };
                         self.memory.keep_verdict(conversation, input.turn_id, key, cached);
                     }
-                    return self.outcome(started, Some((judgement, &step)), skipped, record_sha256);
+                    let judged = Some((judgement, &step));
+                    return self.outcome(started, judged, skipped, record_sha256, reasked);
                 }
                 Err(failure) => {
                     if failure.skips_model() {
@@ -309,7 +319,7 @@ impl ExitJudge for ClassifierJudge {
                 }
             }
         }
-        self.outcome(started, None, skipped, record_sha256)
+        self.outcome(started, None, skipped, record_sha256, reasked)
     }
 }
 

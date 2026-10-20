@@ -510,6 +510,7 @@ async fn a_junk_rationale_is_asked_again_once_then_goes_to_the_next_step() {
     assert_eq!(outcome.chain_step, ChainStep::TurnModel);
     assert_eq!(outcome.skipped, [format!("{SMALL}: parse error")]);
     assert_eq!(setup.provider.models_asked(), [SMALL, SMALL, TURN]);
+    assert!(outcome.reasked, "the verdict of the turn's model still says that it asked again");
     // The second request is the first one again.
     let requests = setup.provider.requests();
     assert_eq!(requests[1], requests[0]);
@@ -564,6 +565,7 @@ async fn a_real_rationale_on_the_second_request_decides() {
     assert_eq!(outcome.chain_step, ChainStep::ClassifierModel);
     assert_eq!(outcome.skipped, Vec::<String>::new());
     assert_eq!(setup.provider.models_asked(), [SMALL, SMALL]);
+    assert!(outcome.reasked);
 }
 
 #[tokio::test]
@@ -608,6 +610,7 @@ async fn classifier_chain_falls_back_to_turn_model() {
     let record = record();
     let outcome = judge(&setup, &record).await;
     assert_eq!(outcome.judgement, Some(allowed()));
+    assert!(!outcome.reasked, "a missing model is no re-ask");
     assert_eq!(outcome.model.as_deref(), Some(TURN));
     assert_eq!(outcome.chain_step, ChainStep::TurnModel);
     assert_eq!(outcome.skipped, [format!("{SMALL}: missing")]);

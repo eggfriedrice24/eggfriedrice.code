@@ -190,6 +190,24 @@ async fn one_exit_requested_per_reviewed_call() {
     assert_eq!(seen.record.user_messages, vec!["push this branch"]);
 }
 
+#[tokio::test]
+async fn a_re_ask_of_the_judge_reaches_its_exit_judged() {
+    let judge = FakeJudge::answering(vec![crate::JudgeOutcome { reasked: true, ..allows() }]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
+    let (h, _) = run(setup, vec![shell("git push origin main")], "push this branch").await;
+
+    let reasked: Vec<bool> = h
+        .events()
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ExitJudged { reasked, .. } => Some(reasked),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reasked, [true], "efr history --verbose reads it from the event");
+}
+
 /// Sends each prompt of `said` in turn to a model that answers the earlier ones with
 /// text and calls `git push origin main` in the last one, and waits for the push's
 /// question, or for the end of the last turn. The last prompt records `before` first,

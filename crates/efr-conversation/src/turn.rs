@@ -1357,6 +1357,7 @@ impl Turn {
                 cached: false,
                 chain_step: None,
                 skipped: Vec::new(),
+                reasked: false,
             },
         ];
         self.record(events).await?;
@@ -1634,6 +1635,7 @@ impl Turn {
                 cached: false,
                 chain_step: None,
                 skipped: Vec::new(),
+                reasked: false,
             }])
             .await?;
         }
@@ -1681,6 +1683,7 @@ impl Turn {
                     cached: false,
                     chain_step: None,
                     skipped: Vec::new(),
+                    reasked: false,
                 });
             }
             self.record(events).await?;

@@ -676,6 +676,7 @@ pub(crate) fn full_judged_sample() -> Event {
         cached: false,
         chain_step: None,
         skipped: Vec::new(),
+        reasked: false,
     }
 }
 
@@ -1746,6 +1747,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
             cached: true,
             chain_step: Some(ChainStep::TurnModel),
             skipped: vec!["gpt-6-luna: missing".into()],
+            reasked: true,
         },
         Event::AlwaysRuleSaved {
             turn_id: turn_id(),

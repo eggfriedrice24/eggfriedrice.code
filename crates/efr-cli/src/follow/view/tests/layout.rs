@@ -1051,6 +1051,7 @@ fn reviewed(n: u8, verdict: Verdict, risk: Option<Risk>, rationale: &str) -> Eve
         cached: false,
         chain_step: Some(ChainStep::ClassifierModel),
         skipped: Vec::new(),
+        reasked: false,
     }
 }
 
@@ -1145,6 +1146,7 @@ fn a_question_that_no_reviewer_judged_says_so() {
         cached: false,
         chain_step: Some(ChainStep::User),
         skipped: vec!["gpt-6-luna: parse error".to_owned(), "gpt-6.1-sol: refused".to_owned()],
+        reasked: false,
     };
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),

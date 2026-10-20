@@ -90,6 +90,7 @@ pub(crate) fn judged(
         latency_ms: 12,
         record_sha256: Some("ab".repeat(32)),
         cached: false,
+        reasked: false,
     }
 }
 
@@ -118,6 +119,7 @@ pub(crate) fn unanswered() -> JudgeOutcome {
         latency_ms: 40_000,
         record_sha256: None,
         cached: false,
+        reasked: false,
     }
 }
 

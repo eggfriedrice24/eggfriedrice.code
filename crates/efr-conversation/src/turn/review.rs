@@ -163,6 +163,7 @@ impl Turn {
             cached: outcome.cached,
             chain_step: Some(outcome.chain_step),
             skipped: outcome.skipped.clone(),
+            reasked: outcome.reasked,
         }];
         let reviewed = match (verdict, judgement) {
             (Verdict::Allow, _) => {

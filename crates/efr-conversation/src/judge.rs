@@ -56,6 +56,9 @@ pub struct JudgeOutcome {
     pub record_sha256: Option<String>,
     /// True when the verdict came from the turn's cache: no model saw the record again.
     pub cached: bool,
+    /// True when the classifier model wrote no real reason and the judge asked it once
+    /// more (`ExitJudged::reasked`).
+    pub reasked: bool,
 }
 
 /// Judges one exit from its record: allow, deny or ask the user.

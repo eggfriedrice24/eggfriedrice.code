@@ -56,6 +56,7 @@ impl ExitJudge for TurnModelAllows {
             latency_ms: 0,
             record_sha256: None,
             cached: false,
+            reasked: false,
         }
     }
 }

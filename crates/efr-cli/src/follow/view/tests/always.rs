@@ -56,6 +56,7 @@ fn covered() -> Event {
         cached: false,
         chain_step: None,
         skipped: Vec::new(),
+        reasked: false,
     }
 }
 

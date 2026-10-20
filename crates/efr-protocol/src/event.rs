@@ -560,6 +560,11 @@ pub enum Event {
         /// The models that the classifier's chain skipped, each as `<model>: <reason>`.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         skipped: Vec<String>,
+        /// True when the classifier model wrote no real reason (empty, too short or a
+        /// placeholder) and the judge asked it once more. Absent when false, and from an
+        /// earlier daemon.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        reasked: bool,
     },
 
     /// What became of the rule of an `allow_always` answer (phase E). The turn records

@@ -532,3 +532,6 @@ No protocol version has shipped yet.
   `events/terminal_attached.json`, `route_scopes.json`, `route_switches.json` and
   `attach_hows.json`; `events/conversation_created.json`, `prompt_send_result.json`
   and `conversations_list_params.json` now set the new members.
+- Version 1, additive: `exit_judged` gains `reasked` (false when absent): the
+  classifier model wrote no real reason (empty, too short or a placeholder), and the
+  judge asked it once more. `events/exit_judged.json` now sets it.

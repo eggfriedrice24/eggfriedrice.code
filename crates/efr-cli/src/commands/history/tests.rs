@@ -463,6 +463,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             cached: false,
             chain_step: None,
             skipped: Vec::new(),
+            reasked: false,
         },
         Event::SandboxSurfaceChanged {
             turn_id: turn(),
@@ -1078,6 +1079,7 @@ fn reviewer_events() -> Vec<EventEnvelope> {
         cached: false,
         chain_step: Some(ChainStep::ClassifierModel),
         skipped: vec!["claude-haiku-5-5: missing".to_owned()],
+        reasked: false,
     };
     let events = vec![
         Event::ExitRequested {
@@ -1211,6 +1213,7 @@ fn always_events() -> Vec<EventEnvelope> {
             cached: false,
             chain_step: None,
             skipped: Vec::new(),
+            reasked: false,
         },
     ];
     events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
@@ -1270,6 +1273,7 @@ fn history_verbose_shows_exit_allowed_by_full_mode() {
             cached: false,
             chain_step: None,
             skipped: Vec::new(),
+            reasked: false,
         },
     ];
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
