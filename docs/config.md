@@ -102,6 +102,14 @@ Queues, approvals, streaming and terminals.
 | `draft_interval_ms` | `16` | live | The shortest time between two drafts of a running turn, in milliseconds: the text, the reasoning and the tool input that a terminal shows as they arrive. Drafts go only to live clients and never into the log; 0 sends every change. |
 | `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line starts a new conversation instead of continuing the old one; 0 continues it forever. |
 
+## [context]
+
+What a prompt tells the model about your terminal: its recent commands.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `recent_commands` | `8` | live | How many of the terminal's recent commands a prompt shows the model, from 0 to 10; 0 shows none. Each one comes with its exit status, its directory when that is not the current one, and how long ago it ended. The zsh plugin keeps the last 10 command lines of each terminal. It does not keep a `,` line, an `efr` command or a line that starts with a space. |
+
 ## [compaction]
 
 When efrd compacts a conversation's context on its own.

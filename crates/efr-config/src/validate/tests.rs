@@ -223,6 +223,22 @@ fn presence_keys_have_defaults_and_checks() {
 }
 
 #[test]
+fn the_recent_commands_key_has_its_default_and_its_range() {
+    assert_eq!(Settings::default().context.recent_commands, 8);
+    let mut settings = Settings::default();
+    settings.context.recent_commands = 11;
+    assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("context.recent_commands"));
+    for count in [0, 10] {
+        settings.context.recent_commands = count;
+        assert_eq!(check(&settings), Ok(()));
+    }
+    let path = std::path::Path::new("/c/config.toml");
+    let parsed = Settings::parse(path, Some("[context]\nrecent_commands = 3\n")).unwrap();
+    assert_eq!(parsed.context.recent_commands, 3);
+    assert!(Settings::parse(path, Some("[context]\nrecent = 3\n")).is_err());
+}
+
+#[test]
 fn undo_keys_have_defaults_and_checks() {
     use std::path::Path;
 

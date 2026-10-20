@@ -4,7 +4,7 @@
 //! - [`Settings`] and its tables ([`ModelSettings`], [`OpenAiSettings`],
 //!   [`AnthropicSettings`] with [`CacheTtlChoice`],
 //!   [`PermissionSettings`], [`ShellSettings`], [`ConversationSettings`],
-//!   [`CompactionSettings`],
+//!   [`ContextSettings`], [`CompactionSettings`],
 //!   [`SandboxSettings`] with [`AskDestructive`] and the always-allow rules
 //!   ([`AllowRule`], re-exported from `efr-permissions`), [`NetworkSettings`] with
 //!   [`NetworkHost`], [`DbusSettings`],
@@ -76,6 +76,7 @@ pub use settings::{CONFIG_FILE, Settings};
 pub use tables::anthropic::{AnthropicSettings, CacheTtlChoice};
 pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
+pub use tables::context::ContextSettings;
 pub use tables::dbus::DbusSettings;
 pub use tables::jobs::JobsSettings;
 pub use tables::network::{NetworkHost, NetworkSettings};

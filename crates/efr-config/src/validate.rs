@@ -73,6 +73,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         permissions,
         shell,
         conversation,
+        context,
         compaction,
         sandbox,
         network,
@@ -205,6 +206,12 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         "between 0 and 8760 (a year)",
     )?;
 
+    within(
+        "context.recent_commands",
+        u64::from(context.recent_commands),
+        0..=10,
+        "between 0 and 10",
+    )?;
     check_compaction(compaction)?;
     check_sandbox(sandbox)?;
     check_network(network)?;
