@@ -104,6 +104,130 @@ fn a_word_that_only_looks_like_a_key_stays(#[case] line: &str) {
     assert_eq!(redact(line), line);
 }
 
+#[rstest]
+#[case::aws(
+    "aws configure set aws_access_key_id AKIAOC9IS0J8HT9LGMXG",
+    "aws configure set aws_access_key_id [redacted]"
+)]
+#[case::slack_bot("echo xoxb-1234-5678-Db_xHKas1VOqg6YYZYn9 | x", "echo [redacted] | x")]
+#[case::slack_user("echo xoxp-1234-5678-Db_xHKas1VOqg6YYZYn9", "echo [redacted]")]
+#[case::gitlab(
+    "glab auth login --token glpat-Db_xHKas1VOqg6YYZYn9",
+    "glab auth login --token [redacted]"
+)]
+#[case::google("echo AIzaihA-2O76UMFxFkM-R5Kjp1vRt_1fjORS-6i", "echo [redacted]")]
+#[case::npm(
+    "npm config set //r.test/:_authToken npm_1f8rESQedUStPKR0CsTy4Qwb8DwkNhFdnXsi",
+    "npm config set //r.test/:_authToken [redacted]"
+)]
+#[case::hugging_face(
+    "huggingface-cli login --token hf_Vpzz63FfkCzJr4i0B3JrTAwR4y9ojfljoQ",
+    "huggingface-cli login --token [redacted]"
+)]
+#[case::pypi(
+    "twine upload -p pypi-AgEIcHlwaS5vcmcCJDk3 dist/*",
+    "twine upload -p [redacted] dist/*"
+)]
+#[case::github(
+    "git push https://ghp_1f8rESQedUStPKR0CsTy4Qwb8DwkNhF@x.test/r",
+    "git push https://[redacted]@x.test/r"
+)]
+fn a_key_of_a_known_service_is_redacted(#[case] line: &str, #[case] redacted: &str) {
+    assert_eq!(redact(line), redacted);
+}
+
+#[rstest]
+#[case::npm_setting("echo $npm_config_userconfig npm_config_registry_of_the_project")]
+#[case::hugging_face_name(
+    "python -c 'from huggingface_hub import hf_hub_download_with_a_long_name'"
+)]
+#[case::short_aws("echo AKIA1234")]
+#[case::lowercase_aws("echo akiaoc9is0j8ht9lgmxg")]
+fn a_name_that_starts_like_a_key_stays(#[case] line: &str) {
+    assert_eq!(redact(line), line);
+}
+
+#[rstest]
+#[case::random_word(
+    "./deploy --secret u8jzPde0IgxLd6GncfBAepfJBd0Kh8oOOL8dKLzd",
+    "./deploy --secret [redacted]"
+)]
+#[case::base64_with_padding(
+    "echo dThqelBkZTBJZ3hMZDZHbmNmQkFlcGZKQmQwS2g4b09PTDhkSw== | base64 -d",
+    "echo [redacted] | base64 -d"
+)]
+#[case::base64_with_a_slash(
+    "echo wJalrXUtnFEMI/K7MDENG/bPxRfiCY0EXAMPLEKEY > k",
+    "echo [redacted] > k"
+)]
+#[case::jwt(
+    "curl -H 'X: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.u8jzPde0IgxLd6GncfBAepfJBd0' x",
+    "curl -H 'X: [redacted]' x"
+)]
+#[case::jwt_without_a_signature("echo eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.", "echo [redacted]")]
+fn a_word_that_looks_random_is_redacted(#[case] line: &str, #[case] redacted: &str) {
+    assert_eq!(redact(line), redacted);
+}
+
+#[rstest]
+#[case::git_id("git show 3f786850e387550fdab836ed7e6dc881de23001b")]
+#[case::git_id_upper_case("git show 3F786850E387550FDAB836ED7E6DC881DE23001B")]
+#[case::sha256(
+    "echo e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 f | sha256sum -c"
+)]
+#[case::docker_port("docker run -p 8080:80 nginx")]
+#[case::absolute_path("cat /home/u/p/App2/src/Components/UserProfileCard2/Index.tsx")]
+#[case::relative_path("vim src/Components/UserProfileCard2/LongFileName2.tsx")]
+#[case::url_path("curl https://x.test/Owner/Repo2/blob/main/Src/LongFileName2.rs")]
+#[case::kebab_case(
+    "cargo test -p efr-conversation naming-rule-ignores-a-name-from-an-older-turn-2"
+)]
+#[case::snake_case("cargo test naming_rule_ignores_a_name_from_an_older_turn_2")]
+#[case::camel_case_without_digits("java com.example.MyVeryLongClassNameForTestingFactory")]
+#[case::uuid("efr history 0192f0c1-7a00-7000-8000-000000000001")]
+#[case::short_random_word("echo u8jzPde0IgxLd6GncfBAepfJBd0K")]
+#[case::not_a_jwt("echo eyJ.x eyJhbGciOiJIUzI1NiJ9 eyJ..x")]
+fn a_word_that_looks_ordinary_stays(#[case] line: &str) {
+    assert_eq!(redact(line), line);
+}
+
+/// The lines of the command corpus of `efr-permissions`.
+fn corpus_lines() -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Corpus {
+        line: Vec<Line>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Line {
+        #[serde(default)]
+        line: Option<String>,
+    }
+    const CORPUS: &str =
+        include_str!("../../../../efr-permissions/tests/fixtures/auto-corpus.toml");
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    corpus.line.into_iter().filter_map(|line| line.line).collect()
+}
+
+/// The rules for the keys of other services, random words and web tokens (v0.0.4) find
+/// nothing in the normal command lines of the corpus.
+#[test]
+fn the_key_rules_find_no_key_in_the_command_corpus() {
+    let lines = corpus_lines();
+    assert!(lines.len() > 100, "{}", lines.len());
+    for line in &lines {
+        let found: Vec<std::ops::Range<usize>> =
+            super::random_words(line).into_iter().chain(super::web_tokens(line)).collect();
+        assert!(found.is_empty(), "{line}: {found:?}");
+        let keys: Vec<&str> = super::keys(line).into_iter().map(|range| &line[range]).collect();
+        assert!(
+            keys.iter().all(|key| !["AKIA", "AIza", "npm_", "hf_", "glpat-", "xox", "pypi-"]
+                .iter()
+                .any(|prefix| key.starts_with(prefix))),
+            "{line}: {keys:?}"
+        );
+    }
+}
+
 #[test]
 fn text_outside_ascii_keeps_its_characters() {
     assert_eq!(redact("écho TÖKEN=ü PASSWORD=ü ✓"), "écho TÖKEN=ü PASSWORD=[redacted] ✓");

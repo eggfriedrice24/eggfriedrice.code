@@ -8,6 +8,11 @@
 //! list, not a shell parser: it redacts too much rather than too little, but it does
 //! not touch words that only look like the patterns (`docker run -p 8080:80`,
 //! `http://host:8080/`, `grep -r "password:" .`).
+//!
+//! The limit: a key with no known prefix is found only by its form, a long word of
+//! upper and lower case letters and digits ([`random_words`]). A key of only lower case
+//! hex or base32 characters stays visible, and so do git ids and sha256 sums, which
+//! have the same form.
 
 mod header;
 mod options;
@@ -22,13 +27,53 @@ use efr_sandbox::secret_like;
 pub(crate) const REDACTED: &str = "[redacted]";
 
 /// The starts of API keys and tokens that are secret wherever they stand, longest
-/// first.
-const KEY_PREFIXES: &[&str] =
-    &["sk-ant-", "sk-proj-", "github_pat_", "sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_"];
+/// first, each with the characters of the key after it and the fewest of them that
+/// make a key; a shorter word, such as `sk-learn`, is a name. The keys of npm and
+/// Hugging Face have only letters and digits after the prefix, so a name such as
+/// `npm_config_userconfig` stays.
+const KEY_PREFIXES: &[KeyPrefix] = &[
+    KeyPrefix::name("sk-ant-"),
+    KeyPrefix::name("sk-proj-"),
+    KeyPrefix::name("github_pat_"),
+    KeyPrefix::name("glpat-"),
+    KeyPrefix::name("pypi-"),
+    KeyPrefix::name("xoxb-"),
+    KeyPrefix::name("xoxp-"),
+    KeyPrefix::name("sk-"),
+    KeyPrefix::name("ghp_"),
+    KeyPrefix::name("gho_"),
+    KeyPrefix::name("ghu_"),
+    KeyPrefix::name("ghs_"),
+    KeyPrefix::name("ghr_"),
+    KeyPrefix { prefix: "AKIA", body: is_upper_or_digit, min: 16 },
+    KeyPrefix { prefix: "AIza", body: is_name_char, min: 30 },
+    KeyPrefix { prefix: "npm_", body: is_letter_or_digit, min: 30 },
+    KeyPrefix { prefix: "hf_", body: is_letter_or_digit, min: 30 },
+];
 
-/// The fewest characters after a key prefix that make a key; a shorter word, such as
-/// `sk-learn`, is a name.
-const KEY_MIN_CHARS: usize = 16;
+/// The start of a key and the form of the rest.
+struct KeyPrefix {
+    /// The prefix.
+    prefix: &'static str,
+    /// True for a character of the key after the prefix.
+    body: fn(char) -> bool,
+    /// The fewest such characters that make a key.
+    min: usize,
+}
+
+impl KeyPrefix {
+    /// A prefix followed by at least 16 characters of a name (letters, digits, `_`
+    /// and `-`).
+    const fn name(prefix: &'static str) -> Self {
+        KeyPrefix { prefix, body: is_name_char, min: 16 }
+    }
+}
+
+/// The fewest characters of a word that [`random_words`] reads as a key.
+const RANDOM_MIN_CHARS: usize = 32;
+
+/// The lengths of a git id (sha1) and of a sha256 sum in hex.
+const HEX_ID_LENGTHS: [usize; 2] = [40, 64];
 
 /// The last words of a name that make it a number, such as `TOKEN_COUNT` or
 /// `PASSWORD_LENGTH`, and not a secret.
@@ -43,8 +88,10 @@ const COUNTED_WORDS: &[&str] = &["TOKENS", "TOKENIZER", "TOKENIZERS"];
 /// - the value of an assignment `NAME=value` whose name looks like a secret
 ///   ([`secret_name`], with the dashes of an option such as `--api-key=` read as
 ///   underscores), unquoted or in quotes;
-/// - each word that starts with a key prefix ([`KEY_PREFIXES`]) followed by at least
-///   [`KEY_MIN_CHARS`] key characters;
+/// - each word that starts with a key prefix ([`KEY_PREFIXES`]) followed by enough
+///   key characters;
+/// - each word that looks like a random key ([`random_words`]), and each JSON web
+///   token ([`web_tokens`]);
 /// - the password of a URL, `scheme://user:password@host` ([`url::passwords`]);
 /// - the value of a header that carries a secret, such as `Authorization: Bearer x`,
 ///   without its scheme, where a header stands ([`header::values`]);
@@ -57,6 +104,8 @@ pub(crate) fn redact(line: &str) -> String {
     let commands = words::commands(line);
     let mut found = assignments(line);
     found.extend(keys(line));
+    found.extend(random_words(line));
+    found.extend(web_tokens(line));
     found.extend(url::passwords(line));
     found.extend(header::values(&commands));
     found.extend(options::values(&commands));
@@ -111,6 +160,27 @@ fn names_another_value(value: &str) -> bool {
 /// True for a character of a name before `=`.
 fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// True for an ASCII letter or digit.
+fn is_letter_or_digit(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+}
+
+/// True for an ASCII upper case letter or digit.
+fn is_upper_or_digit(c: char) -> bool {
+    c.is_ascii_uppercase() || c.is_ascii_digit()
+}
+
+/// True for a character of a word in base64 or in its url-safe form, without the `=`
+/// of the padding.
+fn is_base64_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '_' | '-')
+}
+
+/// True for a character of url-safe base64.
+fn is_url_safe_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-')
 }
 
 /// True for a character that ends an unquoted value.
@@ -185,10 +255,10 @@ fn keys(line: &str) -> Vec<Range<usize>> {
     while at < line.len() {
         let rest = &line[at..];
         let starts_word = line[..at].chars().next_back().is_none_or(|c| !is_name_char(c));
-        let key = KEY_PREFIXES.iter().find_map(|prefix| {
-            let body = rest.strip_prefix(prefix)?;
-            let chars = body.find(|c: char| !is_name_char(c)).unwrap_or(body.len());
-            (chars >= KEY_MIN_CHARS).then_some(prefix.len() + chars)
+        let key = KEY_PREFIXES.iter().find_map(|key| {
+            let body = rest.strip_prefix(key.prefix)?;
+            let chars = body.find(|c: char| !(key.body)(c)).unwrap_or(body.len());
+            (chars >= key.min).then_some(key.prefix.len() + chars)
         });
         match key {
             Some(len) if starts_word => {
@@ -197,6 +267,75 @@ fn keys(line: &str) -> Vec<Range<usize>> {
             }
             _ => at += rest.chars().next().map_or(1, char::len_utf8),
         }
+    }
+    found
+}
+
+/// The bytes of `line` that hold each word that looks like a random key: a word of
+/// base64 or url-safe base64 characters (with the `=` of its padding) of at least
+/// [`RANDOM_MIN_CHARS`] characters, with upper and lower case letters and digits. Hex
+/// of the length of a git id or a sha256 sum stays, and so does a path: a word with a
+/// `/` that starts with it, or that has a part between two `/` of three or more lower
+/// case letters, such as `src`. A long kebab-case or snake_case name has no upper case
+/// letter, so it stays too.
+fn random_words(line: &str) -> Vec<Range<usize>> {
+    let mut found = Vec::new();
+    let mut start = None;
+    for (at, c) in line.char_indices().chain(std::iter::once((line.len(), ' '))) {
+        if is_base64_char(c) {
+            start.get_or_insert(at);
+            continue;
+        }
+        let Some(from) = start.take() else { continue };
+        if looks_random(&line[from..at]) {
+            let padding = line[at..].bytes().take_while(|byte| *byte == b'=').take(2).count();
+            found.push(from..at + padding);
+        }
+    }
+    found
+}
+
+/// True for a `word` of [`random_words`] that looks like a random key.
+fn looks_random(word: &str) -> bool {
+    if word.len() < RANDOM_MIN_CHARS {
+        return false;
+    }
+    let upper = word.chars().any(|c| c.is_ascii_uppercase());
+    let lower = word.chars().any(|c| c.is_ascii_lowercase());
+    let digit = word.chars().any(|c| c.is_ascii_digit());
+    if !(upper && lower && digit) {
+        return false;
+    }
+    if HEX_ID_LENGTHS.contains(&word.len()) && word.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+    let lower_part = |part: &str| part.len() >= 3 && part.chars().all(|c| c.is_ascii_lowercase());
+    let path = word.contains('/') && (word.starts_with('/') || word.split('/').any(lower_part));
+    !path
+}
+
+/// The bytes of `line` that hold each JSON web token: a word that starts with `eyJ`
+/// (the base64 of `{"`) and has three parts of url-safe base64 joined by `.`; the
+/// last part, the signature, can be empty.
+fn web_tokens(line: &str) -> Vec<Range<usize>> {
+    let run = |text: &str| text.find(|c: char| !is_url_safe_char(c)).unwrap_or(text.len());
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = line[from..].find("eyJ").map(|at| from + at) {
+        from = at + 1;
+        if line[..at].chars().next_back().is_some_and(is_url_safe_char) {
+            continue;
+        }
+        let header = run(&line[at..]);
+        let Some(payload) = line[at + header..].strip_prefix('.') else { continue };
+        let payload_len = run(payload);
+        let Some(signature) = payload[payload_len..].strip_prefix('.') else { continue };
+        if payload_len == 0 {
+            continue;
+        }
+        let end = at + header + payload_len + run(signature) + 2;
+        found.push(at..end);
+        from = end;
     }
     found
 }
