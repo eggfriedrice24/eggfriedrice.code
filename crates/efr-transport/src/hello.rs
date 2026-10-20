@@ -20,8 +20,9 @@ use efr_protocol::{ErrorBody, ErrorCode, Hello, Method};
 pub(crate) enum Gate {
     /// Run the hello exchange with these params.
     Hello(Hello),
-    /// Hand the method to the dispatcher.
-    Dispatch(Method),
+    /// Hand the method to the dispatcher. Boxed, so a request of another kind stays
+    /// small.
+    Dispatch(Box<Method>),
     /// Answer the request with this error and keep reading.
     Refuse(ErrorBody),
     /// Answer the request with this error, then close the connection.
@@ -44,7 +45,7 @@ pub(crate) fn gate(hello_done: bool, method: Method, daemon_protocol: u32) -> Ga
             ErrorCode::Conflict,
             "hello was already sent on this connection",
         )),
-        (true, method) => Gate::Dispatch(method),
+        (true, method) => Gate::Dispatch(Box::new(method)),
     }
 }
 
