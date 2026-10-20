@@ -2,9 +2,9 @@
 
 use std::path::Path;
 
-use crate::seek::{self, Found};
-use crate::text::{self, Line};
-use crate::{Hunk, HunkLine, PatchError};
+use crate::patch::seek::{self, Found};
+use crate::patch::text::{self, Line};
+use crate::patch::{Hunk, HunkLine, PatchError};
 
 /// One hunk placed in the file: from line `start`, its old lines give way to its new
 /// lines.

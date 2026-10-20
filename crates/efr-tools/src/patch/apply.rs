@@ -4,14 +4,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
 
-use crate::{Operation, Patch, PatchError};
+use crate::patch::{Operation, Patch, PatchError};
 
 /// The current text of the files a patch names, as the caller read them.
 ///
 /// The engine does no IO: the caller reads every path of
-/// [`Patch::paths`](crate::Patch::paths) first, refuses what it must not edit (a path
-/// through a link, a file over 16 MiB, a binary file), and hands the texts over, such
-/// as in a map.
+/// [`Patch::paths`](crate::patch::Patch::paths) first, refuses what it must not edit (a
+/// path through a link, a file over 16 MiB, a binary file), and hands the texts over,
+/// such as in a map.
 pub trait Files {
     /// The text of `path`, or `None` when no file exists there.
     fn text(&self, path: &Path) -> Option<&str>;
@@ -32,7 +32,8 @@ impl Files for BTreeMap<PathBuf, String> {
 /// What a patch does to one path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
-    /// The path, as the patch names it (after [`Patch::map_paths`](crate::Patch::map_paths)).
+    /// The path, as the patch names it (after
+    /// [`Patch::map_paths`](crate::patch::Patch::map_paths)).
     pub path: PathBuf,
     /// What happens to it.
     pub kind: ChangeKind,

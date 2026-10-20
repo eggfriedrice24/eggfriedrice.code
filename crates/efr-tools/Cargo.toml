@@ -13,7 +13,6 @@ doctest = false
 
 [dependencies]
 async-trait.workspace = true
-efr-patch.workspace = true
 efr-protocol.workspace = true
 efr-scope.workspace = true
 efr-shell.workspace = true

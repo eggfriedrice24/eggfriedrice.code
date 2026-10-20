@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::NearLine;
+use crate::patch::NearLine;
 
 /// How two lines are compared, from strict to tolerant. A pass runs only when every
 /// stricter pass found nothing.

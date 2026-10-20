@@ -124,6 +124,36 @@ fn test_daemon_inside_tests_is_clean() {
 }
 
 #[test]
+fn a_pure_module_with_a_runtime_or_io_fails() {
+    for line in [
+        "use tokio::sync::mpsc;\n",
+        "pub async fn apply() {}\n",
+        "let text = std::fs::read_to_string(path)?;\n",
+        "use std::io::Read;\n",
+        "use efr_stdx::fs::write_atomic;\n",
+        "use crate::journal::WriteJournal;\n",
+    ] {
+        assert_eq!(rules("crates/efr-tools/src/patch/apply.rs", line).len(), 1, "{line}");
+        assert_eq!(rules("crates/efr-tools/src/patch.rs", line).len(), 1, "{line}");
+    }
+}
+
+#[test]
+fn a_pure_module_within_itself_is_clean() {
+    let lines = "use std::collections::HashMap;\nuse crate::patch::{Patch, PatchError};\n\
+                 use super::seek;\n// tokio and std::fs are named in comments\n";
+    assert!(rules("crates/efr-tools/src/patch/apply/update.rs", lines).is_empty());
+    assert!(rules("crates/efr-tools/src/patch/tests.rs", "use crate::patchwork;\n").len() == 1);
+}
+
+#[test]
+fn the_rest_of_the_crate_of_a_pure_module_is_not_checked() {
+    let lines = "use tokio::fs;\nuse crate::journal::WriteJournal;\n";
+    assert!(rules("crates/efr-tools/src/apply_patch.rs", lines).is_empty());
+    assert!(rules("crates/efr-tools/src/patches.rs", lines).is_empty());
+}
+
+#[test]
 fn dashes_fail_in_any_text_file() {
     assert_eq!(rules("README.md", "a \u{2014} b\n").len(), 1);
     assert_eq!(rules("docs/adr/0001.md", "1\u{2013}2\n").len(), 1);

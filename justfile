@@ -5,7 +5,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 # The leaf gate: crates that never pull a daemon edge, so their features stay light.
-leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-patch efr-proxy"
+leaf_crates := "efr-stdx efr-protocol efr-store efr-credentials efr-permissions efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-proxy"
 
 # The tests of CI's shell job: these packages, out of the test binaries that test-full
 # builds (CI's build job archives them), so the two share one build. They build with

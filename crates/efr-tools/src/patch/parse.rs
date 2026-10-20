@@ -3,7 +3,7 @@
 use std::ops::Range;
 use std::path::PathBuf;
 
-use crate::{Hunk, HunkLine, Operation, ParseProblem, Patch, PatchError};
+use crate::patch::{Hunk, HunkLine, Operation, ParseProblem, Patch, PatchError};
 
 const BEGIN: &str = "*** Begin Patch";
 const END: &str = "*** End Patch";
@@ -16,7 +16,7 @@ const ANCHOR: &str = "@@";
 
 /// Reads the text of an `apply_patch` call.
 ///
-/// The text follows [`GRAMMAR`](crate::GRAMMAR). The reader is lenient where models
+/// The text follows [`GRAMMAR`](crate::patch::GRAMMAR). The reader is lenient where models
 /// are known to slip, as Codex's is: whitespace around the marker lines, blank lines
 /// around the patch, `\r\n` line ends, a missing final newline, and a patch wrapped in
 /// a heredoc (`<<'EOF'` ... `EOF`). The README lists every tolerance. Anything else

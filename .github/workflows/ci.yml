@@ -85,7 +85,6 @@ jobs:
           forbid efr-transport efr-store
           forbid efr-protocol tokio
           forbid efr-test-support efr-daemon
-          forbid efr-patch tokio
           forbid efr-proxy efr-daemon
           only_parent() {
             local dep="$1" owner="$2" parents
@@ -156,8 +155,7 @@ jobs:
           set -euo pipefail
           args=()
           for crate in efr-stdx efr-protocol efr-store efr-credentials efr-permissions \
-              efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support \
-              efr-patch efr-proxy; do
+              efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support efr-proxy; do
             if [[ -d "crates/$crate" ]]; then args+=(-p "$crate"); fi
           done
           if [[ ${#args[@]} -eq 0 ]]; then

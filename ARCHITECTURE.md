@@ -33,7 +33,6 @@ shipped binary.
 |---|---|---|---|---|
 | `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7 | none |
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
-| `efr-patch` | lib | 0 | the patch engine of `apply_patch` and the `edit` tool: the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio | none |
 | `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
 | `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`), config protection, the exits of the `auto` sandbox, the views of the host that a line gets with no exit, the rules of the bus filter (the built-in read methods, the checks of `[[dbus.allow]]` and the proxy's arguments), the always-allow rules with their floor checks and their match, and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
@@ -49,7 +48,7 @@ shipped binary.
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
 | `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter) and `dbus-proxy` (runs `xdg-dbus-proxy` for one filtered bus of a call, with its own Landlock domain, seccomp filter and fd limit); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
-| `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions | `efr-shell`, `efr-scope`, `efr-patch`, `efr-protocol`, `efr-stdx` |
+| `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions; `patch`: the patch engine of apply_patch and edit (the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio) | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-openai` | lib | 2 | the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-provider-anthropic` | lib | 2 | the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource` | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
@@ -81,7 +80,7 @@ and `efr-daemon -> (everything)`.
    `efr-conversation -> efr-shell`, `efr-conversation -> efr-transport`,
    `efr-transport -> efr-store`, `efr-protocol -> tokio`,
    `efr-test-support -> efr-daemon`, `efr-sandbox -> tokio`, `efr-sbx -> tokio`,
-   `efr-patch -> tokio`, `efr-proxy -> efr-daemon`;
+   `efr-proxy -> efr-daemon`;
 3. any member other than `efr-screen-ghostty` reaches `libghostty-vt`, or any member
    other than `efr-store` reaches `rusqlite`, except through that owner;
 4. `efr-test-daemon` is a dev-dependency of anything except `efr-daemon` and
@@ -107,7 +106,8 @@ What each forbidden edge protects:
   and its seams from efrd, and knows nothing of the daemon.
 - The patch engine stays pure: it computes every new content from texts that the
   caller read, so a patch over several files is checked whole before the tool writes
-  one of them.
+  one of them. The engine is the module `efr_tools::patch`, so no crate edge can
+  guard it; `cargo xtask tidy` does (`PURE_MODULES` in `xtask/src/tidy.rs`).
 - Zig is a build requirement of one crate, and SQLite has one owner.
 
 The test for splitting a module into a crate, or folding one back: it gets heavy
@@ -313,11 +313,11 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
   `crates/efr-provider-openai/src/catalog.rs` (`ModelInfo::freeform_tools` from the
   catalog's `apply_patch_tool_type`), the `custom` items in `crates/efr-provider-openai/src/convert.rs`. The patch engine of
-  `apply_patch`: `crates/efr-patch/`; the tool: `crates/efr-tools/src/apply_patch.rs`
+  `apply_patch`: `crates/efr-tools/src/patch/`; the tool: `crates/efr-tools/src/apply_patch.rs`
   and its contract in `crates/efr-tools/README.md`; the question for each delete and
   move: `Requirements::destructive` in `crates/efr-permissions/src/engine.rs`.
 - The `edit` tool of Claude models: `crates/efr-tools/src/edit.rs` on
-  `efr_patch::replace`. Which model gets `apply_patch` and which `edit`:
+  `efr_tools::patch::replace`. Which model gets `apply_patch` and which `edit`:
   `ModelInfo::edit_tool` in `crates/efr-provider/src/provider.rs` (and
   `Provider::default_edit_tool` for a model that the list does not name), read by
   `turn::edit_tool` in `crates/efr-conversation/src/turn.rs`; the list that offers one

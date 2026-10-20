@@ -1,9 +1,10 @@
-//! A patch made from a diff of two texts turns the first text into the second.
+//! The patch engine: a patch made from a diff of two texts turns the first text into the
+//! second.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use efr_patch::{ChangeKind, FileChange, PatchError, apply, parse};
+use efr_tools::patch::{ChangeKind, FileChange, PatchError, apply, parse};
 use proptest::prelude::*;
 
 /// One step of a diff from the old lines to the new lines.

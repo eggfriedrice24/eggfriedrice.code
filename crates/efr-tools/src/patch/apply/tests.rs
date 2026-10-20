@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use pretty_assertions::assert_eq;
 
 use super::{ChangeKind, FileChange, Files, apply};
-use crate::{NearLine, PatchError, parse};
+use crate::patch::{NearLine, PatchError, parse};
 
 fn files(entries: &[(&str, &str)]) -> BTreeMap<PathBuf, String> {
     entries.iter().map(|&(path, text)| (PathBuf::from(path), text.to_owned())).collect()
