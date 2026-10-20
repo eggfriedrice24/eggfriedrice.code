@@ -4,7 +4,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use efr_permissions::{Policy, Rule};
+use efr_permissions::{AllowRule, Policy, Rule};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use toml_edit::{Document, Item};
@@ -136,12 +136,26 @@ impl Settings {
             return Ok(Settings { path: path.to_path_buf(), ..Settings::default() });
         };
         let mut settings: Settings = toml::from_str(text).map_err(|source| {
-            let span = source.span();
+            let start = source.span().map(|span| span.start);
             let document = Document::parse(text.to_owned()).ok();
+            let key = start.zip(document.as_ref()).and_then(|(start, doc)| key_at(doc, start));
+            if let Some((entries, index, source)) =
+                key.as_deref().and_then(|key| bad_entry(text, key))
+            {
+                return ConfigError::Parse {
+                    path: path.to_path_buf(),
+                    location: document
+                        .as_ref()
+                        .and_then(|document| span_of_entry(document, entries, index))
+                        .map(|span| location(text, span.start)),
+                    key: Some(format!("{entries}[{index}]")),
+                    source: Box::new(source),
+                };
+            }
             ConfigError::Parse {
                 path: path.to_path_buf(),
-                location: span.as_ref().map(|span| location(text, span.start)),
-                key: span.zip(document.as_ref()).and_then(|(span, doc)| key_at(doc, span.start)),
+                location: start.map(|start| location(text, start)),
+                key,
                 source: Box::new(source),
             }
         })?;
@@ -307,6 +321,31 @@ fn rules(
         })?;
     }
     Ok(policy)
+}
+
+/// The arrays of tagged entries, whose type errors the parser cannot place: serde reads
+/// a whole entry before it picks the kind, so its error has the span of the array or of
+/// the first entry.
+const TAGGED_ENTRIES: &[&str] = &["sandbox.allow"];
+
+/// The first entry of a [`TAGGED_ENTRIES`] array that fails when it is read alone, when
+/// the parser's error names that array (`key`, such as `sandbox.allow[0]`): the array's
+/// key, the entry's index and its error. `None` when every entry reads alone, so the
+/// parser's own error stays.
+fn bad_entry(text: &str, key: &str) -> Option<(&'static str, usize, toml::de::Error)> {
+    let entries = TAGGED_ENTRIES.iter().copied().find(|entries| {
+        key.strip_prefix(entries).is_some_and(|rest| rest.is_empty() || rest.starts_with('['))
+    })?;
+    let (parent, name) = entries.split_once('.')?;
+    let table = text.parse::<toml::Table>().ok()?;
+    let array = table.get(parent)?.get(name)?.as_array()?;
+    array.iter().enumerate().find_map(|(index, entry)| {
+        let error = match entries {
+            "sandbox.allow" => entry.clone().try_into::<AllowRule>().err(),
+            _ => None,
+        };
+        error.map(|source| (entries, index, source))
+    })
 }
 
 /// The names of `[diff.groups]` in the order that `document` writes them.

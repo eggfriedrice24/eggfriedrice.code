@@ -1072,6 +1072,68 @@ host = \"*.example.org\"
 }
 
 #[test]
+fn type_error_in_the_third_rule_names_entry_2() {
+    let text = "\
+[sandbox]
+cache_days = 7
+
+[[sandbox.allow]]
+kind = \"write\"
+under = \"~/notes\"
+
+[[sandbox.allow]]
+kind = \"host\"
+host = \"download.example.org\"
+
+[[sandbox.allow]]
+kind = \"host\"
+host = \"mirror.example.org\"
+port = \"https\"
+";
+    let error = parse(text).unwrap_err();
+    assert!(matches!(error, ConfigError::Parse { .. }), "{error:?}");
+    assert_eq!(error.key().as_deref(), Some("sandbox.allow[2]"));
+    assert_eq!(error.location(), Some(Location { line: 12, column: 1 }));
+    let reported = error.file_error();
+    assert_eq!(reported.key.as_deref(), Some("sandbox.allow[2]"));
+    assert_eq!(reported.line, Some(12));
+    assert!(reported.message.contains("expected u16"), "{}", reported.message);
+
+    // The same in an inline array, and an entry with an unknown kind.
+    let inline = "\
+[sandbox]
+allow = [
+  { kind = \"write\", under = \"~/notes\" },
+  { kind = \"socket\", path = \"/run/x.sock\" },
+  { kind = \"socket\", path = 7 },
+]
+";
+    let error = parse(inline).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("sandbox.allow[2]"));
+    assert_eq!(error.location().map(|at| at.line), Some(5));
+    let unknown = "\
+[[sandbox.allow]]
+kind = \"write\"
+under = \"~/notes\"
+
+[[sandbox.allow]]
+kind = \"dbus\"
+bus = \"system\"
+";
+    let error = parse(unknown).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("sandbox.allow[1]"));
+    assert_eq!(error.location().map(|at| at.line), Some(5));
+
+    // An error outside the entries keeps its own key and place.
+    let elsewhere = format!("{text}\n[shell]\nidle_minutes = \"soon\"\n");
+    let error = parse(&elsewhere).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("sandbox.allow[2]"), "the first error in the file");
+    let elsewhere = "[[sandbox.allow]]\nkind = \"write\"\nunder = \"~/a\"\n\n[shell]\nidle_minutes = \"soon\"\n";
+    let error = parse(elsewhere).unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("shell.idle_minutes"));
+}
+
+#[test]
 fn diff_groups_keep_the_order_of_the_file() {
     let text = "[diff.groups]\nzeta = [\"z/\"]\nalpha = [\"a/\", \"*.a\"]\nmid = [\"m/\"]\n";
     let names = |settings: &Settings| -> Vec<String> {
