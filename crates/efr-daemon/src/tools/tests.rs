@@ -607,7 +607,7 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
         ("cat cfg/config.toml", Effect::Allow),
     ] {
         let shell_call = call("shell", json!({ "command": command }), &cwd);
-        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        for mode in Mode::ALL {
             let input = DecisionInput {
                 requirements: toolbox.requirements(&shell_call).await.unwrap(),
                 scope: Scope::Machine,
@@ -620,6 +620,11 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
                 (Effect::Allow, Mode::Manual) => Effect::Ask,
                 // NOTE: auto runs every line in its sandbox.
                 (Effect::Allow, Mode::Auto) => Effect::Contain,
+                // NOTE: full mode keeps no built-in question. The floor of a shell line
+                // reads the paths that the line names; a link that the same line makes
+                // is not resolved, so only auto's sandbox stops such a write (a limit
+                // of full mode, docs/permissions.md, "Full mode").
+                (Effect::Ask, Mode::Full) => Effect::Allow,
                 _ => expected,
             };
             assert_eq!(effect, expected, "{command:?} in {mode}");
@@ -684,7 +689,7 @@ async fn the_settings_tool_asks_while_write_file_and_the_shell_stay_denied_on_th
 
     for (tool_call, expected) in &calls {
         let requirements = toolbox.requirements(tool_call).await.unwrap();
-        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        for mode in Mode::ALL {
             let input = DecisionInput {
                 requirements: requirements.clone(),
                 scope: Scope::Machine,

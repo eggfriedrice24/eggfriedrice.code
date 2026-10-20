@@ -78,7 +78,7 @@ async fn each_mode_decides_by_its_built_in_rules_then_the_users() {
         .await
         .unwrap();
 
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let base = Policy::base(mode);
         let rules = engine.policy(mode).rules();
         assert_eq!(&rules[..base.rules().len()], base.rules(), "{mode}");
@@ -279,7 +279,7 @@ async fn no_tool_writes_the_config_or_the_file_behind_its_link_in_any_mode() {
         .unwrap();
 
     let write = |path: &Path| Requirements::none().with_write(path);
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         for path in
             [config.join("config.toml"), config.join("projects.toml"), dotfiles.join("config.toml")]
         {
