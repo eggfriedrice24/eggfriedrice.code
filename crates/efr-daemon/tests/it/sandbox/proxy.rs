@@ -531,7 +531,7 @@ async fn shell_escape_push_with_repo_insteadof_token_is_denied() {
     };
     let report = format!("inside: {inside:#?}\noutside: {outside:#?}\noutput:\n{output}");
     assert_eq!(inside, Vec::new(), "efrd denied git.test for the call: {report}");
-    assert_eq!(summary.blocked, [refused(GIT.0, BlockReason::NotAllowed)], "{report}");
+    assert_eq!(summary.blocked, [refused(GIT.0, BlockReason::Denied)], "{report}");
     assert!(output.contains("efr blocks git.test for this command"), "{report}");
     assert!(outside.iter().any(Logged::authorized), "the control sent the token: {report}");
 }
@@ -575,7 +575,7 @@ async fn shell_escape_publish_with_project_npmrc_fails() {
     let log = server.log();
     let report = format!("log: {log:#?}\nsummary: {summary:#?}\noutput:\n{output}");
     assert_eq!(log, Vec::new(), "the server saw no request: {report}");
-    assert_eq!(summary.blocked, [refused(REGISTRY.0, BlockReason::NotAllowed)], "{report}");
+    assert_eq!(summary.blocked, [refused(REGISTRY.0, BlockReason::Denied)], "{report}");
     assert!(output.contains(".npmrc holds a credential"), "the note names the file: {report}");
     assert!(output.contains("publish=") && !output.contains("publish=0"), "{report}");
 }

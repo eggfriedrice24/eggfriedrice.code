@@ -458,10 +458,13 @@ pub(crate) fn env_keep_warnings(settings: &Settings) -> Vec<String> {
         .collect()
 }
 
-/// The hosts of `blocked` that passed the host syntax, sorted.
+/// The hosts of `blocked` that passed the host syntax, sorted. A denied host is left
+/// out (v0.0.4, DV20): no grant opens it, so the reviewer must not read it as a host
+/// that a command tried.
 fn refused(blocked: &[efr_protocol::Blocked]) -> Vec<String> {
     let mut hosts: Vec<String> = blocked
         .iter()
+        .filter(|entry| entry.reason != efr_protocol::BlockReason::Denied)
         .map(|entry| entry.host.clone())
         .filter(|host| host != INVALID_HOST && !host.is_empty())
         .collect();

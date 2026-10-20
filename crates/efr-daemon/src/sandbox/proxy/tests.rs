@@ -235,6 +235,29 @@ async fn refusals_of_the_last_call_and_the_jobs_are_facts() {
     );
 }
 
+#[tokio::test]
+async fn denied_refusals_are_no_fact() {
+    let clock = TestClock::new();
+    let proxy = service(&clock);
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().join("call");
+    std::fs::create_dir_all(&dir).unwrap();
+    let start = clock.now();
+    let denied = CallPolicy { deny: vec!["denied.test".to_owned()], ..policy(1, &[]) };
+    let call = proxy.bind(conversation(1), &dir, denied, false).await.unwrap();
+    let socket = dir.join("proxy.sock");
+    assert!(status(&socket, "denied.test", 443).await.contains(" 403 "));
+    assert!(status(&socket, "other.test", 443).await.contains(" 403 "));
+    let report = call.close(Duration::from_millis(200)).await;
+    let reasons: Vec<BlockReason> = report.blocked.iter().map(|entry| entry.reason).collect();
+    assert_eq!(reasons, [BlockReason::Denied, BlockReason::NotAllowed]);
+    assert_eq!(
+        proxy.refused_hosts(conversation(1), start),
+        ["other.test"],
+        "a grant never opens a denied host, so it is no host that a command tried"
+    );
+}
+
 #[test]
 fn mirrorlist_mtime_rereads() {
     let temp = tempfile::tempdir().unwrap();
