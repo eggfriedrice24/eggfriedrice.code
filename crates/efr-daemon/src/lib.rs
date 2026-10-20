@@ -45,6 +45,7 @@ mod ptys;
 mod receipts;
 mod reconcile;
 mod reload;
+mod repo_hint;
 mod routing;
 mod run;
 mod runtime;

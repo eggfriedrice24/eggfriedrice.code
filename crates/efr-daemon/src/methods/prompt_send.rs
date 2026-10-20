@@ -19,7 +19,9 @@
 //! terminal (S-12). The pick-up records `terminal_attached` in the prompt's batch. Else
 //! a new conversation starts. With `conversation.follow_project = false` the prompt
 //! goes to the terminal's current slot whatever its key, with no pick-up. The result
-//! names the scope and the switch, for the line before the reply.
+//! names the scope and the switch, for the line before the reply. A prompt outside
+//! projects in a git work tree also names that work tree, at most once a day for each
+//! (`repo_hint.rs`, `conversation.repo_hint`).
 //!
 //! A retried command id answers from its receipt and starts nothing; a refusal that a
 //! retry cannot change is kept as a rejected receipt.
@@ -45,9 +47,9 @@ use std::sync::Arc;
 use efr_conversation::{ConversationError, PromptRouting};
 use efr_protocol::{
     AttachHow, ConversationId, ConversationSummary, Event, Mode, PromptSend, PromptSendResult,
-    RouteLabel, RouteScope, Routed, Seq, TurnSettings,
+    RepoHint, RouteLabel, RouteScope, Routed, Seq, TurnSettings,
 };
-use efr_scope::Registry;
+use efr_scope::{Basis, Registry};
 use efr_stdx::id::uuid_v7;
 use efr_transport::{ConnectionContext, Responder};
 use serde_json::Value;
@@ -92,6 +94,8 @@ struct Routing {
     /// The title of the conversation that the prompt continues or picks up.
     title: Option<String>,
     switch: Option<efr_protocol::Switch>,
+    /// The git work tree outside projects that the prompt's line names (DV53).
+    hint: Option<RepoHint>,
 }
 
 pub(crate) async fn handle(
@@ -179,7 +183,7 @@ async fn send_routed(
     routing: Routing,
     context_tty: &Option<String>,
 ) -> Result<PromptSendResult, ConversationError> {
-    let Routing { tty, key, label, target, claim, title, switch } = routing;
+    let Routing { tty, key, label, target, claim, title, switch, hint } = routing;
     let shell_pid = params.context.as_ref().and_then(|context| context.shell_pid);
     // NOTE: the input marks the conversation that routing picked, before the prompt
     // (so its turn never reads the idle state that the input ends) and after it; the
@@ -187,7 +191,7 @@ async fn send_routed(
     // not touch (`methods.rs`, `Input::Routed`).
     let touched = target.map(|id| state.presence.touch(id)).unwrap_or_default();
     let own = context_tty.as_deref() == Some(tty.as_str());
-    let route = label.map(|scope| Routed { scope, switch, hint: None });
+    let route = label.map(|scope| Routed { scope, switch, hint: hint.clone() });
     let sent = match (target, claim) {
         (Some(conversation_id), Some(before)) => {
             keep_desktop(state, conversation_id, &params);
@@ -248,8 +252,50 @@ async fn send_routed(
     state.presence.record(touched).await;
     if let Ok(result) = &sent {
         state.presence.input(result.conversation_id).await;
+        if let Some(hint) = hint {
+            hint_shown(state, hint.root).await;
+        }
     }
     sent
+}
+
+/// Records that the hint for the git work tree at `root` was shown now, in efrd and in
+/// the state root's file.
+async fn hint_shown(state: &State, root: PathBuf) {
+    let (file, text) = state.repo_hints.shown(root, state.clock.now());
+    let written = tokio::task::spawn_blocking(move || crate::repo_hint::write(&file, &text)).await;
+    if written.is_err() {
+        tracing::warn!("writing the repository hints panicked");
+    }
+}
+
+/// The hint for a prompt outside projects in `pwd` (DV53): the root of the git work
+/// tree that holds it, when that work tree got no hint in the last day. It runs one git
+/// discovery (`efr_scope::derive`, as the turn's resolver does); `$HOME` and the
+/// directories above it are never a repository here. A slow or failed run gives no
+/// hint, never an error.
+async fn repo_hint(
+    state: &State,
+    pwd: &std::path::Path,
+    registry: &Registry,
+    now: jiff::Timestamp,
+) -> Option<RepoHint> {
+    let begin = std::time::Instant::now();
+    let derived = efr_scope::derive(pwd, &state.engine_parts.home, registry, &state.git).await;
+    let elapsed_ms = begin.elapsed().as_millis();
+    let root = match derived {
+        Ok(derivation) if derivation.basis == Basis::WorkTree => {
+            derivation.repo.map(|repo| repo.root)
+        }
+        Ok(_) => None,
+        Err(error) => {
+            tracing::debug!(error = %error, elapsed_ms, "no repository hint: git could not tell");
+            return None;
+        }
+    };
+    tracing::debug!(elapsed_ms, root = ?root, "looked for a git work tree for the repository hint");
+    let root = root?;
+    state.repo_hints.due(&root, now).then_some(RepoHint { root })
 }
 
 /// The sequence number of the event right before `seq`, in the same batch.
@@ -276,6 +322,12 @@ async fn route(
         .as_deref()
         .map_or(RouteScope::Outside, |pwd| routing::route_key(&registry, pwd, resolved.as_deref()));
     let label = pwd.as_deref().map(|pwd| routing::label(&registry, &pwd_key, pwd));
+    let hint = match (pwd.as_deref(), &pwd_key) {
+        (Some(pwd), RouteScope::Outside) if settings.conversation.repo_hint => {
+            repo_hint(state, pwd, &registry, now).await
+        }
+        _ => None,
+    };
     let current = state.conversations.current(&tty);
     let alive = |pid: u32| state.procs.alive(pid);
     let before = match &current {
@@ -303,6 +355,7 @@ async fn route(
         claim: None,
         title: None,
         switch: routing::switch(before.as_ref(), outcome),
+        hint: hint.clone(),
     };
     if params.new_conversation {
         return Ok(new(Outcome::Fresh));

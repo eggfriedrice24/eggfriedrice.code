@@ -27,6 +27,7 @@ use crate::proc_view::ProcView;
 use crate::providers::Providers;
 use crate::ptys::Ptys;
 use crate::reload::Reloads;
+use crate::repo_hint::RepoHints;
 use crate::sandbox::SandboxService;
 use crate::shells::StoreRecording;
 use crate::telemetry::LogFilter;
@@ -100,4 +101,7 @@ pub(crate) struct State {
     /// Whether a shell runs and which terminal a peer runs on, for routing: `/proc`,
     /// or a test's fake.
     pub(crate) procs: Arc<dyn ProcView>,
+    /// When efrd last showed the hint for each git repository that is not a project
+    /// (`repo_hint.rs`), read from the state root at start.
+    pub(crate) repo_hints: RepoHints,
 }

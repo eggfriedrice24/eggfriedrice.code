@@ -56,6 +56,7 @@ use crate::proc_view::{ProcView, SystemProcView};
 use crate::providers::{ProviderFactory, ProviderParts, Providers};
 use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
+use crate::repo_hint::RepoHints;
 use crate::sandbox::{self, HostFacts, SandboxService, Seams, ServiceParts, launcher};
 use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
@@ -694,6 +695,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         allow_writer: Some(Arc::new(allow_writer)),
     };
     let slots = conversations::load_slots(&readers).await?;
+    let repo_hints = {
+        let state_dir = dirs.state().to_path_buf();
+        let now = clock.now();
+        tokio::task::spawn_blocking(move || RepoHints::load(&state_dir, now))
+            .await
+            .map_err(|_| DaemonError::TaskPanicked { task: "repo hints" })?
+    };
     let roots = roots(&dirs, root_sources);
     let state = Arc::new(State {
         settings: settings_sender,
@@ -729,6 +737,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         runs_as_root,
         full,
         procs: procs.unwrap_or_else(|| Arc::new(SystemProcView)),
+        repo_hints,
     });
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
