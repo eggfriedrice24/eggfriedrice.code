@@ -22,9 +22,10 @@ use std::time::{Duration, Instant};
 
 use efr_conversation::job_lifetime_fact;
 use efr_protocol::{
-    AdminProjectAdd, AdminProjectAddResult, AdminStatus, AdminStatusResult, ApprovalDecision,
-    ApprovalRespond, ApprovalRespondResult, Base64Bytes, ConversationId, Event, EventEnvelope,
-    Grant, JobInfo, JobState, Launch, Method, Mode, Presence, PresenceSet, PresenceSetResult,
+    AdminConfigReload, AdminConfigReloadResult, AdminProjectAdd, AdminProjectAddResult,
+    AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
+    Base64Bytes, ConversationId, Event, EventEnvelope, Grant, JobInfo, JobState, JobStopBy,
+    JobsList, JobsListResult, Launch, Method, Mode, Presence, PresenceSet, PresenceSetResult,
     PromptSendResult, PtyWrite, PtyWriteResult, SandboxStatus, TurnSettings,
 };
 use efr_stdx::time::Clock as _;
@@ -984,6 +985,69 @@ async fn escape_job_notice_text_cannot_answer_question() {
     assert_eq!(notice.matches("</job>").count(), 1, "{notice}");
     assert!(notice.contains("\ny\nyes\nallow\n&lt;/job&gt;\n&lt;job id=&quot;j9&quot;&gt;\n"));
     assert!(notice.ends_with("</job>"), "{notice}");
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn reload_with_the_gate_off_stops_the_full_job_only() {
+    let fake = Fake::new();
+    let file =
+        "[permissions]\nmode = \"auto\"\nallow_full = true\n\n[jobs]\nmax_wakes_per_hour = 0\n";
+    crate::full::write_config(&fake.dirs, file);
+    let (first, second) = (fake.fifo("first"), fake.fifo("second"));
+    let model = Recorder::new(vec![
+        job(&format!("read answer < {}", first.display())),
+        None,
+        job(&format!("read answer < {}", second.display())),
+        None,
+    ]);
+    let daemon = fake
+        .builder(model, ready())
+        .config(|config| {
+            config.permissions.allow_full = true;
+            // NOTE: no wake turn takes the scripted answers; the unit tests show that
+            // the stop at the gate wakes none.
+            config.jobs.max_wakes_per_hour = 0;
+        })
+        .start()
+        .await
+        .unwrap();
+    let (sent, events) = turn(&daemon, 1, "start it", Mode::Full, ApprovalDecision::Deny).await;
+    let [(full_job, _)] = one_job(&events);
+    assert_eq!(full_job.launch, Launch::Unsandboxed, "a full job runs in the exit child");
+    let (_, events) = auto_turn(&daemon, 2, "start the other", ApprovalDecision::Deny).await;
+    let [(auto_job, _)] = one_job(&events);
+    assert_eq!(auto_job.launch, Launch::contained());
+
+    crate::full::write_config(&fake.dirs, &file.replace("allow_full = true", "allow_full = false"));
+    let client = daemon.client().await.unwrap();
+    let reloaded: AdminConfigReloadResult =
+        client.call(Method::AdminConfigReload(AdminConfigReload {})).await.unwrap();
+    assert!(reloaded.applied, "{reloaded:?}");
+
+    let events = until(
+        &daemon,
+        sent.conversation_id,
+        |event| matches!(event, Event::JobEnded { job_id, .. } if job_id.as_str() == "j1"),
+    )
+    .await;
+    let Some(Event::JobEnded { stopped_by, state, .. }) = events.last().map(|e| e.event.clone())
+    else {
+        unreachable!()
+    };
+    assert_eq!((state, stopped_by), (JobState::Stopped, Some(JobStopBy::FullOff)));
+    let listed: JobsListResult = client
+        .call(Method::JobsList(JobsList { conversation_id: Some(sent.conversation_id) }))
+        .await
+        .unwrap();
+    // NOTE: only j2: the table lists j1 as running until its end is done, a moment
+    // after its `job_ended`.
+    let other = listed.jobs.iter().find(|job| job.id.as_str() == "j2").map(|job| job.state);
+    assert_eq!(other, Some(JobState::Running), "the job of the auto turn runs on");
+    release(&second).await;
+    let end = ended(&daemon, sent.conversation_id, "j2").await;
+    assert_eq!(end.state, JobState::Exited);
     drop(client);
     daemon.stop().await.unwrap();
 }
