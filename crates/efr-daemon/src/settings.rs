@@ -89,6 +89,7 @@ pub(crate) fn conversation_config(
     config.max_wakes_per_hour = settings.jobs.max_wakes_per_hour;
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);
     config.draft_interval = Duration::from_millis(settings.conversation.draft_interval_ms);
+    config.recent_commands = usize::try_from(settings.context.recent_commands).unwrap_or(0);
     config
 }
 
