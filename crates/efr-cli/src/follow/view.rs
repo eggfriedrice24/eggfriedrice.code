@@ -3050,7 +3050,8 @@ impl TurnView {
                 None => spinner(self.look.motion, 0),
             };
             let context = self.status.as_ref().and_then(Status::context);
-            live.push_str(&call.running(spinner, now, context, &options));
+            let full = self.status.as_ref().is_some_and(Status::full);
+            live.push_str(&call.running(spinner, now, full, context, &options));
         }
         if let Some(running) = &self.running {
             live.push_str(&call::tail(&running.lines, running.asking.is_some(), &options));
