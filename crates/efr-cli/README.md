@@ -62,7 +62,10 @@ is still in the input row when they end (`draft.rs`, below).
 
 Turn settings: `efr send` and `efr new` ask for a permission mode, a model and a
 reasoning effort with `--mode`, `--model` and `--effort`, else with `EFR_MODE`,
-`EFR_MODEL` and `EFR_EFFORT`, in which the plugin hands over the terminal's choice. A
+`EFR_MODEL` and `EFR_EFFORT`, in which the plugin hands over the terminal's choice.
+The plugin does not take `full` from an `EFR_MODE` that it inherits when it loads:
+only `,mode full` makes a terminal full. `efr send` with `EFR_MODE=full` in a script
+still asks for full mode for that prompt, and efrd checks the gate. A
 flag wins over its variable, and an empty variable counts as unset. Each value left
 out is not sent, and the daemon's config decides it when the turn starts
 (`prompt.send` `params.settings`). The CLI checks only the mode's name, before it
@@ -1054,8 +1057,10 @@ area (nextest names a test `efr-cli::it <module>::<test>`). `tests/it/binary.rs`
 codes and the environment. `tests/it/plugin.rs` sources `shell/zsh/efr.plugin.zsh` in
 `zsh -f` with a fake `efr` that records its command line from `/proc` and the
 variables it was handed, so a test can prove that no typed text reaches a command
-line; one test runs the built `efr` behind the plugin against a `TestDaemon`. The
-fake prints canned output for `efr settings` and `efr models`, so the tests cover
+line; three tests run the built `efr` behind the plugin against a `TestDaemon`: a
+prompt, and `,mode full` with the gate off (the error, and the terminal keeps its
+mode) and on (the warning on stderr once per `,mode full`, and never for a bare
+`,mode` or another setting). The fake prints canned output for `efr settings` and `efr models`, so the tests cover
 `,mode`, `,model` and `,effort` (a value is kept only when `efr settings` accepts it,
 `default` clears it, a bare one prints its line), the handover of `EFR_MODE`,
 `EFR_MODEL` and `EFR_EFFORT` to `,` and `,new` and not to `,!` or `,compact`,
@@ -1064,7 +1069,8 @@ one typed at a terminal with quotes, `$`, `*` and `!!`, which arrive as typed, a
 the typo `,compcat`, which stays on the line with a hint), a bare `,away` that runs
 `efr away` and hands nothing over (a word after it is a usage error; the typo `,aawy`
 stays on the line, and `,sway ...`, one edit from it, is a prompt), completion after
-`compinit`, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
+`compinit` (also of `full`), `EFR_MODE=full` from the environment, which the plugin
+ignores at load with one line on stderr, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
 `XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a
 temporary tree). The hand-back of the input row: `,` and `,new` name the shell's draft
 file under the runtime root, precmd puts its text on the command line once as `, `
@@ -1078,7 +1084,10 @@ typed while the replies are on their way and between them (they stay for the she
 without the replies), and no question without a terminal,
 with keys typed ahead or with `EFR_TERMINAL_BG` set. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
 tag of the terminal's settings before the robot, the bare setting words of sticky
-mode, a `,word` that names nothing as a prompt) are tested by typing into
+mode, a `,word` that names nothing as a prompt, the red `full ` tag in and out of
+sticky mode (`EFR_FULL_STYLE`), which stays on Enter only on a line of the plugin, and
+the tag of a `config.toml` that makes full mode the default, until `,mode` or a change
+of the file says otherwise) are tested by typing into
 an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty` module,
 so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and skip
 with a message unless `EFR_TEST_ZSH=1`:

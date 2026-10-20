@@ -285,6 +285,10 @@ into the GitHub release notes, and it stops when the section is missing.
   its first row, and `expires in 2 min` when it waits a fixed time. `efr history
   --verbose` shows `exit allowed by full mode`. A turn that asked for full mode and runs
   with less says `this turn runs as auto: <reason>`.
+- While a terminal's prompts run in full mode, the zsh plugin shows `full ` in red
+  before the typed text, in and out of sticky mode, also when `config.toml` makes full
+  mode the default. On Enter the tag stays only on a `,` line. `EFR_FULL_STYLE` sets
+  its style (default `fg=red`).
 
 ### Changed
 
@@ -301,6 +305,9 @@ into the GitHub release notes, and it stops when the section is missing.
   runs as root, `undo.enabled` or `snapshot.enabled` is false, or the hidden shell is
   no zsh), a turn that names no mode runs as `auto` and records why. A prompt that
   names full mode then fails with the reason.
+- The zsh plugin ignores `EFR_MODE=full` from the environment when it loads, and says
+  so on one line: use `,mode full`. Any other `EFR_MODE` still gives the terminal's
+  first mode.
 - `network.mode` is now `"proxy"` by default. Package fetches such as `cargo build`
   with a new dependency, `npm install` and `pip install` run with no review. Set
   `network.mode = "none"` to get the old behavior: no network, and a review that opens
