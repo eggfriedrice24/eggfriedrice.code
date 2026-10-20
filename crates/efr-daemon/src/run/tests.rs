@@ -710,6 +710,38 @@ mod daemon {
     }
 
     #[tokio::test]
+    async fn admin_status_reports_the_gate() {
+        use efr_protocol::{FullModeStatus, FullRefusal, Mode};
+
+        let status = async |settings: crate::Settings, root: bool| {
+            let dirs = TestDirs::new().unwrap();
+            let clock = TestClock::new();
+            let deps = deps(&dirs, &clock).with_runs_as_root(root);
+            let daemon = crate::testing::serve_with(settings, deps).await;
+            let (mut client, _) = RawClient::hello(&daemon.socket, None).await;
+            let status: AdminStatusResult =
+                client.call(Method::AdminStatus(AdminStatus::default())).await.unwrap();
+            drop(client);
+            daemon.stop().await;
+            status.full_mode
+        };
+        let mut allowed = crate::Settings::default();
+        allowed.permissions.allow_full = true;
+        let mut default_full = allowed.clone();
+        default_full.permissions.mode = Mode::Full;
+
+        let off = status(crate::Settings::default(), false).await;
+        let on = status(allowed.clone(), false).await;
+        let root = status(allowed, true).await;
+        let started = status(default_full, false).await;
+
+        assert_eq!(off, Some(FullModeStatus { allowed: false, refused: None }));
+        assert_eq!(on, Some(FullModeStatus { allowed: true, refused: None }));
+        assert_eq!(root, Some(FullModeStatus { allowed: true, refused: Some(FullRefusal::Root) }));
+        assert_eq!(started, on, "efrd starts with full as the config default");
+    }
+
+    #[tokio::test]
     async fn a_second_daemon_on_the_same_data_is_refused() {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();

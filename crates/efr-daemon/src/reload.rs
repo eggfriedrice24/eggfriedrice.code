@@ -439,6 +439,9 @@ async fn apply(state: &State, next: Settings) -> Result<Vec<String>, ConfigFileE
     }
     // NOTE: `[model] provider` needs a restart, so the check is against the running one.
     crate::providers::warn_foreign_model(&settings);
+    if running.permissions.mode != Mode::Full {
+        crate::full::warn_default(&settings, state.runs_as_root);
+    }
     if settings != *running {
         state.settings.send_replace(Arc::new(settings));
     }

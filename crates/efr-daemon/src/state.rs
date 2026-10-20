@@ -88,4 +88,6 @@ pub(crate) struct State {
     pub(crate) presence: Arc<PresenceTable>,
     /// The background jobs, which `jobs.list`, `jobs.stop` and the peer check read.
     pub(crate) jobs: JobTable,
+    /// True when efrd runs as root, read once at the start: full mode is refused then.
+    pub(crate) runs_as_root: bool,
 }

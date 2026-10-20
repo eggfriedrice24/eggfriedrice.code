@@ -162,6 +162,8 @@ struct Launch {
     buses: (Option<PathBuf>, Option<PathBuf>),
     /// The test's own `xdg-dbus-proxy`.
     bus_proxy_program: Option<PathBuf>,
+    /// Whether the daemon counts as running as root, which refuses full mode.
+    as_root: Option<bool>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -217,6 +219,7 @@ impl Default for TestDaemonBuilder {
                 proxy_hosts: None,
                 buses: (None, None),
                 bus_proxy_program: None,
+                as_root: None,
             },
         }
     }
@@ -415,6 +418,14 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Makes the daemon count as running as root when `root` is true, in place of the
+    /// test's own uid, so full mode is refused as it is for root.
+    #[must_use]
+    pub fn as_root(mut self, root: bool) -> Self {
+        self.settings.as_root = Some(root);
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -515,6 +526,9 @@ impl TestDaemon {
         }
         if let Some(program) = &settings.bus_proxy_program {
             deps = deps.with_bus_proxy_program(program.clone());
+        }
+        if let Some(root) = settings.as_root {
+            deps = deps.with_runs_as_root(root);
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());

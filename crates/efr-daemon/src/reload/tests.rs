@@ -451,6 +451,65 @@ async fn a_prompt_gets_the_reloaded_mode_unless_it_names_its_own() {
     daemon.stop().await;
 }
 
+#[tokio::test]
+async fn a_reload_of_full_as_the_default_needs_the_gate_key() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+
+    std::fs::write(config_file(&dirs), "[permissions]\nmode = \"full\"\n").unwrap();
+    let refused = reload(&daemon.socket).await;
+
+    assert!(!refused.applied);
+    let error = refused.error.unwrap();
+    assert!(error.message.contains("permissions.allow_full = true"), "{}", error.message);
+    assert_eq!(daemon.settings.borrow().permissions.mode, Mode::Cautious, "nothing changed");
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn a_reloaded_default_of_full_warns_and_falls_back_when_efrd_runs_as_root() {
+    let line = "permissions.mode is full, but full mode cannot run: efrd runs as root";
+    assert!(!logged().contains(line));
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = serve_with(Settings::default(), deps(&dirs, &clock).with_runs_as_root(true)).await;
+    let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
+    let mut context = ShellContext::new(dirs.home().to_path_buf());
+    context.tty = Some(TTY.to_owned());
+
+    let gated = "[permissions]\nallow_full = true\nmode = \"full\"\n";
+    std::fs::write(config_file(&dirs), gated).unwrap();
+    assert!(reload(&daemon.socket).await.applied);
+    let sent: PromptSendResult = terminal
+        .call(Method::PromptSend(PromptSend {
+            command_id: CommandId::from_uuid(uuid::Uuid::from_u128(1)),
+            conversation_id: None,
+            new_conversation: false,
+            text: "hi".to_owned(),
+            context: Some(context),
+            last_command: None,
+            settings: TurnSettings::default(),
+        }))
+        .await
+        .unwrap();
+
+    assert_eq!(daemon.settings.borrow().permissions.mode, Mode::Full);
+    let log = logged();
+    assert!(log.lines().any(|logged| logged.contains(line) && logged.contains("WARN")), "{log}");
+    // NOTE: the test daemon finds no sandbox launcher, so `auto` falls further, to
+    // `cautious`, and the reason names both.
+    let settings = sent.settings.unwrap();
+    let fallback = settings.fallback.unwrap();
+    assert_eq!((settings.mode, fallback.asked), (Mode::Cautious, Mode::Full));
+    assert!(
+        fallback.reason.starts_with("full mode cannot run: efrd runs as root; "),
+        "{fallback:?}"
+    );
+    drop(terminal);
+    daemon.stop().await;
+}
+
 /// A probe's status of a ready sandbox whose network view self-test gave `netview`.
 fn probed(netview: bool) -> SandboxStatus {
     SandboxStatus {

@@ -386,6 +386,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let socket = dirs.checked_socket_path().map_err(|source| DaemonError::SocketPath { source })?;
     let lock = DaemonLock::acquire(&dirs.lock_path())?;
     let settings = Arc::new(config);
+    // NOTE: read once: a command of a full turn would run as root with no question, so
+    // full mode is refused for the whole life of such an efrd (DF27).
+    let runs_as_root = seams.runs_as_root().unwrap_or_else(|| rustix::process::geteuid().is_root());
+    crate::full::warn_default(&settings, runs_as_root);
     let daemon_id = discovery::daemon_id(dirs.data(), &*clock, &*rng)?;
     tracing::info!(%daemon_id, version = env!("CARGO_PKG_VERSION"), data = %dirs.data().display(), "starting");
 
@@ -622,7 +626,8 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         host,
         time_zone.unwrap_or_else(TimeZone::system),
         models,
-    );
+    )
+    .with_root(runs_as_root);
     let drafts = draft_channel();
     // NOTE: an `a` answer saves its rule through the reload task, so the next call reads
     // the engine with the rule (phase E).
@@ -680,6 +685,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         snapshots,
         presence,
         jobs,
+        runs_as_root,
     });
     let peer_state = Arc::downgrade(&state);
     // NOTE: weak, so the probe that the seams keep never keeps the state alive.

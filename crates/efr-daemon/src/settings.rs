@@ -1,7 +1,7 @@
 //! The settings as the conversations read them: the latest value of the daemon's
 //! settings watch and the current model catalog, turned into a `ConversationConfig`
-//! each time a turn starts or a prompt arrives. Both come from memory, so a turn never
-//! waits for a fetch of the catalog.
+//! each time a turn starts or a prompt arrives, with whether full mode may run. Both
+//! come from memory, so a turn never waits for a fetch of the catalog.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,6 +23,8 @@ pub(crate) struct LiveSettings {
     host: HostInfo,
     time_zone: TimeZone,
     models: Arc<Models>,
+    /// True when efrd runs as root, which refuses full mode.
+    root: bool,
 }
 
 impl LiveSettings {
@@ -34,7 +36,13 @@ impl LiveSettings {
         time_zone: TimeZone,
         models: Arc<Models>,
     ) -> Self {
-        LiveSettings { settings, scratch_root, host, time_zone, models }
+        LiveSettings { settings, scratch_root, host, time_zone, models, root: false }
+    }
+
+    /// Says whether efrd runs as root, which refuses full mode.
+    pub(crate) fn with_root(mut self, root: bool) -> Self {
+        self.root = root;
+        self
     }
 }
 
@@ -42,13 +50,17 @@ impl ConfigSource for LiveSettings {
     fn current(&self) -> Arc<ConversationConfig> {
         // NOTE: the settings are cloned out so the watch's read lock is held only here.
         let settings = Arc::clone(&self.settings.borrow());
-        Arc::new(conversation_config(
+        let mut config = conversation_config(
             &settings,
             &self.models,
             self.scratch_root.clone(),
             self.host.clone(),
             self.time_zone.clone(),
-        ))
+        );
+        // NOTE: from the latest settings, so a reload that turns undo off refuses full
+        // mode from the next resolve and the next call on (DF16).
+        config.full_mode = crate::full::status(&settings, self.root);
+        Arc::new(config)
     }
 }
 

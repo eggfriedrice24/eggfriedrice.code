@@ -25,6 +25,7 @@
 //!   startup files and an original script that emits the marks, embedded with
 //!   `include_str!` and written to [`ShellConfig::integration_dir`], next to the
 //!   editor stub (`assets/efr-editor`) that every hidden shell gets as its editor.
+//!   [`gets_integration`] says whether a shell program gets it.
 //!
 //! Allowed dependencies: `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox` and
 //! `efr-stdx`.
@@ -61,6 +62,7 @@ mod writer;
 pub use config::{ShellConfig, ShellDeps};
 pub use error::ShellError;
 pub use input::takes_manual_answers;
+pub use integration::supports as gets_integration;
 pub use modes::{InputModes, TerminalModes, Termios};
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use run::{

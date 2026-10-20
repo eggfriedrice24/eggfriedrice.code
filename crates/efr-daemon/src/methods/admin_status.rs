@@ -35,7 +35,8 @@ pub(crate) async fn handle(
         config: Some(reload::status(state).await),
         sandbox: Some(sandbox),
         sandbox_paths: Some(state.sandbox.paths().await),
-        full_mode: None,
+        // NOTE: the same value that a turn's resolve reads.
+        full_mode: Some(crate::full::status(&settings, state.runs_as_root)),
     };
     responder.item(&result).await?;
     Ok(())
