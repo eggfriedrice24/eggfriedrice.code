@@ -172,7 +172,9 @@ into the GitHub release notes, and it stops when the section is missing.
   notice of a job that the model stopped starts no turn, because the model read the
   output when it stopped the job. A notice over the limits rides in your next prompt.
 - While a job runs in the sandbox, efr checks the git settings and hooks in its
-  projects every 5 minutes and before each sandboxed command there. When the job
+  projects every 5 minutes and before each sandboxed command there: also those of the
+  submodules at any depth, of the git dir that a `.git` file names, and of the include
+  files and the `core.hooksPath` dir that their config names. When the job
   planted a hook or a git setting that runs code, efr moves it to the quarantine and
   stops the job. After a restart, efr checks a job that the last efrd left running.
 - While efr follows a turn, the view shows a line when a job starts, such as `job j3
@@ -571,6 +573,13 @@ into the GitHub release notes, and it stops when the section is missing.
   opened, also through a link, and the git dir of a repository when the write opened a
   dir in it, such as `.git/hooks`. Before, a command that you or the reviewer allowed
   to write to a repository that is not a project could plant git hooks there.
+- The hooks and config of a git submodule (`.git/modules/<name>`, also a name with `/`
+  such as `vendor/foo`, and a submodule of a submodule) stay read-only in the sandbox,
+  as the project's own do. Before, only the first level below `.git/modules` was
+  read-only. A relative `core.hooksPath` of a submodule is now read-only in the
+  submodule's own dir. After each command, the git guard also checks these submodules,
+  the git dir that a `.git` file names, and the include files and the `core.hooksPath`
+  dir that the config of each checked repository names.
 - With `dbus.proxy = true`, the bus filter of a command runs in its own Landlock
   domain with no TCP, a seccomp filter and an fd limit: it reads only its program and
   libraries, connects only to the two real buses, and makes its sockets only in the
