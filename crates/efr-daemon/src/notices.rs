@@ -184,6 +184,7 @@ fn job_end(
             "stopped: it changed git settings (quarantined)".to_owned()
         }
         (_, Some(JobStopBy::Guard)) => "stopped: it changed git settings".to_owned(),
+        (_, Some(JobStopBy::FullOff)) => "stopped: full mode was turned off".to_owned(),
         (_, Some(_)) | (JobState::Stopped, None) => "stopped".to_owned(),
         (_, None) => match exit_code {
             Some(code) => format!("ended (exit {code})"),

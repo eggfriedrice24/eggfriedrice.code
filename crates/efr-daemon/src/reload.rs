@@ -38,6 +38,13 @@
 //! applies the keys that turn full mode off or down (the gate off, a lower default mode,
 //! undo or the snapshots off), so the user can stop a full turn while a change is held.
 //!
+//! When the settings that a reload installed refuse full mode, efrd stops every job that
+//! a call of full mode started, and only those (`JobStopBy::FullOff`, DV37). The stop
+//! comes after `install` and reads the installed settings from the watch, so it can
+//! never come first: a full call after it meets the new gate, and a full job that
+//! starts while the stop runs stops at once (`jobs.rs`, `JobTable::begin`). Such a stop
+//! starts no job notice turn; its notice waits for the next prompt.
+//!
 //! Reloads run one at a time in one task ([`serve`]), so two triggers at once never
 //! interleave their sends; a trigger asks it through [`reload`] and waits for the
 //! outcome.
@@ -496,6 +503,7 @@ async fn apply(
     let (loosens, refused) = match hold(trigger, loosening, state.full.running(), held) {
         Hold::Apply => {
             install(state, &running, settings).await?;
+            follow_full_gate(state);
             return Ok(Applied::Done(restart_needed));
         }
         Hold::Keep(loosens) => (loosens, false),
@@ -506,8 +514,36 @@ async fn apply(
     let lowered = full_lowered(&running, &settings);
     if lowered != *running {
         install(state, &running, lowered).await?;
+        follow_full_gate(state);
     }
     Ok(Applied::Held { loosens, refused })
+}
+
+/// The step after [`install`]: marks full mode off in the count of full work when the
+/// settings that run now refuse it, or allowed again, and when it is off, stops every
+/// job that a full call started (DV37).
+///
+/// NOTE: it reads the settings that `install` sent, never the ones that the reload
+/// read, so it cannot act before them. It marks full mode off before it looks at the
+/// jobs: a full job that enters the table after the look sees the mark and stops.
+pub(crate) fn follow_full_gate(state: &State) {
+    let settings = Arc::clone(&state.settings.borrow());
+    let off = full_refused(&settings, state.runs_as_root);
+    state.full.set_off(off);
+    if !off {
+        return;
+    }
+    let stopped = state.jobs.stop_full();
+    if !stopped.is_empty() {
+        tracing::info!(jobs = stopped.len(), "full mode is off; efrd stops the jobs of full calls");
+    }
+}
+
+/// True when `settings` refuse full mode in an efrd that runs as root when `root`:
+/// `permissions.allow_full` is false, or a refusal of efrd holds.
+pub(crate) fn full_refused(settings: &Settings, root: bool) -> bool {
+    let status = crate::full::status(settings, root);
+    !status.allowed || status.refused.is_some()
 }
 
 /// The running settings with each key of `next` that turns full mode off or down: the

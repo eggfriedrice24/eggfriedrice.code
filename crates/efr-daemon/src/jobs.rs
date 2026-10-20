@@ -10,7 +10,8 @@
 //! in efrd's `background` tasks, so the drain at efrd's stop still sees each job end.
 //!
 //! A job ends when its command ends, at its time limit (on efrd's clock), when the
-//! model (`job_stop`), the user (`jobs.stop`) or efrd's stop ends it. Every stop by efrd
+//! model (`job_stop`), the user (`jobs.stop`) or efrd's stop ends it, and a job that a
+//! full call started when a reload turns full mode off ([`JobTable::stop_full`]). Every stop by efrd
 //! sends SIGCONT and SIGTERM to the launcher through its pidfd, SIGKILL after
 //! [`STOP_GRACE`], and then the sweep: SIGKILL to every process of the job's session
 //! (`jobs/sweep.rs`). The table records `job_ended` with the tail, the processes that
@@ -262,6 +263,8 @@ struct Entry {
     lifeline: Option<std::io::PipeWriter>,
     /// The snapshot of the job's write roots right after its start.
     kept: Option<KeptSnapshot>,
+    /// True when a call of full mode started the job.
+    full: bool,
     /// The changes that a guard check found while the job ran (`jobs/guard.rs`).
     guard: Vec<SurfaceChange>,
     /// The job's proxy socket until the job ends; dropping it closes the socket.
@@ -484,6 +487,7 @@ impl JobTable {
             ended,
             lifeline: Some(lifeline),
             kept,
+            full: job.full,
             guard: Vec::new(),
             proxy,
             bus,
@@ -494,6 +498,11 @@ impl JobTable {
             self.inner.full.begin_job(key);
         }
         self.lock().running.insert(key, entry);
+        // NOTE: a reload that turned full mode off before the job was in the table did
+        // not find it there; it marked full mode off first, so the job stops here.
+        if job.full && self.inner.full.is_off() {
+            self.request_stop(key, JobStopBy::FullOff);
+        }
         let watching = (job.matcher.is_some() && job.wakes > 0)
             .then(|| tokio::spawn(self.clone().follow_matches(info.clone(), matches, job.wakes)));
         let task = JobTask {
@@ -661,23 +670,40 @@ impl JobTable {
         Ok(jobs.into_iter().find(|job| job.id.number() == Some(key.number)))
     }
 
+    /// Asks the running job `key` to stop with the cause `by`, unless a stop was asked
+    /// before; returns the watch of its end, or `None` when it does not run.
+    fn request_stop(&self, key: JobKey, by: JobStopBy) -> Option<watch::Receiver<Option<JobInfo>>> {
+        let table = self.lock();
+        table.running.get(&key).map(|entry| {
+            ask_stop(entry, by);
+            entry.ended.clone()
+        })
+    }
+
+    /// Asks every running job that a call of full mode started to stop with
+    /// `full_off`, and returns their keys; it does not wait for their ends. A reload
+    /// calls it after it installed settings that turn full mode off, and after it
+    /// marked full mode off for [`begin`](Self::begin) (`reload.rs`, DV37). A job of
+    /// another mode runs on.
+    pub(crate) fn stop_full(&self) -> Vec<JobKey> {
+        let table = self.lock();
+        let mut stopped: Vec<JobKey> = table
+            .running
+            .iter()
+            .filter(|(_, entry)| entry.full)
+            .map(|(key, entry)| {
+                ask_stop(entry, JobStopBy::FullOff);
+                *key
+            })
+            .collect();
+        stopped.sort_by_key(|key| (key.conversation, key.number));
+        stopped
+    }
+
     /// Stops the job `key` with the cause `by` and waits for its end. A job that ended
     /// already keeps its final state; an unknown job is `JobNotFound`.
     pub(crate) async fn stop(&self, key: JobKey, by: JobStopBy) -> Result<JobInfo, DaemonError> {
-        let ended = {
-            let table = self.lock();
-            table.running.get(&key).map(|entry| {
-                entry.stop.send_if_modified(|stop| {
-                    if stop.is_none() {
-                        *stop = Some(by);
-                        true
-                    } else {
-                        false
-                    }
-                });
-                entry.ended.clone()
-            })
-        };
+        let ended = self.request_stop(key, by);
         if let Some(mut ended) = ended
             && let Ok(done) = ended.wait_for(Option::is_some).await
             && let Some(info) = done.clone()
@@ -953,16 +979,9 @@ impl JobTask {
         let stopped_by = match requested {
             Some(by) => {
                 // NOTE: the first stop wins: a stop and the limit at once keep the stop.
-                self.table.lock().running.get(&self.key).map(|entry| {
-                    entry.stop.send_if_modified(|stop| {
-                        if stop.is_none() {
-                            *stop = Some(by);
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                });
+                if let Some(entry) = self.table.lock().running.get(&self.key) {
+                    ask_stop(entry, by);
+                }
                 let by = (*self.stop.borrow()).unwrap_or(by);
                 self.escalate(&clock).await;
                 Some(by)
@@ -1113,8 +1132,11 @@ impl JobTask {
                 let text = notice_text_refused(&final_info, &shown, body, refused.as_deref());
                 // NOTE: the model that stopped a job read its output in the tool result:
                 // the notice rides in the next turn and uses none of the hour's wake
-                // turns. Every other end wakes the model, also a stop by the user.
-                let wakes = !matches!(ended.stopped_by, Some(JobStopBy::Model));
+                // turns. So does the notice of a job that efrd stopped because full mode
+                // went off: a wake turn would run with the mode that the user just took
+                // away. Every other end wakes the model, also a stop by the user.
+                let wakes =
+                    !matches!(ended.stopped_by, Some(JobStopBy::Model | JobStopBy::FullOff));
                 let input =
                     JobNoticeInput::new(final_info.clone(), NoticeKind::Exited, seq, text, wakes);
                 table.notify(self.key.conversation, input);
@@ -1172,6 +1194,18 @@ pub(crate) async fn restart_notices(
     if written.is_err() {
         tracing::warn!("writing the notices of jobs that efrd ended panicked");
     }
+}
+
+/// Asks the job of `entry` to stop with `by`; the first cause that was asked wins.
+fn ask_stop(entry: &Entry, by: JobStopBy) {
+    entry.stop.send_if_modified(|stop| {
+        if stop.is_none() {
+            *stop = Some(by);
+            true
+        } else {
+            false
+        }
+    });
 }
 
 /// The notes of a job's end for the model: the network proxy's, then the bus

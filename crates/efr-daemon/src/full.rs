@@ -10,7 +10,9 @@
 //! [`FullTurns`] counts the full work that runs: a full turn from its first full call
 //! to its end, and a job that a full call started until the job ends. While it runs, a
 //! reload holds a change of `config.toml` that loosens permissions (`reload.rs`, the
-//! config hold): a command of a full turn can write the file.
+//! config hold): a command of a full turn can write the file. It also keeps whether the
+//! last reload turned full mode off ([`FullTurns::set_off`]): efrd then stops the jobs
+//! of full calls (DV37), and a full job that starts after that stops at once.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -32,6 +34,9 @@ pub(crate) struct FullTurns {
 struct Work {
     turns: HashSet<TurnId>,
     jobs: HashSet<JobKey>,
+    /// True after a reload installed settings that refuse full mode, until one allows it
+    /// again.
+    off: bool,
 }
 
 impl FullTurns {
@@ -53,6 +58,16 @@ impl FullTurns {
     /// The job `job` ended.
     pub(crate) fn end_job(&self, job: JobKey) {
         self.lock().jobs.remove(&job);
+    }
+
+    /// Marks full mode as turned off by a reload (`off`), or as allowed again.
+    pub(crate) fn set_off(&self, off: bool) {
+        self.lock().off = off;
+    }
+
+    /// True after a reload turned full mode off, until one allows it again.
+    pub(crate) fn is_off(&self) -> bool {
+        self.lock().off
     }
 
     /// True while a full turn or a job of one runs.

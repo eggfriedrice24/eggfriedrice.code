@@ -570,6 +570,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // NOTE: the full work that runs, which the toolbox and the job table count and a
     // reload reads (the config hold).
     let full = FullTurns::default();
+    full.set_off(reload::full_refused(&settings, runs_as_root));
     let (jobs, job_notices) = JobTable::new(JobParts {
         clock: Arc::clone(&clock),
         writer: writer.clone(),

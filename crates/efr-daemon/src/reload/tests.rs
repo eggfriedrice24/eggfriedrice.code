@@ -1152,3 +1152,34 @@ async fn restart_keeps_the_gate_off_that_applied_while_held() {
     );
     daemon.stop().await;
 }
+
+#[tokio::test]
+async fn reload_steps_install_before_full_off() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    let gated = "[permissions]\nallow_full = true\n";
+    std::fs::write(config_file(&dirs), gated).unwrap();
+    assert!(reloads.request("file").await.unwrap().applied);
+    assert!(!full.is_off(), "full mode is allowed");
+
+    // The gate goes off: the step after install reads the installed settings.
+    std::fs::write(config_file(&dirs), "[permissions]\nallow_full = false\n").unwrap();
+    assert!(reloads.request("file").await.unwrap().applied);
+    assert!(!daemon.settings.borrow().permissions.allow_full);
+    assert!(full.is_off(), "full mode is off once the new gate is installed");
+    assert!(super::full_refused(&daemon.settings.borrow(), false));
+
+    // Allowed again, then undo off while a full turn runs and a loosening rule waits:
+    // the hold keeps the rule, but installs undo off, and full mode goes off after it.
+    std::fs::write(config_file(&dirs), gated).unwrap();
+    assert!(reloads.request("file").await.unwrap().applied);
+    assert!(!full.is_off());
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), format!("{gated}\n{ALLOW_RULE}\n[undo]\nenabled = false\n"))
+        .unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied, "the rule is held");
+    assert!(!daemon.settings.borrow().undo.enabled, "undo off is installed");
+    assert!(full.is_off(), "and full mode goes off after it");
+    daemon.stop().await;
+}

@@ -656,3 +656,59 @@ async fn restart_writes_a_notice_for_each_ended_job() {
         std::fs::read_dir(&dir).unwrap().flatten().map(|entry| entry.file_name()).collect();
     assert_eq!(files, ["pts-5"], "the conversation without a terminal gets none");
 }
+
+impl Scene {
+    /// Starts job `number` as a call of full mode starts it.
+    async fn start_full(&self, number: u32) -> JobInfo {
+        let mut job = self.new_job(number);
+        job.full = true;
+        job.contained = false;
+        job.info.launch = Launch::Unsandboxed;
+        let mut spawned = self.table.spawn(&job).unwrap();
+        self.table.start(&mut spawned, &job).await.unwrap();
+        self.table.begin(spawned, job, None).await.unwrap()
+    }
+}
+
+#[tokio::test]
+async fn gate_off_stops_full_jobs_only() {
+    let scene = Scene::new().await;
+    scene.start_full(1).await;
+    scene.start(2).await;
+    scene.start_full(3).await;
+
+    let stopped = scene.table.stop_full();
+
+    assert_eq!(stopped, [scene.key(1), scene.key(3)]);
+    for number in [1, 3] {
+        let Event::JobEnded { state, stopped_by, .. } = scene.ended(number).await else {
+            unreachable!()
+        };
+        assert_eq!((state, stopped_by), (JobState::Stopped, Some(JobStopBy::FullOff)));
+        let notice = scene.notice().await;
+        assert_eq!(notice.input.job.stopped_by, Some(JobStopBy::FullOff));
+        assert!(!notice.input.wakes, "the end of a full job at the gate wakes no turn");
+    }
+    assert!(scene.table.live(scene.key(2)).is_some(), "a job of another mode runs on");
+    Wait::new("the end of the full work").until(|| !scene.full.running()).await.unwrap();
+    scene.table.drop_lifeline(scene.key(2));
+    scene.ended(2).await;
+}
+
+#[tokio::test]
+async fn full_job_that_starts_after_the_gate_went_off_stops_at_once() {
+    let scene = Scene::new().await;
+    // NOTE: the reload marks full mode off before it looks at the table; a full job
+    // that enters the table after that look must stop on its own.
+    scene.full.set_off(true);
+    assert_eq!(scene.table.stop_full(), []);
+
+    scene.start_full(1).await;
+    scene.start(2).await;
+
+    let Event::JobEnded { stopped_by, .. } = scene.ended(1).await else { unreachable!() };
+    assert_eq!(stopped_by, Some(JobStopBy::FullOff));
+    assert!(scene.table.live(scene.key(2)).is_some(), "a job of another mode starts");
+    scene.table.drop_lifeline(scene.key(2));
+    scene.ended(2).await;
+}
