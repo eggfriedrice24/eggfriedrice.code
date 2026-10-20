@@ -30,7 +30,8 @@
 //! - Full mode: [`Engine::decide`] decides a full call as an `auto` call with
 //!   [`AutoSupport::for_full`], then lets it run with no sandbox and no question where
 //!   only the sandbox or a built-in row held it; floors, privilege, persistence, a
-//!   delete that undo does not cover and the user's rules still hold.
+//!   delete that undo does not cover, the user's rules and the deletes that full mode
+//!   guards ([`exits::critical_deletes`], [`CriticalDelete`]) still hold.
 //! - Background jobs (phase C): [`job_refusal`] names the exits that no job may hold,
 //!   in every mode; outside `auto` a job asks the user before it starts.
 //! - The network proxy (phase D2): [`network`] holds the [`Preset`]s and the

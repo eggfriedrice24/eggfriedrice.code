@@ -403,6 +403,147 @@ fn full_and_always_share_the_floor_pieces() {
     }
 }
 
+/// The deletes of `decision` that full mode guards, each as the user reads it.
+fn guarded(decision: &Decision) -> Vec<String> {
+    decision.critical().map(|delete| delete.describe("/home/u".as_ref())).collect()
+}
+
+#[rstest]
+#[case::home("rm -rf ~", "~ (your home directory)")]
+#[case::home_slash("rm -rf ~/", "~ (your home directory)")]
+#[case::home_variable("rm -rf $HOME", "~ (your home directory)")]
+#[case::home_braces("rm -rf \"${HOME}\"", "~ (your home directory)")]
+#[case::root("rm -rf /", "/ (the root directory)")]
+#[case::etc("rm -rf /etc", "/etc (a system directory)")]
+#[case::usr_lib("rm -rf /usr/lib", "/usr/lib (a system directory)")]
+#[case::dot_config("rm -rf ~/.config", "~/.config (it holds efr's config or files)")]
+#[case::projects("rm -rf ~/p", "~/p (it holds more than one project)")]
+#[case::project_root("rm -rf ~/p/app", "~/p/app (a project)")]
+#[case::unreadable("rm -rf \"$X\"/*", "\"$X\"/* (efr cannot read the target)")]
+#[case::substitution("rm -rf $(cat l)", "$(cat l) (efr cannot read the target)")]
+#[case::everything_here("rm -rf *", "* (efr cannot read the target)")]
+#[case::find("find ~ -delete", "~ (your home directory)")]
+#[case::chmod("chmod -R 777 ~", "~ (your home directory)")]
+#[case::move_away("mv ~ /tmp/x", "~ (your home directory)")]
+#[case::git_clean("git -C ~ clean -fdx", "~ (your home directory)")]
+#[case::bash_c("bash -c 'rm -rf ~'", "~ (your home directory)")]
+#[case::wrapper("nice rm -rf ~", "~ (your home directory)")]
+fn full_asks_critical_deletes(#[case] line: &str, #[case] shown: &str) {
+    // T5: a sample of the guard's table (`exits/critical/tests.rs`) through `decide`.
+    for engine in [engine(), undo_engine()] {
+        let decision = engine.decide(&in_full(shell(line)));
+        assert_eq!(decision.effect(), Effect::Ask, "{line:?}: {:?}", reasons(&decision));
+        assert!(
+            guarded(&decision).contains(&shown.to_owned()),
+            "{line:?}: {:?}",
+            guarded(&decision)
+        );
+        assert!(asks_only_for_what_full_keeps(&decision), "{line:?}: {:?}", reasons(&decision));
+        let reason = decision
+            .reasons()
+            .iter()
+            .find(|reason| matches!(reason.subject, Subject::CriticalDelete { .. }))
+            .unwrap();
+        assert_eq!((reason.effect, &reason.cause), (Effect::Ask, &Cause::CriticalDelete));
+    }
+}
+
+#[rstest]
+#[case::build("rm -rf build")]
+#[case::home_child("rm -rf ~/x")]
+#[case::cache_child("rm -rf ~/.cache/pip")]
+#[case::glob_with_prefix("rm -rf build/*")]
+#[case::plain_glob("rm *.o")]
+#[case::copy_into_home("cp notes.txt ~")]
+#[case::git_clean_in_the_project("git clean -fdx")]
+fn full_runs_deletes_that_it_does_not_guard(#[case] line: &str) {
+    let decision = undo_engine().decide(&in_full(shell(line)));
+    assert_eq!(guarded(&decision), Vec::<String>::new(), "{line:?}");
+    assert!(
+        !decision.reasons().iter().any(|reason| reason.cause == Cause::CriticalDelete),
+        "{line:?}"
+    );
+}
+
+#[rstest]
+#[case::and("false && rm -rf ~")]
+#[case::if_false("if false; then rm -rf /; fi")]
+#[case::or("true || rm -rf ~")]
+fn full_guard_sees_a_dead_branch_delete(#[case] line: &str) {
+    // T6: the guard reads the line, not what runs, so the smoke and the live tests may
+    // use a dead branch.
+    let decision = decide(shell(line));
+    assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
+    assert_eq!(decision.critical().count(), 1, "{line:?}");
+}
+
+#[test]
+fn full_critical_delete_ignores_allow_rule() {
+    // DF3: no rule is read for a guarded delete; a rule that allows everything leaves
+    // the question.
+    for rules in [
+        vec![rule(Action::Any, Resource::Any, Effect::Allow)],
+        vec![rule(Action::Execute, command("rm"), Effect::Allow)],
+    ] {
+        let engine = with_rules(rules);
+        let decision = engine.decide(&in_full(shell("rm -rf ~").with_write("/home/u")));
+        assert_eq!(decision.effect(), Effect::Ask);
+        assert_eq!(decision.critical().count(), 1);
+    }
+    let mut input = in_full(shell("rm -rf ~"));
+    let allow = rule(Action::Any, Resource::Any, Effect::Allow);
+    input.conversation_policy =
+        ConversationPolicy::new(SCRATCH).with_rules(Policy::new(vec![allow]).unwrap());
+    assert_eq!(engine().decide(&input).effect(), Effect::Ask);
+}
+
+#[test]
+fn full_user_deny_rule_beats_guard() {
+    let engine = with_rules(vec![rule(Action::Execute, command("rm"), Effect::Deny)]);
+    let decision = engine.decide(&in_full(shell("rm -rf ~")));
+    assert_eq!(decision.effect(), Effect::Deny);
+    assert_eq!(decision.critical().count(), 1);
+}
+
+#[test]
+fn full_sudo_rm_rf_root_is_one_question() {
+    // DF6, S9: one call, one question with both reasons; a yes runs the whole line.
+    let decision = decide(shell("sudo rm -rf /"));
+    assert_eq!(decision.effect(), Effect::Ask);
+    let causes: Vec<&Cause> = decision.deciding().map(|reason| &reason.cause).collect();
+    assert!(causes.contains(&&Cause::CriticalDelete), "{causes:?}");
+    assert!(
+        causes.iter().any(|cause| matches!(
+            cause,
+            Cause::Privileged { .. } | Cause::Exit { kind: ExitKind::Privilege }
+        )),
+        "{causes:?}"
+    );
+    assert_eq!(guarded(&decision), ["/ (the root directory)"]);
+}
+
+#[rstest]
+#[case::data("/home/u/.local/share/efr")]
+#[case::state("/home/u/.local/state/efr")]
+#[case::config("/home/u/.config/efr")]
+fn full_efr_dir_delete_is_denied_not_asked(#[case] path: &str) {
+    // A delete that is also a floor stays a denial: the deny reason is stricter than the
+    // guard's question.
+    let decision = decide(shell(&format!("rm -rf {path}")).with_write(path));
+    assert_eq!(decision.effect(), Effect::Deny, "{path}: {:?}", reasons(&decision));
+    assert_eq!(decision.critical().count(), 1, "{path}");
+}
+
+#[test]
+fn auto_never_reads_the_guard() {
+    // Only full mode guards a delete: `auto` decides as it did before.
+    let input =
+        DecisionInput { mode: Mode::Auto, ..in_full(shell("rm -rf ~").with_write("/home/u")) };
+    let decision = engine().decide(&input);
+    assert_eq!(decision.critical().count(), 0);
+    assert!(!decision.reasons().iter().any(|reason| reason.cause == Cause::Full));
+}
+
 /// The support fields that the probe of the `auto` sandbox sets.
 fn probe_support(support: AutoSupport) -> AutoSupport {
     AutoSupport {
