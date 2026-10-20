@@ -19,11 +19,29 @@ pub(super) const OPAQUE: char = '\u{1}';
 pub(super) struct Segment {
     /// The words, quotes removed, assignments and redirections included as written.
     pub(super) words: Vec<String>,
+    /// Each word of [`words`](Self::words) as the line wrote it, with its quotes and
+    /// expansions, such as `"$X"/*`.
+    pub(super) raw: Vec<String>,
     /// The targets of its output redirections, in order.
     pub(super) redirects: Vec<Redirect>,
     /// True when a `cd`, `pushd` or `popd` comes before it in the line, so where it
     /// runs is unknown.
     pub(super) after_cd: bool,
+    /// The targets of the `cd` and `pushd` commands before it in the line, in order,
+    /// when each one names one literal directory (`cd` alone names `~`); `None` when
+    /// one of them goes where efr cannot read, such as `popd`, `cd -` or `cd "$X"`.
+    /// Empty when no such command comes before it. Only the guard of full mode reads
+    /// it (`critical.rs`); [`after_cd`](Self::after_cd) stays what the exits read.
+    pub(super) cds: Option<Vec<CdTarget>>,
+}
+
+/// The target of a `cd` or `pushd`, as [`Segment::words`] and [`Segment::raw`] hold it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CdTarget {
+    /// The word, quotes removed.
+    pub(super) word: String,
+    /// The word as the line wrote it.
+    pub(super) raw: String,
 }
 
 /// The target of an output redirection.
@@ -42,14 +60,53 @@ pub(super) fn scan(line: &str) -> Vec<Segment> {
     let mut out = Vec::new();
     scan_into(&chars, &mut out);
     let mut after_cd = false;
+    let mut cds: Option<Vec<CdTarget>> = Some(Vec::new());
     for segment in &mut out {
         segment.after_cd = after_cd;
-        let program = segment.words.iter().find(|word| !is_assignment(word));
-        if program.is_some_and(|program| matches!(program.as_str(), "cd" | "pushd" | "popd")) {
+        segment.cds.clone_from(&cds);
+        let Some(at) = segment.words.iter().position(|word| !is_assignment(word)) else {
+            continue;
+        };
+        let program = segment.words[at].as_str();
+        if matches!(program, "cd" | "pushd" | "popd") {
             after_cd = true;
+            let target = if program == "popd" { None } else { cd_target(segment, at + 1) };
+            cds = cds.zip(target).map(|(mut list, target)| {
+                list.push(target);
+                list
+            });
         }
     }
     out
+}
+
+/// The one literal directory that a `cd` or `pushd` whose operands start at `from`
+/// goes to: its operand past the options, or `~` with no operand. `None` for `cd -`,
+/// a stack entry such as `+1`, two operands (the replace form of zsh) and a word with
+/// a pattern; a word with an expansion keeps it, and the reader decides.
+fn cd_target(segment: &Segment, from: usize) -> Option<CdTarget> {
+    let words = segment.words.get(from..).unwrap_or_default();
+    let operands: Vec<usize> = words
+        .iter()
+        .enumerate()
+        .filter(|(_, word)| !(word.starts_with('-') && word.len() > 1))
+        .map(|(at, _)| from + at)
+        .collect();
+    match operands.as_slice() {
+        [] => Some(CdTarget { word: "~".to_owned(), raw: "~".to_owned() }),
+        [at] => {
+            let word = &segment.words[*at];
+            let plain = !word.is_empty()
+                && word != "-"
+                && !word.starts_with('+')
+                && !word.contains(['*', '?', '[']);
+            plain.then(|| CdTarget {
+                word: word.clone(),
+                raw: segment.raw.get(*at).cloned().unwrap_or_else(|| word.clone()),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// True when `word` is `NAME=value` or `NAME+=value`.
@@ -78,8 +135,12 @@ enum Pending {
 #[derive(Debug, Default)]
 struct Building {
     words: Vec<String>,
+    /// The words of [`words`](Self::words) as the line wrote them.
+    raw: Vec<String>,
     redirects: Vec<Redirect>,
     word: String,
+    /// Where the word being read starts in the line.
+    start: usize,
     /// True when the word being read has a quote, so an empty word still counts.
     quoted: bool,
     pending: Option<Pending>,
@@ -92,7 +153,8 @@ impl Building {
         !self.word.is_empty() || self.quoted
     }
 
-    fn end_word(&mut self) {
+    /// Ends the word being read, which ends before `end` in `chars`.
+    fn end_word(&mut self, chars: &[char], end: usize) {
         if !self.in_word() {
             return;
         }
@@ -107,20 +169,27 @@ impl Building {
                 self.here_documents.push((word, strip_tabs));
             }
             None if self.words.is_empty() && matches!(word.as_str(), "{" | "}") => {}
-            None => self.words.push(word),
+            None => {
+                let raw = chars.get(self.start..end.min(chars.len())).unwrap_or_default();
+                self.raw.push(raw.iter().collect());
+                self.words.push(word);
+            }
         }
     }
 
-    fn end_segment(&mut self, out: &mut Vec<Segment>) {
-        self.end_word();
+    /// Ends the simple command being read, which ends before `end` in `chars`.
+    fn end_segment(&mut self, chars: &[char], end: usize, out: &mut Vec<Segment>) {
+        self.end_word(chars, end);
         self.pending = None;
         if self.words.is_empty() && self.redirects.is_empty() {
             return;
         }
         out.push(Segment {
             words: std::mem::take(&mut self.words),
+            raw: std::mem::take(&mut self.raw),
             redirects: std::mem::take(&mut self.redirects),
             after_cd: false,
+            cds: None,
         });
     }
 }
@@ -130,23 +199,26 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
     let mut at = 0;
     while let Some(&c) = chars.get(at) {
         let next = chars.get(at + 1).copied();
+        if !building.in_word() {
+            building.start = at;
+        }
         match c {
             ' ' | '\t' => {
-                building.end_word();
+                building.end_word(chars, at);
                 at += 1;
             }
             '\n' => {
-                building.end_segment(out);
+                building.end_segment(chars, at, out);
                 at += 1;
                 let bodies = std::mem::take(&mut building.here_documents);
                 at = skip_here_documents(chars, at, &bodies);
             }
             ';' | '|' | '(' | ')' => {
-                building.end_segment(out);
+                building.end_segment(chars, at, out);
                 at += 1;
             }
             '&' if next == Some('>') => {
-                building.end_word();
+                building.end_word(chars, at);
                 at += 2;
                 let append = chars.get(at) == Some(&'>');
                 if append {
@@ -158,7 +230,7 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
                 building.pending = Some(Pending::Output { append });
             }
             '&' => {
-                building.end_segment(out);
+                building.end_segment(chars, at, out);
                 at += 1;
             }
             '<' | '>' if next == Some('(') && !building.in_word() => {
@@ -169,7 +241,7 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
                     // NOTE: digits right before the operator name a descriptor.
                     building.word.clear();
                 } else {
-                    building.end_word();
+                    building.end_word(chars, at);
                 }
                 at = redirection(chars, at, &mut building);
             }
@@ -214,7 +286,7 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
             }
         }
     }
-    building.end_segment(out);
+    building.end_segment(chars, chars.len(), out);
 }
 
 /// A redirection operator at `at`, which is `<` or `>`; returns where it ends.
