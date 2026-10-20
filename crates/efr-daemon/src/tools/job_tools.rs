@@ -412,6 +412,13 @@ impl DaemonToolbox {
         let new =
             NewJob { wakes: new.info.watch.as_ref().map_or(0, |watch| watch.max_wakes), ..new };
         let notes = prepared.notes.clone();
+        // NOTE: before the launch moves the proxy into the job's entry: the turn's trace
+        // names the network of a turn that only starts a job (v0.0.4, DV21).
+        let summary = prepared.contained.then(|| SandboxSummary {
+            confined: true,
+            proxied: prepared.proxy.is_some(),
+            ..SandboxSummary::default()
+        });
         let launch = JobLaunch {
             jobs: jobs.clone(),
             snapshots: self.snapshots.clone(),
@@ -449,7 +456,7 @@ impl DaemonToolbox {
         if !notes.is_empty() {
             text = format!("{text}\n{}", notes.join("\n"));
         }
-        let mut outcome = ToolOutcome::ok(text).with_job(info);
+        let mut outcome = ToolOutcome::ok(text).with_job(info).with_sandbox(summary);
         outcome.changes = changes;
         outcome
     }

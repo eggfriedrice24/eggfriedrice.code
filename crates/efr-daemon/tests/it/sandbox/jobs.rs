@@ -26,7 +26,7 @@ use efr_protocol::{
     AdminStatus, AdminStatusResult, ApprovalDecision, ApprovalRespond, ApprovalRespondResult,
     Base64Bytes, ConversationId, Event, EventEnvelope, Grant, JobInfo, JobState, JobStopBy,
     JobsList, JobsListResult, Launch, Method, Mode, Presence, PresenceSet, PresenceSetResult,
-    PromptSendResult, PtyWrite, PtyWriteResult, SandboxStatus, TurnSettings,
+    PromptSendResult, PtyWrite, PtyWriteResult, SandboxStatus, SandboxSummary, TurnSettings,
 };
 use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
@@ -477,6 +477,36 @@ async fn shell_outside_job_runs_in_exit_child_job() {
     let end = ended(&daemon, sent.conversation_id, "j1").await;
     assert_eq!((end.state, end.exit_code, end.tail.as_str()), (JobState::Exited, Some(0), "done"));
     assert_eq!(std::fs::read_to_string(outside.join("x.txt")).unwrap(), "written\n");
+    daemon.stop().await.unwrap();
+}
+
+/// The outcome of a contained job's start says that it runs in the sandbox, and with no
+/// network here (`network.mode = "none"`), so the turn's trace says `no network`. The
+/// outcome of an exit child job's start has no summary (v0.0.4, DV21).
+#[tokio::test]
+async fn shell_job_start_outcome_not_proxied_without_network() {
+    let test = "shell_job_start_outcome_not_proxied_without_network";
+    let dirs = target_dirs();
+    let outside = dirs.create_dir("home/outside").unwrap();
+    let model = Recorder::new(vec![job("true"), outside_job("echo x > ~/outside/x.txt"), None]);
+    let Some(daemon) = real_daemon(test, &dirs, Arc::clone(&model), &[]).await else { return };
+    let (sent, events) =
+        auto_turn(&daemon, 1, "run true, then write x to ~/outside/x.txt", ApprovalDecision::Deny)
+            .await;
+    let summaries: Vec<Option<SandboxSummary>> = events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            Event::ToolCallCompleted { sandbox, .. } => Some(sandbox.clone()),
+            _ => None,
+        })
+        .collect();
+    let contained = SandboxSummary { confined: true, ..SandboxSummary::default() };
+    assert_eq!(summaries, [Some(contained), None], "{:?}", outputs(&events));
+    for id in ["j1", "j2"] {
+        let end = ended(&daemon, sent.conversation_id, id).await;
+        assert_eq!(end.state, JobState::Exited, "{id}: {}", end.tail);
+    }
+    assert_eq!(std::fs::read_to_string(outside.join("x.txt")).unwrap(), "x\n");
     daemon.stop().await.unwrap();
 }
 
