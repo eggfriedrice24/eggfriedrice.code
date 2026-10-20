@@ -1,0 +1,11 @@
+---
+source: crates/efr-cli/src/follow/view/tests/full.rs
+expression: err
+---
+full mode: no sandbox, no questions; efr undo reverts the project and the files efr saw
+
+? allow this call
+│ full mode still asks for this: delete of ~ (your home directory)
+│ $ rm -rf ~
+│ expires in 2 min
+│ y allow · n deny

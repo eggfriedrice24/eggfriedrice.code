@@ -1145,6 +1145,47 @@ fn history_shows_judge_always_with_the_rule() {
     );
 }
 
+#[test]
+fn history_verbose_shows_exit_allowed_by_full_mode() {
+    let write = efr_protocol::Grant::Write { path: PathBuf::from("/home/user/notes.txt") };
+    let events = vec![
+        Event::ExitRequested {
+            turn_id: turn(),
+            call_id: call(),
+            kinds: vec![ExitKind::Write],
+            grants: vec![write],
+            source: ExitSource::Predicted,
+            record: Box::new(exit_record("echo x > ~/notes.txt", ExitFacts::default())),
+        },
+        Event::ExitJudged {
+            turn_id: turn(),
+            call_id: call(),
+            judge: JudgeKind::Full,
+            verdict: Verdict::Allow,
+            model: None,
+            latency_ms: None,
+            risk: None,
+            user_authorization: None,
+            category: None,
+            rationale: None,
+            record_sha256: None,
+            cached: false,
+            chain_step: None,
+            skipped: Vec::new(),
+        },
+    ];
+    let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
+    let page = ConversationHistoryResult { events, next_cursor: None };
+    let options = RenderOptions::new(80).with_terminal(false);
+    let home = Some(Path::new("/home/user"));
+    let verbose =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    assert!(verbose.contains("exit allowed by full mode\n"), "{verbose}");
+    let plain =
+        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    assert!(!plain.contains("exit allowed"), "{plain}");
+}
+
 /// A turn of `auto` in phase B: efr copies a floor file into its home store, takes a
 /// snapshot before and after, and a later `efr undo` takes the turn back.
 fn undo_events() -> Vec<EventEnvelope> {
