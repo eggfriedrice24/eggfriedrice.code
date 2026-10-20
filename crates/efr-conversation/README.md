@@ -207,7 +207,8 @@ turns.
   records `approval_expired` with `away`, and `exit_judged` (judge `presence_expired`)
   for an exit, and the model reads "Nobody could approve this now; it did not run.
   Continue without it, and name it in your final answer." The turn goes on. An answer
-  always wins during the wait. A phone never answers a privilege exit, nor the
+  always wins during the wait. A phone never answers a privilege exit, a delete that
+  full mode guards, nor the
   question of a line that runs a program as another user, such as `sudo`, in any mode
   (`efr_permissions::runs_as_another_user`; `RemotePrivilegeAnswer`), because the
   password needs the terminal.
@@ -225,6 +226,27 @@ turns.
   "full mode cannot run: <refusal>". A prompt or a late steer that queued in full
   mode meets the gate again when its turn starts. What efr records covers only what
   the line shows: a script or a program that the line starts is not read.
+- Questions of full mode. Full mode still asks before `sudo` and the other ways to
+  more rights, a process that outlives the turn (`persistence`), a delete that undo
+  cannot revert, a change of efr's settings, a user's `ask` rule, and a delete that
+  full mode guards (`Decision::critical`). Nobody but the user answers: no reviewer, no
+  always-allow rule, no `a` offer. The summary's first line names what full mode still
+  asks for (`approvals::full_line`, "full mode still asks for this: delete of ~ (your
+  home directory)"); a question about more rights adds "a yes runs every command of
+  this line". Only the user's own machine answers a guarded delete or a privilege
+  question (`RemotePrivilegeAnswer`, "only the user's own machine answers a privilege
+  exit, a delete that full mode guards, or a background job"); a phone may answer the
+  others. A guarded delete waits at most 120 seconds (`exit::CRITICAL_WAIT`, or the
+  approval timeout or the away wait when shorter; `ApprovalRequested::expires_in_secs`
+  says so), and not at all when nobody is there when it parks. Then the delete does not
+  run, `approval_expired` is recorded, and the model reads "efr did not run this delete
+  of <target>: the user did not answer in 120 seconds. Do not try it another way.
+  Delete narrower paths that you can name, or ask the user to run it." After three such
+  expiries in a turn (`TurnExits::critical_expired`; an answer does not reset it), each
+  later guarded delete is refused with no question ("efr refuses deletes of <target>
+  for the rest of this turn. ..."), and each such refusal counts toward the three
+  refusals in a row that stop the turn. A question of full mode with exits that
+  expires records `exit_judged` with the judge `full` and the category `expired`.
 - Background jobs at the check point (phase C). A `shell` call with `background: true`
   goes through the engine like any call. In `auto` a job with no exit starts at once,
   with no question and no classifier call; an exit goes to the classifier or the user

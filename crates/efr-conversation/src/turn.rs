@@ -1275,6 +1275,13 @@ impl Turn {
                     message: problem.clone(),
                     refusal: Some(approvals::brief(problem)),
                 },
+                // NOTE: after three expired questions about guarded deletes, the turn
+                // asks no more: the model cannot park it on questions nobody reads.
+                None if self.exits.critical_closed()
+                    && ruling.decision.critical().next().is_some() =>
+                {
+                    self.refuse_critical(&ruling)
+                }
                 None => self.ask(call, &ruling).await?,
             },
         };
@@ -1412,7 +1419,11 @@ impl Turn {
                 return Ok(stopped);
             }
             let home = ruling.engine.locations().home();
-            let approver = ruling.approver.unwrap_or(Approver::User);
+            // NOTE: full mode has no reviewer: only the user answers what it asks.
+            let approver = match ruling.approver {
+                Some(approver) if !call.context.is_full() => approver,
+                _ => Approver::User,
+            };
             let mut info =
                 exit::info(decision, &ruling.requirements, &ruling.launch, home, approver);
             info.judged = judgement;
@@ -1421,6 +1432,29 @@ impl Turn {
         };
         let mut summary =
             ruling.summary.clone().unwrap_or_else(|| approvals::summary(&call.name, decision));
+        let home = ruling.engine.locations().home();
+        // NOTE: a privilege exit, and a program such as sudo that runs as another user in
+        // any mode, needs the password at the terminal, so a phone never answers it
+        // (efr's auto spec, section 9.5). Nor does it answer a job's question: its "yes"
+        // is not one-shot, it lasts while nobody watches the job. Nor a delete that full
+        // mode guards: only the user's own machine approves it.
+        let privileged = decision
+            .reasons()
+            .iter()
+            .any(|reason| matches!(reason.cause, Cause::Privileged { .. }))
+            || ruling.requirements.command.as_deref().is_some_and(runs_as_another_user)
+            || kinds.contains(&ExitKind::Privilege);
+        let critical: Vec<String> =
+            decision.critical().map(|delete| delete.describe(home)).collect();
+        let local_only = privileged || !critical.is_empty() || ruling.requirements.background;
+        // NOTE: the floor that full mode still holds comes first, so the user reads why
+        // a mode with no questions asks.
+        if call.context.is_full()
+            && let Some(line) = approvals::full_line(decision, home, privileged)
+        {
+            summary.insert(0, '\n');
+            summary.insert_str(0, &line);
+        }
         // NOTE: a present user sees that a notice, not the user, led to the question.
         if self.spec.is_wake() {
             summary.insert_str(0, WAKE_QUESTION);
@@ -1432,17 +1466,15 @@ impl Turn {
             summary.push_str(&crate::job_lifetime_fact(minutes));
         }
         let diff_preview = self.shared.deps.toolbox.preview(call).await;
-        // NOTE: a privilege exit, and a program such as sudo that runs as another user in
-        // any mode, needs the password at the terminal, so a phone never answers it
-        // (efr's auto spec, section 9.5). Nor does it answer a job's question: its "yes"
-        // is not one-shot, it lasts while nobody watches the job.
-        let privileged = decision
-            .reasons()
-            .iter()
-            .any(|reason| matches!(reason.cause, Cause::Privileged { .. }))
-            || ruling.requirements.command.as_deref().is_some_and(runs_as_another_user);
-        let local_only =
-            kinds.contains(&ExitKind::Privilege) || privileged || ruling.requirements.background;
+        // NOTE: read at each call, not at turn start, so a reload reaches the next
+        // approval of a running turn. An answer wins during the whole wait.
+        let config = self.shared.config.current();
+        // NOTE: a question about a guarded delete waits at most `CRITICAL_WAIT`, or the
+        // approval timeout when it is shorter, and not at all when nobody is there.
+        let deadline = (!critical.is_empty()).then(|| {
+            config.approval_timeout.map_or(exit::CRITICAL_WAIT, |t| t.min(exit::CRITICAL_WAIT))
+        });
+        let at_once = deadline.is_some() && self.nobody_there();
         let answer = self.shared.approvals.park(turn_id, call_id, local_only, offer.clone());
         events.push(Event::ApprovalRequested {
             turn_id,
@@ -1451,7 +1483,9 @@ impl Turn {
             diff_preview,
             interactive,
             exit,
-            expires_in_secs: None,
+            expires_in_secs: deadline
+                .filter(|_| !at_once)
+                .map(|deadline| u32::try_from(deadline.as_secs()).unwrap_or(u32::MAX)),
         });
         if let Err(error) = self.record(events).await {
             self.shared.approvals.withdraw(call_id);
@@ -1460,9 +1494,6 @@ impl Turn {
         tracing::debug!(phase = "approval_request", elapsed_ms = %watch, "phase=approval_request elapsed_ms={}", watch);
         let interrupt = self.control.interrupt.clone();
         let clock = Arc::clone(&self.shared.deps.clock);
-        // NOTE: read at each call, not at turn start, so a reload reaches the next
-        // approval of a running turn. An answer wins during the whole wait.
-        let config = self.shared.config.current();
         let presence = Arc::clone(&self.shared.deps.presence);
         let conversation_id = self.shared.conversation_id;
         let parked = clock.now();
@@ -1479,7 +1510,7 @@ impl Turn {
                 Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default();
             if self.nobody_there() {
                 away_from.get_or_insert(elapsed);
-                if !pushed {
+                if !pushed && !at_once {
                     presence.push(conversation_id, call_id);
                     pushed = true;
                 }
@@ -1490,6 +1521,16 @@ impl Turn {
                 Some(from) => Some((from + config.away_wait).saturating_sub(elapsed)),
                 None => config.approval_timeout.map(|timeout| timeout.saturating_sub(elapsed)),
             };
+            // NOTE: the smallest of the deadline of a guarded delete and the other waits.
+            let left = match (left, deadline) {
+                _ if at_once => Some(Duration::ZERO),
+                (Some(left), Some(deadline)) => Some(left.min(deadline.saturating_sub(elapsed))),
+                (None, Some(deadline)) => Some(deadline.saturating_sub(elapsed)),
+                (left, None) => left,
+            };
+            if deadline.is_some() && left == Some(Duration::ZERO) {
+                break Waited::TimedOut;
+            }
             tokio::select! {
                 biased;
                 () = interrupt.raised() => break Waited::Interrupted,
@@ -1527,11 +1568,18 @@ impl Turn {
             }
             Waited::Answer(None) => return Ok(Authorization::Expired { away: false }),
             Waited::Interrupted => {
-                self.expire(call_id, false, &kinds).await?;
+                self.expire(call_id, false, &kinds, false).await?;
                 return Ok(Authorization::Interrupted);
             }
             Waited::TimedOut => {
-                self.expire(call_id, away, &kinds).await?;
+                let full = call.context.is_full();
+                let expired = self.expire(call_id, away, &kinds, full).await?;
+                if !critical.is_empty() && expired {
+                    let waited = (!at_once).then(|| {
+                        Duration::try_from(clock.now().duration_since(parked)).unwrap_or_default()
+                    });
+                    return Ok(self.critical_expired(&critical, waited));
+                }
                 return Ok(Authorization::Expired { away });
             }
         };
@@ -1570,28 +1618,36 @@ impl Turn {
     }
 
     /// Records that the approval of `call_id` can no longer be answered, unless an
-    /// answer took it first. `away` when nobody answered while the user was away: a
-    /// question about exits `kinds` then records that nobody judged them.
+    /// answer took it first; true when it recorded so. `away` when nobody answered while
+    /// the user was away: a question about exits `kinds` then records that nobody judged
+    /// them. `full` for a question of full mode that timed out: its exits record the
+    /// judge `full` with the category `expired`.
     async fn expire(
         &self,
         call_id: CallId,
         away: bool,
         kinds: &[ExitKind],
-    ) -> Result<(), ConversationError> {
+        full: bool,
+    ) -> Result<bool, ConversationError> {
         if self.shared.approvals.withdraw(call_id) {
             let turn_id = self.turn_id();
             let mut events = vec![Event::ApprovalExpired { turn_id, call_id, away }];
-            if away && !kinds.is_empty() {
+            let judge = if full {
+                Some(JudgeKind::Full)
+            } else {
+                away.then_some(JudgeKind::PresenceExpired)
+            };
+            if let Some(judge) = judge.filter(|_| !kinds.is_empty()) {
                 events.push(Event::ExitJudged {
                     turn_id,
                     call_id,
-                    judge: JudgeKind::PresenceExpired,
+                    judge,
                     verdict: Verdict::Deny,
                     model: None,
                     latency_ms: None,
                     risk: None,
                     user_authorization: None,
-                    category: None,
+                    category: full.then(|| "expired".to_owned()),
                     rationale: None,
                     record_sha256: None,
                     cached: false,
@@ -1600,8 +1656,9 @@ impl Turn {
                 });
             }
             self.record(events).await?;
+            return Ok(true);
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Asks the user whether to keep `changes`, which the call of `context` made and the

@@ -120,12 +120,13 @@ pub enum ConversationError {
     },
 
     /// A question about a privilege exit takes an answer only from the user's own
-    /// machine, because the password needs the terminal, and so does the question of a
-    /// background job, whose "yes" lasts while nobody watches the job: an answer from a
-    /// phone leaves the question open.
+    /// machine, because the password needs the terminal, and so do the question of a
+    /// delete that full mode guards and the question of a background job, whose "yes"
+    /// lasts while nobody watches the job: an answer from a phone leaves the question
+    /// open.
     #[error(
         "an answer from {origin:?} cannot approve the call {call_id}: only the user's own \
-         machine answers a privilege exit or a background job"
+         machine answers a privilege exit, a delete that full mode guards, or a background job"
     )]
     RemotePrivilegeAnswer {
         /// The surface that answered.

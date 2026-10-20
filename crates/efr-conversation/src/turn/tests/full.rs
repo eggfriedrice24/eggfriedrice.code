@@ -6,17 +6,20 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_permissions::{CallFacts, Requirements, TargetKind};
 use efr_protocol::{
-    ApprovalDecision, ErrorCode, Event, ExitKind, FullModeStatus, FullRefusal, JudgeKind, Launch,
-    Mode, Origin, SandboxStatus, TurnId, TurnSettings, Verdict,
+    ApprovalDecision, ApprovalRespond, CallId, ErrorCode, Event, ExitKind, FullModeStatus,
+    FullRefusal, JudgeKind, Launch, Mode, Origin, SandboxStatus, TurnId, TurnSettings, Verdict,
 };
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 use super::review::{count, judgements, reviewed, shell};
 use crate::ConversationError;
+use crate::exit;
+use crate::presence::PRESENCE_CHECK;
 use crate::testing::{DONE, FakeAllowWriter, FakeJudge, Harness, Script, Setup, allows};
 use crate::turn::full::FULL_TURNED_OFF;
 
@@ -314,4 +317,305 @@ async fn a_local_steer_with_mode_full_obeys_the_gate() {
     let queued = steer_as_prompt(&mut h, Mode::Full, Origin::Shell).await.unwrap();
     h.wait_end(queued.turn_id).await;
     assert_eq!(started(&h, queued.turn_id).await, (Mode::Full, None));
+}
+
+/// A guarded delete of the home directory. It is a dead branch, as every delete of a
+/// test is; the engine still reads it, and the fake toolbox runs no line.
+const DELETE_HOME: &str = "false && rm -rf ~";
+
+/// What a question about the delete of the home directory names.
+const HOME_TARGET: &str = "~ (your home directory)";
+
+/// The next question of the log: its call, its summary and its fixed limit.
+async fn next_question(h: &mut Harness) -> (CallId, String, Option<u32>) {
+    let asked = h.wait_for(|e| matches!(e, Event::ApprovalRequested { .. })).await;
+    let Event::ApprovalRequested { call_id, summary, expires_in_secs, .. } = asked else {
+        unreachable!("wait_for returns an event it accepted");
+    };
+    (call_id, summary, expires_in_secs)
+}
+
+/// Lets the question `call_id`, which waits on the clock, expire after `CRITICAL_WAIT`.
+async fn let_expire(h: &mut Harness, call_id: CallId) {
+    h.clock.wait_for_sleeps(1).await;
+    h.clock.advance(exit::CRITICAL_WAIT);
+    h.wait_for(|e| matches!(e, Event::ApprovalExpired { call_id: id, .. } if *id == call_id)).await;
+}
+
+#[tokio::test]
+async fn full_critical_question_expires_after_120s() {
+    let calls = vec![shell(DELETE_HOME)];
+    let (mut h, script, turn_id) = start(full(None), calls, Vec::new(), "clean up").await;
+    let (call_id, _, expires) = next_question(&mut h).await;
+    assert_eq!(expires, Some(120));
+    h.clock.wait_for_sleeps(1).await;
+    h.clock.advance(Duration::from_secs(119));
+    tokio::task::yield_now().await;
+    assert!(!h.has_ended(turn_id), "it still waits at 119 seconds");
+    h.clock.advance(Duration::from_secs(1));
+    let end = h.wait_end(turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "the model goes on: {end:?}");
+    assert!(h.toolbox.invoked().is_empty(), "the delete did not run");
+    let events = h.events().await;
+    assert!(events.contains(&Event::ApprovalExpired { turn_id, call_id, away: false }));
+    let expected = exit::critical_expired(HOME_TARGET, Some(Duration::from_secs(120)));
+    assert_eq!(script.results(), vec![(expected.clone(), true)]);
+    assert_eq!(
+        expected,
+        "efr did not run this delete of ~ (your home directory): the user did not answer in \
+         120 seconds. Do not try it another way. Delete narrower paths that you can name, or \
+         ask the user to run it."
+    );
+}
+
+#[tokio::test]
+async fn full_critical_question_denied_at_once_when_away() {
+    let setup = full(None);
+    setup.presence.set_away(true);
+    let (mut h, script, turn_id) =
+        start(setup, vec![shell(DELETE_HOME)], Vec::new(), "clean up").await;
+    let (call_id, _, expires) = next_question(&mut h).await;
+    // No clock moves: nobody is there, so the question does not wait.
+    h.wait_end(turn_id).await;
+
+    assert_eq!(expires, None, "a question that does not wait names no limit");
+    assert!(h.toolbox.invoked().is_empty());
+    assert!(h.events().await.contains(&Event::ApprovalExpired { turn_id, call_id, away: true }));
+    assert!(h.presence.pushed().is_empty(), "no phone is woken for a question that is gone");
+    assert_eq!(script.results(), vec![(exit::critical_expired(HOME_TARGET, None), true)]);
+}
+
+#[tokio::test]
+async fn full_three_expired_deletes_deny_at_once() {
+    let setup = full(None);
+    setup.presence.set_away(true);
+    let calls = vec![shell(DELETE_HOME); 4];
+    let (mut h, script, turn_id) = start(setup, calls, Vec::new(), "clean up").await;
+    let end = h.wait_end(turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    assert_eq!(count(&h, "approval_requested").await, 3, "the fourth delete asks no more");
+    let results = script.results();
+    assert_eq!(results.len(), 4);
+    let refused = exit::critical_refused(HOME_TARGET);
+    assert_eq!(results[3], (refused.clone(), true));
+    assert_eq!(
+        refused,
+        "efr refuses deletes of ~ (your home directory) for the rest of this turn. Do not try \
+         it another way. Delete narrower paths that you can name, or ask the user to run it."
+    );
+    assert!(h.toolbox.invoked().is_empty());
+}
+
+#[tokio::test]
+async fn full_answer_does_not_reset_the_expiry_count() {
+    let calls = vec![shell(DELETE_HOME); 5];
+    let (mut h, script, turn_id) = start(full(None), calls, Vec::new(), "clean up").await;
+    let (first, _, _) = next_question(&mut h).await;
+    let_expire(&mut h, first).await;
+    let (second, _, _) = next_question(&mut h).await;
+    h.answer(second, ApprovalDecision::Deny).await;
+    for _ in 0..2 {
+        let (call_id, _, _) = next_question(&mut h).await;
+        let_expire(&mut h, call_id).await;
+    }
+    h.wait_end(turn_id).await;
+
+    assert_eq!(count(&h, "approval_requested").await, 4, "the fifth delete asks no more");
+    assert_eq!(script.results().last().unwrap().0, exit::critical_refused(HOME_TARGET));
+}
+
+#[tokio::test]
+async fn full_fourth_refusal_stops_turn_names_mode() {
+    // Three questions expire; each later guarded delete is refused with no question, and
+    // three such refusals in a row stop the turn, with a text that names full mode.
+    let setup = full(None);
+    setup.presence.set_away(true);
+    let calls = vec![shell(DELETE_HOME); 7];
+    let (mut h, script, turn_id) = start(setup, calls, Vec::new(), "clean up").await;
+    let end = h.wait_end(turn_id).await;
+
+    let Event::TurnFailed { error, .. } = end else {
+        panic!("three refusals in a row stop the turn: {end:?}");
+    };
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    assert_eq!(error.message, exit::refusals_stopped(Mode::Full));
+    assert!(error.message.starts_with("full mode stopped this turn"), "{}", error.message);
+    assert_eq!(count(&h, "approval_requested").await, 3);
+    assert_eq!(count(&h, "tool_call_started").await, 6, "the seventh call never came");
+    assert_eq!(script.requests().len(), 6);
+}
+
+/// Answers `call_id` with `decision` from `origin`.
+async fn answer_from(
+    h: &mut Harness,
+    call_id: CallId,
+    decision: ApprovalDecision,
+    origin: Origin,
+) -> Result<efr_protocol::ApprovalRespondResult, ConversationError> {
+    let params = ApprovalRespond {
+        command_id: h.command_id(),
+        conversation_id: h.conversation_id,
+        call_id,
+        decision,
+    };
+    h.handle.respond_approval(params, origin).await
+}
+
+#[tokio::test]
+async fn full_privilege_answer_from_phone_refused() {
+    let (mut h, _, turn_id) =
+        start(full(None), vec![shell("sudo true")], Vec::new(), "update").await;
+    let (call_id, summary, expires) = next_question(&mut h).await;
+    assert_eq!(expires, None, "only a guarded delete has a fixed limit");
+    assert_eq!(
+        summary.lines().next(),
+        Some(
+            "full mode still asks for this: more rights, such as sudo; a yes runs every \
+             command of this line"
+        )
+    );
+
+    let refused = answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Phone).await;
+    assert!(
+        matches!(
+            refused,
+            Err(ConversationError::RemotePrivilegeAnswer { call_id: id, .. }) if id == call_id
+        ),
+        "{refused:?}"
+    );
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Shell).await.unwrap();
+    h.wait_end(turn_id).await;
+    assert!(h.toolbox.invoked().is_empty());
+}
+
+#[tokio::test]
+async fn full_guard_answer_from_phone_refused() {
+    let (mut h, _, turn_id) =
+        start(full(None), vec![shell(DELETE_HOME)], Vec::new(), "clean up").await;
+    let (call_id, _, _) = next_question(&mut h).await;
+
+    let refused = answer_from(&mut h, call_id, ApprovalDecision::Allow, Origin::Phone).await;
+    let Err(error) = refused else {
+        panic!("a phone never answers a guarded delete: {refused:?}");
+    };
+    assert!(matches!(error, ConversationError::RemotePrivilegeAnswer { .. }), "{error:?}");
+    assert!(
+        error.to_string().ends_with(
+            "only the user's own machine answers a privilege exit, a delete that full mode \
+             guards, or a background job"
+        ),
+        "{error}"
+    );
+    assert_eq!(h.handle.state().await.unwrap().pending_approvals, vec![call_id], "still open");
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Shell).await.unwrap();
+    h.wait_end(turn_id).await;
+    assert!(h.toolbox.invoked().is_empty());
+}
+
+/// A line that leaves a process behind the turn: a `persistence` exit, which full mode
+/// still asks about. A dead branch, as every such line of a test is.
+const PERSIST: &str = "false && systemd-run --user true";
+
+#[tokio::test]
+async fn full_floor_question_offers_no_always() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let mut setup = full(Some(Arc::clone(&judge)));
+    setup.allow_writer = Some(FakeAllowWriter::saving());
+    let (mut h, _, turn_id) = start(setup, vec![shell(PERSIST)], Vec::new(), "start it").await;
+    let asked = h.wait_for(|e| matches!(e, Event::ApprovalRequested { .. })).await;
+    let Event::ApprovalRequested { call_id, summary, exit: Some(exit), .. } = asked else {
+        panic!("the question shows the exit: {asked:?}");
+    };
+    assert_eq!(exit.always, None, "full mode offers no always-allow rule");
+    assert!(exit.user_only, "no reviewer in full mode");
+    assert!(exit.kinds.contains(&ExitKind::Persistence), "{:?}", exit.kinds);
+    assert_eq!(
+        summary.lines().next(),
+        Some("full mode still asks for this: a process that outlives the turn")
+    );
+    // A phone may answer it: it needs no password and no own machine.
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Phone).await.unwrap();
+    h.wait_end(turn_id).await;
+    assert_eq!(judge.calls(), 0);
+    assert_eq!(judgements(&h).await, vec![(JudgeKind::User, Verdict::Deny)]);
+}
+
+#[tokio::test]
+async fn full_question_with_exits_that_expires_records_judge_full() {
+    let mut setup = full(None);
+    setup.config.approval_timeout = Some(Duration::from_secs(60));
+    let (mut h, _, turn_id) = start(setup, vec![shell(PERSIST)], Vec::new(), "start it").await;
+    let (call_id, _, expires) = next_question(&mut h).await;
+    assert_eq!(expires, None);
+    h.clock.wait_for_sleeps(1).await;
+    h.clock.advance(Duration::from_secs(60));
+    h.wait_end(turn_id).await;
+
+    assert!(h.events().await.contains(&Event::ApprovalExpired { turn_id, call_id, away: false }));
+    let judged: Vec<(JudgeKind, Verdict, Option<String>)> = h
+        .events()
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ExitJudged { judge, verdict, category, .. } => Some((judge, verdict, category)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(judged, vec![(JudgeKind::Full, Verdict::Deny, Some("expired".to_owned()))]);
+}
+
+#[tokio::test]
+async fn full_away_wait_vs_guard_wait() {
+    // The user leaves after the question parked: the guard's 120 seconds end before the
+    // away wait of 300 seconds.
+    let (mut h, _, turn_id) =
+        start(full(None), vec![shell(DELETE_HOME)], Vec::new(), "clean up").await;
+    let (call_id, _, _) = next_question(&mut h).await;
+    // NOTE: a guarded delete reads the presence twice when it parks: once to know
+    // whether to wait at all, once in its wait.
+    h.presence.wait_for_reads(2).await;
+    h.presence.set_away(true);
+    h.clock.advance(PRESENCE_CHECK);
+    h.presence.wait_for_reads(3).await;
+    h.clock.advance(exit::CRITICAL_WAIT - PRESENCE_CHECK - Duration::from_secs(1));
+    tokio::task::yield_now().await;
+    assert!(!h.has_ended(turn_id), "the guard waits its 120 seconds");
+    h.clock.advance(Duration::from_secs(1));
+    h.wait_end(turn_id).await;
+    assert!(h.events().await.contains(&Event::ApprovalExpired { turn_id, call_id, away: true }));
+
+    // A short away wait ends before the guard's 120 seconds.
+    let mut setup = full(None);
+    setup.config.away_wait = Duration::from_secs(30);
+    let (mut h, script, turn_id) =
+        start(setup, vec![shell(DELETE_HOME)], Vec::new(), "clean up").await;
+    next_question(&mut h).await;
+    // NOTE: a guarded delete reads the presence twice when it parks: once to know
+    // whether to wait at all, once in its wait.
+    h.presence.wait_for_reads(2).await;
+    h.presence.set_away(true);
+    h.clock.advance(PRESENCE_CHECK);
+    h.presence.wait_for_reads(3).await;
+    h.clock.advance(Duration::from_secs(30));
+    h.wait_end(turn_id).await;
+    let waited = PRESENCE_CHECK + Duration::from_secs(30);
+    assert_eq!(script.results(), vec![(exit::critical_expired(HOME_TARGET, Some(waited)), true)]);
+}
+
+#[tokio::test]
+async fn full_guard_summary_names_the_target_first() {
+    let (mut h, _, turn_id) =
+        start(full(None), vec![shell(DELETE_HOME)], Vec::new(), "clean up").await;
+    let (call_id, summary, _) = next_question(&mut h).await;
+    let mut lines = summary.lines();
+    assert_eq!(
+        lines.next(),
+        Some("full mode still asks for this: delete of ~ (your home directory)")
+    );
+    let second = lines.next().unwrap_or_default();
+    assert!(second.starts_with("shell: run \"false && rm -rf ~\""), "the call next: {summary}");
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(turn_id).await;
 }

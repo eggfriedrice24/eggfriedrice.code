@@ -862,8 +862,9 @@ impl ConversationActor {
         let Some(turn_id) = approvals.waiting_turn(call_id) else {
             return Err(ConversationError::ApprovalNotPending { call_id });
         };
-        // NOTE: a remote surface answers no privilege exit; the question stays open for
-        // the user's own terminal.
+        // NOTE: a remote surface answers no privilege exit, no delete that full mode
+        // guards and no job's question; the question stays open for the user's own
+        // terminal.
         if efr_permissions::effective_mode(Mode::Auto, origin) != Mode::Auto
             && approvals.local_only(call_id)
         {
