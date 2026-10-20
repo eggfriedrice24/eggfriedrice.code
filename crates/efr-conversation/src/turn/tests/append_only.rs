@@ -3,7 +3,7 @@
 //! 60 turns and past the 4096-event page. The one exception is the first request after
 //! a compaction. The README, "The history only grows", is the contract.
 
-use efr_protocol::{ConversationCompact, Event, Origin};
+use efr_protocol::{ConversationCompact, Event, Origin, RecentCommand};
 use efr_provider::{ContentBlock, Request, Role};
 use pretty_assertions::assert_eq;
 
@@ -187,6 +187,7 @@ async fn the_kept_preamble_is_redacted_once_and_sent_again_as_it_was() {
     let cwd = h.cwd.clone();
     let mut params = h.prompt_params(&cwd, "why did it fail");
     params.last_command = Some(SECRET_COMMAND.to_owned());
+    params.recent_commands = vec![RecentCommand::new(format!("{SECRET_COMMAND} # earlier"))];
     let sent = h.handle.send_prompt(params, Origin::Shell).await.expect("prompt accepted");
     h.wait_end(sent.turn_id).await;
     h = h.restart_model(model.clone()).await;
@@ -202,6 +203,7 @@ async fn the_kept_preamble_is_redacted_once_and_sent_again_as_it_was() {
     let redacted = "mysql -u root -p[redacted] db && git clone https://me:[redacted]@example.com/r \
                     && curl -H 'Authorization: Bearer [redacted]' x";
     assert!(prompt.contains(redacted), "{prompt}");
+    assert!(prompt.contains(&format!("- `{redacted} # earlier`")), "{prompt}");
     let sent = format!("{requests:?}");
     for secret in SECRETS {
         assert!(!sent.contains(secret), "{secret} reached a request");
