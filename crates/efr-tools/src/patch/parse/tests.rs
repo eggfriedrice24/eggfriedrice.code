@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 
 use super::parse;
-use crate::{Hunk, HunkLine, Operation, ParseProblem, Patch, PatchError};
+use crate::patch::{Hunk, HunkLine, Operation, ParseProblem, Patch, PatchError};
 
 fn context(text: &str) -> HunkLine {
     HunkLine::Context(text.to_owned())

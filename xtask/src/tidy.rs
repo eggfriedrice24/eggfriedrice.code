@@ -42,6 +42,20 @@ pub(crate) const ANYHOW_MANIFESTS: &[&str] =
 /// the crate itself.
 pub(crate) const TEST_DAEMON_HOMES: &[&str] = &["crates/efr-test-daemon/"];
 
+/// Modules that must stay pure inside a crate that is not: no runtime, no async code,
+/// no IO from std, no workspace crate and no `crate::` path outside the module. Each
+/// entry is the module's path without `.rs`; the rule covers that file and its
+/// directory. A forbidden edge in `xtask/src/deps.rs` can only keep a whole crate
+/// pure; this rule does the same for one module (ADR 0014).
+pub(crate) const PURE_MODULES: &[&str] = &["crates/efr-tools/src/patch"];
+
+/// Tokens that a pure module may not name.
+const IMPURE_TOKENS: &[&str] = &["tokio", "async", "await"];
+
+/// Paths into std that do IO, which a pure module may not name.
+const IMPURE_PATHS: &[&str] =
+    &["std::fs", "std::io", "std::net", "std::process", "std::env", "std::thread"];
+
 /// The files that define these rules name the forbidden tokens, so the token rules
 /// skip them. The dash and whitespace rules still apply to them.
 const RULE_SOURCES: &[&str] = &["xtask/src/tidy.rs", "xtask/src/tidy/tests.rs"];
@@ -183,6 +197,11 @@ pub(crate) fn check_contents(path: &str, contents: &str, fast: bool) -> Vec<Viol
                     "cfg(feature) outside the allowlisted files in xtask/src/tidy.rs",
                 ));
             }
+            if let Some(module) = pure_module_of(path)
+                && let Some(rule) = impure_line(line, module)
+            {
+                found.push(violation(path, line_no, rule));
+            }
             if line.contains("efr_test_daemon") && !test_daemon_may_appear(path) {
                 found.push(violation(
                     path,
@@ -253,6 +272,43 @@ fn has_token(line: &str, token: &str) -> bool {
 
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// The name of the pure module that holds `path`, such as `patch` for
+/// `crates/efr-tools/src/patch/apply.rs`.
+fn pure_module_of(path: &str) -> Option<&'static str> {
+    PURE_MODULES.iter().find_map(|module| {
+        let inside =
+            path.strip_prefix(module).is_some_and(|rest| rest == ".rs" || rest.starts_with('/'));
+        inside.then(|| module.rsplit('/').next().unwrap_or(module))
+    })
+}
+
+/// The rule that a line of the pure module `module` breaks, if any. Comments may
+/// name anything.
+fn impure_line(line: &str, module: &str) -> Option<&'static str> {
+    if line.trim_start().starts_with("//") {
+        return None;
+    }
+    if IMPURE_TOKENS.iter().any(|token| has_token(line, token)) {
+        return Some("a pure module uses no runtime and no async code (xtask/src/tidy.rs)");
+    }
+    if IMPURE_PATHS.iter().any(|path| line.contains(path)) {
+        return Some("a pure module does no IO through std (xtask/src/tidy.rs)");
+    }
+    let names_workspace_crate =
+        line.match_indices("efr_").any(|(at, _)| !line[..at].ends_with(is_ident_char));
+    if names_workspace_crate {
+        return Some("a pure module uses no workspace crate (xtask/src/tidy.rs)");
+    }
+    let leaves_the_module = line.match_indices("crate::").any(|(at, _)| {
+        let rest = &line[at + "crate::".len()..];
+        !rest.strip_prefix(module).is_some_and(|after| !after.starts_with(is_ident_char))
+    });
+    if leaves_the_module {
+        return Some("a pure module uses nothing of its crate outside itself (xtask/src/tidy.rs)");
+    }
+    None
 }
 
 fn test_daemon_may_appear(path: &str) -> bool {

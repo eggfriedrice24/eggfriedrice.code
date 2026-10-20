@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::patch::{ChangeKind, FileChange, NearLine, Patch, PatchError};
 use async_trait::async_trait;
-use efr_patch::{ChangeKind, FileChange, NearLine, Patch, PatchError};
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -51,7 +51,7 @@ fn every_kind() -> Value {
 fn the_spec_is_a_freeform_tool_with_the_patch_grammar() {
     let spec = ApplyPatchTool.spec();
     assert_eq!(spec.name, "apply_patch");
-    assert_eq!(spec.grammar, Some(ToolGrammar::Lark(efr_patch::GRAMMAR.to_owned())));
+    assert_eq!(spec.grammar, Some(ToolGrammar::Lark(crate::patch::GRAMMAR.to_owned())));
     assert_eq!(spec.input_schema["required"], json!(["input"]));
     assert!(spec.description.contains("*** Begin Patch"), "{}", spec.description);
     assert!(spec.description.contains("sed -i"), "{}", spec.description);
@@ -532,12 +532,15 @@ async fn the_preview_shows_the_diff_of_every_file_and_marks_a_delete_and_a_move(
 fn a_hunk_that_matches_nowhere_shows_its_anchors_and_the_nearest_lines() {
     let path = PathBuf::from("/w/src/lib.rs");
     let parsed = Patch {
-        operations: vec![efr_patch::Operation::Update {
+        operations: vec![crate::patch::Operation::Update {
             path: path.clone(),
             move_to: None,
             hunks: vec![
-                efr_patch::Hunk::default(),
-                efr_patch::Hunk { anchors: vec!["impl Engine".to_owned()], ..Default::default() },
+                crate::patch::Hunk::default(),
+                crate::patch::Hunk {
+                    anchors: vec!["impl Engine".to_owned()],
+                    ..Default::default()
+                },
             ],
         }],
     };

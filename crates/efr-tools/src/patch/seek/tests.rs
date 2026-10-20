@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 
 use super::{Found, find, nearest};
-use crate::NearLine;
+use crate::patch::NearLine;
 
 fn near(lines: &[(usize, &str)]) -> Vec<NearLine> {
     lines.iter().map(|&(number, text)| NearLine { number, text: text.to_owned() }).collect()

@@ -1,7 +1,7 @@
 //! `apply_patch`: edits files with a patch in the `apply_patch` format of Codex, all or
 //! nothing.
 //!
-//! The engine (`efr-patch`) parses the patch and computes every new content from the
+//! The engine (`crate::patch`) parses the patch and computes every new content from the
 //! texts that this tool read; this tool does the IO around it. It reads every file of
 //! the patch first and refuses a path through a link, anything that is not a regular
 //! file, a file over 16 MiB and a binary file. Only when every hunk matches does it
@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::patch::{ChangeKind, FileChange, NearLine, Operation, Patch, PatchError};
 use async_trait::async_trait;
-use efr_patch::{ChangeKind, FileChange, NearLine, Operation, Patch, PatchError};
 use efr_scope::Home;
 use serde::de::Error as _;
 use serde_json::Value;
@@ -105,7 +105,7 @@ impl ApplyPatchTool {
             tool: Self::NAME.to_owned(),
             source: serde_json::Error::custom("the input must be the text of a patch"),
         })?;
-        let written = efr_patch::parse(text).map_err(|source| ToolError::Patch { source })?;
+        let written = crate::patch::parse(text).map_err(|source| ToolError::Patch { source })?;
         let mut failed = None;
         let patch = written.clone().map_paths(|path| {
             resolve(ctx, &path.to_string_lossy()).unwrap_or_else(|error| {
@@ -180,7 +180,7 @@ impl Tool for ApplyPatchTool {
         ToolSpec::freeform(
             Self::NAME,
             DESCRIPTION,
-            ToolGrammar::Lark(efr_patch::GRAMMAR.to_owned()),
+            ToolGrammar::Lark(crate::patch::GRAMMAR.to_owned()),
         )
     }
 
@@ -206,7 +206,7 @@ impl Tool for ApplyPatchTool {
         let home = ctx.home.clone();
         let paths = planned.paths();
         let originals = blocking(&ctx.cwd, move || read_originals(&home, &paths)).await.ok()?;
-        let changes = efr_patch::apply(&planned.patch, &originals.texts).ok()?;
+        let changes = crate::patch::apply(&planned.patch, &originals.texts).ok()?;
         Some(preview(&changes, &originals))
     }
 
@@ -220,7 +220,7 @@ impl Tool for ApplyPatchTool {
         let home = ctx.home.clone();
         let paths = planned.paths();
         let originals = blocking(&ctx.cwd, move || read_originals(&home, &paths)).await?;
-        let changes = match efr_patch::apply(&planned.patch, &originals.texts) {
+        let changes = match crate::patch::apply(&planned.patch, &originals.texts) {
             Ok(changes) => changes,
             Err(error) => return Ok(ToolResult::error(failure(&error, &planned.patch))),
         };

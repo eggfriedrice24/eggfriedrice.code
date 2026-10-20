@@ -1,6 +1,6 @@
 //! One exact replacement of text, for an edit tool that takes an old and a new string.
 
-use crate::{PatchError, seek};
+use crate::patch::{PatchError, seek};
 
 /// Which occurrences of the old text a [`replace`] changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub fn replace(
 
 /// The lines of a text, without their endings.
 fn lines(text: &str) -> Vec<&str> {
-    crate::text::split(text).lines.iter().map(|line| line.text).collect()
+    crate::patch::text::split(text).lines.iter().map(|line| line.text).collect()
 }
 
 /// The lines of an old text. Its blank lines at both ends say nothing about where it

@@ -139,7 +139,7 @@ pub enum ToolError {
     Patch {
         /// What is wrong with it.
         #[source]
-        source: efr_patch::PatchError,
+        source: crate::patch::PatchError,
     },
 
     /// The original of a file could not be recorded in the write journal, so the file

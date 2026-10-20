@@ -19,17 +19,19 @@
 //!   too). A write reports the files it changed ([`WrittenFile`], [`WrittenKind`])
 //!   with their diffs and line counts ([`written_diff`], [`WrittenDiff`]), which the
 //!   call shows after it ran.
-//! - [`ApplyPatchTool`]: edits files with a patch on the engine of `efr-patch`, all or
+//! - [`ApplyPatchTool`]: edits files with a patch on the engine of [`patch`], all or
 //!   nothing, and marks a delete or a move as destructive in its requirements.
-//! - [`EditTool`]: replaces exact text in one file with `efr_patch::replace`, once or
+//! - [`EditTool`]: replaces exact text in one file with [`patch::replace`], once or
 //!   at every match, for the models that know that shape. A request offers a model
 //!   either this tool or [`ApplyPatchTool`], never both.
 //! - [`ToolContext`] and [`CallIds`]: where a call runs.
 //! - [`truncate_middle`]: head and tail with a marker, [`DEFAULT_OUTPUT_LIMIT`]
 //!   (32 KiB) unless a tool says otherwise.
+//! - [`patch`]: the patch engine of both tools, pure functions from patch text and
+//!   file contents to new file contents, with no IO and no runtime.
 //!
-//! Allowed dependencies: `efr-shell`, `efr-scope` (the home directory), `efr-patch`
-//! (the patch engine), `efr-protocol` and `efr-stdx`. What does not belong here: permissions. Tools declare, the
+//! Allowed dependencies: `efr-shell`, `efr-scope` (the home directory), `efr-protocol`
+//! and `efr-stdx`. What does not belong here: permissions. Tools declare, the
 //! permission engine (`efr-permissions`) decides, and `efr-conversation` enforces, at
 //! its single check point; `xtask/src/deps.rs` forbids `efr-tools -> efr-permissions`.
 
@@ -40,6 +42,7 @@ mod edit;
 mod error;
 mod journal;
 mod output;
+pub mod patch;
 mod paths;
 mod read_file;
 mod registry;

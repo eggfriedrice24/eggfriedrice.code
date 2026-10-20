@@ -948,15 +948,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "efr-patch"
-version = "0.0.3"
-dependencies = [
- "pretty_assertions",
- "proptest",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "efr-permissions"
 version = "0.0.3"
 dependencies = [
@@ -1309,7 +1300,6 @@ name = "efr-tools"
 version = "0.0.3"
 dependencies = [
  "async-trait",
- "efr-patch",
  "efr-protocol",
  "efr-scope",
  "efr-shell",

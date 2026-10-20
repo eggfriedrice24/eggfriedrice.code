@@ -1,5 +1,5 @@
-//! The patch engine of efr: pure functions from patch text and file contents to new
-//! file contents.
+//! The patch engine of `apply_patch` and the `edit` tool: pure functions from patch
+//! text and file contents to new file contents.
 //!
 //! - [`parse`] reads the text of an `apply_patch` call into a [`Patch`]: its
 //!   [`Operation`]s (add, delete, update with an optional move) and the [`Hunk`]s of
@@ -13,20 +13,27 @@
 //!   one exact, unique replacement, or every occurrence ([`Occurrences`]), with the
 //!   result as a [`Replacement`].
 //!
-//! Allowed dependencies: no workspace crate. What does not belong here: any IO (the
-//! caller reads the files, refuses links, binary and large files, writes atomically
-//! and keeps the journal), paths resolved against a directory, permissions, and the
-//! text the model reads about a result (`efr-tools`).
+//! The engine is pure: it reads no file, writes no file, has no runtime and uses
+//! nothing of this crate outside this module. `cargo xtask tidy` checks it (no
+//! `tokio`, no `async`, no `std::fs`, `std::io`, `std::net`, `std::process` or
+//! `std::env`, no workspace crate and no `crate::` path outside `crate::patch`). It
+//! keeps its own error type, [`PatchError`], because the tools turn it into the text
+//! that the model reads.
+//!
+//! What does not belong here: any IO (the tools read the files, refuse links, binary
+//! and large files, write atomically and keep the journal), paths resolved against a
+//! directory, permissions, and the text the model reads about a result (the
+//! `apply_patch` and `edit` tools of this crate).
 
-// NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
-// `[lints]` table that both inherits the workspace lints and adds its own.
+// NOTE: the engine was a tier 0 crate, so its public items keep their docs, as the
+// docs rule of the low tiers asks.
 #![warn(missing_docs)]
 
 mod apply;
 mod error;
 mod grammar;
+mod model;
 mod parse;
-mod patch;
 mod replace;
 mod seek;
 mod text;
@@ -34,6 +41,6 @@ mod text;
 pub use apply::{ChangeKind, FileChange, Files, apply};
 pub use error::{NearLine, ParseProblem, PatchError};
 pub use grammar::GRAMMAR;
+pub use model::{Hunk, HunkLine, Operation, Patch};
 pub use parse::parse;
-pub use patch::{Hunk, HunkLine, Operation, Patch};
 pub use replace::{Occurrences, Replacement, replace};

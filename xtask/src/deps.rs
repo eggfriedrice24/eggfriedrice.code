@@ -27,8 +27,6 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     // Tier 0
     ("efr-stdx", &[]),
     ("efr-protocol", &["efr-stdx"]),
-    // The pure patch engine of apply_patch and the edit tool: no IO, no runtime.
-    ("efr-patch", &[]),
     // Tier 1
     ("efr-store", &["efr-protocol", "efr-stdx"]),
     ("efr-credentials", &["efr-stdx"]),
@@ -47,7 +45,7 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     ("efr-screen-ghostty", &["efr-screen"]),
     ("efr-pty", &["efr-holder", "efr-stdx"]),
     ("efr-shell", &["efr-holder", "efr-screen", "efr-protocol", "efr-sandbox", "efr-stdx"]),
-    ("efr-tools", &["efr-shell", "efr-scope", "efr-patch", "efr-protocol", "efr-stdx"]),
+    ("efr-tools", &["efr-shell", "efr-scope", "efr-protocol", "efr-stdx"]),
     ("efr-provider-openai", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
     // The Anthropic Messages API client; the key arrives through TokenSource.
     ("efr-provider-anthropic", &["efr-provider", "efr-http", "efr-protocol", "efr-stdx"]),
@@ -110,7 +108,6 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-transport",
             "efr-sandbox",
             "efr-snapshot",
-            "efr-patch",
             "efr-proxy",
         ],
     ),
@@ -135,7 +132,6 @@ pub(crate) const FORBIDDEN: &[(&str, &str)] = &[
     ("efr-test-support", "efr-daemon"),
     ("efr-sandbox", "tokio"),
     ("efr-sbx", "tokio"),
-    ("efr-patch", "tokio"),
     ("efr-proxy", "efr-daemon"),
 ];
 

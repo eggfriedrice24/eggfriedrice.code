@@ -13,6 +13,7 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 - Children of a module live in a directory named after it: `foo.rs` declares `mod bar;` and `foo/bar.rs` holds it (the 2018 layout; no `mod.rs` files, tidy). codex and rust-analyzer use the same layout.
 - Unit tests live in `foo/tests.rs` under `#[cfg(test)] mod tests;` at the end of `foo.rs`, never inline and never as a sibling `foo_tests.rs` (tidy rejects `*_tests.rs` and inline `mod tests {`).
 - One type per file for anything with more than one `impl` block or more than one screen of methods; small value types may share a file named for the concept (`ids.rs`, `error.rs`).
+- A pure module inside a crate that is not pure (`efr_tools::patch`, listed in `PURE_MODULES`) names no `tokio`, no `async`, no IO of std (`std::fs`, `std::io`, `std::net`, `std::process`, `std::env`, `std::thread`), no workspace crate and no `crate::` path outside itself (tidy). It is what a forbidden edge to tokio is for a crate.
 - Binaries keep `main.rs` to argument parsing, tracing setup and a call into `run.rs`. Everything in a bin crate is `pub(crate)`.
 - A crate's README states: purpose, the tier, allowed dependencies, the invariant it protects, how to run its tests without the rest of the workspace.
 
@@ -57,7 +58,7 @@ These rules are the content of `CONVENTIONS.md`. `cargo xtask tidy` enforces the
 ## Error types
 
 - Library crates use `thiserror` 2.0.21 enums; `anyhow` 1.0.104 is allowed only in `efr-daemon/src/main.rs`, `efr-cli`, `xtask` and tests. A tidy rule rejects `anyhow` in any other `Cargo.toml`.
-- Each crate has exactly one public error enum in `error.rs`. Variants carry structured data (`path: PathBuf`, `seq: Seq`), never preformatted strings. `#[source]` chains are preserved; a `Display` message says what failed in one sentence without the source's text.
+- Each crate has exactly one public error enum in `error.rs`. A public module that was a crate of its own (ADR 0014) keeps its own enum in its own `error.rs`: `efr_tools::patch::PatchError`. Variants carry structured data (`path: PathBuf`, `seq: Seq`), never preformatted strings. `#[source]` chains are preserved; a `Display` message says what failed in one sentence without the source's text.
 - Wire errors: `efr_protocol::ErrorFrame { id, error: { code: ErrorCode, message, data } }` with `ErrorCode` as a closed set (`ProtocolMismatch`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `Busy`, `Overflow`, `Cancelled`, `Invalid`, `Internal`). The only `From<DaemonError> for ErrorFrame` lives in `efr-daemon/src/error.rs`; no other crate knows the mapping.
 - `unwrap_used`, `expect_used` and `panic` are `deny` outside tests (`allow-unwrap-in-tests`, `allow-expect-in-tests`, `allow-panic-in-tests` in `clippy.toml`, the codex and nushell setting). The escape hatch is `#[expect(clippy::unwrap_used, reason = "...")]` on the smallest item. Infallible-by-construction cases use `match` with an `unreachable!()` arm that states the invariant.
 - Errors are logged once, at the boundary that drops them: a method handler, an actor loop or `main`. Library crates return them.

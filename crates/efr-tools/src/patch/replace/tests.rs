@@ -1,7 +1,7 @@
 use pretty_assertions::assert_eq;
 
 use super::{Occurrences, Replacement, replace};
-use crate::{NearLine, PatchError};
+use crate::patch::{NearLine, PatchError};
 
 #[test]
 fn one_unique_occurrence_is_replaced() {

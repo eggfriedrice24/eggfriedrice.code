@@ -1,7 +1,7 @@
 //! `edit`: replaces exact text in one file, in the shape of Claude Code's edit tool.
 //!
-//! The engine (`efr_patch::replace`) finds `old_string` in the text that this tool read
-//! and computes the new content: one exact, unique match, or every match with
+//! The engine (`crate::patch::replace`) finds `old_string` in the text that this tool
+//! read and computes the new content: one exact, unique match, or every match with
 //! `replace_all`. This tool does the IO around it with the checks of `apply_patch`: it
 //! refuses a path through a link, anything that is not a regular file, a file over
 //! 16 MiB and a binary file. It records the original in the write journal, then writes
@@ -10,8 +10,8 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+use crate::patch::{Occurrences, PatchError, Replacement};
 use async_trait::async_trait;
-use efr_patch::{Occurrences, PatchError, Replacement};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
@@ -177,7 +177,7 @@ fn refusal(input: &EditInput) -> Option<&'static str> {
 fn replaced(text: &str, input: &EditInput) -> Result<Replacement, String> {
     let (old, new) = with_line_ends(text, &input.old_string, &input.new_string);
     let occurrences = if input.replace_all { Occurrences::All } else { Occurrences::One };
-    efr_patch::replace(text, &old, &new, occurrences).map_err(|error| failure(&error))
+    crate::patch::replace(text, &old, &new, occurrences).map_err(|error| failure(&error))
 }
 
 /// `old` and `new` with the line ends of `text`. In a file whose every line ends with

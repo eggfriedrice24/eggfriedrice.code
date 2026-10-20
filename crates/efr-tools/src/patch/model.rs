@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Paths are as the patch writes them, relative or absolute; the caller resolves them
 /// (with [`Patch::map_paths`]) before it reads the files and calls
-/// [`apply`](crate::apply).
+/// [`apply`](crate::patch::apply).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Patch {
     /// The operations, in order. A patch that parses has at least one.

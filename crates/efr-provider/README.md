@@ -132,7 +132,7 @@ Edit tools. `ModelInfo::edit_tool` says with which tool a model changes a file, 
 form that it was trained on: `EditTool::ApplyPatch` (`apply_patch`, a patch in the
 Codex format, the default of `ModelInfo::new`) for OpenAI's models, and
 `EditTool::Replace` (`edit`: `path`, `old_string`, `new_string`, `replace_all`, on
-`efr_patch::replace`) for Anthropic's models. The code that builds a request's tool
+`efr_tools::patch::replace`) for Anthropic's models. The code that builds a request's tool
 list offers the model only the tool that `edit_tool` names, beside `write_file` and
 `read_file`. The tool list then stays the same while the model stays, so it does not
 break the prompt cache. `Provider::default_edit_tool` names the tool of a model that

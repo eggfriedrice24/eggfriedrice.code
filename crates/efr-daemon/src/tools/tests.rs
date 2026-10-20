@@ -185,7 +185,7 @@ fn the_model_is_offered_the_shell_the_file_tools_and_the_settings() {
     );
     assert!(definitions.iter().all(|tool| tool.input_schema["type"] == "object"));
     let patch = &definitions[3];
-    assert_eq!(patch.grammar, Some(efr_provider::ToolGrammar::lark(efr_patch_grammar())));
+    assert_eq!(patch.grammar, Some(efr_provider::ToolGrammar::lark(apply_patch_grammar())));
 }
 
 #[test]
@@ -241,7 +241,7 @@ async fn an_edit_declares_its_path_as_a_write_and_is_never_destructive() {
 }
 
 /// The grammar that `apply_patch` sends, as its spec gives it.
-fn efr_patch_grammar() -> String {
+fn apply_patch_grammar() -> String {
     use efr_tools::Tool as _;
     match efr_tools::ApplyPatchTool.spec().grammar {
         Some(efr_tools::ToolGrammar::Lark(grammar)) => grammar,
