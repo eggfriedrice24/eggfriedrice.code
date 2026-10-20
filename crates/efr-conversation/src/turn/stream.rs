@@ -1,4 +1,19 @@
 //! One model call: the provider's stream folded into an assistant message.
+//!
+//! Two `debug` lines describe each call for the log. The `phase=model_answer` line says
+//! how long the answer took and how it ended: `stop_reason=` with the provider's reason
+//! for an answer that ended, or `outcome=interrupted` or `outcome=error` for one that
+//! did not, because an interrupt or an error is no stop reason of the API (C2.8e). The
+//! line keeps its start, so a reader can grep it.
+//!
+//! The usage line (target [`USAGE_TARGET`], DV12) gives the numbers of each call that
+//! reported its usage: the gap since the conversation's previous model call
+//! (`gap_ms`, from the shared clock; `none` for the first call since efrd started), the
+//! input with its cached (`read`) part, the output, and what the call wrote to the
+//! prompt cache (`write`, and `write_1h` with a time to live of one hour). It holds only
+//! numbers, never text. The default filter (`info`) hides it; `log =
+//! "info,efr_conversation::usage=debug"` shows it, for an estimate of which time to
+//! live fits the pauses of a shell agent.
 
 use std::sync::Arc;
 
@@ -11,6 +26,9 @@ use tracing::Instrument as _;
 use super::Turn;
 use super::coalesce::{Coalescer, sleep_or_pending};
 use crate::{ConversationError, gap};
+
+/// The log target of the usage line of each model call.
+pub(crate) const USAGE_TARGET: &str = "efr_conversation::usage";
 
 /// How one model call ended.
 #[derive(Debug)]
@@ -43,12 +61,12 @@ impl Turn {
         let provider = Arc::clone(&self.shared.deps.provider);
         let clock = Arc::clone(&self.shared.deps.clock);
         let interrupt = self.control.interrupt.clone();
-        let gap = self.shared.gap.start(clock.now());
+        let gap_ms = self.shared.gap.start(clock.now()).map(gap::millis);
         let span = tracing::debug_span!(
             "provider_request",
             provider = %provider.id(),
             model = %request.model,
-            gap_ms = gap.map(gap::millis),
+            gap_ms,
         );
         // NOTE: the `phase` lines say where a call's time goes (docs/sandbox.md): here
         // the model's part, from the request to its first event, to the first tool
@@ -126,16 +144,23 @@ impl Turn {
             Streamed::Interrupted => Err(Response::Interrupted),
         };
         // NOTE: after the outcome, so the line says why the model stopped; the line keeps
-        // its start for a reader that parses the `phase` lines.
-        let stop = match &outcome {
-            Ok(completion) => stop_name(completion.stop_reason),
-            Err(Response::Interrupted) => "interrupted",
-            Err(_) => "error",
-        };
-        tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, stop_reason = stop, "phase=model_answer elapsed_ms={} stop_reason={}", watch, stop);
+        // its start for a reader that parses the `phase` lines. Only an answer that ended
+        // has a stop reason (C2.8e).
+        match &outcome {
+            Ok(completion) => {
+                let stop = stop_name(completion.stop_reason);
+                tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, stop_reason = stop, "phase=model_answer elapsed_ms={} stop_reason={}", watch, stop);
+            }
+            Err(failure) => {
+                let ended =
+                    if matches!(failure, Response::Interrupted) { "interrupted" } else { "error" };
+                tracing::debug!(parent: &span, phase = "model_answer", elapsed_ms = %watch, outcome = ended, "phase=model_answer elapsed_ms={} outcome={}", watch, ended);
+            }
+        }
         let failure = match outcome {
             Ok(completion) => {
                 if let Some(usage) = completion.usage {
+                    log_usage(&span, gap_ms, &usage);
                     self.usage = Some(self.usage.unwrap_or_default() + usage);
                     self.call_usage = Some(usage);
                 }
@@ -187,6 +212,27 @@ impl Turn {
     }
 }
 
+/// Writes the usage line of one model call (DV12): numbers only, never text.
+fn log_usage(span: &tracing::Span, gap_ms: Option<u64>, usage: &efr_provider::TokenUsage) {
+    let gap = gap_ms.map_or_else(|| "none".to_owned(), |gap| gap.to_string());
+    tracing::debug!(
+        target: USAGE_TARGET,
+        parent: span,
+        gap_ms,
+        input = usage.input_tokens,
+        output = usage.output_tokens,
+        read = usage.cached_input_tokens,
+        write = usage.cache_write_tokens,
+        write_1h = usage.cache_write_1h_tokens,
+        "usage gap_ms={gap} input={} output={} read={} write={} write_1h={}",
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cached_input_tokens,
+        usage.cache_write_tokens,
+        usage.cache_write_1h_tokens,
+    );
+}
+
 /// The provider's stop reason as the log names it, such as `max_tokens`.
 fn stop_name(stop: StopReason) -> &'static str {
     match stop {
@@ -199,3 +245,6 @@ fn stop_name(stop: StopReason) -> &'static str {
         _ => "other",
     }
 }
+
+#[cfg(test)]
+mod tests;
