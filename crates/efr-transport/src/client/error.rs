@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use efr_protocol::{ErrorBody, ProtocolError, RequestId};
 
-/// Every way an `efr-client` operation can fail.
+/// Every way an operation of the client can fail.
 ///
 /// Variants carry the data a caller acts on (the socket, the versions, the daemon's
 /// error body). The message names what failed in one sentence and leaves the source's

@@ -1018,7 +1018,7 @@ Tier 4: a binary, the composition root.
 
 ## Allowed dependencies
 
-Every library crate except `efr-client` and the test crates: `efr-stdx`,
+Every library crate except the test crates: `efr-stdx`,
 `efr-protocol`, `efr-store`, `efr-credentials`, `efr-permissions`, `efr-scope`,
 `efr-holder`, `efr-http`, `efr-screen` (with its vt100 backend), `efr-provider`,
 `efr-screen-ghostty` (optional), `efr-pty` (optional), `efr-shell`, `efr-tools`,

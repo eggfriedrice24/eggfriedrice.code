@@ -1,8 +1,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use efr_client::ClientError;
 use efr_protocol::{ErrorBody, ErrorCode};
+use efr_transport::client::ClientError;
 use pretty_assertions::assert_eq;
 
 use super::{message, run};

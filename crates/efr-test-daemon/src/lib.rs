@@ -5,7 +5,7 @@
 //!   temporary runtime directory, vt100 screens, a `TestClock`, a seeded `TestRng`, an
 //!   in-memory (or file) store, the [`FakePtyHolder`] or the build's own PTY holder,
 //!   and a `ReplayProvider` or the real OpenAI provider against a [`ResponsesServer`].
-//!   It hands out `efr_client::Client`s and reads the event log back.
+//!   It hands out `efr_transport::client::Client`s and reads the event log back.
 //! - [`MessagesServer`]: a stand-in for Anthropic's Messages API and its model list,
 //!   for a daemon that runs the Anthropic provider.
 //! - [`FakeLauncher`]: a `/bin/sh` script in place of `efr-sbx`, which runs calls and
@@ -21,9 +21,10 @@
 //! linked it would hold two copies of the daemon's types.
 //!
 //! Allowed dependencies: `efr-daemon` (without its default features),
-//! `efr-test-support`, `efr-client` and `efr-protocol`. What does not belong here:
-//! assertions about one scenario (they live in the tests that replay it) and helpers
-//! that a leaf crate's tests need (those belong in `efr-test-support`).
+//! `efr-test-support`, `efr-transport` (its `client` module) and `efr-protocol`. What
+//! does not belong here: assertions about one scenario (they live in the tests that
+//! replay it) and helpers that a leaf crate's tests need (those belong in
+//! `efr-test-support`).
 
 mod error;
 mod fake_launcher;
@@ -32,8 +33,8 @@ mod replay;
 mod test_daemon;
 
 // NOTE: the client types are part of this crate's API (a test daemon hands out
-// clients), so its users need no efr-client edge of their own.
-pub use efr_client::{Client, ClientError, ConnectOptions, ItemStream};
+// clients), so its users need no efr-transport edge of their own.
+pub use efr_transport::client::{Client, ClientError, ConnectOptions, ItemStream};
 pub use error::TestDaemonError;
 pub use fake_launcher::FakeLauncher;
 pub use pty_script::{

@@ -12,7 +12,7 @@ use efr_protocol::framing::{self, Decoder as FrameDecoder};
 use efr_protocol::{ClientFrame, ProtocolError, ServerFrame};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::ClientError;
+use crate::client::ClientError;
 
 /// Encodes client frames and decodes server frames on a byte stream.
 ///

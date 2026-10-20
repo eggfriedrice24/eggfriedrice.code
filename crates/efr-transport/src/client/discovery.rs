@@ -21,7 +21,7 @@ use efr_protocol::{DaemonId, PROTOCOL_VERSION};
 use efr_stdx::paths::Dirs;
 use serde::{Deserialize, Serialize};
 
-use crate::ClientError;
+use crate::client::ClientError;
 
 /// The contents of `daemon.json`: `{pid, socket, protocol, daemon_id, tailnet_endpoint?}`.
 ///

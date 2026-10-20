@@ -13,10 +13,10 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use efr_client::ClientError;
 use efr_config::FileState;
 use efr_protocol::{DaemonRoots, RootDir, RootSource, SandboxPaths, SandboxStatus};
 use efr_stdx::paths::{RootSource as LocalSource, RootSources};
+use efr_transport::client::ClientError;
 use serde_json::{Value, json};
 
 use crate::cli::PathsArgs;

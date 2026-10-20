@@ -3,7 +3,7 @@
 //! A frame is a 4-byte big-endian payload length followed by the payload, one JSON
 //! object of at most [`MAX_FRAME_LEN`] bytes. The prefix is fixed-width rather than a
 //! varint so that `socat` and `jq` can read a captured stream. Nothing here does IO:
-//! `efr-transport` and `efr-client` wrap [`encode`] and [`Decoder`] in a tokio codec,
+//! both sides of `efr-transport` wrap [`encode`] and [`Decoder`] in a tokio codec,
 //! and this module is the only place a change of encoding would touch.
 //!
 //! ```

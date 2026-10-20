@@ -17,8 +17,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use efr_client::ClientError;
 use efr_config::{AllowRule, ConfigError, ConfigFile, Settings};
+use efr_transport::client::ClientError;
 
 use crate::commands::config::{self, config_path};
 use crate::commands::undo;

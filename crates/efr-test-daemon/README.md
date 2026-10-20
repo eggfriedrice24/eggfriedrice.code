@@ -18,7 +18,7 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `ANTHROPIC_API_KEY` stored as its credential; the daemon has no model list until it
   fetches the one of `set_models`); without one, every model call fails, so no test
   reaches the network by accident. The daemon serves in a task of its
-  own. The test gets `efr_client::Client`s (`client`, `client_for_tty`, `connect`),
+  own. The test gets `efr_transport::client::Client`s (`client`, `client_for_tty`, `connect`),
   moves time through `clock()`, reads a conversation's log with `events` (paging
   `conversation.history`), and calls `stop` or `restart` (the same tree, clock, holder
   and provider; a new generator seed so ids never collide). For the `auto` sandbox,
@@ -125,8 +125,8 @@ Tier T. Kind `dev`, `publish = false`: only the `tests/` targets of `efr-daemon`
 
 `efr-daemon` (without its default `local-pty` feature, with `test-sandbox-fake` for the
 sandbox's test seams), `efr-test-support`,
-`efr-client` and `efr-protocol`. `xtask/src/deps.rs` holds the allowlist. The holder
-types come through `efr-daemon`'s re-exports, so this crate needs no `efr-holder` edge.
+`efr-transport` (its `client` module) and `efr-protocol`. `xtask/src/deps.rs` holds the
+allowlist. The holder types come through `efr-daemon`'s re-exports, so this crate needs no `efr-holder` edge.
 
 Third-party crates: `tokio`, `tokio-util` (the daemon's shutdown token), `futures`,
 `async-trait` (the holder trait), `serde_json`, `jiff` (the time zone), `wiremock`

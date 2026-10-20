@@ -52,7 +52,7 @@ pub(crate) async fn run(
 
 /// Why the daemon's sandbox is not available; `None` when it is, when the daemon does
 /// not report it, or when it cannot be asked.
-async fn sandbox_unavailable(client: &efr_client::Client) -> Option<String> {
+async fn sandbox_unavailable(client: &efr_transport::client::Client) -> Option<String> {
     let status = match client.call::<AdminStatusResult>(Method::AdminStatus(AdminStatus {})).await {
         Ok(status) => status,
         Err(error) => {

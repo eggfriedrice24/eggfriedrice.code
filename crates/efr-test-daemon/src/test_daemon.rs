@@ -7,7 +7,7 @@
 //! facts, the [`FakePtyHolder`] (or the build's own `LocalPtyHolder` on request), and a
 //! [`ReplayProvider`] (or the real OpenAI provider against a [`ResponsesServer`]).
 //! The daemon serves in a task of its own; the test talks to it through
-//! `efr_client::Client`, moves time with [`TestDaemon::clock`] and reads the event log
+//! `efr_transport::client::Client`, moves time with [`TestDaemon::clock`] and reads the event log
 //! with [`TestDaemon::events`].
 //!
 //! Without a provider, the daemon gets a replay provider with an empty transcript, so a
@@ -28,7 +28,6 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_client::{Client, ConnectOptions, ItemStream};
 use efr_daemon::{
     DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice, Settings,
     Source,
@@ -39,6 +38,7 @@ use efr_protocol::{
     NetworkMode, Origin, PromptSend, SandboxStatus, Seq, ShellContext, TurnSettings,
 };
 use efr_test_support::{Redactor, ReplayProvider, TestClock, TestDirs, TestRng, Transcript};
+use efr_transport::client::{Client, ConnectOptions, ItemStream};
 use futures::StreamExt as _;
 use jiff::tz::TimeZone;
 use tokio::task::JoinHandle;

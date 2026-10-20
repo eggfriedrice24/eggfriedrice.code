@@ -19,13 +19,13 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
-use efr_client::Client;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin,
     PageCursor, Seq, TurnId, TurnUndoInfo, Verdict,
 };
 use efr_render::{RenderOptions, render, render_trace};
+use efr_transport::client::Client;
 
 use crate::cli::HistoryArgs;
 use crate::context::Context;

@@ -5,7 +5,7 @@
 `efr`, the command-line relay to the daemon. The zsh plugin
 (`shell/zsh/efr.plugin.zsh`) runs it for every `,` line; people run it for status,
 history, login and settings. It parses arguments, calls the daemon over the Unix
-socket through `efr-client`, and prints. The daemon decides everything; `efr` keeps no
+socket through `efr_transport::client`, and prints. The daemon decides everything; `efr` keeps no
 state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
@@ -727,7 +727,7 @@ bytes, allocated once at that size, never in `Debug`, and zeroed when it is clea
 sent or dropped; a hidden one never reaches the view, a log or a note. The copies of a
 typed answer that are zeroed: the line (with the bytes that Backspace removed, at the
 next clear, send or drop), the `SecretText` it becomes, and the encoded request frame
-once it is written (`efr-client`). The copies that are not: each key's byte in the key
+once it is written (`efr_transport::client`). The copies that are not: each key's byte in the key
 thread's one-byte read buffer and in the key queue, the pieces of the frame that the
 JSON encoder's growing buffer leaves in freed memory, and the frame's copy in the
 connection's write buffer, until later frames overwrite it or the connection ends. When
@@ -833,8 +833,8 @@ Tier 4: a binary.
 
 ## Allowed dependencies
 
-`efr-client` (the protocol client), `efr-config` (`config.toml`), `efr-render`
-(markdown to ANSI), `efr-protocol` (the wire types) and `efr-stdx` (paths, `Clock`, `Rng`, `EFR_*` variables, named
+`efr-transport` (its `client` module, the protocol client), `efr-config`
+(`config.toml`), `efr-render` (markdown to ANSI), `efr-protocol` (the wire types) and `efr-stdx` (paths, `Clock`, `Rng`, `EFR_*` variables, named
 threads, `process::command`). `xtask/src/deps.rs` holds the allowlist. Not
 `efr-transport`, not even in tests: the fake daemon of the tests speaks
 `efr_protocol::framing` directly. Tests also use `efr-test-support` (a dev-dependency)

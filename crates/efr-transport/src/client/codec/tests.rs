@@ -1,17 +1,17 @@
+use crate::ServerCodec;
 use bytes::BytesMut;
 use efr_protocol::framing::{self, MAX_FRAME_LEN};
 use efr_protocol::{
     ClientFrame, ConversationsList, ErrorBody, ErrorCode, Method, ProtocolError, RequestId,
     ServerFrame,
 };
-use efr_transport::ServerCodec;
 use pretty_assertions::assert_eq;
 use proptest::prelude::{any, prop, prop_assert_eq, proptest};
 use serde_json::json;
 use tokio_util::codec::{Decoder as _, Encoder as _};
 
 use super::ClientCodec;
-use crate::ClientError;
+use crate::client::ClientError;
 
 fn server_frames() -> Vec<ServerFrame> {
     vec![

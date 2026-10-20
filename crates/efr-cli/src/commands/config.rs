@@ -26,7 +26,6 @@ use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use efr_client::{ClientError, Discovered};
 use efr_config::{AUTO_THEME, CONFIG_FILE, ConfigError, ConfigFile, Edit, Entry, FileState};
 use efr_protocol::{
     AdminConfigReload, AdminConfigReloadResult, AdminStatus, AdminStatusResult, ModelsList,
@@ -35,6 +34,7 @@ use efr_protocol::{
 use efr_protocol::{Method, Origin};
 use efr_render::{ColourMode, Theme};
 use efr_stdx::env::Var;
+use efr_transport::client::{ClientError, Discovered};
 
 use crate::cli::ConfigCommand;
 use crate::commands::login::KeyProvider;
@@ -106,7 +106,12 @@ impl View {
             }
             Err(error) => Err(format!("the daemon could not be asked: {error}")),
         };
-        View { discovered: efr_client::discover(&ctx.dirs).await, file, file_state, daemon }
+        View {
+            discovered: efr_transport::client::discover(&ctx.dirs).await,
+            file,
+            file_state,
+            daemon,
+        }
     }
 }
 

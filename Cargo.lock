@@ -704,13 +704,13 @@ version = "0.0.3"
 dependencies = [
  "assert_cmd",
  "clap",
- "efr-client",
  "efr-config",
  "efr-protocol",
  "efr-render",
  "efr-stdx",
  "efr-test-daemon",
  "efr-test-support",
+ "efr-transport",
  "futures",
  "insta",
  "jiff",
@@ -728,27 +728,6 @@ dependencies = [
  "tracing-subscriber",
  "unicode-segmentation",
  "unicode-width",
- "zeroize",
-]
-
-[[package]]
-name = "efr-client"
-version = "0.0.3"
-dependencies = [
- "bytes",
- "efr-protocol",
- "efr-stdx",
- "efr-transport",
- "futures",
- "jiff",
- "pretty_assertions",
- "proptest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
  "zeroize",
 ]
 
@@ -1237,10 +1216,10 @@ name = "efr-test-daemon"
 version = "0.0.3"
 dependencies = [
  "async-trait",
- "efr-client",
  "efr-daemon",
  "efr-protocol",
  "efr-test-support",
+ "efr-transport",
  "futures",
  "jiff",
  "pretty_assertions",

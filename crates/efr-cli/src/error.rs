@@ -2,11 +2,11 @@
 
 use std::io;
 
-use efr_client::ClientError;
 use efr_config::ConfigError;
 use efr_protocol::{ErrorBody, ErrorCode, Mode};
 use efr_stdx::StdxError;
 use efr_stdx::env::Var;
+use efr_transport::client::ClientError;
 
 use crate::turn_settings::SettingSource;
 
