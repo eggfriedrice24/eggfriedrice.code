@@ -620,11 +620,9 @@ async fn shell_writes_into_efrs_config_are_denied_through_links_too() {
                 (Effect::Allow, Mode::Manual) => Effect::Ask,
                 // NOTE: auto runs every line in its sandbox.
                 (Effect::Allow, Mode::Auto) => Effect::Contain,
-                // NOTE: full mode keeps no built-in question. The floor of a shell line
-                // reads the paths that the line names; a link that the same line makes
-                // is not resolved, so only auto's sandbox stops such a write (a limit
-                // of full mode, docs/permissions.md, "Full mode").
-                (Effect::Ask, Mode::Full) => Effect::Allow,
+                // NOTE: a link that the same line makes is not resolved, so a later
+                // path below it may be anywhere; in full mode such a write asks because
+                // efr's config may lie below it, as in `cautious`.
                 _ => expected,
             };
             assert_eq!(effect, expected, "{command:?} in {mode}");
