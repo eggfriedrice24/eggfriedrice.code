@@ -321,9 +321,10 @@ clippy:
 deny:
     cargo deny check
 
-# The file rules of CONVENTIONS.md.
+# The file rules of CONVENTIONS.md, then the generated config docs, as CI's tidy job.
 tidy:
     cargo xtask tidy
+    cargo xtask config-docs --check
 
 # The dependency rule of ARCHITECTURE.md.
 deps:
