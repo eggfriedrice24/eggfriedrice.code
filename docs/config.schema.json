@@ -413,6 +413,20 @@
         }
       ]
     },
+    "ContextSettings": {
+      "additionalProperties": false,
+      "description": "`[context]`: the facts of your terminal that a prompt carries to the model. Every\nkey applies from the next prompt.",
+      "properties": {
+        "recent_commands": {
+          "default": 8,
+          "description": "How many of the terminal's recent commands a prompt shows the model, from 0 to\n10; 0 shows none. Each one comes with its exit status, its directory when that\nis not the current one, and how long ago it ended. The zsh plugin keeps the last\n10 command lines of each terminal. It does not keep a `,` line, an `efr` command\nor a line that starts with a space.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "ConversationSettings": {
       "additionalProperties": false,
       "description": "`[conversation]`: queues, approvals, streaming and terminals.",
@@ -1694,6 +1708,13 @@
         "auto_at": 76
       },
       "description": "When efrd compacts a conversation's context on its own."
+    },
+    "context": {
+      "$ref": "#/$defs/ContextSettings",
+      "default": {
+        "recent_commands": 8
+      },
+      "description": "What a prompt tells the model about your terminal: its recent commands."
     },
     "conversation": {
       "$ref": "#/$defs/ConversationSettings",

@@ -12,10 +12,10 @@ use serde::de::{self, DeserializeOwned, Deserializer, Visitor};
 use serde_json::Value as Json;
 
 use crate::{
-    AnthropicSettings, ClassifierSettings, CompactionSettings, ConversationSettings, DbusSettings,
-    DiffColors, JobsSettings, ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings,
-    PresenceSettings, RenderColors, RenderSettings, SandboxSettings, Settings, ShellSettings,
-    SnapshotSettings, UndoSettings,
+    AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
+    ConversationSettings, DbusSettings, DiffColors, JobsSettings, ModelSettings, NetworkSettings,
+    OpenAiSettings, PermissionSettings, PresenceSettings, RenderColors, RenderSettings,
+    SandboxSettings, Settings, ShellSettings, SnapshotSettings, UndoSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -107,6 +107,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "permissions" => fields::<PermissionSettings>(),
         "shell" => fields::<ShellSettings>(),
         "conversation" => fields::<ConversationSettings>(),
+        "context" => fields::<ContextSettings>(),
         "compaction" => fields::<CompactionSettings>(),
         "sandbox" => fields::<SandboxSettings>(),
         "network" => fields::<NetworkSettings>(),

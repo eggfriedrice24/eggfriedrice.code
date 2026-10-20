@@ -13,10 +13,10 @@ use crate::keys::{self, Kind};
 use crate::location::{key_at, location, span_of, span_of_entry, span_of_rule};
 use crate::validate::{self, BadEntry, Invalid};
 use crate::{
-    AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ConversationSettings,
-    DEFAULT_LOG, DbusSettings, JobsSettings, Location, ModelSettings, NetworkSettings,
-    OpenAiSettings, PermissionSettings, PresenceSettings, RenderSettings, SandboxSettings,
-    ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
+    AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ContextSettings,
+    ConversationSettings, DEFAULT_LOG, DbusSettings, JobsSettings, Location, ModelSettings,
+    NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RenderSettings,
+    SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -54,6 +54,8 @@ pub struct Settings {
     pub shell: ShellSettings,
     /// Queues, approvals, streaming and terminals.
     pub conversation: ConversationSettings,
+    /// What a prompt tells the model about your terminal: its recent commands.
+    pub context: ContextSettings,
     /// When efrd compacts a conversation's context on its own.
     pub compaction: CompactionSettings,
     /// The kernel sandbox of the `auto` mode.
@@ -92,6 +94,7 @@ impl Default for Settings {
             permissions: PermissionSettings::default(),
             shell: ShellSettings::default(),
             conversation: ConversationSettings::default(),
+            context: ContextSettings::default(),
             compaction: CompactionSettings::default(),
             sandbox: SandboxSettings::default(),
             network: NetworkSettings::default(),

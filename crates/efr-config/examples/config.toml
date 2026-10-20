@@ -169,6 +169,14 @@
 # conversation, up to a year; 0 continues the old one forever.
 # tty_idle_hours = 12
 
+[context]
+# How many of the terminal's recent commands a prompt shows the model, from 0 to 10;
+# 0 shows none. Each one comes with its exit status, its directory when that is not
+# the current one, and how long ago it ended. The zsh plugin keeps the last 10 command
+# lines of each terminal. It does not keep a , line, an efr command or a line that
+# starts with a space.
+# recent_commands = 8
+
 [compaction]
 # true compacts a conversation's context on its own when it reaches auto_at, before a
 # model call, and the turn goes on. false compacts only when you run ,compact (efr

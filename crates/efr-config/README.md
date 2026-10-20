@@ -86,6 +86,9 @@ Modules:
   `model` (unset: the small model of the turn's provider), `fallback_to_turn_model`,
   `effort` (one lowercase word, `DEFAULT_CLASSIFIER_EFFORT` `low`) and `timeout_secs`
   (1 to 300, per step of the chain). Only a turn of the daemon reads them.
+- `tables/context`: `[context]` (`ContextSettings`): `recent_commands` (0 to 10,
+  default 8; 0 shows none), how many of the terminal's recent commands from the zsh
+  plugin the preamble of a prompt shows. A live key.
 - `tables/presence`: `[presence]` (`PresenceSettings`): `away_after_minutes` (1 to
   1440; no input for so long counts a person away from a conversation),
   `away_wait_secs` (1 to 86400; how long a question waits then) and `push` (no phone
