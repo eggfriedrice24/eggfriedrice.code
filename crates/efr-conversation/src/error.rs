@@ -135,6 +135,18 @@ pub enum ConversationError {
         call_id: CallId,
     },
 
+    /// A steer from a surface that never runs full mode, such as the phone, while the
+    /// running turn runs in full mode: the turn does not read it. With `if_late`, the
+    /// steer queues as a prompt of its own instead.
+    #[error(
+        "a steer from {origin:?} cannot go into a turn that runs in full mode; send it as \
+         a prompt of its own"
+    )]
+    RemoteFullSteer {
+        /// The surface that steered.
+        origin: Origin,
+    },
+
     /// An `a` (always) answer saves a standing rule, so only the user's own machine
     /// gives it (phase E): an answer from a phone leaves the question open.
     #[error(

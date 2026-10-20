@@ -26,7 +26,7 @@ into the GitHub release notes, and it stops when the section is missing.
   and the files that efr saw. A script or a program that a line starts is not read: it
   can do what you can, also answer efr's questions. A phone turn, a turn that a job
   notice starts, an efrd that runs as root and a hidden shell that is no zsh never run
-  in full mode. When you turn full mode off while a full turn runs, its next call does
+  in full mode, and a steer from the phone never goes into a running full turn. When you turn full mode off while a full turn runs, its next call does
   not run and the turn stops. Full mode offers no protection against prompt injection
   or a mistake in a script.
 - In `auto`, a reviewer model now decides most actions that leave the sandbox, so you

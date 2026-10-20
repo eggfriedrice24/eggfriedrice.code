@@ -563,7 +563,9 @@ full turn left behind can turn the gate on again after you turned it off.
 
 ### Where full mode never runs
 
-- A turn from the phone runs with at most `cautious`, with no error.
+- A turn from the phone runs with at most `cautious`, with no error. A steer from the
+  phone never goes into a running full turn: it fails, or it waits as a prompt of its
+  own that runs with at most `cautious`.
 - A turn that a job notice starts runs with at most `auto` (as `cautious` when the
   sandbox cannot run), and records the fallback `a turn that a job notice starts runs
   with at most auto`.

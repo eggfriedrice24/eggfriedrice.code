@@ -51,7 +51,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use efr_permissions::{
@@ -220,11 +220,17 @@ impl fmt::Debug for TurnSpec {
 pub(crate) struct Control {
     pub(crate) interrupt: Interrupt,
     pub(crate) steering: Steering,
+    /// The mode that the turn resolved when it started; empty until then.
+    pub(crate) mode: Arc<OnceLock<Mode>>,
 }
 
 impl Control {
     pub(crate) fn new() -> Self {
-        Control { interrupt: Interrupt::new(), steering: Steering::default() }
+        Control {
+            interrupt: Interrupt::new(),
+            steering: Steering::default(),
+            mode: Arc::new(OnceLock::new()),
+        }
     }
 }
 
@@ -543,6 +549,8 @@ impl Turn {
                 Err(error) => return Ok(Ending::Failed(settings::failure(&error))),
             };
         self.settings = Some(settings.clone());
+        // NOTE: the actor reads it to keep a phone's steer out of a full turn.
+        let _ = self.control.mode.set(settings.mode);
         self.meter = Meter::new(context::context_base(&snapshot.page, &settings.model));
         self.user_messages = if self.spec.is_wake() {
             exit::wake_user_messages(&snapshot.user_events, &exit::waiting_turns(&snapshot.turns))

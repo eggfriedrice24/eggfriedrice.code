@@ -839,7 +839,8 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         | ConversationError::NoQueuedPrompt { .. } => ErrorCode::NotFound,
         ConversationError::RemoteSurfaceAnswer { .. }
         | ConversationError::RemotePrivilegeAnswer { .. }
-        | ConversationError::RemoteAlwaysAnswer { .. } => ErrorCode::Forbidden,
+        | ConversationError::RemoteAlwaysAnswer { .. }
+        | ConversationError::RemoteFullSteer { .. } => ErrorCode::Forbidden,
         ConversationError::NoAlwaysOffer { .. } => ErrorCode::Invalid,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. }
