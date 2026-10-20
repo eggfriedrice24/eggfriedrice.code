@@ -338,11 +338,18 @@ fn a_daemon_with_its_own_provider_never_fetches_the_catalog() {
 fn a_model_name_of_another_company_is_warned_about_and_one_of_its_own_is_not() {
     let mut config = Settings::default();
     config.model.name = Some("claude-opus-5-5".to_owned());
-    assert!(warn_foreign_model(&config));
+    assert_eq!(
+        warn_foreign_model(&config).as_deref(),
+        Some(
+            "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
+             openai-subscription, so every turn that does not name its own model fails; set \
+             [model] name to a model of openai-subscription, or remove it"
+        )
+    );
 
     config.model.provider = ANTHROPIC.to_owned();
-    assert!(!warn_foreign_model(&config));
-    assert!(!warn_foreign_model(&Settings::default()), "no name, nothing to warn about");
+    assert_eq!(warn_foreign_model(&config), None);
+    assert_eq!(warn_foreign_model(&Settings::default()), None, "no name, nothing to warn about");
 }
 
 #[test]

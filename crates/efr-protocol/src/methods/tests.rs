@@ -258,7 +258,12 @@ fn a_model_needs_an_id_and_a_known_source() {
 
 #[test]
 fn a_reload_that_applied_is_one_flag() {
-    let result = AdminConfigReloadResult { applied: true, error: None, restart_needed: Vec::new() };
+    let result = AdminConfigReloadResult {
+        applied: true,
+        error: None,
+        restart_needed: Vec::new(),
+        warnings: Vec::new(),
+    };
     let value = serde_json::to_value(&result).unwrap();
     assert_eq!(value, json!({ "applied": true }));
     let back: AdminConfigReloadResult = serde_json::from_value(value).unwrap();
@@ -271,6 +276,7 @@ fn a_reload_names_the_keys_that_wait_for_a_restart() {
         applied: true,
         error: None,
         restart_needed: vec!["screen".to_owned(), "model.provider".to_owned()],
+        warnings: Vec::new(),
     };
     assert_eq!(
         serde_json::to_value(&result).unwrap(),

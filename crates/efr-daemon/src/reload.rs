@@ -21,7 +21,14 @@
 //! - the log filter.
 //!
 //! A reloaded `[model] name` of another company than the running `[model] provider`
-//! gets a warning in the log, as at the start.
+//! gets a warning in the log, as at the start, but only when the reload changed it: a
+//! reload of the same file warns no more (C3.1).
+//!
+//! The reply to a reload carries its warnings (DV44), so `efr config reload` shows what
+//! went only to the log before: the foreign `[model] name` above, each always rule that
+//! a floor now disables, and a bus filter that the reload turned off. Each comes once,
+//! from the reload that changed it. A change that the config hold keeps back is the
+//! reply's `error`, as before, and is no warning.
 //!
 //! The config hold (full mode, DF17): a command of a full turn runs as the user, so it
 //! can write `config.toml`. While full work runs ([`crate::full::FullTurns`]), a reload
@@ -65,8 +72,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use efr_config::{CONFIG_FILE, ConfigError, FileState, Reloaded, Settings};
 use efr_permissions::{Egress, Engine};
 use efr_protocol::{
-    AdminConfigReloadResult, ConfigFileError, ConfigStatus, HeldConfig, Mode, NetworkMode,
-    SandboxStatus,
+    AdminConfigReloadResult, BusProxyOff, ConfigFileError, ConfigStatus, HeldConfig, Mode,
+    NetworkMode, SandboxStatus,
 };
 use jiff::SignedDuration;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -188,11 +195,12 @@ pub(crate) fn held_text(held: &HeldConfig) -> String {
 
 /// What [`apply`] did.
 enum Applied {
-    /// The new settings apply; the keys that wait for a restart.
-    Done(Vec<String>),
-    /// The config hold kept the old settings: the keys that loosen, and whether it
-    /// refused the user's own reload ([`Hold::Refuse`]).
-    Held { loosens: Vec<&'static str>, refused: bool },
+    /// The new settings apply; the keys that wait for a restart, and the warnings of
+    /// the reload.
+    Done { restart_needed: Vec<String>, warnings: Vec<String> },
+    /// The config hold kept the old settings: the keys that loosen, whether it refused
+    /// the user's own reload ([`Hold::Refuse`]), and the warnings of what still applied.
+    Held { loosens: Vec<&'static str>, refused: bool, warnings: Vec<String> },
 }
 
 impl Reloads {
@@ -402,12 +410,12 @@ async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadRe
     };
     let previous = state.reloads.last();
     let (now, result) = match outcome {
-        Ok(Applied::Done(restart_needed)) => {
+        Ok(Applied::Done { restart_needed, warnings }) => {
             tracing::info!(restart_needed = ?restart_needed, "config reloaded");
             let now = Outcome { error: None, restart_needed: restart_needed.clone(), held: None };
-            (now, AdminConfigReloadResult { applied: true, error: None, restart_needed })
+            (now, AdminConfigReloadResult { applied: true, error: None, restart_needed, warnings })
         }
-        Ok(Applied::Held { loosens, refused }) => {
+        Ok(Applied::Held { loosens, refused, warnings }) => {
             let held =
                 HeldConfig { loosens: loosens.iter().map(|key| (*key).to_owned()).collect() };
             if previous.held.as_ref() != Some(&held) {
@@ -419,7 +427,13 @@ async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadRe
             // NOTE: the file loads, so no error stays; the change waits as held.
             let now =
                 Outcome { error: None, restart_needed: restart_needed.clone(), held: Some(held) };
-            (now, AdminConfigReloadResult { applied: false, error: Some(error), restart_needed })
+            let result = AdminConfigReloadResult {
+                applied: false,
+                error: Some(error),
+                restart_needed,
+                warnings,
+            };
+            (now, result)
         }
         Err(error) => {
             tracing::warn!(error = %error.message, "config.toml has an error; the old settings stay");
@@ -429,7 +443,13 @@ async fn reload_now(state: &State, trigger: &'static str) -> AdminConfigReloadRe
                 restart_needed: restart_needed.clone(),
                 held: previous.held.clone(),
             };
-            (now, AdminConfigReloadResult { applied: false, error: Some(error), restart_needed })
+            let result = AdminConfigReloadResult {
+                applied: false,
+                error: Some(error),
+                restart_needed,
+                warnings: Vec::new(),
+            };
+            (now, result)
         }
     };
     *state.reloads.lock() = now.clone();
@@ -487,7 +507,7 @@ async fn read(state: &State) -> Result<Settings, ConfigError> {
 /// Lays `next` over the running settings and hands each applier its new value, unless
 /// the config hold keeps it back for a reload of `trigger`; a held reload still applies
 /// what turns full mode off or down ([`full_lowered`]). Returns the keys that wait for a
-/// restart, or what the hold kept, or why nothing was applied.
+/// restart and the warnings, or what the hold kept, or why nothing was applied.
 async fn apply(
     state: &State,
     next: Settings,
@@ -502,9 +522,9 @@ async fn apply(
     let loosening = crate::loosens::loosening(&running, &settings);
     let (loosens, refused) = match hold(trigger, loosening, state.full.running(), held) {
         Hold::Apply => {
-            install(state, &running, settings).await?;
+            let warnings = install(state, &running, settings).await?;
             follow_full_gate(state);
-            return Ok(Applied::Done(restart_needed));
+            return Ok(Applied::Done { restart_needed, warnings });
         }
         Hold::Keep(loosens) => (loosens, false),
         Hold::Refuse(loosens) => (loosens, true),
@@ -512,11 +532,12 @@ async fn apply(
     // NOTE: the hold keeps back what loosens, never a change that turns full mode off or
     // down, so the user can always stop a full turn from the file (DF16).
     let lowered = full_lowered(&running, &settings);
+    let mut warnings = Vec::new();
     if lowered != *running {
-        install(state, &running, lowered).await?;
+        warnings = install(state, &running, lowered).await?;
         follow_full_gate(state);
     }
-    Ok(Applied::Held { loosens, refused })
+    Ok(Applied::Held { loosens, refused, warnings })
 }
 
 /// The step after [`install`]: marks full mode off in the count of full work when the
@@ -566,13 +587,14 @@ fn full_lowered(running: &Settings, next: &Settings) -> Settings {
     lowered
 }
 
-/// Hands each applier its value of `settings`, which replace `running`. Everything that
-/// can fail runs before the first send, so a refused file changes nothing.
+/// Hands each applier its value of `settings`, which replace `running`, and returns the
+/// warnings of the change for the reply (DV44). Everything that can fail runs before the
+/// first send, so a refused file changes nothing.
 async fn install(
     state: &State,
     running: &Settings,
     settings: Settings,
-) -> Result<(), ConfigFileError> {
+) -> Result<Vec<String>, ConfigFileError> {
     if settings.log != running.log {
         crate::telemetry::parse(&settings.log).map_err(|error| refused(&error, Some("log")))?;
     }
@@ -619,8 +641,9 @@ async fn install(
         state.shells.set_trusted_programs(shells::trusted_programs(&cautious));
     }
     let probe_again = probes_again(running, &settings, &current, engine.as_ref());
+    let mut warnings = Vec::new();
     if let Some(engine) = engine {
-        crate::always::warn_disabled(&engine, Some(&current));
+        warnings.extend(crate::always::warn_disabled(&engine, Some(&current)));
         // NOTE: the list reaches every running listener at once (DP3); a running call
         // keeps its own grants.
         state.sandbox.proxy().set_hosts(engine.hosts());
@@ -641,7 +664,14 @@ async fn install(
         tracing::warn!(error = %error, "the log filter stays as it was");
     }
     // NOTE: `[model] provider` needs a restart, so the check is against the running one.
-    crate::providers::warn_foreign_model(&settings);
+    // A reload that left the foreign name as it was warns no more: a start that runs a
+    // reload, or one save that the watcher sees twice, logged it a second time (C3.1).
+    if settings.foreign_model() != running.foreign_model()
+        && let Some(warning) = crate::providers::warn_foreign_model(&settings)
+    {
+        warnings.push(warning);
+    }
+    warnings.extend(bus_warning(state, running, &settings));
     if running.permissions.mode != Mode::Full {
         crate::full::warn_default(&settings, state.runs_as_root);
     }
@@ -651,7 +681,27 @@ async fn install(
     if probe_again {
         state.sandbox.reprobe(Arc::clone(&state.settings.borrow()));
     }
-    Ok(())
+    Ok(warnings)
+}
+
+/// The warning of a bus filter that a reload from `running` to `next` turned off, as
+/// `efr sandbox check` words it: `dbus.proxy` went to false, or it went to true while
+/// the last bus check of this efrd found the filter off for a reason that warns
+/// (`bus::warns`). The check that a reload to true starts runs after the reply, so a
+/// filter that this efrd never checked has no warning here; its result goes to the log
+/// and to `efr status`.
+fn bus_warning(state: &State, running: &Settings, next: &Settings) -> Option<String> {
+    use crate::sandbox::bus;
+    match (running.dbus.proxy, next.dbus.proxy) {
+        (true, false) => Some(bus::off_warning(BusProxyOff::Config)),
+        (false, true) => state
+            .sandbox
+            .reported(next)
+            .bus_proxy_off
+            .filter(|off| *off != BusProxyOff::Config && bus::warns(next, *off))
+            .map(bus::off_warning),
+        _ => None,
+    }
 }
 
 /// True when a reload from `running` to `next` must run the sandbox probe again: the

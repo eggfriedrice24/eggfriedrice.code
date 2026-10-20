@@ -177,8 +177,12 @@ async fn sandbox_allow_remove_confirms_and_checks_the_entry() {
         let mut conn = daemon.accept().await;
         let (id, method) = conn.request().await;
         assert!(matches!(method, Method::AdminConfigReload(_)), "{}", method.name());
-        let reloaded =
-            AdminConfigReloadResult { applied: true, error: None, restart_needed: Vec::new() };
+        let reloaded = AdminConfigReloadResult {
+            applied: true,
+            error: None,
+            restart_needed: Vec::new(),
+            warnings: Vec::new(),
+        };
         conn.reply(id, &reloaded).await;
         conn.until_closed().await;
     };

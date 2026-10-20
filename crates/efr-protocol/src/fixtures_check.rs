@@ -1179,6 +1179,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     applied: false,
                     error: Some(config_file_error()),
                     restart_needed: vec!["screen".into()],
+                    warnings: Vec::new(),
                 },
             },
         ),
@@ -1191,6 +1192,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     applied: true,
                     error: None,
                     restart_needed: Vec::new(),
+                    warnings: Vec::new(),
                 },
             },
         ),
@@ -1385,6 +1387,9 @@ fn answer_fixtures() -> Vec<Fixture> {
                 applied: false,
                 error: Some(config_file_error()),
                 restart_needed: vec!["screen".into()],
+                warnings: vec![
+                    "sandbox.allow[0] is disabled: it names a git dir; it covers no call".into(),
+                ],
             },
         ),
         fixture(

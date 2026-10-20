@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/commands/config/tests.rs
+expression: stdout
+---
+config.toml reloaded; new turns use it
+restart efrd to apply: screen (systemctl --user restart efrd)
+warning: [model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is openai-subscription, so every turn that does not name its own model fails; set [model] name to a model of openai-subscription, or remove it
+warning: sandbox.allow[0] is disabled: it names a write root of every call; it covers no call

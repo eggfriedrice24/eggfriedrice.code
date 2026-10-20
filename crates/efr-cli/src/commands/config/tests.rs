@@ -404,6 +404,7 @@ async fn reload_prints_the_daemons_outcome_and_a_refused_file_exits_1() {
             applied: true,
             error: None,
             restart_needed: vec!["screen".to_owned()],
+            warnings: Vec::new(),
         },
         AdminConfigReloadResult {
             applied: false,
@@ -414,6 +415,7 @@ async fn reload_prints_the_daemons_outcome_and_a_refused_file_exits_1() {
                 key: None,
             }),
             restart_needed: vec![],
+            warnings: Vec::new(),
         },
     ];
     let script = async {
@@ -445,6 +447,39 @@ async fn reload_prints_the_daemons_outcome_and_a_refused_file_exits_1() {
 }
 
 #[tokio::test]
+async fn reload_prints_each_warning_of_the_daemon_as_a_dim_line() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let answer = AdminConfigReloadResult {
+        applied: true,
+        error: None,
+        restart_needed: vec!["screen".to_owned()],
+        warnings: vec![
+            "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
+             openai-subscription, so every turn that does not name its own model fails; set \
+             [model] name to a model of openai-subscription, or remove it"
+                .to_owned(),
+            "sandbox.allow[0] is disabled: it names a write root of every call; it covers no \
+             call"
+                .to_owned(),
+        ],
+    };
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::AdminConfigReload(_)), "{}", method.name());
+        conn.reply(id, &answer).await;
+        conn.until_closed().await;
+    };
+    let ((exit, stdout, stderr), ()) = tokio::join!(efr(&ctx, &["config", "reload"]), script);
+
+    assert_eq!(exit, Exit::Success, "warnings do not fail the reload");
+    assert_eq!(stderr, "");
+    insta::assert_snapshot!(stdout);
+}
+
+#[tokio::test]
 async fn a_held_reload_says_the_old_settings_stay_and_why_and_an_error_stays_an_error() {
     let env = TestEnv::new();
     let daemon = env.listen();
@@ -461,6 +496,7 @@ async fn a_held_reload_says_the_old_settings_stay_and_why_and_an_error_stays_an_
             key: None,
         }),
         restart_needed: vec![],
+        warnings: Vec::new(),
     };
     let mut held = config_status(PATH);
     held.held = Some(efr_protocol::HeldConfig { loosens: vec!["permissions.rules".to_owned()] });

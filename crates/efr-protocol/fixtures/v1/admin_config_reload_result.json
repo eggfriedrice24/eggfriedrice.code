@@ -8,5 +8,8 @@
   },
   "restart_needed": [
     "screen"
+  ],
+  "warnings": [
+    "sandbox.allow[0] is disabled: it names a git dir; it covers no call"
   ]
 }

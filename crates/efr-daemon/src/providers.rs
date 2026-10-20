@@ -413,12 +413,11 @@ pub(crate) fn login_command(provider: &str) -> &'static str {
 
 /// Warns when `[model] name` is a model of another company than `[model] provider`
 /// (`efr_config::ForeignModel`): every turn that does not name its own model then
-/// fails until the file is fixed. efrd calls it at start and after each reload. True
-/// when it warned.
-pub(crate) fn warn_foreign_model(config: &Settings) -> bool {
-    let Some(foreign) = config.foreign_model() else {
-        return false;
-    };
+/// fails until the file is fixed. efrd calls it at start, and after a reload that
+/// changed what it warns about (C3.1). Returns the warning for the user, as
+/// `efr config check` words it, when it warned.
+pub(crate) fn warn_foreign_model(config: &Settings) -> Option<String> {
+    let foreign = config.foreign_model()?;
     tracing::warn!(
         model = %foreign.name,
         company = foreign.company.name(),
@@ -426,7 +425,10 @@ pub(crate) fn warn_foreign_model(config: &Settings) -> bool {
         fix = %foreign.fix(),
         "model.name is a model of another company than model.provider, so a turn that does not name its own model fails"
     );
-    true
+    Some(format!(
+        "{foreign}, so every turn that does not name its own model fails; {}",
+        foreign.fix()
+    ))
 }
 
 /// Warns when the config's default model belongs to another company than the
@@ -434,7 +436,7 @@ pub(crate) fn warn_foreign_model(config: &Settings) -> bool {
 /// model takes: every prompt that leaves them to the config then fails until the file
 /// is fixed.
 fn warn_unfit_defaults(config: &Settings, models: &Models) {
-    let foreign = warn_foreign_model(config);
+    let foreign = warn_foreign_model(config).is_some();
     let list = models.effective(config);
     if list.is_empty() {
         return;

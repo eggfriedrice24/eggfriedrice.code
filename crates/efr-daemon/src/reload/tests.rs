@@ -106,6 +106,67 @@ async fn a_reloaded_model_name_of_another_company_is_warned_about() {
     assert!(line.contains("set [model] name to a model of openai-subscription"), "{line}");
 }
 
+/// The warning of `[model] name = "claude-opus-5-5"` under the default provider.
+const FOREIGN: &str = "[model] name claude-opus-5-5 is a model of Anthropic, but [model] \
+                       provider is openai-subscription, so every turn that does not name its \
+                       own model fails; set [model] name to a model of openai-subscription, or \
+                       remove it";
+
+#[tokio::test]
+async fn reload_reply_carries_the_foreign_model_warning() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+
+    std::fs::write(config_file(&dirs), "[model]\nname = \"claude-opus-5-5\"\n").unwrap();
+    let result = reload(&daemon.socket).await;
+
+    assert!(result.applied, "the file is valid; only its turns fail");
+    assert_eq!(result.warnings, [FOREIGN]);
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn unchanged_foreign_model_warns_once() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let foreign = "[model]\nname = \"claude-opus-5-5\"\n";
+    std::fs::write(config_file(&dirs), foreign).unwrap();
+
+    // The watcher can see one save twice, and a later save can change another key: only
+    // the reload that changed the name warns.
+    let mut warned = 0;
+    for text in [foreign, foreign, &format!("{foreign}effort = \"high\"\n")] {
+        std::fs::write(config_file(&dirs), text).unwrap();
+        let result = reload(&daemon.socket).await;
+        assert!(result.applied, "{result:?}");
+        warned += result.warnings.iter().filter(|warning| *warning == FOREIGN).count();
+    }
+    assert_eq!(warned, 1);
+
+    // A fixed name warns no more, and the same foreign name again warns once more.
+    std::fs::write(config_file(&dirs), "[model]\nname = \"gpt-5.4\"\n").unwrap();
+    assert_eq!(reload(&daemon.socket).await.warnings, Vec::<String>::new());
+    std::fs::write(config_file(&dirs), foreign).unwrap();
+    assert_eq!(reload(&daemon.socket).await.warnings, [FOREIGN]);
+    daemon.stop().await;
+}
+
+#[tokio::test]
+async fn reload_that_turns_the_bus_filter_off_warns_once() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let daemon = start(&dirs, &clock).await;
+    let off = "efr's bus filter is off: dbus.proxy is false; read-only system queries such as \
+               hostnamectl go to the reviewer";
+
+    std::fs::write(config_file(&dirs), "[dbus]\nproxy = false\n").unwrap();
+    assert_eq!(reload(&daemon.socket).await.warnings, [off]);
+    assert_eq!(reload(&daemon.socket).await.warnings, Vec::<String>::new(), "it stays off");
+    daemon.stop().await;
+}
+
 #[tokio::test]
 async fn a_valid_file_applies_to_the_settings_and_the_engine_follows_the_rules() {
     let dirs = TestDirs::new().unwrap();
@@ -119,7 +180,12 @@ async fn a_valid_file_applies_to_the_settings_and_the_engine_follows_the_rules()
 
     assert_eq!(
         result,
-        AdminConfigReloadResult { applied: true, error: None, restart_needed: vec![] }
+        AdminConfigReloadResult {
+            applied: true,
+            error: None,
+            restart_needed: vec![],
+            warnings: Vec::new()
+        }
     );
     let settings = Arc::clone(&daemon.settings.borrow());
     assert_eq!(settings.shell.idle_minutes, 5);
@@ -761,9 +827,16 @@ async fn stale_allow_rule_is_disabled_not_fatal() {
         registry.register(id, home.join("code").join(name), None).unwrap();
     }
     registry.save(&Registry::path_in(dirs.dirs().config())).unwrap();
-    assert!(reload(&daemon.socket).await.applied);
+    let result = reload(&daemon.socket).await;
+    assert!(result.applied);
     let stale = Some(AllowFloor::WriteRoot { root: home.join("code/site") });
     assert_eq!(marks(&daemon.engine.borrow()), [stale, None]);
+    assert!(
+        matches!(result.warnings.as_slice(), [only] if only.starts_with("sandbox.allow[0] is disabled")),
+        "the reply names the rule: {:?}",
+        result.warnings
+    );
+    assert_eq!(reload(&daemon.socket).await.warnings, Vec::<String>::new(), "it warns once");
     let sandbox = status(&daemon.socket).await.sandbox.unwrap();
     assert!(
         sandbox.warnings.iter().any(|warning| warning.starts_with("sandbox.allow[0] is disabled")),

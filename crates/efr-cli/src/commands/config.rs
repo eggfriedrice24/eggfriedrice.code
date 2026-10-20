@@ -20,7 +20,9 @@
 //!   the daemon to reload.
 //! - `set` and `unset` change one key through `efr-config`'s writer, which keeps
 //!   comments and layout and writes the file behind a link, then ask for a reload.
-//! - `schema` prints the JSON schema; `reload` asks the daemon to read the file now.
+//! - `schema` prints the JSON schema; `reload` asks the daemon to read the file now and
+//!   prints what the reload warns about, such as an always rule that a floor disables,
+//!   one dim line each. The commands that change the file print the same.
 
 use std::fmt::Write as _;
 use std::io;
@@ -42,6 +44,7 @@ use crate::context::{Context, DEFAULT_LOG_FILTER};
 use crate::error::CliError;
 use crate::format;
 use crate::keys::Key;
+use crate::live::effective_width;
 use crate::output::Output;
 use crate::settings::{self, Source};
 
@@ -67,7 +70,7 @@ pub(crate) async fn run(
         ConfigCommand::Schema => out.out(&efr_config::schema_text()),
         ConfigCommand::Reload => {
             let (result, held) = reload(ctx).await?;
-            report_reload(out, &result, held)
+            report_reload(ctx, out, &result, held)
         }
         ConfigCommand::Set { key, value } => change(ctx, out, key, Some(value)).await,
         ConfigCommand::Unset { key } => change(ctx, out, key, None).await,
@@ -564,7 +567,7 @@ async fn held_now(client: &efr_transport::client::Client) -> bool {
 /// not running reads the file when it starts.
 pub(crate) async fn reload_after_change(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
     match reload(ctx).await {
-        Ok((result, held)) => report_reload(out, &result, held),
+        Ok((result, held)) => report_reload(ctx, out, &result, held),
         Err(CliError::Client(ClientError::DaemonNotRunning { .. })) => {
             out.out("the daemon is not running; it reads the file when it starts\n")
         }
@@ -572,13 +575,16 @@ pub(crate) async fn reload_after_change(ctx: &Context, out: &mut Output) -> Resu
     }
 }
 
-/// The outcome of a reload; a refused or held file exits 1.
+/// The outcome of a reload, with its warnings as dim lines; a refused or held file
+/// exits 1.
 fn report_reload(
+    ctx: &Context,
     out: &mut Output,
     result: &AdminConfigReloadResult,
     held: bool,
 ) -> Result<(), CliError> {
-    out.out(&format::reloaded(result, held))?;
+    let options = ctx.render_options(effective_width(ctx.screen.size()));
+    out.out(&format::reloaded(result, held, &options))?;
     if result.applied { Ok(()) } else { Err(CliError::ConfigInvalid) }
 }
 

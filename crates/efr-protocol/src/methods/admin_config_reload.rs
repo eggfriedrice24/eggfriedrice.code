@@ -26,4 +26,12 @@ pub struct AdminConfigReloadResult {
     /// `screen`. The daemon keeps their old values until then.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub restart_needed: Vec<String>,
+    /// What the reload changed that the user should know, one sentence each, such as a
+    /// `[model] name` of another company than `[model] provider`, an always rule that a
+    /// floor disables, or a bus filter that is now off. Each warning comes once: a
+    /// reload that changes nothing of it warns no more. A change that the config hold
+    /// keeps back is in `error`, not here. Absent when there is none, and from an
+    /// earlier daemon.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }

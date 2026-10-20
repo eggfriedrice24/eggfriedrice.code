@@ -66,6 +66,7 @@ fn applied(mut requests: tokio::sync::mpsc::Receiver<Request>) {
                 applied: true,
                 error: None,
                 restart_needed: Vec::new(),
+                warnings: Vec::new(),
             });
         }
     });

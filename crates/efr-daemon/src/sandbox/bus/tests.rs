@@ -474,6 +474,7 @@ async fn reload_that_turns_dbus_proxy_on_runs_the_self_test_and_asks_for_the_eng
         applied: true,
         error: None,
         restart_needed: Vec::new(),
+        warnings: Vec::new(),
     });
     follower.stop().await;
 }
@@ -543,6 +544,7 @@ async fn status_keeps_the_bus_filter_on_during_a_reload() {
         applied: true,
         error: None,
         restart_needed: Vec::new(),
+        warnings: Vec::new(),
     });
     follower.stop().await;
     assert_eq!(state(fixture.service.reported(&on)), (true, None));

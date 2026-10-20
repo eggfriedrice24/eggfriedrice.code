@@ -1143,8 +1143,13 @@ pub(crate) fn config_error_place(error: &ConfigFileError) -> String {
 /// The outcome of a reload, for `efr config reload` and the commands that change the
 /// file. `held` is true when efrd did not apply a valid file because it loosens
 /// permissions while or after full mode ran: the error then says why, and the file has
-/// no error.
-pub(crate) fn reloaded(result: &AdminConfigReloadResult, held: bool) -> String {
+/// no error. Each warning of the reload follows as a dim line, such as `warning:
+/// sandbox.allow[0] is disabled: ...` (DV44).
+pub(crate) fn reloaded(
+    result: &AdminConfigReloadResult,
+    held: bool,
+    options: &RenderOptions,
+) -> String {
     let mut out = match (&result.error, result.applied) {
         (_, true) => "config.toml reloaded; new turns use it\n".to_owned(),
         (Some(error), false) if held => {
@@ -1161,6 +1166,10 @@ pub(crate) fn reloaded(result: &AdminConfigReloadResult, held: bool) -> String {
             "restart efrd to apply: {} (systemctl --user restart efrd)",
             one_line(&result.restart_needed.join(", "))
         );
+    }
+    for warning in &result.warnings {
+        let line = format!("warning: {}", one_line(warning));
+        let _ = writeln!(out, "{}", paint(&line, Tone::Dim, options));
     }
     out
 }

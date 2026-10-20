@@ -22,7 +22,12 @@ fn app() -> ProjectInfo {
 }
 
 fn applied() -> AdminConfigReloadResult {
-    AdminConfigReloadResult { applied: true, error: None, restart_needed: Vec::new() }
+    AdminConfigReloadResult {
+        applied: true,
+        error: None,
+        restart_needed: Vec::new(),
+        warnings: Vec::new(),
+    }
 }
 
 /// Runs `efr <args>` against a fake daemon that expects `expected` and answers with
@@ -131,6 +136,7 @@ async fn add_with_a_path_registers_it_against_the_current_directory_with_its_nam
                 key: None,
             }),
             restart_needed: Vec::new(),
+            warnings: Vec::new(),
         },
     };
 

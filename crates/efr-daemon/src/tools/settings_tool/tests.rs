@@ -67,6 +67,7 @@ impl Fixture {
                     applied: true,
                     error: None,
                     restart_needed: Vec::new(),
+                    warnings: Vec::new(),
                 });
             }
         });

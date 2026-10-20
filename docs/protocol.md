@@ -535,3 +535,9 @@ No protocol version has shipped yet.
 - Version 1, additive: `exit_judged` gains `reasked` (false when absent): the
   classifier model wrote no real reason (empty, too short or a placeholder), and the
   judge asked it once more. `events/exit_judged.json` now sets it.
+- Version 1, additive: the result of `admin.config_reload` gains `warnings` (absent
+  when empty): what the reload changed that the user should know, one sentence each,
+  such as a `[model] name` of another company, an always rule that a floor now
+  disables, or a bus filter that is now off. Each comes once, from the reload that
+  changed it; a held change stays in `error`. `admin_config_reload_result.json` now
+  sets it.

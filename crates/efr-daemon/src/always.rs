@@ -63,20 +63,21 @@ pub(crate) fn disabled_warnings(engine: &Engine) -> Vec<String> {
 /// Logs one warning for each rule that `engine` disables, unless `before` disabled the
 /// same rule at the same place for the same reason: at the start (`before` is `None`)
 /// and when a reload sends a new engine. A disabled rule never stops efrd (DE44).
-pub(crate) fn warn_disabled(engine: &Engine, before: Option<&Engine>) {
+/// Returns the text of each warning, which a reload passes to `efr config reload`
+/// (DV44).
+pub(crate) fn warn_disabled(engine: &Engine, before: Option<&Engine>) -> Vec<String> {
     let known = before.map(Engine::allow_rules).unwrap_or_default();
+    let mut warnings = Vec::new();
     for (index, entry) in engine.allow_rules().iter().enumerate() {
         let (rule, Some(floor)) = entry else { continue };
         if known.get(index) == Some(entry) {
             continue;
         }
-        tracing::warn!(
-            index,
-            rule = %rule.describe(),
-            reason = %floor,
-            "{KEY}[{index}] is disabled: {floor}; it covers no call"
-        );
+        let text = format!("{KEY}[{index}] is disabled: {floor}; it covers no call");
+        tracing::warn!(index, rule = %rule.describe(), reason = %floor, "{text}");
+        warnings.push(text);
     }
+    warnings
 }
 
 /// Saves the rule of an `a` answer: see the module doc.
