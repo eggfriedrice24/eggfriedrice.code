@@ -8,6 +8,7 @@
 mod always;
 mod dbus;
 mod full;
+mod git_code;
 mod jobs;
 mod jobs_guard;
 mod mount_view;

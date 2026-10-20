@@ -1090,3 +1090,57 @@ async fn reload_with_the_gate_off_stops_the_full_job_only() {
     drop(client);
     daemon.stop().await.unwrap();
 }
+
+/// A job plants a `commondir` that points a new repository at a git dir with a hook
+/// (v0.0.4, DV23). Before the next outside `git push`, efrd checks the guard of every
+/// running job: the job stops and the plant goes to the quarantine, so the user's yes
+/// to the push never runs the hook.
+#[tokio::test]
+async fn escape_job_commondir_before_push() {
+    let test = "escape_job_commondir_before_push";
+    let dirs = target_dirs();
+    let project = dirs.create_dir("home/project").unwrap();
+    let marker = dirs.root().join("hook-ran");
+    let remote = dirs.root().join("remote.git");
+    git(dirs.root(), &["init", "-q", "--bare", &remote.display().to_string()]).await;
+    // NOTE: efr refuses a job whose line writes a hook itself, so the job runs a script
+    // that does it. Its `commondir` gives the new repository the refs, the objects and
+    // the hooks of `.evil`; the job makes its own marker last.
+    let plant = format!(
+        "set -e\ngit init -q sub\ngit -C sub -c user.name=t -c user.email=t@example.invalid \
+         commit -q --allow-empty -m one\ngit clone -q --bare sub .evil\nprintf \
+         '#!/bin/sh\\ntouch {}\\n' > .evil/hooks/pre-push\nchmod +x .evil/hooks/pre-push\n\
+         printf '%s\\n' \"$PWD/.evil\" > sub/.git/commondir\n: > written\n",
+        marker.display()
+    );
+    std::fs::write(project.join("plant.sh"), plant).unwrap();
+    let line = "until [ -e go ]; do sleep 0.1; done; sh plant.sh; sleep 30";
+    let push = format!("git -C {} push {} main", project.join("sub").display(), remote.display());
+    let model =
+        Recorder::new(vec![job(line), None, Some(("shell", json!({ "command": push }))), None]);
+    let Some(daemon) = real_daemon(test, &dirs, model, &[]).await else { return };
+    let (sent, _) = auto_turn(&daemon, 1, "plant it as a job", ApprovalDecision::Deny).await;
+    std::fs::write(project.join("go"), "").unwrap();
+    Wait::new("the job's own marker").until(|| project.join("written").exists()).await.unwrap();
+    assert!(project.join("sub/.git/commondir").exists(), "the job planted its commondir");
+
+    // The user says yes to the push: it runs outside the sandbox with the user's rights.
+    let (_, events) = auto_turn(&daemon, 2, "push sub", ApprovalDecision::Allow).await;
+    let end = ended(&daemon, sent.conversation_id, "j1").await;
+    assert!(end.quarantined, "{end:?}");
+    let stopped = events.iter().find_map(|envelope| match &envelope.event {
+        Event::JobEnded { job_id, stopped_by, .. } if job_id.as_str() == "j1" => {
+            Some((envelope.seq, *stopped_by))
+        }
+        _ => None,
+    });
+    let ran = events.iter().find_map(|envelope| {
+        matches!(envelope.event, Event::ToolCallStarted { .. }).then_some(envelope.seq)
+    });
+    let Some((stopped, by)) = stopped else { panic!("the job ran on through the push") };
+    assert_eq!(by, Some(JobStopBy::Guard));
+    assert!(ran.is_none_or(|ran| stopped < ran), "the guard ran before the push");
+    assert!(!project.join("sub/.git/commondir").exists(), "the commondir went to the quarantine");
+    assert!(!marker.exists(), "the planted hook never ran");
+    daemon.stop().await.unwrap();
+}
