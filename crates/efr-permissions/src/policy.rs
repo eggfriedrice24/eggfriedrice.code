@@ -491,11 +491,16 @@ impl Policy {
     /// follow the `cautious` path rules, plus an exit for a read of a sandbox mask and
     /// for a write to a floor inside a write root.
     ///
+    /// `full` has the rows of `auto`. A full call is decided as an `auto` call, and then
+    /// full mode lets each question of a built-in row and each contained requirement run
+    /// with no sandbox and no question; a floor, a privilege, a delete that full mode
+    /// guards and a user's rule still hold (efr's full mode, DF1 and DF3).
+    ///
     /// A mode newer than this crate gets the `manual` policy, so it fails closed.
     pub fn base(mode: Mode) -> Self {
         match mode {
             Mode::Cautious => Policy::defaults(),
-            Mode::Auto => Policy {
+            Mode::Auto | Mode::Full => Policy {
                 rules: vec![
                     Rule::new(Action::Any, Resource::Any, Effect::Ask),
                     Rule::new(Action::Read, Resource::Any, Effect::Allow),

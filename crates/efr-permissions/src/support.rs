@@ -32,6 +32,25 @@ pub struct AutoSupport {
     pub netview: bool,
 }
 
+impl AutoSupport {
+    /// What full mode decides with (efr's full mode, DF2): no sandbox hides the host,
+    /// so a call sees the host's mounts and network (`mount_view`, `netview`), each use
+    /// of the network is a `host` exit (`Egress::None`) and each use of a bus a `bus`
+    /// exit (no `bus_proxy`), both recorded. `undo` and `floor_backup` stay as efrd set
+    /// them: full mode keeps its snapshots and home copies. It needs no probe, so full
+    /// mode decides the same on a machine with no sandbox.
+    #[must_use]
+    pub fn for_full(self) -> AutoSupport {
+        AutoSupport {
+            egress: Egress::None,
+            bus_proxy: false,
+            mount_view: true,
+            netview: true,
+            ..self
+        }
+    }
+}
+
 /// How a contained call reaches the network.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Egress {

@@ -9,10 +9,10 @@
 //!   and its own rules).
 //! - [`Policy`]: an ordered list of [`Rule`]s, each an [`Action`], a [`Resource`] and
 //!   an [`Effect`]; the last rule that matches wins. [`Policy::base`] is the built-in
-//!   policy of each mode (`manual`, `cautious`, `auto`), and a [`CommandPattern`]
-//!   judges one simple command of a line at a time, in a place ([`Under`]) and with a
-//!   [`Check`] where words alone cannot say enough; a line it cannot split is a
-//!   [`Construct`] and asks by default.
+//!   policy of each mode (`manual`, `cautious`, `auto`, `full`), and a
+//!   [`CommandPattern`] judges one simple command of a line at a time, in a place
+//!   ([`Under`]) and with a [`Check`] where words alone cannot say enough; a line it
+//!   cannot split is a [`Construct`] and asks by default.
 //! - [`Engine::decide`]: the [`Decision`], `Allow`, `Contain`, `Ask` or `Deny`, with a
 //!   [`Reason`] for every requirement, by the mode's policy and then the user's rules;
 //!   [`effective_mode`] caps the mode of a remote turn at `cautious`.
@@ -27,6 +27,10 @@
 //!   outside the sandbox. [`secret_paths`], [`SANDBOX_MASKS`], [`PROTECTED_NAMES`],
 //!   [`PERSISTENCE_FLOORS`] and [`ZSH_STARTUP_FILES`] are the tables the engine and the
 //!   sandbox share.
+//! - Full mode: [`Engine::decide`] decides a full call as an `auto` call with
+//!   [`AutoSupport::for_full`], then lets it run with no sandbox and no question where
+//!   only the sandbox or a built-in row held it; floors, privilege, persistence, a
+//!   delete that undo does not cover and the user's rules still hold.
 //! - Background jobs (phase C): [`job_refusal`] names the exits that no job may hold,
 //!   in every mode; outside `auto` a job asks the user before it starts.
 //! - The network proxy (phase D2): [`network`] holds the [`Preset`]s and the
@@ -61,6 +65,7 @@ mod decision;
 mod engine;
 mod error;
 pub mod exits;
+mod full;
 mod jobs;
 pub mod network;
 mod path_class;

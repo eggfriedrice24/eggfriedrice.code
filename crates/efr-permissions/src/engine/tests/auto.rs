@@ -1895,7 +1895,7 @@ fn assert_efr_own_is_refused(path: &str) {
         assert_eq!(decision.effect(), Effect::Deny, "{path}: {requirements:?}");
         assert!(kinds(&decision).contains(&ExitKind::Config), "{path}: {:?}", kinds(&decision));
     }
-    for mode in [Mode::Auto, Mode::Cautious, Mode::Manual] {
+    for mode in Mode::ALL {
         for requirements in [Requirements::none().with_write(path), shell_line.clone()] {
             let input = DecisionInput { mode, ..in_auto(requirements) };
             let decision = engine.decide(&input);

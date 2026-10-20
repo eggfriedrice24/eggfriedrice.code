@@ -42,7 +42,7 @@ fn a_settings_change_asks_in_every_mode_also_when_every_rule_allows(#[case] orig
     let engines =
         [Engine::with_defaults(locations()), Engine::with_rules(locations(), allow_everything())];
     for engine in &engines {
-        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        for mode in Mode::ALL {
             for conversation in [Policy::empty(), allow_everything()] {
                 assert_eq!(
                     decide(engine, mode, origin, conversation),
@@ -57,7 +57,7 @@ fn a_settings_change_asks_in_every_mode_also_when_every_rule_allows(#[case] orig
 #[test]
 fn a_remote_turn_may_never_change_the_settings() {
     let engine = Engine::with_rules(locations(), allow_everything());
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         assert_eq!(
             decide(&engine, mode, Origin::Phone, allow_everything()),
             (Effect::Deny, Cause::RemoteSettings { origin: Origin::Phone }),
