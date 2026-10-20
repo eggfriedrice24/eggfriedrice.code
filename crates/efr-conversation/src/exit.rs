@@ -17,6 +17,7 @@
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use efr_permissions::exits::{self, Ecosystem, REGISTRY_HOSTS};
 use efr_permissions::{
@@ -57,6 +58,42 @@ pub(crate) fn refusals_stopped(mode: Mode) -> String {
     format!(
         "{who} stopped this turn: 3 actions were refused in a row. Read the answers, then send \
          a new prompt."
+    )
+}
+
+/// How long a question about a delete that full mode guards waits for the user before
+/// the delete does not run (efr's full mode, DF5). Not a setting: a longer wait would
+/// let the model park the turn on a question nobody reads.
+pub(crate) const CRITICAL_WAIT: Duration = Duration::from_secs(120);
+
+/// How many questions about a guarded delete may expire in one turn; after that each
+/// later guarded delete of the turn is refused with no question. An answer does not
+/// reset the count.
+pub(crate) const CRITICAL_EXPIRIES: u8 = 3;
+
+/// What the model reads when nobody answered the question about the guarded delete of
+/// `targets`: `waited` is how long the question waited, `None` when nobody was there to
+/// ask.
+pub(crate) fn critical_expired(targets: &str, waited: Option<Duration>) -> String {
+    let why = match waited {
+        Some(waited) => {
+            format!("the user did not answer in {} seconds", waited.as_secs())
+        }
+        None => "nobody was there to answer".to_owned(),
+    };
+    format!(
+        "efr did not run this delete of {targets}: {why}. Do not try it another way. Delete \
+         narrower paths that you can name, or ask the user to run it."
+    )
+}
+
+/// What the model reads for a guarded delete of `targets` after
+/// [`CRITICAL_EXPIRIES`] questions of the turn expired: it does not run, with no
+/// question.
+pub(crate) fn critical_refused(targets: &str) -> String {
+    format!(
+        "efr refuses deletes of {targets} for the rest of this turn. Do not try it another \
+         way. Delete narrower paths that you can name, or ask the user to run it."
     )
 }
 
@@ -684,6 +721,10 @@ pub(crate) struct TurnExits {
     /// True in a turn that a job notice started, not a prompt: nobody asked for its
     /// steps now (phase C).
     pub(crate) wake_turn: bool,
+    /// Questions about a delete that full mode guards that expired in this turn, also
+    /// those denied at once because nobody was there. An answer does not reset it; at
+    /// [`CRITICAL_EXPIRIES`] each later guarded delete is refused with no question.
+    pub(crate) critical_expired: u8,
 }
 
 impl TurnExits {
@@ -728,6 +769,17 @@ impl TurnExits {
         };
         self.paused = Some(paused);
         Some(paused)
+    }
+
+    /// Counts a question about a guarded delete that expired.
+    pub(crate) fn critical_expired(&mut self) {
+        self.critical_expired = self.critical_expired.saturating_add(1);
+    }
+
+    /// True once [`CRITICAL_EXPIRIES`] questions about guarded deletes expired in this
+    /// turn: each later guarded delete is refused with no question.
+    pub(crate) fn critical_closed(&self) -> bool {
+        self.critical_expired >= CRITICAL_EXPIRIES
     }
 
     /// True once the classifier stopped for the rest of the turn.

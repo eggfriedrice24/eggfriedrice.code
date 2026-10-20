@@ -256,6 +256,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- A phone that answers a question that only your own machine answers gets the text
+  `only the user's own machine answers a privilege exit, a delete that full mode guards,
+  or a background job`.
 - The settings tool refuses to change `permissions.allow_full`, the new key that
   allows full mode, and refuses to set `permissions.mode = "full"`. You set them by
   hand or with `efr config set`. `permissions.mode = "full"` in `config.toml` needs

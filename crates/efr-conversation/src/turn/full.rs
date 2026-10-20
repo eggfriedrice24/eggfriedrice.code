@@ -11,13 +11,25 @@
 //!   `exit_judged` with the judge `full` and the verdict `allow` before it runs
 //!   ([`Turn::let_through`]), so the history shows what full mode let through. Nobody
 //!   reviews it: the classifier and the always-allow rules read only the `auto` sandbox.
+//! - A delete that full mode guards (`~`, `/`, a system dir, a project, a dir that holds
+//!   efr's files, a secret or several projects, or a target that efr cannot read) asks
+//!   the user at their own machine (a phone never answers it). The question waits at
+//!   most [`exit::CRITICAL_WAIT`], and not at all when nobody is there; then the delete
+//!   does not run and the model reads how to go on ([`Turn::critical_expired`]). After
+//!   [`exit::CRITICAL_EXPIRIES`] expired questions in a turn, each later guarded delete
+//!   is refused with no question ([`Turn::refuse_critical`]), and each such refusal
+//!   counts toward the three refusals in a row that stop the turn. An answer does not
+//!   reset the count of expired questions.
 //!
 //! What efr records covers only what the line shows: a script or a program that the line
 //! starts is not read.
 
+use std::time::Duration;
+
 use efr_protocol::{ErrorBody, ErrorCode, Event, JudgeKind, Verdict};
 
-use super::{Ruling, Turn};
+use super::{Authorization, Ruling, Turn};
+use crate::approvals;
 use crate::exit;
 use crate::{CallContext, ConversationError, ToolCall};
 
@@ -93,5 +105,36 @@ impl Turn {
         .await?;
         self.exits.judged(&kinds, Verdict::Allow);
         Ok(())
+    }
+
+    /// Counts the expired question about the guarded deletes `targets` (each as
+    /// [`CriticalDelete::describe`](efr_permissions::CriticalDelete::describe) gives it)
+    /// and gives what the model reads: the delete did not run. `waited` is how long the
+    /// question waited, `None` when nobody was there to ask.
+    pub(super) fn critical_expired(
+        &mut self,
+        targets: &[String],
+        waited: Option<Duration>,
+    ) -> Authorization {
+        self.exits.critical_expired();
+        tracing::info!(expired = self.exits.critical_expired, "a guarded delete was not answered");
+        let message = exit::critical_expired(&targets.join(", "), waited);
+        Authorization::Denied { message, refusal: None }
+    }
+
+    /// Refuses the guarded deletes of `ruling` with no question, after
+    /// [`exit::CRITICAL_EXPIRIES`] questions of the turn expired. Each such refusal
+    /// counts toward the refusals in a row that stop the turn.
+    pub(super) fn refuse_critical(&mut self, ruling: &Ruling) -> Authorization {
+        let home = ruling.engine.locations().home();
+        let targets: Vec<String> =
+            ruling.decision.critical().map(|delete| delete.describe(home)).collect();
+        let message = exit::critical_refused(&targets.join(", "));
+        if self.exits.refused() {
+            self.stop =
+                Some(ErrorBody::new(ErrorCode::Forbidden, exit::refusals_stopped(self.mode())));
+        }
+        let refusal = Some(approvals::brief(&message));
+        Authorization::Denied { message, refusal }
     }
 }

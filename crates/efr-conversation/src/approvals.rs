@@ -9,6 +9,7 @@
 //! timed out, the actor stopped) is taken out and recorded as `approval_expired`.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_permissions::{AllowRule, Cause, Decision, Effect, Reason, Subject};
@@ -151,6 +152,51 @@ pub(crate) fn summary(tool: &str, decision: &Decision) -> String {
         text.push_str(&asking.join(", "));
     }
     text
+}
+
+/// The start of the first line of a question that full mode still asks (efr's full
+/// mode, DF5 and DF19).
+pub(crate) const FULL_ASKS: &str = "full mode still asks for this: ";
+
+/// The first line of the question of a full turn: what full mode still asks about, such
+/// as `full mode still asks for this: delete of ~ (your home directory)`. Each delete
+/// that full mode guards comes first, with its target and why, as
+/// [`CriticalDelete::describe`](efr_permissions::CriticalDelete::describe) gives it
+/// with `home` as `~`. A question about more rights (`privileged`, such as `sudo`) says
+/// that a "yes" runs every command of the line, because one question covers the whole
+/// line. `None` when the question is about none of the floors of full mode, such as a
+/// user's `ask` rule.
+pub(crate) fn full_line(decision: &Decision, home: &Path, privileged: bool) -> Option<String> {
+    let mut parts: Vec<String> =
+        decision.critical().map(|delete| format!("delete of {}", delete.describe(home))).collect();
+    let mut push = |part: &str| {
+        if !parts.iter().any(|known| known == part) {
+            parts.push(part.to_owned());
+        }
+    };
+    for reason in decision.deciding().filter(|reason| reason.effect == Effect::Ask) {
+        match reason.cause {
+            Cause::Exit { kind: ExitKind::Persistence } => push("a process that outlives the turn"),
+            // NOTE: a guarded delete that undo cannot revert is named once, as the
+            // guarded delete.
+            Cause::Exit { kind: ExitKind::Destructive } | Cause::Destructive
+                if decision.critical().next().is_none() =>
+            {
+                push("a delete that efr undo cannot revert");
+            }
+            Cause::SettingsChange => push("a change of efr's settings"),
+            _ => {}
+        }
+    }
+    if privileged {
+        push("more rights, such as sudo; a yes runs every command of this line");
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    // NOTE: one line: a path whose name holds a line break must not make a second one.
+    let line = format!("{FULL_ASKS}{}", parts.join(", "));
+    Some(line.replace('\n', "\\n").replace('\r', "\\r"))
 }
 
 /// The simple commands of the call's line that ask, each named by [`part_name`], once
