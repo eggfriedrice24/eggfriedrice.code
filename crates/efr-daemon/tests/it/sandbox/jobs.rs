@@ -111,7 +111,13 @@ async fn real_daemon(
         .dirs(Arc::clone(dirs))
         .shell_env(shell_env(dirs, extra))
         .sandbox_launcher(&launcher)
-        .config(|config| config.permissions.mode = Mode::Auto)
+        .config(|config| {
+            config.permissions.mode = Mode::Auto;
+            // NOTE: a job notice would start a turn of its own when a job ends, and that
+            // turn would take the scripted answers of the test's next turn; no test of
+            // this helper needs a wake turn (the wake tests use their own daemon).
+            config.jobs.max_wakes_per_hour = 0;
+        })
         .custom_provider(model)
         .start()
         .await
