@@ -63,6 +63,13 @@ into the GitHub release notes, and it stops when the section is missing.
   ask you. `loginctl enable-linger` with your own user name or uid counts as the form
   with no user. `crontab -l` only reads your crontab, so the reviewer can let the model
   read it before it writes all of it with `crontab -`.
+- A prompt now tells the model the recent commands of your terminal, after the last
+  command: each one with its exit status, its directory when that is not the current
+  one, and how long ago it ended. The zsh plugin keeps the last 10 command lines of
+  each terminal, but never a `,` line, an `efr` command or a line that starts with a
+  space. The new key `context.recent_commands` sets how many the model sees (8 by
+  default, 0 for none). Like the last command, they go to the model with their secrets
+  redacted, and never into the event log.
 - `efr away` and `,away` tell efr that you are away from the conversation of this
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a
