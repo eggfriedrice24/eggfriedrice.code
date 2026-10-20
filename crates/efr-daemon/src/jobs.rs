@@ -20,8 +20,10 @@
 //! At start, a job that the last efrd left running gets `job_ended` with
 //! `daemon_restart`: efrd kills its launcher only when the pid's start time still
 //! matches the `job_started` event, sweeps its session, and reads a `result.json` that
-//! the launcher left. Then every actor gets the notices of the last day that no turn
-//! took, which never start a turn of their own.
+//! the launcher left. Its notice line goes to the terminal of its conversation right
+//! away ([`restart_notices`]): the notices task starts later and never sees that end.
+//! Then every actor gets the notices of the last day that no turn took, which never
+//! start a turn of their own.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -746,8 +748,9 @@ impl JobTable {
     }
 
     /// At start, before any job runs: ends each job that the last efrd left running
-    /// with `daemon_restart`, and removes every job dir.
-    pub(crate) async fn recover(&self) -> Result<(), DaemonError> {
+    /// with `daemon_restart`, and removes every job dir. Returns each `job_ended` that
+    /// it recorded, with its conversation, for [`restart_notices`].
+    pub(crate) async fn recover(&self) -> Result<Vec<(ConversationId, Event)>, DaemonError> {
         self.recover_with(sweep::sweep_left).await
     }
 
@@ -755,9 +758,10 @@ impl JobTable {
     async fn recover_with(
         &self,
         sweeper: fn(u32, u64, i64) -> Vec<String>,
-    ) -> Result<(), DaemonError> {
+    ) -> Result<Vec<(ConversationId, Event)>, DaemonError> {
         let rows = self.inner.readers.with(efr_store::jobs::running).await?;
         let dirs = self.inner.dirs.clone();
+        let mut ended = Vec::new();
         for row in rows {
             let info = row.info;
             let pid = row.launcher_pid;
@@ -813,14 +817,16 @@ impl JobTable {
                 bus_refused: Vec::new(),
                 bus_refused_more: 0,
             };
-            self.inner.writer.append(Batch::new().event(info.conversation_id, event)).await?;
+            let batch = Batch::new().event(info.conversation_id, event.clone());
+            self.inner.writer.append(batch).await?;
             tracing::info!(conversation = %info.conversation_id, job = %info.id, "a job of the last efrd was recorded as stopped");
+            ended.push((info.conversation_id, event));
         }
         let removed = tokio::task::spawn_blocking(move || remove_all_job_dirs(&dirs)).await;
         if removed.is_err() {
             tracing::warn!("removing the job dirs of the last efrd panicked");
         }
-        Ok(())
+        Ok(ended)
     }
 
     /// The notices of the last day that no turn took, each for its conversation and
@@ -897,7 +903,7 @@ impl JobTable {
     pub(crate) async fn recover_by(
         &self,
         sweeper: fn(u32, u64, i64) -> Vec<String>,
-    ) -> Result<(), DaemonError> {
+    ) -> Result<Vec<(ConversationId, Event)>, DaemonError> {
         self.recover_with(sweeper).await
     }
 
@@ -1119,6 +1125,52 @@ impl JobTask {
         }
         tracing::info!(conversation = %self.key.conversation, job = %info.id, state = ended.state.as_str(), "a job ended");
         let _ = self.ended.send(Some(final_info));
+    }
+}
+
+/// Writes the notice line of each job end of `ended`, which [`JobTable::recover`]
+/// recorded at this start, to the notice file of its conversation's terminal under
+/// `dir`, as the reconciliation writes the notice of a prompt that did not run. No
+/// client is connected yet, so no terminal shows the end, and the notices task, which
+/// starts later, never sees these events.
+pub(crate) async fn restart_notices(
+    readers: &Readers,
+    ended: Vec<(ConversationId, Event)>,
+    dir: &Path,
+) {
+    let mut lines = Vec::new();
+    for (conversation_id, event) in ended {
+        let summary =
+            readers.with(move |conn| efr_store::conversations::get(conn, conversation_id)).await;
+        let summary = match summary {
+            Ok(Some(summary)) => summary,
+            Ok(None) => continue,
+            Err(error) => {
+                tracing::warn!(%error, %conversation_id, "the notice of a job that efrd ended could not be prepared");
+                continue;
+            }
+        };
+        let (Some(tty), Some(line)) =
+            (summary.tty, crate::notices::line(&event, summary.title.as_deref(), None))
+        else {
+            continue;
+        };
+        lines.push((tty, line));
+    }
+    if lines.is_empty() {
+        return;
+    }
+    let dir = dir.to_path_buf();
+    let written = tokio::task::spawn_blocking(move || {
+        for (tty, line) in lines {
+            if let Err(error) = crate::notices::append(&dir, &tty, &line) {
+                tracing::warn!(%error, "the notice of a job that efrd ended could not be written");
+            }
+        }
+    })
+    .await;
+    if written.is_err() {
+        tracing::warn!("writing the notices of jobs that efrd ended panicked");
     }
 }
 

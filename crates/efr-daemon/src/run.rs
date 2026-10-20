@@ -584,7 +584,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         },
         full: full.clone(),
     });
-    jobs.recover().await?;
+    let ended = jobs.recover().await?;
+    // NOTE: a job that the last efrd left running ends now, before the notices task
+    // starts: its end line goes to the terminal's file here (C1.7).
+    crate::jobs::restart_notices(&readers, ended, &notices_dir).await;
     // NOTE: boxed, so the start future stays small.
     let excludes_file =
         if isolated_git { None } else { Box::pin(user_excludes_file(&git, &home)).await };

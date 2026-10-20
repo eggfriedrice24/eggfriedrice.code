@@ -617,3 +617,42 @@ fn end_of_a_job_from_its_result_and_its_stop() {
     assert_eq!(end_of(Some(&setup), None).state, JobState::Failed);
     let _ = Arc::new(());
 }
+
+#[tokio::test]
+async fn restart_writes_a_notice_for_each_ended_job() {
+    let scene = Scene::new().await;
+    let other = ConversationId::from_uuid(id(2));
+    let created =
+        Event::ConversationCreated { origin: Origin::Shell, tty: Some("/dev/pts/5".to_owned()) };
+    scene.store.writer().append(Batch::new().event(other, created)).await.unwrap();
+    for number in [1, 2] {
+        let info = JobInfo { conversation_id: other, ..scene.info(number) };
+        let event = Event::JobStarted {
+            turn_id: info.turn_id,
+            call_id: info.call_id,
+            job: info.clone(),
+            launcher_pid: 0,
+            launcher_start: 0,
+        };
+        scene.store.writer().append(Batch::new().event(other, event)).await.unwrap();
+    }
+    // A job of a conversation with no terminal gets no line.
+    started_before(&scene, 3, 0, 0).await;
+
+    let ended = scene.table.recover().await.unwrap();
+    let dir = scene.dirs.dirs().runtime().join(crate::notices::NOTICES_DIR);
+    super::restart_notices(scene.store.readers(), ended, &dir).await;
+
+    let text = std::fs::read_to_string(dir.join("pts-5")).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    let line = |job: &str| {
+        format!(
+            "efr: job {job} stopped because efrd restarted: a conversation; its launcher was \
+             lost, and its processes may still run"
+        )
+    };
+    assert_eq!(lines, [line("j1"), line("j2")]);
+    let files: Vec<_> =
+        std::fs::read_dir(&dir).unwrap().flatten().map(|entry| entry.file_name()).collect();
+    assert_eq!(files, ["pts-5"], "the conversation without a terminal gets none");
+}
