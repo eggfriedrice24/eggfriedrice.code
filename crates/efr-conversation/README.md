@@ -967,6 +967,38 @@ history as before, with the stub in each pruned result.
   the same command id returns the first result.
 - It never starts a turn.
 
+### What fills the context
+
+`conversation.context { conversation_id, model? }` (`efr context`, `,context`), scope
+`read`, records nothing:
+
+- The actor answers at any time, also while a turn, a compaction or an undo runs, in a
+  task of its own (`actor/context.rs`), so it keeps answering and nothing waits for it.
+- It builds the request that the next model call would send, as a manual compaction
+  builds it: the snapshot of the log, the window with the actor's cached turns and the
+  stored fresh block, the system prompt and the tool definitions, for the model of
+  `model`, else of the newest turn (the default model when the model list no longer
+  has it). While a turn runs, the turn counts as ended, so its messages so far are
+  rebuilt from the log; the log holds no preamble of the running turn. The next prompt
+  and its preamble are not known, so they are left out.
+- `context/breakdown.rs` measures the request at 4 bytes a token, as the turn's own
+  estimate does: each block counts for its kind (`system`, `tools`, `summary`,
+  `prompts`, `preambles`, `notices`, `answers`, `tool_calls`, `tool_outputs`,
+  `pruned`), the frame of a message for the kind of its first block, and the rest of
+  the request's JSON for `system`. The tokens of the parts add up to exactly the
+  `estimate`. A text block is a preamble when it starts with `<live_state>`, a notice
+  when it starts with `<job id="`, else a prompt.
+- `largest` holds the 5 largest items, each with its turn's number, its tool and the
+  label that `efr history` shows (the first line of a command, a path, the files of a
+  patch, a job id), at most 120 characters. No item carries the text of a message.
+- `counted` is the provider's count at the end of the newest ended turn, the base of
+  the next turn's estimate; none after a compaction or a cancelled turn. `window_known`
+  is false when the model list gives no window and `window` is the default 128000.
+- `compactions` counts the compactions and gives the facts of the newest without its
+  summary. `cache` sums the usage of every ended turn and every compaction since the
+  start (a turn that ended before the page of the log is read by its own end event),
+  and gives the usage of the last turn that reported one.
+
 ### Undo
 
 `turn.undo` reaches the actor as `ConversationHandle::undo` with the turns that the
@@ -1143,7 +1175,13 @@ limit, a retry of the running manual compaction, the breaker, a pruning without 
 turn rebuilds, a history that would leave out a turn after a switch to a model with a
 smaller window and compacts instead, a manual compaction with a focus, a prompt that
 waits for it, and its
-refusals. `turn/tests/switch.rs` grows a history of about 500k tokens on a model with
+refusals. The tests of what fills the context (`context/breakdown/tests.rs`,
+`actor/tests/context.rs`) check that the parts add up to the request's estimate, that a
+pruned output counts as `pruned`, the labels of the 5 largest items, the sums of the
+cache, an answer while a turn runs (the provider holds the turn's answer until the
+test releases it), that the answer holds no text of a prompt, an output or an answer,
+the summary and the same estimate as the compaction's own after a manual compaction,
+and an unknown model with the default window. `turn/tests/switch.rs` grows a history of about 500k tokens on a model with
 a window of 1M, then goes on with another provider's model of 272k against a fake that
 refuses every request above its model's window: the turn compacts before its first
 call, the summary request leaves out the oldest prompts and says so in its prompt, and

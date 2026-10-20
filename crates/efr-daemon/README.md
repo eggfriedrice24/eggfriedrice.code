@@ -424,7 +424,13 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   `conflict` (kept as a receipt); a failed summary request has the code of the
   provider's error (`unauthorized`, `busy`, `invalid` or `internal`) and its message
   says why. The contract is in the README of efr-conversation, section "Context".
-  `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`. For
+  `settings.rs` hands `[compaction]` to the conversations as `CompactionConfig`.
+- `conversation.context` (`methods/conversation_context.rs`, scope `read`) waits for a
+  model list as a prompt does, starts the conversation's actor when none runs (a
+  conversation that does not exist is `not_found`), and answers with what the actor
+  measured: the parts of the next request, the largest items, the newest count, the
+  compactions and the cache use. It records nothing and answers while a turn runs. The
+  contract is in the README of efr-conversation, section "What fills the context". For
   the fresh context block after a compaction, the toolbox names the children of the
   hidden shell (`Toolbox::shell_children`, `tools/shell_children.rs`): the command
   lines of the shell's child processes from `/proc`, at most 10, each cut at 200

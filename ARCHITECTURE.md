@@ -57,7 +57,7 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records (in full mode too, with the judge `full`, the timed question of a guarded delete and the gate before each call), the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait; `client`: the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line (with the git remotes), the turn-end report, the read-only scope of model-side socket peers, the gate of full mode (`full.rs`: whether efrd allows or refuses it, the count of running full work) and the config hold (`loosens.rs`, `reload.rs`), and the network proxy's socket for each call with its lifetime, its host list and the hosts that a token in a project file denies; the bus filter: an `xdg-dbus-proxy` for each filtered bus of a call or a job, with its self-test and the refusals of its log; the writer of always-allow rules, which checks a rule and appends it to `config.toml`; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops and the sweep of a job's session), the home copies of the files that an approved exit, or an exit that full mode let through, writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `jobs` (list, stop), `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `diff`, `compact`, `context`, `jobs` (list, stop), `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-transport`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -331,7 +331,13 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   one in `crates/efr-conversation/src/actor/compact.rs`; the newest compactions in
   `crates/efr-store/src/compactions.rs`; the wire types in
   `crates/efr-protocol/src/compaction.rs`; `[compaction]` in
-  `crates/efr-config/src/tables/compaction.rs`.
+  `crates/efr-config/src/tables/compaction.rs`. What fills the context
+  (`conversation.context`, `efr context`): the measure of each part in
+  `crates/efr-conversation/src/context/breakdown.rs`, the actor's read in
+  `crates/efr-conversation/src/actor/context.rs`, the method in
+  `crates/efr-daemon/src/methods/conversation_context.rs`, the wire types in
+  `crates/efr-protocol/src/methods/conversation_context.rs` and the lines in
+  `crates/efr-cli/src/format/context_report.rs`.
 - The history that only grows, so each request starts with the request before it: the
   contract in `crates/efr-conversation/README.md`, section "The history only grows";
   the list of turns and the byte limit in `crates/efr-conversation/src/history.rs`;

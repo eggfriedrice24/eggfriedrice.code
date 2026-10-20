@@ -328,6 +328,16 @@ into the GitHub release notes, and it stops when the section is missing.
   named `code` keeps its files in code, and `total` is not a name of a group.
 - `efr history` shows the line of the changed files, such as `3 files changed, +24 −7`,
   for each turn that `efr undo` cannot take back.
+- `efr context` and `,context` show what fills the model's context of this terminal's
+  conversation: the model's last count with its `ctx N%`, then efr's estimate of the
+  next request by part (the system prompt, the tools, the summary, the prompts and
+  their preambles, the notices, the answers, the tool calls and the tool outputs), the
+  five largest items, such as `output of $ cargo test, turn 12`, the compactions and
+  the cache use of the conversation, such as `last turn 91%; conversation 83% read,
+  210k written (200k for 1h)`. It shows no text of a message. `efr context <id>`
+  shows another conversation, `--model` counts for another model, and `--json` gives
+  the same facts to scripts. `,context <words>` was a prompt; it now runs this
+  command with the words.
 
 ### Changed
 
