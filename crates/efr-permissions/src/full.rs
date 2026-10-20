@@ -9,8 +9,9 @@
 //!   built-in secrets row, a user's or a conversation's `deny` rule;
 //! - every question that is not about the sandbox: a privileged program, a `privilege`,
 //!   `persistence` or `destructive` exit, a change of efr's settings, a file tool delete
-//!   that undo does not cover, a delete that full mode guards, a user's or a
-//!   conversation's `ask` rule.
+//!   that undo does not cover, a delete that full mode guards, a read or write of a
+//!   directory with a secret or efr's config below it, a user's or a conversation's `ask`
+//!   rule.
 //!
 //! Each other exit runs, and keeps its reason, so [`Decision::exits`] lists it for the
 //! record and the home copies. In a background job a `destructive` exit is refused

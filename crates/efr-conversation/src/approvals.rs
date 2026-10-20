@@ -185,6 +185,8 @@ pub(crate) fn full_line(decision: &Decision, home: &Path, privileged: bool) -> O
                 push("a delete that efr undo cannot revert");
             }
             Cause::SettingsChange => push("a change of efr's settings"),
+            Cause::ReachesSecret { .. } => push("a whole dir with a secret below it"),
+            Cause::ReachesWriteSealed { .. } => push("a write over efr's config"),
             _ => {}
         }
     }

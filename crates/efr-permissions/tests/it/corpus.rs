@@ -461,8 +461,9 @@ fn named_kind(expected: &str) -> &str {
 
 /// The result of a full mode `decision` in the words of the `full` column: `R` for a
 /// line that runs with no exit, `A(kind)` for one that runs with its exits recorded,
-/// `G` for a question about a delete that full mode guards, `U(kind)` for a question
-/// about an exit, `D` for a floor.
+/// `G` for a question about a delete that full mode guards, `S` for a question about a
+/// directory with a secret or efr's config below it, `U(kind)` for a question about an
+/// exit, `D` for a floor.
 fn full_verdict(decision: &Decision, expected: &str) -> String {
     let named = named_kind(expected);
     let pick = |kinds: Vec<ExitKind>| {
@@ -479,6 +480,17 @@ fn full_verdict(decision: &Decision, expected: &str) -> String {
             "asks (settings floor)".to_owned()
         }
         Effect::Ask if decision.critical().next().is_some() => "G".to_owned(),
+        Effect::Ask
+            if decision.reasons().iter().any(|reason| {
+                reason.effect == Effect::Ask
+                    && matches!(
+                        reason.cause,
+                        Cause::ReachesSecret { .. } | Cause::ReachesWriteSealed { .. }
+                    )
+            }) =>
+        {
+            "S".to_owned()
+        }
         Effect::Ask => {
             let asking = decision
                 .reasons()
@@ -854,8 +866,9 @@ fn full_column_only_where_it_differs_from_the_default() {
         }
     }
     // The deletes that full mode guards: `..` (it holds three projects), a project
-    // root, `~/.config` (it holds efr's config) and `~`.
-    assert_eq!(explicit, BTreeSet::from([49, 53, 60, 95, 106]));
+    // root, `~/.config` (it holds efr's config) and `~`; and a read of everything below
+    // `~`, which holds secrets that no sandbox masks in full mode.
+    assert_eq!(explicit, BTreeSet::from([16, 49, 53, 60, 95, 106]));
 }
 
 #[test]

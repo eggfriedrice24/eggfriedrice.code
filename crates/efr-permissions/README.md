@@ -536,8 +536,10 @@ proptest property:
 - In full mode (`src/engine/tests/full.rs`, `src/full/tests.rs`) the effect is never
   `Contain`, and a call asks only for a privileged program, a `privilege`,
   `persistence` or `destructive` exit, a delete that full mode guards, a change of
-  efr's settings, a file tool delete that undo does not cover, or a user's or a
-  conversation's rule (property `full_never_contains`). Every other exit runs and stays
+  efr's settings, a file tool delete that undo does not cover, a read or write of a
+  directory with a secret or efr's config below it (no sandbox masks them), or a
+  user's or a conversation's rule (property `full_never_contains`,
+  `full_tree_read_with_a_secret_below_asks`, `full_tree_write_over_efr_config_asks`). Every other exit runs and stays
   in `Decision::exits`. Each floor of `auto` holds: a secret, efr's config and efr's
   own dirs stay denied, also when the delete of such a dir is a guarded delete too
   (the denial is stricter). No rule lifts a guarded delete's question; a user's `deny`

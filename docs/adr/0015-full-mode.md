@@ -34,7 +34,9 @@ efr uses for the mode set what users expect of it.
 2. **What still holds.** A floor deny (a secret, efr's config, its own programs and
    dirs), a privileged program and a `privilege` exit (local only, one question for the
    whole line), a `persistence` exit, a delete that undo cannot revert, a change of the
-   settings, and the user's own `ask` and `deny` rules. Every other exit runs with no
+   settings, a read or write of a whole dir with a secret or efr's config below it (no
+   sandbox masks them, so it asks as in `cautious`), and the user's own `ask` and
+   `deny` rules. Every other exit runs with no
    review and is recorded with the judge `full`.
 3. **The delete guard.** A new pure detector (`exits::critical_deletes`) reads the
    line for deletes of `~`, `/`, a system dir, a project root, a dir that holds efr's
