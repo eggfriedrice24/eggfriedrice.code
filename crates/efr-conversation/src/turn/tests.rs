@@ -196,6 +196,89 @@ async fn a_held_prompt_keeps_its_settings_and_fails_when_they_no_longer_fit() {
     h.finish();
 }
 
+/// A prompt that queued while the default model fit, and starts after a reload made it
+/// a model of another company than the provider (v0.0.4, C3.5): the turn fails with
+/// efrd's text, the cause and the fix, not with a generic one. The scripted provider
+/// holds the first turn open while the second prompt queues.
+#[tokio::test]
+async fn queued_prompt_with_a_foreign_default_names_the_fix() {
+    let setup = Setup::new();
+    let state = setup.live_state(&setup.cwd, "first");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "first")])),
+        answer(&[ProviderEvent::TextDelta { text: "One.".to_owned() }]),
+        hold(),
+        answer(&[done(StopReason::EndTurn, None)]),
+    ];
+    let mut h = setup.start(records).await;
+
+    let first = h.prompt("first").await;
+    h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
+    let second = h.prompt("second").await;
+    assert!(second.queued);
+    // A reload makes the default a model of another company while the prompt waits.
+    let mut changed = (**h.settings.borrow()).clone();
+    changed.foreign_model =
+        Some(crate::ForeignDefault::new("claude-opus-5-5", "Anthropic", "openai-subscription"));
+    h.settings.send_replace(std::sync::Arc::new(changed));
+    h.provider.handled_through(3);
+    h.wait_end(first.turn_id).await;
+    let end = h.wait_end(second.turn_id).await;
+
+    let Event::TurnFailed { error, .. } = end else {
+        panic!("the turn fails, got {end:?}");
+    };
+    assert_eq!(error.code, ErrorCode::Invalid);
+    assert_eq!(
+        error.message,
+        "[model] name claude-opus-5-5 is a model of Anthropic, but [model] provider is \
+         openai-subscription; set [model] name to a model of openai-subscription, or remove it"
+    );
+    assert_eq!(
+        error.data,
+        Some(json!({
+            "setting": "model",
+            "value": "claude-opus-5-5",
+            "provider": "openai-subscription",
+        }))
+    );
+    let started = h
+        .events()
+        .await
+        .iter()
+        .any(|e| matches!(e, Event::TurnStarted { turn_id, .. } if *turn_id == second.turn_id));
+    assert!(!started, "a turn whose default model is foreign never starts");
+    h.finish();
+}
+
+/// A prompt that names its own model runs while the default model is foreign: only the
+/// default is wrong.
+#[tokio::test]
+async fn a_prompt_with_its_own_model_runs_while_the_default_is_foreign() {
+    let mut setup = Setup::new();
+    setup.config.foreign_model =
+        Some(crate::ForeignDefault::new("claude-opus-5-5", "Anthropic", "openai-subscription"));
+    let cwd = setup.cwd.clone();
+    let state = setup.live_state(&cwd, "hello");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&state, "hello")])),
+        answer(&text_answer("Hi.")),
+    ];
+    let mut h = setup.start(records).await;
+    let mut params = h.prompt_params(&cwd, "hello");
+    params.settings.model = Some(MODEL.to_owned());
+
+    let sent = h.handle.send_prompt(params, Origin::Shell).await.unwrap();
+    let end = h.wait_end(sent.turn_id).await;
+
+    assert!(matches!(end, Event::TurnCompleted { .. }), "{end:?}");
+    let mut refused = h.prompt_params(&cwd, "again");
+    refused.settings.model = None;
+    let refused = h.handle.send_prompt(refused, Origin::Shell).await;
+    assert!(matches!(refused, Err(ConversationError::ForeignModel { .. })), "{refused:?}");
+    h.finish();
+}
+
 #[tokio::test]
 async fn a_phone_turn_runs_with_at_most_cautious() {
     let mut setup = Setup::new();

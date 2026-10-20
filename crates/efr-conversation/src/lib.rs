@@ -85,7 +85,8 @@ pub use actor::{
     ConversationActor, ConversationHandle, ConversationState, PromptRouting, completed_result,
 };
 pub use config::{
-    AllowWriter, ConfigSource, ConversationConfig, ConversationDeps, ConversationStart, HostInfo,
+    AllowWriter, ConfigSource, ConversationConfig, ConversationDeps, ConversationStart,
+    ForeignDefault, HostInfo,
 };
 pub use context::{
     BREAKER_TRIES, BYTES_PER_TOKEN, CompactionConfig, ContextLimits, DEFAULT_AUTO_AT,

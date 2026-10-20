@@ -94,6 +94,36 @@ pub struct ConversationConfig {
     /// The most recent commands of the terminal that a turn's preamble shows
     /// (`context.recent_commands`); the newest ones stay. 0 shows none.
     pub recent_commands: usize,
+    /// The config's default model when it is a model of another company than the
+    /// config's provider (`efr_config::ForeignModel`); `None` when it fits. A turn that
+    /// names no model of its own then fails with the cause and the fix, also a prompt
+    /// that queued before a reload made the default foreign. Read when the turn starts.
+    pub foreign_model: Option<ForeignDefault>,
+}
+
+/// A default model of another company than the provider of the config (`[model] name`
+/// and `[model] provider`), for the error of a turn that names no model of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ForeignDefault {
+    /// The value of `[model] name`.
+    pub name: String,
+    /// The company of that model, as a person reads it, such as `Anthropic`.
+    pub company: String,
+    /// The value of `[model] provider`.
+    pub provider: String,
+}
+
+impl ForeignDefault {
+    /// The model `name` of `company`, the default of a config whose provider is
+    /// `provider`.
+    pub fn new(
+        name: impl Into<String>,
+        company: impl Into<String>,
+        provider: impl Into<String>,
+    ) -> Self {
+        ForeignDefault { name: name.into(), company: company.into(), provider: provider.into() }
+    }
 }
 
 impl ConversationConfig {
@@ -104,7 +134,8 @@ impl ConversationConfig {
     /// 200 ms between updates, 16 ms
     /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
     /// question while the user is away, 6 turns per hour that job notices start, 64
-    /// model calls per turn, 16 queued prompts, no full mode and 8 recent commands.
+    /// model calls per turn, 16 queued prompts, no full mode, 8 recent commands and a
+    /// default model that fits its provider.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -130,6 +161,7 @@ impl ConversationConfig {
             max_queued: 16,
             full_mode: FullModeStatus { allowed: false, refused: None },
             recent_commands: 8,
+            foreign_model: None,
         }
     }
 

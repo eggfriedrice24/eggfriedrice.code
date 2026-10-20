@@ -8,7 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::Settings;
-use efr_conversation::{CompactionConfig, ConfigSource, ConversationConfig, HostInfo};
+use efr_conversation::{
+    CompactionConfig, ConfigSource, ConversationConfig, ForeignDefault, HostInfo,
+};
 use jiff::tz::TimeZone;
 use tokio::sync::watch;
 
@@ -90,6 +92,9 @@ pub(crate) fn conversation_config(
     config.update_interval = Duration::from_millis(settings.conversation.update_interval_ms);
     config.draft_interval = Duration::from_millis(settings.conversation.draft_interval_ms);
     config.recent_commands = usize::try_from(settings.context.recent_commands).unwrap_or(0);
+    config.foreign_model = settings
+        .foreign_model()
+        .map(|foreign| ForeignDefault::new(foreign.name, foreign.company.name(), foreign.provider));
     config
 }
 

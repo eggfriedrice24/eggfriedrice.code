@@ -185,3 +185,43 @@ fn full_status_changes_when_undo_goes_off_at_reload() {
     assert_eq!(after, FullModeStatus { allowed: true, refused: Some(FullRefusal::UndoOff) });
     assert_eq!(root.current().full_mode.refused, Some(FullRefusal::Root));
 }
+
+/// A default model of another company than the provider reaches the conversations, so
+/// a prompt that queued before the reload fails with the same text as efrd's refusal
+/// of a new prompt (v0.0.4, C3.5).
+#[test]
+fn a_foreign_default_model_reaches_the_conversations_with_efrd_s_text() {
+    let mut config = Settings::default();
+    config.model.provider = "openai-subscription".to_owned();
+    config.model.name = Some("claude-opus-5-5".to_owned());
+    let settings = conversation_config(
+        &config,
+        &builtin_models(),
+        PathBuf::from("/d/s"),
+        HostInfo::default(),
+        TimeZone::UTC,
+    );
+
+    let foreign = settings.foreign_model.clone().expect("the default is foreign");
+    let turn = efr_conversation::ConversationError::ForeignModel {
+        name: foreign.name,
+        company: foreign.company,
+        provider: foreign.provider,
+    };
+    let refusal = crate::error::DaemonError::ForeignModel {
+        name: "claude-opus-5-5".to_owned(),
+        company: efr_config::ModelCompany::Anthropic,
+        provider: "openai-subscription".to_owned(),
+    };
+    assert_eq!(turn.to_string(), refusal.to_string());
+
+    config.model.name = Some("gpt-5.5".to_owned());
+    let fits = conversation_config(
+        &config,
+        &builtin_models(),
+        PathBuf::from("/d/s"),
+        HostInfo::default(),
+        TimeZone::UTC,
+    );
+    assert_eq!(fits.foreign_model, None);
+}

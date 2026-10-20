@@ -20,6 +20,12 @@
 //! snapshots are off, the shell is no zsh): the turn runs as `auto` and records why, as
 //! the config's `permissions.mode = "full"` needs `permissions.allow_full` anyway.
 //!
+//! A turn that names no model of its own fails while the config's default model is a
+//! model of another company than its provider
+//! ([`ConversationConfig::foreign_model`]), with the cause and the fix. efrd refuses
+//! such a prompt when it arrives; the check here is for a prompt that queued before a
+//! reload made the default foreign.
+//!
 //! A turn that job notices start (a wake turn) runs with at most `auto`: nobody asked
 //! for its steps now, so it never runs in full mode. The cap comes before the check of
 //! the daemon's gate, so such a turn needs no gate and never fails for it, and it
@@ -86,6 +92,17 @@ pub(crate) fn resolve(
         None if woke => Some(wake_fallback(auto)),
         None => auto,
     };
+    // NOTE: efrd refuses such a prompt when it arrives; this check is for a prompt
+    // that queued before a reload made the default foreign (v0.0.4, C3.5).
+    if asked.model.is_none()
+        && let Some(foreign) = &config.foreign_model
+    {
+        return Err(ConversationError::ForeignModel {
+            name: foreign.name.clone(),
+            company: foreign.company.clone(),
+            provider: foreign.provider.clone(),
+        });
+    }
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
     let info = check_model(&model, asked.model.is_none(), &config.models)?;
     let effort = asked.effort.clone().or_else(|| config.effort.clone());

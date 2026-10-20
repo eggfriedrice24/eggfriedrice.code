@@ -194,6 +194,24 @@ pub enum ConversationError {
         from_config: bool,
     },
 
+    /// The turn names no model of its own, and the config's default model is a model of
+    /// another company than the config's provider
+    /// ([`ConversationConfig::foreign_model`](crate::ConversationConfig::foreign_model)).
+    /// The text is the one of efrd's refusal of such a prompt: the cause and the fix. A
+    /// turn that starts with it fails.
+    #[error(
+        "[model] name {name} is a model of {company}, but [model] provider is {provider}; set \
+         [model] name to a model of {provider}, or remove it"
+    )]
+    ForeignModel {
+        /// The value of `[model] name`.
+        name: String,
+        /// The company of that model.
+        company: String,
+        /// The value of `[model] provider`.
+        provider: String,
+    },
+
     /// A turn asked for full mode, but `permissions.allow_full` is false. Nothing was
     /// recorded for a prompt; a turn that starts with it fails.
     #[error(
@@ -404,8 +422,15 @@ impl ConversationError {
     /// setting, its value, the choices and, for an effort, the model, so a client can
     /// offer the choices. For [`FullModeOff`](Self::FullModeOff) and
     /// [`FullModeRefused`](Self::FullModeRefused): the mode `full` and the other modes as
-    /// the choices. `None` for every other error.
+    /// the choices. For [`ForeignModel`](Self::ForeignModel): the setting `model`, its
+    /// value and the provider, as efrd's refusal of such a prompt. `None` for every
+    /// other error.
     pub fn data(&self) -> Option<serde_json::Value> {
+        if let ConversationError::ForeignModel { name, provider, .. } = self {
+            return Some(
+                serde_json::json!({ "setting": "model", "value": name, "provider": provider }),
+            );
+        }
         if matches!(
             self,
             ConversationError::FullModeOff | ConversationError::FullModeRefused { .. }

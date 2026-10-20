@@ -844,6 +844,7 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         ConversationError::NoAlwaysOffer { .. } => ErrorCode::Invalid,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
         ConversationError::InvalidSetting { .. }
+        | ConversationError::ForeignModel { .. }
         | ConversationError::FullModeOff
         | ConversationError::FullModeRefused { .. } => ErrorCode::Invalid,
         ConversationError::CompactionBusy { .. } | ConversationError::NothingToCompact { .. } => {
