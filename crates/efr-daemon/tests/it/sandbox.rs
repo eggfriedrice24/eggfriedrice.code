@@ -7,6 +7,7 @@
 
 mod always;
 mod dbus;
+mod full;
 mod jobs;
 mod jobs_guard;
 mod mount_view;
