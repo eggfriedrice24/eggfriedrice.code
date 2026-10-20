@@ -582,6 +582,76 @@ fn add_table_entry_first_entry() {
 }
 
 #[test]
+fn first_rule_in_an_empty_file_adds_no_empty_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(&path, "");
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    assert_eq!(edit.add_table_entry("sandbox.allow", &notes()).unwrap(), 0);
+    let settings = file.write(&edit).unwrap();
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "[[sandbox.allow]]\nkind = \"write\"\nunder = \"~/notes\"\n"
+    );
+    assert_eq!(settings.sandbox.allow, [notes()]);
+
+    // A file with other tables gets the entry at its end, with no `[sandbox]` line.
+    write_file(&path, ORIGINAL);
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_table_entry("sandbox.allow", &notes()).unwrap();
+    edit.add_rule(&deny_downloads()).unwrap();
+    file.write(&edit).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with(ORIGINAL), "{text}");
+    assert!(!text.contains("[sandbox]"), "{text}");
+    assert!(!text.contains("[permissions]"), "{text}");
+    assert!(text.contains("\n[[sandbox.allow]]\nkind = \"write\"\n"), "{text}");
+    assert!(text.contains("\n[[permissions.rules]]\naction = \"write\"\n"), "{text}");
+
+    // The last entry goes, and no empty header stays behind.
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.remove_table_entry("sandbox.allow", 0).unwrap();
+    edit.remove_rule(0).unwrap();
+    file.write(&edit).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap().trim_end(), ORIGINAL.trim_end());
+}
+
+#[test]
+fn a_later_plain_key_still_gets_its_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_path(&dir);
+    write_file(&path, "");
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_table_entry("sandbox.allow", &notes()).unwrap();
+    file.write(&edit).unwrap();
+
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.set_text("sandbox.cache_days", "7").unwrap();
+    let settings = file.write(&edit).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("[sandbox]\ncache_days = 7\n"), "{text}");
+    assert_eq!(settings.sandbox.cache_days, 7);
+    assert_eq!(settings.sandbox.allow, [notes()]);
+
+    // The same in one edit: the plain key gives the new table its header.
+    write_file(&path, "");
+    let file = ConfigFile::open(&path).unwrap();
+    let mut edit = file.edit().unwrap();
+    edit.add_table_entry("sandbox.allow", &notes()).unwrap();
+    edit.set_text("sandbox.cache_days", "7").unwrap();
+    let settings = file.write(&edit).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("[sandbox]\ncache_days = 7\n"), "{text}");
+    assert_eq!(settings.sandbox.cache_days, 7);
+    assert_eq!(settings.sandbox.allow, [notes()]);
+}
+
+#[test]
 fn add_table_entry_inline_and_dotted_forms() {
     let dir = tempfile::tempdir().unwrap();
     let path = config_path(&dir);

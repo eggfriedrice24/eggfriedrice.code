@@ -282,11 +282,15 @@ impl Edit {
     }
 
     /// The top-level table `name`, such as `[permissions]`, added at the end of the
-    /// file when it is missing.
+    /// file when it is missing. A new table is implicit: it writes no header of its own
+    /// while it holds only arrays of tables, so the first `[[sandbox.allow]]` comes
+    /// with no empty `[sandbox]` above it. A later plain key brings the header back.
     fn parent_table(&mut self, name: &'static str) -> Result<&mut dyn TableLike, ConfigError> {
         let root = self.document.as_table_mut();
         if !root.contains_key(name) {
-            root.insert(name, Item::Table(Table::new()));
+            let mut table = Table::new();
+            table.set_implicit(true);
+            root.insert(name, Item::Table(table));
         }
         root.get_mut(name)
             .and_then(Item::as_table_like_mut)
