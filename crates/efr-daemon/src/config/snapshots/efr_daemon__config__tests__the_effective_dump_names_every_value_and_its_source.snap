@@ -1,6 +1,5 @@
 ---
 source: crates/efr-daemon/src/config/tests.rs
-assertion_line: 133
 expression: config.effective()
 ---
 # /home/u/.config/efr/config.toml
@@ -36,6 +35,8 @@ conversation.approval_timeout_secs = (unset)  # default
 conversation.update_interval_ms = 200  # default
 conversation.draft_interval_ms = 16  # default
 conversation.tty_idle_hours = 12  # default
+conversation.follow_project = true  # default
+conversation.repo_hint = true  # default
 context.recent_commands = 8  # default
 compaction.auto = true  # default
 compaction.auto_at = 76  # default

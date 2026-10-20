@@ -419,9 +419,22 @@ pub struct ConversationSettings {
     /// text, the reasoning and the tool input that a terminal shows as they arrive.
     /// Drafts go only to live clients and never into the log; 0 sends every change.
     pub draft_interval_ms: u64,
-    /// Hours without activity after which a terminal's next `,` line starts a new
-    /// conversation instead of continuing the old one; 0 continues it forever.
+    /// Hours without activity after which a terminal's next `,` line in a scope starts
+    /// a new conversation instead of continuing the terminal's conversation of that
+    /// scope; 0 continues it forever. Each scope of a terminal has its own clock. A new
+    /// terminal picks up a project's newest conversation only when it was active
+    /// within these hours.
     pub tty_idle_hours: u64,
+    /// A terminal keeps one conversation for each registered project that you worked
+    /// in, and one for everything outside projects; a prompt goes to the conversation
+    /// of the scope where you send it, and a new terminal picks up the project's
+    /// newest conversation that no open terminal holds. false keeps one conversation
+    /// per terminal, whatever the scope.
+    pub follow_project: bool,
+    /// A prompt in a git repository that is not a registered project shows, at most
+    /// once a day for each repository, that writes there ask you and how to register
+    /// it.
+    pub repo_hint: bool,
 }
 
 impl Default for ConversationSettings {
@@ -432,6 +445,8 @@ impl Default for ConversationSettings {
             update_interval_ms: 200,
             draft_interval_ms: 16,
             tty_idle_hours: 12,
+            follow_project: true,
+            repo_hint: true,
         }
     }
 }

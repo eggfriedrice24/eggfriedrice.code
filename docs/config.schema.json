@@ -447,6 +447,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "follow_project": {
+          "default": true,
+          "description": "A terminal keeps one conversation for each registered project that you worked\nin, and one for everything outside projects; a prompt goes to the conversation\nof the scope where you send it, and a new terminal picks up the project's\nnewest conversation that no open terminal holds. false keeps one conversation\nper terminal, whatever the scope.",
+          "type": "boolean"
+        },
         "max_queued": {
           "default": 16,
           "description": "The most prompts that may wait behind a running turn.",
@@ -454,9 +459,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "repo_hint": {
+          "default": true,
+          "description": "A prompt in a git repository that is not a registered project shows, at most\nonce a day for each repository, that writes there ask you and how to register\nit.",
+          "type": "boolean"
+        },
         "tty_idle_hours": {
           "default": 12,
-          "description": "Hours without activity after which a terminal's next `,` line starts a new\nconversation instead of continuing the old one; 0 continues it forever.",
+          "description": "Hours without activity after which a terminal's next `,` line in a scope starts\na new conversation instead of continuing the terminal's conversation of that\nscope; 0 continues it forever. Each scope of a terminal has its own clock. A new\nterminal picks up a project's newest conversation only when it was active\nwithin these hours.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -1738,7 +1748,9 @@
       "$ref": "#/$defs/ConversationSettings",
       "default": {
         "draft_interval_ms": 16,
+        "follow_project": true,
         "max_queued": 16,
+        "repo_hint": true,
         "tty_idle_hours": 12,
         "update_interval_ms": 200
       },

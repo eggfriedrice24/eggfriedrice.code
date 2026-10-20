@@ -100,7 +100,9 @@ Queues, approvals, streaming and terminals.
 | `approval_timeout_secs` | unset | live | Seconds an approval request waits before it expires. Unset: it waits until the user answers. |
 | `update_interval_ms` | `200` | live | The shortest time between two streamed text updates in the log, in milliseconds. Live clients see the text sooner, through drafts. |
 | `draft_interval_ms` | `16` | live | The shortest time between two drafts of a running turn, in milliseconds: the text, the reasoning and the tool input that a terminal shows as they arrive. Drafts go only to live clients and never into the log; 0 sends every change. |
-| `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line starts a new conversation instead of continuing the old one; 0 continues it forever. |
+| `tty_idle_hours` | `12` | live | Hours without activity after which a terminal's next `,` line in a scope starts a new conversation instead of continuing the terminal's conversation of that scope; 0 continues it forever. Each scope of a terminal has its own clock. A new terminal picks up a project's newest conversation only when it was active within these hours. |
+| `follow_project` | `true` | live | A terminal keeps one conversation for each registered project that you worked in, and one for everything outside projects; a prompt goes to the conversation of the scope where you send it, and a new terminal picks up the project's newest conversation that no open terminal holds. false keeps one conversation per terminal, whatever the scope. |
+| `repo_hint` | `true` | live | A prompt in a git repository that is not a registered project shows, at most once a day for each repository, that writes there ask you and how to register it. |
 
 ## [context]
 
