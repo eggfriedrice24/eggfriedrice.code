@@ -220,4 +220,7 @@ no test uses the network.
 CI's `sandbox` job runs the same tests in a VM, because the kernel of GitHub's runner is
 older than 7.1. `.github/sandbox-vm.sh` boots a pinned 7.1 kernel with virtme-ng and
 runs the tests of the build job's archive inside; `just test-sandbox-vm` does the same
-in a container that is set up like the runner.
+in a container that is set up like the runner. The job runs only when a changed file
+can change what it tests (`.github/sandbox-paths.sh`). On a push or a pull request, the
+launch cost tests run with 100 calls each and no gate (`SBX_GATE=0`). The weekly run
+on Monday and `just test-sandbox-vm` run them with `EFR_TEST_SBX_GATE=1`.
