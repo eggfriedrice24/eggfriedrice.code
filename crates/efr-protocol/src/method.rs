@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CommandId,
-    ConversationCompact, ConversationDiff, ConversationHistory, ConversationSubscribe,
-    ConversationsList, Hello, InputRespond, JobsList, JobsStop, LeaseReport, ModelsList,
-    PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite,
-    SandboxExplain, SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer, TurnUndo,
+    ConversationCompact, ConversationContext, ConversationDiff, ConversationHistory,
+    ConversationSubscribe, ConversationsList, Hello, InputRespond, JobsList, JobsStop, LeaseReport,
+    ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize,
+    PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -122,6 +122,9 @@ pub enum Method {
     /// `jobs.stop`: stop one background job.
     #[serde(rename = "jobs.stop")]
     JobsStop(JobsStop),
+    /// `conversation.context`: what fills the model's context of a conversation.
+    #[serde(rename = "conversation.context")]
+    ConversationContext(ConversationContext),
 }
 
 impl Method {
@@ -161,6 +164,7 @@ impl Method {
             Method::TurnUndo(_) => "turn.undo",
             Method::JobsList(_) => "jobs.list",
             Method::JobsStop(_) => "jobs.stop",
+            Method::ConversationContext(_) => "conversation.context",
         }
     }
 
@@ -200,7 +204,8 @@ impl Method {
             | Method::SandboxExplain(_)
             | Method::AdminSandboxCheck(_)
             | Method::ConversationDiff(_)
-            | Method::JobsList(_) => None,
+            | Method::JobsList(_)
+            | Method::ConversationContext(_) => None,
         }
     }
 
@@ -239,7 +244,8 @@ impl Method {
             | Method::PresenceSet(_)
             | Method::TurnUndo(_)
             | Method::JobsList(_)
-            | Method::JobsStop(_) => false,
+            | Method::JobsStop(_)
+            | Method::ConversationContext(_) => false,
         }
     }
 }
@@ -248,8 +254,8 @@ impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
     /// `hello`, `lease.report`, `models.list`, `projects.list`, `sandbox.explain`,
-    /// `conversation.diff` and `jobs.list` need only `read`, which every connection
-    /// holds. Adding or
+    /// `conversation.diff`, `jobs.list` and `conversation.context` need only `read`,
+    /// which every connection holds. Adding or
     /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
     /// a phone never holds.
     pub const fn for_method(method: &Method) -> ScopeName {
@@ -263,7 +269,8 @@ impl ScopeName {
             | Method::ProjectsList(_)
             | Method::SandboxExplain(_)
             | Method::ConversationDiff(_)
-            | Method::JobsList(_) => ScopeName::Read,
+            | Method::JobsList(_)
+            | Method::ConversationContext(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)

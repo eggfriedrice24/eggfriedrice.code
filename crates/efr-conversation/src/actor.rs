@@ -24,7 +24,9 @@
 //! of its own; a prompt that arrives meanwhile queues behind it, and the compaction
 //! never starts a turn itself. An undo (`turn.undo`) does the same: it runs only while
 //! no turn, compaction or other undo runs and no call of the conversation still runs
-//! after its tool answered, and it never starts a turn itself.
+//! after its tool answered, and it never starts a turn itself. A measure of the
+//! context (`conversation.context`) runs at any time in a task of its own and only
+//! reads.
 //!
 //! Every request that changes the conversation records its event and the command's
 //! receipt in one batch, so a retried command id returns the stored result and nothing
@@ -37,17 +39,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod compact;
+mod context;
 mod notices;
 mod undo;
 
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, CommandId,
-    ConversationCompact, ConversationCompactResult, ConversationId, EffectiveSettings, ErrorBody,
-    ErrorCode, Event, LateSteer, Mode, Origin, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, QuestionId, RecentCommand, ResentSteers, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Seq, ShellContext, TurnId, TurnInterrupt, TurnInterruptResult,
-    TurnSettings, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult, UndoRefused,
-    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
+    ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, LateSteer, Mode, Origin,
+    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand,
+    ResentSteers, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Seq, ShellContext, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnUndo,
+    TurnUndoResult, UndoRefused, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
 use efr_store::receipts::NewReceipt;
@@ -301,6 +304,10 @@ enum Request {
         origin: Origin,
         reply: Reply<TurnUndoResult>,
     },
+    Context {
+        params: ConversationContext,
+        reply: Reply<ConversationContextResult>,
+    },
     State {
         reply: oneshot::Sender<ConversationState>,
     },
@@ -431,6 +438,7 @@ impl ConversationActor {
             Request::Undo { params, candidates, origin, reply } => {
                 self.undo(params, candidates, origin, reply).await;
             }
+            Request::Context { params, reply } => self.context(params, reply),
             Request::State { reply } => {
                 let _ = reply.send(self.state());
             }
@@ -1141,6 +1149,30 @@ impl ConversationActor {
         self.start_next();
     }
 
+    /// Measures what fills the model's context in a task of its own, at any time: while
+    /// a turn runs, its messages so far count. It only reads, so it waits for nothing
+    /// and nothing waits for it.
+    fn context(&self, params: ConversationContext, reply: Reply<ConversationContextResult>) {
+        if let Err(error) = self.check_conversation(Some(params.conversation_id)) {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        let running = self.running.as_ref().map(|running| running.turn_id);
+        let job = context::run(
+            Arc::clone(&self.shared),
+            params,
+            self.cache.clone(),
+            self.fresh.clone(),
+            running,
+        );
+        tokio::spawn(
+            async move {
+                let _ = reply.send(job.await);
+            }
+            .in_current_span(),
+        );
+    }
+
     fn state(&self) -> ConversationState {
         ConversationState {
             running: self.running.as_ref().map(|running| running.turn_id),
@@ -1507,6 +1539,17 @@ impl ConversationHandle {
         params: ConversationCompact,
     ) -> Result<ConversationCompactResult, ConversationError> {
         self.request(|reply| Request::Compact { params, reply }).await
+    }
+
+    /// What fills the model's context: the request that the next model call would
+    /// send, measured part by part, with the newest real count, the compactions and the
+    /// cache use of the conversation. It answers while a turn runs, from the log up to
+    /// now, and records nothing.
+    pub async fn context(
+        &self,
+        params: ConversationContext,
+    ) -> Result<ConversationContextResult, ConversationError> {
+        self.request(|reply| Request::Context { params, reply }).await
     }
 
     /// Takes back the file and ref changes of one turn of `candidates` (the ended turns

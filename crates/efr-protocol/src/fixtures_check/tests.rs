@@ -75,10 +75,11 @@ fn method_index(method: &Method) -> usize {
         Method::TurnUndo(_) => 29,
         Method::JobsList(_) => 30,
         Method::JobsStop(_) => 31,
+        Method::ConversationContext(_) => 32,
     }
 }
 
-const METHOD_COUNT: usize = 32;
+const METHOD_COUNT: usize = 33;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

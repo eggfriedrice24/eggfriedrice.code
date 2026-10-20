@@ -497,3 +497,13 @@ No protocol version has shipped yet.
   (absent when empty), each with `repo`, `item` (such as `hooks/pre-push` or
   `core.sshcommand`), `file` and `writable` (a contained call can write the file).
   `events/exit_requested.json` now sets it.
+- Version 1, additive: new method `conversation.context` (scope `read`, no command id)
+  with `conversation_id` and an optional `model`: what fills the model's context of a
+  conversation. Its result has the model and its limits (`window`, `window_known`,
+  `trigger`, `hard_cap`, `auto`), the last real count `counted` (absent when no turn
+  has one since the newest compaction), the `estimate` of the next request and its
+  `parts` (one per kind of the new wire enum `context_part_kind`), the `largest` items,
+  the `compactions` and the `cache` use of the conversation's model calls. It holds
+  only sizes, counts and labels, never the text of a message. New fixtures
+  `conversation_context_params.json`, `conversation_context_result.json` and
+  `context_part_kinds.json`.

@@ -76,6 +76,10 @@ pub use methods::admin_status::{
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
 pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
+pub use methods::conversation_context::{
+    CacheSummary, CompactionBrief, CompactionSummary, ContextItem, ContextPart, ContextPartKind,
+    ConversationContext, ConversationContextResult, CountedUse, MAX_LARGEST,
+};
 pub use methods::conversation_diff::{ConversationDiff, ConversationDiffResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_subscribe::{

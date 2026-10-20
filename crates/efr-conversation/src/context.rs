@@ -3,10 +3,13 @@
 //!
 //! [`Meter`] keeps the context of a running turn: the last real count and the estimate
 //! of the messages added after it. [`context_full`] is the failure of a turn whose
-//! context does not fit.
+//! context does not fit. [`breakdown`] measures what fills the context, part by part,
+//! for `conversation.context`.
 
 use efr_protocol::{ContextUse, ErrorBody, ErrorCode, Event, EventEnvelope};
 use efr_provider::{Message, Request};
+
+pub(crate) mod breakdown;
 
 /// The window that efr counts with for a model whose window it does not know: small
 /// enough for every current model, so a compaction comes early rather than late.

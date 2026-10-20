@@ -24,6 +24,7 @@ pub(crate) mod admin_sandbox_check;
 pub(crate) mod admin_status;
 pub(crate) mod approval_respond;
 pub(crate) mod conversation_compact;
+pub(crate) mod conversation_context;
 pub(crate) mod conversation_diff;
 pub(crate) mod conversation_history;
 pub(crate) mod conversation_subscribe;

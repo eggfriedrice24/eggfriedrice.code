@@ -6,12 +6,12 @@ use serde_json::json;
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
-    Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationDiff,
-    ConversationHistory, ConversationId, ConversationSubscribe, ConversationsList, Hello,
-    InputRespond, JobId, JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence,
-    PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite,
-    QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Size, TurnInterrupt,
-    TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
+    Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationContext,
+    ConversationDiff, ConversationHistory, ConversationId, ConversationSubscribe,
+    ConversationsList, Hello, InputRespond, JobId, JobsList, JobsStop, LeaseReport, Method,
+    ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach,
+    PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName,
+    SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -330,6 +330,16 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             true,
             false,
         ),
+        (
+            Method::ConversationContext(ConversationContext {
+                conversation_id: conversation(),
+                model: None,
+            }),
+            "conversation.context",
+            ScopeName::Read,
+            false,
+            false,
+        ),
     ]
 }
 
@@ -359,6 +369,22 @@ fn jobs_list_needs_read_scope() {
     assert!(!list.is_stream());
     let wire = serde_json::to_value(&list).unwrap();
     assert_eq!(wire, json!({ "method": "jobs.list", "params": {} }));
+}
+
+#[test]
+fn conversation_context_needs_read_scope() {
+    let context = Method::ConversationContext(ConversationContext {
+        conversation_id: conversation(),
+        model: None,
+    });
+    assert_eq!(ScopeName::for_method(&context), ScopeName::Read);
+    assert_eq!(context.command_id(), None);
+    assert!(!context.is_stream());
+    let wire = serde_json::to_value(&context).unwrap();
+    assert_eq!(
+        wire,
+        json!({ "method": "conversation.context", "params": { "conversation_id": CONVERSATION } })
+    );
 }
 
 #[test]

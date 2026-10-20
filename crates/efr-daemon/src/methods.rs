@@ -43,6 +43,7 @@ mod admin_sandbox_check;
 mod admin_status;
 mod approval_respond;
 mod conversation_compact;
+mod conversation_context;
 mod conversation_diff;
 mod conversation_history;
 mod conversation_subscribe;
@@ -123,6 +124,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::TurnUndo(_) => ScopeName::Operate,
         Method::JobsList(_) => ScopeName::Read,
         Method::JobsStop(_) => ScopeName::Operate,
+        Method::ConversationContext(_) => ScopeName::Read,
     }
 }
 
@@ -191,7 +193,8 @@ impl Input {
             | Method::AdminSandboxCheck(_)
             | Method::ConversationDiff(_)
             | Method::PresenceSet(_)
-            | Method::JobsList(_) => None,
+            | Method::JobsList(_)
+            | Method::ConversationContext(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -429,6 +432,9 @@ impl Dispatcher for Methods {
                 Method::JobsList(params) => jobs_list::handle(state, params, &responder).await,
                 Method::JobsStop(params) => {
                     jobs_stop::handle(state, &context, params, &responder).await
+                }
+                Method::ConversationContext(params) => {
+                    conversation_context::handle(state, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

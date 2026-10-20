@@ -1,0 +1,107 @@
+{
+  "model": "claude-opus-5-5",
+  "window": 1000000,
+  "window_known": true,
+  "trigger": 760000,
+  "hard_cap": 950000,
+  "auto": true,
+  "counted": {
+    "tokens": 98400,
+    "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+    "at": "2026-10-20T18:05:00Z"
+  },
+  "estimate": 96700,
+  "running": true,
+  "parts": [
+    {
+      "kind": "system",
+      "tokens": 6100,
+      "count": 1
+    },
+    {
+      "kind": "tools",
+      "tokens": 4800,
+      "count": 9
+    },
+    {
+      "kind": "summary",
+      "tokens": 3200,
+      "count": 2
+    },
+    {
+      "kind": "prompts",
+      "tokens": 2000,
+      "count": 14
+    },
+    {
+      "kind": "preambles",
+      "tokens": 9800,
+      "count": 14
+    },
+    {
+      "kind": "notices",
+      "tokens": 300,
+      "count": 1
+    },
+    {
+      "kind": "answers",
+      "tokens": 18000,
+      "count": 14
+    },
+    {
+      "kind": "tool_calls",
+      "tokens": 4100,
+      "count": 31
+    },
+    {
+      "kind": "tool_outputs",
+      "tokens": 48300,
+      "count": 28
+    },
+    {
+      "kind": "pruned",
+      "tokens": 100,
+      "count": 3
+    }
+  ],
+  "largest": [
+    {
+      "kind": "tool_outputs",
+      "tokens": 12300,
+      "turn": 12,
+      "tool": "shell",
+      "label": "cargo test"
+    }
+  ],
+  "compactions": {
+    "count": 1,
+    "newest": {
+      "at": "2026-10-20T18:02:00Z",
+      "trigger": "auto",
+      "tokens_before": 231000,
+      "tokens_after": 24000,
+      "summarized": true,
+      "pruned_outputs": 12
+    }
+  },
+  "cache": {
+    "last_turn": {
+      "input_tokens": 98000,
+      "output_tokens": 1100,
+      "cached_input_tokens": 89200,
+      "reasoning_tokens": 300,
+      "cache_write_tokens": 8700,
+      "cache_write_1h_tokens": 8700,
+      "context_tokens": 98400
+    },
+    "conversation": {
+      "input_tokens": 1310000,
+      "output_tokens": 21000,
+      "cached_input_tokens": 1100000,
+      "reasoning_tokens": 4000,
+      "cache_write_tokens": 210000,
+      "cache_write_1h_tokens": 200000
+    },
+    "turns": 14
+  }
+}

@@ -16,6 +16,7 @@ mod cache_prefix;
 mod catalog;
 mod classifier_eval;
 mod compact;
+mod context;
 mod drafts;
 mod full;
 mod hello;

@@ -1,11 +1,12 @@
 use efr_protocol::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
-    ConversationCompact, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, ErrorCode, Hello, InputRespond, LeaseReport, Method, ModelsList, Origin,
-    PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
-    PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond,
-    ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
+    ConversationCompact, ConversationContext, ConversationHistory, ConversationId,
+    ConversationSubscribe, ConversationsList, ErrorCode, Hello, InputRespond, LeaseReport, Method,
+    ModelsList, Origin, PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList,
+    PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo,
+    WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
@@ -131,13 +132,14 @@ fn every_method() -> Vec<Method> {
             redo: false,
             list: false,
         }),
+        Method::ConversationContext(ConversationContext { conversation_id, model: None }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 27, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 28, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -178,6 +180,7 @@ fn the_scope_table_is_the_designed_one() {
             ("conversation.compact", ScopeName::Operate),
             ("presence.set", ScopeName::Operate),
             ("turn.undo", ScopeName::Operate),
+            ("conversation.context", ScopeName::Read),
         ]
     );
 }

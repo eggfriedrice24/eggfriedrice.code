@@ -21,34 +21,35 @@ use crate::{
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes, BlockReason, Blocked,
-    BusKind, BusProxyOff, BusRefusal, CacheMode, CallId, Capabilities, CatalogOrigin,
+    BusKind, BusProxyOff, BusRefusal, CacheMode, CacheSummary, CallId, Capabilities, CatalogOrigin,
     CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color, CommandId,
-    Compaction, CompactionId, CompactionTrigger, ConfigFileError, ConfigStatus, ContextUse,
-    ConversationCompact, ConversationCompactResult, ConversationDiff, ConversationDiffResult,
-    ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSnapshot,
-    ConversationStatus, ConversationSubscribe, ConversationSubscribeItem, ConversationSummary,
-    ConversationsList, ConversationsListResult, Cursor, DaemonId, DaemonPaths, DaemonRoots,
-    DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode,
-    Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange,
-    FileChanges, FullModeStatus, FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant,
-    HeldConfig, HeldReason, Hello, HelloResult, HostFact, InputRespond, InputRespondResult,
-    InputWait, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult, JobsStop,
-    JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult,
-    LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult,
-    NetworkMode, NotSavedReason, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION,
-    PageCursor, PathClassName, PauseReason, Presence, PresenceSet, PresenceSetResult,
-    PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
-    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
-    PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
-    RecentCommand, RefChange, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
-    RootSource, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult, SandboxPathRole,
-    SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange, TargetFact, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
-    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    Compaction, CompactionBrief, CompactionId, CompactionSummary, CompactionTrigger,
+    ConfigFileError, ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse,
+    ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
+    ConversationDiff, ConversationDiffResult, ConversationHistory, ConversationHistoryResult,
+    ConversationId, ConversationSnapshot, ConversationStatus, ConversationSubscribe,
+    ConversationSubscribeItem, ConversationSummary, ConversationsList, ConversationsListResult,
+    CountedUse, Cursor, DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceId,
+    Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts,
+    ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, FullModeStatus,
+    FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant, HeldConfig, HeldReason, Hello,
+    HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState,
+    JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer,
+    Launch, LeaseReport, LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo,
+    ModelSource, ModelsList, ModelsListResult, NetworkMode, NotSavedReason, NoticeKind, Origin,
+    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
+    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
+    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RefChange, ReportedFile,
+    RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RowCells, SandboxCheck,
+    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
+    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason,
+    SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
+    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
+    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -132,6 +133,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("bus_proxy_off_reasons.json", &BusProxyOff::ALL.to_vec()));
     fixtures.push(fixture("judge_kinds.json", &JudgeKind::ALL.to_vec()));
     fixtures.push(fixture("full_refusals.json", &FullRefusal::ALL.to_vec()));
+    fixtures.push(fixture("context_part_kinds.json", &ContextPartKind::ALL.to_vec()));
     fixtures
 }
 
@@ -915,6 +917,10 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: Some(conversation_id()),
             job_id: JobId::nth(3),
         }),
+        Method::ConversationContext(ConversationContext {
+            conversation_id: conversation_id(),
+            model: Some("claude-opus-5-5".into()),
+        }),
     ]
 }
 
@@ -1365,7 +1371,79 @@ fn answer_fixtures() -> Vec<Fixture> {
         ),
         fixture("jobs_list_result.json", &JobsListResult { jobs: vec![job_info()] }),
         fixture("jobs_stop_result.json", &JobsStopResult { job: job_info() }),
+        fixture("conversation_context_result.json", &context_report()),
     ]
+}
+
+/// A context report with every member set.
+fn context_report() -> ConversationContextResult {
+    let part = |kind, tokens, count| ContextPart { kind, tokens, count };
+    ConversationContextResult {
+        model: "claude-opus-5-5".into(),
+        window: 1_000_000,
+        window_known: true,
+        trigger: 760_000,
+        hard_cap: 950_000,
+        auto: true,
+        counted: Some(CountedUse {
+            tokens: 98_400,
+            turn_id: turn_id(),
+            at: at("2026-10-20T18:05:00Z"),
+        }),
+        estimate: 96_700,
+        running: true,
+        parts: vec![
+            part(ContextPartKind::System, 6_100, 1),
+            part(ContextPartKind::Tools, 4_800, 9),
+            part(ContextPartKind::Summary, 3_200, 2),
+            part(ContextPartKind::Prompts, 2_000, 14),
+            part(ContextPartKind::Preambles, 9_800, 14),
+            part(ContextPartKind::Notices, 300, 1),
+            part(ContextPartKind::Answers, 18_000, 14),
+            part(ContextPartKind::ToolCalls, 4_100, 31),
+            part(ContextPartKind::ToolOutputs, 48_300, 28),
+            part(ContextPartKind::Pruned, 100, 3),
+        ],
+        largest: vec![ContextItem {
+            kind: ContextPartKind::ToolOutputs,
+            tokens: 12_300,
+            turn: Some(12),
+            tool: Some("shell".into()),
+            label: Some("cargo test".into()),
+        }],
+        compactions: CompactionSummary {
+            count: 1,
+            newest: Some(CompactionBrief {
+                at: at("2026-10-20T18:02:00Z"),
+                trigger: CompactionTrigger::Auto,
+                tokens_before: 231_000,
+                tokens_after: 24_000,
+                summarized: true,
+                pruned_outputs: 12,
+            }),
+        },
+        cache: CacheSummary {
+            last_turn: Some(Usage {
+                input_tokens: 98_000,
+                output_tokens: 1_100,
+                cached_input_tokens: 89_200,
+                reasoning_tokens: 300,
+                cache_write_tokens: 8_700,
+                cache_write_1h_tokens: 8_700,
+                context_tokens: 98_400,
+            }),
+            conversation: Usage {
+                input_tokens: 1_310_000,
+                output_tokens: 21_000,
+                cached_input_tokens: 1_100_000,
+                reasoning_tokens: 4_000,
+                cache_write_tokens: 210_000,
+                cache_write_1h_tokens: 200_000,
+                context_tokens: 0,
+            },
+            turns: 14,
+        },
+    }
 }
 
 /// A registered project with every member set.
