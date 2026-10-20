@@ -147,10 +147,11 @@ impl ConversationActor {
         let mut held: Vec<(JobId, Seq, HeldReason)> = Vec::new();
         let mut wakeable: Vec<JobStart> = Vec::new();
         for notice in &self.notices.waiting {
-            // NOTE: the model that stopped the job read its output in the tool result;
-            // the notice rides in the next turn with no held record, which would name
-            // the wrong reason.
-            if self.notices.held.contains(&notice.source_seq) || notice.stopped_by_model() {
+            // NOTE: the model that stopped the job read its output in the tool result,
+            // and a job that efrd stopped because full mode went off must not start a
+            // turn of the mode that the user took away; the notice rides in the next
+            // turn with no held record, which would name the wrong reason.
+            if self.notices.held.contains(&notice.source_seq) || notice.stopped_quietly() {
                 continue;
             }
             match self.notices.alone(notice) {

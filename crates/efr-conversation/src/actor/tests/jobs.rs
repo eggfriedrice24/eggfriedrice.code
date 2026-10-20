@@ -474,6 +474,26 @@ async fn model_stopped_job_rides_in_next_prompt_without_held() {
 }
 
 #[tokio::test]
+async fn full_off_stop_starts_no_wake_turn() {
+    let (mut h, script, _) = with_job(full(), Vec::new()).await;
+    let mut notice = ended(&h, 1, 900, false);
+    notice.job.stopped_by = Some(JobStopBy::FullOff);
+    notify(&h, notice.clone()).await;
+    // NOTE: the actor answers in order, so the notice was handled before this.
+    assert_eq!(h.handle.state().await.unwrap().running, None, "no wake turn");
+
+    let sent = h.prompt("status?").await;
+    h.wait_end(sent.turn_id).await;
+    let first = first_texts(&script.requests().last().cloned().unwrap());
+    assert_eq!(first[1..], ["status?".to_owned(), notice.text]);
+    let events = h.store.events().await.unwrap();
+    assert!(
+        !events.iter().any(|envelope| matches!(envelope.event, Event::JobNoticeHeld { .. })),
+        "a job that efrd stopped at the gate records no job_notice_held"
+    );
+}
+
+#[tokio::test]
 async fn job_started_in_wake_turn_never_wakes() {
     let (mut h, _, _) = with_job(auto(), vec![job("cargo build"), (DONE, Value::Null)]).await;
     notify(&h, ended(&h, 1, 900, true)).await;

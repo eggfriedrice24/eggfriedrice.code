@@ -82,10 +82,12 @@ impl JobNoticeInput {
         JobNoticeInput { job, kind, source_seq, text, wakes }
     }
 
-    /// True for the end notice of a job that the model stopped: the model read the
-    /// output in the tool result, so the notice never wakes it.
-    pub(crate) fn stopped_by_model(&self) -> bool {
-        !self.wakes && self.job.stopped_by == Some(JobStopBy::Model)
+    /// True for the end notice of a job that the model stopped, or that efrd stopped
+    /// because full mode went off: the model read the output in the tool result, or the
+    /// user took the mode away, so the notice never wakes it and rides in the next turn
+    /// with no held record.
+    pub(crate) fn stopped_quietly(&self) -> bool {
+        !self.wakes && matches!(self.job.stopped_by, Some(JobStopBy::Model | JobStopBy::FullOff))
     }
 }
 
