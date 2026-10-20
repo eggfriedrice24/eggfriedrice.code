@@ -543,6 +543,25 @@ async fn full_floor_question_offers_no_always() {
 }
 
 #[tokio::test]
+async fn full_tree_read_with_a_secret_below_asks_and_names_it() {
+    // No sandbox masks the secret in full mode, so the read of the whole dir asks.
+    let setup = full(None);
+    let aws = setup.home().join(".aws");
+    let line = "rg TOKEN ~/.aws".to_owned();
+    let declared =
+        (line.clone(), Requirements::none().with_command(line.clone()).with_read_tree(aws));
+    let (mut h, _, turn_id) = start(setup, vec![shell(&line)], vec![declared], "find it").await;
+    let (call_id, summary, _) = next_question(&mut h).await;
+    assert_eq!(
+        summary.lines().next(),
+        Some("full mode still asks for this: a whole dir with a secret below it")
+    );
+    answer_from(&mut h, call_id, ApprovalDecision::Deny, Origin::Shell).await.unwrap();
+    h.wait_end(turn_id).await;
+    assert!(h.toolbox.invoked().is_empty());
+}
+
+#[tokio::test]
 async fn full_question_with_exits_that_expires_records_judge_full() {
     let mut setup = full(None);
     setup.config.approval_timeout = Some(Duration::from_secs(60));

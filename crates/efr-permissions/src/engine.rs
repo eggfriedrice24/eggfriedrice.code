@@ -90,8 +90,9 @@ use crate::{
 /// sandbox would hold and what a built-in row asks about. Each exit that runs keeps its
 /// reason, so [`Decision::exits`] lists it for the record. A floor stays denied; a
 /// privileged program, a `privilege`, `persistence` or `destructive` exit, a change of
-/// efr's settings, a file tool delete that undo does not cover and a user's or a
-/// conversation's `ask` rule still ask. A delete of a tree that full mode guards
+/// efr's settings, a file tool delete that undo does not cover, a read or write of a
+/// directory with a secret or efr's config below it ([`Cause::ReachesSecret`],
+/// [`Cause::ReachesWriteSealed`]) and a user's or a conversation's `ask` rule still ask. A delete of a tree that full mode guards
 /// ([`exits::critical_deletes`]) asks too, with [`Cause::CriticalDelete`], whatever the
 /// rules say. In a background job such a delete and a `destructive` exit are refused
 /// with [`Cause::NotAsJob`]. `nested_shell` runs.
@@ -330,6 +331,7 @@ impl Engine {
             input,
             cx,
             contain: predicts && shell,
+            full,
             support: base_support,
         };
 
@@ -714,17 +716,22 @@ struct Judge<'a> {
     /// True for a shell call in `auto` or full mode: in `auto` it runs in the sandbox,
     /// and full mode lets what the sandbox would hold run.
     contain: bool,
+    /// True in full mode: no sandbox masks a secret or keeps efr's config read-only.
+    full: bool,
     /// What the machine supports for this call: the `auto` sandbox's, or in full mode
     /// [`AutoSupport::for_full`].
     support: AutoSupport,
 }
 
 impl Judge<'_> {
-    /// One path with its class: the rules, then what lies below it, then the origin.
+    /// One path with its class: the rules, then what lies below it, then the origin. In
+    /// full mode a question of a built-in rule runs, so what lies below such a path is
+    /// read too.
     fn path(&self, path: PathBuf, access: Access, class: PathClass) -> Reason {
         let target = Target::Path { path: &path, access, class };
         let (mut effect, mut cause) = self.by_rules(&target, Some(class));
-        if effect == Effect::Allow {
+        let lifted = self.full && effect == Effect::Ask && self.built_in(&cause);
+        if effect == Effect::Allow || lifted {
             let below = match access {
                 Access::Read => None,
                 Access::ReadTree => self
@@ -897,9 +904,11 @@ impl Judge<'_> {
     /// For a shell call in `auto`: a question that a built-in rule asks, or that a secret
     /// or efr's config below the path asks, is contained instead, because the sandbox
     /// masks the secret, keeps the config read-only and holds the rest. A user's `ask`
-    /// or `deny` keeps its cause.
+    /// or `deny` keeps its cause. In full mode no sandbox does this, so a secret or
+    /// efr's config below the path still asks.
     fn contained(&self, effect: Effect, cause: Cause) -> (Effect, Cause) {
-        let below = matches!(cause, Cause::ReachesSecret { .. } | Cause::ReachesWriteSealed { .. });
+        let below = !self.full
+            && matches!(cause, Cause::ReachesSecret { .. } | Cause::ReachesWriteSealed { .. });
         if self.contain && effect == Effect::Ask && (below || self.built_in(&cause)) {
             (Effect::Contain, Cause::Contained)
         } else {

@@ -48,8 +48,10 @@
 #               `destructive` exit give U of the same kind, a question for the user; any
 #               other exit gives A(kind), it runs at once and its exits are recorded with
 #               `judge: full`; D stays D; the settings floor stays. G is a question about
-#               a delete that full mode guards (`exits::critical_deletes`). No line is
-#               judged by the classifier in full mode
+#               a delete that full mode guards (`exits::critical_deletes`). S is a
+#               question about a read or write of a directory with a secret or efr's
+#               config below it, which no sandbox masks in full mode. No line is judged
+#               by the classifier in full mode
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
@@ -288,6 +290,8 @@ line = "du -h -d 2 ~ | sort -hr | head"
 p1 = "R"
 pa = "R"
 pb = "R"
+# full: no sandbox masks the secrets below ~, so a read of the whole tree asks
+full = "S"
 exits = []
 trees = ["/home/u"]
 

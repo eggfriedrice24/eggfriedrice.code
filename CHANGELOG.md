@@ -16,7 +16,9 @@ into the GitHub release notes, and it stops when the section is missing.
   questions. Turn it on by hand with `permissions.allow_full = true` in `config.toml`,
   then choose it with `,mode full` in a terminal, `--mode=full` for one prompt, or
   `permissions.mode = "full"` as the default. efr reads each command line: it denies
-  secrets, its own config and its own dirs, and asks before `sudo`, before a process
+  secrets, its own config and its own dirs, asks before a line reads or writes a whole
+  dir with a secret or efr's config below it (`rg TOKEN ~/.aws`, `du ~`), and asks
+  before `sudo`, before a process
   that outlives the turn, before a delete of `~`, `/`, a system dir or a project (the
   question waits 2 minutes, and only your own machine answers it), and before a delete
   that undo cannot revert. It takes its snapshot before each call and copies a file

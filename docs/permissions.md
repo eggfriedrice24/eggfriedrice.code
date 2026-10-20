@@ -586,6 +586,7 @@ what the command line shows: a script or a program that the line starts gets pas
 | Floor | Kind | What happens |
 |---|---|---|
 | Secrets, efr's config, efr's own programs and dirs | hard for the file tools, text for a shell line | denied. A shell line that names such a path is denied; a link that the same line makes is not resolved, so `ln -s ~/.config/efr c && cp x c/config.toml` runs |
+| A read or write of a whole dir with a secret or efr's config below it | text | asks, as in `cautious`, because no sandbox masks the secret or keeps the config read-only: `rg TOKEN ~/.aws`, `grep -r KEY ~`, `du ~` and `cp -r x/. ~/.config/` ask |
 | A delete that full mode guards | text | asks, at your own machine, at most 2 minutes ("The delete guard", below) |
 | `sudo` and the other programs that give more rights | text | asks, and only your own machine answers. One question covers the whole line: a yes runs every command of the line, and the card says so |
 | A process that outlives the turn | text | asks: `systemd-run --user`, `at`, `batch`, `crontab`, `systemctl --user enable` and the other `persistence` forms, and a write of a file that runs code later, such as `~/.zshrc`. A phone can answer it, as in `auto` |
