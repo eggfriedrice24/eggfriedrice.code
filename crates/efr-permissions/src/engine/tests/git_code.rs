@@ -1,6 +1,6 @@
 //! The git code of a git or gh line that runs outside the sandbox (v0.0.4, B4): a part
 //! that a sandboxed command can write, or a check that efrd could not make, asks only
-//! the user (DV22).
+//! the user (DV22); git options that choose the code ask only the user (DV50).
 
 use std::path::PathBuf;
 
@@ -145,6 +145,45 @@ fn git_code_notes_stop_at_three_and_count_the_rest() {
     let need = one("git push origin main", facts(Some(checked(SCRATCH, &items))));
     assert_eq!(need.notes.len(), 4, "{:?}", need.notes);
     assert_eq!(need.notes[3], "and 2 more parts of the git code");
+}
+
+#[rstest]
+#[case::exec_path("git --exec-path=/home/u/p/app/bin push origin main")]
+#[case::after_other_options("git --no-pager --exec-path=./bin push origin main")]
+fn push_with_exec_path_is_user_only(#[case] line: &str) {
+    let need = one(line, facts(Some(checked(APP, &[]))));
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+    assert_eq!(need.notes, ["an option of the git command chooses the code that git runs"]);
+}
+
+#[rstest]
+#[case::separate("git push --receive-pack ./rp origin main")]
+#[case::inline("git push --receive-pack=./rp origin main")]
+#[case::exec("git push --exec=./rp origin main")]
+fn push_with_receive_pack_is_user_only(#[case] line: &str) {
+    let need = one(line, facts(Some(checked(APP, &[]))));
+    assert_eq!(need.approver, Approver::User, "{line:?}");
+}
+
+#[test]
+fn fetch_with_upload_pack_is_user_only() {
+    let mut facts = remote_facts(vec![remote("origin", &["git@github.com:o/r.git"], &[])]);
+    facts.git_code = Some(checked(APP, &[]));
+    for line in ["git fetch --upload-pack=./up origin", "git clone -u ./up git@github.com:o/r.git"]
+    {
+        let need = one(line, facts.clone());
+        assert_eq!(need.approver, Approver::User, "{line:?}");
+    }
+}
+
+#[rstest]
+#[case::config("git -c core.sshCommand=x push origin")]
+#[case::config_env("git --config-env=core.sshCommand=X push origin")]
+#[case::clone_config("git clone -c core.sshCommand=x git@github.com:o/r.git")]
+fn push_with_dash_c_is_user_only(#[case] line: &str) {
+    for need in leaving(line, facts(Some(checked(APP, &[])))) {
+        assert_eq!(need.approver, Approver::User, "{line:?}");
+    }
 }
 
 #[test]

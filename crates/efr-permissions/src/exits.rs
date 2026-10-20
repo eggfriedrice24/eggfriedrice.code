@@ -419,6 +419,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut linked: Vec<PathBuf> = Vec::new();
     let mut installs: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
     let mut git_triggers: Vec<git_code::Trigger> = Vec::new();
+    let mut git_steered = false;
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
@@ -452,6 +453,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         for (command, by_shell) in programs::placed_commands(&segment.words) {
             fetch = fetch.or_else(|| programs::package_fetch(command));
             git_triggers.extend(git_code::trigger(command, dir, input.locations));
+            git_steered |= git_code::steers_code(command);
             let mount_view =
                 input.support.mount_view && programs::runs_mount_view(command, by_shell);
             let rustup = command.first().is_some_and(|word| programs::base_name(word) == "rustup");
@@ -669,6 +671,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     }
     // NOTE: after the rules above, so that nothing lowers the approver again.
     git_code::apply(&mut found, &git_triggers, input.facts, input.locations.home());
+    if git_steered {
+        git_code::apply_steering(&mut found);
+    }
     named_targets(found, input.locations.home())
 }
 

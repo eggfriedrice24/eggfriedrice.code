@@ -8,6 +8,10 @@
 //! ([`FactRequest::git_code`](crate::FactRequest)), and [`apply`] makes the exit one
 //! that only the user may approve when a part is writable or when efrd could not check
 //! it. Its notes name the file on the question.
+//!
+//! Git options that choose the code that git runs (`-c`, `--exec-path`,
+//! `--upload-pack` and others, [`steers_code`]) ask only the user too, on every git
+//! line that runs outside.
 
 use std::path::{Path, PathBuf};
 
@@ -22,6 +26,15 @@ use crate::{CallFacts, GitCodeAsk, Locations};
 /// The options of git before its subcommand that take the next word as their value.
 const GIT_VALUES: &[&str] =
     &["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"];
+
+/// The options of git before its subcommand that choose the code that git runs or the
+/// repository whose code it runs (DV50).
+const GLOBAL_STEERING: &[&str] =
+    &["-c", "--config-env", "--exec-path", "--git-dir", "--work-tree", "--namespace"];
+
+/// The options of a git subcommand that name a program that git runs (DV50): the pack
+/// programs of `push`, `fetch`, `ls-remote` and `clone`, and a template dir with hooks.
+const SUBCOMMAND_STEERING: &[&str] = &["--receive-pack", "--upload-pack", "--exec", "--template"];
 
 /// The most notes about writable parts on one question; the rest is a count.
 const MAX_NOTES: usize = 3;
@@ -159,6 +172,36 @@ fn gh_recurses(args: &[String]) -> bool {
     !matches!(gh_verbs(args), (Some("pr"), Some("merge")))
 }
 
+/// True when the git command `words` (its program first) has an option that chooses
+/// the code that git runs (DV50): a config value of the line, another exec path, another
+/// repository, or a program for the remote side.
+pub(super) fn steers_code(words: &[String]) -> bool {
+    let Some((first, args)) = words.split_first() else { return false };
+    if base_name(first) != "git" {
+        return false;
+    }
+    let option = |word: &str| -> String {
+        word.split_once('=').map_or(word, |(option, _)| option).to_owned()
+    };
+    let mut at = 0;
+    while let Some(word) = args.get(at) {
+        if !word.starts_with('-') {
+            break;
+        }
+        let name = option(word);
+        if GLOBAL_STEERING.contains(&name.as_str()) {
+            return true;
+        }
+        at += if GIT_VALUES.contains(&word.as_str()) { 2 } else { 1 };
+    }
+    let Some(sub) = args.get(at) else { return false };
+    args[at + 1..].iter().any(|word| {
+        let name = option(word);
+        SUBCOMMAND_STEERING.contains(&name.as_str())
+            || (sub == "clone" && (name == "-c" || name == "--config" || word.starts_with("-u")))
+    })
+}
+
 /// What the facts say about the git code of a line, for [`apply`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum CodeState<'f> {
@@ -223,6 +266,23 @@ pub(super) fn apply(
         }
     }
 }
+
+/// Makes each `outside` and `upload` exit of `needs` one that only the user may
+/// approve, with a note, when a git command of the line chooses the code that git runs
+/// ([`steers_code`]).
+pub(super) fn apply_steering(needs: &mut [ExitNeed]) {
+    for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
+        need.approver = Approver::User;
+        let note = STEERING_NOTE.to_owned();
+        if !need.notes.contains(&note) {
+            need.notes.push(note);
+        }
+    }
+}
+
+/// The note of [`apply_steering`].
+pub(super) const STEERING_NOTE: &str =
+    "an option of the git command chooses the code that git runs";
 
 /// True for an exit kind that runs the line outside the sandbox with the user's rights.
 fn runs_git_code(kind: ExitKind) -> bool {

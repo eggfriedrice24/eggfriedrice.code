@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{Trigger, trigger};
+use super::{Trigger, steers_code, trigger};
 use crate::{GitCodeAsk, Locations};
 
 const APP: &str = "/home/u/p/app";
@@ -50,4 +50,26 @@ fn other_commands_ask_nothing(#[case] line: &str) {
 fn a_repository_that_efr_cannot_tell_is_unknown(#[case] line: &str, #[case] dir: Option<&str>) {
     let found = trigger(&words(line), dir.map(AsRef::as_ref), &locations());
     assert_eq!(found, Some(Trigger::Unknown), "{line:?}");
+}
+
+#[rstest]
+#[case::config("git -c a=b push", true)]
+#[case::config_attached("git -ca=b push", false)]
+#[case::config_env("git --config-env a=B push", true)]
+#[case::exec_path("git --exec-path=/x push", true)]
+#[case::git_dir("git --git-dir x push", true)]
+#[case::work_tree("git --work-tree=x push", true)]
+#[case::namespace("git --namespace x push", true)]
+#[case::receive_pack("git push --receive-pack=x", true)]
+#[case::upload_pack("git fetch --upload-pack x", true)]
+#[case::exec("git push --exec x", true)]
+#[case::template("git clone --template=t https://x.test/r", true)]
+#[case::clone_u("git clone -u x https://x.test/r", true)]
+#[case::clone_config("git clone --config a=b https://x.test/r", true)]
+#[case::commit_c("git commit -c HEAD", false)]
+#[case::plain("git push origin main", false)]
+#[case::dir("git -C x push", false)]
+#[case::not_git("cargo -c x", false)]
+fn options_that_choose_the_code(#[case] line: &str, #[case] steers: bool) {
+    assert_eq!(steers_code(&words(line)), steers, "{line:?}");
 }
