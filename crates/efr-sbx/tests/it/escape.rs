@@ -105,6 +105,41 @@ fn escape_git_hooks_readonly() {
 }
 
 #[test]
+fn module_hook_is_read_only_in_a_call() {
+    // git keeps the git dir of the submodule `vendor/foo` at `.git/modules/vendor/foo`,
+    // two levels below `modules/`; a nested one goes deeper still.
+    let ready = sandbox_or_skip!();
+    let fixture = Fixture::new(&ready);
+    fixture.git_init();
+    for (git_dir, work_tree) in
+        [("vendor/foo", "vendor/foo"), ("vendor/foo/modules/bar", "vendor/foo/bar")]
+    {
+        let git_dir = fixture.project.join(".git/modules").join(git_dir);
+        fs::create_dir_all(git_dir.parent().unwrap()).unwrap();
+        let status = command("git")
+            .args(["init", "-q", "--separate-git-dir"])
+            .arg(&git_dir)
+            .arg(fixture.project.join(work_tree))
+            .current_dir(&fixture.project)
+            .envs(&fixture.env)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(git_dir.join("hooks").is_dir());
+    }
+    for hooks in [".git/modules/vendor/foo/hooks", ".git/modules/vendor/foo/modules/bar/hooks"] {
+        let run = fixture.run(&format!("print '#!/bin/sh\ntouch ~/pwned' > {hooks}/pre-push"));
+        assert!(run.stderr.contains("read-only file system"), "{hooks}: {run:#?}");
+        assert!(!fixture.project.join(hooks).join("pre-push").exists());
+    }
+    let run = fixture.run("git -C vendor/foo config core.fsmonitor 'touch ~/pwned'");
+    refused(&run, "git config in a module");
+    let config =
+        fs::read_to_string(fixture.project.join(".git/modules/vendor/foo/config")).unwrap();
+    assert!(!config.contains("fsmonitor"), "{config}");
+}
+
+#[test]
 fn escape_rename_git_ebusy() {
     let ready = sandbox_or_skip!();
     let fixture = Fixture::new(&ready);
