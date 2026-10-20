@@ -8,10 +8,12 @@ use std::slice;
 use efr_permissions::{HostError, HostList, PermissionsError, check_rules};
 use efr_protocol::Mode;
 
+use crate::tables::diff::{check_glob, check_name};
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
-    ClassifierSettings, CompactionSettings, JobsSettings, ModelEntry, NetworkSettings, PROVIDERS,
-    PresenceSettings, RenderColors, SandboxSettings, Settings, SnapshotSettings,
+    ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings, ModelEntry,
+    NetworkSettings, PROVIDERS, PresenceSettings, RenderColors, SandboxSettings, Settings,
+    SnapshotSettings,
 };
 
 /// What `permissions.mode = "full"` needs: the gate key next to it. The text names both
@@ -81,6 +83,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         snapshot,
         presence,
         jobs,
+        diff,
         render,
         ..
     } = settings;
@@ -219,6 +222,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_snapshot(snapshot)?;
     check_presence(presence)?;
     check_jobs(jobs)?;
+    check_diff(diff)?;
 
     within("render.diff_lines", u64::from(render.diff_lines), 0..=1_000, "between 0 and 1000")?;
     if let Some(theme) = &render.theme {
@@ -446,6 +450,24 @@ fn check_sandbox(sandbox: &SandboxSettings) -> Result<(), Invalid> {
         .find(|name| name.is_empty() || name.contains(['/', '\0']) || *name == "." || *name == "..")
     {
         return Err(invalid("sandbox.rebuildable", text(name), "directory names such as target"));
+    }
+    Ok(())
+}
+
+/// The checks of `[diff]`: each group's name, and each of its globs, at least one.
+fn check_diff(diff: &DiffSettings) -> Result<(), Invalid> {
+    for (name, globs) in diff.groups.iter() {
+        if let Some(expected) = check_name(name) {
+            return Err(invalid("diff.groups", text(name), expected));
+        }
+        if globs.is_empty() {
+            return Err(invalid("diff.groups", text(name), "a list of one or more globs"));
+        }
+        if let Some((glob, expected)) =
+            globs.iter().find_map(|glob| check_glob(glob).map(|expected| (glob, expected)))
+        {
+            return Err(invalid("diff.groups", text(glob), expected));
+        }
     }
     Ok(())
 }

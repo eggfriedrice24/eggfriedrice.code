@@ -9,7 +9,8 @@
 //!   ([`AllowRule`], re-exported from `efr-permissions`), [`NetworkSettings`] with
 //!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
-//!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`JobsSettings`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
+//!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`JobsSettings`],
+//!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
 //!   then checked (sets, ranges, paths, URLs, rules). [`Settings::apply_override`] lays
@@ -78,6 +79,7 @@ pub use tables::classifier::{ClassifierSettings, DEFAULT_CLASSIFIER_EFFORT};
 pub use tables::compaction::{CompactionSettings, DEFAULT_AUTO_AT};
 pub use tables::context::ContextSettings;
 pub use tables::dbus::DbusSettings;
+pub use tables::diff::{DiffGroups, DiffSettings};
 pub use tables::jobs::JobsSettings;
 pub use tables::network::{NetworkHost, NetworkSettings};
 pub use tables::presence::PresenceSettings;

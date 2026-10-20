@@ -359,7 +359,7 @@ fn writable(key: &str) -> Result<Kind, ConfigError> {
         return Err(unknown());
     }
     match keys::kind(key) {
-        Some(Kind::Rules) | None => Err(unknown()),
+        Some(Kind::Rules | Kind::Groups) | None => Err(unknown()),
         Some(kind) => Ok(kind),
     }
 }

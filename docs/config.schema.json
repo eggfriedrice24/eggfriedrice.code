@@ -531,6 +531,24 @@
       },
       "type": "object"
     },
+    "DiffSettings": {
+      "additionalProperties": false,
+      "description": "`[diff]`: how `efr` groups the changed files of a turn. Only `efr` reads it.",
+      "properties": {
+        "groups": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default": {},
+          "description": "Groups of your own for the changed files of a turn: a name, then a list of\nglobs, such as `evals = [\"evals/\", \"*.eval.toml\"]`. `*` matches inside one\npart of a path, `**` matches any number of parts, and `?` one character. A glob\nwithout `/` matches the name of a file in any directory; a glob that ends in `/`\nmatches every file below a directory of that name; other globs match the whole\npath from the project root. Your groups match first, in the order of the file,\nthen the built-in groups: generated, tests, docs, else code.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "Effect": {
       "description": "What happens to a tool call, ordered from the least to the most strict, so the\nstrictest of several effects is their maximum.\n\nThe enum is deliberately exhaustive: the check point in `efr-conversation` must\nhandle every effect, and a new one must not fall into a wildcard arm.",
       "oneOf": [
@@ -1733,6 +1751,13 @@
         "proxy": true
       },
       "description": "The filtered message bus of the `auto` mode."
+    },
+    "diff": {
+      "$ref": "#/$defs/DiffSettings",
+      "default": {
+        "groups": {}
+      },
+      "description": "How `efr` groups the changed files of a turn."
     },
     "jobs": {
       "$ref": "#/$defs/JobsSettings",

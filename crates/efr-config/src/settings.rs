@@ -14,9 +14,10 @@ use crate::location::{key_at, location, span_of, span_of_entry, span_of_rule};
 use crate::validate::{self, BadEntry, Invalid};
 use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ContextSettings,
-    ConversationSettings, DEFAULT_LOG, DbusSettings, JobsSettings, Location, ModelSettings,
-    NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RenderSettings,
-    SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source, UndoSettings,
+    ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings, Location,
+    ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
+    RenderSettings, SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source,
+    UndoSettings,
 };
 
 /// The file name under the config root.
@@ -76,6 +77,8 @@ pub struct Settings {
     /// Background jobs: whether the model can start them, their limits, and how often
     /// their notices may start a turn.
     pub jobs: JobsSettings,
+    /// How `efr` groups the changed files of a turn.
+    pub diff: DiffSettings,
     /// How `efr` shows replies.
     pub render: RenderSettings,
     #[serde(skip)]
@@ -104,6 +107,7 @@ impl Default for Settings {
             snapshot: SnapshotSettings::default(),
             presence: PresenceSettings::default(),
             jobs: JobsSettings::default(),
+            diff: DiffSettings::default(),
             render: RenderSettings::default(),
             sources: Vec::new(),
         }
@@ -148,6 +152,7 @@ impl Settings {
         settings.permissions.rules = rules(path, text, document.as_ref())?;
         if let Some(document) = &document {
             settings.sources = file_keys(document);
+            settings.diff.groups.order_as(&group_names(document));
         }
         validate::check(&settings).map_err(|Invalid { key, value, expected }| {
             let location = document
@@ -219,6 +224,8 @@ impl Settings {
         next.path = self.path.clone();
         next.sources = self.sources.clone();
         next.permissions.rules = self.permissions.rules.clone();
+        // NOTE: TOML keeps no order in a table, so the groups keep the order of the file.
+        next.diff.groups = self.diff.groups.clone();
         validate::check(&next).map_err(|invalid| refuse(invalid.expected.to_owned()))?;
         *self = next;
         self.set_source(key, from);
@@ -250,7 +257,7 @@ pub(crate) fn value_from_text(kind: &Kind, text: &str) -> Option<toml_edit::Valu
             let words = trimmed.split(',').map(str::trim).filter(|word| !word.is_empty());
             Some(toml_edit::Value::Array(words.collect()))
         }
-        Kind::Rules => None,
+        Kind::Rules | Kind::Groups => None,
     }
 }
 
@@ -300,6 +307,17 @@ fn rules(
         })?;
     }
     Ok(policy)
+}
+
+/// The names of `[diff.groups]` in the order that `document` writes them.
+fn group_names(document: &Document<String>) -> Vec<String> {
+    document
+        .as_table()
+        .get("diff")
+        .and_then(|diff| diff.get("groups"))
+        .and_then(Item::as_table_like)
+        .map(|groups| groups.iter().map(|(name, _)| name.to_owned()).collect())
+        .unwrap_or_default()
 }
 
 /// Every dotted key that `document` sets, each with [`Source::File`].

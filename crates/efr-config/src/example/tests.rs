@@ -164,6 +164,7 @@ fn a_commented_key_shows_its_default_unless_it_is_a_sample() {
         "network.hosts",
         "dbus.allow",
         "classifier.model",
+        "diff.groups",
         "render.theme",
         "render.palette",
         "render.colors.text",

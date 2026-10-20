@@ -13,9 +13,9 @@ use serde_json::Value as Json;
 
 use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
-    ConversationSettings, DbusSettings, DiffColors, JobsSettings, ModelSettings, NetworkSettings,
-    OpenAiSettings, PermissionSettings, PresenceSettings, RenderColors, RenderSettings,
-    SandboxSettings, Settings, ShellSettings, SnapshotSettings, UndoSettings,
+    ConversationSettings, DbusSettings, DiffColors, DiffSettings, JobsSettings, ModelSettings,
+    NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RenderColors,
+    RenderSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings, UndoSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -23,8 +23,8 @@ use crate::{
 pub const SCHEMA_URL: &str = "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json";
 
 /// The keys a change applies to only after the daemon restarts. Every other key of the
-/// daemon applies to the next turn, prompt or tool call; the `render` keys belong to
-/// `efr`.
+/// daemon applies to the next turn, prompt or tool call; the `render` and `diff` keys
+/// belong to `efr`.
 pub const RESTART_KEYS: &[&str] = &[
     "screen",
     "model.provider",
@@ -56,6 +56,9 @@ pub enum Kind {
     /// An array of tables, such as `[[permissions.rules]]` or `[[sandbox.allow]]`, which
     /// only an editor or the entry operations of the writer change.
     Rules,
+    /// A table of names, each with a list of strings, such as `[diff.groups]`, which
+    /// only an editor changes.
+    Groups,
 }
 
 impl fmt::Display for Kind {
@@ -71,6 +74,7 @@ impl fmt::Display for Kind {
             Kind::Boolean => f.write_str("true or false"),
             Kind::List => f.write_str("a list of strings"),
             Kind::Rules => f.write_str("a list of rules"),
+            Kind::Groups => f.write_str("a table of names, each with a list of strings"),
         }
     }
 }
@@ -117,6 +121,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "snapshot" => fields::<SnapshotSettings>(),
         "presence" => fields::<PresenceSettings>(),
         "jobs" => fields::<JobsSettings>(),
+        "diff" => fields::<DiffSettings>(),
         "render" => fields::<RenderSettings>(),
         "render.colors" => fields::<RenderColors>(),
         "render.colors.diff" => fields::<DiffColors>(),
@@ -157,7 +162,7 @@ impl Applies {
     pub fn of(key: &str) -> Applies {
         if RESTART_KEYS.contains(&key) {
             Applies::Restart
-        } else if key.starts_with("render.") {
+        } else if key.starts_with("render.") || key.starts_with("diff.") {
             Applies::Client
         } else {
             Applies::Live
@@ -234,6 +239,9 @@ fn kind_of(schema: &Json, node: &Json) -> Option<Kind> {
         Some("string") => Some(Kind::String),
         Some("integer") => Some(Kind::Integer),
         Some("boolean") => Some(Kind::Boolean),
+        Some("object") if node.get("additionalProperties").is_some_and(Json::is_object) => {
+            Some(Kind::Groups)
+        }
         Some("array") => {
             let items = node.get("items").map(|items| resolve(schema, items));
             // NOTE: an entry of `openai.models` or `anthropic.models` is a string or a

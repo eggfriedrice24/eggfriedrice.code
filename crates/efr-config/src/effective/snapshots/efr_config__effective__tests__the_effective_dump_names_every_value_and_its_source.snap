@@ -96,6 +96,7 @@ jobs.max_wakes_per_hour = 6  # default
 jobs.max_wakes_per_hour_daemon = 12  # default
 jobs.max_wakes_per_watch = 3  # default
 jobs.nice = 19  # default
+diff.groups = {}  # default
 render.theme = "catppuccin-mocha"  # file
 render.theme_dark = "catppuccin-mocha"  # default
 render.theme_light = "catppuccin-latte"  # default

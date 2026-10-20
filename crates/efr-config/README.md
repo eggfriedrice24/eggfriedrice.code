@@ -36,6 +36,15 @@ Modules:
   `bright-<name>`; `ColorValue::color` reads it as a `RoleColor`.
   `RenderColors::over` lays one layer over another, and `RenderColors::colors` lists
   the roles that are set.
+- `tables/diff`: `[diff]` (`DiffSettings`): `groups` (`DiffGroups`), the groups of
+  your own for the changed files of a turn, `name = ["glob", ...]`. Only `efr` reads
+  it (`Kind::Groups`, so only an editor writes it). TOML keeps no order in a table,
+  so the load takes the order of the names from the document, and an override or a
+  reload keeps it. `DiffGroups::group_of` names the first group with a glob that
+  matches a path. `tables/diff/glob` holds the small glob matcher (`*`, `?`, `**`; a
+  glob without `/` matches a file name, a glob that ends in `/` a directory) and the
+  load checks of a name and a glob. The built-in groups (generated, tests, docs,
+  code) are in `efr-cli`.
 - `theme_file`: `ThemeFile`, the theme file that `render.palette` names: a `[colors]`
   table with the keys of `[render.colors]` and an optional `code_theme`, the path of a
   `.tmTheme` file (absolute, `~/...`, or relative to the theme file). `ThemeFile::load`
