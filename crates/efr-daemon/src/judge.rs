@@ -21,8 +21,12 @@
 //!
 //! The answer must be exactly one JSON object with the five members of the schema and
 //! no other; efrd checks the lengths after the parse, because the providers take no
-//! length keyword. The schema lists `rationale` first, so the model writes its reason
-//! before its verdict. A `rationale` that is shorter than [`MIN_RATIONALE_CHARS`] or a
+//! length keyword. The schema's `required` list names `rationale` first, and its
+//! description and the prompt tell the model to write its reason before its verdict. The
+//! members of `properties` go on the wire in the order of their names, because
+//! serde_json keeps no insertion order (no `preserve_order`, which would change every
+//! JSON map of the workspace): `category` comes first there, `rationale` before
+//! `verdict`. A `rationale` that is shorter than [`MIN_RATIONALE_CHARS`] or a
 //! placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier model
 //! gets the same request once more, and a second such answer goes to the next step. When
 //! a step answers that it does not take the output form, the judge sends the step once
@@ -454,9 +458,11 @@ fn request(
 /// The JSON schema of the verdict (9.4): enums, every member required and no other
 /// member, and no length keyword, which the Messages API does not take.
 ///
-/// A model writes the members in the order of the schema, so `rationale` comes first
-/// and the verdict follows from it. serde_json keeps the members of an object in the
-/// order of their names, which also puts `rationale` before `verdict` on the wire.
+/// `required` names `rationale` first, and its description asks the model to write
+/// it first, so the verdict follows from it. serde_json keeps the members of an object
+/// in the order of their names, so `properties` goes on the wire as `category`,
+/// `rationale`, `risk`, `user_authorization`, `verdict`: `rationale` still comes before
+/// `verdict`, but not first.
 pub(crate) fn schema() -> Value {
     json!({
         "type": "object",
