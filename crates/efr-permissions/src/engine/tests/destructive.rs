@@ -51,7 +51,10 @@ fn a_delete_or_a_move_asks_in_every_mode_also_when_every_rule_allows(#[case] ori
     let engines =
         [Engine::with_defaults(locations()), Engine::with_rules(locations(), allow_everything())];
     for engine in &engines {
-        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        // NOTE: full mode too: these machines have no undo, so the move is not covered
+        // (DF8). A covered one runs in full mode as in `auto`
+        // (`full_apply_patch_delete_runs_when_covered`).
+        for mode in Mode::ALL {
             for conversation in [Policy::empty(), allow_everything()] {
                 let decision = decide(engine, moved(), mode, origin, conversation);
                 assert_eq!(decision.effect(), Effect::Ask, "{mode} from {origin:?}");
@@ -76,7 +79,7 @@ fn the_same_paths_without_the_flag_are_routine_in_the_turn_s_project() {
     let routine = Requirements::none()
         .with_write("/home/u/p/app/src/old.rs")
         .with_write("/home/u/p/app/src/new.rs");
-    for mode in [Mode::Cautious, Mode::Auto] {
+    for mode in [Mode::Cautious, Mode::Auto, Mode::Full] {
         let decision = decide(&engine, routine.clone(), mode, Origin::Shell, Policy::empty());
         assert_eq!(decision.effect(), Effect::Allow, "{mode}");
     }
@@ -86,7 +89,7 @@ fn the_same_paths_without_the_flag_are_routine_in_the_turn_s_project() {
 fn a_denied_path_stays_denied_for_a_delete() {
     let engine = Engine::with_defaults(locations());
     let key = Requirements::none().with_write("/home/u/.ssh/id_ed25519").with_destructive();
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let decision = decide(&engine, key.clone(), mode, Origin::Shell, Policy::empty());
         assert_eq!(decision.effect(), Effect::Deny, "{mode}");
     }
@@ -206,5 +209,41 @@ fn apply_patch_delete_from_the_phone_asks() {
     // A remote turn runs as `cautious`, so coverage never lifts its question.
     let requirements = answered(moved(), &[OLD, NEW]);
     let decision = decide(&undo_engine(), requirements, Mode::Auto, Origin::Phone, Policy::empty());
+    assert!(asks_destructive(&decision));
+}
+
+#[test]
+fn full_apply_patch_delete_runs_when_covered() {
+    // DF8: full mode runs a delete or a move that undo covers, as `auto` does.
+    let engine = undo_engine();
+    let deleted = Requirements::none().with_write(OLD).with_destructive();
+    for requirements in [answered(deleted, &[OLD]), answered(moved(), &[OLD, NEW])] {
+        let decision =
+            decide(&engine, requirements.clone(), Mode::Full, Origin::Shell, Policy::empty());
+        assert!(!asks_destructive(&decision), "{requirements:?}");
+        assert_eq!(decision.effect(), Effect::Allow, "{requirements:?}");
+    }
+}
+
+#[test]
+fn full_apply_patch_delete_asks_when_not_covered() {
+    // DF8: a delete that undo does not cover asks in full mode too, so `efr undo` stays
+    // true for what full mode ran with no question.
+    let full = |engine: &Engine, requirements| {
+        decide(engine, requirements, Mode::Full, Origin::Shell, Policy::empty())
+    };
+    let without_undo = Engine::with_defaults(locations())
+        .with_support(AutoSupport { floor_backup: true, ..AutoSupport::default() });
+    for decision in [
+        full(&without_undo, answered(moved(), &[OLD, NEW])),
+        full(&undo_engine(), moved()),
+        full(&undo_engine(), answered(moved(), &[OLD])),
+    ] {
+        assert!(asks_destructive(&decision), "{decision:?}");
+        assert_eq!(decision.effect(), Effect::Ask);
+    }
+    // Every rule allows: it still asks.
+    let engine = Engine::with_rules(locations(), allow_everything());
+    let decision = decide(&engine, moved(), Mode::Full, Origin::Shell, allow_everything());
     assert!(asks_destructive(&decision));
 }

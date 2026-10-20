@@ -1,6 +1,6 @@
 //! Background jobs (phase C): the exits of a job are those of the same line in the
 //! foreground, except that no delete of it counts as covered; the kinds that no job may
-//! hold are refused in every mode; outside `auto` each job asks the user.
+//! hold are refused in every mode; outside `auto` and full mode each job asks the user.
 
 use efr_protocol::{BusKind, ExitKind, Grant, Mode, Needs, Origin, Scope};
 use pretty_assertions::assert_eq;
@@ -192,6 +192,7 @@ fn a_refused_kind_stays_refused_outside_auto(#[case] mode: Mode) {
 #[case::manual(Mode::Manual)]
 #[case::cautious(Mode::Cautious)]
 #[case::auto(Mode::Auto)]
+#[case::full(Mode::Full)]
 fn jobs_tool_needs_no_question(#[case] mode: Mode) {
     // The `jobs` and `job_stop` tools declare nothing: a local origin runs them in every
     // mode with no question. A phone turn gets the usual question of a remote origin.
@@ -252,4 +253,58 @@ fn job_with_bus_change_form_stays_refused(#[case] line: &str) {
     let decision =
         decide_in(&engine, job("hostnamectl").with_needs(asked), Mode::Auto, Origin::Shell);
     assert_eq!(refused(&decision), [ExitKind::Bus], "{line:?}");
+}
+
+#[test]
+fn full_job_starts_without_a_question() {
+    // DF21: a full job starts as an `auto` job does, with no `JobAsks`, and with nothing
+    // contained: there is no sandbox.
+    for line in ["npm run dev", "cargo watch -x test", "python3 server.py"] {
+        let decision = decide_in(&engine(), job(line), Mode::Full, Origin::Shell);
+        assert_eq!(decision.effect(), Effect::Allow, "{line:?}");
+        assert!(
+            !decision.reasons().iter().any(|reason| reason.cause == Cause::JobAsks),
+            "{line:?}"
+        );
+    }
+}
+
+#[rstest]
+#[case::privilege(job("docker run --rm alpine"), ExitKind::Privilege)]
+#[case::pkexec(job("pkexec true"), ExitKind::Privilege)]
+#[case::masked_read(job("cat .env").with_read("/home/u/p/app/.env"), ExitKind::MaskedRead)]
+#[case::persistence(job("crontab -e"), ExitKind::Persistence)]
+#[case::zshrc(
+    job("echo 'alias ll=ls' >> ~/.zshrc").with_write("/home/u/.zshrc"),
+    ExitKind::Persistence
+)]
+#[case::desktop(job("xdotool type hello"), ExitKind::DesktopIpc)]
+#[case::bus(job("hostnamectl"), ExitKind::Bus)]
+fn full_job_refusals_hold(#[case] requirements: Requirements, #[case] kind: ExitKind) {
+    for engine in [engine(), bus_proxy_engine()] {
+        let decision = decide_in(&engine, requirements.clone(), Mode::Full, Origin::Shell);
+        assert_eq!(decision.effect(), Effect::Deny, "{kind}");
+        assert!(refused(&decision).contains(&kind), "{kind}: {:?}", refused(&decision));
+    }
+}
+
+#[rstest]
+#[case::failed("systemctl --failed")]
+#[case::user_failed("systemctl --user --failed")]
+#[case::sessions("loginctl list-sessions")]
+fn full_job_bus_query_refused(#[case] line: &str) {
+    // B19, OQF27: with no sandbox efr cannot hold a job's bus to a filter, so a read
+    // form that an `auto` job runs through its filtered bus is a `bus` exit, which no
+    // job may hold, also on a machine with the bus proxy.
+    let auto = decide_in(&bus_proxy_engine(), job(line), Mode::Auto, Origin::Shell);
+    assert_eq!(auto.effect(), Effect::Contain, "{line:?}");
+    let full = decide_in(&bus_proxy_engine(), job(line), Mode::Full, Origin::Shell);
+    assert_eq!(full.effect(), Effect::Deny, "{line:?}");
+    assert_eq!(refused(&full), [ExitKind::Bus], "{line:?}");
+    assert_eq!(full.view_grants().count(), 0, "{line:?}");
+    // In the foreground it runs and is recorded.
+    let foreground = Requirements::none().with_command(line).with_command_dir(APP);
+    let full = decide_in(&bus_proxy_engine(), foreground, Mode::Full, Origin::Shell);
+    assert_eq!(full.effect(), Effect::Allow, "{line:?}");
+    assert!(full.exits().any(|need| need.kind == ExitKind::Bus), "{line:?}");
 }

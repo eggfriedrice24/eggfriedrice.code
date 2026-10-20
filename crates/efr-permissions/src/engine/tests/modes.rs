@@ -103,7 +103,7 @@ fn cautious_asks_for_sed_that_could_do_more(#[case] line: &str) {
 
 #[test]
 fn a_writer_program_that_writes_a_secret_is_denied_in_every_mode() {
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let requirements =
             run_in("rm ~/.ssh/known_hosts", APP).with_write("/home/u/.ssh/known_hosts");
         assert_eq!(decide(mode, requirements), Effect::Deny, "{mode}");
@@ -162,6 +162,9 @@ fn the_network_reason_names_the_command_that_asks() {
 #[case::phone(Origin::Phone, Mode::Cautious)]
 fn a_remote_turn_runs_with_at_most_the_cautious_mode(#[case] origin: Origin, #[case] mode: Mode) {
     assert_eq!(effective_mode(Mode::Auto, origin), mode);
+    // T14: a phone never runs in full mode.
+    let full = if mode == Mode::Auto { Mode::Full } else { Mode::Cautious };
+    assert_eq!(effective_mode(Mode::Full, origin), full);
     assert_eq!(effective_mode(Mode::Manual, origin), Mode::Manual);
     assert_eq!(effective_mode(Mode::Cautious, origin), Mode::Cautious);
 }
@@ -178,10 +181,10 @@ fn a_phone_turn_in_auto_is_judged_by_the_cautious_rules() {
 }
 
 #[test]
-fn the_three_policies_are_the_base_of_each_mode_then_the_users_rules() {
+fn each_policy_is_the_base_of_its_mode_then_the_users_rules() {
     let rule = Rule::new(Action::Read, Resource::Under("~/notes".into()), Effect::Deny);
     let engine = Engine::with_rules(locations(), Policy::new(vec![rule.clone()]).unwrap());
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let base = Policy::base(mode);
         let rules = engine.policy(mode).rules();
         assert_eq!(&rules[..base.rules().len()], base.rules(), "{mode}");
@@ -193,7 +196,7 @@ fn the_three_policies_are_the_base_of_each_mode_then_the_users_rules() {
 fn a_conversation_rule_still_decides_in_every_mode() {
     let ask_ls =
         Rule::new(Action::Execute, Resource::Command(CommandPattern::new("ls")), Effect::Deny);
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let mut input = in_mode(mode, run_in("ls", APP), Scope::Project(app()));
         input.conversation_policy =
             ConversationPolicy::new(SCRATCH).with_rules(Policy::new(vec![ask_ls.clone()]).unwrap());

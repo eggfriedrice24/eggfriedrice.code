@@ -84,6 +84,16 @@ use crate::{
 /// every mode. Outside `auto` a job asks the user ([`Cause::JobAsks`]), whatever the
 /// rules say.
 ///
+/// Full mode ([`Mode::Full`]) runs a call as the user, with no sandbox and no question.
+/// The engine decides it as an `auto` call on a machine with no sandbox
+/// ([`AutoSupport::for_full`]), so it finds the same exits, and then lets run what the
+/// sandbox would hold and what a built-in row asks about. Each exit that runs keeps its
+/// reason, so [`Decision::exits`] lists it for the record. A floor stays denied; a
+/// privileged program, a `privilege`, `persistence` or `destructive` exit, a change of
+/// efr's settings, a file tool delete that undo does not cover and a user's or a
+/// conversation's `ask` rule still ask. In a background job a `destructive` exit is
+/// refused with [`Cause::NotAsJob`]. `nested_shell` runs.
+///
 /// [`Requirements::background`]: crate::Requirements::background
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -248,8 +258,8 @@ impl Engine {
         &self.locations
     }
 
-    /// The machine policy of `mode`. A mode newer than this crate gets the `manual`
-    /// policy.
+    /// The machine policy of `mode`: full mode has the policy of `auto`. A mode newer
+    /// than this crate gets the `manual` policy.
     pub fn policy(&self, mode: Mode) -> &Policy {
         &self.machine(mode).policy
     }
@@ -257,7 +267,8 @@ impl Engine {
     fn machine(&self, mode: Mode) -> &Machine {
         match mode {
             Mode::Cautious => &self.cautious,
-            Mode::Auto => &self.auto,
+            // NOTE: full mode decides by the rows of `auto`, then settles (DF1).
+            Mode::Auto | Mode::Full => &self.auto,
             // NOTE: manual, and any mode added to the protocol after this crate.
             _ => &self.manual,
         }
@@ -283,13 +294,19 @@ impl Engine {
         let requirements = &input.requirements;
         let mode = effective_mode(input.mode, input.origin);
         let auto = mode == Mode::Auto;
+        // NOTE: full mode decides as `auto` with the support of a machine with no
+        // sandbox, and then settles the reasons (efr's full mode, DF1): the prediction,
+        // the records, the home copies and the undo cover are those of `auto`.
+        let full = mode == Mode::Full;
+        let predicts = auto || full;
         let shell = requirements.command.is_some();
+        let base_support = if full { self.support.for_full() } else { self.support };
         let scratch = self.locations.scratch_root(&input.conversation_policy.scratch);
         let project_root = match &input.scope {
             Scope::Project(id) => self.locations.widening_project_root(id),
             _ => None,
         };
-        let envelope: Vec<PathBuf> = if auto && shell {
+        let envelope: Vec<PathBuf> = if predicts && shell {
             self.locations.envelope_roots().map(Path::to_path_buf).collect()
         } else {
             Vec::new()
@@ -302,10 +319,17 @@ impl Engine {
             envelope: &envelope,
         };
         // NOTE: `read_file` and `write_file` run in the daemon, outside the sandbox, so
-        // in `auto` they keep the cautious path rules: the auto policy would let them
-        // write a project's `.git` or the host's real `/tmp`.
-        let machine = if auto && !shell { &self.cautious } else { self.machine(mode) };
-        let judge = Judge { engine: self, machine, input, cx, contain: auto && shell };
+        // in `auto` and in full mode they keep the cautious path rules: the auto policy
+        // would let them write a project's `.git` or the host's real `/tmp`.
+        let machine = if predicts && !shell { &self.cautious } else { self.machine(mode) };
+        let judge = Judge {
+            engine: self,
+            machine,
+            input,
+            cx,
+            contain: predicts && shell,
+            support: base_support,
+        };
 
         let analyzed = requirements.command.as_deref().map(command::analyze);
         let commands = match &analyzed {
@@ -316,9 +340,9 @@ impl Engine {
         let parts = parts(commands, start.as_deref());
 
         let mut reasons = Vec::new();
-        // NOTE: a file tool in `auto` runs in efrd: its exits come from its paths, and
-        // a write that a built-in rule asks about is an exit that decides it.
-        let tool_envelope = (auto && !shell)
+        // NOTE: a file tool in `auto` or full mode runs in efrd: its exits come from its
+        // paths, and a write that a built-in rule asks about is an exit that decides it.
+        let tool_envelope = (predicts && !shell)
             .then(|| Envelope::new(&self.locations, project_root, scratch.as_deref()));
         let mut tool_found: Vec<ExitNeed> = Vec::new();
         for PathAccess { path, access } in &requirements.paths {
@@ -404,7 +428,7 @@ impl Engine {
         // of its turn needs `--force` while the job may still write, so no delete of it
         // counts as covered: a destructive part stays an exit for the classifier.
         let job = requirements.background && shell;
-        let support = if job { AutoSupport { undo: false, ..self.support } } else { self.support };
+        let support = if job { AutoSupport { undo: false, ..base_support } } else { base_support };
         let exit_input = requirements.command.as_deref().map(|line| ExitInput {
             line,
             command_dir: requirements.command_dir.as_deref(),
@@ -418,7 +442,7 @@ impl Engine {
             support: &support,
             hosts: &self.hosts,
         });
-        if auto {
+        if predicts {
             let found = match &exit_input {
                 Some(input) => exits::predict(input),
                 None => exits::link_names(
@@ -446,6 +470,9 @@ impl Engine {
                 effect: Effect::Ask,
                 cause: Cause::JobAsks,
             });
+        }
+        if full {
+            reasons = crate::full::settle(reasons, job, |cause| judge.built_in(cause));
         }
         if reasons.is_empty() {
             let (effect, cause) =
@@ -665,8 +692,12 @@ struct Judge<'a> {
     machine: &'a Machine,
     input: &'a DecisionInput,
     cx: MatchContext<'a>,
-    /// True for a shell call in `auto`: it runs in the sandbox.
+    /// True for a shell call in `auto` or full mode: in `auto` it runs in the sandbox,
+    /// and full mode lets what the sandbox would hold run.
     contain: bool,
+    /// What the machine supports for this call: the `auto` sandbox's, or in full mode
+    /// [`AutoSupport::for_full`].
+    support: AutoSupport,
 }
 
 impl Judge<'_> {
@@ -713,7 +744,7 @@ impl Judge<'_> {
         reason: Reason,
     ) -> (Reason, Option<ExitNeed>) {
         let facts = self.input.requirements.facts.as_ref();
-        let support = &self.engine.support;
+        let support = &self.support;
         match access {
             Access::Write if reason.effect == Effect::Ask && self.built_in(&reason.cause) => {
                 let need = envelope.tool_write_exit(path, facts, support);

@@ -43,7 +43,7 @@ fn allow(action: Action, resource: Resource) -> Rule {
 #[case::the_dotfiles_target(DOTFILES)]
 fn writing_efrs_config_is_denied_in_every_mode(#[case] path: &str) {
     let engine = engine_with(Vec::new());
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let decision = engine.decide(&in_mode(mode, write(path)));
         assert_eq!(decision.effect(), Effect::Deny, "{path} in {mode}");
         assert_eq!(decision.reasons()[0].cause, Cause::WriteSealed, "{path} in {mode}");
@@ -116,7 +116,7 @@ fn line(text: &str, writes: &[&str]) -> Requirements {
 #[case::through_a_link("echo x > cfg/config.toml", &["/home/u/p/app/cfg/config.toml", "/home/u/.config/efr/config.toml"])]
 fn shell_tricks_that_write_efrs_config_are_denied(#[case] text: &str, #[case] writes: &[&str]) {
     let engine = engine_with(Vec::new());
-    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+    for mode in Mode::ALL {
         let decision = engine.decide(&in_mode(mode, line(text, writes)));
         assert_eq!(decision.effect(), Effect::Deny, "{text:?} in {mode}");
     }

@@ -5,6 +5,7 @@ mod auto;
 mod commands;
 mod coverage;
 mod destructive;
+mod full;
 mod jobs;
 mod modes;
 mod protection;
