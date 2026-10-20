@@ -1,6 +1,8 @@
 use pretty_assertions::assert_eq;
 
-use super::{GitTokens, TokenFile, git_tokens, token_hosts};
+use super::{
+    GitTokens, Helper, HelperKind, HelperScope, TokenFile, git_tokens, helper_kind, token_hosts,
+};
 
 fn entries(list: &[(&str, &str)]) -> Vec<(String, String, String)> {
     list.iter()
@@ -177,32 +179,186 @@ fn git_tokens_scoped_extraheader() {
 #[test]
 fn git_tokens_unscoped_extraheader_denies_github_read() {
     let found = git_tokens(&entries(&[("http.extraheader", "AUTHORIZATION: basic eA==")]));
-    assert_eq!(found, GitTokens { hosts: Vec::new(), every_remote: true, github_read: true });
+    assert_eq!(found, GitTokens { every_remote: true, github_read: true, ..GitTokens::default() });
     let reset = git_tokens(&entries(&[("http.extraHeader", "")]));
     assert_eq!(reset, GitTokens::default(), "an empty value resets the list");
 }
 
+/// The one helper of a config with the helper `value` in `key`.
+fn one_helper(key: &str, value: &str) -> Helper {
+    let found = git_tokens(&entries(&[(key, value)]));
+    assert!(found.hosts.is_empty() && !found.every_remote && !found.github_read, "{found:?}");
+    let [helper] = found.helpers.try_into().unwrap_or_else(|all| panic!("{value}: {all:?}"));
+    helper
+}
+
+fn every(kind: HelperKind) -> Helper {
+    Helper { kind, scope: HelperScope::Every, program: String::new() }
+}
+
+fn scoped(kind: HelperKind, host: &str) -> Helper {
+    Helper { kind, scope: HelperScope::Host(host.to_owned()), program: String::new() }
+}
+
 #[test]
-fn git_tokens_shell_credential_helper() {
-    let found = git_tokens(&entries(&[(
-        "credential.https://github.com.helper",
+fn helper_kind_gh_forms() {
+    for value in [
+        "!gh auth git-credential",
         "!/usr/bin/gh auth git-credential",
-    )]));
-    assert_eq!(found.hosts, ["github.com"]);
-    assert!(found.every_remote && !found.github_read);
-    assert!(git_tokens(&entries(&[("credential.helper", "!f() { echo x; }; f")])).every_remote);
-    for helper in [
-        "store --file=/home/u/p/app/.creds",
-        "store --file /tmp/c",
-        "/usr/lib/git-core/git-credential-store --file=x",
+        "! /usr/bin/gh  auth\tgit-credential ",
+        "!'/opt/my tools/gh' auth git-credential",
+        "!\"/opt/my tools/gh\" auth git-credential",
     ] {
-        assert!(git_tokens(&entries(&[("credential.helper", helper)])).every_remote, "{helper}");
+        assert_eq!(helper_kind(value), HelperKind::Gh, "{value}");
     }
-    for helper in ["store", "cache --timeout=300", "libsecret", "manager", ""] {
+    for value in [
+        "!gh auth git-credential --hostname x.test",
+        "!gh auth git-credential; cat ~/token",
+        "!gh auth git-credential\ncat ~/token",
+        "!gh auth",
+        "!gh",
+        "!./gh auth git-credential",
+        "!~/bin/gh auth git-credential",
+        "!bin/gh auth git-credential",
+        "!/usr/bin/gh-wrapper auth git-credential",
+        "!\"/x/$(cat ~/t)/gh\" auth git-credential",
+        "!$HOME/bin/gh auth git-credential",
+        "!GH_CONFIG_DIR=/x gh auth git-credential",
+        "!'/usr/bin/gh auth git-credential'",
+        "!'/usr/bin/gh'auth git-credential",
+        "!glab auth git-credential",
+    ] {
+        assert_eq!(helper_kind(value), HelperKind::Shell, "{value}");
+    }
+    assert_eq!(helper_kind("gh auth git-credential"), HelperKind::Unknown, "no `!`");
+}
+
+#[test]
+fn helper_kind_known_programs() {
+    for (value, kind) in [
+        ("libsecret", HelperKind::Libsecret),
+        ("/usr/lib/git-core/git-credential-libsecret", HelperKind::Libsecret),
+        ("store", HelperKind::StoreDefault),
+        ("/usr/lib/git-core/git-credential-store", HelperKind::StoreDefault),
+        ("store --file=/home/u/p/app/.creds", HelperKind::StoreFile),
+        ("store --file /tmp/c", HelperKind::StoreFile),
+        ("/usr/lib/git-core/git-credential-store --file=x", HelperKind::StoreFile),
+        ("cache", HelperKind::Cache),
+        ("cache --timeout=300", HelperKind::Cache),
+        ("manager", HelperKind::Manager),
+        ("manager-core", HelperKind::Manager),
+        ("/usr/local/bin/git-credential-manager", HelperKind::Manager),
+        ("!f() { echo password=x; }; f", HelperKind::Shell),
+    ] {
+        assert_eq!(helper_kind(value), kind, "{value}");
+    }
+}
+
+#[test]
+fn helper_kind_unknown_absolute_path() {
+    for value in [
+        "/usr/local/bin/pass-git-helper",
+        "/home/u/bin/git-credential-oauth",
+        "/home/u/p/app/libsecret",
+        "oauth",
+        "pass-git-helper",
+        "git-credential-store --file=x",
+        "bin/libsecret",
+    ] {
+        assert_eq!(helper_kind(value), HelperKind::Unknown, "{value}");
+    }
+}
+
+#[test]
+fn git_tokens_gh_helper_not_every_remote() {
+    let found = git_tokens(&entries(&[
+        ("credential.https://github.com.helper", ""),
+        ("credential.https://github.com.helper", "!/usr/bin/gh auth git-credential"),
+        ("credential.https://gist.github.com.helper", ""),
+        ("credential.https://gist.github.com.helper", "!/usr/bin/gh auth git-credential"),
+    ]));
+    assert!(found.hosts.is_empty() && !found.every_remote, "{found:?}");
+    assert_eq!(
+        found.helpers,
+        [scoped(HelperKind::Gh, "github.com"), scoped(HelperKind::Gh, "gist.github.com")]
+    );
+    assert!(!HelperKind::Gh.denies(true), "a gh helper whose token the sandbox hides");
+    assert!(HelperKind::Gh.denies(false));
+}
+
+#[test]
+fn git_tokens_shell_helper_denies() {
+    let helper = one_helper("credential.helper", "!f() { echo password=x; }; f");
+    assert_eq!(helper, every(HelperKind::Shell), "the note never shows the command");
+    assert!(helper.kind.denies(true));
+    let helper = one_helper("credential.helper", "store --file=/home/u/p/app/.creds");
+    assert_eq!(helper, every(HelperKind::StoreFile));
+    assert!(helper.kind.denies(true));
+}
+
+#[test]
+fn git_tokens_unknown_helper_denies() {
+    let helper = one_helper("credential.helper", "/usr/local/bin/pass-git-helper -m map.ini");
+    assert_eq!(
+        helper,
+        Helper {
+            kind: HelperKind::Unknown,
+            scope: HelperScope::Every,
+            program: "pass-git-helper".to_owned()
+        }
+    );
+    assert!(helper.kind.denies(true));
+    assert_eq!(one_helper("credential.helper", "oauth").program, "oauth");
+}
+
+#[test]
+fn git_tokens_libsecret_cache_manager_do_not_deny() {
+    for helper in ["store", "cache --timeout=300", "libsecret", "manager", "manager-core", ""] {
         assert_eq!(
             git_tokens(&entries(&[("credential.helper", helper)])),
             GitTokens::default(),
             "{helper}"
         );
     }
+    for kind in [HelperKind::Libsecret, HelperKind::StoreDefault, HelperKind::Cache] {
+        assert!(!kind.denies(false), "{kind:?}");
+    }
+    assert!(!HelperKind::Manager.denies(false));
+}
+
+#[test]
+fn git_tokens_scoped_risky_helper_denies_scope_only() {
+    let helper = one_helper("credential.https://git.test.helper", "!cat ~/token");
+    assert_eq!(helper, scoped(HelperKind::Shell, "git.test"));
+    let helper = one_helper("credential.https://Git.Test:8443.helper", "/opt/x/helper");
+    assert_eq!(helper.scope, HelperScope::Host("git.test".to_owned()));
+}
+
+#[test]
+fn git_tokens_wildcard_scope_denies_every_remote() {
+    let helper = one_helper("credential.https://*.example.test.helper", "!cat ~/token");
+    assert_eq!(helper, every(HelperKind::Shell));
+}
+
+#[test]
+fn git_tokens_path_scope_denies_its_host() {
+    let helper = one_helper("credential.https://github.com/org.helper", "!cat ~/token");
+    assert_eq!(helper, scoped(HelperKind::Shell, "github.com"));
+}
+
+#[test]
+fn git_tokens_scope_without_scheme_denies_every_remote() {
+    let helper = one_helper("credential.git.test.helper", "!cat ~/token");
+    assert_eq!(helper, every(HelperKind::Shell));
+}
+
+#[test]
+fn git_tokens_unscoped_risky_helper_denies_every_remote() {
+    assert_eq!(one_helper("credential.helper", "!cat ~/token"), every(HelperKind::Shell));
+    assert_eq!(one_helper("Credential.Helper", "!cat ~/token"), every(HelperKind::Shell));
+    let twice = git_tokens(&entries(&[
+        ("credential.helper", "!cat ~/token"),
+        ("credential.helper", "!cat ~/token"),
+    ]));
+    assert_eq!(twice.helpers, [every(HelperKind::Shell)], "each once");
 }

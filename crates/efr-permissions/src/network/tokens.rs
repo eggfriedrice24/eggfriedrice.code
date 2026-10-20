@@ -7,7 +7,10 @@
 
 use std::collections::BTreeSet;
 
+pub use self::helper::{Helper, HelperKind, HelperScope, helper, helper_kind};
 use super::{Preset, host_and_port};
+
+mod helper;
 
 /// A registry config file that can hold a token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -93,12 +96,16 @@ pub struct GitTokens {
     /// Hosts of remotes, `insteadOf` bases and scoped `extraHeader`s with a credential,
     /// sorted.
     pub hosts: Vec<String>,
-    /// An unscoped `http.extraHeader`, or a shell or file-store credential helper: deny
+    /// An `http.extraHeader` with no URL, or with one whose host efr cannot read: deny
     /// every remote host (and `@github-read` for an unscoped header).
     pub every_remote: bool,
     /// An unscoped `http.extraHeader`: deny the hosts of `@github-read` too, because the
     /// header goes to every https host that git reaches.
     pub github_read: bool,
+    /// The credential helpers that can give a call a token, in the order of the config,
+    /// each once. Whether one denies its hosts depends on the call
+    /// ([`HelperKind::denies`]), so efrd decides.
+    pub helpers: Vec<Helper>,
 }
 
 /// What these git config entries hold, each an origin, a key and a value, such as
@@ -113,9 +120,10 @@ pub struct GitTokens {
 /// - `http.<url>.extraHeader` with a value: the URL's host, or every remote when the URL
 ///   names no host that efr can read.
 /// - `http.extraHeader` with a value: every remote and `@github-read`.
-/// - `credential.helper` or `credential.<url>.helper` that is a shell form (`!...`) or a
-///   `store` with `--file`: every remote, and the URL's host for a scoped helper. A file
-///   of the store helper outside efr's masks is readable in the sandbox, wherever it is.
+/// - `credential.helper` or `credential.<url>.helper` that [`helper`] keeps (gh's
+///   helper, a shell form, a `store` with `--file`, whose file is readable in the
+///   sandbox wherever it is, or a program that efr does not know): in
+///   [`helpers`](GitTokens::helpers), with its scope.
 pub fn git_tokens(entries: &[(String, String, String)]) -> GitTokens {
     let mut tokens = GitTokens::default();
     let mut hosts = BTreeSet::new();
@@ -145,9 +153,12 @@ pub fn git_tokens(entries: &[(String, String, String)]) -> GitTokens {
                 tokens.every_remote = true;
                 tokens.github_read = true;
             }
-            ("credential", scope, "helper") if is_risky_helper(value) => {
-                tokens.every_remote = true;
-                hosts.extend(scope.and_then(host_and_port).map(|(host, _)| host));
+            ("credential", scope, "helper") => {
+                if let Some(found) = helper(scope, value)
+                    && !tokens.helpers.contains(&found)
+                {
+                    tokens.helpers.push(found);
+                }
             }
             _ => {}
         }
@@ -217,19 +228,6 @@ fn credential_host(url: &str) -> Option<String> {
         return None;
     }
     host_and_port(authority).map(|(host, _)| host)
-}
-
-/// True for a credential helper that the sandbox cannot hold: a shell form (`!...`),
-/// or git's `store` helper with its own file.
-fn is_risky_helper(helper: &str) -> bool {
-    if helper.starts_with('!') {
-        return true;
-    }
-    let mut words = helper.split_whitespace();
-    let store = words
-        .next()
-        .is_some_and(|program| program == "store" || program.ends_with("git-credential-store"));
-    store && words.any(|word| word.starts_with("--file"))
 }
 
 #[cfg(test)]

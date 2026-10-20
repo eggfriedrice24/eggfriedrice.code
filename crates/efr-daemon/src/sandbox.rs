@@ -587,6 +587,25 @@ impl SandboxService {
         self.inner.dirs.runtime().join(plan::SHELL_DIR).join(conversation.to_string())
     }
 
+    /// The variables of gh's config dir in the `env` file that the zsh integration of
+    /// the conversation's hidden shell writes at a prompt; `None` when it wrote none. A
+    /// sandboxed call does not change them: the export filter returns only the names of
+    /// `sandbox.promote_env`, never `XDG_*`.
+    async fn shell_gh_env(
+        &self,
+        conversation: ConversationId,
+    ) -> Option<std::collections::BTreeMap<String, String>> {
+        let file = self.shell_dir(conversation).join(efr_sandbox::ENV_FILE);
+        tokio::task::spawn_blocking(move || {
+            fs::DaemonFs::read(&file, efr_sandbox::MAX_ENV_BYTES).ok()
+        })
+        .await
+        .ok()
+        .flatten()
+        .filter(|bytes| !bytes.is_empty())
+        .map(|bytes| proxy::tokens::HelperFacts::gh_env(&bytes))
+    }
+
     /// The launcher's copy, `$R/bin/efr-sbx`, which starts every job.
     pub(crate) fn launcher(&self) -> &Path {
         &self.inner.copy
@@ -1035,7 +1054,13 @@ impl SandboxService {
                 // its host through the proxy (DP25).
                 let mut dirs = roots.clone();
                 dirs.push(call.shell_cwd.clone().unwrap_or_else(|| call.cwd.clone()));
-                let denied = proxy::tokens::denied(&self.inner.git, &self.inner.home, &dirs).await;
+                let env = match &job {
+                    Some(job) => Some(proxy::tokens::HelperFacts::gh_env(job.env)),
+                    None => self.shell_gh_env(call.conversation_id).await,
+                };
+                let helpers = helper_facts(&spec, env);
+                let denied =
+                    proxy::tokens::denied(&self.inner.git, &self.inner.home, &dirs, &helpers).await;
                 policy.deny = denied.hosts;
                 notes.extend(denied.notes);
                 let bound = self
@@ -1319,6 +1344,23 @@ fn call_policy(spec: &efr_sandbox::SandboxSpec, settings: &Settings) -> efr_prox
         grants,
         deny: Vec::new(),
         max_upload_bytes: settings.network.max_upload_bytes,
+    }
+}
+
+/// What tells whether the call of `spec` can reach gh's token (v0.0.4, DV15): `env`,
+/// the variables of gh's config dir in the hidden shell (`None` when unknown), the
+/// environment lists of the spec, its masks but those that a grant opens, and whether
+/// it has the whole session bus.
+fn helper_facts(
+    spec: &efr_sandbox::SandboxSpec,
+    env: Option<std::collections::BTreeMap<String, String>>,
+) -> proxy::tokens::HelperFacts {
+    proxy::tokens::HelperFacts {
+        env,
+        keep: spec.env.keep.clone(),
+        deny: spec.env.deny.clone(),
+        masks: mount_masks(spec).0,
+        session_bus: spec.grants.contains(&Grant::Bus { bus: BusKind::Session }),
     }
 }
 
