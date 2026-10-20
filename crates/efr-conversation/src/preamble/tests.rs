@@ -26,6 +26,7 @@ fn minimal() -> LiveState {
         model: "gpt-5.5".to_owned(),
         effort: None,
         egress: Egress::None,
+        full_allowed: false,
     }
 }
 
@@ -316,4 +317,47 @@ fn prompt_auto_names_scratch_and_background() {
     assert!(!rule.contains("Background processes stop"), "{rule}");
     // Jobs start in every mode; outside auto each one asks, and no text says otherwise.
     assert!(!rule.contains("need the auto mode"), "{rule}");
+}
+
+#[test]
+fn gate_off_preamble_is_unchanged() {
+    // With full mode off, the preamble of every mode is the one of before full mode:
+    // three modes, word for word, so no prompt cache and no scenario fixture changes.
+    for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
+        let text = LiveState { mode, ..minimal() }.render();
+        assert!(text.contains("efr has three permission modes and no others:\n"), "{text}");
+        assert!(!text.contains("full"), "{text}");
+    }
+}
+
+#[test]
+fn full_preamble_names_full_and_its_rule() {
+    let state = LiveState { mode: Mode::Full, full_allowed: true, ..minimal() };
+    assert_snapshot!(settings_part(&state));
+    let text = state.render();
+    assert!(text.contains("\nPermission mode: full\n"), "{text}");
+    assert!(text.contains("efr has four permission modes and no others:\n"), "{text}");
+    assert!(
+        text.contains(
+            "\n- full: do what the user asks. Commands run as the user, with no sandbox and no \
+             question. efr still denies secrets, its own config and its own dirs, and asks the \
+             user before sudo, before a process that outlives the turn and before a delete of \
+             ~, /, a system dir or a project. If efr refuses an action, do not try it another \
+             way. For long work, call shell with background: true.\n"
+        ),
+        "{text}"
+    );
+    // A full turn names full also when the gate went off after the turn started.
+    let off = LiveState { full_allowed: false, ..state };
+    assert!(off.render().contains("four permission modes"));
+}
+
+#[test]
+fn the_four_modes_are_in_the_preamble_when_full_mode_is_allowed() {
+    for mode in Mode::ALL {
+        let text = LiveState { mode, full_allowed: true, ..minimal() }.render();
+        assert_eq!(text.matches("\n- ").count(), 4, "{text}");
+        assert!(text.contains(&format!("\nPermission mode: {mode}\n")), "{text}");
+        assert!(text.contains("\n- full: do what the user asks."), "{text}");
+    }
 }

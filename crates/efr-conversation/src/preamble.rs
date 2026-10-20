@@ -13,6 +13,10 @@
 //! the turn's settings: they ride here next to the mode, the model and the effort they
 //! are about, and a system prompt that the user replaced in `config.toml` cannot lose
 //! them.
+//!
+//! The list of the modes names `full` only when the user allowed full mode
+//! (`permissions.allow_full`) or the turn runs in it. With full mode off the preamble is
+//! byte for byte what it was before full mode existed, so no prompt cache breaks.
 
 mod secrets;
 
@@ -69,6 +73,9 @@ pub(crate) struct LiveState {
     /// How contained commands reach the network: the egress of the engine that decides
     /// the turn's calls, which the rule of `auto` names (phase D2).
     pub(crate) egress: Egress,
+    /// True when the user allowed full mode (`permissions.allow_full`): the list of the
+    /// modes names it. A full turn names it anyway.
+    pub(crate) full_allowed: bool,
 }
 
 impl fmt::Debug for LiveState {
@@ -90,6 +97,7 @@ impl fmt::Debug for LiveState {
             .field("fallback", &self.fallback)
             .field("model", &self.model)
             .field("effort", &self.effort)
+            .field("full_allowed", &self.full_allowed)
             .finish_non_exhaustive()
     }
 }
@@ -195,9 +203,16 @@ impl LiveState {
             }
             None => text.push_str("Reasoning effort: the backend's default for the model\n"),
         }
-        text.push_str("efr has three permission modes and no others:\n");
-        for mode in [Mode::Manual, Mode::Cautious, Mode::Auto] {
-            let _ = writeln!(text, "- {mode}: {}", mode_rule(mode, self.egress));
+        // NOTE: with full mode off the list stays as it was, word for word (DF18).
+        let modes: &[Mode] = if self.full_allowed || self.mode == Mode::Full {
+            text.push_str("efr has four permission modes and no others:\n");
+            &[Mode::Manual, Mode::Cautious, Mode::Auto, Mode::Full]
+        } else {
+            text.push_str("efr has three permission modes and no others:\n");
+            &[Mode::Manual, Mode::Cautious, Mode::Auto]
+        };
+        for mode in modes {
+            let _ = writeln!(text, "- {mode}: {}", mode_rule(*mode, self.egress));
         }
         text.push_str(SETTINGS_RULES);
         text.push_str("</live_state>");
@@ -232,7 +247,9 @@ them.
 /// says what each one means, so the rule of a mode is written once.
 fn mode_line(mode: Mode) -> String {
     match mode {
-        Mode::Manual | Mode::Cautious | Mode::Auto => format!("Permission mode: {mode}\n"),
+        Mode::Manual | Mode::Cautious | Mode::Auto | Mode::Full => {
+            format!("Permission mode: {mode}\n")
+        }
         // NOTE: a mode added to the protocol after this crate was written.
         _ => "Permission mode: one this build does not know; calls it does not allow ask \
               the user.\n"
@@ -267,6 +284,15 @@ const AUTO_RULE_TAIL: &str = " A command that runs outside the sandbox, such as 
                               action, do not try it another way. In the sandbox, tty and $$ \
                               can differ from the host.";
 
+/// The rule of full mode (efr's full mode, DF18): what runs, and what efr still denies or
+/// asks about. It promises no more than efr reads in a line.
+const FULL_RULE: &str = "do what the user asks. Commands run as the user, with no sandbox \
+                         and no question. efr still denies secrets, its own config and its \
+                         own dirs, and asks the user before sudo, before a process that \
+                         outlives the turn and before a delete of ~, /, a system dir or a \
+                         project. If efr refuses an action, do not try it another way. For \
+                         long work, call shell with background: true.";
+
 /// What runs without a question in `mode`, as `docs/permissions.md` states it. The rule
 /// of `auto` says how contained commands reach the network: nothing with no proxy
 /// (`egress`), the proxy's sentence with it.
@@ -284,6 +310,7 @@ fn mode_rule(mode: Mode, egress: Egress) -> String {
             let proxy = if egress == Egress::Proxy { AUTO_RULE_PROXY } else { "" };
             return format!("{AUTO_RULE_HEAD}{proxy}{AUTO_RULE_TAIL}");
         }
+        Mode::Full => FULL_RULE,
         _ => "calls it does not allow ask the user.",
     };
     rule.to_owned()

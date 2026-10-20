@@ -360,7 +360,10 @@ request:
    previous prompt (where from, and whether the hidden shell moved too or where it
    stayed), the turn's permission mode, model and
    effort, the three modes (`manual`, `cautious`, `auto`) with one line each, which
-   is the one place that says what a mode allows, as `docs/permissions.md` does, and
+   is the one place that says what a mode allows, as `docs/permissions.md` does (four
+   modes with `full` when `permissions.allow_full` is on or the turn runs in full mode;
+   with full mode off the list is word for word the one of before full mode, so no
+   prompt cache breaks), and
    that only the user changes a terminal's mode, model and effort (`,mode`, `,model`,
    `,effort`, or a bare `mode auto` line in sticky mode) while the settings tool
    changes only the defaults in `config.toml` after an approval, so the model never
