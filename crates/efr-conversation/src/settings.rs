@@ -19,6 +19,12 @@
 //! prompt, does not fail when the daemon refuses full mode (it runs as root, undo or
 //! snapshots are off, the shell is no zsh): the turn runs as `auto` and records why, as
 //! the config's `permissions.mode = "full"` needs `permissions.allow_full` anyway.
+//!
+//! A turn that job notices start (a wake turn) runs with at most `auto`: nobody asked
+//! for its steps now, so it never runs in full mode. The cap comes before the check of
+//! the daemon's gate, so such a turn needs no gate and never fails for it, and it
+//! records one fallback with [`ModeFallback::WAKE_REASON`], plus the reason of `auto`
+//! when the turn falls further to `cautious`.
 
 use std::path::Path;
 
@@ -29,18 +35,22 @@ use efr_protocol::{
 };
 
 /// Where a turn runs, for the fallback of `auto`: the probe's latest result, the root of
-/// the turn's registered project, if any, and the home directory.
+/// the turn's registered project, if any, and the home directory; and whether job
+/// notices started the turn, for the cap of a wake turn.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Place<'a> {
     pub(crate) sandbox: &'a SandboxStatus,
     pub(crate) project_root: Option<&'a Path>,
     pub(crate) home: &'a Path,
+    /// True for a turn that job notices started: it runs with at most `auto`.
+    pub(crate) wake: bool,
 }
 
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
 /// `config`. A turn from a remote origin runs with at most `cautious`
 /// ([`efr_permissions::effective_mode`]), and an `auto` turn that `place` cannot hold
-/// runs as `cautious` with the reason in `fallback`. A `full` turn after that cap fails
+/// runs as `cautious` with the reason in `fallback`. A wake turn runs with at most
+/// `auto`, with [`ModeFallback::WAKE_REASON`]. A `full` turn after those caps fails
 /// unless the daemon allows full mode ([`ConversationConfig::full_mode`]); it never
 /// falls back, except a `full` of the config default that the daemon refuses: that turn
 /// runs as `auto`, or as `cautious` when `auto` cannot run either, with both reasons.
@@ -52,6 +62,10 @@ pub(crate) fn resolve(
 ) -> Result<EffectiveSettings, ConversationError> {
     // NOTE: the engine's own cap, so the recorded mode is the one the engine decides by.
     let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(config.mode), origin);
+    // NOTE: before the gate, so a wake turn of a full conversation runs as `auto` also
+    // after the user turned full mode off (DF15).
+    let woke = place.wake && mode == Mode::Full;
+    let mode = if woke { Mode::Auto } else { mode };
     // NOTE: a default of full that the daemon refuses falls back, so no prompt that
     // names no mode fails while efrd runs as root or undo is off (OQF3).
     let refused_default =
@@ -69,6 +83,7 @@ pub(crate) fn resolve(
     let mode = if auto.is_some() { Mode::Cautious } else { mode };
     let fallback = match refused_default {
         Some(refusal) => Some(full_fallback(refusal, auto)),
+        None if woke => Some(wake_fallback(auto)),
         None => auto,
     };
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
@@ -106,6 +121,17 @@ fn check_full(config: &ConversationConfig) -> Result<(), ConversationError> {
 /// `auto`, and further to `cautious` with the reason of `auto` when `auto` cannot run.
 fn full_fallback(refusal: FullRefusal, auto: Option<ModeFallback>) -> ModeFallback {
     let mut reason = format!("full mode cannot run: {}", refusal.describe());
+    if let Some(auto) = auto {
+        reason.push_str("; ");
+        reason.push_str(&auto.reason);
+    }
+    ModeFallback { asked: Mode::Full, reason }
+}
+
+/// The fallback of a wake turn of full mode: to `auto`, and further to `cautious` with
+/// the reason of `auto` when `auto` cannot run.
+fn wake_fallback(auto: Option<ModeFallback>) -> ModeFallback {
+    let mut reason = ModeFallback::WAKE_REASON.to_owned();
     if let Some(auto) = auto {
         reason.push_str("; ");
         reason.push_str(&auto.reason);

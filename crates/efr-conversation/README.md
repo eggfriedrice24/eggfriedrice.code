@@ -28,7 +28,11 @@ turns.
   prompt keeps it; the result carries the effective settings. When the turn starts it
   resolves them again against the settings of that moment, fails with `invalid` and
   the choices when they no longer fit, and records them on `turn_started`. A turn
-  from a remote origin runs with at most `cautious`. After that cap, `full` runs only
+  from a remote origin runs with at most `cautious`, and a wake turn with at most
+  `auto`: a wake turn of `full` runs as `auto` with a `ModeFallback` whose `asked` is
+  `full` and whose reason is `ModeFallback::WAKE_REASON` (plus the reason of `auto`
+  when it falls further to `cautious`), also when full mode is off, because the cap
+  comes before the gate. After those caps, `full` runs only
   when the daemon allows it (`ConversationConfig::full_mode`): else `FullModeOff`
   (`permissions.allow_full` is false) or `FullModeRefused` with the daemon's
   `FullRefusal`, both `invalid` with the other modes as the choices. A `full` that
@@ -238,7 +242,8 @@ turns.
   the stored starts of the last hour, so a restart keeps it) and the daemon-wide limit
   (`Toolbox::wake_allowed`) allow one more. The wake turn runs in the mode of the
   newest turn that a prompt started, or of the job's turn when no prompt came since,
-  in every mode: outside `auto` its calls ask as in any turn of that mode. A notice from efrd's restart (`wakes`
+  in every mode: outside `auto` its calls ask as in any turn of that mode. A wake turn
+  of `full` runs with at most `auto` (see "Turn settings"). A notice from efrd's restart (`wakes`
   false) never starts one. A notice that could not start a turn records
   `job_notice_held` with the reason, once, and rides in the next turn. A wake turn
   runs at most 20 tool calls (`WAKE_TURN_MAX_CALLS`); then it ends as completed, and
