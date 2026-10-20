@@ -94,13 +94,46 @@ async fn proxy_deny_wins_over_grant() {
     let (call, path) = world.call(&[("granted.test", 443)], BUDGET);
     let mut client = Client::connect(&path).await;
     assert_eq!(client.connect_to("granted.test:443").await, 403);
-    assert_eq!(call.blocked().0, vec![blocked("granted.test", 443, BlockReason::NotAllowed)]);
+    assert_eq!(call.blocked().0, vec![blocked("granted.test", 443, BlockReason::Denied)]);
     // The call's own deny set wins over the global allow list.
     let (call, path) = world.call_with(policy(&[], &["Allowed.Test."], BUDGET));
     let mut client = Client::connect(&path).await;
     assert_eq!(client.connect_to("allowed.test:443").await, 403);
-    assert_eq!(call.blocked().0, vec![blocked("allowed.test", 443, BlockReason::NotAllowed)]);
+    assert_eq!(call.blocked().0, vec![blocked("allowed.test", 443, BlockReason::Denied)]);
     assert_eq!(world.table.asked(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn tunnel_denied_host_reason_is_denied() {
+    let (world, echo) = echo_world().await;
+    world.hosts.send_replace(Arc::new(list(&["allowed.test"], &["denied.test"], &[])));
+    let (call, path) = world.call(&[], BUDGET);
+    let mut client = Client::connect(&path).await;
+    assert_eq!(client.connect_to("denied.test:443").await, 403);
+    let body = String::from_utf8(client.rest().await).unwrap();
+    assert!(body.contains("denied: efr denies this host"), "{body}");
+    assert_eq!(call.blocked().0, vec![blocked("denied.test", 443, BlockReason::Denied)]);
+    // The call's own deny set, from a credential that a file of the call holds.
+    let (call, path) = world.call_with(policy(&[], &["allowed.test"], BUDGET));
+    let mut client = Client::connect(&path).await;
+    assert_eq!(client.connect_to("allowed.test:443").await, 403);
+    assert_eq!(call.blocked().0, vec![blocked("allowed.test", 443, BlockReason::Denied)]);
+    // A host that no list holds stays `not_allowed`.
+    let mut client = Client::connect(&path).await;
+    assert_eq!(client.connect_to("other.test:443").await, 403);
+    let last = call.blocked().0.last().map(|record| record.reason);
+    assert_eq!(last, Some(BlockReason::NotAllowed));
+    assert_eq!(world.table.asked(), Vec::<String>::new(), "no lookup for a denied host");
+    assert_eq!(echo.total(), 0);
+}
+
+#[tokio::test]
+async fn ip_literal_on_deny_list_stays_ip_literal() {
+    let (world, _echo) = echo_world().await;
+    let (call, path) = world.call_with(policy(&[], &["192.0.2.1"], BUDGET));
+    let mut client = Client::connect(&path).await;
+    assert_eq!(client.connect_to("192.0.2.1:443").await, 403);
+    assert_eq!(call.blocked().0, vec![blocked("192.0.2.1", 443, BlockReason::IpLiteral)]);
 }
 
 #[tokio::test]

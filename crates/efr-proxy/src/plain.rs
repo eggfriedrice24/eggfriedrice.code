@@ -42,9 +42,8 @@ pub(crate) async fn run(call: &Call, mut client: UnixStream, request: &Request, 
             {
                 Some((Status::Forbidden, BlockReason::Method))
             }
-            HostVerdict::NotListed | HostVerdict::Denied => {
-                Some((Status::Forbidden, BlockReason::NotAllowed))
-            }
+            HostVerdict::Denied => Some((Status::Forbidden, BlockReason::Denied)),
+            HostVerdict::NotListed => Some((Status::Forbidden, BlockReason::NotAllowed)),
         }
     };
     if let Some((status, reason)) = refusal {

@@ -29,6 +29,8 @@ pub(crate) async fn run(call: &Call, mut client: UnixStream, host: &str, port: u
         Some(BlockReason::IpLiteral)
     } else if call.spent() {
         Some(BlockReason::UploadLimit)
+    } else if verdict == HostVerdict::Denied {
+        Some(BlockReason::Denied)
     } else if !allowed {
         Some(BlockReason::NotAllowed)
     } else if !call.may_tunnel(host, port) {

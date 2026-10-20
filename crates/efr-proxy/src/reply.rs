@@ -68,6 +68,7 @@ pub(crate) fn text(reason: BlockReason) -> &'static str {
         BlockReason::NotTls => "not_tls: the tunnel did not start with a TLS ClientHello",
         BlockReason::BadRequest => "bad_request: the request head is malformed",
         BlockReason::Limit => "limit: too many connections",
+        BlockReason::Denied => "denied: efr denies this host for this command",
         _ => "refused",
     }
 }

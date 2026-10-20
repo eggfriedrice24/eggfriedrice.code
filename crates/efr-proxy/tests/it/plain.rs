@@ -5,7 +5,7 @@ use efr_permissions::{HostTable, MirrorHost};
 use efr_protocol::BlockReason;
 use pretty_assertions::assert_eq;
 
-use crate::kit::{BUDGET, Client, Upstream, World, list_with};
+use crate::kit::{BUDGET, Client, Upstream, World, list_with, policy};
 
 /// A world with an http entry `http.test`, a TLS-only `tls.test`, an http pacman
 /// mirror `mirror.test`, and `grant.test` for a grant on port 80. Each resolves to
@@ -66,6 +66,34 @@ async fn proxy_plain_http_get_only() {
             ("grant.test".to_owned(), BlockReason::Method),
         ]
     );
+}
+
+#[tokio::test]
+async fn plain_denied_host_reason_is_denied() {
+    let hosts = [HostTable { host: "http.test", port: None, http: true, private: false }];
+    let world = World::new(list_with(&[], &["other.test"], &hosts, &[]));
+    let server = Upstream::http().await;
+    world.table.add("http.test", &["127.0.0.1"]);
+    world.connector.route("127.0.0.1:80", server.addr);
+    // The deny list, and the call's own deny set over an http entry.
+    let (call, path) = world.call_with(policy(&[], &["http.test"], BUDGET));
+    for head in
+        ["GET http://other.test/ HTTP/1.1\r\n\r\n", "GET http://http.test/ HTTP/1.1\r\n\r\n"]
+    {
+        let (status, body) = ask(&path, head).await;
+        assert_eq!(status, 403, "{head:?}");
+        assert!(body.contains("denied: efr denies this host"), "{body}");
+    }
+    let reasons: Vec<_> =
+        call.blocked().0.iter().map(|record| (record.host.clone(), record.reason)).collect();
+    assert_eq!(
+        reasons,
+        vec![
+            ("other.test".to_owned(), BlockReason::Denied),
+            ("http.test".to_owned(), BlockReason::Denied),
+        ]
+    );
+    assert!(server.got().is_empty());
 }
 
 #[tokio::test]

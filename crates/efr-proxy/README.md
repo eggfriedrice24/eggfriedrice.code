@@ -41,9 +41,10 @@ A `CONNECT host:port` (DP6):
    gets 403 `ip_literal`.
 3. The budget: a spent budget gets 403 `upload_limit`.
 4. The lists: the call's deny set and the deny list win, then the global list, then
-   the call's grants. A host that none of them allows gets 403 `not_allowed`. Port 80
-   means plain `GET` and `HEAD` only, so a tunnel there gets 403 `method`. No lookup
-   happens before this step, also not for a host that the proxy refuses.
+   the call's grants. A host that a deny holds gets 403 `denied`, and one that none of
+   them allows gets 403 `not_allowed`. Port 80 means plain `GET` and `HEAD` only, so a
+   tunnel there gets 403 `method`. No lookup happens before this step, also not for a
+   host that the proxy refuses.
 5. The lookup: at most `Limits::resolve_timeout` (5 s), with at most 4 lookups of the
    call and 32 of the proxy at once.
 6. The guard over every address: one address that fails refuses the name with 403
