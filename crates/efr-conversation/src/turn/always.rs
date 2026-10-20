@@ -27,7 +27,7 @@ impl Turn {
     /// them, a rule that an `a` answer would save, or neither. Only a call of an `auto`
     /// turn that the sandbox's launcher runs asks the engine.
     pub(super) fn always(&self, call: &ToolCall, ruling: &Ruling) -> AlwaysVerdict {
-        if !call.context.auto || !ruling.launch.uses_launcher() {
+        if !call.context.sandboxed() || !ruling.launch.uses_launcher() {
             return AlwaysVerdict::None;
         }
         let project = match &call.context.scope {

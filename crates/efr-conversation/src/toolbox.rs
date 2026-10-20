@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
-    CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Origin, ReportedFile,
+    CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Mode, Origin, ReportedFile,
     SandboxSummary, Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo, TurnUndoInfo,
     TurnUndoResult, UndoId, UndoReason, UndoRefused,
 };
@@ -252,10 +252,10 @@ pub struct CallContext {
     /// its target ([`ExitNeed::bind`]): a target that efrd makes first is made before
     /// the launch.
     pub exits: Vec<ExitNeed>,
-    /// True when the turn runs in `auto` (its effective mode, after a fallback and the
-    /// cap of its origin). Only `auto` reads the facts of a shell call, so the toolbox
-    /// collects them only then.
-    pub auto: bool,
+    /// The turn's effective mode, after a fallback and the cap of its origin. Only a
+    /// mode that predicts exits reads the facts of a shell call
+    /// ([`predicts`](Self::predicts)), so the toolbox collects them only then.
+    pub mode: Mode,
     /// The tool with which the turn's model changes files, the one that the request
     /// offered. A call of the other one was not offered, and the toolbox refuses it.
     pub edit_tool: EditTool,
@@ -285,7 +285,7 @@ impl CallContext {
             approved_interactive: false,
             launch: Launch::Direct,
             exits: Vec::new(),
-            auto: false,
+            mode: Mode::Cautious,
             edit_tool: EditTool::default(),
         }
     }
@@ -297,11 +297,29 @@ impl CallContext {
         self
     }
 
-    /// Sets whether the turn runs in `auto`.
+    /// Sets the turn's effective mode.
     #[must_use]
-    pub fn with_auto(mut self, auto: bool) -> Self {
-        self.auto = auto;
+    pub fn with_mode(mut self, mode: Mode) -> Self {
+        self.mode = mode;
         self
+    }
+
+    /// True when the `auto` sandbox, its reviewer and always-allow apply: the turn runs
+    /// in `auto`.
+    pub fn sandboxed(&self) -> bool {
+        self.mode == Mode::Auto
+    }
+
+    /// True when the engine predicts the call's exits, so the toolbox collects facts,
+    /// copies home files first and marks the turn undoable outside its roots: `auto` or
+    /// `full`.
+    pub fn predicts(&self) -> bool {
+        matches!(self.mode, Mode::Auto | Mode::Full)
+    }
+
+    /// True when the turn runs in full mode.
+    pub fn is_full(&self) -> bool {
+        self.mode == Mode::Full
     }
 
     /// Sets whether the user approved the call as one that may wait for input at the

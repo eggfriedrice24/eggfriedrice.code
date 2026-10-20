@@ -425,7 +425,7 @@ async fn background_outside_auto_reaches_the_engine() {
     let (table, _store) = job_table(home.path()).await;
     let toolbox = toolbox(home.path()).with_jobs(table.clone(), None);
     let mut cautious = call("shell", job.clone(), home.path());
-    cautious.context.auto = false;
+    cautious.context.mode = Mode::Cautious;
     let requirements = toolbox.requirements(&cautious).await.unwrap();
     assert!(requirements.background, "the engine reads the mark");
     assert_eq!(requirements.max_minutes, Some(30));
@@ -984,11 +984,10 @@ async fn file_tool_write_has_target_kind_facts() {
     let toolbox = toolbox(&home).with_sandbox(sandbox, engine);
     let facts = async |name: &str, input: serde_json::Value, auto: bool| {
         let mut tool_call = call(name, input, &app);
-        tool_call.context = tool_call.context.with_auto(auto).with_edit_tool(if name == "edit" {
-            EditTool::Replace
-        } else {
-            EditTool::default()
-        });
+        tool_call.context = tool_call
+            .context
+            .with_mode(if auto { Mode::Auto } else { Mode::Cautious })
+            .with_edit_tool(if name == "edit" { EditTool::Replace } else { EditTool::default() });
         toolbox.requirements(&tool_call).await.unwrap().facts
     };
 
@@ -1239,7 +1238,7 @@ pub(super) fn call_of(
         cwd,
         cwd.join("scratch"),
     )
-    .with_auto(true);
+    .with_mode(Mode::Auto);
     ToolCall::new(name, input, context)
 }
 
