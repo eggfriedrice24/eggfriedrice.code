@@ -365,7 +365,8 @@ request:
    directory when it is not the shell's, and how long ago it ended when the user sent
    the prompt (`TurnSpec::sent_at`, so a prompt that waited in the queue keeps the
    time of the terminal); the newest goes
-   when it is the last command; at most 2000 characters, the oldest go first; no list
+   when it is the last command; a directory is cut to 200 characters; at most 2000
+   characters, the oldest go first, but the newest entry always stays; no list
    and no line when none remain, so the block is then the one of before the list), the
    git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
    shell's own directory when it differs, one line when the user moved since the

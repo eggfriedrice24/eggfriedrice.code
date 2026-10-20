@@ -77,6 +77,22 @@ fn the_oldest_entries_go_when_the_list_is_too_long() {
 }
 
 #[test]
+fn a_long_directory_is_cut_and_the_newest_entry_always_stays() {
+    let deep = format!("/{}", "d".repeat(2_500));
+    let commands = [ran("echo old", 60), RecentCommand { cwd: Some(deep.into()), ..ran("ls", 30) }];
+    let text = list(&commands, None);
+    assert!(
+        text.contains(&format!(
+            "- `ls` (status 0, ended just now, in /{} [cut])\n",
+            "d".repeat(199)
+        )),
+        "{text}"
+    );
+    assert!(text.contains("- `echo old` (status 0, ended 1 min ago)\n"), "{text}");
+    assert!(text.chars().count() <= LIST_MAX_CHARS + 100, "{}", text.len());
+}
+
+#[test]
 fn an_end_after_now_reads_as_just_now() {
     let text = list(&[ran("date", -30)], None);
     assert!(text.contains("ended just now"), "{text}");
