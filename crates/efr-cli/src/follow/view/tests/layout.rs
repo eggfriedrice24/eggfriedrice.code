@@ -492,6 +492,42 @@ fn a_question_for_a_run_with_full_rights_and_an_untrusted_program() {
 }
 
 #[test]
+fn a_wake_question_with_an_exit_marks_its_title_and_keeps_its_guard_first() {
+    // efrd puts the mark of a job notice turn in front of the summary, before the line
+    // that says what full mode still asks for.
+    let line = "false && rm -rf ~";
+    let info = exit_info(&[ExitKind::Destructive], Launch::Unsandboxed);
+    let summary = format!(
+        "{}full mode still asks for this: delete of ~ (your home directory)\n\
+         shell: run \"false && rm -rf ~\"",
+        efr_protocol::WAKE_QUESTION
+    );
+    let options = RenderOptions::new(80).with_colour(ColourMode::None);
+    // The screen shows each escape sequence as text: `\e[1m`.
+    let shown = play(
+        options,
+        Size { cols: 80, rows: 40 },
+        &[
+            Sent(0, turn_started()),
+            Sent(10, shell(1, line)),
+            Sent(20, exit_requested(1, line, ExitFacts::default(), &info)),
+            Sent(20, asked(1, &summary, Some(info.clone()))),
+            Shot("asked"),
+        ],
+    );
+    let shown =
+        ["\\e[0m", "\\e[1m", "\\e[2m"].iter().fold(shown, |text, sgr| text.replace(sgr, ""));
+    let card = &shown[shown.find("? ").unwrap()..];
+    let rows: Vec<&str> = card.lines().collect();
+    assert_eq!(rows[0], "? allow outside the sandbox (job notice turn)", "{card}");
+    assert_eq!(
+        rows[1], "\u{2502} full mode still asks for this: delete of ~ (your home directory)",
+        "{card}"
+    );
+    assert!(card.contains(&format!("\u{2502} {line}\n")), "{card}");
+}
+
+#[test]
 fn a_question_gives_its_place_to_one_line_when_it_is_answered() {
     let resolved = |n: u8, decision, origin| Event::ApprovalResolved {
         turn_id: turn(),

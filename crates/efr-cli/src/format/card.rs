@@ -283,9 +283,17 @@ fn spans(
 ///
 /// A summary that quotes exactly the call's command (`run "cd src\nls"`) shows each
 /// line of it on its own; what the summary says besides follows after `why:`. Any
-/// other summary shows as one row. The line of the parts of a command line that ask
+/// other summary shows as one row. The mark of a job notice turn at the start of a
+/// summary shows in the title. The line of the parts of a command line that ask
 /// follows after `asks for:`.
 pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>) -> Card {
+    // NOTE: the mark of a job notice turn goes to the title, so the rest of the summary
+    // reads as any summary and a command keeps its rows.
+    if let Some(rest) = strip_wake(summary) {
+        let mut card = approval(rest, tool, command);
+        mark_wake(&mut card);
+        return card;
+    }
     // NOTE: a question that full mode still asks starts with a line that says why; it
     // stands first, in the `warning` role, and the rest of the summary follows as for
     // any question, or the command when the summary has nothing more.
@@ -331,6 +339,18 @@ pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>)
         rows.push(Row::text(asking, Tone::Dim));
     }
     Card { title: title.to_owned(), rows }
+}
+
+/// The summary of a question in a job notice turn without its mark
+/// ([`efr_protocol::WAKE_QUESTION`]); `None` for any other summary.
+pub(crate) fn strip_wake(summary: &str) -> Option<&str> {
+    summary.strip_prefix(efr_protocol::WAKE_QUESTION)
+}
+
+/// Adds the mark of a job notice turn to the title of `card`:
+/// `allow this command (job notice turn)`.
+pub(crate) fn mark_wake(card: &mut Card) {
+    card.title = format!("{} {}", card.title, efr_protocol::WAKE_QUESTION.trim_end());
 }
 
 /// What the line after a summary that names the parts that ask starts with.

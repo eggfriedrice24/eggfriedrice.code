@@ -2740,7 +2740,8 @@ impl TurnView {
             let record = self.exits.get(&call_id).map(|exit| &exit.record);
             let reviewed = self.reviewed.get(&call_id).map(String::as_str);
             // A question that full mode still asks keeps the line that says why first.
-            let guard = format::full_guard(request.summary).map(|(guard, _)| guard);
+            let wake = card::strip_wake(request.summary);
+            let guard = format::full_guard(wake.unwrap_or(request.summary)).map(|(guard, _)| guard);
             let skip = usize::from(guard.is_some());
             // NOTE: the exit's card says why on its own row, so the subject is only what
             // runs: the lines of the command, else the summary's first row.
@@ -2758,6 +2759,9 @@ impl TurnView {
             card = sandbox::exit_card(exit, record, self.home.as_deref(), subject, reviewed);
             if let Some(guard) = guard {
                 card.rows.insert(0, card::guard_row(guard));
+            }
+            if wake.is_some() {
+                card::mark_wake(&mut card);
             }
         }
         // NOTE: a patch shows the diff of each of its files after a row that names it,

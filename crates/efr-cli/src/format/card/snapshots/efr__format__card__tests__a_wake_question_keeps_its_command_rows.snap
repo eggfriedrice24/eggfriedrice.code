@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/format/card/tests.rs
+expression: "readable(&card.render(Some(&Footer::Keys(ALLOW_KEYS)), &plain(40)))"
+---
+\e[1m? allow this command (job notice turn)\e[0m
+\e[2m│ \e[0mcd src
+\e[2m│ \e[0mmake check
+\e[2m│ \e[0m\e[2mwhy: read ~ (home)\e[0m
+\e[2m│ \e[0m\e[2masks for: make\e[0m
+\e[2m│ \e[0m\e[1my\e[0m\e[2m allow\e[0m\e[2m · \e[0m\e[1mn\e[0m\e[2m deny\e[0m

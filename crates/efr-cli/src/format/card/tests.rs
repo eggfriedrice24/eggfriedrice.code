@@ -270,6 +270,45 @@ fn a_summary_that_does_not_quote_the_command_shows_as_one_row() {
 }
 
 #[test]
+fn a_wake_question_keeps_its_command_rows() {
+    // efrd puts the mark of a job notice turn in front of the summary; the card shows it
+    // in the title and keeps the command rows and the `why:` row.
+    let summary = format!(
+        "{}shell: run \"cd src\\nmake check\"; read ~ (home)\nasks for: make",
+        efr_protocol::WAKE_QUESTION
+    );
+    let card = approval(&summary, Some("shell"), Some("cd src\nmake check"));
+    assert_eq!(card.title, "allow this command (job notice turn)");
+    assert_eq!(
+        card.rows,
+        [
+            Row::Command("cd src".to_owned()),
+            Row::Command("make check".to_owned()),
+            Row::text("why: read ~ (home)", Tone::Dim),
+            Row::text("asks for: make", Tone::Dim),
+        ]
+    );
+    // A question that full mode still asks keeps its guard row first.
+    let summary = format!(
+        "{}full mode still asks for this: delete of ~ (your home directory)",
+        efr_protocol::WAKE_QUESTION
+    );
+    let guarded = approval(&summary, Some("shell"), Some("rm -rf ~"));
+    assert_eq!(guarded.title, "allow this command (job notice turn)");
+    assert_eq!(
+        guarded.rows,
+        [
+            Row::text(
+                "full mode still asks for this: delete of ~ (your home directory)",
+                Tone::Attention
+            ),
+            Row::Command("rm -rf ~".to_owned()),
+        ]
+    );
+    insta::assert_snapshot!(readable(&card.render(Some(&Footer::Keys(ALLOW_KEYS)), &plain(40))));
+}
+
+#[test]
 fn a_command_keeps_its_control_and_format_characters_as_stand_ins() {
     let card =
         approval("shell: run \"echo a\\u{202e}b\\r\"", Some("shell"), Some("echo a\u{202e}b\r"));
