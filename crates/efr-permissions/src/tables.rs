@@ -252,6 +252,36 @@ pub fn persistence_floors(home: &Path) -> Vec<PathBuf> {
 /// in a contained call, so a declared write to one is a `persistence` exit.
 pub(crate) const GIT_SURFACE: &[&str] = &["config", "config.worktree", "hooks"];
 
+/// System dirs outside home that a delete form must not remove (DF4): each one and
+/// each dir directly in it, such as `/etc` and `/usr/lib`. Every dir directly below `/`
+/// counts too ([`is_system_dir`]). A dir deeper down, such as `/var/tmp/x`, does not,
+/// and `/tmp/x` does not.
+pub(crate) const SYSTEM_DIRS: &[&str] =
+    &["/usr", "/etc", "/var", "/boot", "/opt", "/srv", "/mnt", "/media"];
+
+/// The dirs in which a desktop mounts the disks of each user, one dir per user: the
+/// dir itself, each user's dir and each disk in it, such as `/run/media/u/disk`, count
+/// as system dirs ([`is_system_dir`]).
+pub(crate) const MEDIA_DIRS: &[&str] = &["/run/media", "/media"];
+
+/// True when a delete form must not remove `path`, an absolute path in normal form
+/// outside the home directory: a dir directly below `/`, a dir of [`SYSTEM_DIRS`] or
+/// one directly in it, or a dir of [`MEDIA_DIRS`], a user's dir in it or a disk in
+/// that.
+pub(crate) fn is_system_dir(path: &Path) -> bool {
+    let is = |dir: Option<&Path>, list: &[&str]| {
+        dir.is_some_and(|dir| list.iter().any(|known| dir == Path::new(known)))
+    };
+    let parent = path.parent();
+    let grandparent = parent.and_then(Path::parent);
+    parent == Some(Path::new("/"))
+        || is(Some(path), SYSTEM_DIRS)
+        || is(parent, SYSTEM_DIRS)
+        || is(Some(path), MEDIA_DIRS)
+        || is(parent, MEDIA_DIRS)
+        || is(grandparent, MEDIA_DIRS)
+}
+
 /// True for a project `.env` file that the default `sandbox.mask_globs` mask: `.env`
 /// and `.env.*`, except the examples that hold no values.
 pub(crate) fn is_env_file(name: &str) -> bool {

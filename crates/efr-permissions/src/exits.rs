@@ -15,8 +15,13 @@
 //! [`unsandboxed_line_problem`] is the one-command rule: a line that runs outside the
 //! sandbox must be one command plus read-only helpers, or a `sudo -k` that only forgets
 //! the cached password.
+//!
+//! [`critical_deletes`] is the guard of full mode (`critical.rs`): the deletes of a line
+//! of a tree that only the user may risk, such as `~`, `/`, a system dir or a project.
+//! `auto` never reads it; it is no exit.
 
 mod cover;
+mod critical;
 mod envelope;
 mod names;
 mod needs;
@@ -32,6 +37,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{ExitKind, ExitSource, Grant, Needs};
 
 pub(crate) use self::cover::set_copies;
+pub use self::critical::critical_deletes;
 pub(crate) use self::envelope::Envelope;
 use self::envelope::{WriteExit, read_exit, resolve};
 #[cfg(test)]

@@ -18,7 +18,8 @@ from a remote origin runs with at most `cautious` (`effective_mode`).
 
 Full mode (`Mode::Full`) has no rows of its own yet: like any mode that this crate
 does not know, it gets the `manual` policy and fails closed. `critical` holds the types
-of a delete that full mode guards (`CriticalDelete`, `CriticalTarget`, `CriticalWhy`);
+of a delete that full mode guards (`CriticalDelete`, `CriticalTarget`, `CriticalWhy`),
+and `exits::critical_deletes` finds them in a line (`exits/critical.rs`, below);
 a reason about one has `Subject::CriticalDelete` and `Cause::CriticalDelete`, and
 `Decision::critical` lists them. `Cause::Full` marks a requirement that full mode runs
 with no question.
@@ -191,6 +192,34 @@ Modules:
   every place of the line, a zsh builtin or reserved word such as `:`, `cd` or
   `printf` (a fixed list, `exits/programs.rs`); behind `env`, `sudo`, `command`,
   `exec` or `find -exec` only a file runs.
+- `exits/critical.rs` (full mode, DF4): `exits::critical_deletes` finds the deletes of
+  a line that full mode guards, each a `CriticalDelete` with its simple command and
+  its target. It is pure and reads only the line, the locations and the turn's roots.
+  It reads the line through the same lenient split as `predict`, behind the same
+  wrappers (`sudo`, `env`, `nice`, `timeout`, `setsid`, `nohup`, `xargs`), in each
+  substitution and in each branch that may not run (`false && rm -rf ~`), and one
+  level into the literal string of `sh -c`, `bash -c`, `zsh -c` and `eval`. The
+  delete forms are: `rm -r`, a pattern operand of a plain `rm`, `find` with `-delete`
+  or an `-exec` of `rm`, `shred`, `srm` or `wipe` (its roots), the sources of `mv`,
+  the destination of `rsync --del*`, `chmod -R`, `chown -R`, `chgrp -R`, `setfacl -R`,
+  `shred -u`, `srm`, `wipe`, and `git clean -fd` (the work tree of its dir, `-C` and
+  `--work-tree`, or its paths). A target is critical when it is `/`, `~` or a dir above
+  `~`; a system dir outside `~` (a dir directly below `/`, a dir of `SYSTEM_DIRS` or
+  one directly in it, and the disks below `/run/media` and `/media`, `tables.rs`); the
+  turn's project root or a registered project root; or a dir that holds what
+  `Envelope::holds` counts (efr's config or own paths, a secret, a floor, two or more
+  projects or real write roots). `Envelope::above_root_approver` reads the same
+  `holds`, so the two cannot drift. A target that efr cannot read is critical too: a
+  word with an expansion (`$HOME` and `${HOME}` at its start read as `~`), a pattern
+  of a tree form whose literal dir is empty, critical or unreadable (`*`, `~/*`,
+  `"$X"/*`), a relative word where the dir is not known, and the input of `xargs`
+  unless a `find` with plain roots that are not critical gives it. Two forms are
+  narrower: a pattern of a plain `rm` is critical only in `/`, `~`, a dir above `~` or
+  a system dir (`rm *.o` runs), and `git clean` in the turn's own project root is not
+  critical, because the project snapshot covers it. A literal `cd` before a command
+  moves its dir (`Segment::cds`); because a `cd` can fail or run in a subshell, the
+  dir before each `cd` counts too. A brace word such as `~/{p,x}` is expanded. A
+  delete inside a script or a program is not seen. `auto` never reads the guard.
 - `exits/view.rs` (phase D1): the network view rule. `exits::views` gives
   `Grant::NetView` to a shell call whose line only reads the host's network, on a
   machine that runs NetView calls (`AutoSupport::netview`): at least one view command
