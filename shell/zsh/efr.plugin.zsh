@@ -42,10 +42,11 @@
 #                  commands then run with your rights, with no sandbox and no
 #                  questions, and efr says what it still reads and asks. While a
 #                  terminal's prompts run in full mode (its own value, or the
-#                  config's default when it has none), a red `full ` tag stands
-#                  before the typed text, in and out of sticky mode. EFR_MODE=full
-#                  from the environment is ignored when the plugin loads: only
-#                  `,mode full` makes a terminal full
+#                  config's default when it has none), sticky mode shows the mark
+#                  EFR_FULL_MARK (🔓) next to the robot; outside sticky mode the
+#                  turn's red first line says it. EFR_MODE=full from the
+#                  environment is ignored when the plugin loads: only `,mode full`
+#                  makes a terminal full
 #   ,model [id]    the same for the model (`efr models` lists them)
 #   ,effort [e]    the same for the reasoning effort
 #   ,<word> ...    a `,` word that names no plugin command and nothing that zsh
@@ -59,13 +60,26 @@
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just `mode`, `model` or `effort`,
 #                  alone or with one value that efr accepts, which runs as `,mode`,
-#                  `,model` or `,effort`; a robot stands before the typed text while
-#                  it is on (shown with PREDISPLAY, so the prompt itself never
-#                  changes), after a dim tag with the terminal's own settings, such
-#                  as `auto `, whose `full ` is red
+#                  `,model` or `,effort`; a robot and the scope of the next prompt
+#                  stand before the typed text while it is on, such as `🤖 app › `
+#                  in a registered project and `🤖 ○ › ` outside projects (shown
+#                  with PREDISPLAY, so the prompt itself never changes), after a dim
+#                  tag with the terminal's own settings, such as `auto `; in full
+#                  mode the mark 🔓 stands next to the robot: `🤖🔓 app › `
 #   🤖 <prompt>    what a prompt line becomes on Enter in sticky mode: the robot is
 #                  an alias of `,`, so the screen and history keep the line that ran,
 #                  and the line still goes to the agent when history recalls it
+#
+# The scope of the next prompt shows before you send it: in sticky mode, and through
+# efr_prompt_info, a function that prints `app` or `○` (with the full mark in full mode)
+# for your own prompt (`setopt prompt_subst; RPROMPT='$(efr_prompt_info)'`), and the
+# variable $efr_scope, which precmd sets, for a prompt with no subshell
+# (`RPROMPT='${efr_scope}'`). The plugin never changes PROMPT or RPROMPT itself. It
+# knows the scope with no fork and no git: efrd writes the registered projects to
+# projects.tsv in its runtime root, one `<root><tab><name>` line each, and the plugin
+# reads the file again only when it changed, then matches $PWD and ${PWD:A} by whole
+# components, the deepest root first. Before efrd ever ran there is no file and no
+# scope. The head line of efr's reply names the scope that efrd routed by.
 #
 # A prompt is never parsed as shell syntax, and the line stays as typed on the screen
 # and in history, except that a sticky prompt gets the robot in front and an unknown
@@ -175,18 +189,35 @@ typeset -ga _efr_saved_options
 # Override before sourcing to change how sticky mode shows before the typed text:
 # plain text, and a region_highlight style for it (a colour emoji keeps its colours).
 # The robot needs a UTF-8 locale; any other locale gets plain text.
+# EFR_FULL_MARK is the mark next to the robot while the terminal's prompts run in full
+# mode; an empty value shows none. The marks of the scope (`○` outside projects, `›`
+# after the scope) have plain-text forms too.
 if [[ -o multibyte && ${LC_ALL:-${LC_CTYPE:-$LANG}} == *.[Uu][Tt][Ff](-|)8* ]]; then
   : ${EFR_STICKY_INDICATOR:='🤖 '}
+  : ${EFR_FULL_MARK='🔓'}
+  typeset -g _efr_outside_mark='○' _efr_scope_end='›'
 else
   : ${EFR_STICKY_INDICATOR:='efr> '}
+  : ${EFR_FULL_MARK='!'}
+  typeset -g _efr_outside_mark='o' _efr_scope_end='>'
 fi
 : ${EFR_STICKY_STYLE:='fg=magenta'}
 # The region_highlight style of the tag with the terminal's settings before the robot.
 # zsh has no dim attribute; colour 8 is the grey that most themes use for it.
 : ${EFR_TAG_STYLE:='fg=8'}
-# The region_highlight style of the `full ` tag, in and out of sticky mode, while the
-# terminal's prompts run in full mode: red, the colour of efr's error role.
+# The region_highlight style of the scope after the robot: the same muted grey.
+: ${EFR_SCOPE_STYLE:='fg=8'}
+# The region_highlight style of the full mark, red as efr's error role and the turn's
+# first line in full mode; a colour emoji keeps its own colours.
 : ${EFR_FULL_STYLE:='fg=red'}
+# The scope of the next prompt for your own prompt (see efr_prompt_info): the name of
+# the registered project that holds $PWD, the outside mark (`○`) anywhere else, or
+# empty while efrd never wrote its projects file. precmd sets it.
+typeset -g efr_scope=
+# The projects file's stamp that _efr_read_projects read last, and its projects: their
+# roots and names in the order of the file, the deepest root first.
+typeset -g _efr_projects_seen
+typeset -ga _efr_project_roots _efr_project_names
 # The config file and its stamp that _efr_config_full read last, and whether it made
 # full mode the default.
 typeset -g _efr_config_seen
@@ -442,13 +473,12 @@ _efr_settings() {
 }
 
 # Sets REPLY to the tag of the terminal's own turn settings, such as `auto gpt-5.4 `:
-# each value that is set, then a blank. Empty when the config decides all of them. A
-# terminal whose prompts run in full mode starts it with `full `, also when the
-# config's default makes it so.
+# each value that is set, then a blank. Empty when the config decides all of them. Full
+# mode is no word of the tag: the full mark next to the robot shows it.
 _efr_tag() {
   emulate -L zsh
   local mode=$_efr_turn_mode
-  [[ -z $mode ]] && _efr_config_full && mode=full
+  [[ $mode == full ]] && mode=
   # Unquoted, an empty value leaves no word.
   local -a set=($mode $_efr_turn_model $_efr_turn_effort)
   REPLY=${(j: :)set}
@@ -730,43 +760,57 @@ _efr_print_setting() {
 
 # --- sticky agent mode ------------------------------------------------------------
 
-# Shows the indicator before the typed text while sticky mode is on, after the dim tag
-# of the terminal's own turn settings (see _efr_tag). With $1 `tag` only the tag stays,
-# for a prompt line whose first word takes the indicator's place; with `hide` nothing
-# shows. With sticky mode off, only a red `full ` shows, while the terminal's prompts
-# run in full mode; in sticky mode the tag's `full ` is red too (EFR_FULL_STYLE).
-# PREDISPLAY is not part of the buffer and leaves PROMPT alone, so it works with any
-# prompt theme, including one whose prompt starts with a newline, and history never
-# sees it. Only a command line gets it, never a continuation line or a value that
-# vared edits. Runs from the line-init hook, on every toggle and when a line is
-# accepted.
+# Shows the indicator before the typed text while sticky mode is on: the dim tag of the
+# terminal's own turn settings (see _efr_tag), the robot, the full mark while the
+# terminal's prompts run in full mode (EFR_FULL_MARK, in EFR_FULL_STYLE), and the
+# muted scope of the next prompt with `›` after it (see _efr_update_scope), such as
+# `auto 🤖🔓 app › `. Without a projects file the scope part is left out. With $1
+# `tag` only the tag stays, for a prompt line whose first word takes the robot's
+# place; with `hide` nothing shows. With sticky mode off nothing shows: the turn's red
+# first line says full mode. PREDISPLAY is not part of the buffer and leaves PROMPT
+# alone, so it works with any prompt theme, including one whose prompt starts with a
+# newline, and history never sees it. Only a command line gets it, never a
+# continuation line or a value that vared edits. Runs from the line-init hook, on every
+# toggle and when a line is accepted.
 _efr_show_indicator() {
   # NOTE: zle gives region_highlight back with other offsets than it was given, so the
   # plugin's own entries are found by their memo, not by their text.
   region_highlight=(${region_highlight:#*memo=efr*})
-  local -a mine
-  local full=0
-  [[ $1 != hide && $CONTEXT == start ]] && _efr_full_mode && full=1
   if (( _efr_sticky )) && [[ $1 != hide && $CONTEXT == start ]]; then
     local REPLY tag
+    local -a mine
     _efr_tag
     tag=$REPLY
     PREDISPLAY=$tag
-    if (( full )); then
-      # The tag starts with `full `, and the terminal's other values follow it.
-      mine+=("P0 5 $EFR_FULL_STYLE memo=efr")
-      (( ${#tag} > 5 )) && mine+=("P5 ${#tag} $EFR_TAG_STYLE memo=efr")
-    elif [[ -n $tag ]]; then
-      mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
-    fi
+    [[ -n $tag ]] && mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
     if [[ $1 != tag ]]; then
-      PREDISPLAY+=$EFR_STICKY_INDICATOR
-      mine+=("P${#tag} $(( ${#tag} + ${#EFR_STICKY_INDICATOR} )) $EFR_STICKY_STYLE memo=efr")
+      # The robot without its trailing blanks, then the full mark, then the blanks.
+      local word=$EFR_STICKY_INDICATOR gap= start
+      while [[ $word == *[[:space:]] ]]; do
+        gap=${word[-1]}$gap
+        word=${word[1,-2]}
+      done
+      start=${#PREDISPLAY}
+      if [[ -n $EFR_FULL_MARK ]] && _efr_full_mode; then
+        PREDISPLAY+=$word
+        mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")
+        start=${#PREDISPLAY}
+        PREDISPLAY+=$EFR_FULL_MARK
+        mine+=("P$start ${#PREDISPLAY} $EFR_FULL_STYLE memo=efr")
+        PREDISPLAY+=$gap
+      else
+        PREDISPLAY+=$word$gap
+        mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")
+      fi
+      _efr_update_scope
+      if [[ -n $efr_scope ]]; then
+        [[ -z $gap ]] && PREDISPLAY+=' '
+        start=${#PREDISPLAY}
+        PREDISPLAY+="$efr_scope $_efr_scope_end "
+        mine+=("P$start ${#PREDISPLAY} $EFR_SCOPE_STYLE memo=efr")
+      fi
     fi
     region_highlight+=($mine)
-  elif (( full )); then
-    PREDISPLAY='full '
-    region_highlight+=("P0 5 $EFR_FULL_STYLE memo=efr")
   else
     PREDISPLAY=''
   fi
@@ -967,10 +1011,6 @@ _efr_accept_line() {
     # so nothing moves, and a `!` line shows the command that runs.
     if (( _efr_prompt_line )); then _efr_show_indicator tag; else _efr_show_indicator hide; fi
     _efr_alias_sticky_word
-  elif [[ -n $PREDISPLAY ]] && ! _efr_is_plugin_line "$BUFFER"; then
-    # The `full ` tag stays only on a line of this plugin: a shell command runs the
-    # same in every mode.
-    _efr_show_indicator hide
   fi
   _efr_unknown_comma_line "$BUFFER" && BUFFER=$REPLY
   if _efr_stash_line "$BUFFER"; then
@@ -988,6 +1028,88 @@ _efr_accept_line() {
     unsetopt interactive_comments
   fi
   zle _efr_orig_accept_line
+}
+
+# --- scope of the next prompt ------------------------------------------------------
+
+# Reads efrd's projects file (projects.tsv in the runtime root, see _efr_runtime_root)
+# into _efr_project_roots and _efr_project_names, again only when its inode, time or
+# size changed: efrd replaces it by a rename, so each write is a new inode. Each line
+# is `<root><tab><name>`, the deepest root first. Returns 1 when there is no file,
+# such as before efrd ever ran. It runs no program: zstat is a builtin, and zsh reads
+# $(<file) itself.
+_efr_read_projects() {
+  emulate -L zsh
+  local REPLY file
+  local -A stat
+  if ! _efr_runtime_root || ! zstat -H stat -- $REPLY/projects.tsv 2>/dev/null; then
+    _efr_projects_seen=
+    _efr_project_roots=()
+    _efr_project_names=()
+    return 1
+  fi
+  file=$REPLY/projects.tsv
+  local stamp="$file:$stat[inode]:$stat[mtime]:$stat[size]"
+  [[ $stamp == "$_efr_projects_seen" ]] && return 0
+  _efr_projects_seen=$stamp
+  _efr_project_roots=()
+  _efr_project_names=()
+  local line
+  [[ -r $file ]] || return 0
+  for line in "${(@f)$(<$file)}"; do
+    [[ $line == /*$'\t'* ]] || continue
+    _efr_project_roots+=("${line%%$'\t'*}")
+    _efr_project_names+=("${line#*$'\t'}")
+  done
+  return 0
+}
+
+# Sets efr_scope to the scope of a prompt sent now: the name of the registered project
+# whose root holds $PWD, or else ${PWD:A} (its links resolved), as efrd routes; the
+# outside mark (`○`) anywhere else; empty without a projects file. A root matches only
+# whole components: ~/p/app holds ~/p/app/src but not ~/p/apple. The deepest root
+# wins.
+_efr_update_scope() {
+  emulate -L zsh
+  if ! _efr_read_projects; then
+    efr_scope=
+    return 0
+  fi
+  local form root best= name=
+  local -i i
+  for form in $PWD ${PWD:A}; do
+    for (( i = 1; i <= $#_efr_project_roots; i++ )); do
+      root=$_efr_project_roots[i]
+      [[ $form == "$root" || $form == "$root"/* || $root == / ]] || continue
+      if (( ${#root} > ${#best} )); then
+        best=$root
+        name=$_efr_project_names[i]
+      fi
+    done
+    [[ -n $best ]] && break
+  done
+  if [[ -n $best ]]; then
+    efr_scope=${name:-${best:t}}
+  else
+    efr_scope=$_efr_outside_mark
+  fi
+}
+
+# Prints the scope of a prompt sent now, for your own prompt: the project's name, such
+# as `app`, or `○` outside projects, after the full mark (EFR_FULL_MARK) and a blank
+# while the terminal's prompts run in full mode. No colours, and nothing without a
+# projects file. It starts no program, but $(efr_prompt_info) is a subshell; the
+# variable $efr_scope needs none. For example:
+#   setopt prompt_subst; RPROMPT='$(efr_prompt_info)'
+efr_prompt_info() {
+  emulate -L zsh
+  _efr_update_scope
+  [[ -n $efr_scope ]] || return 0
+  if [[ -n $EFR_FULL_MARK ]] && _efr_full_mode; then
+    print -r -- "$EFR_FULL_MARK $efr_scope"
+  else
+    print -r -- "$efr_scope"
+  fi
 }
 
 # --- daemon notices ---------------------------------------------------------------
@@ -1123,6 +1245,7 @@ _efr_precmd() {
   _efr_take_draft
   _efr_print_notices
   _efr_register_completion
+  _efr_update_scope
 }
 
 # --- terminal background ----------------------------------------------------------

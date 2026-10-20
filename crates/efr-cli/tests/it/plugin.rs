@@ -2336,7 +2336,7 @@ async fn e2e_mode_full_warning_reaches_stderr_once_per_set() {
 }
 
 #[test]
-fn e2e_mode_full_shows_the_tag_in_the_full_style_in_sticky_mode() {
+fn e2e_mode_full_shows_the_mark_next_to_the_robot_in_sticky_mode() {
     if !zsh_tests_enabled() {
         return;
     }
@@ -2359,25 +2359,42 @@ fn e2e_mode_full_shows_the_tag_in_the_full_style_in_sticky_mode() {
             "<C-Space>",
         ],
     );
-    // `full ` is red, the terminal's other values stay dim, and the robot keeps its
-    // own style.
+    // The mark stands next to the robot in the full style, in place of a `full` word in
+    // the dim tag; the terminal's other values stay in the tag.
     assert_eq!(
         typed_lines(&home),
         [
             typed(
-                "full gpt-5.4 🤖 what changed?",
-                &[("P0", "fg=red"), ("P5", "fg=8"), ("P13", "fg=magenta")]
+                "gpt-5.4 🤖🔓 what changed?",
+                &[("P0", "fg=8"), ("P8", "fg=magenta"), ("P9", "fg=red")]
             ),
-            typed("full 🤖 and now", &[("P0", "fg=red"), ("P5", "fg=magenta")]),
+            typed("🤖🔓 and now", &[("P0", "fg=magenta"), ("P1", "fg=red")]),
             typed("auto 🤖 then", &[("P0", "fg=8"), ("P5", "fg=magenta")]),
         ]
     );
+    // On Enter the robot becomes the line's first word, and the mark goes with the rest
+    // of the indicator: the turn's red first line says full mode.
     let finished = std::fs::read_to_string(home.path().join("finished.txt")).unwrap();
-    assert!(finished.lines().any(|line| line == "full gpt-5.4 🤖 what changed?"), "{finished}");
+    assert!(finished.lines().any(|line| line == "gpt-5.4 🤖 what changed?"), "{finished}");
 }
 
 #[test]
-fn e2e_mode_full_shows_the_tag_outside_sticky_mode() {
+fn e2e_an_empty_full_mark_shows_none() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color"), ("EFR_FULL_MARK", "")];
+    type_lines_with(
+        &home,
+        &env,
+        &[RECORD_LINES[0], ",mode full", "<C-Space>", "x\u{18}\u{12}", "<C-Space>"],
+    );
+    assert_eq!(typed_lines(&home), [typed("🤖 x", &[("P0", "fg=magenta")])]);
+}
+
+#[test]
+fn e2e_mode_full_shows_no_tag_outside_sticky_mode() {
     if !zsh_tests_enabled() {
         return;
     }
@@ -2388,32 +2405,16 @@ fn e2e_mode_full_shows_the_tag_outside_sticky_mode() {
         &[
             RECORD_LINES[0],
             RECORD_LINES[1],
-            "true before\u{18}\u{12}",
             ",mode full",
             "true during\u{18}\u{12}",
             ", hi\u{18}\u{12}",
-            ",mode default",
-            "true after\u{18}\u{12}",
         ],
     );
-    let red = [("P0", "fg=red")];
-    assert_eq!(
-        typed_lines(&home),
-        [
-            typed("true before", &[]),
-            typed("full true during", &red),
-            typed("full , hi", &red),
-            typed("true after", &[]),
-        ]
-    );
-    // On Enter the tag stays only on a line of the plugin: a shell command runs the same
-    // in every mode.
+    assert_eq!(typed_lines(&home), [typed("true during", &[]), typed(", hi", &[])]);
     let finished = std::fs::read_to_string(home.path().join("finished.txt")).unwrap();
     let finished: Vec<&str> = finished.lines().collect();
     assert!(finished.contains(&"true during"), "{finished:?}");
-    assert!(finished.contains(&"full , hi"), "{finished:?}");
-    assert!(finished.contains(&"true after"), "{finished:?}");
-    assert!(!finished.contains(&"full true during"), "{finished:?}");
+    assert!(finished.contains(&", hi"), "{finished:?}");
 }
 
 #[test]
@@ -2451,7 +2452,7 @@ fn e2e_inherited_efr_mode_full_is_ignored_at_load() {
 }
 
 #[test]
-fn e2e_a_config_that_makes_full_the_default_shows_the_tag() {
+fn e2e_a_config_that_makes_full_the_default_shows_the_mark() {
     if !zsh_tests_enabled() {
         return;
     }
@@ -2463,27 +2464,286 @@ fn e2e_a_config_that_makes_full_the_default_shows_the_tag() {
         "[permissions]\nmode = \"full\"  # every prompt\nallow_full = true\n",
     )
     .unwrap();
-    type_lines(
+    type_lines_with(
         &home,
+        &[UTF8[0], ("EFR_TEST_TERM", "xterm-256color")],
         &[
             RECORD_LINES[0],
             RECORD_LINES[1],
-            "true default\u{18}\u{12}",
+            "<C-Space>",
+            "by default\u{18}\u{12}",
             ",mode cautious",
-            "true cautious\u{18}\u{12}",
+            "cautious\u{18}\u{12}",
             ",mode default",
-            r#"printf '[permissions]\nmode = "auto"\nallow_full = true\n' > .config/efr/config.toml"#,
-            "true auto\u{18}\u{12}",
+            r#"!printf '[permissions]\nmode = "auto"\nallow_full = true\n' > .config/efr/config.toml"#,
+            "auto\u{18}\u{12}",
+            "<C-Space>",
         ],
     );
     assert_eq!(
         typed_lines(&home),
         [
-            typed("full true default", &[("P0", "fg=red")]),
-            typed("true cautious", &[]),
-            typed("true auto", &[]),
+            typed("🤖🔓 by default", &[("P0", "fg=magenta"), ("P1", "fg=red")]),
+            typed("cautious 🤖 cautious", &[("P0", "fg=8"), ("P9", "fg=magenta")]),
+            typed("🤖 auto", &[("P0", "fg=magenta")]),
         ]
     );
+}
+
+// --- the scope marker -----------------------------------------------------------------
+//
+// efrd writes the registered projects to `projects.tsv` in its runtime root, which is
+// `$HOME/efr` here (`XDG_RUNTIME_DIR` is the home). These tests write the file by hand.
+
+/// [`RECORD_LINES`]' first line, which writes to `~/typed.txt` from any directory.
+const RECORD_ANYWHERE: &str = r#"_rec() { print -r -- "$PREDISPLAY$BUFFER|${(j:,:)${(@M)region_highlight:#*memo=efr*}}" >> ~/typed.txt; }; zle -N _rec; bindkey '^X^R' _rec"#;
+
+/// Writes the projects file of `home` with `lines` of `(root below the home, name)`,
+/// and returns the home with its links resolved, as efrd writes the roots.
+fn projects(home: &Home, lines: &[(&str, &str)]) -> PathBuf {
+    let real = std::fs::canonicalize(home.path()).unwrap();
+    let runtime = home.path().join("efr");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let text: String = lines
+        .iter()
+        .map(|(root, name)| format!("{}\t{name}\n", real.join(root).display()))
+        .collect();
+    std::fs::write(runtime.join("projects.tsv"), text).unwrap();
+    for (root, _) in lines {
+        std::fs::create_dir_all(real.join(root).join("src")).unwrap();
+    }
+    real
+}
+
+#[test]
+fn e2e_sticky_marker_names_the_project() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app/vendor/lib", "lib"), ("p/app", "app")]);
+    std::fs::create_dir_all(home.path().join("p/apple")).unwrap();
+    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
+    type_lines_with(
+        &home,
+        &env,
+        &[
+            RECORD_ANYWHERE,
+            ",mode auto",
+            "cd p/app/src",
+            "<C-Space>",
+            "one\u{18}\u{12}",
+            "!cd ../vendor/lib",
+            "two\u{18}\u{12}",
+            "!cd ~/p/apple",
+            "three\u{18}\u{12}",
+            "<C-Space>",
+        ],
+    );
+    // The scope is muted after the robot, the deepest root wins, and a root holds only
+    // whole components: ~/p/apple is outside projects.
+    assert_eq!(
+        typed_lines(&home),
+        [
+            typed("auto 🤖 app › one", &[("P0", "fg=8"), ("P5", "fg=magenta"), ("P7", "fg=8")]),
+            typed("auto 🤖 lib › two", &[("P0", "fg=8"), ("P5", "fg=magenta"), ("P7", "fg=8")]),
+            typed("auto 🤖 ○ › three", &[("P0", "fg=8"), ("P5", "fg=magenta"), ("P7", "fg=8")]),
+        ]
+    );
+}
+
+#[test]
+fn e2e_sticky_marker_shows_the_mark_outside_projects() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
+    let env = [UTF8[0], ("EFR_TEST_TERM", "xterm-256color")];
+    type_lines_with(
+        &home,
+        &env,
+        &[RECORD_ANYWHERE, "<C-Space>", "one\u{18}\u{12}", "!cd /", "two\u{18}\u{12}", "<C-Space>"],
+    );
+    assert_eq!(
+        typed_lines(&home),
+        [
+            typed("🤖 ○ › one", &[("P0", "fg=magenta"), ("P2", "fg=8")]),
+            typed("🤖 ○ › two", &[("P0", "fg=magenta"), ("P2", "fg=8")]),
+        ]
+    );
+    // Without a UTF-8 locale the marks are plain text.
+    let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
+    type_lines(
+        &home,
+        &[
+            RECORD_ANYWHERE,
+            "<C-Space>",
+            "one\u{18}\u{12}",
+            "!cd p/app",
+            "two\u{18}\u{12}",
+            "<C-Space>",
+        ],
+    );
+    let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, ["efr> o > one", "efr> app > two"]);
+}
+
+#[test]
+fn e2e_sticky_marker_through_a_symlinked_dir() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let real = projects(&home, &[("p/app", "app")]);
+    std::os::unix::fs::symlink(real.join("p/app/src"), home.path().join("app-link")).unwrap();
+    type_lines_with(
+        &home,
+        UTF8,
+        &[RECORD_ANYWHERE, "cd app-link", "<C-Space>", "one\u{18}\u{12}", "<C-Space>"],
+    );
+    let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, ["🤖 app › one"]);
+}
+
+/// A fake `git` that records each call in `$HOME/git-called`.
+const FAKE_GIT: &str = "#!/bin/sh\necho \"$@\" >> \"$HOME/git-called\"\n";
+
+#[test]
+fn e2e_marker_runs_no_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
+    let git = home.path().join("bin/git");
+    std::fs::write(&git, FAKE_GIT).unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            RECORD_ANYWHERE,
+            "<C-Space>",
+            "!cd p/app",
+            "\u{18}\u{12}",
+            "!cd ~",
+            "\u{18}\u{12}",
+            "!efr_prompt_info > info.txt",
+            "<C-Space>",
+        ],
+    );
+    let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, ["🤖 app › ", "🤖 ○ › "]);
+    assert!(home.calls().is_empty(), "{:?}", home.calls());
+    assert!(!home.path().join("git-called").exists(), "the marker ran git");
+}
+
+#[test]
+fn e2e_marker_reads_the_file_again_only_when_it_changed() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let real = projects(&home, &[("p/app", "app")]);
+    // NOTE: one line writes the file and sets its time back, so no precmd in between
+    // sees a new time.
+    let rewrite = format!(
+        "!print -rn -- $'{}\\tapq\\n' > ~/efr/projects.tsv && touch -d @1000000000 ~/efr/projects.tsv",
+        real.join("p/app").display()
+    );
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            RECORD_ANYWHERE,
+            "touch -d @1000000000 efr/projects.tsv",
+            "cd p/app",
+            "<C-Space>",
+            "\u{18}\u{12}",
+            // The same inode, time and size: the plugin keeps what it read.
+            &rewrite,
+            "\u{18}\u{12}",
+            // A new time: the plugin reads the file again.
+            "!touch -d @1000000100 ~/efr/projects.tsv",
+            "\u{18}\u{12}",
+            "<C-Space>",
+        ],
+    );
+    let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, ["🤖 app › ", "🤖 app › ", "🤖 apq › "]);
+}
+
+#[test]
+fn e2e_efr_prompt_info_prints_the_scope() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
+    let (stdout, status) = run_with(
+        &home,
+        UTF8,
+        r#"
+        cd p/app/src && print -r -- "[$(efr_prompt_info)]"
+        _efr_precmd; print -r -- "{$efr_scope}"
+        cd ~ && print -r -- "[$(efr_prompt_info)]"
+        _efr_precmd; print -r -- "{$efr_scope}"
+        _efr_turn_mode=full
+        cd p/app && print -r -- "[$(efr_prompt_info)]"
+        "#,
+    );
+    assert_eq!(status, Some(0));
+    assert_eq!(stdout, "[app]\n{app}\n[○]\n{○}\n[🔓 app]\n");
+}
+
+#[test]
+fn e2e_prompt_and_rprompt_never_change() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "app")]);
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            "PROMPT='%~ %# '; RPROMPT='right'",
+            r#"print -r -- "$PROMPT|$RPROMPT" > before.txt"#,
+            "cd p/app",
+            "<C-Space>",
+            r#"!print -r -- "$PROMPT|$RPROMPT" > ~/during.txt"#,
+            "<C-Space>",
+            r#"print -r -- "$PROMPT|$RPROMPT" > ~/after.txt"#,
+        ],
+    );
+    let read = |name: &str| std::fs::read_to_string(home.path().join(name)).unwrap();
+    assert_eq!(read("before.txt"), "%~ %# |right\n");
+    assert_eq!(read("during.txt"), read("before.txt"));
+    assert_eq!(read("after.txt"), read("before.txt"));
+}
+
+#[test]
+fn e2e_no_projects_file_no_marker() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(
+        &home,
+        UTF8,
+        &[
+            RECORD_ANYWHERE,
+            "<C-Space>",
+            "one\u{18}\u{12}",
+            r#"!print -r -- "[$(efr_prompt_info)]{$efr_scope}" > ~/info.txt"#,
+            "<C-Space>",
+        ],
+    );
+    assert_eq!(typed_lines(&home), [typed("🤖 one", &[("P0", "fg=magenta")])]);
+    let info = std::fs::read_to_string(home.path().join("info.txt")).unwrap();
+    assert_eq!(info, "[]{}\n");
 }
 
 /// Drives several interactive `zsh -f -i` terminals on pseudo-terminals from zsh's own
