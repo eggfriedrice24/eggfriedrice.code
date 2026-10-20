@@ -1208,8 +1208,8 @@ A job ends when its command ends, when the model stops it (`job_stop`), when you
 it (`efr jobs stop <id>`, or Ctrl+X in the input row of a followed turn), at its time
 limit, when the surface guard stops it, or when efrd stops. A job that a full call
 started also stops when a config reload turns full mode off (`stopped: full mode was
-turned off`). Esc and the end of a turn never stop a job. The time limit counts the time on the clock, so a suspend counts
-too.
+turned off`). Esc and the end of a turn never stop a job. The time limit counts the
+time on the clock, so a suspend counts too.
 
 A stop sends SIGTERM to the job's processes, then SIGKILL after a short wait. Then efrd
 ends every process that still has the job's session (the sweep). The end names the

@@ -138,11 +138,12 @@ into the GitHub release notes, and it stops when the section is missing.
   and the job runs as an approved command does. A job runs at low CPU and disk
   priority, with no terminal. efr writes its output to `$SCRATCH/jobs/<id>.out`: the
   first 1 MiB and the last 8 MiB. A job outside the sandbox keeps the variables that
-  place efr's own dirs (`EFR_HOME`, `EFR_RUNTIME_DIR` and the others), so an `efr` in it
-  reaches the efrd that runs it; so does a command outside the sandbox. A job ends when its command ends, when you or the
-  model stop it, after its time limit (60 minutes unless the model asks for more, at
-  most `jobs.max_minutes`), or when efrd stops. After a restart, efrd ends each job
-  that still ran. Esc and the end of a turn do not stop a job. At most
+  place efr's own dirs (`EFR_HOME`, `EFR_RUNTIME_DIR` and the others), so an `efr` in
+  it reaches the efrd that runs it; so does a command outside the sandbox. A job ends
+  when its command ends, when you or the model stop it, after its time limit (60
+  minutes unless the model asks for more, at most `jobs.max_minutes`), or when efrd
+  stops. After a restart, efrd ends each job that still ran. Esc and the end of a turn
+  do not stop a job. At most
   `jobs.max_running` jobs run per conversation and `jobs.max_running_daemon` in all.
   The model reads and stops its jobs with the tools `jobs` and `job_stop`; a `watch`
   pattern names output lines that the model must hear about.
