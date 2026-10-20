@@ -99,12 +99,17 @@ pub(crate) fn check_glob(glob: &str) -> Option<&'static str> {
     None
 }
 
+/// The names that a group cannot have: `total` names the last row of the table of
+/// `efr diff --stat`.
+const RESERVED_NAMES: &[&str] = &["total"];
+
 /// `None` when `name` is a name of a group, else what is wrong.
 pub(crate) fn check_name(name: &str) -> Option<&'static str> {
     let good = !name.is_empty()
         && name.chars().count() <= MAX_NAME
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    (!good).then_some("group names of 1 to 24 letters, digits, - or _")
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && !RESERVED_NAMES.contains(&name);
+    (!good).then_some("group names of 1 to 24 letters, digits, - or _, other than total")
 }
 
 #[cfg(test)]

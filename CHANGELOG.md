@@ -308,7 +308,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `efr diff --stat` starts with a table of every group and a total row, and
   `efr diff --stat --all` adds up every turn of the conversation that undo did not
   take back. Your own groups go in `config.toml`, such as `[diff.groups] evals =
-  ["evals/", "*.eval.toml"]`; they match first, in the order of the file.
+  ["evals/", "*.eval.toml"]`; they match first, in the order of the file. A group
+  named `code` keeps its files in code, and `total` is not a name of a group.
 - `efr history` shows the line of the changed files, such as `3 files changed, +24 −7`,
   for each turn that `efr undo` cannot take back.
 
