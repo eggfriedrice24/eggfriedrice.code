@@ -427,11 +427,11 @@ fn plan(
 ) -> Result<Plan, String> {
     let file = ConfigFile::open(path).map_err(|error| describe(&error))?;
     let mut edit = file.edit().map_err(|error| describe(&error))?;
-    let before_settings = match Settings::parse(path, file.text()) {
-        Ok(settings) => settings,
+    let (before_settings, file_loads) = match Settings::parse(path, file.text()) {
+        Ok(settings) => (settings, true),
         // NOTE: a file with an error is judged against what runs, which is what its
         // last good version set.
-        Err(_) => running.clone(),
+        Err(_) => (running.clone(), false),
     };
     let (key, summary) = apply(&mut edit, input, engine, &before_settings)?;
     let after = edit.text();
@@ -448,6 +448,14 @@ fn plan(
             describe(&error)
         )
     })?;
+    // NOTE: a second check on the result, for a form of the value that only the
+    // writer reads as full. A file with an error is not compared: its mode is unknown.
+    if file_loads
+        && next.permissions.mode == Mode::Full
+        && before_settings.permissions.mode != Mode::Full
+    {
+        refuse_full("permissions.mode", Some(&Value::from(Mode::Full.as_str())))?;
+    }
     check_models(&next, models)?;
     let loosens = loosens(&before_settings, &next);
     Ok(Plan { file, edit, shown: Shown { before, after }, summary, loosens, key })
