@@ -59,18 +59,12 @@
   {
     "prompt": "send me a notification when the build is done",
     "input": { "command": "notify-send 'build done'" },
-    "reviewer": {
-      "verdict": "allow",
-      "risk": "low",
-      "user_authorization": "high",
-      "category": "fits the request",
-      "rationale": "The user asked for a desktop notification."
-    },
+    "reviewer": null,
     "expect": {
-      "judged": [["classifier", "allow"]],
+      "judged": [],
       "asked": false,
-      "exits": ["bus"],
-      "launch": { "kind": "contained", "grants": [{ "kind": "bus", "bus": "session" }] },
+      "exits": [],
+      "launch": { "kind": "contained", "grants": [{ "kind": "bus_filter", "bus": "session" }] },
       "max_minutes": null
     }
   },

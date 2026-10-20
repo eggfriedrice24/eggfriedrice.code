@@ -223,6 +223,7 @@ fn bus_proxy_engine() -> Engine {
 #[case::user_failed("systemctl --user --failed", BusKind::Session)]
 #[case::watch("watch -n 60 systemctl list-units --state=failed", BusKind::System)]
 #[case::sessions("loginctl list-sessions", BusKind::System)]
+#[case::notify("notify-send done", BusKind::Session)]
 fn job_with_bus_read_form_gets_the_view(#[case] line: &str, #[case] bus: BusKind) {
     // A view is no exit, so `job_refusal` never sees it: the job reads its own filtered
     // bus for its whole life (Q63, DE12).
@@ -240,7 +241,7 @@ fn job_with_bus_read_form_gets_the_view(#[case] line: &str, #[case] bus: BusKind
 #[rstest]
 #[case::user_restart("systemctl --user restart x")]
 #[case::nmcli("nmcli device status")]
-#[case::notify("notify-send done")]
+#[case::notify_wait("notify-send --wait done")]
 #[case::remote("systemctl -H box status x")]
 #[case::beside_a_read_form("systemctl --failed; busctl list")]
 fn job_with_bus_change_form_stays_refused(#[case] line: &str) {

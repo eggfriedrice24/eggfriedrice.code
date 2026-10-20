@@ -159,6 +159,10 @@ fn bus_proxy_args_of_the_defaults() {
     let mut session = vec!["--filter".to_owned(), "--log".to_owned()];
     session.extend(manager_args);
     session.extend(unit_args);
+    let n = "org.freedesktop.Notifications";
+    for member in ["Notify", "GetServerInformation", "GetCapabilities"] {
+        session.push(format!("--call={n}={n}.{member}@/org/freedesktop/Notifications"));
+    }
     assert_eq!(defaults(BusKind::Session).proxy_args(), session);
 }
 

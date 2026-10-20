@@ -640,9 +640,9 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
 
 /// The bus whose filtered view the simple command `words` reads, program first, when
 /// it is a read form of [`bus_read_form`] (phase E): the read forms of `systemctl`,
-/// `systemctl --user`, `loginctl`, `hostnamectl`, `timedatectl` and `localectl` whose
-/// recorded bus methods all lie in the default rules of the filtered bus proxy
-/// ([`crate::bus`]).
+/// `systemctl --user`, `loginctl`, `hostnamectl`, `timedatectl` and `localectl`, and
+/// `notify-send` (v0.0.4), whose recorded bus methods all lie in the default rules of
+/// the filtered bus proxy ([`crate::bus`]).
 pub(super) fn bus_read(words: &[String]) -> Option<BusKind> {
     let (first, args) = words.split_first()?;
     bus_read_form(base_name(first), args)
@@ -689,7 +689,10 @@ const REMOTE_SHORT: &[char] = &['H', 'M'];
 /// [`LOGINCTL_READ`], and `hostnamectl`, `timedatectl` and `localectl` with no verb or
 /// a verb of [`CTL_BUS_READ`] (and [`TIMESYNC_BUS_READ`] for `timedatectl`). A form
 /// with an option of [`REMOTE_LONG`] or [`REMOTE_SHORT`] before or after the verb, or a
-/// word that only the shell can read, is no read form.
+/// word that only the shell can read, is no read form. `notify-send` on the session bus
+/// is one too (v0.0.4, DV18), except a form that waits for the notice to close or for
+/// an action ([`notify_waits`]): the filter lets no signal back, so it would wait for
+/// ever.
 fn bus_read_form(program: &str, args: &[String]) -> Option<BusKind> {
     if args.iter().any(|word| word.contains([OPAQUE, '$']) || names_remote(word)) {
         return None;
@@ -716,8 +719,32 @@ fn bus_read_form(program: &str, args: &[String]) -> Option<BusKind> {
             }
             Some(_) => None,
         },
+        "notify-send" if !notify_waits(args) => Some(BusKind::Session),
         _ => None,
     }
+}
+
+/// True when `notify-send` with `args` waits for a signal of the notification server:
+/// `--wait` (`-w`) and `--action` (`-A`), before a `--` that ends the options. A short
+/// cluster that holds `w` or `A` counts too. Stricter than the program: a value such
+/// as the `w` of `-awatch` counts, which only keeps an exit.
+fn notify_waits(args: &[String]) -> bool {
+    for word in args {
+        if word == "--" {
+            return false;
+        }
+        if let Some(long) = word.strip_prefix("--") {
+            let name = long.split_once('=').map_or(long, |(name, _)| name);
+            if matches!(name, "wait" | "action") {
+                return true;
+            }
+        } else if let Some(cluster) = word.strip_prefix('-')
+            && cluster.contains(['w', 'A'])
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// True when `word` is an option that sends a systemd tool to another host, container

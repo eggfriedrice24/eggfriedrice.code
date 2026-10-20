@@ -364,6 +364,37 @@ path = "/org/freedesktop/hostname1"
 allow = false
 why = "busctl is no read form of the filter; it keeps its bus exit"
 
+# notify-send of libnotify 0.8.8 (v0.0.4, DV18), recorded on a private session bus with
+# the fake services of efr-daemon's bus filter tests. The proxy sends each call to the
+# name's owner; the rows give the name. `-e` (a transient notification) also asks for
+# the capabilities.
+[[call]]
+tool = "notify-send hi there"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.Notifications"
+member = "org.freedesktop.Notifications.GetServerInformation"
+path = "/org/freedesktop/Notifications"
+allow = true
+
+[[call]]
+tool = "notify-send hi there"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.Notifications"
+member = "org.freedesktop.Notifications.Notify"
+path = "/org/freedesktop/Notifications"
+allow = true
+
+[[call]]
+tool = "notify-send -e hi"
+systemd = 262
+bus = "session"
+name = "org.freedesktop.Notifications"
+member = "org.freedesktop.Notifications.GetCapabilities"
+path = "/org/freedesktop/Notifications"
+allow = true
+
 [[kept]]
 bus = "system"
 name = "org.freedesktop.hostname1"

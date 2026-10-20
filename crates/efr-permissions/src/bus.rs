@@ -6,8 +6,9 @@
 //! rules as data, with no process and no file:
 //!
 //! - [`DEFAULT_RULES`]: the read methods that the probe recorded for the read forms of
-//!   `systemctl`, `loginctl`, `hostnamectl`, `timedatectl` and `localectl`. Each rule
-//!   names an exact member; the proxy has no member globs.
+//!   `systemctl`, `loginctl`, `hostnamectl`, `timedatectl` and `localectl`, and the
+//!   calls of `notify-send` (v0.0.4). Each rule names an exact member; the proxy has no
+//!   member globs.
 //! - [`BusRule`]: one `[[dbus.allow]]` entry of `config.toml`. [`check_rules`] refuses an
 //!   entry that could open more than one exact method, a protected service, or a
 //!   method that changes the machine.
@@ -137,6 +138,19 @@ pub const DEFAULT_RULES: &[DefaultRule] = &[
             "org.freedesktop.systemd1.Manager.ListJobs@/org/freedesktop/systemd1",
             "org.freedesktop.DBus.Properties.Get@/org/freedesktop/systemd1/unit/*",
             "org.freedesktop.DBus.Properties.GetAll@/org/freedesktop/systemd1/unit/*",
+        ],
+    },
+    // NOTE: `notify-send` (v0.0.4, DV18): the calls that libnotify 0.8 sends for it. A
+    // notification shows text and changes nothing else, and the whole session bus is
+    // the user's own question since DV18, so this rule keeps the common
+    // `notify-send done` free of questions.
+    DefaultRule {
+        bus: BusKind::Session,
+        name: "org.freedesktop.Notifications",
+        calls: &[
+            "org.freedesktop.Notifications.Notify@/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications.GetServerInformation@/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications.GetCapabilities@/org/freedesktop/Notifications",
         ],
     },
 ];

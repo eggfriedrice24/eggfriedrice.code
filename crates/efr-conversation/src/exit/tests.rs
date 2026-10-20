@@ -305,11 +305,14 @@ fn bus_view_fits_beside_write_and_host_but_not_beside_real_bus() {
     assert_eq!(grant(&decision), Launch::Contained { grants: vec![host, system.clone()] });
     // Beside the real bus of the other bus it stays; beside the real bus of its own bus
     // it drops, and the approved exit serves the reads too.
-    let decision = decide(&bus_proxy_engine(false), shell("systemctl --failed; notify-send done"));
+    let decision =
+        decide(&bus_proxy_engine(false), shell("systemctl --failed; notify-send --wait done"));
     let real_session = Grant::Bus { bus: BusKind::Session };
     assert_eq!(grant(&decision), Launch::Contained { grants: vec![real_session, system.clone()] });
-    let decision =
-        decide(&bus_proxy_engine(false), shell("systemctl --user --failed; notify-send done"));
+    let decision = decide(
+        &bus_proxy_engine(false),
+        shell("systemctl --user --failed; notify-send --wait done"),
+    );
     assert_eq!(
         grant(&decision),
         Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::Session }] }
