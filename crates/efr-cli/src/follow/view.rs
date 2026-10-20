@@ -134,9 +134,9 @@ use std::time::Duration;
 
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
-    ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch, Origin, Presence,
-    QuestionId, Risk, Scope, Seq, SurfaceChange, TurnId, TurnInterruptResult, TurnUndoInfo,
-    Verdict, looks_secret,
+    ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch, Mode, Origin,
+    Presence, QuestionId, Risk, Scope, Seq, SurfaceChange, TurnId, TurnInterruptResult,
+    TurnUndoInfo, Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -174,6 +174,11 @@ const RESENT: &str = "interrupted to send your message";
 
 /// The note when the followed prompt was taken back before it ran.
 const WITHDRAWN: &str = "the prompt was taken back before it ran";
+
+/// The line at the start of a turn in full mode, in the error role. Undo covers the
+/// project and the files outside it that a line named, not what a script did.
+const FULL_STARTED: &str =
+    "full mode: no sandbox, no questions; efr undo reverts the project and the files efr saw";
 
 /// What starts the title of an approval of the turn that the followed one waits
 /// behind.
@@ -544,9 +549,9 @@ pub(crate) struct TurnView {
     /// efr counts the user away from the conversation (`presence_changed`): the status
     /// row says so, and so does the card of a question, which waits only a short time.
     away: bool,
-    /// The files outside the project that the turn changed, for its end
-    /// (`home_file_changed`).
-    home_changes: Vec<HomeChange>,
+    /// What the lines at the end of the turn name, gathered while it runs.
+    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
+    ending: Box<Ending>,
     /// What the turn changed and what `efr undo` can take back of it, from its end
     /// event, for the lines before the end.
     // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
@@ -634,7 +639,7 @@ impl TurnView {
             reviewed: HashMap::new(),
             commands: HashMap::new(),
             away: false,
-            home_changes: Vec::new(),
+            ending: Box::default(),
             ended_undo: None,
             surface: None,
             surface_answered: None,
@@ -1300,8 +1305,11 @@ impl TurnView {
             Event::TurnStarted { scope, settings, .. } => {
                 self.queued = false;
                 self.started_at = self.event_at;
+                let full = settings.as_ref().is_some_and(|settings| settings.mode == Mode::Full);
+                self.ending.full_exits.clear();
                 if let Some(status) = &mut self.status {
                     status.turn_started();
+                    status.set_full(full);
                 }
                 // A prompt that this view queued is the user's message of its turn.
                 if let Some(prompt) = self.input.as_mut().and_then(|input| input.prompt.take()) {
@@ -1330,6 +1338,14 @@ impl TurnView {
                 });
                 if let Some(note) = fallback {
                     let noted = self.note(&note, size);
+                    step.out.push_str(&noted.out);
+                    step.err.push_str(&noted.err);
+                }
+                // NOTE: in the error role: commands of this turn run as the user, with
+                // no sandbox and no question.
+                if full {
+                    let rows = |options: &RenderOptions| rows(FULL_STARTED, Tone::Failure, options);
+                    let noted = self.rendered_after(String::new(), rows, size);
                     step.out.push_str(&noted.out);
                     step.err.push_str(&noted.err);
                 }
@@ -1503,6 +1519,20 @@ impl TurnView {
                 let line = format::always::covered(category.as_deref(), rationale.as_deref());
                 self.covered(*call_id, &line, size)
             }
+            // NOTE: full mode lets an exit through with no review and no question; the
+            // end of the turn lists what it let through, once.
+            Event::ExitJudged {
+                call_id, judge: JudgeKind::Full, verdict: Verdict::Allow, ..
+            } => {
+                if let Some(exit) = self.exits.get(call_id) {
+                    for part in sandbox::exit_parts(exit, self.home.as_deref()) {
+                        if !self.ending.full_exits.contains(&part) {
+                            self.ending.full_exits.push(part);
+                        }
+                    }
+                }
+                Step::default()
+            }
             Event::AlwaysRuleSaved { call_id, outcome, .. } => {
                 if self.saving == Some(*call_id) {
                     self.saving = None;
@@ -1512,7 +1542,13 @@ impl TurnView {
                 self.verdict_line(ours.then_some(*call_id), &line, size)
             }
             Event::ApprovalRequested {
-                call_id, summary, diff_preview, interactive, exit, ..
+                call_id,
+                summary,
+                diff_preview,
+                interactive,
+                exit,
+                expires_in_secs,
+                ..
             } => {
                 if *interactive {
                     self.interactive.insert(*call_id);
@@ -1528,6 +1564,7 @@ impl TurnView {
                     summary,
                     diff: diff_preview.as_deref(),
                     exit: exit.as_ref(),
+                    expires_in_secs: *expires_in_secs,
                 };
                 self.approval(*call_id, &request, size, can_ask)
             }
@@ -1561,7 +1598,7 @@ impl TurnView {
                 self.expired(*call_id, *away, size)
             }
             Event::HomeFileChanged { path, real, backup, floor, covered, .. } => {
-                self.home_changes.push(HomeChange {
+                self.ending.home_changes.push(HomeChange {
                     path: path.clone(),
                     real: real.clone(),
                     backup: backup.clone(),
@@ -1684,7 +1721,13 @@ impl TurnView {
                 Step::default()
             }
             Event::ApprovalRequested {
-                call_id, summary, diff_preview, interactive, exit, ..
+                call_id,
+                summary,
+                diff_preview,
+                interactive,
+                exit,
+                expires_in_secs,
+                ..
             } => {
                 self.blocking.insert(*call_id);
                 if *interactive {
@@ -1695,6 +1738,7 @@ impl TurnView {
                     summary,
                     diff: diff_preview.as_deref(),
                     exit: exit.as_ref(),
+                    expires_in_secs: *expires_in_secs,
                 };
                 self.approval(*call_id, &request, size, can_ask)
             }
@@ -2656,6 +2700,9 @@ impl TurnView {
         if let Some(exit) = request.exit {
             let record = self.exits.get(&call_id).map(|exit| &exit.record);
             let reviewed = self.reviewed.get(&call_id).map(String::as_str);
+            // A question that full mode still asks keeps the line that says why first.
+            let guard = format::full_guard(request.summary).map(|(guard, _)| guard);
+            let skip = usize::from(guard.is_some());
             // NOTE: the exit's card says why on its own row, so the subject is only what
             // runs: the lines of the command, else the summary's first row.
             let commands: Vec<card::Row> = card
@@ -2665,11 +2712,14 @@ impl TurnView {
                 .cloned()
                 .collect();
             let subject = if commands.is_empty() {
-                card.rows.into_iter().take(1).collect()
+                card.rows.into_iter().skip(skip).take(1).collect()
             } else {
                 commands
             };
             card = sandbox::exit_card(exit, record, self.home.as_deref(), subject, reviewed);
+            if let Some(guard) = guard {
+                card.rows.insert(0, card::guard_row(guard));
+            }
         }
         // NOTE: a patch shows the diff of each of its files after a row that names it,
         // so a delete or a move stands out before the user answers. An edit is a patch
@@ -2680,6 +2730,9 @@ impl TurnView {
             }
             (Some(diff), _) => card.rows.push(card::Row::Diff(diff.to_owned())),
             (None, _) => {}
+        }
+        if let Some(secs) = request.expires_in_secs {
+            card.rows.push(card::expires_row(secs));
         }
         if self.away {
             card.rows.push(card::Row::text(sandbox::AWAY_ROW, Tone::Dim));
@@ -2743,18 +2796,22 @@ impl TurnView {
         let ended = self.ended_undo.take();
         let mut not_covered =
             ended.as_ref().map(|ended| ended.1.not_covered.clone()).unwrap_or_default();
-        let mut lines = Vec::new();
+        let mut lines: Vec<String> =
+            sandbox::full_let_through(&std::mem::take(&mut self.ending.full_exits))
+                .into_iter()
+                .collect();
         // NOTE: a covered file that has a line of its own (`changed ~/.zshrc; efr undo
         // reverts it`) does not count again in the line of the turn, which then shows
         // only when something else changed.
         let own: u32 = self
+            .ending
             .home_changes
             .iter()
             .filter(|change| change.backup.is_none() && change.covered && change.floor)
             .count()
             .try_into()
             .unwrap_or(u32::MAX);
-        for change in std::mem::take(&mut self.home_changes) {
+        for change in std::mem::take(&mut self.ending.home_changes) {
             let real = change.real.as_deref();
             if let Some(backup) = change.backup.as_deref() {
                 lines.push(sandbox::home_changed(&change.path, real, Some(backup), home));
@@ -2858,7 +2915,8 @@ impl TurnView {
         self.draft_boundary = None;
         self.interrupting = false;
         self.resent_note = false;
-        self.home_changes.clear();
+        self.ending.home_changes.clear();
+        self.ending.full_exits.clear();
         if let Some(input) = &mut self.input {
             input.prompt = Some(next.text);
         }
@@ -3096,10 +3154,23 @@ struct Request<'a> {
     diff: Option<&'a str>,
     /// What the call would do outside the sandbox, for an exit.
     exit: Option<&'a ExitInfo>,
+    /// How long the question waits before the call does not run, when it has a fixed
+    /// limit, such as a delete that full mode guards.
+    expires_in_secs: Option<u32>,
 }
 
 /// The note for a turn that ended as `end` while a prompt of this view waits after it:
 /// the command goes on, so a failure is not its error.
+/// What the lines at the end of a turn name, gathered while it runs.
+#[derive(Debug, Default)]
+struct Ending {
+    /// The files outside the project that the turn changed (`home_file_changed`).
+    home_changes: Vec<HomeChange>,
+    /// What full mode let through in this turn (`exit_judged` with the judge `full`),
+    /// each action once.
+    full_exits: Vec<String>,
+}
+
 /// A file outside the roots that a call of the turn changed (`home_file_changed`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct HomeChange {

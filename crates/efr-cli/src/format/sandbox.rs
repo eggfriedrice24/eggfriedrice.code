@@ -133,13 +133,15 @@ pub(crate) fn netview_words(status: &SandboxStatus) -> String {
 }
 
 /// The note at the start of a turn whose mode fell back, such as `auto is not
-/// available here; this turn runs as cautious: Landlock ABI 6 found`.
+/// available here; this turn runs as cautious: Landlock ABI 6 found`. A turn that asked
+/// for full mode names only why, because full mode itself needs no sandbox: `this turn
+/// runs as auto: a turn that a job notice starts runs with at most auto`.
 pub(crate) fn fallback_note(fallback: &ModeFallback, mode: Mode) -> String {
-    format!(
-        "{} is not available here; this turn runs as {mode}: {}",
-        fallback.asked,
-        one_line(&fallback.reason)
-    )
+    let reason = one_line(&fallback.reason);
+    if fallback.asked == Mode::Full {
+        return format!("this turn runs as {mode}: {reason}");
+    }
+    format!("{} is not available here; this turn runs as {mode}: {reason}", fallback.asked)
 }
 
 /// The warning when the user chooses `auto` and the sandbox is not available.
@@ -737,15 +739,20 @@ impl Requested {
 /// targets, such as `write ~/.local/share/app`; for the deletes of a tool cache, how many
 /// paths and where, because they can be thousands.
 pub(crate) fn exit_what(exit: &Requested, home: Option<&Path>) -> String {
+    exit_parts(exit, home).join("; ")
+}
+
+/// The parts of [`exit_what`], each kind once: `this call` when the exit names none.
+pub(crate) fn exit_parts(exit: &Requested, home: Option<&Path>) -> Vec<String> {
     let record = Some(&exit.record);
     if exit.source == ExitSource::CacheDelete {
         let paths: Vec<&Path> =
             exit.record.facts.targets.iter().map(|target| target.path.as_path()).collect();
         let count = plural(paths.len(), "path", "paths");
-        return match common_dir(&paths) {
+        return vec![match common_dir(&paths) {
             Some(dir) => format!("delete {count} in {}", tilde(&dir, home)),
             None => format!("delete {count} in a tool cache"),
-        };
+        }];
     }
     let mut parts: Vec<String> = Vec::new();
     for kind in &exit.kinds {
@@ -754,7 +761,33 @@ pub(crate) fn exit_what(exit: &Requested, home: Option<&Path>) -> String {
             parts.push(part);
         }
     }
-    if parts.is_empty() { "this call".to_owned() } else { parts.join("; ") }
+    if parts.is_empty() {
+        parts.push("this call".to_owned());
+    }
+    parts
+}
+
+/// How many actions full mode let through in a turn shows at most at its end.
+const FULL_SHOWN: usize = 3;
+
+/// The muted line at the end of a turn in which full mode let `actions` through with no
+/// review and no question, such as `efr saw 2 actions that full mode let through: write
+/// ~/notes.txt, upload`: the first three, then `...`. `None` when there were none, so a
+/// turn never says `0 actions`. It names only what efr saw on a line, not what a script
+/// did.
+pub(crate) fn full_let_through(actions: &[String]) -> Option<String> {
+    if actions.is_empty() {
+        return None;
+    }
+    let mut shown: Vec<&str> = actions.iter().take(FULL_SHOWN).map(String::as_str).collect();
+    if actions.len() > FULL_SHOWN {
+        shown.push("...");
+    }
+    Some(format!(
+        "efr saw {} that full mode let through: {}",
+        plural(actions.len(), "action", "actions"),
+        shown.join(", ")
+    ))
 }
 
 /// `count` and the noun in the singular or the plural, such as `1 path` or `12 paths`.
@@ -1137,6 +1170,7 @@ pub(crate) fn exit_judged(judge: JudgeKind, verdict: Verdict, category: Option<&
         JudgeKind::Classifier => "the reviewer",
         JudgeKind::Always => "an always-allow rule",
         JudgeKind::PresenceExpired => "nobody, while you were away",
+        JudgeKind::Full => "full mode",
         _ => "another judge",
     };
     let mut line = format!("exit {} by {judge}", verdict_words(verdict));

@@ -5,7 +5,7 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{State, Status, band};
-use crate::testing::{now, readable};
+use crate::testing::{bare, now, readable};
 
 /// The time `millis` after the first frame.
 fn at(millis: i64) -> Timestamp {
@@ -164,4 +164,42 @@ fn a_long_state_is_cut_so_the_row_fits_one_row() {
         "{row:?}"
     );
     assert!(row.contains('\u{2026}'), "{row:?}");
+}
+
+#[test]
+fn status_row_shows_full_before_away() {
+    let palette = Palette::new()
+        .with(Role::Error, Colour::Rgb(0xe0, 0x6c, 0x75))
+        .with(Role::Warning, Colour::Palette(5));
+    let options = RenderOptions::new(60).with_colour(ColourMode::TrueColor).with_palette(palette);
+    let mut status = started(false);
+    status.set_full(true);
+    status.set_away(true);
+    status.at(at(2_000), false);
+    let row = status.row(at(2_000), &options);
+    let full = "  \x1b[38;2;224;108;117mfull\x1b[0m";
+    let away = "  \x1b[1;35maway\x1b[0m";
+    assert!(row.ends_with(&format!("{full}{away}\n")), "{}", readable(&row));
+    // Without colour the tag stays, as the other roles do, and a turn that is not full
+    // has none.
+    let plain = RenderOptions::new(60).with_colour(ColourMode::None);
+    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s  full  away\n"));
+    status.set_full(false);
+    assert!(bare(&status.row(at(2_000), &plain)).ends_with("2s  away\n"));
+}
+
+#[test]
+fn the_full_tag_counts_in_the_width_of_the_row() {
+    let mut status = started(false);
+    status.set_full(true);
+    status.set_away(true);
+    status.set(State::Thinking(Some("x".repeat(100))));
+    status.at(at(12_000), false);
+    let row = status.row(at(12_000), &RenderOptions::new(40).with_colour(ColourMode::None));
+    assert_eq!(
+        efr_render::display_width(row.trim_end(), efr_render::WidthMethod::CodePoint),
+        40,
+        "{row:?}"
+    );
+    assert!(bare(&row).ends_with("12s  full  away\n"), "{row:?}");
 }

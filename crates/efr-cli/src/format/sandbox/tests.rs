@@ -14,10 +14,10 @@ use pretty_assertions::assert_eq;
 use super::{
     AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_lines, bus_refused_lines,
     cache_freed, check, contained_trace, exit_card, exit_heading, exit_judged, exit_lines,
-    exit_record, exit_summary, explain, fallback_note, fallback_warning, home_changed,
-    judge_details, no_answer_row, paused, presence_changed, reviewed, reviewer_row, reviewing,
-    setup_failed, status_line, surface_answered, surface_change, surface_changed, surface_report,
-    survivors, tilde,
+    exit_record, exit_summary, explain, fallback_note, fallback_warning, full_let_through,
+    home_changed, judge_details, no_answer_row, paused, presence_changed, reviewed, reviewer_row,
+    reviewing, setup_failed, status_line, surface_answered, surface_change, surface_changed,
+    surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -220,6 +220,42 @@ fn the_fallback_note_names_the_mode_it_runs_as_and_why() {
     assert_eq!(
         fallback_warning("Landlock ABI 6 found; auto needs 9 (Linux 7.1)."),
         "auto needs the sandbox; turns run as cautious: Landlock ABI 6 found; auto needs 9 (Linux 7.1). efr sandbox check shows more."
+    );
+}
+
+#[test]
+fn the_fallback_note_of_a_full_wake_turn() {
+    // Full mode needs no sandbox: the note names only why the turn runs with less.
+    let wake = ModeFallback { asked: Mode::Full, reason: ModeFallback::WAKE_REASON.to_owned() };
+    assert_eq!(
+        fallback_note(&wake, Mode::Auto),
+        "this turn runs as auto: a turn that a job notice starts runs with at most auto"
+    );
+    // And further down, when auto cannot run either.
+    let further = ModeFallback {
+        asked: Mode::Full,
+        reason: format!("{}; Landlock ABI 6", ModeFallback::WAKE_REASON),
+    };
+    assert_eq!(
+        fallback_note(&further, Mode::Cautious),
+        "this turn runs as cautious: a turn that a job notice starts runs with at most auto; \
+         Landlock ABI 6"
+    );
+}
+
+#[test]
+fn full_mode_names_itself_as_the_judge_and_counts_what_it_let_through() {
+    assert_eq!(exit_judged(JudgeKind::Full, Verdict::Allow, None), "exit allowed by full mode");
+    assert_eq!(full_let_through(&[]), None);
+    let one = ["write ~/notes.txt".to_owned()];
+    assert_eq!(
+        full_let_through(&one).as_deref(),
+        Some("efr saw 1 action that full mode let through: write ~/notes.txt")
+    );
+    let five: Vec<String> = (1..=5).map(|n| format!("write ~/{n}")).collect();
+    assert_eq!(
+        full_let_through(&five).as_deref(),
+        Some("efr saw 5 actions that full mode let through: write ~/1, write ~/2, write ~/3, ...")
     );
 }
 

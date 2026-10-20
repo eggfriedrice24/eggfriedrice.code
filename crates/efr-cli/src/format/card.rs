@@ -76,6 +76,18 @@ impl Row {
     }
 }
 
+/// The row of a question that waits `secs` seconds at most before its call does not
+/// run, such as a delete that full mode guards: `expires in 2 min`, in the `warning`
+/// role.
+pub(crate) fn expires_row(secs: u32) -> Row {
+    let time = if secs >= 60 && secs.is_multiple_of(60) {
+        format!("{} min", secs / 60)
+    } else {
+        super::elapsed(std::time::Duration::from_secs(u64::from(secs)))
+    };
+    Row::text(format!("expires in {time}"), Tone::Attention)
+}
+
 /// What the last row of a card says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Footer {
@@ -274,16 +286,25 @@ fn spans(
 /// other summary shows as one row. The line of the parts of a command line that ask
 /// follows after `asks for:`.
 pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>) -> Card {
+    // NOTE: a question that full mode still asks starts with a line that says why; it
+    // stands first, in the `warning` role, and the rest of the summary follows as for
+    // any question, or the command when the summary has nothing more.
+    if let Some((guard, rest)) = super::full_guard(summary) {
+        let rest = rest.trim();
+        let mut card = if rest.is_empty() || rest.starts_with(ASKS) {
+            let mut rows = command.map(command_rows).unwrap_or_default();
+            if !rest.is_empty() {
+                rows.push(Row::text(super::one_line(rest), Tone::Dim));
+            }
+            Card { title: title(tool).to_owned(), rows }
+        } else {
+            approval(rest, tool, command)
+        };
+        card.rows.insert(0, guard_row(guard));
+        return card;
+    }
     let (first, asking) = super::split_summary(summary);
-    let title = match tool {
-        Some("shell") => "allow this command",
-        Some("write_file") => "allow this write",
-        Some(super::patch::TOOL) => "allow this patch",
-        Some(super::EDIT_TOOL) => "allow this edit",
-        Some("read_file") => "allow this read",
-        Some("settings") => "allow this change of the settings",
-        _ => "allow this call",
-    };
+    let title = title(tool);
     let subjects = tool.and_then(|tool| first.strip_prefix(&format!("{tool}: ")));
     let mut rows = Vec::new();
     let quoted = command.zip(subjects).and_then(|(command, subjects)| {
@@ -310,6 +331,29 @@ pub(crate) fn approval(summary: &str, tool: Option<&str>, command: Option<&str>)
         rows.push(Row::text(asking, Tone::Dim));
     }
     Card { title: title.to_owned(), rows }
+}
+
+/// What the line after a summary that names the parts that ask starts with.
+const ASKS: &str = "asks for: ";
+
+/// The title of an approval of a call of `tool`.
+fn title(tool: Option<&str>) -> &'static str {
+    match tool {
+        Some("shell") => "allow this command",
+        Some("write_file") => "allow this write",
+        Some(super::patch::TOOL) => "allow this patch",
+        Some(super::EDIT_TOOL) => "allow this edit",
+        Some("read_file") => "allow this read",
+        Some("settings") => "allow this change of the settings",
+        _ => "allow this call",
+    }
+}
+
+/// The row of the line of a summary that says what full mode still asks for, such as
+/// `full mode still asks for this: delete of ~ (your home directory)`, in the `warning`
+/// role.
+pub(crate) fn guard_row(line: &str) -> Row {
+    Row::text(super::one_line(line), Tone::Attention)
 }
 
 /// A row for each line of `command`, safe to print. A carriage return at the end of a

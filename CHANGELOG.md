@@ -278,6 +278,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `config.toml` that loosens permissions, `efr status` shows `config held` with the
   keys that loosen, and `efr config reload` says `config.toml is held; the old
   settings stay` with the reason.
+- A full turn shows `full mode` in red at its start and `full` in red in the status
+  row. At its end, one line lists what efr saw full mode let through, such as `efr saw
+  2 actions that full mode let through: write ~/notes.txt, upload (git push)`; a
+  script's actions are not in it. A question that full mode still asks shows why on
+  its first row, and `expires in 2 min` when it waits a fixed time. `efr history
+  --verbose` shows `exit allowed by full mode`. A turn that asked for full mode and runs
+  with less says `this turn runs as auto: <reason>`.
 
 ### Changed
 

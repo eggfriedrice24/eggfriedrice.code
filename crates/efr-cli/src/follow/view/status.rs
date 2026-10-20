@@ -6,7 +6,9 @@
 //! The row exists only while the turn runs on a terminal, and it goes before the prompt
 //! comes back. It hides while the user is asked something, and the time stops then.
 //! While efr counts the user away from the conversation (`presence_changed`), `away`
-//! follows the time in the `warning` role: a question then waits only a short time.
+//! follows the time in the `warning` role: a question then waits only a short time. A
+//! turn in full mode shows `full` in the `error` role before it: its commands run as
+//! the user, with no sandbox and no question.
 //!
 //! Events only change the state. The times come from the frame that shows the row
 //! ([`Status::at`]): the follow loop writes a frame within one frame time of every
@@ -50,6 +52,9 @@ const MIN_WORDS: usize = 10;
 
 /// What the row says while efr counts the user away.
 const AWAY: &str = "away";
+
+/// What the row says while the turn runs in full mode.
+const FULL: &str = "full";
 
 /// What the turn does now.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +128,8 @@ pub(crate) struct Status {
     context: Option<ContextUse>,
     /// efr counts the user away from the conversation.
     away: bool,
+    /// The turn runs in full mode.
+    full: bool,
 }
 
 impl Status {
@@ -140,6 +147,7 @@ impl Status {
             stirred: false,
             context: None,
             away: false,
+            full: false,
         }
     }
 
@@ -165,6 +173,11 @@ impl Status {
     /// efr counts the user away from the conversation, or present.
     pub(crate) fn set_away(&mut self, away: bool) {
         self.away = away;
+    }
+
+    /// The turn runs in full mode, or not.
+    pub(crate) fn set_full(&mut self, full: bool) {
+        self.full = full;
     }
 
     /// The turn started: its time counts from the next frame.
@@ -221,11 +234,14 @@ impl Status {
         let elapsed = self.elapsed(now);
         let suffix = (elapsed >= SHOW_ELAPSED).then(|| format::elapsed(elapsed));
         let columns = usize::from(options.width());
-        // The spinner, a space, the time after two spaces, and `away` after two more.
+        // The spinner, a space, the time after two spaces, and `full` and `away` after two
+        // more each.
         let away = if self.away { 2 + AWAY.len() } else { 0 };
+        let full = if self.full { 2 + FULL.len() } else { 0 };
         let mut room = columns
             .saturating_sub(2 + suffix.as_ref().map_or(0, |time| time.len() + 2))
-            .saturating_sub(away);
+            .saturating_sub(away)
+            .saturating_sub(full);
         let gauge = gauge_room(self.context.as_ref(), &mut room, options);
         let words = if room == 0 {
             String::new()
@@ -241,6 +257,10 @@ impl Status {
         if let Some(time) = suffix {
             row.push_str("  ");
             row.push_str(&options.paint(Role::Muted, &time));
+        }
+        if self.full {
+            row.push_str("  ");
+            row.push_str(&options.paint(Role::Error, FULL));
         }
         if self.away {
             row.push_str("  ");

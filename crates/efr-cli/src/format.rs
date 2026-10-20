@@ -163,6 +163,19 @@ pub(crate) fn one_line(text: &str) -> String {
 /// that ask, as the daemon writes it.
 const ASKS_FOR: &str = "\nasks for: ";
 
+/// What starts the first line of the summary of a question that full mode still asks,
+/// such as a delete of `~`, as the daemon writes it.
+pub(crate) const FULL_ASKS: &str = "full mode still asks for this: ";
+
+/// The first line of `summary` when it says what full mode still asks for, and the
+/// rest of the summary after it; `None` for any other summary.
+pub(crate) fn full_guard(summary: &str) -> Option<(&str, &str)> {
+    if !summary.starts_with(FULL_ASKS) {
+        return None;
+    }
+    Some(summary.split_once('\n').unwrap_or((summary, "")))
+}
+
 /// An approval summary as one line for the question and, when the daemon named them,
 /// the parts of a command line that ask, as a line `asks for: hostnamectl, ...`. Both
 /// are safe to print.
