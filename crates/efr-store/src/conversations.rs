@@ -446,6 +446,84 @@ pub fn of_tty(conn: &Connection, tty: &str) -> Result<Vec<ConversationSummary>, 
     raw.into_iter().map(RawSummary::decode).collect()
 }
 
+/// One conversation of the list of `,resume`: what a list shows, its scope key and its
+/// prompt turns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RecentRow {
+    /// What a list shows about it.
+    pub summary: ConversationSummary,
+    /// Its scope key: its `route` column, else the key of its scope.
+    pub route: RouteScope,
+    /// Its prompt turns: a turn that a job notice started and a prompt that was taken
+    /// back before it ran do not count.
+    pub turns: u32,
+}
+
+/// Up to `limit` conversations for the list of `,resume`: the ones whose scope key is
+/// `first` first, then all others, each part newest first by its last activity.
+pub fn recent(
+    conn: &Connection,
+    first: Option<&RouteScope>,
+    limit: u32,
+) -> Result<Vec<RecentRow>, StoreError> {
+    const COLUMNS: &str = "SELECT id, title, status, created_at, updated_at, last_seq, cwd, \
+                           scope, tty, route FROM conversations";
+    const ORDER: &str = "ORDER BY updated_at DESC, last_seq DESC LIMIT";
+    let first = first.map(|route| sql::to_json(route, "route")).transpose()?;
+    let mut raw = Vec::new();
+    match &first {
+        Some(route) => {
+            let mut stmt = conn.prepare(&format!("{COLUMNS} WHERE route = ?1 {ORDER} ?2"))?;
+            raw.extend(
+                stmt.query_map(params![route, limit], RawRecent::from_row)?
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+            let rest = u32::try_from(raw.len()).map_or(0, |taken| limit.saturating_sub(taken));
+            let mut stmt =
+                conn.prepare(&format!("{COLUMNS} WHERE route IS NULL OR route <> ?1 {ORDER} ?2"))?;
+            raw.extend(
+                stmt.query_map(params![route, rest], RawRecent::from_row)?
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+        None => {
+            let mut stmt = conn.prepare(&format!("{COLUMNS} {ORDER} ?1"))?;
+            raw.extend(
+                stmt.query_map(params![limit], RawRecent::from_row)?
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+    }
+    let mut count = conn.prepare(
+        "SELECT COUNT(*) FROM turns WHERE conversation_id = ?1 AND wake = 0 AND status <> ?2",
+    )?;
+    raw.into_iter()
+        .map(|RawRecent { summary, route }| {
+            let turns: i64 = count
+                .query_row(params![summary.id, TurnStatus::Withdrawn.as_str()], |row| row.get(0))?;
+            let route = route_of_column(route, summary.scope.clone())?;
+            Ok(RecentRow {
+                summary: summary.decode()?,
+                route,
+                turns: u32::try_from(turns).unwrap_or(u32::MAX),
+            })
+        })
+        .collect()
+}
+
+/// A row of [`recent`] before it is decoded.
+struct RawRecent {
+    summary: RawSummary,
+    route: Option<String>,
+}
+
+impl RawRecent {
+    fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(RawRecent { summary: RawSummary::from_row(row)?, route: row.get(9)? })
+    }
+}
+
 fn finish(
     conn: &Connection,
     turn_id: &TurnId,

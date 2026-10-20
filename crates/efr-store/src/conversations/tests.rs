@@ -437,4 +437,5 @@ async fn rebuilding_the_projections_reproduces_them_exactly() {
     assert_eq!(before, after);
 }
 
+mod recent;
 mod routes;
