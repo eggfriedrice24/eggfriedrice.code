@@ -1,0 +1,8 @@
+{
+  "method": "conversations.recent",
+  "params": {
+    "tty": "/dev/pts/3",
+    "pwd": "/home/me/p/app/src",
+    "limit": 10
+  }
+}

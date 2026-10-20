@@ -15,8 +15,9 @@ use crate::{
     AdminSandboxCheckResult, AdminStatus, AdminStatusResult, ApprovalRespond,
     ApprovalRespondResult, ConversationCompact, ConversationCompactResult, ConversationContext,
     ConversationContextResult, ConversationDiff, ConversationDiffResult, ConversationHistory,
-    ConversationHistoryResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
-    ConversationsListResult, ErrorCode, ErrorFrame, Event, EventEnvelope, Hello, HelloResult,
+    ConversationHistoryResult, ConversationResume, ConversationResumeResult, ConversationSubscribe,
+    ConversationSubscribeItem, ConversationsList, ConversationsListResult, ConversationsRecent,
+    ConversationsRecentResult, ErrorCode, ErrorFrame, Event, EventEnvelope, Hello, HelloResult,
     InputRespond, InputRespondResult, JobsList, JobsListResult, JobsStop, JobsStopResult,
     LeaseReport, LeaseReportResult, ModelsList, ModelsListResult, PROTOCOL_VERSION, PresenceSet,
     PresenceSetResult, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
@@ -139,6 +140,16 @@ pub fn document() -> Value {
             &mut generator,
             "conversation.context",
             ScopeName::Read,
+        ),
+        unary::<ConversationsRecent, ConversationsRecentResult>(
+            &mut generator,
+            "conversations.recent",
+            ScopeName::Read,
+        ),
+        unary::<ConversationResume, ConversationResumeResult>(
+            &mut generator,
+            "conversation.resume",
+            ScopeName::Operate,
         ),
     ];
     let frames = json!({

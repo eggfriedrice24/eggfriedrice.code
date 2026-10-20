@@ -518,6 +518,17 @@ pub enum DaemonError {
         /// The method.
         method: &'static str,
     },
+    /// `conversation.resume` came from a connection that is not the shell's or
+    /// `efr`'s on the terminal that its context names: a phone, or a made-up tty.
+    #[error("a conversation moves only to the terminal that asks, and this is not {tty}")]
+    ResumeOffTerminal {
+        /// The terminal that the context names.
+        tty: String,
+    },
+    /// Another request changed the terminal's slot, or took the conversation, while
+    /// `conversation.resume` ran. Nothing moved.
+    #[error("another request changed the conversation of this terminal; try again")]
+    ResumeRaced,
 }
 
 /// Why the filtered bus of a call did not start, or its self-test failed (phase E).
@@ -591,9 +602,10 @@ impl DaemonError {
     /// The wire code of this error.
     pub fn code(&self) -> ErrorCode {
         match self {
-            DaemonError::Forbidden { .. } | DaemonError::ModelSidePeer { .. } => {
-                ErrorCode::Forbidden
-            }
+            DaemonError::Forbidden { .. }
+            | DaemonError::ModelSidePeer { .. }
+            | DaemonError::ResumeOffTerminal { .. } => ErrorCode::Forbidden,
+            DaemonError::ResumeRaced => ErrorCode::Busy,
             DaemonError::SandboxUnavailable { .. } => ErrorCode::Conflict,
             DaemonError::SandboxSpec { .. } => ErrorCode::Invalid,
             DaemonError::HelloRepeated | DaemonError::CommandReused { .. } => ErrorCode::Conflict,

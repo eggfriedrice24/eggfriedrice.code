@@ -1,0 +1,17 @@
+{
+  "kind": "resumed",
+  "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+  "scope": {
+    "scope": {
+      "kind": "project",
+      "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+    },
+    "name": "app",
+    "dir": "/home/me/p/app"
+  },
+  "title": "fix the tests",
+  "updated_at": "2026-10-03T10:00:05Z",
+  "shell_dir": "/home/me/p/app/src",
+  "here": true,
+  "continues_here": true
+}

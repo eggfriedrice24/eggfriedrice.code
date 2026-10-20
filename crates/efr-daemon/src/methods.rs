@@ -17,8 +17,8 @@
 //! scopes by its own pairing, never through this walk.
 //!
 //! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction, an
-//! undo and keys for the hidden shell are input of a person, so each one makes its conversation
-//! present (`presence.rs`). `Input` takes a side for every method, as the scope does.
+//! undo, a resume and keys for the hidden shell are input of a person, so each one makes
+//! its conversation present (`presence.rs`). `Input` takes a side for every method, as the scope does.
 
 use std::sync::Arc;
 
@@ -46,8 +46,10 @@ mod conversation_compact;
 mod conversation_context;
 mod conversation_diff;
 mod conversation_history;
+mod conversation_resume;
 mod conversation_subscribe;
 mod conversations_list;
+mod conversations_recent;
 mod hello;
 mod input_respond;
 mod jobs_list;
@@ -125,6 +127,8 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::JobsList(_) => ScopeName::Read,
         Method::JobsStop(_) => ScopeName::Operate,
         Method::ConversationContext(_) => ScopeName::Read,
+        Method::ConversationsRecent(_) => ScopeName::Read,
+        Method::ConversationResume(_) => ScopeName::Operate,
     }
 }
 
@@ -164,6 +168,9 @@ impl Input {
             Method::SandboxSurfaceRespond(params) => Some(params.conversation_id),
             Method::ConversationCompact(params) => Some(params.conversation_id),
             Method::TurnUndo(params) => params.conversation_id,
+            // NOTE: a resume is the user's choice of a conversation, so it ends their
+            // absence there, as a prompt would.
+            Method::ConversationResume(params) => Some(params.conversation_id),
             // NOTE: a stop is the user's input; without a conversation it is the
             // terminal's active one, as for a prompt.
             Method::JobsStop(params) => match params.conversation_id {
@@ -197,7 +204,8 @@ impl Input {
             | Method::ConversationDiff(_)
             | Method::PresenceSet(_)
             | Method::JobsList(_)
-            | Method::ConversationContext(_) => None,
+            | Method::ConversationContext(_)
+            | Method::ConversationsRecent(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -438,6 +446,12 @@ impl Dispatcher for Methods {
                 }
                 Method::ConversationContext(params) => {
                     conversation_context::handle(state, params, &responder).await
+                }
+                Method::ConversationsRecent(params) => {
+                    conversations_recent::handle(state, params, &responder).await
+                }
+                Method::ConversationResume(params) => {
+                    Box::pin(conversation_resume::handle(state, &context, params, &responder)).await
                 }
             };
             state.presence.record(touched).await;

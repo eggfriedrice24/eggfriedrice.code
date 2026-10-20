@@ -7,9 +7,10 @@ use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CommandId,
     ConversationCompact, ConversationContext, ConversationDiff, ConversationHistory,
-    ConversationSubscribe, ConversationsList, Hello, InputRespond, JobsList, JobsStop, LeaseReport,
-    ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize,
-    PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer, TurnUndo,
+    ConversationResume, ConversationSubscribe, ConversationsList, ConversationsRecent, Hello,
+    InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList,
+    PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -125,6 +126,12 @@ pub enum Method {
     /// `conversation.context`: what fills the model's context of a conversation.
     #[serde(rename = "conversation.context")]
     ConversationContext(ConversationContext),
+    /// `conversations.recent`: the recent conversations, the ones of a scope first.
+    #[serde(rename = "conversations.recent")]
+    ConversationsRecent(ConversationsRecent),
+    /// `conversation.resume`: make a conversation this terminal's conversation again.
+    #[serde(rename = "conversation.resume")]
+    ConversationResume(ConversationResume),
 }
 
 impl Method {
@@ -165,6 +172,8 @@ impl Method {
             Method::JobsList(_) => "jobs.list",
             Method::JobsStop(_) => "jobs.stop",
             Method::ConversationContext(_) => "conversation.context",
+            Method::ConversationsRecent(_) => "conversations.recent",
+            Method::ConversationResume(_) => "conversation.resume",
         }
     }
 
@@ -183,6 +192,7 @@ impl Method {
             Method::PresenceSet(params) => Some(params.command_id),
             Method::TurnUndo(params) => Some(params.command_id),
             Method::JobsStop(params) => Some(params.command_id),
+            Method::ConversationResume(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -205,7 +215,8 @@ impl Method {
             | Method::AdminSandboxCheck(_)
             | Method::ConversationDiff(_)
             | Method::JobsList(_)
-            | Method::ConversationContext(_) => None,
+            | Method::ConversationContext(_)
+            | Method::ConversationsRecent(_) => None,
         }
     }
 
@@ -245,7 +256,9 @@ impl Method {
             | Method::TurnUndo(_)
             | Method::JobsList(_)
             | Method::JobsStop(_)
-            | Method::ConversationContext(_) => false,
+            | Method::ConversationContext(_)
+            | Method::ConversationsRecent(_)
+            | Method::ConversationResume(_) => false,
         }
     }
 }
@@ -254,8 +267,8 @@ impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
     /// `hello`, `lease.report`, `models.list`, `projects.list`, `sandbox.explain`,
-    /// `conversation.diff`, `jobs.list` and `conversation.context` need only `read`,
-    /// which every connection holds. Adding or
+    /// `conversation.diff`, `jobs.list`, `conversation.context` and
+    /// `conversations.recent` need only `read`, which every connection holds. Adding or
     /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
     /// a phone never holds.
     pub const fn for_method(method: &Method) -> ScopeName {
@@ -270,7 +283,8 @@ impl ScopeName {
             | Method::SandboxExplain(_)
             | Method::ConversationDiff(_)
             | Method::JobsList(_)
-            | Method::ConversationContext(_) => ScopeName::Read,
+            | Method::ConversationContext(_)
+            | Method::ConversationsRecent(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)
@@ -278,7 +292,8 @@ impl ScopeName {
             | Method::TurnSteer(_)
             | Method::PresenceSet(_)
             | Method::TurnUndo(_)
-            | Method::JobsStop(_) => ScopeName::Operate,
+            | Method::JobsStop(_)
+            | Method::ConversationResume(_) => ScopeName::Operate,
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.

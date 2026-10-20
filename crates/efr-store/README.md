@@ -69,7 +69,9 @@ across a restart:
   had. `slots` reads every slot in one query for efrd's start, `of_tty` lists one
   terminal's conversations with its current one first, `newest_of_route` finds the
   candidate of a pick-up, and `route` reads one conversation's key. A route that this
-  build cannot read counts as `outside`.
+  build cannot read counts as `outside`. `recent` lists the conversations of
+  `,resume`: those of one key first, then the others, each part newest first, with
+  their prompt turns (a job notice turn and a withdrawn prompt do not count).
 - `user_messages`: `of_conversation` reads every prompt and steer of a conversation,
   the events that take one back, and each `terminal_attached`, from the whole log. The
   record of an exit in `auto` keeps the messages for the reviewer, and the name check

@@ -27,8 +27,9 @@ use crate::{
     ConfigFileError, ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse,
     ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
     ConversationDiff, ConversationDiffResult, ConversationHistory, ConversationHistoryResult,
-    ConversationId, ConversationSnapshot, ConversationStatus, ConversationSubscribe,
-    ConversationSubscribeItem, ConversationSummary, ConversationsList, ConversationsListResult,
+    ConversationId, ConversationResume, ConversationResumeResult, ConversationSnapshot,
+    ConversationStatus, ConversationSubscribe, ConversationSubscribeItem, ConversationSummary,
+    ConversationsList, ConversationsListResult, ConversationsRecent, ConversationsRecentResult,
     CountedUse, Cursor, DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceId,
     Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts,
     ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, FullModeStatus,
@@ -41,16 +42,16 @@ use crate::{
     PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
     ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
     PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RefChange, RepoHint,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
-    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
-    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
+    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
+    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange,
+    Switch, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
+    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
+    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -955,6 +956,17 @@ pub(crate) fn method_samples() -> Vec<Method> {
             conversation_id: conversation_id(),
             model: Some("claude-opus-5-5".into()),
         }),
+        Method::ConversationsRecent(ConversationsRecent {
+            tty: Some("/dev/pts/3".into()),
+            pwd: Some("/home/me/p/app/src".into()),
+            limit: Some(10),
+        }),
+        Method::ConversationResume(ConversationResume {
+            command_id: command_id(),
+            conversation_id: conversation_id(),
+            context: shell_context(),
+            take: true,
+        }),
     ]
 }
 
@@ -1425,7 +1437,52 @@ fn answer_fixtures() -> Vec<Fixture> {
         fixture("jobs_list_result.json", &JobsListResult { jobs: vec![job_info()] }),
         fixture("jobs_stop_result.json", &JobsStopResult { job: job_info() }),
         fixture("conversation_context_result.json", &context_report()),
+        fixture("conversations_recent_result.json", &recent_list()),
+        fixture(
+            "conversation_resume_result.json",
+            &ConversationResumeResult::Resumed {
+                conversation_id: conversation_id(),
+                scope: app_label(),
+                title: Some("fix the tests".into()),
+                updated_at: at("2026-10-03T10:00:05Z"),
+                shell_dir: Some("/home/me/p/app/src".into()),
+                here: true,
+                continues_here: true,
+            },
+        ),
+        fixture(
+            "conversation_resume_result_held.json",
+            &ConversationResumeResult::Held {
+                tty: "/dev/pts/4".into(),
+                title: Some("fix the tests".into()),
+            },
+        ),
     ]
+}
+
+/// The label of the project `app`.
+fn app_label() -> RouteLabel {
+    RouteLabel {
+        scope: RouteScope::Project(project_id()),
+        name: Some("app".into()),
+        dir: "/home/me/p/app".into(),
+    }
+}
+
+/// A list of recent conversations with every member set.
+fn recent_list() -> ConversationsRecentResult {
+    ConversationsRecentResult {
+        scope: Some(app_label()),
+        current: Some(conversation_id()),
+        conversations: vec![RecentConversation {
+            summary: summary(),
+            route: RouteScope::Project(project_id()),
+            project: Some("app".into()),
+            turns: 6,
+            open_in: Some("/dev/pts/4".into()),
+            here: true,
+        }],
+    }
 }
 
 /// A context report with every member set.

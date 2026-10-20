@@ -83,11 +83,15 @@ pub use methods::conversation_context::{
 };
 pub use methods::conversation_diff::{ConversationDiff, ConversationDiffResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
+pub use methods::conversation_resume::{ConversationResume, ConversationResumeResult};
 pub use methods::conversation_subscribe::{
     ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
 };
 pub use methods::conversations_list::{
     ConversationStatus, ConversationSummary, ConversationsList, ConversationsListResult,
+};
+pub use methods::conversations_recent::{
+    ConversationsRecent, ConversationsRecentResult, RecentConversation,
 };
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};

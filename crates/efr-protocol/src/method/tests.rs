@@ -7,11 +7,12 @@ use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
     Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationContext,
-    ConversationDiff, ConversationHistory, ConversationId, ConversationSubscribe,
-    ConversationsList, Hello, InputRespond, JobId, JobsList, JobsStop, LeaseReport, Method,
-    ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach,
-    PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName,
-    SecretText, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
+    ConversationDiff, ConversationHistory, ConversationId, ConversationResume,
+    ConversationSubscribe, ConversationsList, ConversationsRecent, Hello, InputRespond, JobId,
+    JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
+    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, Size,
+    TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -338,6 +339,25 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             "conversation.context",
             ScopeName::Read,
             false,
+            false,
+        ),
+        (
+            Method::ConversationsRecent(ConversationsRecent::default()),
+            "conversations.recent",
+            ScopeName::Read,
+            false,
+            false,
+        ),
+        (
+            Method::ConversationResume(ConversationResume {
+                command_id: command(),
+                conversation_id: conversation(),
+                context: ShellContext::new("/home/user/p/app"),
+                take: false,
+            }),
+            "conversation.resume",
+            ScopeName::Operate,
+            true,
             false,
         ),
     ]

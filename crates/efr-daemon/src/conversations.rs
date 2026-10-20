@@ -217,6 +217,31 @@ impl Routes {
         true
     }
 
+    /// Claims `conversation_id` for `tty`'s slot `route` for a resume that moves it
+    /// from another terminal on the user's word (`take`): as [`claim`](Self::claim),
+    /// but another slot that holds the conversation does not stop it. That slot lets
+    /// it go at [`attached`](Self::attached).
+    pub(crate) fn take(
+        &mut self,
+        tty: &str,
+        route: &RouteScope,
+        conversation_id: ConversationId,
+        shell_pid: Option<u32>,
+        expected: Option<ConversationId>,
+    ) -> bool {
+        let target = self.slot(tty, route);
+        if target.map(|slot| slot.conversation_id) != expected {
+            return false;
+        }
+        let routed_seq = target.map_or(Seq::ZERO, |slot| slot.routed_seq);
+        self.terminals
+            .entry(tty.to_owned())
+            .or_default()
+            .slots
+            .insert(route.clone(), Slot { conversation_id, shell_pid, routed_seq });
+        true
+    }
+
     /// Gives `tty`'s slot `route` back what it held `before` a claim whose prompt
     /// failed: nothing was recorded, so the map stays equal to the projection (S-18).
     pub(crate) fn release_claim(&mut self, tty: &str, route: &RouteScope, before: Option<Slot>) {
@@ -415,6 +440,18 @@ impl Conversations {
         alive: &dyn Fn(u32) -> bool,
     ) -> bool {
         self.lock_ttys().claim(tty, route, conversation_id, shell_pid, expected, alive)
+    }
+
+    /// See [`Routes::take`]; one lock section, as a claim.
+    pub(crate) fn take(
+        &self,
+        tty: &str,
+        route: &RouteScope,
+        conversation_id: ConversationId,
+        shell_pid: Option<u32>,
+        expected: Option<ConversationId>,
+    ) -> bool {
+        self.lock_ttys().take(tty, route, conversation_id, shell_pid, expected)
     }
 
     /// See [`Routes::release_claim`].

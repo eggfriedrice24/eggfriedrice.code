@@ -27,26 +27,26 @@ use pretty_assertions::assert_eq;
 use crate::jobs_wake::Recorder;
 use crate::sandbox::ready;
 
-const APP: &str = "0192f0c1-7a00-7000-8000-0000000a4401";
+pub(crate) const APP: &str = "0192f0c1-7a00-7000-8000-0000000a4401";
 const LIB: &str = "0192f0c1-7a00-7000-8000-0000000a4402";
 
-fn app() -> RouteScope {
+pub(crate) fn app() -> RouteScope {
     RouteScope::Project(APP.parse().unwrap())
 }
 
 /// A daemon over a home with two registered projects and fake process facts.
-struct Place {
-    daemon: TestDaemon,
-    procs: FakeProcView,
-    home: PathBuf,
-    app: PathBuf,
-    lib: PathBuf,
+pub(crate) struct Place {
+    pub(crate) daemon: TestDaemon,
+    pub(crate) procs: FakeProcView,
+    pub(crate) home: PathBuf,
+    pub(crate) app: PathBuf,
+    pub(crate) lib: PathBuf,
     /// A directory outside every project.
-    notes: PathBuf,
+    pub(crate) notes: PathBuf,
 }
 
 /// The tree of a [`Place`], before its daemon starts.
-fn tree() -> (Arc<TestDirs>, FakeProcView) {
+pub(crate) fn tree() -> (Arc<TestDirs>, FakeProcView) {
     let dirs = Arc::new(TestDirs::new().unwrap());
     let home = dirs.home();
     for dir in ["p/app/src", "p/lib", "notes", "p/tool"] {
@@ -69,11 +69,13 @@ fn tree() -> (Arc<TestDirs>, FakeProcView) {
 }
 
 impl Place {
-    async fn start() -> Place {
+    pub(crate) async fn start() -> Place {
         Place::start_with(|builder| builder).await
     }
 
-    async fn start_with(change: impl FnOnce(TestDaemonBuilder) -> TestDaemonBuilder) -> Place {
+    pub(crate) async fn start_with(
+        change: impl FnOnce(TestDaemonBuilder) -> TestDaemonBuilder,
+    ) -> Place {
         let (dirs, procs) = tree();
         let builder = TestDaemon::builder()
             .dirs(Arc::clone(&dirs))
@@ -82,7 +84,7 @@ impl Place {
         Place::on(change(builder).start().await.unwrap(), procs, &dirs)
     }
 
-    fn on(daemon: TestDaemon, procs: FakeProcView, dirs: &TestDirs) -> Place {
+    pub(crate) fn on(daemon: TestDaemon, procs: FakeProcView, dirs: &TestDirs) -> Place {
         let home = dirs.home().to_path_buf();
         Place {
             daemon,
@@ -95,7 +97,7 @@ impl Place {
     }
 
     /// A `prompt.send` with the command id `n` from the shell `pid` of `tty` in `pwd`.
-    fn prompt(n: u128, pwd: &Path, tty: &str, pid: u32) -> PromptSend {
+    pub(crate) fn prompt(n: u128, pwd: &Path, tty: &str, pid: u32) -> PromptSend {
         let mut context = ShellContext::new(pwd);
         context.tty = Some(tty.to_owned());
         context.shell_pid = Some(pid);
@@ -113,7 +115,7 @@ impl Place {
 
     /// Sends `params` over a shell connection of its terminal and waits until its turn
     /// ended, through a connection with no tty, which holds nothing.
-    async fn send(&self, params: PromptSend) -> PromptSendResult {
+    pub(crate) async fn send(&self, params: PromptSend) -> PromptSendResult {
         let tty = params.context.as_ref().and_then(|context| context.tty.clone());
         let client = match &tty {
             Some(tty) => self.daemon.client_for_tty(tty).await.unwrap(),
@@ -125,12 +127,12 @@ impl Place {
     }
 
     /// [`Place::send`] of a plain prompt.
-    async fn at(&self, n: u128, pwd: &Path, tty: &str, pid: u32) -> PromptSendResult {
+    pub(crate) async fn at(&self, n: u128, pwd: &Path, tty: &str, pid: u32) -> PromptSendResult {
         self.send(Place::prompt(n, pwd, tty, pid)).await
     }
 
     /// Waits until the turn of `sent` ended.
-    async fn wait(&self, sent: &PromptSendResult) {
+    pub(crate) async fn wait(&self, sent: &PromptSendResult) {
         let watcher = self.daemon.client().await.unwrap();
         let mut follow = self.daemon.follow(&watcher, sent.conversation_id).await.unwrap();
         events_until(&mut follow, |event| {
@@ -141,7 +143,7 @@ impl Place {
     }
 
     /// The conversations that `tty` holds, its current one first.
-    async fn held_by(&self, tty: &str) -> Vec<ConversationId> {
+    pub(crate) async fn held_by(&self, tty: &str) -> Vec<ConversationId> {
         let client = self.daemon.client().await.unwrap();
         let method = Method::ConversationsList(ConversationsList {
             cursor: None,
@@ -153,7 +155,7 @@ impl Place {
     }
 
     /// The `terminal_attached` events of `conversation`.
-    async fn attaches(&self, conversation: ConversationId) -> Vec<Event> {
+    pub(crate) async fn attaches(&self, conversation: ConversationId) -> Vec<Event> {
         let client = self.daemon.client().await.unwrap();
         let events = self.daemon.events(&client, conversation).await.unwrap();
         events
@@ -163,12 +165,12 @@ impl Place {
             .collect()
     }
 
-    async fn stop(self) {
+    pub(crate) async fn stop(self) {
         self.daemon.stop().await.unwrap();
     }
 }
 
-fn switch(sent: &PromptSendResult) -> Option<&Switch> {
+pub(crate) fn switch(sent: &PromptSendResult) -> Option<&Switch> {
     sent.route.as_ref().and_then(|route| route.switch.as_ref())
 }
 

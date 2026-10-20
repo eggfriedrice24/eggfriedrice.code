@@ -434,7 +434,7 @@ async fn summary(
 /// The project registry as the file holds it now, and `pwd` with its links resolved,
 /// read on the blocking pool; the key needs no git run. A registry that cannot be read
 /// counts as empty, so the prompt goes outside projects, and the next turn reports it.
-async fn read_place(state: &State, pwd: Option<PathBuf>) -> (Registry, Option<PathBuf>) {
+pub(crate) async fn read_place(state: &State, pwd: Option<PathBuf>) -> (Registry, Option<PathBuf>) {
     let file = state.engine_parts.registry.clone();
     let read = tokio::task::spawn_blocking(move || {
         let registry = Registry::load(&file);

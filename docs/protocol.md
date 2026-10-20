@@ -545,3 +545,22 @@ No protocol version has shipped yet.
   `key_checked_at` (absent when unknown): for an API key, when the provider last
   answered a request with the key since the daemon started, refused or not, or when a
   login checked it. `admin_status_result.json` now sets it.
+- Version 1, additive: resuming a conversation (`,resume`, `efr resume`). New method
+  `conversations.recent` (scope `read`, no command id) with an optional `tty`, `pwd`
+  and `limit`: the recent conversations, the ones of the scope key of `pwd` first,
+  each part newest first. Its result has the `scope` of `pwd` (absent without one),
+  the terminal's `current` conversation (absent without a `tty` or when it holds
+  none) and `conversations`, each with its `summary`, `route`, `project` (the name;
+  absent outside projects and for a removed project), `turns` (prompt turns only),
+  `open_in` (another open terminal that holds it; absent when none) and `here` (false
+  when absent). New method `conversation.resume` (scope `operate`, with a command id)
+  with `conversation_id`, the terminal's `context` and `take` (false when absent): the
+  conversation becomes the conversation of the terminal's slot for its own scope key,
+  and efrd records `terminal_attached` with `how` `resumed`. Its result is `resumed`
+  (`conversation_id`, `scope`, `title`, `updated_at`, `shell_dir`, `here` and
+  `continues_here`, each flag false when absent) or `held` (`tty` and `title`:
+  another open terminal holds it and `take` was not set, so nothing moved); a kind
+  that a reader does not know reads as `unknown`. A daemon from before refuses both
+  as frames that are not valid. New fixtures `conversations_recent_params.json`,
+  `conversations_recent_result.json`, `conversation_resume_params.json`,
+  `conversation_resume_result.json` and `conversation_resume_result_held.json`.

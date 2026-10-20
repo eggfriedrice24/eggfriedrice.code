@@ -389,6 +389,29 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   recorded. The result carries the effective settings; the turn resolves them again
   when it starts, records them on `turn_started` and sends the effort as the request's
   `effort`. A turn from a remote origin runs with at most `cautious`.
+- `conversations.recent` (`methods/conversations_recent.rs`) is the list of `,resume`
+  and `efr resume`: the conversations whose scope key is the key of `pwd` first, then
+  all others, each part newest first by its last activity, 10 by default. Each row has
+  its key, its project's name (none outside projects or for a removed project), its
+  prompt turns (a job notice turn and a withdrawn prompt do not count), whether the
+  asking terminal holds it (`here`) and which other open terminal holds it
+  (`open_in`, the rule of a pick-up). The phone sends no `tty`, so it sees every
+  holder. `conversation.resume` (`methods/conversation_resume.rs`) moves a
+  conversation to the terminal that asks. It needs the shell's or `efr`'s connection
+  whose process runs on that terminal, as a pick-up does; a phone or a made-up tty is
+  `forbidden`. When another open terminal holds the conversation, it moves nothing and
+  answers `held`, unless the params say `take`. The conversation goes into the
+  terminal's slot of its own key, not of the user's directory, so a project
+  conversation keeps its project; the result says whether a prompt from the user's
+  directory continues it. efrd claims the slot (`Conversations::take` for `take`),
+  starts the hidden shell when none runs, in its last directory (the newest shell's
+  directory in the shells projection, else the last prompt's, else the user's; the
+  first that exists), then records `terminal_attached` (`how: resumed`) with the
+  receipt in one batch and completes the claim. The slot is then the terminal's
+  current one, and every other slot that held the conversation lets it go; that
+  terminal's next prompt says where it went. A job keeps running, and its notices go
+  to the new terminal, because they follow the projection's `tty`. A `held` answer
+  keeps no receipt, so the client asks and sends a new command with `take`.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue. With `drafts`,
