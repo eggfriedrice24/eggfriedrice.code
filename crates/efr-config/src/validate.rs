@@ -14,9 +14,12 @@ use crate::{
     PresenceSettings, RenderColors, SandboxSettings, Settings, SnapshotSettings,
 };
 
-/// What `permissions.mode = "full"` needs: the gate key next to it.
+/// What `permissions.mode = "full"` needs: the gate key next to it. The text names both
+/// ways out, because the user who turns the gate off while full is the default reads it
+/// too.
 const FULL_NEEDS_THE_GATE: &str = "valid without permissions.allow_full = true; set \
-     permissions.allow_full = true in [permissions] to allow full mode";
+     permissions.allow_full = true in [permissions] to allow full mode, or set \
+     permissions.mode to manual, cautious or auto";
 
 /// A value outside its allowed set or range.
 #[derive(Debug, Clone, PartialEq, Eq)]

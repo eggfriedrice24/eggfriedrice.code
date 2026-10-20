@@ -849,7 +849,8 @@ fn config_mode_full_needs_the_gate_key() {
             format!(
                 "the config value permissions.mode = \"full\" in {PATH} is not valid without \
                  permissions.allow_full = true; set permissions.allow_full = true in \
-                 [permissions] to allow full mode"
+                 [permissions] to allow full mode, or set permissions.mode to manual, \
+                 cautious or auto"
             ),
             "{text}"
         );
