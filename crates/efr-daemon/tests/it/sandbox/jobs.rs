@@ -461,6 +461,39 @@ async fn shell_outside_job_runs_in_exit_child_job() {
 }
 
 #[tokio::test]
+async fn shell_exit_child_job_keeps_efr_home() {
+    let test = "shell_exit_child_job_keeps_efr_home";
+    let dirs = target_dirs();
+    let efr_home = dirs.root().join("efr-home").display().to_string();
+    // NOTE: a foreground call and a job outside the sandbox, each allowed by the
+    // reviewer: both run in the exit child, with the user's rights. An `efr` there
+    // must reach this daemon, never the one of the default runtime root.
+    let foreground = Some((
+        "shell",
+        json!({
+            "command": "printenv EFR_HOME",
+            "needs": { "outside": true, "reason": "it asks efr about itself" }
+        }),
+    ));
+    let model = Recorder::new(vec![outside_job("printenv EFR_HOME"), None, foreground, None]);
+    let extra = [("EFR_HOME", efr_home.as_str())];
+    let Some(daemon) = real_daemon(test, &dirs, model, &extra).await else { return };
+
+    let (sent, events) = auto_turn(&daemon, 1, "print EFR_HOME", ApprovalDecision::Deny).await;
+    let [(info, _)] = one_job(&events);
+    assert_eq!(info.launch, Launch::Unsandboxed, "the job runs in the exit child");
+    let end = ended(&daemon, sent.conversation_id, "j1").await;
+    assert_eq!((end.exit_code, end.tail.as_str()), (Some(0), efr_home.as_str()));
+    let (_, events) = auto_turn(&daemon, 2, "print it here", ApprovalDecision::Deny).await;
+    let [(output, is_error)] = outputs(&events).try_into().unwrap();
+    assert!(!is_error, "{output}");
+    // NOTE: a contained call never sees an `EFR_` name (the sandbox's filter drops it),
+    // so the value shows that the call ran in the exit child.
+    assert!(output.lines().any(|line| line == efr_home), "the exit child keeps it: {output}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn shell_escape_exit_child_job_peer_is_model_side() {
     let test = "shell_escape_exit_child_job_peer_is_model_side";
     let dirs = target_dirs();

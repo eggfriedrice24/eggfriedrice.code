@@ -436,6 +436,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             (backend.factory(), backend.as_str().to_owned())
         }
     };
+    // NOTE: an exit child job gets efrd's own roots, so an `efr` in it reaches this efrd
+    // (DV47).
+    let efr_roots = crate::jobs::launch::root_vars(&shell_env);
     let zsh = shells::zsh_program(&settings.shell, &shell_env);
     let mut host_facts = HostFacts::from_env(&shell_env, zsh);
     let exe = std::env::current_exe().ok();
@@ -577,6 +580,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             path: sandbox.host().path.clone(),
             home: home.path().to_path_buf(),
             user_runtime: sandbox.host().user_runtime.clone(),
+            roots: efr_roots,
         },
         full: full.clone(),
     });

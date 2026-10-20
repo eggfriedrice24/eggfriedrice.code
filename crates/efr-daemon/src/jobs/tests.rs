@@ -61,6 +61,7 @@ impl Scene {
                 path: "/usr/local/bin:/usr/bin:/bin".to_owned(),
                 home: dirs.home().to_path_buf(),
                 user_runtime: dirs.dirs().runtime().to_path_buf(),
+                roots: Vec::new(),
             },
             full: full.clone(),
         });

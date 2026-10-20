@@ -298,6 +298,12 @@ impl JobTable {
         self.inner.clock.now()
     }
 
+    /// The `env` file `env` of a job, with efrd's own roots when it runs in the exit
+    /// child (`unsandboxed`); a contained job's file stays as it is.
+    pub(crate) fn job_env(&self, env: Vec<u8>, unsandboxed: bool) -> Vec<u8> {
+        if unsandboxed { launch::with_roots(&env, &self.inner.spawn_env.roots) } else { env }
+    }
+
     /// The token under which every job task runs.
     pub(crate) fn token(&self) -> CancellationToken {
         self.inner.cancel.clone()

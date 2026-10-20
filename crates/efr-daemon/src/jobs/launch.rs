@@ -3,19 +3,23 @@
 //!
 //! The launcher gets a small environment of efrd's (its `PATH`, `HOME` and
 //! `XDG_RUNTIME_DIR`), so no value of the shell, such as `LD_PRELOAD`, reaches it; the
-//! job's own environment is the `env` file in its call dir. Its working directory is
+//! job's own environment is the `env` file in its call dir. An exit child job also
+//! gets efrd's own root variables in that file ([`with_roots`], DV47), so an `efr` in
+//! the job reaches the efrd that runs it, never the one of the default runtime root. Its working directory is
 //! the job's start dir. Its stdin is the lifeline: the read end of a pipe whose write
 //! end only efrd holds (close-on-exec, so no other child inherits it). Its stdout is the
 //! output pipe, which efrd reads, and its stderr is `$CALL/launcher.log`. efrd does not
 //! make it a process group leader, so its `setsid` works. Every signal goes through a
 //! pidfd opened at the spawn.
 
+use std::collections::BTreeMap;
 use std::io::{self, Write as _};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use efr_stdx::env::Var;
 use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
 
 use crate::jobs::sweep;
@@ -30,6 +34,15 @@ const START_LIMIT: Duration = Duration::from_secs(30);
 /// How often the wait for `started` looks.
 const START_POLL: Duration = Duration::from_millis(2);
 
+/// The variables that place efr's roots, which an exit child job gets from efrd.
+pub(crate) const ROOT_VARS: [&str; 5] = [
+    Var::Home.name(),
+    Var::RuntimeDir.name(),
+    Var::DataDir.name(),
+    Var::ConfigDir.name(),
+    Var::StateDir.name(),
+];
+
 /// efrd's own variables that a launcher gets.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SpawnEnv {
@@ -37,6 +50,46 @@ pub(crate) struct SpawnEnv {
     pub(crate) path: String,
     pub(crate) home: PathBuf,
     pub(crate) user_runtime: PathBuf,
+    /// efrd's own root variables that are set ([`root_vars`]), for the `env` file of an
+    /// exit child job ([`with_roots`]).
+    pub(crate) roots: Vec<(String, String)>,
+}
+
+/// The variables of [`ROOT_VARS`] that `env`, efrd's environment, sets to a value
+/// that is not empty.
+pub(crate) fn root_vars(env: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    ROOT_VARS
+        .iter()
+        .filter_map(|name| {
+            let value = env.get(*name).filter(|value| !value.is_empty())?;
+            Some(((*name).to_owned(), value.clone()))
+        })
+        .collect()
+}
+
+/// The bytes of the `env` file `env` (NUL-separated `NAME=value` entries) without any
+/// variable of [`ROOT_VARS`], and with `roots` at the end: an exit child job gets
+/// efrd's roots, whatever the hidden shell held.
+///
+/// NOTE: only for a job in the exit child. A contained job never gets them: the
+/// sandbox hides efr's dirs, and its filter drops every `EFR_` name anyway.
+pub(crate) fn with_roots(env: &[u8], roots: &[(String, String)]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(env.len());
+    for entry in env.split(|byte| *byte == 0).filter(|entry| !entry.is_empty()) {
+        let name = entry.split(|byte| *byte == b'=').next().unwrap_or_default();
+        if ROOT_VARS.iter().any(|root| root.as_bytes() == name) {
+            continue;
+        }
+        bytes.extend_from_slice(entry);
+        bytes.push(0);
+    }
+    for (name, value) in roots {
+        bytes.extend_from_slice(name.as_bytes());
+        bytes.push(b'=');
+        bytes.extend_from_slice(value.as_bytes());
+        bytes.push(0);
+    }
+    bytes
 }
 
 /// A launcher that runs and waits for its start byte.
@@ -138,3 +191,6 @@ pub(crate) fn signal(pidfd: Option<&OwnedFd>, pid: u32, signal: Signal) {
         None => sweep::kill(pid, signal),
     }
 }
+
+#[cfg(test)]
+mod tests;

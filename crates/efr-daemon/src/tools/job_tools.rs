@@ -352,6 +352,8 @@ impl DaemonToolbox {
             Launch::Direct => Launch::Unsandboxed,
             launch => launch.clone(),
         };
+        // NOTE: a job in the exit child gets efrd's roots (DV47); a contained one never.
+        let env = jobs.job_env(env, launch == Launch::Unsandboxed);
         let output_path =
             call.context.scratch.join(efr_sandbox::JOB_DIR).join(output::file_name(&id));
         let now = self.clock.now();
