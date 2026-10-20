@@ -256,6 +256,14 @@ yours from the call's change.
 - A copy holds at most 16 MiB per file. efrd never copies a mask or a secret. A masked
   file that a message of yours names, such as `~/.aws/config`, runs with no copy, and
   the turn says `changed ~/.aws/config; efr undo cannot revert it (masked)`.
+- A copy leaves a `.git` out, unread, as a snapshot leaves a nested repository out.
+  A change in a dir that holds a git repository, such as `~/notes`, runs, and
+  `efr undo` reverts the files of the dir. The turn says that it does not cover
+  `~/notes/.git` (no copy). A floor file in a git dir does not run.
+- When the call made a dir, such as the `*.wants` dir of `systemctl --user enable`,
+  `efr undo` removes it again after it removes the files in it. It removes only an
+  empty dir (`rmdir`): a dir that holds a file of yours stays, and so do the dirs
+  above it.
 - When efrd cannot read a file, or cannot copy a floor or persistence target, the call
   does not run, and the model gets the reason.
 - In `manual` and `cautious`, a file tool write outside the roots gets no copy.
