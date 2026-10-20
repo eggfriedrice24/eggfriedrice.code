@@ -17,6 +17,7 @@ mod catalog;
 mod classifier_eval;
 mod compact;
 mod drafts;
+mod full;
 mod hello;
 mod home;
 mod input_respond;
