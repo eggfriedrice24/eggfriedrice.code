@@ -13,8 +13,8 @@ use crate::jobs::job_refusal;
 use crate::path_class::normalize;
 use crate::policy::{MatchContext, Part, Target, expand};
 use crate::{
-    Access, AutoSupport, Construct, DecisionInput, HostList, Locations, PathAccess, PathClass,
-    Policy, Resource,
+    Access, AutoSupport, Construct, CriticalDelete, DecisionInput, HostList, Locations, PathAccess,
+    PathClass, Policy, Resource,
 };
 
 /// The permission engine: the machine's [`Locations`] and one machine [`Policy`] for
@@ -91,8 +91,10 @@ use crate::{
 /// reason, so [`Decision::exits`] lists it for the record. A floor stays denied; a
 /// privileged program, a `privilege`, `persistence` or `destructive` exit, a change of
 /// efr's settings, a file tool delete that undo does not cover and a user's or a
-/// conversation's `ask` rule still ask. In a background job a `destructive` exit is
-/// refused with [`Cause::NotAsJob`]. `nested_shell` runs.
+/// conversation's `ask` rule still ask. A delete of a tree that full mode guards
+/// ([`exits::critical_deletes`]) asks too, with [`Cause::CriticalDelete`], whatever the
+/// rules say. In a background job such a delete and a `destructive` exit are refused
+/// with [`Cause::NotAsJob`]. `nested_shell` runs.
 ///
 /// [`Requirements::background`]: crate::Requirements::background
 #[derive(Debug, Clone)]
@@ -471,6 +473,15 @@ impl Engine {
                 cause: Cause::JobAsks,
             });
         }
+        if let (true, Some(input)) = (full, &exit_input) {
+            // NOTE: no rule is read: only the user approves a delete of a tree that full
+            // mode guards, and no job may hold one (DF4, DF5).
+            reasons.extend(
+                exits::critical_deletes(input)
+                    .into_iter()
+                    .map(|delete| critical_reason(delete, job)),
+            );
+        }
         if full {
             reasons = crate::full::settle(reasons, job, |cause| judge.built_in(cause));
         }
@@ -641,6 +652,14 @@ fn not_as_job(need: &ExitNeed) -> Reason {
         effect: Effect::Deny,
         cause: Cause::NotAsJob,
     }
+}
+
+/// The reason of a delete that full mode guards: a question, or in a background job a
+/// refusal, since nobody answers a job's question.
+fn critical_reason(delete: CriticalDelete, job: bool) -> Reason {
+    let (effect, cause) =
+        if job { (Effect::Deny, Cause::NotAsJob) } else { (Effect::Ask, Cause::CriticalDelete) };
+    Reason { subject: Subject::CriticalDelete { delete }, effect, cause }
 }
 
 /// The reason of one view of the host, such as `Grant::NetView`: contained, so it never

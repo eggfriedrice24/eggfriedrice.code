@@ -308,3 +308,21 @@ fn full_job_bus_query_refused(#[case] line: &str) {
     assert_eq!(full.effect(), Effect::Allow, "{line:?}");
     assert!(full.exits().any(|need| need.kind == ExitKind::Bus), "{line:?}");
 }
+
+#[rstest]
+#[case::home("rm -rf ~")]
+#[case::dead_branch("false && rm -rf ~")]
+#[case::project("rm -rf ~/p/app")]
+fn full_critical_delete_in_job_refused(#[case] line: &str) {
+    // DF5, DF-F9: nobody answers a job's question, so a guarded delete in a job is
+    // refused with no question.
+    let decision = decide_in(&engine(), job(line), Mode::Full, Origin::Shell);
+    assert_eq!(decision.effect(), Effect::Deny, "{line:?}");
+    let reason = decision
+        .reasons()
+        .iter()
+        .find(|reason| matches!(reason.subject, Subject::CriticalDelete { .. }))
+        .unwrap();
+    assert_eq!((reason.effect, &reason.cause), (Effect::Deny, &Cause::NotAsJob), "{line:?}");
+    assert_eq!(decision.critical().count(), 1, "{line:?}");
+}
