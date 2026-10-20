@@ -1361,6 +1361,7 @@ fn blocked_entry(blocked: &Blocked) -> String {
         BlockReason::NotTls => "not TLS",
         BlockReason::BadRequest => "bad request",
         BlockReason::Limit => "too many connections",
+        BlockReason::Denied => "denied for this command",
         BlockReason::Unknown => "unknown reason",
         _ => "refused",
     };

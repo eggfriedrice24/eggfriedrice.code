@@ -12,12 +12,12 @@ use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
 use super::{
-    AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_lines, bus_refused_lines,
-    cache_freed, check, contained_trace, exit_card, exit_heading, exit_judged, exit_lines,
-    exit_record, exit_summary, explain, fallback_note, fallback_warning, full_let_through,
-    home_changed, judge_details, no_answer_row, paused, presence_changed, reviewed, reviewer_row,
-    reviewing, setup_failed, status_line, surface_answered, surface_change, surface_changed,
-    surface_report, survivors, tilde,
+    AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_joined, blocked_lines,
+    bus_refused_lines, cache_freed, check, contained_trace, exit_card, exit_heading, exit_judged,
+    exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
+    full_let_through, home_changed, judge_details, no_answer_row, paused, presence_changed,
+    reviewed, reviewer_row, reviewing, setup_failed, status_line, surface_answered, surface_change,
+    surface_changed, surface_report, survivors, tilde,
 };
 use crate::format::Tone;
 
@@ -615,6 +615,19 @@ fn the_turn_end_report_lists_the_files_that_run_code() {
         file("sub/.git/config", Some("core.fsmonitor")),
     ]);
     insta::assert_snapshot!(report.join("\n"));
+}
+
+#[test]
+fn blocked_lines_denied() {
+    let denied = |host: &str, count| Blocked {
+        host: host.to_owned(),
+        port: 443,
+        reason: BlockReason::Denied,
+        count,
+    };
+    let mut lines = blocked_lines(&[denied("github.com", 1), denied("registry.test", 3)], 0);
+    lines.extend(blocked_joined(&[denied("github.com", 1)], 0));
+    insta::assert_snapshot!(lines.join("\n"));
 }
 
 #[test]

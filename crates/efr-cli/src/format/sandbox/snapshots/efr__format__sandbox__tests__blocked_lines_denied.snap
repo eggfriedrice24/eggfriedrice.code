@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/format/sandbox/tests.rs
+expression: "lines.join(\"\\n\")"
+---
+network: blocked github.com:443 (denied for this command)
+network: blocked registry.test:443 (denied for this command; 3 times)
+network: blocked github.com:443 (denied for this command)
