@@ -15,6 +15,7 @@ use super::{
     Block, CACHE_SHOWN_FROM, Spacing, Tone, ago, approval_heading, approval_summary, catalog,
     code_block, conversations, cut, elapsed, keys, lines, local_time, one_line, paint, run_heading,
     size, status, tokens, took, tool_call, tool_result, turn_done, turn_interrupted, until,
+    usage_line,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -650,5 +651,32 @@ fn with_the_context_the_end_of_turn_line_shows_it_in_place_of_the_input() {
     assert_eq!(
         turn_done(took, Some(&usage), Some(&context)).render(&piped),
         "done in 42s, ctx 43% (89k/206k), 1.1k out, cache 98%\n"
+    );
+}
+
+#[test]
+fn usage_line_holds_numbers_only() {
+    let usage = Usage {
+        cached_input_tokens: 16_600,
+        cache_write_tokens: 1_200,
+        cache_write_1h_tokens: 1_200,
+        reasoning_tokens: 400,
+        context_tokens: 19_300,
+        ..Usage::new(18_200, 1_100)
+    };
+    assert_eq!(usage_line(&usage), "18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)");
+
+    let five_minutes = Usage { cache_write_1h_tokens: 0, ..usage };
+    assert_eq!(usage_line(&five_minutes), "18.2k in, 1.1k out, cache 91%, wrote 1.2k");
+    let both = Usage { cache_write_1h_tokens: 800, ..usage };
+    assert_eq!(usage_line(&both), "18.2k in, 1.1k out, cache 91%, wrote 1.2k (800 1h)");
+
+    // Below the cache's minimum the share says nothing; an answer with no cache use
+    // has only its two counts.
+    assert_eq!(usage_line(&Usage::new(1_500, 20)), "1.5k in, 20 out");
+    let line = usage_line(&usage);
+    assert!(
+        line.chars().all(|c| c.is_ascii_digit() || " .,%()kMinoutcachewr1h".contains(c)),
+        "{line}"
     );
 }

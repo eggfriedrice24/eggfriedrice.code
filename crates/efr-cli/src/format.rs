@@ -929,6 +929,29 @@ fn cache_part(usage: &Usage) -> String {
     format!(", cache {percent}%")
 }
 
+/// The tokens of one turn for `efr history --verbose` (DV10), such as `18.2k in, 1.1k
+/// out, cache 91%, wrote 1.2k (1h)`: the input with its cached part, the output, and
+/// what the turn wrote to the prompt cache, with the part of one hour when the provider
+/// says it (`wrote 1.2k (800 1h)` when only a part has the hour). The cache share
+/// follows the turn line's rule ([`CACHE_SHOWN_FROM`]). It holds numbers only, never
+/// text of the turn.
+pub(crate) fn usage_line(usage: &Usage) -> String {
+    let mut line =
+        format!("{} in, {} out", tokens(usage.input_tokens), tokens(usage.output_tokens));
+    line.push_str(&cache_part(usage));
+    if usage.cache_write_tokens > 0 {
+        let _ = write!(line, ", wrote {}", tokens(usage.cache_write_tokens));
+        match usage.cache_write_1h_tokens {
+            0 => {}
+            hour if hour >= usage.cache_write_tokens => line.push_str(" (1h)"),
+            hour => {
+                let _ = write!(line, " ({} 1h)", tokens(hour));
+            }
+        }
+    }
+    line
+}
+
 /// Why the model of a completed turn stopped, when the turn records it: the model gave
 /// no answer, or its answer stopped before its end, such as `the answer reached the
 /// output limit (stop: max_tokens)`. Without this line, a turn that ends with no text

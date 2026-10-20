@@ -1582,3 +1582,137 @@ fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
     };
     assert!(!show(&none, &options).contains("changed"));
 }
+
+/// The transcript of `page` without colour, verbose or not.
+fn plain(page: &ConversationHistoryResult, verbose: bool) -> String {
+    let options = RenderOptions::new(80).with_terminal(false);
+    let shown = Shown { options: &options, verbose, home: None, groups: &DiffGroups::default() };
+    transcript(conversation(), page, &shown)
+}
+
+/// A page of `events`, numbered from 1.
+fn page_of(events: Vec<Event>) -> ConversationHistoryResult {
+    ConversationHistoryResult {
+        events: events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect(),
+        next_cursor: None,
+    }
+}
+
+#[test]
+fn interrupted_partial_prints_once() {
+    // The live order of an interrupt: the update, the request that flushes it, then the
+    // completion of the same text and the end.
+    let page = page_of(vec![
+        Event::AssistantMessageUpdated {
+            turn_id: turn(),
+            index: 0,
+            offset: 0,
+            delta: "Once upon a time".to_owned(),
+        },
+        Event::TurnInterruptRequested { turn_id: turn(), origin: Origin::Shell },
+        Event::AssistantMessageCompleted {
+            turn_id: turn(),
+            index: 0,
+            text: "Once upon a time".to_owned(),
+        },
+        Event::TurnInterrupted {
+            turn_id: turn(),
+            usage: None,
+            context: None,
+            changes: None,
+            undo: None,
+        },
+    ]);
+
+    let text = plain(&page, false);
+
+    assert_eq!(text.matches("Once upon a time").count(), 1, "{text}");
+    assert!(text.ends_with("Once upon a time\n\ninterrupted\n"), "{text}");
+}
+
+#[test]
+fn a_completion_with_more_text_than_the_flush_still_prints() {
+    let page = page_of(vec![
+        Event::AssistantMessageUpdated {
+            turn_id: turn(),
+            index: 0,
+            offset: 0,
+            delta: "Once".to_owned(),
+        },
+        Event::TurnInterruptRequested { turn_id: turn(), origin: Origin::Shell },
+        Event::AssistantMessageCompleted {
+            turn_id: turn(),
+            index: 0,
+            text: "Once upon a time".to_owned(),
+        },
+    ]);
+
+    let text = plain(&page, false);
+
+    assert!(text.contains("Once upon a time\n"), "the whole text is never lost: {text}");
+}
+
+#[test]
+fn history_verbose_shows_the_reask() {
+    let judged = |reasked| Event::ExitJudged {
+        turn_id: turn(),
+        call_id: call(),
+        judge: JudgeKind::Classifier,
+        verdict: Verdict::Allow,
+        model: Some("gpt-6-luna".to_owned()),
+        latency_ms: Some(2_410),
+        risk: Some(Risk::Low),
+        user_authorization: None,
+        category: Some("file edit".to_owned()),
+        rationale: Some("you asked to add the alias".to_owned()),
+        record_sha256: None,
+        cached: false,
+        chain_step: Some(ChainStep::ClassifierModel),
+        skipped: Vec::new(),
+        reasked,
+    };
+
+    let verbose = plain(&page_of(vec![judged(true)]), true);
+    assert!(
+        verbose.contains(
+            "  model gpt-6-luna; the reviewer model; 2410 ms; asked again for a real reason\n"
+        ),
+        "{verbose}"
+    );
+    assert!(!plain(&page_of(vec![judged(true)]), false).contains("asked again"), "--verbose only");
+    assert!(!plain(&page_of(vec![judged(false)]), true).contains("asked again"));
+}
+
+#[test]
+fn history_verbose_shows_usage_per_turn() {
+    let second: efr_protocol::TurnId = "019a9b1c-3d00-7a10-8b20-0000000000f2".parse().unwrap();
+    let usage = efr_protocol::Usage {
+        cached_input_tokens: 16_600,
+        cache_write_tokens: 1_200,
+        cache_write_1h_tokens: 1_200,
+        ..efr_protocol::Usage::new(18_200, 1_100)
+    };
+    let page = page_of(vec![
+        Event::TurnCompleted {
+            turn_id: turn(),
+            usage: Some(usage),
+            context: None,
+            changes: None,
+            stop: None,
+            undo: None,
+        },
+        Event::TurnInterrupted {
+            turn_id: second,
+            usage: Some(efr_protocol::Usage::new(900, 12)),
+            context: None,
+            changes: None,
+            undo: None,
+        },
+    ]);
+
+    let verbose = plain(&page, true);
+    assert!(verbose.contains("18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)\n"), "{verbose}");
+    assert!(verbose.contains("interrupted\n900 in, 12 out\n"), "interrupted too: {verbose}");
+    let quiet = plain(&page, false);
+    assert!(!quiet.contains(" in, "), "only --verbose shows the tokens: {quiet}");
+}

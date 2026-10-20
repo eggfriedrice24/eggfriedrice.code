@@ -12,6 +12,16 @@
 //! A conversation that came to another terminal shows one muted line at its
 //! `terminal_attached` event, such as `picked up in /dev/pts/7`.
 //!
+//! An interrupted or failed turn completes the text that it had streamed, and an event
+//! between the last update and that completion (such as `turn_interrupt_requested`)
+//! prints the streamed text first: the completion of the same text then prints nothing,
+//! so the partial answer shows once.
+//!
+//! `--verbose` adds one muted line of tokens at the end of each turn that carries its
+//! usage, also an interrupted or failed one, such as `18.2k in, 1.1k out, cache 91%,
+//! wrote 1.2k (1h)` (`format::usage_line`), and says when the reviewer asked its model
+//! again because it wrote no real reason.
+//!
 //! Background jobs show as the view shows them: a job's start, its end, a line that
 //! matched its `watch` pattern and a notice that did not start a turn. A turn that a
 //! job notice started shows `🤖 (job notice, not your input)` where a prompt would
@@ -26,7 +36,7 @@ use efr_config::DiffGroups;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin,
-    PageCursor, Seq, TurnId, TurnUndoInfo, Verdict,
+    PageCursor, Seq, TurnId, TurnUndoInfo, Usage, Verdict,
 };
 use efr_render::{RenderOptions, render, render_trace};
 use efr_transport::client::Client;
@@ -38,6 +48,9 @@ use crate::format::changes::HomeChange;
 use crate::format::{self, Block, Spacing, Tone, changes, context, jobs, sandbox};
 use crate::live::effective_width;
 use crate::output::Output;
+
+/// What `--verbose` adds to the reviewer's line when it asked its model again (DV42).
+const REASKED: &str = "asked again for a real reason";
 
 /// Conversations asked for per page while matching the start of an id.
 const PAGE: u32 = 100;
@@ -298,6 +311,9 @@ struct Transcript<'a> {
     /// The newest text of a message that has not completed, which a turn that ended
     /// early never completes.
     partial: Option<(TurnId, u32, String)>,
+    /// The text of a message that a flush printed before its completion came: a
+    /// completion of the same message with the same text prints nothing (C2.8a).
+    printed: Option<(TurnId, u32, String)>,
     /// The turns that a job notice started, whose mark shows once.
     woken: HashSet<TurnId>,
     /// The files outside the roots that the calls of the current group changed, one
@@ -319,6 +335,7 @@ impl<'a> Transcript<'a> {
             exits: HashMap::new(),
             commands: HashMap::new(),
             partial: None,
+            printed: None,
             woken: HashSet::new(),
             home_changes: Vec::new(),
         }
@@ -351,7 +368,14 @@ impl<'a> Transcript<'a> {
                     self.partial = None;
                 }
                 self.flush();
-                self.message(text);
+                // NOTE: an interrupt completes the text that streamed, after the event
+                // that flushed it.
+                let shown = self.printed.take().is_some_and(|(t, i, printed)| {
+                    (t, i) == (*turn_id, *index) && printed == *text
+                });
+                if !shown {
+                    self.message(text);
+                }
             }
             other => {
                 self.flush();
@@ -496,6 +520,7 @@ impl<'a> Transcript<'a> {
                 chain_step,
                 cached,
                 skipped,
+                reasked,
                 ..
             } => {
                 // NOTE: the reviewer's allow or refusal shows as the follow view shows
@@ -518,13 +543,19 @@ impl<'a> Transcript<'a> {
                 }
                 if self.verbose {
                     self.note(&sandbox::exit_judged(*judge, *verdict, category.as_deref()));
-                    let details = sandbox::judge_details(
+                    let mut details = sandbox::judge_details(
                         model.as_deref(),
                         *chain_step,
                         *latency_ms,
                         *cached,
                         skipped,
                     );
+                    if *reasked {
+                        details = Some(match details {
+                            Some(details) => format!("{details}; {REASKED}"),
+                            None => format!("  {REASKED}"),
+                        });
+                    }
                     if let Some(details) = details {
                         self.dim_lines(&[details]);
                     }
@@ -634,18 +665,21 @@ impl<'a> Transcript<'a> {
                     self.summary(compaction.focus.as_deref(), compaction.summary.as_deref());
                 }
             }
-            Event::TurnCompleted { stop, changes, undo, .. } => {
+            Event::TurnCompleted { stop, changes, undo, usage, .. } => {
                 if let Some(stop) = stop {
                     self.note(&format::turn_stop(stop));
                 }
+                self.usage(usage.as_ref());
                 self.undo_lines(changes.as_ref(), undo.as_ref());
             }
-            Event::TurnInterrupted { changes, undo, .. } => {
+            Event::TurnInterrupted { changes, undo, usage, .. } => {
                 self.note("interrupted");
+                self.usage(usage.as_ref());
                 self.undo_lines(changes.as_ref(), undo.as_ref());
             }
-            Event::TurnFailed { error, changes, undo, .. } => {
+            Event::TurnFailed { error, changes, undo, usage, .. } => {
                 self.note(&format!("failed: {}", format::one_line(&error.message)));
+                self.usage(usage.as_ref());
                 self.undo_lines(changes.as_ref(), undo.as_ref());
             }
             Event::TurnCancelled { .. } => self.note("cancelled when the daemon restarted"),
@@ -655,6 +689,13 @@ impl<'a> Transcript<'a> {
                 self.note(&format!("took back {what} that the model did not read"));
             }
             _ => {}
+        }
+    }
+
+    /// With `--verbose`, the tokens of a turn that carries its usage (DV10).
+    fn usage(&mut self, usage: Option<&Usage>) {
+        if let Some(usage) = usage.filter(|_| self.verbose) {
+            self.dim_lines(&[format::usage_line(usage)]);
         }
     }
 
@@ -766,8 +807,9 @@ impl<'a> Transcript<'a> {
     }
 
     fn flush(&mut self) {
-        if let Some((_, _, text)) = self.partial.take() {
+        if let Some((turn, index, text)) = self.partial.take() {
             self.message(&text);
+            self.printed = Some((turn, index, text));
         }
     }
 
