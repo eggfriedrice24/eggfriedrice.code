@@ -544,6 +544,7 @@ async fn an_interrupt_takes_back_unread_steers_and_resends_with_the_values_it_na
     params.resend_as = Some(Box::new(LateSteer::Queue {
         context: Some(context.clone()),
         last_command: None,
+        recent_commands: Vec::new(),
         settings: settings.clone(),
     }));
     let command_id = params.command_id;
@@ -620,6 +621,7 @@ async fn a_full_queue_does_not_stop_an_interrupt_that_resends_steers() {
     params.resend_as = Some(Box::new(LateSteer::Queue {
         context: Some(ShellContext::new(&h.cwd)),
         last_command: None,
+        recent_commands: Vec::new(),
         settings: TurnSettings::default(),
     }));
     let result = h.handle.interrupt(params, Origin::Shell).await.expect("interrupted");
@@ -666,6 +668,7 @@ async fn settings_that_cannot_work_give_way_to_the_turns_own_when_steers_go_agai
     params.resend_as = Some(Box::new(LateSteer::Queue {
         context: Some(ShellContext::new(&h.cwd)),
         last_command: None,
+        recent_commands: Vec::new(),
         settings: gone,
     }));
     let result = h.handle.interrupt(params, Origin::Shell).await.expect("interrupted");

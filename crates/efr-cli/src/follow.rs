@@ -1149,6 +1149,7 @@ impl Follower<'_> {
             if_late: Some(LateSteer::Queue {
                 context: Some(compose.context),
                 last_command: compose.last_command.map(LastCommand::into_string),
+                recent_commands: Vec::new(),
                 settings: compose.settings,
             }),
         });
@@ -1195,6 +1196,7 @@ impl Follower<'_> {
             text: text.clone(),
             context: Some(compose.context),
             last_command: compose.last_command.map(LastCommand::into_string),
+            recent_commands: Vec::new(),
             settings: compose.settings,
         });
         let answer = self.send::<PromptSendResult>(method).await.inspect_err(|_| {
@@ -1255,6 +1257,7 @@ impl Follower<'_> {
             Box::new(LateSteer::Queue {
                 context: Some(compose.context),
                 last_command: compose.last_command.map(LastCommand::into_string),
+                recent_commands: Vec::new(),
                 settings: compose.settings,
             })
         });

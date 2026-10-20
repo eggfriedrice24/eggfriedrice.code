@@ -479,3 +479,10 @@ No protocol version has shipped yet.
 - Before version 1 ships: each `turns` entry of a `turn.undo` result gains `full`
   (false when absent): the turn ran in full mode, and `auto` is true too then.
   `turn_undo_result.json` now sets it.
+- Version 1, additive: the recent commands of a terminal. `prompt.send` and the
+  `queue` object of `turn.steer` `if_late` and `turn.interrupt` `resend_as` gain
+  `recent_commands` (absent when empty): the terminal's recent command lines, oldest
+  first, each with `command` and the optional `status`, `cwd`, `ended_at` and
+  `duration_ms`. Like `last_command`, they reach only the turn's preamble: never a
+  `shell_context`, an event or the store. `prompt_send_params.json`,
+  `turn_steer_params.json` and `turn_interrupt_params.json` now set them.

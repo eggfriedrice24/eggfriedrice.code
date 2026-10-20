@@ -89,6 +89,7 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
                 text: "why is the disk full".to_owned(),
                 context: None,
                 last_command: None,
+                recent_commands: Vec::new(),
                 settings: TurnSettings::default(),
             }),
             "prompt.send",

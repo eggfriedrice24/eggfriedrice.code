@@ -95,7 +95,7 @@ pub use methods::models_list::{
 };
 pub use methods::presence_set::{PresenceSet, PresenceSetResult};
 pub use methods::projects_list::{ProjectInfo, ProjectsList, ProjectsListResult};
-pub use methods::prompt_send::{PromptSend, PromptSendResult};
+pub use methods::prompt_send::{PromptSend, PromptSendResult, RecentCommand};
 pub use methods::prompt_withdraw::{
     PromptWithdraw, PromptWithdrawResult, WithdrawTarget, WithdrawnPrompt,
 };

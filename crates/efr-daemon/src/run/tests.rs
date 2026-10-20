@@ -47,6 +47,7 @@ mod daemon {
             text: text.to_owned(),
             context: Some(context),
             last_command: None,
+            recent_commands: Vec::new(),
             settings: efr_protocol::TurnSettings::default(),
         }
     }

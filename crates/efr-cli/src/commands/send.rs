@@ -215,6 +215,7 @@ pub(crate) async fn send_prompt(
         text: prompt.text,
         context: Some(prompt.context),
         last_command: prompt.last_command.map(LastCommand::into_string),
+        recent_commands: Vec::new(),
         settings: prompt.settings,
     });
     Ok(client.call(method).await?)

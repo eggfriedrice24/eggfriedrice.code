@@ -249,7 +249,7 @@ async fn enter_steers_and_the_steer_waits_until_a_model_call_reads_it() {
         assert_eq!(params.conversation_id, conversation());
         assert_eq!(params.turn_id, Some(turn()));
         assert_eq!(params.text, "use the release build");
-        let Some(LateSteer::Queue { context, last_command, settings }) = params.if_late else {
+        let Some(LateSteer::Queue { context, last_command, settings, .. }) = params.if_late else {
             panic!("a late steer is queued: {:?}", params.if_late);
         };
         assert_eq!(context.and_then(|context| context.tty).as_deref(), Some("/dev/pts/7"));
@@ -358,6 +358,7 @@ async fn esc_interrupts_resends_unread_steers_and_pulls_back_queued_prompts() {
         let resend_as = LateSteer::Queue {
             context: Some(compose.context),
             last_command: Some("cargo test".to_owned()),
+            recent_commands: Vec::new(),
             settings: compose.settings,
         };
         assert_eq!(params.resend_as, Some(Box::new(resend_as)), "this terminal's values");

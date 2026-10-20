@@ -36,7 +36,7 @@ Where things are:
 | `src/event.rs` | `Event`, `EventEnvelope`, `ApprovalDecision` (with `AllowAlways` from phase E), `AlwaysSaved` and `NotSavedReason` (what became of the rule of an `AllowAlways` answer; each reads an unknown value as `Unknown`), `InputWait`, `Usage`, `TurnStop` and `StopReason` (why the model of a completed turn stopped) |
 | `src/method.rs` | `Method` and `ScopeName::for_method` |
 | `src/methods.rs` | the types that several methods share: `PageCursor`, `Base64Bytes`, `ConfigFileError` |
-| `src/methods/*.rs` | one file per method: its params, and its result or stream item; `turn_steer.rs` also holds `LateSteer`, `turn_interrupt.rs` `ResentSteers` and `prompt_withdraw.rs` `WithdrawTarget` and `WithdrawnPrompt` |
+| `src/methods/*.rs` | one file per method: its params, and its result or stream item; `prompt_send.rs` also holds `RecentCommand` (one of the terminal's recent command lines, which travel like `last_command`), `turn_steer.rs` `LateSteer`, `turn_interrupt.rs` `ResentSteers` and `prompt_withdraw.rs` `WithdrawTarget` and `WithdrawnPrompt` |
 | `src/secret_text.rs` | `SecretText`, typed text such as a password: a plain string on the wire, redacted in `Debug`; its own buffer and each clone's are zeroed on drop, copies made outside it are not |
 | `src/frame.rs` | `ClientFrame`, `ServerFrame` |
 | `src/framing.rs` | `encode` and `Decoder`: the 4-byte big-endian length prefix, 16 MiB cap |
@@ -91,7 +91,8 @@ efrd must:
 2. `turn.steer` with `if_late: {kind: "queue", ...}`: in the actor step that finds the
    steer late, record `prompt_queued` with a new `turn_id`, the steer's `command_id`
    and text, the origin of the connection, and the `context` and `settings` of
-   `if_late`. Hand `last_command` to the turn in memory only, as `prompt.send` does.
+   `if_late`. Hand `last_command` and `recent_commands` to the turn in memory only, as
+   `prompt.send` does.
    The prompt waits behind the queue, or starts at once when no turn runs. The result
    has `queued: true`, the new `turn_id` and the seq of `prompt_queued`. A steer that is
    not late ignores `if_late`.
@@ -121,7 +122,7 @@ efrd must:
      a new `turn_id`, the texts joined with `\n` in seq order, `steers` set to those
      seqs, the origin of the connection and the interrupt's `command_id`. Its
      `context` and `settings` come from `resend_as` (`{kind: "queue", context,
-     last_command, settings}`, as `if_late`); without `resend_as`, from the interrupted
+     last_command, recent_commands, settings}`, as `if_late`); without `resend_as`, from the interrupted
      turn's own `prompt_queued`. This prompt runs next, before the prompts that wait in
      the queue.
    - `withdraw_steers`: take the listed seqs that are unread `turn_steered` events of
@@ -140,7 +141,8 @@ efrd must:
 `efr` must:
 
 1. Enter: send `turn.steer` with the followed `turn_id` and
-   `if_late: {kind: "queue", context, last_command, settings}`, with the values that
+   `if_late: {kind: "queue", context, last_command, recent_commands, settings}`, with
+   the values that
    `prompt.send` from this terminal would carry. With `queued: false`, keep the
    result's `seq` as an unread steer. With `queued: true`, keep the result's `turn_id`
    as a queued prompt.
