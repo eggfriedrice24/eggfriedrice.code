@@ -995,6 +995,40 @@ async fn held_names_the_loosening_keys() {
 }
 
 #[tokio::test]
+async fn gate_off_applies_while_a_change_is_held() {
+    let dirs = TestDirs::new().unwrap();
+    let clock = TestClock::new();
+    let (daemon, reloads, full) = holding(&dirs, &clock).await;
+    let gated = "[permissions]\nallow_full = true\nmode = \"full\"\n";
+    std::fs::write(config_file(&dirs), gated).unwrap();
+    assert!(reloads.request("file").await.unwrap().applied, "no full work runs yet");
+    full.begin_turn(turn(2));
+    std::fs::write(config_file(&dirs), format!("{gated}\n{ALLOW_RULE}")).unwrap();
+    assert!(!reloads.request("file").await.unwrap().applied, "a full turn's rule is held");
+
+    // The user turns full mode off in the editor, while the rule is still in the file.
+    let off = format!(
+        "[permissions]\nallow_full = false\nmode = \"auto\"\n\n{ALLOW_RULE}\n[undo]\n\
+         enabled = false\n[snapshot]\nenabled = false\n"
+    );
+    std::fs::write(config_file(&dirs), off).unwrap();
+    let file = reloads.request("file").await.unwrap();
+    let user = reload(&daemon.socket).await;
+
+    assert!(!file.applied, "{file:?}");
+    assert_eq!(user.error.unwrap().message, super::HELD_WHILE_FULL);
+    let settings = Arc::clone(&daemon.settings.borrow());
+    assert!(!settings.permissions.allow_full, "the gate goes off at once");
+    assert_eq!(settings.permissions.mode, Mode::Auto);
+    assert!(!settings.undo.enabled && !settings.snapshot.enabled);
+    assert!(settings.permissions.rules.rules().is_empty(), "the rule stays held");
+    assert_eq!(held(&daemon.socket).await, held_of(&["permissions.rules"]));
+    let status = status(&daemon.socket).await;
+    assert!(!status.full_mode.unwrap().allowed, "{status:?}");
+    daemon.stop().await;
+}
+
+#[tokio::test]
 async fn held_clears_when_the_file_no_longer_loosens() {
     let dirs = TestDirs::new().unwrap();
     let clock = TestClock::new();

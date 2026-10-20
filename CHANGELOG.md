@@ -488,7 +488,8 @@ into the GitHub release notes, and it stops when the section is missing.
   loosens permissions, and keeps it held after: `efr status` names what loosens, and
   your terminal hears it once. If you did not make the change, take it out of the file;
   then run `efr config reload`. `efr config reload` does not load such a change while
-  full work runs.
+  full work runs. A change that turns full mode off, such as
+  `permissions.allow_full = false`, applies at once, also while another change is held.
 - Note: an older `efr` cannot read the history of a full turn. efr and efrd ship
   together, so update both. `docs/permissions.md`, "Full mode", marks each floor of
   full mode as one that holds for every process or only for what the command line
