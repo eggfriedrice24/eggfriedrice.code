@@ -58,7 +58,7 @@ pub(crate) const NOTE_SPECIAL: &str = "empty directories and special files do no
 pub(crate) const NOTE_UNITS: &str =
     "run systemctl --user daemon-reload so that systemd reads the units again";
 
-/// What the result says before the undo of a turn that did not run in `auto`.
+/// What the result says before the undo of a turn that did not run in `auto` or `full`.
 pub(crate) const NOTE_MANUAL: &str = "writes outside the project are not covered in a manual turn";
 
 /// What the result says after a write error.
@@ -159,7 +159,8 @@ impl DaemonToolbox {
         };
         let candidate = request.candidates.iter().find(|candidate| candidate.turn_id == plan.turn);
         // NOTE: in `manual` and `cautious` a line runs in the user's shell, and no home
-        // copy covers what it writes outside the roots (plan PB10, PB33).
+        // copy covers what it writes outside the roots (plan PB10, PB33). A turn of
+        // `full` copies home files first as one of `auto` does (DF10).
         let auto = turns.iter().any(|refs| refs.turn == plan.turn && refs.auto)
             || self.auto_turns().contains(&plan.turn);
         if !plan.redo && !auto {
@@ -738,7 +739,7 @@ impl DaemonToolbox {
         }
     }
 
-    /// The turns that ran in `auto` since efrd started.
+    /// The turns that ran in `auto` or `full` since efrd started.
     fn auto_turns(&self) -> HashSet<TurnId> {
         self.auto_turns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }

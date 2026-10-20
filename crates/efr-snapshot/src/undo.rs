@@ -184,8 +184,8 @@ pub struct TurnRefs {
     /// An undo of the turn that began to write and did not end: the next undo of the
     /// turn resumes it.
     pub started_undo: Option<String>,
-    /// True when the turn ran in `auto`: its first snapshot of a root records the mode,
-    /// and efrd copies home files only in `auto`.
+    /// True when the turn ran in `auto` or `full`: its first snapshot of a root records
+    /// the mode, and efrd copies home files only in those modes.
     pub auto: bool,
 }
 
@@ -510,7 +510,8 @@ impl Snapshots {
                     if !refs.auto
                         && let Ok(info) = self.commit_info(store, pre).await
                     {
-                        refs.auto = info.meta.mode.as_deref() == Some("auto");
+                        // NOTE: a `full` turn copies home files first as `auto` does.
+                        refs.auto = matches!(info.meta.mode.as_deref(), Some("auto" | "full"));
                     }
                 }
                 refs.undone |= has.undone.is_some();
@@ -520,7 +521,7 @@ impl Snapshots {
             for (turn, has) in &held.turns {
                 let refs = refs_of(&mut turns, *turn);
                 refs.home |= !has.home.is_empty();
-                // NOTE: efrd copies home files only for the approved exits of `auto`.
+                // NOTE: efrd copies home files only for the exits of `auto` and `full`.
                 refs.auto |= !has.home.is_empty();
                 refs.undone |= has.undone.is_some();
             }

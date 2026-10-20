@@ -24,8 +24,8 @@ use efr_config::{IgnoredFiles, Settings};
 use efr_conversation::{CallContext, SnapshotRecord};
 use efr_permissions::{CoverAsk, Coverage, Engine};
 use efr_protocol::{
-    ChangeKind, FileChange, FileChanges, MAX_NOT_COVERED, RootFiles, Scope, SnapshotPhase, TurnId,
-    TurnUndoInfo,
+    ChangeKind, FileChange, FileChanges, MAX_NOT_COVERED, Mode, RootFiles, Scope, SnapshotPhase,
+    TurnId, TurnUndoInfo,
 };
 use efr_sandbox::WorktreeCheck;
 use efr_scope::Home;
@@ -51,7 +51,8 @@ pub(crate) struct CallSnapshots {
     home: Home,
     /// efr's state root, which holds the worktree records; `None` trusts no git dir.
     state: Option<PathBuf>,
-    /// The roots that each running turn snapshotted, and whether it runs in `auto`.
+    /// The roots that each running turn snapshotted, and whether it runs in `auto` or
+    /// `full`.
     turns: Arc<Mutex<HashMap<TurnId, Seen>>>,
 }
 
@@ -60,7 +61,7 @@ pub(crate) struct CallSnapshots {
 struct Seen {
     /// Each root with the prefix of its paths.
     roots: Vec<(PathBuf, String)>,
-    /// True when a call of the turn ran in `auto`.
+    /// True when a call of the turn ran in `auto` or `full`.
     auto: bool,
 }
 
@@ -69,7 +70,8 @@ struct Seen {
 pub(crate) struct Ended {
     /// What the store found.
     pub(crate) end: TurnEnd,
-    /// True when a call of the turn ran in `auto`.
+    /// True when a call of the turn ran in `auto` or `full`: its calls copy home files
+    /// first, so undo covers them outside the roots.
     pub(crate) auto: bool,
     /// The kept roots of the turn: the name that a person sees, the prefix of its paths
     /// and its canonical path.
@@ -128,12 +130,14 @@ impl CallSnapshots {
             shown.push((path, prefix));
         }
         let mut roots = self.undo_roots(shown).await;
-        if call.sandboxed() {
-            roots = roots.into_iter().map(|root| root.with_mode("auto")).collect();
+        // NOTE: the mode of the turn's first commit of a root tells a later efrd that
+        // undo covers what the turn wrote outside the roots (DF10).
+        if let Some(mode) = predicted_mode(call) {
+            roots = roots.into_iter().map(|root| root.with_mode(mode)).collect();
         }
         let mut turns = self.turns.lock().unwrap_or_else(PoisonError::into_inner);
         let seen = turns.entry(call.turn_id).or_default();
-        seen.auto |= call.sandboxed();
+        seen.auto |= call.predicts();
         for root in &roots {
             if !seen.roots.iter().any(|(path, _)| path == root.path()) {
                 seen.roots.push((root.path().to_path_buf(), root.shown().to_owned()));
@@ -437,6 +441,16 @@ impl CallSnapshots {
 }
 
 /// The limits of `settings`, also when `snapshot.enabled` is off.
+/// The mode that the snapshot roots of `call` record: `auto` or `full`, the modes whose
+/// calls copy home files first; `None` for another mode.
+pub(crate) fn predicted_mode(call: &CallContext) -> Option<&'static str> {
+    match call.mode {
+        Mode::Auto => Some("auto"),
+        Mode::Full => Some("full"),
+        _ => None,
+    }
+}
+
 fn limits_of(settings: &Settings) -> Limits {
     let snapshot = &settings.snapshot;
     Limits {

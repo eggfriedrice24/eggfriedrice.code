@@ -73,7 +73,7 @@ impl Root {
         self
     }
 
-    /// The root with the mode of the turn (`auto`, `cautious`, `manual`), which the
+    /// The root with the mode of the turn (`auto`, `full`, `cautious`, `manual`), which the
     /// turn's first commit of the root records.
     pub fn with_mode(mut self, mode: impl Into<String>) -> Self {
         self.mode = Some(mode.into());
