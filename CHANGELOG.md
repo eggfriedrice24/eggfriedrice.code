@@ -385,6 +385,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `xdg-dbus-proxy` for it; without it, `efr status` shows `bus filter off`, and these
   queries go to the reviewer as before, with no warning unless you set
   `dbus.proxy = true` yourself. `dbus.proxy = false` turns the filter off.
+- The daemon's log names the providers and the vt100 screen by their new module paths,
+  because four small crates are now modules of other crates. A log line of the OpenAI
+  provider has the target `efr_providers::openai::...` instead of
+  `efr_provider_openai::...`. The same is true for the Anthropic provider
+  (`efr_providers::anthropic`, before `efr_provider_anthropic`) and the vt100 screen
+  (`efr_screen::vt100`, before `efr_screen_vt100`). If your `EFR_LOG` or the `log` key
+  names an old target, change it.
 
 ### Fixed
 
