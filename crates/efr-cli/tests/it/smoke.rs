@@ -1,8 +1,8 @@
 //! The built `efr` binary against a real daemon: `efr --help`, `efr status`, an
 //! `efr send` round trip, the model list and turn settings as `efr models`,
-//! `efr settings`, `efr send` and `efr config reload` meet them, and `efr undo` of a
-//! turn that wrote a file, off a terminal and on one, with a `TestDaemon` serving in
-//! this process.
+//! `efr settings`, `efr send` and `efr config reload` meet them, `efr undo` of a turn
+//! that wrote a file, off a terminal and on one, and `efr send --mode full` with the
+//! undo of its write outside the project, with a `TestDaemon` serving in this process.
 //!
 //! The process gets a cleared environment that names only the test daemon's temporary
 //! roots, so it never sees the real home, config or runtime directory. The daemon's
@@ -612,5 +612,48 @@ async fn efr_jobs_stop_works() {
     assert_eq!(unknown.status.code(), Some(1), "{}", text(&unknown.stderr));
     drop(follow);
     drop(client);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn send_in_full_mode_then_undo_takes_back_a_write_outside_the_project() {
+    let dirs = std::sync::Arc::new(efr_test_support::TestDirs::new().unwrap());
+    let notes = dirs.home().join("notes.txt");
+    std::fs::write(&notes, "old\n").unwrap();
+    let server = ResponsesServer::start().await;
+    let input = serde_json::json!({ "path": notes, "content": "new\n" });
+    server.push(ResponsesAnswer::tool_call("call_write_1", "write_file", &input));
+    server.push(ResponsesAnswer::text("Done."));
+    // NOTE: the gate key in the file too, so the CLI's own config load sees it.
+    std::fs::create_dir_all(dirs.dirs().config()).unwrap();
+    std::fs::write(dirs.dirs().config().join("config.toml"), "[permissions]\nallow_full = true\n")
+        .unwrap();
+    let daemon = TestDaemon::builder()
+        .dirs(std::sync::Arc::clone(&dirs))
+        .responses(&server)
+        .config(|config| config.permissions.allow_full = true)
+        .start()
+        .await
+        .unwrap();
+    let context = serde_json::json!({ "pwd": daemon.cwd(), "tty": TTY }).to_string();
+
+    let sent = run({
+        let mut command = efr(&daemon);
+        command.args(["send", "--mode", "full", "--context-json", &context, "--", "new notes"]);
+        command
+    })
+    .await;
+
+    assert!(sent.status.success(), "{}", text(&sent.stderr));
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "new\n", "it ran with no question");
+    let undone = run({
+        let mut command = efr(&daemon);
+        command.args(["undo", "--yes"]);
+        command
+    })
+    .await;
+    assert!(undone.status.success(), "{}", text(&undone.stderr));
+    assert!(text(&undone.stdout).contains("undone: "), "{}", text(&undone.stdout));
+    assert_eq!(std::fs::read_to_string(&notes).unwrap(), "old\n");
     daemon.stop().await.unwrap();
 }
