@@ -36,6 +36,7 @@ mod corpus;
 mod denials;
 mod drafts;
 mod ending;
+mod full;
 mod jobs;
 mod review;
 mod sandbox;

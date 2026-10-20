@@ -4,13 +4,15 @@
 use std::sync::Arc;
 
 use efr_permissions::Requirements;
-use efr_protocol::{ApprovalDecision, ErrorCode, Event, JudgeKind, PauseReason, TurnId, Verdict};
+use efr_protocol::{
+    ApprovalDecision, ErrorCode, Event, JudgeKind, Mode, PauseReason, TurnId, Verdict,
+};
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 
 use super::review::{judgements, reviewed, shell};
 use crate::JudgeOutcome;
-use crate::exit::REFUSALS_STOPPED;
+use crate::exit::refusals_stopped;
 use crate::testing::{FakeJudge, Harness, Script, allows, denies, unanswered};
 
 /// Runs a turn of the setup of `judge` whose model makes `calls` after the user said
@@ -205,7 +207,7 @@ async fn classifier_allow_keeps_floor_count() {
     let Event::TurnFailed { error, .. } = end else {
         panic!("three floor refusals stop the turn: {end:?}");
     };
-    assert_eq!(error.message, REFUSALS_STOPPED);
+    assert_eq!(error.message, refusals_stopped(Mode::Auto));
     assert_eq!(
         judgements(&h).await,
         vec![

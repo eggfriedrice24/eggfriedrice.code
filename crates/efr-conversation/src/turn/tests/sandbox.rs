@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 use crate::ConversationError;
 use crate::approvals;
-use crate::exit::{EXIT_DENIED, REFUSALS_STOPPED};
+use crate::exit::{EXIT_DENIED, refusals_stopped};
 use crate::preamble::LiveState;
 use crate::testing::{
     Harness, Setup, answer, edited, expect_request, find, planted, request, result_message,
@@ -402,7 +402,7 @@ async fn floor_refusals_still_stop_turn_at_three() {
         panic!("the turn stops: {end:?}");
     };
     assert_eq!(error.code, ErrorCode::Forbidden);
-    assert_eq!(error.message, REFUSALS_STOPPED);
+    assert_eq!(error.message, refusals_stopped(Mode::Auto));
     // The text of efr's auto spec, section 14.7.
     assert_eq!(
         error.message,
