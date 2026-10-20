@@ -29,7 +29,7 @@ fn daemon_and_terminal_variables_are_removed() {
         &config(&[
             ("NOTIFY_SOCKET", "/run/systemd/notify"),
             ("JOURNAL_STREAM", "8:1234"),
-            ("EFR_DATA_DIR", "/tmp/d"),
+            ("EFR_SCREEN", "vt100"),
             ("EFR_LOG", "debug"),
             ("GHOSTTY_RESOURCES_DIR", "/usr/share/ghostty"),
             ("TERM_PROGRAM", "ghostty"),
@@ -66,6 +66,38 @@ fn daemon_and_terminal_variables_are_removed() {
             "ZDOTDIR"
         ],
         "{env:?}"
+    );
+}
+
+#[test]
+fn efr_roots_stay_for_commands_outside_the_sandbox() {
+    let env = shell_env(
+        &config(&[
+            ("EFR_HOME", "/srv/efr"),
+            ("EFR_RUNTIME_DIR", "/srv/efr/run"),
+            ("EFR_DATA_DIR", "/srv/efr/data"),
+            ("EFR_CONFIG_DIR", "/srv/efr/config"),
+            ("EFR_STATE_DIR", "/srv/efr/state"),
+            ("EFR_LOG", "debug"),
+            ("EFR_MODE", "auto"),
+        ]),
+        Path::new("/"),
+        true,
+    );
+    let efr: Vec<(&str, &str)> = env
+        .iter()
+        .filter(|(name, _)| name.starts_with("EFR_") && *name != "EFR_HIDDEN_SHELL")
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    assert_eq!(
+        efr,
+        [
+            ("EFR_CONFIG_DIR", "/srv/efr/config"),
+            ("EFR_DATA_DIR", "/srv/efr/data"),
+            ("EFR_HOME", "/srv/efr"),
+            ("EFR_RUNTIME_DIR", "/srv/efr/run"),
+            ("EFR_STATE_DIR", "/srv/efr/state"),
+        ]
     );
 }
 

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use efr_protocol::ConversationId;
+use efr_stdx::env::Var;
 
 use crate::ShellConfig;
 
@@ -35,6 +36,18 @@ pub(crate) const SCRUBBED_NAMES: &[&str] = &[
 /// terminal emulators and multiplexers.
 pub(crate) const SCRUBBED_PREFIXES: &[&str] =
     &["EFR_", "_EFR_", "GHOSTTY_", "KITTY_", "WEZTERM_", "ITERM_", "KONSOLE_", "ZELLIJ"];
+
+/// The variables of [`SCRUBBED_PREFIXES`] that stay: the ones that place efr's roots.
+/// With them, an `efr` that a command outside the sandbox runs reaches the daemon that
+/// runs the shell, never the one of the default runtime root (DV47). A contained call
+/// never sees them: the sandbox's filter drops every `EFR_` name.
+pub(crate) const KEPT_ROOTS: [&str; 5] = [
+    Var::Home.name(),
+    Var::RuntimeDir.name(),
+    Var::DataDir.name(),
+    Var::ConfigDir.name(),
+    Var::StateDir.name(),
+];
 
 /// Where the shim finds the user's own `ZDOTDIR`.
 pub(crate) const USER_ZDOTDIR: &str = "_EFR_USER_ZDOTDIR";
@@ -145,7 +158,8 @@ pub(crate) fn sandbox_env(
 fn is_scrubbed(name: &str) -> bool {
     efr_stdx::process::SCRUBBED_ENV.contains(&name)
         || SCRUBBED_NAMES.contains(&name)
-        || SCRUBBED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+        || (SCRUBBED_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+            && !KEPT_ROOTS.contains(&name))
 }
 
 #[cfg(test)]
