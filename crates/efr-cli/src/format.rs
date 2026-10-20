@@ -14,7 +14,7 @@ use std::time::Duration;
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ApprovalDecision, CatalogOrigin, CatalogStatus,
     ConfigFileError, ContextUse, ConversationStatus, ConversationsListResult, EffectiveSettings,
-    Origin, StopReason, TurnStop, Usage,
+    FullModeStatus, HeldConfig, Mode, Origin, StopReason, TurnStop, Usage,
 };
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
@@ -944,8 +944,15 @@ pub(crate) fn turn_interrupted(
     }
 }
 
-/// `efr status`: the daemon's identity and health, one fact per line.
-pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) -> String {
+/// `efr status`: the daemon's identity and health, one fact per line. `file_mode` is
+/// the default mode that `config.toml` sets, as `efr` reads the file; the daemon does
+/// not report it, and a row shows it only when it is `full`.
+pub(crate) fn status(
+    status: &AdminStatusResult,
+    socket: &Path,
+    now: Timestamp,
+    file_mode: Option<Mode>,
+) -> String {
     let mut out = String::new();
     let mut row = |key: &str, value: &str| {
         let _ = writeln!(out, "{key:<14} {value}");
@@ -1005,6 +1012,22 @@ pub(crate) fn status(status: &AdminStatusResult, socket: &Path, now: Timestamp) 
         if !config.restart_needed.is_empty() {
             row("restart needed", &one_line(&config.restart_needed.join(", ")));
         }
+        if let Some(held) = &config.held {
+            row("config held", &held_text(held));
+        }
+    }
+    // NOTE: a daemon from before full mode reports none, so there is nothing to show.
+    if let Some(full) = &status.full_mode {
+        row("full mode", &full_mode_words(full));
+    }
+    if file_mode == Some(Mode::Full) {
+        let refused = status.full_mode.as_ref().is_some_and(|full| full.refused.is_some());
+        let words = if refused {
+            "full; efrd cannot run it, so a turn that names no mode runs as auto"
+        } else {
+            "full"
+        };
+        row("default mode", words);
     }
     // NOTE: a daemon from before the sandbox reports none, so there is nothing to show.
     if let Some(sandbox) = &status.sandbox {
@@ -1042,6 +1065,27 @@ pub(crate) fn catalog(catalog: &CatalogStatus, now: Timestamp) -> String {
     }
 }
 
+/// The `full mode` row of `efr status`: `allowed`, `off (permissions.allow_full is
+/// false)`, or `refused (<why>)` when the config allows it but efrd cannot run it.
+pub(crate) fn full_mode_words(full: &FullModeStatus) -> String {
+    match (full.allowed, full.refused) {
+        (false, _) => "off (permissions.allow_full is false)".to_owned(),
+        (true, Some(refusal)) => format!("refused ({})", refusal.describe()),
+        (true, None) => "allowed".to_owned(),
+    }
+}
+
+/// A change of `config.toml` that efrd holds because it loosens permissions and came
+/// while full mode ran, with the keys that loosen and what to do.
+pub(crate) fn held_text(held: &HeldConfig) -> String {
+    let keys: Vec<String> = held.loosens.iter().map(|key| one_line(key)).collect();
+    format!(
+        "config.toml changed while a full turn ran, and the change loosens {}. If you did not \
+         make this change, take it out of the file. Then run efr config reload.",
+        keys.join(", ")
+    )
+}
+
 /// A config file's error as one line: the message, then its key and place.
 pub(crate) fn config_error(error: &ConfigFileError) -> String {
     let place = config_error_place(error);
@@ -1068,10 +1112,15 @@ pub(crate) fn config_error_place(error: &ConfigFileError) -> String {
 }
 
 /// The outcome of a reload, for `efr config reload` and the commands that change the
-/// file.
-pub(crate) fn reloaded(result: &AdminConfigReloadResult) -> String {
+/// file. `held` is true when efrd did not apply a valid file because it loosens
+/// permissions while or after full mode ran: the error then says why, and the file has
+/// no error.
+pub(crate) fn reloaded(result: &AdminConfigReloadResult, held: bool) -> String {
     let mut out = match (&result.error, result.applied) {
         (_, true) => "config.toml reloaded; new turns use it\n".to_owned(),
+        (Some(error), false) if held => {
+            format!("config.toml is held; the old settings stay: {}\n", one_line(&error.message))
+        }
         (Some(error), false) => {
             format!("config.toml has an error; the old settings stay: {}\n", config_error(error))
         }

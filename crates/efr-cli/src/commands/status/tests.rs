@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use efr_protocol::{
     AdminStatusResult, BusProxyOff, CacheMode, ConfigFileError, ConfigStatus, ErrorBody, ErrorCode,
-    LoginKind, Method, NetworkMode, Origin, ProviderStatus, SandboxStatus,
+    FullModeStatus, FullRefusal, HeldConfig, LoginKind, Method, NetworkMode, Origin,
+    ProviderStatus, SandboxStatus,
 };
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
@@ -10,6 +11,7 @@ use pretty_assertions::assert_eq;
 use crate::context::Context;
 use crate::error::Exit;
 use crate::run;
+use crate::settings::Settings;
 use crate::testing::{InstantClock, TestEnv, capture, command, now};
 use std::sync::Arc;
 
@@ -471,4 +473,91 @@ async fn a_refused_key_shows_when_it_was_refused_and_the_active_one_gets_a_warni
     let stdout = captured.stdout();
     let rows: Vec<&str> = stdout.lines().filter(|line| line.starts_with("provider")).collect();
     insta::assert_snapshot!(format!("{}\n---\n{}", rows.join("\n"), captured.stderr()));
+}
+
+/// The rows of `efr status` after the `config` row, for a daemon that reports
+/// `full_mode` and `held`, with a client whose `config.toml` holds `config`.
+async fn full_rows(
+    full_mode: Option<FullModeStatus>,
+    held: Option<HeldConfig>,
+    config: Option<&str>,
+) -> String {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let settings = match config {
+        Some(text) => Settings::parse(&env.dirs.config().join("config.toml"), text),
+        None => Settings::default(),
+    };
+    assert!(settings.warnings.is_empty(), "{:?}", settings.warnings);
+    let ctx = Context { settings, ..env.context() };
+    let (mut out, captured) = capture();
+    let mut status = result();
+    status.full_mode = full_mode;
+    status.config = Some(ConfigStatus {
+        path: PathBuf::from("/c/efr/config.toml"),
+        exists: true,
+        symlink_target: None,
+        reload_error: None,
+        restart_needed: Vec::new(),
+        held,
+    });
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = conn.request().await;
+        conn.reply(id, &status).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["status"]);
+    let (exit, ()) = tokio::join!(Box::pin(run::run(&line, &ctx, &mut out)), script);
+    assert_eq!(exit, Exit::Success);
+    let stdout = captured.stdout();
+    let at = stdout.find("\nconfig ").unwrap();
+    stdout[at + 1..].lines().skip(1).map(|line| format!("{line}\n")).collect()
+}
+
+#[tokio::test]
+async fn efr_status_shows_the_full_mode_gate_on_off_and_refused_and_a_held_reload() {
+    let on = FullModeStatus { allowed: true, refused: None };
+    assert_eq!(full_rows(Some(on), None, None).await, "full mode      allowed\n");
+    let off = FullModeStatus { allowed: false, refused: None };
+    assert_eq!(
+        full_rows(Some(off), None, None).await,
+        "full mode      off (permissions.allow_full is false)\n"
+    );
+    let root = FullModeStatus { allowed: true, refused: Some(FullRefusal::Root) };
+    assert_eq!(
+        full_rows(Some(root), None, None).await,
+        "full mode      refused (efrd runs as root)\n"
+    );
+    // A daemon from before full mode says nothing about it.
+    assert_eq!(full_rows(None, None, None).await, "");
+    let held = HeldConfig {
+        loosens: vec!["permissions.rules".to_owned(), "permissions.allow_full".to_owned()],
+    };
+    assert_eq!(
+        full_rows(Some(on), Some(held), None).await,
+        "config held    config.toml changed while a full turn ran, and the change loosens \
+         permissions.rules, permissions.allow_full. If you did not make this change, take it \
+         out of the file. Then run efr config reload.\n\
+         full mode      allowed\n"
+    );
+}
+
+#[tokio::test]
+async fn efr_status_shows_a_default_mode_of_full_from_the_config_file() {
+    const FULL: &str = "[permissions]\nmode = \"full\"\nallow_full = true\n";
+    let on = FullModeStatus { allowed: true, refused: None };
+    assert_eq!(
+        full_rows(Some(on), None, Some(FULL)).await,
+        "full mode      allowed\ndefault mode   full\n"
+    );
+    let undo_off = FullModeStatus { allowed: true, refused: Some(FullRefusal::UndoOff) };
+    assert_eq!(
+        full_rows(Some(undo_off), None, Some(FULL)).await,
+        "full mode      refused (undo.enabled is false, so efr undo cannot revert the turn)\n\
+         default mode   full; efrd cannot run it, so a turn that names no mode runs as auto\n"
+    );
+    // Another default mode, with the gate on, adds no row.
+    let auto = "[permissions]\nmode = \"auto\"\nallow_full = true\n";
+    assert_eq!(full_rows(Some(on), None, Some(auto)).await, "full mode      allowed\n");
 }

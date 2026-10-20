@@ -268,6 +268,16 @@ into the GitHub release notes, and it stops when the section is missing.
   its result, such as `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`.
 - The Arch packages name `xdg-dbus-proxy` as an optional dependency, for the bus
   filter.
+- `,mode full` and `efr settings --mode full` ask efrd first. When `config.toml` does
+  not allow full mode, or efrd cannot run it, they fail with the reason, and the
+  terminal keeps its old mode. Else three lines say what full mode does, what efr still
+  reads and asks, and that a script or a program that a line starts is not read.
+- `efr status` shows `full mode allowed`, `full mode off (permissions.allow_full is
+  false)` or `full mode refused (<reason>)`, and `default mode full` when
+  `config.toml` makes full mode the default. When efrd holds a change of
+  `config.toml` that loosens permissions, `efr status` shows `config held` with the
+  keys that loosen, and `efr config reload` says `config.toml is held; the old
+  settings stay` with the reason.
 
 ### Changed
 

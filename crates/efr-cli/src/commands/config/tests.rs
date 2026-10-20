@@ -445,6 +445,59 @@ async fn reload_prints_the_daemons_outcome_and_a_refused_file_exits_1() {
 }
 
 #[tokio::test]
+async fn a_held_reload_says_the_old_settings_stay_and_why_and_an_error_stays_an_error() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let held_text = "config.toml changed while a full turn ran, and the change loosens \
+                     permissions.rules. If you did not make this change, take it out of the \
+                     file. Then run efr config reload.";
+    let unplaced = |message: &str| AdminConfigReloadResult {
+        applied: false,
+        error: Some(ConfigFileError {
+            message: message.to_owned(),
+            line: None,
+            column: None,
+            key: None,
+        }),
+        restart_needed: vec![],
+    };
+    let mut held = config_status(PATH);
+    held.held = Some(efr_protocol::HeldConfig { loosens: vec!["permissions.rules".to_owned()] });
+    // A file that cannot be read has no place either; the daemon keeps it as its error.
+    let mut broken = held.clone();
+    broken.reload_error = unplaced("config.toml could not be read").error;
+    let answers =
+        [(unplaced(held_text), held), (unplaced("config.toml could not be read"), broken)];
+    let script = async {
+        for (answer, config) in &answers {
+            let mut conn = daemon.accept().await;
+            let (id, method) = conn.request().await;
+            assert!(matches!(method, Method::AdminConfigReload(_)), "{}", method.name());
+            conn.reply(id, answer).await;
+            let (id, method) = conn.request().await;
+            assert!(matches!(method, Method::AdminStatus(_)), "{}", method.name());
+            conn.reply(id, &status(config.clone())).await;
+            conn.until_closed().await;
+        }
+    };
+    let run = async {
+        let first = efr(&ctx, &["config", "reload"]).await;
+        let second = efr(&ctx, &["config", "reload"]).await;
+        (first, second)
+    };
+    let (((first, held, _), (second, error, _)), ()) = tokio::join!(run, script);
+
+    assert_eq!(first, Exit::Invalid);
+    assert_eq!(held, format!("config.toml is held; the old settings stay: {held_text}\n"));
+    assert_eq!(second, Exit::Invalid);
+    assert_eq!(
+        error,
+        "config.toml has an error; the old settings stay: config.toml could not be read\n"
+    );
+}
+
+#[tokio::test]
 async fn edit_creates_the_file_from_the_example_and_checks_what_the_editor_left() {
     let env = TestEnv::new();
     let path = env.dirs.config().join("config.toml");

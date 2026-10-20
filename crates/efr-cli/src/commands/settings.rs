@@ -13,12 +13,19 @@
 //! `--mode auto` also asks the daemon for its sandbox (`admin.status`): when the
 //! sandbox is not available, a warning on stderr says that turns run as `cautious` and
 //! why, at once, so `,mode auto` tells the truth before the first prompt.
+//!
+//! `--mode full` asks the daemon whether it allows full mode (`admin.status`). When the
+//! config does not allow it, or the daemon cannot run it, the command fails with the
+//! daemon's own text (exit 2), so the terminal keeps its old mode. Otherwise three lines
+//! on stderr say what full mode does and what it does not read. A daemon that does not
+//! say leaves the choice to `permissions.allow_full` as `efr` reads the file; the daemon
+//! checks each prompt again.
 
 use std::fmt::Write as _;
 
 use efr_protocol::{
-    AdminStatus, AdminStatusResult, Method, Mode, ModelInfo, ModelsList, ModelsListResult, Origin,
-    is_effort_word,
+    AdminStatus, AdminStatusResult, FullModeStatus, Method, Mode, ModelInfo, ModelsList,
+    ModelsListResult, Origin, is_effort_word,
 };
 
 use crate::cli::TurnSettingsArgs;
@@ -29,6 +36,15 @@ use crate::output::Output;
 use crate::settings::TurnDefaults;
 use crate::turn_settings::{Asked, SettingSource};
 
+/// What `efr settings --mode full` writes on stderr when full mode may run: what it
+/// does, what efr still reads, and what it does not read.
+pub(crate) const FULL_WARNING: &str = "\
+efr: full mode: commands run with your rights, with no sandbox and no questions.
+efr: efr reads each line: it denies secrets and its own config, and asks for sudo, for a \
+process that outlives the turn and for a delete of ~, / or a project.
+efr: a script or a program that a line starts is not read; it can do what you can.
+";
+
 pub(crate) async fn run(
     ctx: &Context,
     out: &mut Output,
@@ -38,30 +54,67 @@ pub(crate) async fn run(
     let client = ctx.connect(Origin::Cli, None).await?;
     let list: ModelsListResult = client.call(Method::ModelsList(ModelsList {})).await?;
     let lines = resolve(&asked, &ctx.settings.turn, &list.models)?;
+    // `,mode auto` and `,mode full` check the value with `--mode`: say at once what the
+    // turns will get, instead of at the next prompt.
+    let chose = asked
+        .mode
+        .as_ref()
+        .filter(|given| matches!(given.source, SettingSource::Flag(_)))
+        .map(|given| given.value);
+    let status = match chose {
+        Some(Mode::Auto | Mode::Full) => daemon_status(&client).await,
+        _ => None,
+    };
+    // NOTE: the gate comes before any output: the plugin keeps a value only when this
+    // command succeeds, so a terminal never keeps a full mode that the daemon refuses.
+    if chose == Some(Mode::Full) {
+        let full = status.as_ref().and_then(|status| status.full_mode.as_ref());
+        full_gate(full, ctx.settings.turn.allow_full)?;
+    }
     out.out(&show(&lines))?;
-    // `,mode auto` checks the value with `--mode auto`: say at once when the turns will
-    // run as cautious, instead of at the next prompt.
-    let chose_auto = asked.mode.as_ref().is_some_and(|given| {
-        given.value == Mode::Auto && matches!(given.source, SettingSource::Flag(_))
-    });
-    if chose_auto && let Some(reason) = sandbox_unavailable(&client).await {
-        out.err(&format!("efr: {}\n", format::sandbox::fallback_warning(&reason)));
+    match chose {
+        Some(Mode::Auto) => {
+            if let Some(reason) = status.as_ref().and_then(sandbox_unavailable) {
+                out.err(&format!("efr: {}\n", format::sandbox::fallback_warning(&reason)));
+            }
+        }
+        Some(Mode::Full) => out.err(FULL_WARNING),
+        _ => {}
     }
     Ok(())
 }
 
-/// Why the daemon's sandbox is not available; `None` when it is, when the daemon does
-/// not report it, or when it cannot be asked.
-async fn sandbox_unavailable(client: &efr_transport::client::Client) -> Option<String> {
-    let status = match client.call::<AdminStatusResult>(Method::AdminStatus(AdminStatus {})).await {
-        Ok(status) => status,
+/// The daemon's status; `None` when it cannot be asked.
+async fn daemon_status(client: &efr_transport::client::Client) -> Option<AdminStatusResult> {
+    match client.call::<AdminStatusResult>(Method::AdminStatus(AdminStatus {})).await {
+        Ok(status) => Some(status),
         Err(error) => {
-            tracing::debug!(error = %error, "the sandbox status could not be read");
-            return None;
+            tracing::debug!(error = %error, "the daemon's status could not be read");
+            None
         }
-    };
-    let sandbox = status.sandbox.filter(|sandbox| !sandbox.available)?;
-    Some(sandbox.reason.unwrap_or_else(|| "the probe gave no reason".to_owned()))
+    }
+}
+
+/// Why the daemon's sandbox is not available; `None` when it is, or when the daemon
+/// does not report it.
+fn sandbox_unavailable(status: &AdminStatusResult) -> Option<String> {
+    let sandbox = status.sandbox.as_ref().filter(|sandbox| !sandbox.available)?;
+    Some(sandbox.reason.clone().unwrap_or_else(|| "the probe gave no reason".to_owned()))
+}
+
+/// Whether a terminal may choose full mode: the daemon's `status` when it gives one,
+/// else `allow_full`, the file's `permissions.allow_full` as `efr` reads it. Fails with
+/// the text that the daemon gives a prompt in full mode.
+pub(crate) fn full_gate(status: Option<&FullModeStatus>, allow_full: bool) -> Result<(), CliError> {
+    match status {
+        Some(FullModeStatus { allowed: false, .. }) => Err(CliError::FullModeOff),
+        Some(FullModeStatus { refused: Some(refusal), .. }) => {
+            Err(CliError::FullModeRefused { refusal: *refusal })
+        }
+        Some(_) => Ok(()),
+        None if allow_full => Ok(()),
+        None => Err(CliError::FullModeOff),
+    }
 }
 
 /// One setting as `efr settings` prints it.
