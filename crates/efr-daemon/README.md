@@ -1216,7 +1216,7 @@ linked once; its modules (`hello`, `subscribe`, `prompt_send`, `shell_tool`,
 `approvals`, `interrupt`, `receipts`, `reconcile`, `pty_attach`, `login`,
 `input_respond`, `sandbox`, `drafts`, `turn_input`, `catalog`, `anthropic`, `presence`,
 `classifier_eval`, `apply_patch`, `backtrace`, `cache_prefix`, `compact`, `home`,
-`snapshots`, `undo_method`, `undo`, `jobs`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
+`snapshots`, `undo_method`, `undo`, `jobs`, `full`) run the daemon through `efr-test-daemon`'s `TestDaemon` and replay
 its fourteen NDJSON scenarios, each with the assertions of its case: the fake PTY
 holder plays the hidden shell, the replay provider or a local Responses server plays
 the model. The `shell_` tests run a real zsh and skip with a message unless
@@ -1364,6 +1364,20 @@ that reaches a host that is not listed gets the proxy's note in its output; and 
 background dev server with the `localhost` route answers the test on the host's
 loopback. The unit tests of `sandbox/` cover the plan, the probe with a fake launcher, the lock, the worktree record, the facts, the report, the
 quarantine and the peer check on real process trees.
+
+The `full` module runs full mode end to end: the gate key, the config default with
+and without `permissions.allow_full`, the caps of a phone turn and of a wake turn, the
+refusal of a root efrd, a full turn with no fallback when the sandbox is not available,
+the questions that full mode
+still asks (a guarded delete, a process that outlives the turn, a settings change) and
+who can answer them, and `efr undo` of a full turn. A guard test uses the fake PTY
+holder, so its line never runs, and its delete is a dead branch. Its `shell_` tests
+(`EFR_TEST_ZSH=1`) write only below the stand-in home, find a fake `sudo` first on the
+hidden shell's `PATH`, and check the snapshot before a call, the copy and undo of a
+home file, the config hold against a script, and a model side peer that cannot answer.
+Its sandbox twin `sandbox::full` (`just test-sandbox`) checks that an `auto` turn after
+a full turn is contained again and that an `auto` job keeps its proxy while a full turn
+runs.
 
 The `presence` module checks that a conversation goes away after the idle minutes and
 comes back with the next input, and `presence.set` for one conversation and for each
