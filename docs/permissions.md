@@ -701,6 +701,10 @@ efr config reload.`
   work runs it fails with `efr does not load a change that loosens permissions while a
   full turn or its job runs; run efr config reload again after it ends`.
 - The hold also holds a change that you make in your editor while a full turn runs.
+  A change that turns full mode off or down still applies at once, also while the
+  hold keeps the rest: `permissions.allow_full = false`, a lower `permissions.mode`,
+  `undo.enabled = false` and `snapshot.enabled = false`. So you can always stop a
+  full turn from the file.
 - The hold makes a script's change visible and stops its silent apply. It does not
   stop a process that runs as you: such a process can run `efr config reload` after
   the turn ends.

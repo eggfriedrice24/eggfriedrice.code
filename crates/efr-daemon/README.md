@@ -155,7 +155,11 @@ file. Only `admin.config_reload` (the user's `efr config reload`) applies a held
 and only when no full work runs; while it runs, it is refused with `efr does not load a
 change that loosens permissions while a full turn or its job runs; run efr config
 reload again after it ends`. A reload that loosens nothing applies as before and ends
-the hold. The hold works against a line or a script of a full turn; a process that the
+the hold. A held reload still applies each key that turns full mode off or down
+(`reload::full_lowered`: `permissions.allow_full` off, a lower `permissions.mode`,
+`undo.enabled` or `snapshot.enabled` off), so the gate goes off at once and the
+running full turn stops at its next call (`gate_off_applies_while_a_change_is_held`).
+The hold works against a line or a script of a full turn; a process that the
 turn left behind runs as the user and can call `admin.config_reload` itself.
 A reload runs the sandbox probe again when `[sandbox]` changed in any key but `allow`,
 or when the new engine has other projects or another support (`reload::probes_again`);

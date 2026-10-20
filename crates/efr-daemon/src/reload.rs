@@ -32,7 +32,9 @@
 //! against the running settings. Only `admin.config_reload`, which the user's own
 //! `efr config reload` sends, applies a held change, and only when no full work runs;
 //! while it runs, that reload is refused with a text that says so. A reload whose
-//! settings loosen nothing applies as before and ends the hold.
+//! settings loosen nothing applies as before and ends the hold. A held reload still
+//! applies the keys that turn full mode off or down (the gate off, a lower default mode,
+//! undo or the snapshots off), so the user can stop a full turn while a change is held.
 //!
 //! Reloads run one at a time in one task ([`serve`]), so two triggers at once never
 //! interleave their sends; a trigger asks it through [`reload`] and waits for the
@@ -457,8 +459,9 @@ async fn read(state: &State) -> Result<Settings, ConfigError> {
 }
 
 /// Lays `next` over the running settings and hands each applier its new value, unless
-/// the config hold keeps it back for a reload of `trigger`. Returns the keys that wait
-/// for a restart, or what the hold kept, or why nothing was applied.
+/// the config hold keeps it back for a reload of `trigger`; a held reload still applies
+/// what turns full mode off or down ([`full_lowered`]). Returns the keys that wait for a
+/// restart, or what the hold kept, or why nothing was applied.
 async fn apply(
     state: &State,
     next: Settings,
@@ -467,14 +470,54 @@ async fn apply(
     let running = Arc::clone(&state.settings.borrow());
     let Reloaded { settings, restart_needed, .. } =
         running.reloaded(next).map_err(|error| error.file_error())?;
-    // NOTE: before anything is built or sent, so a held change changes nothing.
+    // NOTE: before anything is built or sent, so a held change changes nothing but what
+    // turns full mode down.
     let held = state.reloads.last().held.is_some();
     let loosening = crate::loosens::loosening(&running, &settings);
-    match hold(trigger, loosening, state.full.running(), held) {
-        Hold::Apply => {}
-        Hold::Keep(loosens) => return Ok(Applied::Held { loosens, refused: false }),
-        Hold::Refuse(loosens) => return Ok(Applied::Held { loosens, refused: true }),
+    let (loosens, refused) = match hold(trigger, loosening, state.full.running(), held) {
+        Hold::Apply => {
+            install(state, &running, settings).await?;
+            return Ok(Applied::Done(restart_needed));
+        }
+        Hold::Keep(loosens) => (loosens, false),
+        Hold::Refuse(loosens) => (loosens, true),
+    };
+    // NOTE: the hold keeps back what loosens, never a change that turns full mode off or
+    // down, so the user can always stop a full turn from the file (DF16).
+    let lowered = full_lowered(&running, &settings);
+    if lowered != *running {
+        install(state, &running, lowered).await?;
     }
+    Ok(Applied::Held { loosens, refused })
+}
+
+/// The running settings with each key of `next` that turns full mode off or down: the
+/// gate off, a lower default mode, undo or the snapshots off. These keys never loosen,
+/// so a held reload still applies them.
+fn full_lowered(running: &Settings, next: &Settings) -> Settings {
+    let mut lowered = running.clone();
+    if !next.permissions.allow_full {
+        lowered.permissions.allow_full = false;
+    }
+    if next.permissions.mode < running.permissions.mode {
+        lowered.permissions.mode = next.permissions.mode;
+    }
+    if !next.undo.enabled {
+        lowered.undo.enabled = false;
+    }
+    if !next.snapshot.enabled {
+        lowered.snapshot.enabled = false;
+    }
+    lowered
+}
+
+/// Hands each applier its value of `settings`, which replace `running`. Everything that
+/// can fail runs before the first send, so a refused file changes nothing.
+async fn install(
+    state: &State,
+    running: &Settings,
+    settings: Settings,
+) -> Result<(), ConfigFileError> {
     if settings.log != running.log {
         crate::telemetry::parse(&settings.log).map_err(|error| refused(&error, Some("log")))?;
     }
@@ -520,7 +563,7 @@ async fn apply(
         let cautious = settings.permissions.policy(Mode::Cautious);
         state.shells.set_trusted_programs(shells::trusted_programs(&cautious));
     }
-    let probe_again = probes_again(&running, &settings, &current, engine.as_ref());
+    let probe_again = probes_again(running, &settings, &current, engine.as_ref());
     if let Some(engine) = engine {
         crate::always::warn_disabled(&engine, Some(&current));
         // NOTE: the list reaches every running listener at once (DP3); a running call
@@ -553,7 +596,7 @@ async fn apply(
     if probe_again {
         state.sandbox.reprobe(Arc::clone(&state.settings.borrow()));
     }
-    Ok(Applied::Done(restart_needed))
+    Ok(())
 }
 
 /// True when a reload from `running` to `next` must run the sandbox probe again: the
