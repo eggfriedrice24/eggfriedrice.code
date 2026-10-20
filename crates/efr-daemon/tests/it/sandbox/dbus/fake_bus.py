@@ -6,9 +6,11 @@ The test starts two private dbus-daemon buses and runs this file with `python3 -
 
 It connects only to the two addresses that it gets, never to a bus of the machine. On
 the system bus it owns org.freedesktop.hostname1, org.freedesktop.systemd1 and
-org.freedesktop.login1; on the session bus org.freedesktop.systemd1 and
-org.freedesktop.Notifications. It writes one JSON line to LOG for each method call that
-reaches it, so a test can show that the filter let a call through or that a refused
+org.freedesktop.login1; on the session bus org.freedesktop.systemd1,
+org.freedesktop.Notifications and a stand-in Secret Service, org.freedesktop.secrets
+(its OpenSession only). It writes one JSON line to LOG for each method call that
+reaches it, with the well-known name of the service also when the client sent the call
+to the fake's unique name (as libnotify does), so a test can show that the filter let a call through or that a refused
 call never came. It answers the read methods that systemd 255 and 262 send for the
 tests' tools from a fixed table, and every other method with UnknownMethod, logged as
 "unknown", so a failed test names a member that the table lacks. EnableUnitFiles makes
@@ -29,6 +31,7 @@ PROPERTIES = "org.freedesktop.DBus.Properties"
 MANAGER = "org.freedesktop.systemd1.Manager"
 LOGIN = "org.freedesktop.login1.Manager"
 NOTIFICATIONS = "org.freedesktop.Notifications"
+SECRETS = "org.freedesktop.secrets"
 UNIT_PATH = "/org/freedesktop/systemd1/unit/"
 SESSION_PATH = "/org/freedesktop/login1/session/_31"
 UID = os.getuid()
@@ -136,13 +139,31 @@ def answer(bus, name, path, member, args):
             return "(u)", (7,)
         if member == NOTIFICATIONS + ".GetServerInformation":
             return "(ssss)", ("efr-fake", "efr", "1", "1.2")
+        if member == NOTIFICATIONS + ".GetCapabilities":
+            return "(as)", (["body"],)
+    if name == SECRETS and path == "/org/freedesktop/secrets":
+        if member == "org.freedesktop.Secret.Service.OpenSession":
+            return "(vo)", (GLib.Variant("s", ""), "/org/freedesktop/secrets/session/1")
     return None
+
+
+def well_known(name, path):
+    """The service of a call that a client sent to the fake's unique name, by its path:
+    a GDBus proxy, such as the one of libnotify, sends to the name's owner."""
+    if not name.startswith(":"):
+        return name
+    for service, root in ((NOTIFICATIONS, "/org/freedesktop/Notifications"),
+                          (SECRETS, "/org/freedesktop/secrets"),
+                          ("org.freedesktop.systemd1", "/org/freedesktop/systemd1")):
+        if path == root or path.startswith(root + "/"):
+            return service
+    return name
 
 
 def reply(conn, bus, msg):
     """Answers one method call on the main loop."""
-    name = msg.get_destination() or ""
     path = msg.get_path() or ""
+    name = well_known(msg.get_destination() or "", path)
     member = f"{msg.get_interface() or ''}.{msg.get_member() or ''}"
     body = msg.get_body()
     args = body.unpack() if body is not None else ()
@@ -191,7 +212,7 @@ def connect(address, bus, names):
 connections = [
     connect(SYSTEM, "system", ["org.freedesktop.hostname1", "org.freedesktop.systemd1",
                                "org.freedesktop.login1"]),
-    connect(SESSION, "session", ["org.freedesktop.systemd1", NOTIFICATIONS]),
+    connect(SESSION, "session", ["org.freedesktop.systemd1", NOTIFICATIONS, SECRETS]),
 ]
 write({"ready": True})
 GLib.MainLoop().run()

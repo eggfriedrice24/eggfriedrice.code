@@ -545,14 +545,16 @@ async fn shell_dbus_denies_user_enable_unit_files() {
     setup.daemon.stop().await.unwrap();
 }
 
+/// The filter lets through only the calls of `notify-send` (v0.0.4, DV18); a script
+/// that closes a notification is refused.
 #[tokio::test]
 async fn shell_dbus_denies_notifications() {
     let test = "shell_dbus_denies_notifications";
-    let line = "systemctl --user --failed --no-pager; ./notify.sh";
-    let notify = "busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications \
-                  org.freedesktop.Notifications Notify susssasa{sv}i efr 0 '' hi there 0 0 5000";
+    let line = "systemctl --user --failed --no-pager; ./close.sh";
+    let close = "busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications \
+                 org.freedesktop.Notifications CloseNotification u 7";
     let Some((output, summary, _, setup)) =
-        refused_line(test, line, &[("notify.sh", notify)], BusKind::Session).await
+        refused_line(test, line, &[("close.sh", close)], BusKind::Session).await
     else {
         return;
     };
@@ -569,11 +571,139 @@ async fn shell_dbus_denies_notifications() {
         [refusal(
             BusKind::Session,
             "org.freedesktop.Notifications",
-            "org.freedesktop.Notifications.Notify",
+            "org.freedesktop.Notifications.CloseNotification",
             "/org/freedesktop/Notifications"
         )],
         "{report}"
     );
+    setup.daemon.stop().await.unwrap();
+}
+
+/// A stand-in for `notify-send` where the machine has none (the CI images): it sends
+/// the calls that libnotify 0.8 sends, through Gio, which the fake needs anyway.
+const NOTIFY_CLIENT: &str = r#"
+import sys
+from gi.repository import Gio, GLib
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+name, path = "org.freedesktop.Notifications", "/org/freedesktop/Notifications"
+bus.call_sync(name, path, name, "GetServerInformation", None, None,
+              Gio.DBusCallFlags.NONE, -1, None)
+body = GLib.Variant("(susssasa{sv}i)", ("efr", 0, "", sys.argv[1], " ".join(sys.argv[2:]),
+                                         [], {}, -1))
+bus.call_sync(name, path, name, "Notify", body, None, Gio.DBusCallFlags.NONE, -1, None)
+"#;
+
+/// v0.0.4, DV18: `notify-send` is a read form of the session bus. It runs routine with
+/// the filtered session bus, and its calls reach the fake's notification server. A
+/// machine without `notify-send` runs a small client of the test's own with the same
+/// name and the same calls.
+#[tokio::test]
+async fn notify_send_runs_through_the_filter() {
+    let test = "notify_send_runs_through_the_filter";
+    let dirs = target_dirs();
+    let line = match find("notify-send") {
+        Some(_) => "notify-send efr 'build done'",
+        None => {
+            let python = find("python3").map(|path| path.display().to_string());
+            let python = python.unwrap_or_else(|| "/usr/bin/python3".to_owned());
+            script(
+                &dirs,
+                "bin/notify-send",
+                &format!("exec {python} -I - \"$@\" <<'EOF'\n{NOTIFY_CLIENT}EOF"),
+            );
+            "./bin/notify-send efr 'build done'"
+        }
+    };
+    let model =
+        ScriptedModel::reviewed(vec![("shell", json!({ "command": line }))], REVIEWER_ALLOWS);
+    let provider = Arc::clone(&model) as Arc<dyn Provider>;
+    let Some(setup) = bus_daemon(test, &dirs, provider).await else { return };
+    let (_, events) =
+        run_turn(&setup.daemon, "tell me when it is done", Mode::Auto, ApprovalDecision::Deny)
+            .await;
+    assert_routine(&events, model.reviews());
+    let (output, summary, code) = one_call(&events, &setup.buses);
+    let report = report(&output, &summary, &setup.buses);
+    assert_eq!(launches(&events), [filtered(BusKind::Session)], "{report}");
+    assert_eq!(code, Some(0), "{report}");
+    assert_eq!(summary.bus_refused, Vec::new(), "{report}");
+    let calls = setup.buses.calls();
+    assert!(calls.iter().all(|call| call.bus == "session" && call.answered), "{report}");
+    assert!(
+        calls.iter().all(|call| call.name == "org.freedesktop.Notifications"
+            && call.path == "/org/freedesktop/Notifications"),
+        "{report}"
+    );
+    let members = setup.buses.members("session");
+    assert!(members.contains(&"org.freedesktop.Notifications.Notify".to_owned()), "{report}");
+    let known = [
+        "org.freedesktop.Notifications.Notify",
+        "org.freedesktop.Notifications.GetServerInformation",
+        "org.freedesktop.Notifications.GetCapabilities",
+    ];
+    assert!(members.iter().all(|member| known.contains(&member.as_str())), "{report}");
+    setup.daemon.stop().await.unwrap();
+    no_proxy_left(setup.dirs.root()).await;
+}
+
+/// S1, the proof behind DV18: a grant of the whole session bus reaches every service on
+/// it, here the fake's stand-in Secret Service, whose real one hands out the keyring's
+/// secrets with no prompt while the keyring is unlocked. So only the user may approve
+/// it: the reviewer never sees the call, and the question says why.
+#[tokio::test]
+async fn whole_session_bus_grant_reaches_the_secret_service() {
+    let test = "whole_session_bus_grant_reaches_the_secret_service";
+    let dirs = target_dirs();
+    let open = "busctl --user call org.freedesktop.secrets /org/freedesktop/secrets \
+                org.freedesktop.Secret.Service OpenSession sv plain s ''";
+    script(&dirs, "secret.sh", open);
+    let call = json!({ "command": "./secret.sh", "needs": { "bus": "session" } });
+    let model = ScriptedModel::reviewed(vec![("shell", call)], REVIEWER_ALLOWS);
+    let provider = Arc::clone(&model) as Arc<dyn Provider>;
+    let Some(setup) = bus_daemon(test, &dirs, provider).await else { return };
+    let (_, events) =
+        run_turn(&setup.daemon, "open a keyring session", Mode::Auto, ApprovalDecision::Allow)
+            .await;
+    let report = format!("events: {:?}\nfake log:\n{}", kinds(&events), setup.buses.log());
+    assert_eq!(model.reviews(), 0, "the reviewer never judged the whole bus: {report}");
+    let question = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ApprovalRequested { exit, .. } => exit.clone(),
+        _ => None,
+    });
+    let question = question.unwrap_or_else(|| panic!("the user was not asked: {report}"));
+    assert!(question.user_only, "{report}");
+    assert_eq!(question.grants, [Grant::Bus { bus: BusKind::Session }], "{report}");
+    assert!(
+        question
+            .facts
+            .contains(&"the whole session bus can start programs outside the sandbox".to_owned()),
+        "{:?}",
+        question.facts
+    );
+    assert_eq!(
+        launches(&events),
+        [Launch::Contained { grants: vec![Grant::Bus { bus: BusKind::Session }] }],
+        "{report}"
+    );
+    let opened: Vec<Call> = setup
+        .buses
+        .calls()
+        .into_iter()
+        .filter(|call| call.name == "org.freedesktop.secrets")
+        .collect();
+    assert_eq!(
+        opened,
+        [Call {
+            bus: "session".to_owned(),
+            name: "org.freedesktop.secrets".to_owned(),
+            path: "/org/freedesktop/secrets".to_owned(),
+            member: "org.freedesktop.Secret.Service.OpenSession".to_owned(),
+            answered: true,
+        }],
+        "the whole bus reached the Secret Service: {report}"
+    );
+    let codes: Vec<Option<i32>> = summaries(&events).into_iter().map(|(_, code)| code).collect();
+    assert_eq!(codes, [Some(0)], "{report}");
     setup.daemon.stop().await.unwrap();
 }
 
