@@ -1502,6 +1502,61 @@ fn e2e_context_runs_efr_context_with_its_words() {
 }
 
 #[test]
+fn e2e_comma_resume_hands_the_context_and_the_argument() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let (_, status) = run_with(
+        &home,
+        &[],
+        "_efr_turn_mode=auto\n_efr_preexec 'make test'\nfalse; _efr_precmd\n,resume\n,resume 2\n,resume --take 019a9b1c",
+    );
+    assert_eq!(status, Some(0));
+    let calls = home.calls();
+    assert_eq!(
+        args(&calls),
+        [vec!["resume"], vec!["resume", "2"], vec!["resume", "--take", "019a9b1c"]]
+    );
+    for call in &calls {
+        // The terminal, the shell and the directory, as a prompt hands them over.
+        let context = call.context();
+        assert!(context["shell_pid"].as_u64().is_some(), "{context}");
+        assert!(context["pwd"].is_string(), "{context}");
+        assert!(context.get("tty").is_some(), "{context}");
+        assert_eq!(call.prompt, None);
+        assert_eq!(call.last_command(), None);
+        assert_eq!(call.settings(), [None, None, None], "it hands over no turn settings");
+    }
+}
+
+#[test]
+fn e2e_comma_resume_typo_stays_on_the_line() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let screen = type_lines(&home, &[",resmue 2", "\x15", ",reuse the old cache"]);
+    assert!(screen.contains("efr: ,resmue is no command; did you mean ,resume?"), "{screen}");
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"]], "two edits from ,resume is a prompt");
+    assert_eq!(calls[0].prompt.as_deref(), Some("reuse the old cache"));
+}
+
+#[test]
+fn e2e_comma_resume_in_sticky_mode_runs_as_a_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(&home, UTF8, &["<C-Space>", ",resume 3", "what now", "<C-Space>"]);
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["resume", "3"], vec!["send"]]);
+    assert!(calls[0].context.is_some());
+    assert_eq!(calls[1].prompt.as_deref(), Some("what now"));
+}
+
+#[test]
 fn e2e_a_setting_takes_one_value() {
     if !zsh_tests_enabled() {
         return;

@@ -24,6 +24,14 @@
 #                  use; it shows no text of a message and starts no turn. The words
 #                  go to `efr context` as they are, such as a conversation id or
 #                  --json
+#   ,resume [N]    list the recent conversations, the ones of the current project
+#                  first, each with its number, title, project, age and turns;
+#                  `,resume N` (or an id, or 4 characters of one) makes that one this
+#                  terminal's conversation for its project again: the next `,` prompt
+#                  there continues it, its hidden shell starts in its last directory
+#                  and its jobs report here. When another open terminal holds it, efr
+#                  asks first; `,resume --take N` moves it with no question. It hands
+#                  over the shell context, but no prompt and no turn settings
 #   ,away          tell efr that you are away from this terminal's conversation: a
 #                  question then waits only a short time (presence.away_wait_secs),
 #                  and its call does not run; your next input there ends it
@@ -45,8 +53,8 @@
 #                  sends `run make`; a `,word` command of the user's own still runs,
 #                  as does a line that defines one (`,mine() { ... }`),
 #                  `,!word` steers with `word`, and a typo of a plugin command such
-#                  as `,moed`, `,compcat`, `,contxet` or `,aawy` stays on the line
-#                  with a hint instead of running
+#                  as `,moed`, `,compcat`, `,contxet`, `,resmue` or `,aawy` stays on
+#                  the line with a hint instead of running
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
 #                  commands above), and a line of just `mode`, `model` or `effort`,
@@ -632,6 +640,19 @@ function ,context {
   efr context "$@"
 }
 
+# Lists the recent conversations, or makes one this terminal's conversation again,
+# through `efr resume`: the conversations of the current project come first, and
+# `,resume N` (or a conversation id, or 4 characters of one) continues that one here.
+# It hands over the shell context, so efr knows the terminal, its shell and the
+# directory, and nothing else: no prompt, no last command and no turn settings. The
+# words are arguments of `efr resume`, such as N or --take, not a prompt.
+function ,resume {
+  emulate -L zsh
+  _efr_available || { _efr_missing; return 127 }
+  _efr_context_json ''
+  EFR_CONTEXT=$REPLY efr resume "$@"
+}
+
 # Tells efr that you are away from this terminal's conversation, through `efr away`:
 # the reviewer of auto still decides most actions, but a question for you then waits
 # only presence.away_wait_secs, and its call does not run. Your next input in the
@@ -876,9 +897,9 @@ _efr_one_edit() {
 
 # Sets REPLY to a hint when the first word of the line $1 is a typo of a plugin
 # command's `,` word, such as `,moed` for `,mode`: one edit away from `,mode`,
-# `,model`, `,effort`, `,compact` or `,context`, or the letters of `,new` or `,away`
-# in another order. Only the order counts for the short `,new` and `,away`, because one
-# edit from them is also the start of a prompt such as `,now` or `,sway`.
+# `,model`, `,effort`, `,compact`, `,context` or `,resume`, or the letters of `,new` or
+# `,away` in another order. Only the order counts for the short `,new` and `,away`,
+# because one edit from them is also the start of a prompt such as `,now` or `,sway`.
 # A word that zsh could run is no typo. Returns 1 for any other line.
 _efr_mistyped_command() {
   emulate -L zsh -o extended_glob
@@ -887,7 +908,7 @@ _efr_mistyped_command() {
   whence -- ",$word" >/dev/null && return 1
   # `model` first: `,modl` is one edit from both, and more likely `,model` with a
   # letter lost.
-  for name in model mode effort compact context; do
+  for name in model mode effort compact context resume; do
     if _efr_one_edit $word $name; then
       meant=$name
       break
