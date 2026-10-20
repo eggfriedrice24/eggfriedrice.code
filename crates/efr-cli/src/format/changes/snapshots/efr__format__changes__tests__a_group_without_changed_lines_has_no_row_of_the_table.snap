@@ -1,0 +1,7 @@
+---
+source: crates/efr-cli/src/format/changes/tests.rs
+expression: "super::group_table(&binary, &no_groups(), &options)"
+---
+tests  +4  −1
+code   +2
+total  +6  −1
