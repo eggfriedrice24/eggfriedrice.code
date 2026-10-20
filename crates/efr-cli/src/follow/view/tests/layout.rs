@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use efr_config::DiffGroups;
 use efr_protocol::{
     ApprovalDecision, CallId, ChainStep, ChangeKind, CompactionTrigger, ContextUse, Draft,
     DraftPart, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitSource, FileChange,
@@ -240,9 +241,22 @@ const LOOK: Look = Look { motion: false, summary: true, progress: false, diff_li
 
 /// [`play`] with `look`.
 fn play_with(look: Look, options: RenderOptions, size: Size, acts: &[Act]) -> String {
+    play_grouped(look, &DiffGroups::default(), options, size, acts)
+}
+
+/// [`play`] with `look` and the groups of `[diff.groups]`.
+fn play_grouped(
+    look: Look,
+    groups: &DiffGroups,
+    options: RenderOptions,
+    size: Size,
+    acts: &[Act],
+) -> String {
     let terminal = options.is_terminal();
-    let mut view =
-        TurnView::new(turn(), options).with_look(look).with_home(Some(PathBuf::from("/home/user")));
+    let mut view = TurnView::new(turn(), options)
+        .with_look(look)
+        .with_home(Some(PathBuf::from("/home/user")))
+        .with_groups(groups.clone());
     view.start();
     let mut screen = Screen::new(size.cols);
     let (mut out, mut err) = (String::new(), String::new());
@@ -1301,7 +1315,7 @@ fn three_files() -> FileChanges {
     file_changes(
         vec![
             file("src/a.rs", ChangeKind::Modified, 20, 7),
-            file("notes.md", ChangeKind::Added, 4, 0),
+            file("notes.txt", ChangeKind::Added, 4, 0),
             file("old.rs", ChangeKind::Deleted, 0, 0),
         ],
         0,
@@ -1433,6 +1447,38 @@ fn turn_line_of_manual_turn_has_no_undo_hint() {
     let err =
         piped(&[Sent(0, turn_started()), Sent(1_000, turn_undone(Some(three_files()), undo))]);
     assert_eq!(err, "3 files changed, +24 \u{2212}7\n");
+}
+
+/// Files of every kind of group: code, tests, a group of `[diff.groups]` and a lock file.
+fn grouped_files() -> FileChanges {
+    file_changes(
+        vec![
+            file("src/a.rs", ChangeKind::Modified, 20, 7),
+            file("tests/a.rs", ChangeKind::Added, 77, 0),
+            file("evals/case.toml", ChangeKind::Added, 503, 0),
+            file("Cargo.lock", ChangeKind::Modified, 35, 37),
+        ],
+        0,
+    )
+}
+
+#[test]
+fn the_turn_line_names_the_largest_groups_that_are_not_code() {
+    let groups = DiffGroups::new(vec![("evals".to_owned(), vec!["evals/".to_owned()])]);
+    let auto = undo_info(&[("app", 4)], 0, &[], 0);
+    let manual = TurnUndoInfo { undoable: false, ..auto.clone() };
+    let mut shown = Vec::new();
+    for (name, undo) in [("manual", manual), ("auto", auto)] {
+        let acts = [Sent(0, turn_started()), Sent(1_000, turn_undone(Some(grouped_files()), undo))];
+        for (way, options, size) in [
+            ("80 columns, colour", RenderOptions::new(80), Size { cols: 80, rows: 40 }),
+            ("not a terminal", RenderOptions::new(80).with_terminal(false), Size::default()),
+        ] {
+            let played = play_grouped(LOOK, &groups, options, size, &acts);
+            shown.push(format!("=== {name}, {way}\n{played}"));
+        }
+    }
+    insta::assert_snapshot!(shown.join("\n"));
 }
 
 #[test]

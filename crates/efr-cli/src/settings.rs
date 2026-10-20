@@ -57,6 +57,9 @@ pub(crate) struct Settings {
     /// The whole `[presence]` table, for the wait that `efr away` names. The defaults
     /// when the file cannot be used.
     pub(crate) presence: efr_config::PresenceSettings,
+    /// The whole `[diff]` table: the groups of the changed files of a turn. The
+    /// defaults when the file cannot be used.
+    pub(crate) diff: efr_config::DiffSettings,
     /// What went wrong while reading the file.
     pub(crate) warnings: Vec<Warning>,
 }
@@ -299,6 +302,7 @@ impl Settings {
         settings.provider = Some(file.model.provider.clone());
         settings.render = file.render.clone();
         settings.presence = file.presence.clone();
+        settings.diff = file.diff.clone();
         let render = &file.render;
         let name = match render.theme.as_deref() {
             Some(AUTO_THEME) if settings.background == Some(Background::Light) => {
