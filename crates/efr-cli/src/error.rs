@@ -3,7 +3,7 @@
 use std::io;
 
 use efr_config::ConfigError;
-use efr_protocol::{ErrorBody, ErrorCode, Mode};
+use efr_protocol::{ErrorBody, ErrorCode, FullRefusal, Mode};
 use efr_stdx::StdxError;
 use efr_stdx::env::Var;
 use efr_transport::client::ClientError;
@@ -107,6 +107,19 @@ pub(crate) enum CliError {
     /// `EFR_MODE` names no mode. A flag with no mode is clap's usage error.
     #[error("{} names the mode {value:?}, which does not exist; choose one of: {}", .input.name(), Mode::ALL.map(Mode::as_str).join(", "))]
     UnknownMode { input: Var, value: String },
+
+    /// `--mode full` while the daemon's config does not allow full mode
+    /// (`permissions.allow_full` is false). The text is the daemon's own for a prompt.
+    #[error(
+        "full mode is off; set permissions.allow_full = true in config.toml by hand to turn \
+         it on (docs/permissions.md, \"Full mode\")"
+    )]
+    FullModeOff,
+
+    /// `--mode full` while the daemon allows full mode but cannot run it, such as when
+    /// efrd runs as root.
+    #[error("full mode cannot run: {}", .refusal.describe())]
+    FullModeRefused { refusal: FullRefusal },
 
     /// The daemon's model list has no model with this id.
     #[error("the daemon has no model {model:?} ({from}); choose one of: {}", .choices.join(", "))]
@@ -330,6 +343,8 @@ impl CliError {
             CliError::InvalidContext { .. }
             | CliError::UnknownMode { .. }
             | CliError::UnknownModel { .. }
+            | CliError::FullModeOff
+            | CliError::FullModeRefused { .. }
             | CliError::UnknownEffort { .. }
             | CliError::EffortNotAWord { .. }
             | CliError::EmptyPrompt

@@ -66,8 +66,8 @@ pub(crate) async fn run(
         ConfigCommand::Edit => edit(ctx, out).await,
         ConfigCommand::Schema => out.out(&efr_config::schema_text()),
         ConfigCommand::Reload => {
-            let result = reload(ctx).await?;
-            report_reload(out, &result)
+            let (result, held) = reload(ctx).await?;
+            report_reload(out, &result, held)
         }
         ConfigCommand::Set { key, value } => change(ctx, out, key, Some(value)).await,
         ConfigCommand::Unset { key } => change(ctx, out, key, None).await,
@@ -532,17 +532,39 @@ fn write_change(
     Ok((file.target().to_path_buf(), removed))
 }
 
-/// Asks the daemon to reload.
-async fn reload(ctx: &Context) -> Result<AdminConfigReloadResult, CliError> {
+/// Asks the daemon to reload; true with the result when the daemon holds the file (see
+/// [`format::reloaded`]).
+async fn reload(ctx: &Context) -> Result<(AdminConfigReloadResult, bool), CliError> {
     let client = ctx.connect(Origin::Cli, None).await?;
-    Ok(client.call(Method::AdminConfigReload(AdminConfigReload {})).await?)
+    let result: AdminConfigReloadResult =
+        client.call(Method::AdminConfigReload(AdminConfigReload {})).await?;
+    // NOTE: a held change comes back as an error with no key and no place. The daemon
+    // keeps a file with an error as its reload error, and a held one as `held` with no
+    // reload error, so its status tells the two apart.
+    let unplaced =
+        result.error.as_ref().is_some_and(|error| error.key.is_none() && error.line.is_none());
+    let held = !result.applied && unplaced && held_now(&client).await;
+    Ok((result, held))
+}
+
+/// True when the daemon's status says that it holds a valid file.
+async fn held_now(client: &efr_transport::client::Client) -> bool {
+    match client.call::<AdminStatusResult>(Method::AdminStatus(AdminStatus {})).await {
+        Ok(status) => status
+            .config
+            .is_some_and(|config| config.held.is_some() && config.reload_error.is_none()),
+        Err(error) => {
+            tracing::debug!(error = %error, "the daemon's status could not be read");
+            false
+        }
+    }
 }
 
 /// Asks the daemon to reload after a change, and says how that went. A daemon that is
 /// not running reads the file when it starts.
 pub(crate) async fn reload_after_change(ctx: &Context, out: &mut Output) -> Result<(), CliError> {
     match reload(ctx).await {
-        Ok(result) => report_reload(out, &result),
+        Ok((result, held)) => report_reload(out, &result, held),
         Err(CliError::Client(ClientError::DaemonNotRunning { .. })) => {
             out.out("the daemon is not running; it reads the file when it starts\n")
         }
@@ -550,9 +572,13 @@ pub(crate) async fn reload_after_change(ctx: &Context, out: &mut Output) -> Resu
     }
 }
 
-/// The outcome of a reload; a refused file exits 1.
-fn report_reload(out: &mut Output, result: &AdminConfigReloadResult) -> Result<(), CliError> {
-    out.out(&format::reloaded(result))?;
+/// The outcome of a reload; a refused or held file exits 1.
+fn report_reload(
+    out: &mut Output,
+    result: &AdminConfigReloadResult,
+    held: bool,
+) -> Result<(), CliError> {
+    out.out(&format::reloaded(result, held))?;
     if result.applied { Ok(()) } else { Err(CliError::ConfigInvalid) }
 }
 

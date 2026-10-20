@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use efr_protocol::{AdminStatusResult, ErrorBody, ErrorCode, Method, Mode, Origin, SandboxStatus};
+use efr_protocol::{
+    AdminStatusResult, ErrorBody, ErrorCode, FullModeStatus, FullRefusal, Method, Mode, Origin,
+    SandboxStatus,
+};
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
 
@@ -24,6 +27,7 @@ fn defaults(mode: Option<Mode>, model: Option<&str>, effort: Option<&str>) -> Tu
         mode,
         model: model.map(str::to_owned),
         effort: effort.map(str::to_owned),
+        allow_full: false,
     }
 }
 
@@ -290,6 +294,27 @@ async fn efr_settings_asks_the_daemon_for_its_models_and_prints_the_settings() {
     assert_eq!(captured.stderr(), "");
 }
 
+/// The daemon's status with the sandbox `sandbox`, and nothing about full mode.
+fn status(sandbox: Option<SandboxStatus>) -> AdminStatusResult {
+    AdminStatusResult {
+        daemon_id: "019a9b1c-3d00-7a10-8b20-000000000007".parse().unwrap(),
+        version: "0.1.0".to_owned(),
+        protocol: efr_protocol::PROTOCOL_VERSION,
+        pid: 777,
+        started_at: now(),
+        screen_backend: "vt100".to_owned(),
+        conversations: 0,
+        shells: 0,
+        providers: Vec::new(),
+        catalog: None,
+        roots: None,
+        config: None,
+        sandbox,
+        sandbox_paths: None,
+        full_mode: None,
+    }
+}
+
 /// What `efr settings --mode auto` writes on stderr when the daemon's sandbox is
 /// `sandbox`.
 async fn choose_auto(sandbox: Option<SandboxStatus>) -> String {
@@ -302,24 +327,7 @@ async fn choose_auto(sandbox: Option<SandboxStatus>) -> String {
         conn.answer_models(&models()).await;
         let (id, method) = conn.request().await;
         assert!(matches!(method, Method::AdminStatus(_)), "{}", method.name());
-        let status = AdminStatusResult {
-            daemon_id: "019a9b1c-3d00-7a10-8b20-000000000007".parse().unwrap(),
-            version: "0.1.0".to_owned(),
-            protocol: efr_protocol::PROTOCOL_VERSION,
-            pid: 777,
-            started_at: now(),
-            screen_backend: "vt100".to_owned(),
-            conversations: 0,
-            shells: 0,
-            providers: Vec::new(),
-            catalog: None,
-            roots: None,
-            config: None,
-            sandbox,
-            sandbox_paths: None,
-            full_mode: None,
-        };
-        conn.reply(id, &status).await;
+        conn.reply(id, &status(sandbox)).await;
         conn.until_closed().await;
     };
     let line = command(&["settings", "--mode", "auto"]);
@@ -340,6 +348,116 @@ async fn choosing_auto_says_at_once_when_turns_run_as_cautious() {
     assert_eq!(choose_auto(Some(ready)).await, "");
     // A daemon from before the sandbox says nothing about it.
     assert_eq!(choose_auto(None).await, "");
+}
+
+/// What `efr settings --mode full` gives, as its exit, stdout and stderr, when the
+/// daemon's status says `full_mode` (`None`: the status says nothing of it; `Err`: the
+/// daemon refuses the status) and the client's `config.toml` holds `config`.
+async fn choose_full(
+    full_mode: Result<Option<FullModeStatus>, ()>,
+    config: Option<&str>,
+) -> (Exit, String, String) {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = context(&env, &[], config);
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        conn.answer_models(&models()).await;
+        let (id, method) = conn.request().await;
+        assert!(matches!(method, Method::AdminStatus(_)), "{}", method.name());
+        match full_mode {
+            Ok(full_mode) => {
+                let status = AdminStatusResult { full_mode, ..status(None) };
+                conn.reply(id, &status).await;
+            }
+            Err(()) => {
+                let body = ErrorBody {
+                    code: ErrorCode::Forbidden,
+                    message: "admin.status needs the admin scope".to_owned(),
+                    data: None,
+                };
+                conn.fail(id, body).await;
+            }
+        }
+        conn.until_closed().await;
+    };
+    let line = command(&["settings", "--mode=full"]);
+    let (exit, ()) = tokio::join!(Box::pin(run::run(&line, &ctx, &mut out)), script);
+    (exit, captured.stdout(), captured.stderr())
+}
+
+#[tokio::test]
+async fn mode_full_prints_the_warning() {
+    let allowed = FullModeStatus { allowed: true, refused: None };
+    let (exit, stdout, stderr) = choose_full(Ok(Some(allowed)), None).await;
+    assert_eq!(exit, Exit::Success, "{stderr}");
+    assert!(stdout.starts_with("mode = full  # --mode;"), "{stdout}");
+    assert_eq!(
+        stderr,
+        "efr: full mode: commands run with your rights, with no sandbox and no questions.\n\
+         efr: efr reads each line: it denies secrets and its own config, and asks for sudo, \
+         for a process that outlives the turn and for a delete of ~, / or a project.\n\
+         efr: a script or a program that a line starts is not read; it can do what you can.\n"
+    );
+}
+
+#[tokio::test]
+async fn mode_full_without_the_gate_is_an_error_with_the_hint() {
+    let off = FullModeStatus { allowed: false, refused: None };
+    let (exit, stdout, stderr) = choose_full(Ok(Some(off)), None).await;
+    // Exit 2 and nothing on stdout: the plugin keeps the terminal's old mode.
+    assert_eq!(exit, Exit::Usage);
+    assert_eq!(stdout, "");
+    assert_eq!(
+        stderr,
+        "efr: full mode is off; set permissions.allow_full = true in config.toml by hand to \
+         turn it on (docs/permissions.md, \"Full mode\")\n"
+    );
+}
+
+#[tokio::test]
+async fn mode_full_that_the_daemon_cannot_run_is_an_error_with_the_reason() {
+    let root = FullModeStatus { allowed: true, refused: Some(FullRefusal::Root) };
+    let (exit, stdout, stderr) = choose_full(Ok(Some(root)), None).await;
+    assert_eq!(exit, Exit::Usage);
+    assert_eq!(stdout, "");
+    assert_eq!(stderr, "efr: full mode cannot run: efrd runs as root\n");
+}
+
+#[tokio::test]
+async fn mode_full_reads_the_config_file_when_the_daemon_does_not_say() {
+    const ALLOWED: &str = "[permissions]\nallow_full = true\n";
+    // A status without full mode, or no status at all: the file decides.
+    let (exit, _, stderr) = choose_full(Ok(None), Some(ALLOWED)).await;
+    assert_eq!(exit, Exit::Success, "{stderr}");
+    assert!(stderr.starts_with("efr: full mode: commands run with your rights"), "{stderr}");
+    let (exit, _, stderr) = choose_full(Err(()), Some(ALLOWED)).await;
+    assert_eq!(exit, Exit::Success, "{stderr}");
+    let (exit, stdout, stderr) = choose_full(Ok(None), None).await;
+    assert_eq!(exit, Exit::Usage);
+    assert_eq!(stdout, "");
+    assert!(stderr.starts_with("efr: full mode is off;"), "{stderr}");
+}
+
+#[tokio::test]
+async fn full_mode_from_a_variable_or_the_file_asks_nothing_and_warns_nothing() {
+    // `,model` and `,effort` hand the terminal's mode over as EFR_MODE: only `,mode full`
+    // (the flag) checks the gate and warns, once per choice.
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = context(&env, &[(Var::Mode, "full")], None);
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        conn.answer_models(&models()).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["settings", "--model=gpt-5.4"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    assert!(captured.stdout().starts_with("mode = full  # EFR_MODE;"), "{}", captured.stdout());
+    assert_eq!(captured.stderr(), "");
 }
 
 #[tokio::test]

@@ -288,7 +288,7 @@ fn status_result() -> AdminStatusResult {
 #[test]
 fn status_lists_one_fact_per_line() {
     let socket = Path::new("/run/user/1000/efr/daemon.sock");
-    insta::assert_snapshot!(status(&status_result(), socket, now()));
+    insta::assert_snapshot!(status(&status_result(), socket, now(), None));
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn status_shows_times_to_the_second() {
     let mut result = status_result();
     result.started_at = before(2 * 3_600 + 60) + nanos;
     result.providers[0].expires_at = Some(after(52 * 60) + nanos);
-    let text = status(&result, Path::new("/s"), now());
+    let text = status(&result, Path::new("/s"), now(), None);
     assert!(text.contains("started        2026-10-04T09:59:00Z (2h 0m ago)\n"), "{text}");
     assert!(text.contains("token expires 2026-10-04T12:52:00Z (in 52m 0s)\n"), "{text}");
 }
@@ -307,14 +307,14 @@ fn a_refused_key_says_when_with_or_without_its_hint() {
     let mut result = status_result();
     result.providers[1].logged_in = true;
     result.providers[1].key_refused_at = Some(before(3 * 60));
-    let text = status(&result, Path::new("/s"), now());
+    let text = status(&result, Path::new("/s"), now(), None);
     assert!(
         text.contains("anthropic: logged in, key refused at 2026-10-04T11:57:00Z (3m 0s ago)\n"),
         "{text}"
     );
 
     result.providers[1].key_hint = Some("sk-ant-...a1b2".to_owned());
-    let text = status(&result, Path::new("/s"), now());
+    let text = status(&result, Path::new("/s"), now(), None);
     assert!(
         text.contains("key sk-ant-...a1b2 refused at 2026-10-04T11:57:00Z (3m 0s ago)\n"),
         "{text}"
@@ -357,14 +357,14 @@ fn the_catalog_names_its_provider() {
 #[test]
 fn status_without_providers_says_so() {
     let result = AdminStatusResult { providers: Vec::new(), ..status_result() };
-    let text = status(&result, Path::new("/s"), now());
+    let text = status(&result, Path::new("/s"), now(), None);
     assert!(text.contains("providers      none configured\n"), "{text}");
 }
 
 #[test]
 fn status_text_from_the_daemon_cannot_drive_the_terminal() {
     let result = AdminStatusResult { screen_backend: "vt\u{1b}[2J".to_owned(), ..status_result() };
-    let text = status(&result, Path::new("/s"), now());
+    let text = status(&result, Path::new("/s"), now(), None);
     assert!(!text.contains('\u{1b}'));
 }
 

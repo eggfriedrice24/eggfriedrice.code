@@ -74,6 +74,9 @@ pub(crate) struct TurnDefaults {
     pub(crate) model: Option<String>,
     /// `model.effort`.
     pub(crate) effort: Option<String>,
+    /// `permissions.allow_full`: the file allows full mode. `efr settings --mode full`
+    /// reads it only when the daemon does not say.
+    pub(crate) allow_full: bool,
 }
 
 /// Where a setting came from.
@@ -291,6 +294,7 @@ impl Settings {
             mode: from_file("permissions.mode").then_some(file.permissions.mode),
             model: file.model.name.clone(),
             effort: file.model.effort.clone(),
+            allow_full: file.permissions.allow_full,
         };
         settings.provider = Some(file.model.provider.clone());
         settings.render = file.render.clone();
