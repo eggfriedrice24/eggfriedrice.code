@@ -3,10 +3,10 @@
 use std::io;
 use std::path::PathBuf;
 
-use efr_client::ClientError;
 use efr_daemon::DaemonError;
 use efr_protocol::ProtocolError;
 use efr_test_support::TestSupportError;
+use efr_transport::client::ClientError;
 use serde_json::Value;
 
 /// Every way the test daemon, the fake PTY holder or a scenario replay can fail.

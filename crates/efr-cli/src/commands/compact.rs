@@ -20,10 +20,10 @@
 
 use std::time::Duration;
 
-use efr_client::ClientError;
 use efr_protocol::{ConversationCompact, ConversationCompactResult, Method, Origin};
 use efr_render::{RenderOptions, Role};
 use efr_stdx::env::Var;
+use efr_transport::client::ClientError;
 use jiff::Timestamp;
 
 use crate::cli::CompactArgs;

@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use efr_client::{ClientError, DaemonInfo, Discovered};
 use efr_config::FileState;
 use efr_protocol::{
     AdminConfigReloadResult, AdminStatusResult, ConfigFileError, ConfigStatus, Method,
 };
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSource, RootSources};
+use efr_transport::client::{ClientError, DaemonInfo, Discovered};
 use jiff::SignedDuration;
 use pretty_assertions::assert_eq;
 

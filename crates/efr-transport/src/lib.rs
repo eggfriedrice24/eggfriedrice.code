@@ -1,4 +1,5 @@
-//! The daemon's protocol edge, without the engine.
+//! Both sides of the protocol's transport: the daemon's edge, without the engine, and
+//! the client side in [`client`].
 //!
 //! - [`UnixListener`]: the socket at `$XDG_RUNTIME_DIR/efr/daemon.sock`, created with
 //!   mode 0600; every peer's uid is checked with `SO_PEERCRED`. [`UnixListener::serve`]
@@ -15,12 +16,15 @@
 //!   of [`LOSSY_QUEUE_FRAMES`] is full, and never closes the subscription.
 //! - [`ServerCodec`]: the tokio codec over `efr_protocol::framing`.
 //! - [`ConnectionContext`]: `{ surface, uid, pid, conn_id }`, carried by every request.
+//! - [`client`]: the client side for `efr`, the test daemon and later the PTY proxy:
+//!   daemon discovery, the connection, hello, calls, streams and cancellation.
 //!
 //! Allowed dependencies: `efr-protocol` and `efr-stdx`. What does not belong here: the
 //! meaning of any method (the daemon's `methods/`), the database (`efr-transport ->
 //! efr-store` is a forbidden edge), and the mapping from daemon errors to wire errors
 //! (`efr-daemon/src/error.rs`). The WebSocket listener for the phone lands here later.
 
+pub mod client;
 mod codec;
 mod connection;
 mod context;

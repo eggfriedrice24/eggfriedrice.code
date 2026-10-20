@@ -7,13 +7,13 @@
 //! is readable only by the user's own processes. The arguments stay for use by hand,
 //! and an argument wins over its variable.
 
-use efr_client::Client;
 use efr_protocol::{
     ConversationId, ConversationsList, ConversationsListResult, EffectiveSettings, Method, Origin,
     PromptSend, PromptSendResult, ShellContext, TurnSettings, TurnSteer, TurnSteerResult,
 };
 use efr_render::render_trace;
 use efr_stdx::env::Var;
+use efr_transport::client::Client;
 
 use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;

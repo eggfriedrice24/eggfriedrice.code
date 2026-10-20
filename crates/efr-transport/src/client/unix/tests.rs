@@ -7,8 +7,8 @@ use efr_stdx::paths::MAX_SOCKET_PATH;
 use efr_stdx::time::Clock;
 
 use super::{classify, connect};
-use crate::ClientError;
-use crate::testing::StoppedClock;
+use crate::client::ClientError;
+use crate::client::testing::StoppedClock;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 

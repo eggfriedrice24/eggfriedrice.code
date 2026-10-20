@@ -17,11 +17,11 @@
 
 mod key;
 
-use efr_client::ClientError;
 use efr_protocol::{
     AdminLoginApiKey, AdminLoginApiKeyResult, AdminLoginOpenAi, AdminLoginOpenAiItem, ErrorCode,
     Method, Origin,
 };
+use efr_transport::client::ClientError;
 use futures::StreamExt as _;
 use serde_json::Value;
 

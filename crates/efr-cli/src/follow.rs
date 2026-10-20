@@ -74,7 +74,6 @@ mod view;
 use std::pin::Pin;
 use std::time::Duration;
 
-use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
     ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
@@ -85,6 +84,7 @@ use efr_protocol::{
     TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
+use efr_transport::client::{Client, ClientError, ItemStream};
 use futures::StreamExt as _;
 use jiff::Timestamp;
 use serde::de::DeserializeOwned;
@@ -1463,8 +1463,8 @@ impl Follower<'_> {
 
     /// Sends the answer line `text` to the running call `call_id`, and says how that
     /// went. The `SecretText` is dropped, and its buffer zeroed, once the call returns;
-    /// `efr-client` zeroes the encoded request frame once it is written. A manual answer
-    /// asks once, so its keys stop after it.
+    /// `efr_transport::client` zeroes the encoded request frame once it is written. A
+    /// manual answer asks once, so its keys stop after it.
     async fn answer(
         &mut self,
         call_id: CallId,

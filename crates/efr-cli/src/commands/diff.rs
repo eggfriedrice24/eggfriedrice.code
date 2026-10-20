@@ -11,9 +11,9 @@
 
 use std::fmt::Write as _;
 
-use efr_client::ClientError;
 use efr_protocol::{ConversationDiff, ConversationDiffResult, ErrorCode, Method, Origin};
 use efr_render::{RenderOptions, render};
+use efr_transport::client::ClientError;
 
 use crate::cli::DiffArgs;
 use crate::context::Context;

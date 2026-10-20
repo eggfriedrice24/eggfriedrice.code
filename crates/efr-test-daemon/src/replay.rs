@@ -45,7 +45,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use efr_client::{Client, ClientError, ItemStream};
 use efr_protocol::{
     ClientFrame, ConversationId, ConversationSubscribe, ConversationSubscribeItem, ErrorBody,
     EventEnvelope, Method, PromptSendResult, Seq,
@@ -54,6 +53,7 @@ use efr_test_support::{
     Inbound, Outbound, Record, Redactor, ReplayProvider, TestDirs, TestSupportError, Transcript,
     Wait,
 };
+use efr_transport::client::{Client, ClientError, ItemStream};
 use futures::StreamExt as _;
 use serde_json::Value;
 

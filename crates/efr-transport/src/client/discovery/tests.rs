@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{DaemonInfo, Discovered, decide, discover, read_daemon_json};
-use crate::ClientError;
+use crate::client::ClientError;
 
 fn dirs(root: &Path) -> Dirs {
     Dirs::new(root.join("config"), root.join("data"), root.join("state"), root.join("run")).unwrap()

@@ -14,13 +14,13 @@ use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use efr_client::{Client, ConnectOptions, Discovered};
 use efr_protocol::{CommandId, DesktopEnv, Origin};
 use efr_render::RenderOptions;
 use efr_stdx::env::{Env, Var};
 use efr_stdx::paths::{Dirs, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
+use efr_transport::client::{Client, ConnectOptions, Discovered};
 use futures::{Stream, stream};
 use tokio::signal::unix::{SignalKind, signal};
 use zeroize::Zeroizing;
@@ -334,7 +334,7 @@ impl Context {
         origin: Origin,
         tty: Option<&str>,
     ) -> Result<Client, CliError> {
-        let Discovered { socket, .. } = efr_client::discover(&self.dirs).await?;
+        let Discovered { socket, .. } = efr_transport::client::discover(&self.dirs).await?;
         let mut options = ConnectOptions::new(origin, Arc::clone(&self.clock))
             .with_client(concat!("efr ", env!("CARGO_PKG_VERSION")));
         if let Some(tty) = tty {
@@ -356,7 +356,7 @@ impl Context {
 
     /// The socket that [`connect`](Self::connect) would use.
     pub(crate) async fn socket(&self) -> Result<PathBuf, CliError> {
-        Ok(efr_client::discover(&self.dirs).await?.socket)
+        Ok(efr_transport::client::discover(&self.dirs).await?.socket)
     }
 
     /// A new command id, which makes a write idempotent.

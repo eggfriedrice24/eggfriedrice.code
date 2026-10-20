@@ -14,11 +14,12 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
-efr-client.workspace = true
 efr-config.workspace = true
 efr-protocol.workspace = true
 efr-render.workspace = true
 efr-stdx.workspace = true
+# The client side of the protocol (efr_transport::client).
+efr-transport.workspace = true
 futures.workspace = true
 jiff.workspace = true
 rustix.workspace = true

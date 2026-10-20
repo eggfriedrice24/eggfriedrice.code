@@ -79,10 +79,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-stdx",
         ],
     ),
+    // Both sides of the protocol's transport: the daemon's edge and the client.
     ("efr-transport", &["efr-protocol", "efr-stdx"]),
-    ("efr-client", &["efr-protocol", "efr-stdx"]),
-    // Tier 4: the daemon composes every library crate except the client side and the
-    // test crates.
+    // Tier 4: the daemon composes every library crate except the test crates.
     (
         "efr-daemon",
         &[
@@ -110,9 +109,9 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-proxy",
         ],
     ),
-    ("efr-cli", &["efr-client", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),
+    ("efr-cli", &["efr-transport", "efr-config", "efr-render", "efr-protocol", "efr-stdx"]),
     // Tier T
-    ("efr-test-daemon", &["efr-daemon", "efr-test-support", "efr-client", "efr-protocol"]),
+    ("efr-test-daemon", &["efr-daemon", "efr-test-support", "efr-transport", "efr-protocol"]),
     // Tooling
     // config-docs writes docs/config.md and docs/config.schema.json from efr-config.
     ("xtask", &["efr-config"]),

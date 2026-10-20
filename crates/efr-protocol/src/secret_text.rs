@@ -14,7 +14,7 @@ use zeroize::Zeroize as _;
 /// outside the value are not: [`SecretText::new`] copies text given as a `&str` (a
 /// `String` moves in), serde_json unescapes a string that holds an escape (a quote, a
 /// backslash, `\u`) in a scratch buffer that it frees without zeroing, and the encoded
-/// frames are the business of `efr-client` and `efr-transport`, whose READMEs say which
+/// frames are the business of both sides of `efr-transport`, whose README says which
 /// of their buffers they zero. The one place that must use the text reads it with
 /// [`SecretText::expose_secret`].
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

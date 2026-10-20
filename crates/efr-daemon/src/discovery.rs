@@ -2,8 +2,8 @@
 //! identity.
 //!
 //! `daemon.json` is `{pid, socket, protocol, daemon_id, tailnet_endpoint?}`, the shape
-//! `efr_client::DaemonInfo` reads. It is written atomically once the socket is open
-//! and removed at shutdown, but it is a hint: the lock file decides which daemon runs.
+//! `efr_transport::client::DaemonInfo` reads. It is written atomically once the socket
+//! is open and removed at shutdown, but it is a hint: the lock file decides which daemon runs.
 //!
 //! The daemon id is minted once, at the first start, and kept in the data directory,
 //! so clients that pin it notice when a socket path leads to another installation.

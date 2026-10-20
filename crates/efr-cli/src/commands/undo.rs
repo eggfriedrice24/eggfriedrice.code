@@ -15,12 +15,12 @@
 
 use std::fmt::Write as _;
 
-use efr_client::{Client, ClientError};
 use efr_protocol::{
     ErrorBody, ErrorCode, Method, Origin, RefChange, TurnUndo, TurnUndoResult, UndoAction,
     UndoEntry, UndoReason, UndoableTurn,
 };
 use efr_render::RenderOptions;
+use efr_transport::client::{Client, ClientError};
 
 use crate::cli::UndoArgs;
 use crate::context::Context;

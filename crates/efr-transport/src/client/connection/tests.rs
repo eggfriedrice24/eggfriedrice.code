@@ -1,13 +1,13 @@
 use std::future::{Future, ready};
 use std::sync::Arc;
 
+use crate::{ConnectionContext, Dispatcher, Offer, Request, UnixListener, subscription};
 use efr_protocol::{
     AdminStatus, ClientFrame, ConversationId, ConversationSubscribe, ConversationsList,
     ConversationsListResult, ErrorBody, ErrorCode, Hello, HelloResult, Method, Origin,
     PROTOCOL_VERSION, RequestId, Seq, ServerFrame,
 };
 use efr_stdx::time::Clock;
-use efr_transport::{ConnectionContext, Dispatcher, Offer, Request, UnixListener, subscription};
 use futures::StreamExt as _;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -15,8 +15,8 @@ use tokio::io::DuplexStream;
 use tokio::sync::oneshot;
 
 use super::{Client, ConnectOptions, STREAM_QUEUE_FRAMES};
-use crate::ClientError;
-use crate::testing::{FakeServer, InstantClock, StoppedClock, hello_result};
+use crate::client::ClientError;
+use crate::client::testing::{FakeServer, InstantClock, StoppedClock, hello_result};
 
 fn options(clock: Arc<dyn Clock>) -> ConnectOptions {
     ConnectOptions::new(Origin::Cli, clock).with_client("efr-test").with_tty("/dev/pts/3")
@@ -384,9 +384,8 @@ impl Dispatcher for TransportDaemon {
     }
 
     async fn dispatch(&self, request: Request) -> Result<(), ErrorBody> {
-        let internal = |error: efr_transport::TransportError| {
-            ErrorBody::new(ErrorCode::Internal, error.to_string())
-        };
+        let internal =
+            |error: crate::TransportError| ErrorBody::new(ErrorCode::Internal, error.to_string());
         let Request { method, responder, .. } = request;
         match method {
             Method::ConversationsList(_) => responder.item(&empty_list()).await.map_err(internal),

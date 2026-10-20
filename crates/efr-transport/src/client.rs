@@ -8,20 +8,21 @@
 //!   streaming one as an [`ItemStream`], and [`Client::cancel`] stops a request.
 //! - [`ClientCodec`]: the tokio codec over `efr_protocol::framing`.
 //!
-//! Allowed dependencies: `efr-protocol` and `efr-stdx`. What does not belong here: the
-//! daemon's side of the protocol (`efr-transport`, which this crate may use only in its
-//! tests), command-line parsing and output (`efr-cli`), and the WebSocket transport,
-//! which arrives with the phone milestone as `ws.rs`.
+//! This module uses the daemon's side of the crate only in its tests, whose fake
+//! daemons are built from the real server side. What does not belong here: the
+//! daemon's side of the protocol (the rest of this crate), command-line parsing and
+//! output (`efr-cli`), and the WebSocket transport, which arrives with the phone
+//! milestone as `ws.rs`.
 
-mod client;
 mod codec;
+mod connection;
 mod discovery;
 mod error;
 #[cfg(test)]
 mod testing;
 mod unix;
 
-pub use client::{Client, ConnectOptions, ItemStream};
 pub use codec::ClientCodec;
+pub use connection::{Client, ConnectOptions, ItemStream};
 pub use discovery::{DaemonInfo, Discovered, discover, read_daemon_json};
 pub use error::ClientError;

@@ -37,8 +37,8 @@ use tokio::task::AbortHandle;
 use tokio_util::codec::FramedRead;
 use zeroize::Zeroizing;
 
-use crate::codec::ClientCodec;
-use crate::{ClientError, unix};
+use crate::client::codec::ClientCodec;
+use crate::client::{ClientError, unix};
 
 /// How long connecting and hello may take unless the options say otherwise.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);

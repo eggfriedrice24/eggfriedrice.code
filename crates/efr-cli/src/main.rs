@@ -16,8 +16,8 @@
 //!   the mode, model and effort a command asks for; `format`: the CLI's own lines;
 //!   `output`: the only writer.
 //!
-//! Allowed dependencies: `efr-client`, `efr-config`, `efr-render`, `efr-protocol` and
-//! `efr-stdx`.
+//! Allowed dependencies: `efr-transport` (its `client` module), `efr-config`,
+//! `efr-render`, `efr-protocol` and `efr-stdx`.
 //! What does not belong here: business logic (the daemon decides; this relays), any
 //! write to the daemon's database or credentials, and the server side of the protocol
 //! (`efr-transport`).

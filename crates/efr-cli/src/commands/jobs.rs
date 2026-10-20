@@ -19,12 +19,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use efr_client::Client;
 use efr_protocol::{
     ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, Event, JobId, JobsList, JobsListResult, JobsStop, JobsStopResult,
     Method, Origin,
 };
+use efr_transport::client::Client;
 
 use crate::cli::{JobsArgs, JobsCommand, JobsListArgs, JobsStopArgs};
 use crate::commands::history::{Picked, pick, resolve};

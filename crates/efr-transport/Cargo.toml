@@ -1,6 +1,6 @@
 [package]
 name = "efr-transport"
-description = "The daemon's protocol edge: the frame codec, the 0600 Unix listener, the request-id table, bounded subscriptions, hello and the Dispatcher trait"
+description = "Both sides of the efr protocol's transport: the daemon's edge (the frame codec, the 0600 Unix listener, the request-id table, bounded subscriptions, hello and the Dispatcher trait) and the client (daemon discovery, the connection, calls, streams and cancellation)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -23,8 +23,8 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-# A client frame can carry a password typed for input.respond; its bytes are zeroed
-# once it is decoded.
+# A frame can carry a password typed for input.respond: the server zeroes its bytes
+# once it is decoded, and the client zeroes the buffers of the request frames.
 zeroize.workspace = true
 
 [dev-dependencies]

@@ -9,7 +9,7 @@ use efr_stdx::paths::MAX_SOCKET_PATH;
 use efr_stdx::time::Clock;
 use tokio::net::UnixStream;
 
-use crate::ClientError;
+use crate::client::ClientError;
 
 /// Connects to the socket at `socket`, giving up after `timeout` on `clock`.
 ///

@@ -9,11 +9,11 @@
 use std::future::{pending, ready};
 use std::time::Duration;
 
+use crate::ServerCodec;
 use efr_protocol::{
     Capabilities, ClientFrame, DaemonPaths, Hello, HelloResult, Method, RequestId, ServerFrame,
 };
 use efr_stdx::time::{Clock, Sleep};
-use efr_transport::ServerCodec;
 use futures::{SinkExt as _, StreamExt as _};
 use jiff::Timestamp;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};

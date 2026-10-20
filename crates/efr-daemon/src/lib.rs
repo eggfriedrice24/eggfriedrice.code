@@ -13,7 +13,7 @@
 //! with injected [`Deps`]; `main.rs` only parses flags, sets up tracing and calls
 //! [`run`].
 //!
-//! Allowed dependencies: every library crate except `efr-client` and the test crates.
+//! Allowed dependencies: every library crate except the test crates.
 //! Feature-gated code lives only in `screens.rs` (`screen-ghostty`) and `shells.rs`
 //! (`local-pty`). What does not belong here: logic that a library crate can own, such
 //! as the turn loop, permission decisions, SQL, terminal emulation or the wire format.
