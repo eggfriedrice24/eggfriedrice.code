@@ -36,7 +36,7 @@
 //! each snapshot ask that was covered, and a call whose answer changed does not start.
 //! [`Toolbox::undo`] is in `tools/undo.rs`.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -181,8 +181,9 @@ pub(crate) struct DaemonToolbox {
     covered: Arc<Mutex<HashMap<CallId, Answers>>>,
     /// What the home copies of each running turn found, for its end.
     home_turns: Arc<Mutex<HashMap<TurnId, HomeTally>>>,
-    /// The turns that ran in `auto` or `full` since efrd started.
-    auto_turns: Arc<Mutex<HashSet<TurnId>>>,
+    /// The turns that ran in `auto` or `full` since efrd started, each with whether it
+    /// ran in `full`.
+    auto_turns: Arc<Mutex<HashMap<TurnId, bool>>>,
     /// The `crontab` and `loginctl` that efrd runs for the state copies of cron and
     /// linger (`trusted_programs.rs`).
     programs: TrustedPrograms,
@@ -1208,11 +1209,12 @@ impl DaemonToolbox {
     /// Notes that the turn `turn` ran in `auto` or `full`, whose calls copy home files
     /// first, so undo covers them outside the roots; the oldest turns go past
     /// [`MAX_AUTO_TURNS`].
-    fn mark_auto(&self, turn: TurnId) {
+    /// `full` is true for a call of full mode; a later mark keeps it.
+    fn mark_auto(&self, turn: TurnId, full: bool) {
         let mut auto = self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner);
-        auto.insert(turn);
+        *auto.entry(turn).or_insert(full) |= full;
         if auto.len() > MAX_AUTO_TURNS
-            && let Some(oldest) = auto.iter().min().copied()
+            && let Some(oldest) = auto.keys().min().copied()
         {
             auto.remove(&oldest);
         }
@@ -1471,7 +1473,7 @@ impl Toolbox for DaemonToolbox {
         // child share it. A copy that fails stops the call.
         let context = call.context.clone();
         if context.predicts() {
-            self.mark_auto(context.turn_id);
+            self.mark_auto(context.turn_id, context.is_full());
         }
         // NOTE: from the first full call on, a command of the turn can write the config
         // file, so a reload holds a change that loosens permissions until the turn ends
@@ -1618,12 +1620,12 @@ impl Toolbox for DaemonToolbox {
         let Some(snapshots) = &self.snapshots else { return TurnChanges::default() };
         let mut ended = snapshots.turn_end(turn_id).await;
         if ended.auto {
-            self.mark_auto(turn_id);
+            self.mark_auto(turn_id, false);
         }
         // NOTE: a turn of `auto` or `full` whose calls wrote only home files snapshotted
         // no root.
         ended.auto |=
-            self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner).contains(&turn_id);
+            self.auto_turns.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&turn_id);
         let enabled = self.settings.borrow().undo.enabled;
         let home_files = u32::try_from(tally.changed.len()).unwrap_or(u32::MAX);
         let runs = self.call_runs(conversation_id);

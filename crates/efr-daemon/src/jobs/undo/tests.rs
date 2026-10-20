@@ -57,6 +57,7 @@ fn refs(turn: u128, roots: &[&str], started_undo: bool) -> efr_snapshot::TurnRef
         home: false,
         started_undo: started_undo.then(|| "u1".to_owned()),
         auto: true,
+        full: false,
     }
 }
 

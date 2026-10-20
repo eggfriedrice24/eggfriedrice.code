@@ -133,7 +133,8 @@ auto spec, section 10).
   an undo that stopped half way) to the state before it. `turns_with_refs` lists the
   turns, newest first, each with `auto` set when its first snapshot of a root recorded
   the mode `auto` or `full`, or when it has home copies: undo then covers what the
-  turn wrote outside the roots; `stack_blocker` names the newer turn that is not undone, since
+  turn wrote outside the roots; `full` is set too when that mode was `full`, for the
+  label of `efr undo --list`; `stack_blocker` names the newer turn that is not undone, since
   undo is a stack.
 - The refs of an undo (`undo/refs.rs`): each ref that differs between the mirror's
   record at `pre` and the record at `post` moves back by compare and swap; a ref that

@@ -1285,6 +1285,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                     turn_id: turn_id(),
                     title: Some("clean up the journal".into()),
                     auto: true,
+                    full: true,
                     undone: true,
                     stopped: true,
                     ended: Some(at("2026-10-11T09:30:00Z")),

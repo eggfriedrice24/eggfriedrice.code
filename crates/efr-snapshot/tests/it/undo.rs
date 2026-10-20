@@ -836,6 +836,9 @@ async fn undo_reader_counts_full_as_covered() {
     let modes: Vec<(efr_protocol::TurnId, bool)> =
         turns.iter().map(|refs| (refs.turn, refs.auto)).collect();
     assert_eq!(modes, [(turn(2), false), (turn(1), true)], "a full turn copies as auto does");
+    let full: Vec<(efr_protocol::TurnId, bool)> =
+        turns.iter().map(|refs| (refs.turn, refs.full)).collect();
+    assert_eq!(full, [(turn(2), false), (turn(1), true)], "the store knows full from auto");
 }
 
 #[tokio::test]

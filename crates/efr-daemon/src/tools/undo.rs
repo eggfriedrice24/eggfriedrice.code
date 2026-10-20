@@ -15,7 +15,7 @@
 //! the end marker. A write that fails stops the undo and reports what it did; the next
 //! `efr undo` resumes it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
@@ -162,7 +162,7 @@ impl DaemonToolbox {
         // copy covers what it writes outside the roots (plan PB10, PB33). A turn of
         // `full` copies home files first as one of `auto` does (DF10).
         let auto = turns.iter().any(|refs| refs.turn == plan.turn && refs.auto)
-            || self.auto_turns().contains(&plan.turn);
+            || self.auto_turns().contains_key(&plan.turn);
         if !plan.redo && !auto {
             result.notes.push(NOTE_MANUAL.to_owned());
         }
@@ -271,7 +271,8 @@ impl DaemonToolbox {
                 Some(UndoableTurn {
                     turn_id: candidate.turn_id,
                     title: candidate.title.clone(),
-                    auto: refs.auto || auto.contains(&candidate.turn_id),
+                    auto: refs.auto || auto.contains_key(&candidate.turn_id),
+                    full: refs.full || auto.get(&candidate.turn_id).copied().unwrap_or(false),
                     undone: refs.undone,
                     stopped: candidate.stopped || (!refs.has_post && !refs.roots.is_empty()),
                     ended: candidate.ended,
@@ -739,8 +740,9 @@ impl DaemonToolbox {
         }
     }
 
-    /// The turns that ran in `auto` or `full` since efrd started.
-    fn auto_turns(&self) -> HashSet<TurnId> {
+    /// The turns that ran in `auto` or `full` since efrd started, each with whether it
+    /// ran in `full`.
+    fn auto_turns(&self) -> HashMap<TurnId, bool> {
         self.auto_turns.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 }
