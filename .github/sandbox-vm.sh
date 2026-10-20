@@ -162,7 +162,12 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
     mkdir -p "$tmpdir" "$workspace/target/tmp"
     local log="$extract/sandbox-vm.log"
     local guest
-    guest="$(printf '%q ' "$self" guest "$user" "$nextest" "$workspace" "$extract/target" "$tmpdir")"
+    # SBX_GATE=0 runs the launch cost tests with 100 calls each and no gate, as CI does
+    # on a push or a pull request; the weekly run and `just test-sandbox-vm` keep the
+    # gate with its 1000 calls and more.
+    local gate="${SBX_GATE:-1}"
+    [[ "$gate" == 0 || "$gate" == 1 ]] || fail "SBX_GATE must be 0 or 1, not $gate"
+    guest="$(printf '%q ' "$self" guest "$user" "$nextest" "$workspace" "$extract/target" "$tmpdir" "$gate")"
     # The size of GitHub's standard runner for public repositories, so a local run
     # boots the same VM.
     local cpus="${SBX_VM_CPUS:-4}" memory="${SBX_VM_MEMORY:-4G}"
@@ -176,7 +181,7 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
             echo "### Sandbox suite in a VM"
             echo
             echo '```'
-            sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|toolchain|xdg-dbus-proxy|systemd) /\1 /p' "$log"
+            sed -nE 's/^sandbox-vm: (kernel|lsm|overlay|landlock|probe|launch cost gate|toolchain|xdg-dbus-proxy|systemd) /\1 /p' "$log"
             sed -nE 's/^ *((efr-sbx run|the child shell|launch cost|setup failures|gate:|job start).*)/\1/p' "$log"
             echo '```'
             echo
@@ -195,7 +200,7 @@ print(json.load(open(sys.argv[1]))["rust-build-meta"]["target-directory"] + "/tm
 # Inside the VM, as root: the writable tmpfs, then the tests as the user, then the
 # check of the kernel log.
 cmd_guest() {
-    local user="$1" nextest="$2" workspace="$3" target="$4" tmpdir="$5"
+    local user="$1" nextest="$2" workspace="$3" target="$4" tmpdir="$5" gate="$6"
     # The guest's console is not a terminal, and stderr may take another way out.
     exec 2>&1
     # virtme-ng's init leaves its serial ports open as fds 3 to 5 in every process. The
@@ -241,7 +246,7 @@ cmd_guest() {
         fi
     done
     local status=0
-    runuser -u "$user" -- "$self" tests "$nextest" "$workspace" "$target" "$tmpdir" \
+    runuser -u "$user" -- "$self" tests "$nextest" "$workspace" "$target" "$tmpdir" "$gate" \
         </dev/null || status=$?
     # The layer helper mounts each overlay with index=off and xino=off, so the kernel
     # must log no fallback and no upper dir in use. Only root reads the kernel log.
@@ -259,7 +264,7 @@ cmd_guest() {
 # Inside the VM, as the user: what `just test-sandbox` runs, on a machine that must be
 # ready, so a skipped test fails.
 cmd_tests() {
-    local nextest="$1" workspace="$2" target="$3" tmpdir="$4"
+    local nextest="$1" workspace="$2" target="$3" tmpdir="$4" gate="$5"
     export HOME
     HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
     # rustup's cargo, rustc and rustfmt, for the corpus rows that build a Rust project.
@@ -295,7 +300,8 @@ cmd_tests() {
         fail "the probe says the sandbox is unavailable on this kernel"
     fi
     say "probe ready"
-    export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE=1 EFR_TEST_SBX_GATE=1
+    say "launch cost gate $gate"
+    export EFR_TEST_SBX_BIN="$bin" EFR_TEST_SBX_REQUIRE=1 EFR_TEST_SBX_GATE="$gate"
     export INSTA_WORKSPACE_ROOT="$workspace" INSTA_UPDATE=no
     local run=("$nextest" nextest run --workspace-remap "$workspace" --target-dir-remap "$target"
         --binaries-metadata "$target/nextest/binaries-metadata.json"
