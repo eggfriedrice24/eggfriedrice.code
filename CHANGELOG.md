@@ -328,10 +328,9 @@ into the GitHub release notes, and it stops when the section is missing.
   a fixed time. `efr history --verbose` shows `exit allowed by full mode`, and `efr
   undo --list` shows `full` for a full turn. A turn that asked for full mode and runs
   with less says `this turn runs as auto: <reason>`.
-- While a terminal's prompts run in full mode, the zsh plugin shows `full ` in red
-  before the typed text, in and out of sticky mode, also when `config.toml` makes full
-  mode the default. On Enter the tag stays only on a `,` line. `EFR_FULL_STYLE` sets
-  its style (default `fg=red`).
+- While a terminal's prompts run in full mode, the zsh plugin shows a mark next to
+  the robot in sticky mode, also when `config.toml` makes full mode the default (see
+  Changed).
 - The changed files of a turn now fall into groups: generated (lock files, `*.snap`
   snapshots, `fixtures/`), tests, docs and code. The line at the end of a turn names
   up to two groups that are not code, the largest first, such as `9 files changed, +635
@@ -375,6 +374,17 @@ into the GitHub release notes, and it stops when the section is missing.
   report here. When another open terminal holds it, efr names that terminal and asks
   first; `efr resume --take N` moves it with no question. `efr history` shows
   `resumed in /dev/pts/7` where it happened.
+- A marker shows the scope of a prompt before you send it: in sticky mode the line
+  shows `🤖 app › ` in a registered project and `🤖 ○ › ` outside projects, the status
+  row of a running turn ends with the scope, and `efr_prompt_info` (or the variable
+  `$efr_scope`) gives it to your own prompt. efr never changes your prompt. The zsh
+  plugin runs no program for it: efrd writes the registered projects to
+  `projects.tsv` in its runtime directory.
+- A prompt in a git repository that is not a registered project shows, at most once a
+  day for each repository, that writes there ask you and how to register it:
+  `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add
+  ~/p/tool registers it.` efr never registers a repository by itself.
+  `conversation.repo_hint = false` turns it off.
 
 ### Changed
 
@@ -393,6 +403,12 @@ into the GitHub release notes, and it stops when the section is missing.
   conversation per terminal, as before. `efr send` typed by hand in a terminal names
   its shell, so a new shell on the same terminal starts fresh. The first start of the
   new efrd updates its database once.
+- The zsh plugin no longer shows the red `full ` tag before the typed text. In sticky
+  mode the mark 🔓 stands next to the robot while the terminal's prompts run in full
+  mode, such as `🤖🔓 app › `; outside sticky mode the red first line of each turn
+  says full mode. `EFR_FULL_MARK` sets another mark, and an empty value shows none.
+  `EFR_FULL_STYLE` (default `fg=red`) now sets the style of the mark; a colour emoji
+  keeps its own colours. `efr_prompt_info` shows the mark too.
 - A phone that answers a question that only your own machine answers gets the text
   `only the user's own machine answers a privilege exit, a delete that full mode guards,
   or a background job`.

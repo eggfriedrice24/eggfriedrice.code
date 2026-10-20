@@ -10,7 +10,7 @@ state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
 |---|---|---|
-| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row; the reply's first line is the result's `route` (`format/route.rs`): the switch of the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`, else the scope (`app`, or `○ no project · ~/notes`), with the settings note after ` · `; typed by hand on a terminal, the context names efr's parent as its shell when that runs on the same terminal (`tty_nr` of `/proc/<ppid>/stat` against the device of stdin) |
+| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row; the reply's first line is the result's `route` (`format/route.rs`): the switch of the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`, else the scope (`app`, or `○ no project · ~/notes`), with the settings note after ` · `; when `route.hint` names a git repository outside projects, a second muted line says so, such as `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.` (a path that is no plain shell word shows in full, in single quotes); typed by hand on a terminal, the context names efr's parent as its shell when that runs on the same terminal (`tty_nr` of `/proc/<ppid>/stat` against the device of stdin) |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` with `tty` to find the terminal's current conversation (the one of its last prompt; an older efrd ignores the filter, and the scan of the pages finds the newest row with the tty), `turn.steer` | `--conversation <id>` skips the lookup; a steer takes no turn settings |
 | `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` and `--mode full` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`); `--mode full` exits 2 with the daemon's text, and prints nothing on stdout, when the config does not allow full mode (`full mode is off; set permissions.allow_full = true in config.toml by hand ...`) or efrd cannot run it (`full mode cannot run: efrd runs as root`), else it prints three lines on stderr: what full mode does, what efr still reads and asks, and that a script or a program that a line starts is not read. A daemon that does not report full mode leaves the check to `permissions.allow_full` as `efr` reads the file; the daemon checks each prompt again. Only the flag checks and warns: `EFR_MODE=full` (the terminal's choice that the plugin hands over) does not |
@@ -152,7 +152,10 @@ Replies:
   full`) shows `full` in the `error` role before `away`, and the row counts it in its
   width. While a call runs and the status row hides, the call's own row shows `full`
   after its time in the same way. After the time comes the gauge of
-  the model's context (see "Context" below), such as `⠼ writing  12s  ctx 43%`. A band of three characters in the
+  the model's context (see "Context" below), such as `⠼ writing  12s  ctx 43%`, and
+  then, muted, the scope of the prompt from the result's `route`: the project's name,
+  or `○` and the directory outside projects (`format::route::scope_mark`). On a
+  narrow screen the scope leaves the row first, then the gauge. A band of three characters in the
   `text` role moves over the state one character per tick, then rests for a second. The
   band starts with a reset (SGR 0), so it shows on a dim `muted` and on a `muted` with
   a colour. `render.motion = false` shows a still `•` and no band. A tick (every 100 ms
@@ -1154,10 +1157,16 @@ typed while the replies are on their way and between them (they stay for the she
 without the replies), and no question without a terminal,
 with keys typed ahead or with `EFR_TERMINAL_BG` set. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
 tag of the terminal's settings before the robot, the bare setting words of sticky
-mode, a `,word` that names nothing as a prompt, the red `full ` tag in and out of
-sticky mode (`EFR_FULL_STYLE`), which stays on Enter only on a line of the plugin, and
-the tag of a `config.toml` that makes full mode the default, until `,mode` or a change
-of the file says otherwise) are tested by typing into
+mode, a `,word` that names nothing as a prompt, the full mark next to the robot in
+sticky mode (`EFR_FULL_MARK`, `EFR_FULL_STYLE`) and no tag outside it, the mark of a
+`config.toml` that makes full mode the default, until `,mode` or a change of the file
+says otherwise, and the scope marker: the project's name or `○` after the robot from a
+`projects.tsv` written by hand, the deepest root and whole components, a symlinked
+directory, the plain-text marks without UTF-8, no program run while lines draw (a
+fake `efr` and a fake `git` record nothing), a new read only when the file's inode,
+time or size changed (`touch -d @<epoch>`, no sleep), `efr_prompt_info` and
+`$efr_scope`, `PROMPT` and `RPROMPT` that never change, and no marker without the
+file) are tested by typing into
 an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty` module,
 so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and skip
 with a message unless `EFR_TEST_ZSH=1`:

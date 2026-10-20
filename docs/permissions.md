@@ -746,9 +746,12 @@ efr config reload.`
 - `efr history --verbose` shows `exit allowed by full mode` for each recorded exit.
 - A turn that asked for full mode and runs with less starts with `this turn runs as
   auto: <reason>`.
-- The zsh plugin shows `full ` before the typed text while the terminal's prompts run
-  in full mode, in and out of sticky mode. It reads `config.toml` for a default of
-  full. `EFR_FULL_STYLE` sets its style (`fg=red` by default).
+- In sticky mode, the zsh plugin shows the mark 🔓 next to the robot while the
+  terminal's prompts run in full mode, such as `🤖🔓 app › `. It reads `config.toml`
+  for a default of full. `EFR_FULL_MARK` sets another mark, and an empty value shows
+  none; `EFR_FULL_STYLE` sets its style (`fg=red` by default; a colour emoji keeps its
+  own colours). Outside sticky mode the plugin shows no mark: the red first line of
+  the turn says full mode. `efr_prompt_info` shows the mark too.
 
 `crates/efr-permissions/src/full.rs` holds the settle pass of a full call,
 `crates/efr-permissions/src/exits/critical.rs` the delete guard, and

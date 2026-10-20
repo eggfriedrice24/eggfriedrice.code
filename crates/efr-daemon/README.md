@@ -382,6 +382,15 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   `conversation.diff`, `turn.undo` and the presence of a terminal's input take the
   terminal's current slot. `conversations.list` with `tty` lists that terminal's
   conversations, its current one first.
+  A prompt from a terminal whose key is `outside` and whose `pwd` is in a git work tree
+  that is not a project gets that work tree in `route.hint`, for the line before the
+  reply (`repo_hint.rs`, DV53): one git discovery through `efr_scope::derive`, as the
+  turn's resolver runs it, so `$HOME` and the directories above it never count, and a
+  slow or failed run gives no hint. A work tree gets the hint at most once in a rolling
+  day of efrd's clock; efrd records it only after the prompt was sent, and keeps the
+  times in `<state root>/repo-hints.json` (0600, by a rename, without the entries older
+  than a day), which it reads at start. `conversation.repo_hint = false` turns it off,
+  and then efrd runs no git for it.
   A prompt's `settings` (mode, model, effort) are checked by the conversation
   against the latest settings (`settings.rs` gives it the defaults and the model list
   of `catalog.rs`, both from memory): a model outside the list, or an effort the model does not take,
@@ -513,7 +522,12 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   discovery, so a dotfiles `~/.git` never counts), else the directory, and then it
   refuses the home directory, `/` and the directories above the home directory, which
   only an explicit path registers. `admin.project_remove` matches the root as given and
-  with links resolved. Both reload after the write, so the engine trusts the new set of
+  with links resolved. After the write, both write the registered projects again to
+  `<runtime root>/projects.tsv` for the zsh plugin's scope marker (`projects_file.rs`:
+  one `<root>\t<name>` line per project, the deepest root first, 0600, by a rename,
+  without a root that holds a tab or a line break). efrd also writes it at start, and
+  at a prompt whose registry read differs from it, after a hand edit of
+  `projects.toml`. Both reload after the write, so the engine trusts the new set of
   projects from the next tool call on, and answer with that reload's outcome; when
   `config.toml` has an error, the project counts for the engine from the next reload
   that succeeds. A broken file or project is `invalid`, a second registration and a
