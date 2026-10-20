@@ -956,6 +956,7 @@ impl Turn {
                 .as_ref()
                 .map_or_else(|| self.config.effort.clone(), |settings| settings.effort.clone()),
             egress: self.shared.deps.engine.borrow().support().egress,
+            full_allowed: self.config.full_mode.allowed,
         }
     }
 
