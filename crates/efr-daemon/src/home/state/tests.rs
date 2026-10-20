@@ -273,5 +273,6 @@ fn crontab_entry(state: HomeState) -> efr_snapshot::HomeEntry {
         state,
         floor: true,
         chain: Vec::new(),
+        missing_parents: Vec::new(),
     }
 }

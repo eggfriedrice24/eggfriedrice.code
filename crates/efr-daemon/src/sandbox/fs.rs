@@ -288,6 +288,15 @@ impl Beneath {
         }
     }
 
+    /// Removes the directory `name` only when it is empty (`rmdir`, never what it
+    /// holds); a missing one is no error. A link there is an error: it is no directory.
+    pub(crate) fn remove_empty_dir(&self, name: &OsStr) -> io::Result<()> {
+        match rustix::fs::unlinkat(&self.fd, name, AtFlags::REMOVEDIR) {
+            Ok(()) | Err(rustix::io::Errno::NOENT) => Ok(()),
+            Err(errno) => Err(errno.into()),
+        }
+    }
+
     /// Runs `make` with a new name next to `name` until one is free.
     fn temp<T>(
         &self,

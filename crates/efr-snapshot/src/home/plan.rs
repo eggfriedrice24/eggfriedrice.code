@@ -68,6 +68,10 @@ impl Snapshots {
             } else if expect == Expect::Unknown && !unfinished {
                 write = HomeState::NotCovered(UndoReason::Unknown);
             }
+            let remove_dirs = match write {
+                HomeState::Missing => copied.first.parents.iter().map(PathBuf::from).collect(),
+                _ => Vec::new(),
+            };
             steps.push(HomeStep {
                 path,
                 blob: blob_of(&copied.first),
@@ -75,6 +79,7 @@ impl Snapshots {
                 write,
                 expect,
                 floor: copied.floor,
+                remove_dirs,
             });
         }
         Ok(HomePlan { steps })
@@ -122,6 +127,7 @@ impl Snapshots {
                 expect,
                 trash: trash_of(target),
                 floor: item.floor || target.floor,
+                remove_dirs: Vec::new(),
             });
         }
         Ok(HomePlan { steps })
@@ -159,7 +165,12 @@ impl Snapshots {
             names.sort_unstable();
             names.dedup();
             for name in names {
-                let was = before.get(name).cloned().unwrap_or_else(|| missing(name));
+                // NOTE: a path that only the "after" lists was missing before; the
+                // "after" names the directories that its call made above it.
+                let was = before.get(name).cloned().unwrap_or_else(|| {
+                    let made = after.as_ref().and_then(|after| after.get(name));
+                    missing(name, made.map(|item| item.parents.clone()).unwrap_or_default())
+                });
                 let last = match &after {
                     None => After::Unfinished,
                     Some(after) => After::Done(after.get(name).cloned()),
@@ -215,8 +226,8 @@ fn in_roots(path: &Path, roots: &[RootPlan]) -> bool {
     roots.iter().any(|root| path.starts_with(&root.root))
 }
 
-fn missing(path: &str) -> Item {
-    Item { path: path.to_owned(), kind: Kind::Missing, ..Item::default() }
+fn missing(path: &str, parents: Vec<String>) -> Item {
+    Item { path: path.to_owned(), kind: Kind::Missing, parents, ..Item::default() }
 }
 
 fn not_covered(item: &Item) -> Option<UndoReason> {

@@ -139,6 +139,10 @@ pub(crate) struct Prepared {
     /// (masked, over the size cap, special), so a copy after the call names it only
     /// when it changed.
     pub(crate) stamps: Vec<(PathBuf, Stamp)>,
+    /// Each directory that the copy was to walk and that did not exist, with the
+    /// missing directories above it, the deepest first. A path that the call makes in
+    /// it gets them as its missing parents in the copy after the call.
+    pub(crate) missing_dirs: Vec<(PathBuf, Vec<PathBuf>)>,
 }
 
 /// What `lstat` says of a path that no copy holds: its inode, size, change and status
@@ -205,6 +209,22 @@ fn git_holds(path: &Path, link: bool) -> bool {
     })
 }
 
+/// The directories above `path` that do not exist, the deepest first: the ones that
+/// undo may remove again after it removes `path`.
+fn missing_above(path: &Path) -> Vec<PathBuf> {
+    let mut missing = Vec::new();
+    for dir in path.ancestors().skip(1).take_while(|dir| dir.parent().is_some()) {
+        // NOTE: a parent that efrd cannot read is no fact that it is missing.
+        match fs::symlink_metadata(dir) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(dir.to_path_buf());
+            }
+            _ => break,
+        }
+    }
+    missing
+}
+
 /// Reads what the copy of `targets` holds now, without the bytes. `masks` are the
 /// secrets and masks that efrd never copies. `Err` is the text that the model reads:
 /// the call does not run. It blocks.
@@ -257,6 +277,21 @@ pub(crate) fn after(before: &Prepared, masks: &[PathBuf], limits: HomeLimits) ->
         let floor = before.entries.iter().any(|entry| entry.floor && entry.path.starts_with(dir));
         if dir_entries(&mut prepared, dir, floor, masks, limits, false).is_err() {
             prepared.push(entry(dir, HomeState::NotCovered(UndoReason::Unknown), floor));
+        }
+    }
+    // NOTE: a path that the call made in a walked dir that did not exist was missing
+    // before, and so was each directory between them.
+    for (dir, above) in &before.missing_dirs {
+        for made in prepared.entries.iter_mut().filter(|made| made.path.starts_with(dir)) {
+            let mut parents: Vec<PathBuf> = made
+                .path
+                .ancestors()
+                .skip(1)
+                .take_while(|at| at.starts_with(dir))
+                .map(Path::to_path_buf)
+                .collect();
+            parents.extend(above.iter().cloned());
+            made.missing_parents = parents;
         }
     }
     prepared
@@ -329,6 +364,9 @@ fn file_entries(
         Err(error) => return Err(failed(&error)),
     };
     let mut real_entry = entry(&real, state, target.floor);
+    if real_entry.state == HomeState::Missing {
+        real_entry.missing_parents = missing_above(&real);
+    }
     real_entry.chain = resolved.links;
     prepared.push(real_entry);
     Ok(())
@@ -384,6 +422,7 @@ fn dir_entries(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             if record && !prepared.walked.contains(&dir.to_path_buf()) {
                 prepared.walked.push(dir.to_path_buf());
+                prepared.missing_dirs.push((dir.to_path_buf(), missing_above(dir)));
             }
             return Ok(());
         }
@@ -657,7 +696,7 @@ pub(crate) fn collect_trash(dir: &Path, max_age: Duration, now: SystemTime) -> u
 }
 
 fn entry(path: &Path, state: HomeState, floor: bool) -> HomeEntry {
-    HomeEntry { path: path.to_path_buf(), state, floor, chain: Vec::new() }
+    HomeEntry::new(path.to_path_buf(), state, floor)
 }
 
 /// True when `path` lies at or below one of `masks`.

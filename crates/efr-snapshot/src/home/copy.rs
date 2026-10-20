@@ -5,7 +5,7 @@
 use std::ffi::OsStr;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt as _;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 use efr_protocol::UndoReason;
 use tokio::sync::mpsc;
@@ -50,6 +50,11 @@ pub(crate) struct Item {
     pub(crate) chain: Vec<String>,
     /// Why the path is not covered.
     pub(crate) reason: Option<UndoReason>,
+    /// The directories above the path that were missing before the call that first
+    /// named it, the deepest first ([`HomeEntry::missing_parents`]). An older copy has
+    /// none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) parents: Vec<String>,
 }
 
 impl Default for Item {
@@ -62,6 +67,7 @@ impl Default for Item {
             floor: false,
             chain: Vec::new(),
             reason: None,
+            parents: Vec::new(),
         }
     }
 }
@@ -273,10 +279,12 @@ fn take(
     bytes: Option<Box<dyn Read + Send>>,
 ) -> Result<Item, SnapshotError> {
     let tree = tree_path(&entry.path, matches!(entry.state, HomeState::Link { .. }))?;
+    let lossy = |path: &PathBuf| path.to_string_lossy().into_owned();
     let mut item = Item {
         path: entry.path.to_string_lossy().into_owned(),
         floor: entry.floor,
-        chain: entry.chain.iter().map(|link| link.to_string_lossy().into_owned()).collect(),
+        chain: entry.chain.iter().map(lossy).collect(),
+        parents: entry.missing_parents.iter().map(lossy).collect(),
         ..Item::default()
     };
     let not_covered = |mut item: Item, reason: UndoReason| {

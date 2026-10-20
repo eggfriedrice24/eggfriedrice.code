@@ -721,6 +721,68 @@ async fn full_snapshot_root_says_full() {
 }
 
 #[tokio::test]
+async fn undo_of_enable_removes_the_wants_dir_it_made() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let units = kept.home.join(".config/systemd/user");
+    std::fs::create_dir_all(&units).unwrap();
+    std::fs::write(units.join("agent.service"), "[Install]\nWantedBy=default.target\n").unwrap();
+    let wants = units.join("default.target.wants");
+    let link = wants.join("agent.service");
+    let mut enable = home_write(&link);
+    enable.copies = vec![CoverAsk::UnitLinks("agent.service".to_owned())];
+
+    // NOTE: `systemctl --user enable` makes the wants dir and a link in it; a write of
+    // the same path makes the dir in the same way.
+    home_turn(&kept, 2, &link, "[Unit]\n", vec![enable]).await;
+    assert!(wants.is_dir());
+    let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
+
+    assert!(done.applied, "{done:?}");
+    let shown = "~/.config/systemd/user/default.target.wants/agent.service";
+    assert_eq!(done.entries, [entry(UndoAction::Trash, shown, None)]);
+    assert!(!wants.exists(), "the empty wants dir that the turn made went too");
+    assert_eq!(read(&units.join("agent.service")), "[Install]\nWantedBy=default.target\n");
+}
+
+#[tokio::test]
+async fn undo_never_removes_a_dir_that_the_user_filled() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let made = kept.home.join("plans/2026/october");
+    let notes = made.join("notes.md");
+
+    home_turn(&kept, 2, &notes, "new\n", vec![home_write(&notes)]).await;
+    std::fs::write(kept.home.join("plans/mine.md"), "the user's\n").unwrap();
+    let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
+
+    assert!(done.applied, "{done:?}");
+    assert!(!notes.exists());
+    assert!(!made.exists(), "the empty dirs that the turn made went");
+    assert!(!kept.home.join("plans/2026").exists());
+    assert_eq!(read(&kept.home.join("plans/mine.md")), "the user's\n", "plans holds a file");
+    assert!(kept.home.is_dir());
+}
+
+#[tokio::test]
+async fn undo_removes_the_dirs_that_a_call_made_in_a_copied_dir() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let made = kept.home.join("drafts");
+    let draft = made.join("week/monday.md");
+    // NOTE: the whole dir as a contained call gets it (`WriteBind::MakeDir`); it does
+    // not exist before the call.
+    let mut need = home_write(&draft);
+    need.copies = vec![CoverAsk::HomeDir(made.clone())];
+
+    home_turn(&kept, 2, &draft, "plan\n", vec![need]).await;
+    let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
+
+    assert_eq!(done.entries, [entry(UndoAction::Trash, "~/drafts/week/monday.md", None)]);
+    assert!(!made.exists(), "{:?}", files_below(&made));
+}
+
+#[tokio::test]
 async fn a_home_write_beside_a_repository_runs_is_covered_and_undone() {
     use efr_permissions::Coverage;
 

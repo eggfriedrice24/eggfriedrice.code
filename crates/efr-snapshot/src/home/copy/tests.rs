@@ -2,9 +2,10 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 
+use efr_protocol::UndoReason;
 use pretty_assertions::assert_eq;
 
-use super::{git_refuses, quote, tree_path};
+use super::{Item, Kind, Manifest, git_refuses, quote, tree_path};
 
 #[test]
 fn a_home_path_has_one_place_in_the_tree() {
@@ -37,6 +38,31 @@ fn no_copy_holds_a_name_that_git_refuses() {
         Some("files/home/u/.gitmodules")
     );
     assert_eq!(tree_path(Path::new("/home/u/.gitmodules"), true).unwrap(), None);
+}
+
+#[test]
+fn old_home_copies_still_read() {
+    // NOTE: a manifest as efr wrote it before the missing parents.
+    let old = r#"{"phase":"before","entries":[{"path":"/home/u/.zshrc","kind":"file","mode":420,"blob":"0123456789abcdef0123456789abcdef01234567","floor":true,"chain":[],"reason":null},{"path":"/home/u/.config/systemd/user/default.target.wants/x.service","kind":"missing","mode":null,"blob":null,"floor":true,"chain":[],"reason":null},{"path":"/home/u/.ssh/id","kind":"not_covered","mode":null,"blob":null,"floor":false,"chain":[],"reason":"masked"}]}"#;
+    let manifest: Manifest = serde_json::from_str(old).unwrap();
+    assert_eq!(manifest.phase, "before");
+    let kinds: Vec<(Kind, Vec<String>)> =
+        manifest.entries.iter().map(|item| (item.kind, item.parents.clone())).collect();
+    assert_eq!(
+        kinds,
+        [(Kind::File, Vec::new()), (Kind::Missing, Vec::new()), (Kind::NotCovered, Vec::new())]
+    );
+    assert_eq!(manifest.entries[2].reason, Some(UndoReason::Masked));
+    let new = Item {
+        path: "/home/u/a/b/c".to_owned(),
+        parents: vec!["/home/u/a/b".to_owned(), "/home/u/a".to_owned()],
+        ..Item::default()
+    };
+    let text = serde_json::to_string(&Manifest { phase: "before".to_owned(), entries: vec![new] });
+    let text = text.unwrap();
+    assert!(text.contains(r#""parents":["/home/u/a/b","/home/u/a"]"#), "{text}");
+    let plain = serde_json::to_string(&Item::default()).unwrap();
+    assert!(!plain.contains("parents"), "a path with no missing parent writes none: {plain}");
 }
 
 #[test]

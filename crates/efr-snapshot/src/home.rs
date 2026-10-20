@@ -15,7 +15,8 @@
 //!
 //! A path with a part that git refuses in a tree, such as a `.git` dir in a copied
 //! directory, is not covered ([`git_refuses`]), as a snapshot leaves a nested
-//! repository out.
+//! repository out. A missing path keeps the directories above it that were missing
+//! too, so undo can remove them again when they are empty.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -75,6 +76,18 @@ pub struct HomeEntry {
     pub floor: bool,
     /// The links from a floor path to its real file, for the report.
     pub chain: Vec<PathBuf>,
+    /// The directories above the path that did not exist before the call, the deepest
+    /// first: for a missing path, its missing parents; for a path that a call made in a
+    /// directory that it made, that directory and the ones between. After undo removes
+    /// the path, it removes each of them that is empty ([`HomeStep::remove_dirs`]).
+    pub missing_parents: Vec<PathBuf>,
+}
+
+impl HomeEntry {
+    /// The entry of `path` in `state`, with no links and no missing parents.
+    pub fn new(path: PathBuf, state: HomeState, floor: bool) -> Self {
+        HomeEntry { path, state, floor, chain: Vec::new(), missing_parents: Vec::new() }
+    }
 }
 
 /// The entries of one copy, in the order that the daemon reads them. The bytes of a
@@ -154,6 +167,12 @@ pub struct HomeStep {
     pub trash: Option<(ObjectId, u32)>,
     /// True for a floor or persistence file.
     pub floor: bool,
+    /// The directories that undo removes after it removes the path, the deepest first:
+    /// the parents that did not exist before the turn. Undo removes only an empty
+    /// directory (`rmdir`, never a recursive delete), so it stops at the first one that
+    /// holds something, such as a file of the user. Empty unless `write` is
+    /// [`HomeState::Missing`].
+    pub remove_dirs: Vec<PathBuf>,
 }
 
 impl HomeStep {

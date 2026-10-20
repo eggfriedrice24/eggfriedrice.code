@@ -284,6 +284,7 @@ async fn gc_keeps_the_home_store() {
                 state: efr_snapshot::HomeState::File { mode: 0o644 },
                 floor: false,
                 chain: Vec::new(),
+                missing_parents: Vec::new(),
             },
             Some(text.as_bytes().to_vec()),
         )])
@@ -416,6 +417,7 @@ async fn gc_keeps_the_home_copy_of_an_undo_with_its_turn() {
                 state: efr_snapshot::HomeState::File { mode: 0o644 },
                 floor: true,
                 chain: Vec::new(),
+                missing_parents: Vec::new(),
             },
             Some(text.as_bytes().to_vec()),
         )])

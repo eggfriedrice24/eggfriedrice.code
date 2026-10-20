@@ -134,8 +134,7 @@ pub(crate) struct Runner<'a> {
 /// The state of `copy` now, as a copy's entry with its bytes: the text of a state,
 /// missing, or not covered when the program failed or efrd found none.
 pub(crate) async fn read(runner: Runner<'_>, copy: StateCopy) -> (HomeEntry, Option<Vec<u8>>) {
-    let entry =
-        |state: HomeState| HomeEntry { path: copy.path(), state, floor: true, chain: Vec::new() };
+    let entry = |state: HomeState| HomeEntry::new(copy.path(), state, true);
     let not_covered = (entry(HomeState::NotCovered(UndoReason::Unknown)), None);
     if !STATE_COPIES {
         return not_covered;

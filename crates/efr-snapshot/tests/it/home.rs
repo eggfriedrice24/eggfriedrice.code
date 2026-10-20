@@ -18,7 +18,7 @@ use crate::undo::{apply_root, expect_now, undo_id};
 
 /// The entry of `path` as the daemon reads it: a link as a link, a file with its bytes.
 fn read_entry(path: &Path, floor: bool) -> (HomeEntry, Option<Vec<u8>>) {
-    let entry = |state| HomeEntry { path: path.to_path_buf(), state, floor, chain: Vec::new() };
+    let entry = |state| HomeEntry::new(path.to_path_buf(), state, floor);
     match fs::symlink_metadata(path) {
         Err(_) => (entry(HomeState::Missing), None),
         Ok(meta) if meta.file_type().is_symlink() => {
@@ -41,11 +41,16 @@ fn home_git(world: &World) -> PathBuf {
     world.store_dir().join("home.git")
 }
 
-/// Applies the home steps of `plan` that act, as the daemon does.
+/// Applies the home steps of `plan` that act, as the daemon does: then each dir that a
+/// removed path made goes, the deepest first, while it is empty.
 async fn apply_home(world: &World, plan: &UndoPlan) {
+    let mut made: Vec<&PathBuf> = Vec::new();
     for step in plan.home.steps.iter().filter(|step| step.acts()) {
         if step.expect != Expect::Any && expect_now(&step.path) != step.expect {
             continue;
+        }
+        if step.write == HomeState::Missing {
+            made.extend(&step.remove_dirs);
         }
         let _ = fs::remove_file(&step.path);
         match &step.write {
@@ -61,6 +66,10 @@ async fn apply_home(world: &World, plan: &UndoPlan) {
             HomeState::Missing => {}
             other => unreachable!("{other:?}"),
         }
+    }
+    made.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
+    for dir in made {
+        let _ = fs::remove_dir(dir);
     }
 }
 
@@ -281,6 +290,7 @@ impl HomeReader for Failing {
             state: HomeState::File { mode: 0o644 },
             floor: false,
             chain: Vec::new(),
+            missing_parents: Vec::new(),
         };
         Some(Ok((entry, Some(Box::new(std::io::Cursor::new(b"x".to_vec()))))))
     }
@@ -298,6 +308,7 @@ async fn a_failed_read_moves_no_ref_of_a_copy() {
             state: HomeState::Missing,
             floor: false,
             chain: Vec::new(),
+            missing_parents: Vec::new(),
         },
         None,
     )]);
@@ -332,6 +343,46 @@ async fn an_empty_copy_has_no_step() {
     let deltas = world.snapshots.home_after(&copy, HomeEntries::default()).await.unwrap();
     assert!(deltas.is_empty());
     assert!(plan(&world, false).await.home.steps.is_empty());
+}
+
+#[tokio::test]
+async fn a_missing_path_keeps_its_missing_parents_for_undo() {
+    let world = World::new();
+    let units = world.home().join(".config/systemd/user");
+    write(&units.join("agent.service"), "[Install]\nWantedBy=default.target\n");
+    let wants = units.join("default.target.wants");
+    let link = wants.join("agent.service");
+    let (mut missing, _) = read_entry(&link, true);
+    missing.missing_parents = vec![wants.clone()];
+    let copy = world
+        .snapshots
+        .home_before(conversation(1), turn(1), HomeEntries::new(vec![(missing, None)]))
+        .await
+        .unwrap();
+    // What `systemctl --user enable agent.service` writes.
+    fs::create_dir_all(&wants).unwrap();
+    std::os::unix::fs::symlink("../agent.service", &link).unwrap();
+    world.snapshots.home_after(&copy, entries(&[&link])).await.unwrap();
+
+    let plan = plan(&world, false).await;
+    let removed = step(&plan, &link);
+    assert_eq!((&removed.write, &removed.remove_dirs), (&HomeState::Missing, &vec![wants.clone()]));
+    apply_home(&world, &plan).await;
+    assert!(!wants.exists(), "the dir that the turn made went with the link");
+    assert!(units.join("agent.service").exists());
+
+    // A path that was there before keeps every dir above it.
+    let kept = world.home().join("kept.txt");
+    write(&kept, "a\n");
+    let copy = world.snapshots.home_before(conversation(1), turn(2), entries(&[&kept])).await;
+    write(&kept, "b\n");
+    world.snapshots.home_after(&copy.unwrap(), entries(&[&kept])).await.unwrap();
+    let plan = world
+        .snapshots
+        .plan_undo(conversation(1), turn(2), &[], false, &undo_id(2), limits())
+        .await
+        .unwrap();
+    assert!(step(&plan, &kept).remove_dirs.is_empty());
 }
 
 #[tokio::test]

@@ -535,6 +535,24 @@ impl DaemonToolbox {
                 }
             }
         }
+        // NOTE: a dir that did not exist before the turn goes again once undo removed
+        // the path below it, the deepest first, and only while it is empty: one that
+        // holds anything, such as a file of the user, stays, and so do the dirs above.
+        let mut dirs: Vec<&PathBuf> = plan
+            .steps
+            .iter()
+            .zip(&done)
+            .filter(|(step, done)| **done == Done::Applied && step.write == HomeState::Missing)
+            .flat_map(|(step, _)| &step.remove_dirs)
+            .filter(|dir| dir.is_absolute() && !home::masked(dir, &masks))
+            .collect();
+        dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()).then(a.cmp(b)));
+        dirs.dedup();
+        for dir in dirs {
+            if let Err(error) = remove_empty_dir(dir) {
+                tracing::debug!(dir = %dir.display(), error = %error, "undo left a dir that the turn made");
+            }
+        }
         done
     }
 
@@ -833,6 +851,18 @@ fn matches_expect(now: &Node, expect: &Expect) -> bool {
     }
 }
 
+/// Removes the absolute directory `dir` when it is empty, with no link on its way.
+fn remove_empty_dir(dir: &Path) -> std::io::Result<()> {
+    let relative = dir
+        .strip_prefix("/")
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let top = Beneath::open(Path::new("/"))?;
+    match top.parent(relative, None)? {
+        Some((parent, name)) => parent.remove_empty_dir(&name),
+        None => Ok(()),
+    }
+}
+
 /// The entries of the copy of the home paths that `plan` changes, as they are now.
 fn undo_before_entries(plan: &HomePlan) -> Vec<HomeEntry> {
     plan.steps
@@ -852,7 +882,7 @@ fn undo_before_entries(plan: &HomePlan) -> Vec<HomeEntry> {
                 },
                 Ok(_) => HomeState::NotCovered(UndoReason::Unknown),
             };
-            HomeEntry { path: step.path.clone(), state, floor: step.floor, chain: Vec::new() }
+            HomeEntry::new(step.path.clone(), state, step.floor)
         })
         .collect()
 }
