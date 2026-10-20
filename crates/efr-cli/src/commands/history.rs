@@ -621,10 +621,17 @@ impl<'a> Transcript<'a> {
         }
     }
 
-    /// The lines of a turn's end that `efr undo` could take back: what it changed, and
-    /// what no snapshot covers. Nothing for a turn that undo could not take back.
+    /// The lines of a turn's end: for a turn that `efr undo` could take back, what it
+    /// changed and what no snapshot covers; for another turn, the line of the files that
+    /// it changed, such as `3 files changed, +24 −7`, as the turn showed it.
     fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
-        let Some(undo) = undo.filter(|undo| undo.undoable) else { return };
+        let Some(undo) = undo.filter(|undo| undo.undoable) else {
+            if let Some(line) = changes.and_then(|changes| changes::turn_line(changes, self.groups))
+            {
+                self.dim_lines(&[line]);
+            }
+            return;
+        };
         let lines: Vec<String> = changes::undo_line(changes, undo, self.groups)
             .into_iter()
             .chain(changes::not_covered_line(&undo.not_covered, undo.not_covered_more))
