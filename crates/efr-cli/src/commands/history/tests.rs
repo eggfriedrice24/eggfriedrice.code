@@ -1424,3 +1424,54 @@ fn wake_turn_marked_in_history() {
     assert!(!verbose.contains('\u{1b}') && !verbose.contains('\u{202e}'), "{verbose:?}");
     assert!(verbose.contains("\u{241b}]0;title\u{2407}\u{fffd}evil"), "{verbose}");
 }
+
+#[test]
+fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
+    let file = |path: &str, added: u32, removed: u32| efr_protocol::FileChange {
+        path: path.to_owned(),
+        kind: efr_protocol::ChangeKind::Modified,
+        from: None,
+        added,
+        removed,
+        binary: false,
+    };
+    let changes = efr_protocol::FileChanges::from_files(vec![
+        file("src/a.rs", 3, 1),
+        file("tests/a.rs", 7, 0),
+    ]);
+    let ended = |undo: Option<efr_protocol::TurnUndoInfo>| Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        context: None,
+        changes: Some(changes.clone()),
+        stop: None,
+        undo,
+    };
+    let options = RenderOptions::new(80).with_terminal(false);
+    let page =
+        ConversationHistoryResult { events: vec![envelope(1, ended(None))], next_cursor: None };
+
+    let text = show(&page, &options);
+
+    assert!(text.contains("2 files changed, +10 \u{2212}1 (tests +7)\n"), "{text}");
+    let groups = DiffGroups::new(vec![("checks".to_owned(), vec!["tests/".to_owned()])]);
+    let shown = Shown { options: &options, verbose: false, home: None, groups: &groups };
+    let text = transcript(conversation(), &page, &shown);
+    assert!(text.contains("2 files changed, +10 \u{2212}1 (checks +7)\n"), "{text}");
+    // A turn that changed no file shows no line.
+    let none = ConversationHistoryResult {
+        events: vec![envelope(
+            1,
+            Event::TurnCompleted {
+                turn_id: turn(),
+                usage: None,
+                context: None,
+                changes: None,
+                stop: None,
+                undo: None,
+            },
+        )],
+        next_cursor: None,
+    };
+    assert!(!show(&none, &options).contains("changed"));
+}
