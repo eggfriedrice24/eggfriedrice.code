@@ -331,6 +331,102 @@ fn plan_floors_git_includes_and_hooks_path_in_roots() {
     assert!(git_floors.contains(&("/home/u/p/app/.husky/_".into(), FloorKind::GitHooks)));
 }
 
+/// A module git dir as git makes it, at `.git/modules/<name>` of the project, with
+/// `config` as its config.
+fn module(fs: &mut FakeFs, name: &str, config: &str) {
+    let dir = format!("/home/u/p/app/.git/modules/{name}");
+    fs.file(&format!("{dir}/HEAD"), "ref: refs/heads/main\n")
+        .file(&format!("{dir}/config"), config)
+        .dir(&format!("{dir}/hooks"))
+        .dir(&format!("{dir}/objects/pack"));
+}
+
+fn has_git_floors(plan: &MountPlan, git_dir: &str) -> bool {
+    let git_floors = floors(plan);
+    git_floors.contains(&(format!("{git_dir}/config").into(), FloorKind::GitConfig))
+        && git_floors.contains(&(format!("{git_dir}/hooks").into(), FloorKind::GitHooks))
+}
+
+#[test]
+fn pin_covers_slash_named_submodule() {
+    // `git submodule add <url> vendor/foo` keeps its git dir at
+    // `.git/modules/vendor/foo`; one level below `modules/` is only `vendor`.
+    let mut fs = world();
+    module(&mut fs, "vendor/foo", "[core]\n\tworktree = ../../../../vendor/foo\n");
+    module(&mut fs, "lib", "");
+    let plan = plan(&spec(), &fs);
+    assert!(has_git_floors(&plan, "/home/u/p/app/.git/modules/vendor/foo"), "{plan:#?}");
+    assert!(has_git_floors(&plan, "/home/u/p/app/.git/modules/lib"), "{plan:#?}");
+    assert!(
+        !floors(&plan)
+            .iter()
+            .any(|(path, _)| path.starts_with("/home/u/p/app/.git/modules/vendor/foo/objects"))
+    );
+
+    // A link at any depth of `modules/` refuses the plan, as one at the first did.
+    let mut fs = world();
+    module(&mut fs, "a", "");
+    fs.dir("/home/u/p/evil/hooks").link("/home/u/p/app/.git/modules/vendor/foo", "/home/u/p/evil");
+    let error = MountPlan::build(&spec(), &fs).unwrap_err();
+    assert!(matches!(error, SandboxError::SymlinkedPin { .. }), "{error:?}");
+}
+
+#[test]
+fn pin_covers_nested_module() {
+    let mut fs = world();
+    module(&mut fs, "a", "");
+    module(&mut fs, "a/modules/b", "");
+    module(&mut fs, "a/modules/b/modules/c", "");
+    let plan = plan(&spec(), &fs);
+    for git_dir in ["a", "a/modules/b", "a/modules/b/modules/c"] {
+        let git_dir = format!("/home/u/p/app/.git/modules/{git_dir}");
+        assert!(has_git_floors(&plan, &git_dir), "{git_dir}: {plan:#?}");
+    }
+}
+
+#[test]
+fn module_hooks_path_resolves_against_its_worktree() {
+    // git writes `core.worktree` into each module's config: a relative hooks path is
+    // relative to that work tree, not to the git dir's parent.
+    let mut fs = world();
+    module(
+        &mut fs,
+        "vendor/foo",
+        "[core]\n\tworktree = ../../../../vendor/foo\n\thooksPath = .githooks\n[include]\n\tpath = ../../../../shared.gitconfig\n",
+    );
+    fs.dir("/home/u/p/app/vendor/foo/.githooks")
+        .dir("/home/u/p/app/.git/modules/vendor/.githooks")
+        .file("/home/u/p/app/shared.gitconfig", "");
+    let built = plan(&spec(), &fs);
+    let git_floors = floors(&built);
+    assert!(
+        git_floors.contains(&("/home/u/p/app/vendor/foo/.githooks".into(), FloorKind::GitHooks)),
+        "{git_floors:#?}"
+    );
+    assert!(!git_floors.iter().any(|(path, _)| path.ends_with("modules/vendor/.githooks")));
+    assert!(git_floors.contains(&("/home/u/p/app/shared.gitconfig".into(), FloorKind::GitConfig)));
+
+    // With no `core.worktree`, the path that the superproject's `.gitmodules` gives
+    // the module's name is its work tree; for a nested module, the `.gitmodules` of
+    // the module above it.
+    let mut fs = world();
+    module(&mut fs, "lib", "[core]\n\thooksPath = hooks.d\n");
+    module(&mut fs, "lib/modules/inner", "[core]\n\thooksPath = git/hooks\n");
+    fs.file("/home/u/p/app/.gitmodules", "[submodule \"lib\"]\n\tpath = third_party/lib\n")
+        .file(
+            "/home/u/p/app/third_party/lib/.gitmodules",
+            "[submodule \"inner\"]\n\tpath = deps/inner\n",
+        )
+        .dir("/home/u/p/app/third_party/lib/hooks.d")
+        .dir("/home/u/p/app/third_party/lib/deps/inner/git/hooks");
+    let plan = plan(&spec(), &fs);
+    let git_floors = floors(&plan);
+    for hooks in ["third_party/lib/hooks.d", "third_party/lib/deps/inner/git/hooks"] {
+        let hooks = PathBuf::from(format!("/home/u/p/app/{hooks}"));
+        assert!(git_floors.contains(&(hooks.clone(), FloorKind::GitHooks)), "{hooks:?}");
+    }
+}
+
 #[test]
 fn plan_overlays_caches_with_pins_and_skips_them_when_read_only() {
     let spec = spec();
