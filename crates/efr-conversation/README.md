@@ -362,7 +362,9 @@ request:
    shell's directory and previous directory, the last command and its exit
    status, the terminal's recent commands (the newest
    `ConversationConfig::recent_commands`, oldest first, each with its status, its
-   directory when it is not the shell's, and how long ago it ended; the newest goes
+   directory when it is not the shell's, and how long ago it ended when the user sent
+   the prompt (`TurnSpec::sent_at`, so a prompt that waited in the queue keeps the
+   time of the terminal); the newest goes
    when it is the last command; at most 2000 characters, the oldest go first; no list
    and no line when none remain, so the block is then the one of before the list), the
    git work tree and branch, home, host, OS, `$SCRATCH`, the hidden

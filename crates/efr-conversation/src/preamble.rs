@@ -53,7 +53,7 @@ pub(crate) struct LiveState {
     pub(crate) last_status: Option<i32>,
     /// The terminal's recent commands, oldest first, as many as the config shows.
     pub(crate) recent_commands: Vec<RecentCommand>,
-    /// When the turn starts, for how long ago each recent command ended.
+    /// When the user sent the prompt, for how long ago each recent command ended.
     pub(crate) now: Timestamp,
     /// The git work tree around the working directory.
     pub(crate) repo: Option<Repo>,

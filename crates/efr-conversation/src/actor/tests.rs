@@ -16,6 +16,7 @@ use tracing::{Dispatch, Subscriber, span};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt as _};
 use tracing_subscriber::registry::LookupSpan;
 
+use crate::preamble::LiveState;
 use crate::testing::{
     Setup, answer, done, expect_request, hold, request, text_answer, tool_answer,
 };
@@ -250,6 +251,49 @@ async fn the_recent_commands_reach_the_preamble_but_never_an_event() {
     let log = serde_json::to_string(&h.events().await).expect("events serialize");
     assert!(!log.contains("hunter2"), "a recent command never enters the log");
     assert!(!log.contains("recent"), "{log}");
+    h.finish();
+}
+
+/// A prompt that waits in the queue says how long ago a recent command ended from when
+/// the user sent it, not from when its turn starts.
+#[tokio::test]
+async fn a_queued_prompt_dates_its_recent_commands_from_when_it_was_sent() {
+    let setup = Setup::new();
+    let ended = setup.clock.now() - jiff::SignedDuration::from_secs(300);
+    let recent = vec![RecentCommand { ended_at: Some(ended), ..RecentCommand::new("make") }];
+    let first = setup.live_state(&setup.cwd, "first");
+    // NOTE: the conversation's $SCRATCH takes its name from the first prompt.
+    let second = LiveState { recent_commands: recent.clone(), ..first.clone() };
+    let expected = setup.prompt(&second, "second");
+    let records = vec![
+        expect_request(request(vec![setup.prompt(&first, "first")])),
+        answer(&[ProviderEvent::TextDelta { text: "One.".to_owned() }]),
+        hold(),
+        answer(&[done(StopReason::EndTurn, None)]),
+        expect_request(request(vec![
+            setup.prompt(&first, "first"),
+            Message::assistant("One."),
+            expected.clone(),
+        ])),
+        answer(&text_answer("Two.")),
+    ];
+    let mut h = setup.start(records).await;
+
+    let started = h.prompt("first").await;
+    h.wait_for(|e| matches!(e, Event::AssistantMessageUpdated { .. })).await;
+    let cwd = h.cwd.clone();
+    let mut params = h.prompt_params(&cwd, "second");
+    params.recent_commands = recent;
+    let queued = h.handle.send_prompt(params, Origin::Shell).await.expect("accepted");
+    assert!(queued.queued);
+    // The prompt waits 9 minutes before its turn starts.
+    h.clock.advance(std::time::Duration::from_secs(540));
+    h.provider.handled_through(3);
+    h.wait_end(started.turn_id).await;
+    h.wait_end(queued.turn_id).await;
+
+    let preamble = format!("{expected:?}");
+    assert!(preamble.contains("- `make` (ended 5 min ago)"), "{preamble}");
     h.finish();
 }
 
