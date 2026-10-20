@@ -160,6 +160,14 @@ auto spec, section 10).
   (the call did not finish) is `CallUnfinished`, and with `force` its paths take what
   the applier finds (`Expect::Any`). `home_undo_before` copies the home paths that an
   undo changes, for its redo. Its root file `home.root` is the stamp of the last copy.
+  A path with a part that git refuses in a tree (`git_refuses`: `.git` in any case and
+  its NTFS names, `.gitmodules` for a link) is not covered (`LeftOut`): a copy never
+  escapes the name, as a snapshot leaves a nested repository out, so a copy of a dir
+  with a repository runs. Each entry can name its missing parents
+  (`HomeEntry::missing_parents`, `parents` in the manifest, which an older copy does
+  not have); a step that removes a path that was missing lists them in
+  `HomeStep::remove_dirs`, the deepest first, for the applier to remove while they
+  are empty.
 
 What a snapshot takes (`Limits`): tracked files; new untracked files up to
 `max_file_bytes` (a link as a link, never followed); at the first and last snapshot of
@@ -268,7 +276,7 @@ the modes, and a project whose config would run code at every git key it can;
 `undo.rs` undo, redo and the stack with an applier of the test that does what the
 daemon's does, the refs by compare and swap and with objects that the project lost,
 and an undo that stopped half way; `home.rs` the home store's copies and its part of
-an undo; `gc.rs` the bounds of the collector across stores, the mirror cap, the undo
+an undo, a copy of a dir with a repository and the missing parents of a path; `gc.rs` the bounds of the collector across stores, the mirror cap, the undo
 refs, the packing and the home store; `jobs.rs` the skip of the job outputs, the files
 of a job that join its start turn at its end without the paths of a later turn, and
 the collector's keep set; `logs.rs` the

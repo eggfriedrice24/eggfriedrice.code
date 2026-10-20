@@ -893,9 +893,17 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   efrd reads each path through `DaemonFs` and hands the entries to the store one at a
   time, at most one file of 16 MiB in memory. After the call it reads the same paths
   again and lists each walked directory again, so a file that the call made there was
-  missing before and undo moves it to the undo trash. The failure rule (plan PB14): a
-  read error stops the call; a floor or persistence file that efrd cannot copy (masked,
-  larger than 16 MiB) stops it too; any other path over a limit, and a masked path,
+  missing before and undo moves it to the undo trash. A missing path keeps its
+  parents that are missing too (`HomeEntry::missing_parents`), and so does a file
+  that the call made in a walked directory that did not exist: after undo removes
+  such a path, it removes each of these dirs that is empty, the deepest first, such as
+  the `default.target.wants` dir that `systemctl --user enable` made. A `.git`, and
+  any other name that git refuses in a tree (`efr_snapshot::git_refuses`), stays out
+  of a copy unread and is "not covered"; below a directory target it does not keep
+  the directory from being covered, as the snapshot of a root leaves a nested
+  repository out. The failure rule (plan PB14): a read error stops the call; a floor
+  or persistence file that efrd cannot copy (masked, larger than 16 MiB, in a git dir)
+  stops it too; any other path over a limit, and a masked path,
   runs with no copy and its `FileBackup::reason` says why. The refused list is the
   plan's masks: the engine's secrets, the sandbox-only masks, a `$XAUTHORITY` or
   `$HISTFILE` outside its usual place and `sandbox.mask`. When the exit names the real
@@ -1050,7 +1058,10 @@ A model-side peer holds no `approve` scope at all.
   left alone. A file that undo makes again gets its recorded mode without set-id
   bits; one that exists keeps its mode. A root whose `(dev, ino)` changed is written
   only with `force`. Then the project's refs by compare and swap, the home paths, each
-  checked again against the masks and efr's own roots, and the end marker. A write
+  checked again against the masks and efr's own roots, then the dirs that a removed
+  home path made (`HomeStep::remove_dirs`), the deepest first, each with `rmdir`
+  below `/` with no link on its way (`Beneath::remove_empty_dir`): a dir that holds
+  anything stays, and so do the dirs above it. Then the end marker. A write
   error stops the undo; the result lists what it did, and the next `efr undo`
   resumes it.
 - `conversation.diff` (`methods/conversation_diff.rs`) reads the refs back. Without a
@@ -1256,7 +1267,8 @@ presence, the home store (`home/tests.rs` and `tools/tests.rs`: links, masks, a
 missing file, the dir limits, a failed copy, an unchanged file, a cache delete, the
 coverage facts and the check under the lock, the counts at the end of a turn), the
 undo applier (`tools/undo/tests.rs`: modes, the undo trash, links, the plan lock, a
-replaced root, a write error and its resume, home files and the masks), the named
+replaced root, a write error and its resume, home files and the masks, the empty dirs
+that a turn made, a home dir with a git repository), the named
 persistence (`sandbox/units/tests.rs`: the links that a unit change makes;
 `home/state/tests.rs`: the crontab and linger copies and their undo;
 `trusted_programs/tests.rs`: the programs that efrd runs itself), the collectors

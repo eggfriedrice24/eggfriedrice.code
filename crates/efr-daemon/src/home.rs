@@ -12,6 +12,13 @@
 //! that it walked again (a new file there was missing before, so undo moves it to the
 //! undo trash), and the store says what changed.
 //!
+//! A missing path keeps the dirs above it that are missing too, and a path that the
+//! call made in a walked dir that did not exist gets that dir and the dirs between,
+//! so undo can remove them again while they are empty. A `.git` (a name that git
+//! refuses in a tree) stays out of a copy, unread, as the snapshot of a root leaves a
+//! nested repository out: it is "not covered", but below a dir target it does not keep
+//! the dir from being covered.
+//!
 //! Failure rule (plan PB14): a read error stops the call. A floor or persistence file
 //! that efrd cannot copy (masked, larger than 16 MiB) also stops it, because the
 //! reviewer allowed it only with a copy. Any other path over a limit, and a masked
