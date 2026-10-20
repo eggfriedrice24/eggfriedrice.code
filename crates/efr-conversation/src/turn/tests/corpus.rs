@@ -1,16 +1,19 @@
 //! The routine lines of the command corpus through a turn in `auto`: none of them asks
 //! the classifier (efr's auto spec, sections 16.3 and 16.4). The corpus and its machine
 //! are those of `efr-permissions/tests/fixtures/auto-corpus.toml`, with undo (phase B):
-//! a destructive line that the snapshot covers is routine too.
+//! a destructive line that the snapshot covers is routine too. In full mode no line of
+//! the corpus asks the classifier, and each line that full mode runs records its exits
+//! with the judge `full`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
-    AutoSupport, CallFacts, CoverAsk, Coverage, Engine, Locations, Policy, Requirements, TargetKind,
+    AutoSupport, CallFacts, ConversationPolicy, CoverAsk, Coverage, DecisionInput, Effect, Engine,
+    Locations, Policy, Requirements, TargetKind,
 };
-use efr_protocol::{Mode, ProjectId, Scope};
+use efr_protocol::{Event, FullModeStatus, JudgeKind, Mode, Origin, ProjectId, Scope, Verdict};
 use efr_scope::{Basis, Derivation};
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
@@ -211,4 +214,67 @@ async fn routine_corpus_lines_make_no_judge_call() {
     assert_eq!(count(&h, "exit_requested").await, 0);
     assert_eq!(count(&h, "approval_requested").await, 0);
     assert_eq!(h.toolbox.invoked().len(), routine.len(), "each line ran in the sandbox");
+}
+
+#[tokio::test]
+async fn full_corpus_lines_never_ask_the_reviewer() {
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let engine = engine();
+    let scope = Scope::Project(id(1));
+    let mut runs: Vec<(String, Requirements)> = Vec::new();
+    let mut with_exits = 0;
+    for line in &corpus.line {
+        let Some(text) = line.line.clone() else {
+            continue;
+        };
+        let requirements = requirements(line, &text);
+        let input = DecisionInput {
+            requirements: requirements.clone(),
+            scope: scope.clone(),
+            origin: Origin::Shell,
+            mode: Mode::Full,
+            conversation_policy: ConversationPolicy::new(PathBuf::from("/scratch")),
+        };
+        let decision = engine.decide(&input);
+        // NOTE: a line that asks in full mode waits for the user; the lines that run are
+        // the ones that must never reach the classifier with no person there.
+        if decision.effect() == Effect::Allow {
+            with_exits += usize::from(decision.exits().next().is_some());
+            runs.push((text, requirements));
+        }
+    }
+    assert!(runs.len() > 70, "full mode runs most of the corpus: {}", runs.len());
+    assert!(with_exits > 5, "and lets exits through: {with_exits}");
+    // A judge that would allow everything: a call shows in the count and nowhere else.
+    let judge = FakeJudge::answering(vec![allows(); runs.len()]);
+    let mut setup = Setup::new();
+    setup.config.mode = Mode::Full;
+    setup.config.full_mode = FullModeStatus { allowed: true, refused: None };
+    setup.config.max_model_calls = 1000;
+    let derivation = Derivation { scope, basis: Basis::Registered, repo: None };
+    setup.scope = std::mem::take(&mut setup.scope).with(setup.cwd.clone(), derivation);
+    setup.engine = Some(engine);
+    setup.judge = Some(Arc::clone(&judge));
+    let calls = runs.iter().map(|(text, _)| ("shell", json!({ "command": text }))).collect();
+    let script = Script::new(calls);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.declared.lock().unwrap().extend(runs.iter().cloned());
+
+    let sent = h.prompt("work on efr").await;
+    h.wait_end(sent.turn_id).await;
+
+    assert_eq!(judge.calls(), 0);
+    assert_eq!(count(&h, "approval_requested").await, 0);
+    assert_eq!(count(&h, "exit_requested").await, with_exits);
+    let judged: Vec<(JudgeKind, Verdict)> = h
+        .events()
+        .await
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::ExitJudged { judge, verdict, .. } => Some((judge, verdict)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(judged, vec![(JudgeKind::Full, Verdict::Allow); with_exits]);
+    assert_eq!(h.toolbox.invoked().len(), runs.len(), "each line ran as the user");
 }

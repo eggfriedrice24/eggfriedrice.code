@@ -32,12 +32,18 @@
 //! that changed git settings that run programs asks the user whether to keep them
 //! before the next call, and its deletes in a private cache layer may reach the real
 //! caches (`cache.rs`).
+//!
+//! In full mode a call runs as the user with no sandbox. The engine lets through what
+//! the sandbox would hold; the turn records the exits that it let through, checks the
+//! gate before each call, and asks the user, at their own machine, before a delete that
+//! full mode guards (`full.rs`).
 
 mod always;
 mod cache;
 mod coalesce;
 mod compact;
 mod drafter;
+mod full;
 mod review;
 mod stream;
 
@@ -1011,9 +1017,16 @@ impl Turn {
             if !skipped {
                 self.calls += 1;
             }
+            // NOTE: checked before the engine, so a call of a full turn whose gate went
+            // off is never judged and never runs (DF16).
+            let gate = if skipped { None } else { self.full_gate(&tool_call.context) };
             // NOTE: judged before the start is recorded, so `tool_call_started` says how
             // the call runs; the engine is pure, and nothing runs until it allows.
-            let judged = if skipped { None } else { Some(self.judge(&tool_call).await) };
+            let judged = if skipped || gate.is_some() {
+                None
+            } else {
+                Some(self.judge(&tool_call).await)
+            };
             let launch = match &judged {
                 Some(Judged::Ruled(ruling)) => ruling.planned_launch(),
                 _ => None,
@@ -1040,7 +1053,14 @@ impl Turn {
             let mut refused = None;
             let (mut outcome, mut interrupted) = match judged {
                 None if capped => (ToolOutcome::error(wake::CALL_CAP), false),
-                None => (ToolOutcome::error(NOT_RUN), true),
+                None => match gate {
+                    Some(message) => {
+                        self.stop_for_full(&message);
+                        refused = Some(approvals::brief(&message));
+                        (ToolOutcome::error(message), false)
+                    }
+                    None => (ToolOutcome::error(NOT_RUN), true),
+                },
                 Some(judged) => match self.authorize_tool_call(&tool_call, judged).await? {
                     (Authorization::Allowed { approved_interactive, launch }, exits) => {
                         tool_call.context.approved_interactive = approved_interactive;
@@ -1224,10 +1244,17 @@ impl Turn {
         };
         let approved: Vec<efr_permissions::ExitNeed> = ruling.decision.exits().cloned().collect();
         let authorization = match ruling.decision.effect() {
-            Effect::Allow => Authorization::Allowed {
-                approved_interactive: false,
-                launch: ruling.launch.clone(),
-            },
+            Effect::Allow => {
+                // NOTE: only full mode allows a call with exits: they run with no
+                // question, and the history keeps what full mode let through.
+                if call.context.is_full() && !approved.is_empty() {
+                    self.let_through(call, &ruling).await?;
+                }
+                Authorization::Allowed {
+                    approved_interactive: false,
+                    launch: ruling.launch.clone(),
+                }
+            }
             // NOTE: a contained call runs only through the launcher; anything else that
             // the engine contains asks, so nothing runs outside the sandbox without a
             // person.
@@ -1302,7 +1329,8 @@ impl Turn {
         self.record(events).await?;
         self.exits.judged(&floors, Verdict::Deny);
         if self.exits.refused() {
-            self.stop = Some(ErrorBody::new(ErrorCode::Forbidden, exit::REFUSALS_STOPPED));
+            let message = exit::refusals_stopped(self.mode());
+            self.stop = Some(ErrorBody::new(ErrorCode::Forbidden, message));
         }
         Ok(())
     }

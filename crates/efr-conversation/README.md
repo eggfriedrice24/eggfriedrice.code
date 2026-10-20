@@ -190,7 +190,8 @@ turns.
   question and records `exit_judged` (judge `floor`); three such refusals in a row
   without a person's answer end the turn with `turn_failed` (`forbidden`, "auto stopped
   this turn: 3 actions were refused in a row. Read the answers, then send a new
-  prompt."). A classifier allow does not reset that count. Classifier denials count
+  prompt."; in full mode the text starts with "full mode stopped this turn",
+  `exit::refusals_stopped`). A classifier allow does not reset that count. Classifier denials count
   apart: at 3 in a row or 10 in the turn the classifier stops for the rest of the turn
   (`classifier_paused`), each later exit that it would judge asks the user, and the
   turn stops while the user is away ("auto stopped this turn: the reviewer refused 3
@@ -210,6 +211,20 @@ turns.
   question of a line that runs a program as another user, such as `sudo`, in any mode
   (`efr_permissions::runs_as_another_user`; `RemotePrivilegeAnswer`), because the
   password needs the terminal.
+- Full mode at the check point (`turn/full.rs`). A full call runs as the user with no
+  sandbox: its launch is `Launch::Direct`, and `CallContext::mode` is `full`, so the
+  toolbox collects the facts and copies a home file first (`predicts()`) but no
+  reviewer and no always-allow rule reads it (`sandboxed()` is false). A call that the
+  engine allows with exits records `exit_requested` with their record and one
+  `exit_judged` (judge `full`, verdict `allow`) before it runs, and `CallContext::exits`
+  carries them. Before each call of a full turn the check point reads the settings of
+  that moment (`ConversationConfig::full_mode`): when the user turned full mode off,
+  the call does not run, the model reads "full mode was turned off while this turn
+  ran; send the prompt again", and the turn fails with `forbidden` and the same text;
+  when the daemon refuses full mode now (undo or snapshots went off), the text is
+  "full mode cannot run: <refusal>". A prompt or a late steer that queued in full
+  mode meets the gate again when its turn starts. What efr records covers only what
+  the line shows: a script or a program that the line starts is not read.
 - Background jobs at the check point (phase C). A `shell` call with `background: true`
   goes through the engine like any call. In `auto` a job with no exit starts at once,
   with no question and no classifier call; an exit goes to the classifier or the user

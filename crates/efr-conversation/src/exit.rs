@@ -25,8 +25,8 @@ use efr_permissions::{
 };
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, Grant, HostFact, Judgement, Launch, PathClassName, PauseReason, ProgramFact, Risk,
-    SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
+    ExitSource, Grant, HostFact, Judgement, Launch, Mode, PathClassName, PauseReason, ProgramFact,
+    Risk, SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
 };
 use efr_store::conversations::{Turn as StoredTurn, TurnStatus};
 use serde_json::Value;
@@ -46,9 +46,19 @@ pub(crate) fn job_minutes(requirements: &Requirements) -> Option<u32> {
 /// must not get a fourth try by changing a setting.
 pub(crate) const REFUSAL_LIMIT: u8 = 3;
 
-/// What a turn fails with after [`REFUSAL_LIMIT`] refusals in a row.
-pub(crate) const REFUSALS_STOPPED: &str = "auto stopped this turn: 3 actions were refused in a \
-                                           row. Read the answers, then send a new prompt.";
+/// What a turn of `mode` fails with after [`REFUSAL_LIMIT`] refusals in a row. It names
+/// the mode that stopped the turn, so a full turn never says that `auto` stopped it.
+pub(crate) fn refusals_stopped(mode: Mode) -> String {
+    let who = match mode {
+        Mode::Auto => "auto",
+        Mode::Full => "full mode",
+        _ => "efr",
+    };
+    format!(
+        "{who} stopped this turn: 3 actions were refused in a row. Read the answers, then send \
+         a new prompt."
+    )
+}
 
 /// How many classifier denials in a row stop the classifier for the rest of the turn.
 /// Not configurable, as [`REFUSAL_LIMIT`] is not.
