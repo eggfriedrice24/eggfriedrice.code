@@ -2418,6 +2418,18 @@ fn auto_credential_agent_sockets_are_floors_or_user(
     }
 }
 
+/// git's credential cache hands out the tokens that it holds to any process that
+/// reaches its socket, so only the user opens it (v0.0.4, DV15).
+#[test]
+fn cache_socket_grant_is_user_only() {
+    for socket in ["~/.cache/git/credential/socket", "/srv/cache/git/credential/socket"] {
+        let needs = Needs { sockets: vec![socket.to_owned()], ..Needs::default() };
+        let decision = decide(shell("git fetch").with_needs(needs));
+        let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+        assert_eq!((need.kind, need.approver), (ExitKind::Socket, Approver::User), "{socket}");
+    }
+}
+
 #[test]
 fn auto_needs_become_exits() {
     let needs = Needs {

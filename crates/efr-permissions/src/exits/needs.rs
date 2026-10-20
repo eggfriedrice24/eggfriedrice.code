@@ -198,14 +198,18 @@ pub(crate) fn named_desktop(path: &Path, name: &str) -> Option<DesktopKind> {
 }
 
 /// The words in a socket's path that mark a credential agent: gpg-agent, ssh-agent,
-/// the GNOME keyring and gcr agents, and the agents of password managers.
-const AGENT_WORDS: &[&str] = &["agent", "ssh", "gnupg", "gpg", "keyring", "gcr", "keyboxd"];
+/// the GNOME keyring and gcr agents, the agents of password managers, and git's
+/// credential cache (`~/.cache/git/credential/socket`), which hands out the tokens
+/// that it holds.
+const AGENT_WORDS: &[&str] =
+    &["agent", "ssh", "gnupg", "gpg", "keyring", "gcr", "keyboxd", "credential"];
 
 /// True when `path` is the socket of a credential agent: one that the daemon knows from
 /// the environment ([`Locations::with_credential_socket`](crate::Locations::with_credential_socket)),
 /// or one whose name or dir holds a word of [`AGENT_WORDS`], such as
 /// `/run/user/1000/gnupg/S.gpg-agent`, `/tmp/ssh-XXXX/agent.123`,
-/// `/run/user/1000/ssh-agent.socket` or `~/.1password/agent.sock`. A word counts in any
+/// `/run/user/1000/ssh-agent.socket`, `~/.1password/agent.sock` or
+/// `~/.cache/git/credential/socket`. A word counts in any
 /// case, inside a longer name, so a socket of another program can ask too; that only
 /// adds a question.
 pub(crate) fn is_credential_agent(path: &Path, locations: &crate::Locations) -> bool {
