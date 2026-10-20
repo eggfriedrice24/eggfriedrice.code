@@ -6,11 +6,14 @@
 //! line on stderr says which. On a terminal the diff is written to the scrollback in
 //! the `diff.*` roles with the files' syntax colours, then a muted line counts the files
 //! and the lines. Elsewhere stdout holds the diff alone, as the daemon sent it, so it
-//! can go to `git apply` or a pager. `--stat` lists the files instead. A turn that
-//! changed nothing says so on stderr, and a turn without a snapshot is an error.
+//! can go to `git apply` or a pager. `--stat` lists the files instead, after a table of
+//! the groups of the files (`[diff.groups]`, then generated, tests, docs and code) when
+//! a file is not code. A turn that changed nothing says so on stderr, and a turn
+//! without a snapshot is an error.
 
 use std::fmt::Write as _;
 
+use efr_config::DiffGroups;
 use efr_protocol::{ConversationDiff, ConversationDiffResult, ErrorCode, Method, Origin};
 use efr_render::{RenderOptions, render};
 use efr_transport::client::ClientError;
@@ -33,6 +36,8 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &DiffArgs) -> Res
             None => return Err(CliError::NoConversation),
         },
     };
+    let groups = &ctx.settings.diff.groups;
+    let options = ctx.render_options(effective_width(ctx.screen.size()));
     let method = Method::ConversationDiff(ConversationDiff {
         conversation_id,
         turn_id: args.turn,
@@ -50,17 +55,16 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &DiffArgs) -> Res
         }
         Err(error) => return Err(error.into()),
     };
-    let options = ctx.render_options(effective_width(ctx.screen.size()));
     if let Some(picked) = picked {
         let line =
             format!("the last turn of {}; efr diff --turn <id> shows another", picked.words());
         out.err(&format!("{}\n", format::paint(&line, Tone::Dim, &options)));
     }
-    if changes::turn_line(&result.changes).is_none() {
+    if result.changes.count() == 0 {
         out.err(&format!("turn {} changed no files\n", result.turn_id));
         return Ok(());
     }
-    out.out(&shown(&result, args.stat, &options))
+    out.out(&shown(&result, args.stat, groups, &options))
 }
 
 /// What `efr diff` writes to stdout for `result`: the list of files with `stat` or when
@@ -70,11 +74,12 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &DiffArgs) -> Res
 pub(crate) fn shown(
     result: &ConversationDiffResult,
     stat: bool,
+    groups: &DiffGroups,
     options: &RenderOptions,
 ) -> String {
     let diff = match result.diff.as_deref() {
         Some(diff) if !stat => diff,
-        _ => return changes::stat(&result.changes, options),
+        _ => return changes::stat(&result.changes, groups, options),
     };
     if !options.is_terminal() {
         let mut text = format::diff_text(diff).into_owned();
@@ -88,7 +93,7 @@ pub(crate) fn shown(
     if cut > 0 {
         let _ = writeln!(out, "{}", format::paint(&changes::more_lines(cut), Tone::Dim, options));
     }
-    if let Some(line) = changes::turn_line(&result.changes) {
+    if let Some(line) = changes::turn_line(&result.changes, groups) {
         let _ = write!(out, "\n{}\n", format::paint(&line, Tone::Dim, options));
     }
     out

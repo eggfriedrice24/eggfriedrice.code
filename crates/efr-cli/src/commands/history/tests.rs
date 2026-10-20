@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use efr_config::DiffGroups;
 use efr_protocol::{
     ApprovalDecision, BlockReason, Blocked, ChainStep, CommandId, CompactionTrigger,
     ConversationHistoryResult, ConversationStatus, ConversationSummary, ConversationsListResult,
@@ -22,7 +23,11 @@ use crate::testing::{
 
 /// The transcript of `page`, not verbose.
 fn show(page: &ConversationHistoryResult, options: &RenderOptions) -> String {
-    transcript(conversation(), page, &Shown { options, verbose: false, home: None })
+    transcript(
+        conversation(),
+        page,
+        &Shown { options, verbose: false, home: None, groups: &DiffGroups::default() },
+    )
 }
 
 fn summary(id: &str) -> ConversationSummary {
@@ -494,11 +499,17 @@ fn the_sandbox_shows_its_notes_and_verbose_adds_each_exit_record() {
     let page = ConversationHistoryResult { events: sandbox_events(), next_cursor: None };
     let options = RenderOptions::new(100).with_terminal(false);
     let home = Some(Path::new("/home/user"));
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+    );
     assert!(!plain.contains("exit requested"), "{plain}");
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+    );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
@@ -520,8 +531,11 @@ fn a_withdrawn_prompt_says_that_it_never_ran() {
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
     let page = ConversationHistoryResult { events, next_cursor: None };
     let options = RenderOptions::new(100).with_terminal(false);
-    let shown =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home: None });
+    let shown = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home: None, groups: &DiffGroups::default() },
+    );
     assert!(shown.contains("later"), "{shown}");
     assert!(shown.contains("withdrawn before it ran"), "{shown}");
 }
@@ -689,8 +703,11 @@ fn a_steer_taken_back_says_that_the_model_did_not_read_it() {
     let events = events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect();
     let page = ConversationHistoryResult { events, next_cursor: None };
     let options = RenderOptions::new(100).with_terminal(false);
-    let shown =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home: None });
+    let shown = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home: None, groups: &DiffGroups::default() },
+    );
     assert!(shown.contains("took back a steer that the model did not read"), "{shown}");
 }
 
@@ -742,10 +759,16 @@ fn a_command_of_several_lines_never_shows_as_one_line() {
     let page = ConversationHistoryResult { events, next_cursor: None };
     let options = RenderOptions::new(100).with_terminal(false);
     let home = Some(Path::new("/home/user"));
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+    );
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+    );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
@@ -963,7 +986,8 @@ fn a_compaction_marks_its_place_and_verbose_adds_its_summary() {
         ("pipe", RenderOptions::new(80).with_terminal(false)),
     ] {
         for verbose in [false, true] {
-            let shown_as = Shown { options: &options, verbose, home: None };
+            let shown_as =
+                Shown { options: &options, verbose, home: None, groups: &DiffGroups::default() };
             let text = transcript(conversation(), &page, &shown_as);
             shown.push(format!("=== {name}, verbose {verbose}\n{}", readable(&text)));
         }
@@ -1057,8 +1081,11 @@ fn history_shows_reviewer_and_backup_lines() {
     let page = ConversationHistoryResult { events: reviewer_events(), next_cursor: None };
     let options = RenderOptions::new(60).with_terminal(false);
     let home = Some(Path::new("/home/user"));
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+    );
     // NOTE: the backup line stays whole at 60 columns: it names where the copy is.
     assert!(
         plain.contains(
@@ -1067,8 +1094,11 @@ fn history_shows_reviewer_and_backup_lines() {
         "{plain}"
     );
     assert!(!plain.contains("gpt-6-luna"), "{plain}");
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+    );
     insta::assert_snapshot!(format!("{plain}---\n{verbose}"));
 }
 
@@ -1129,16 +1159,22 @@ fn history_shows_judge_always_with_the_rule() {
     let page = ConversationHistoryResult { events: always_events(), next_cursor: None };
     let options = RenderOptions::new(80).with_terminal(false);
     let home = Some(Path::new("/home/user"));
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+    );
     assert!(plain.contains("allowed always from the shell\n"), "{plain}");
     assert!(plain.contains("saved as sandbox.allow[2]: write under ~/notes\n"), "{plain}");
     assert!(
         plain.contains("allowed by your rule sandbox.allow[2]: write under ~/notes\n"),
         "{plain}"
     );
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+    );
     assert!(
         verbose.contains("exit allowed by an always-allow rule: sandbox.allow[2]\n"),
         "{verbose}"
@@ -1178,11 +1214,17 @@ fn history_verbose_shows_exit_allowed_by_full_mode() {
     let page = ConversationHistoryResult { events, next_cursor: None };
     let options = RenderOptions::new(80).with_terminal(false);
     let home = Some(Path::new("/home/user"));
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+    );
     assert!(verbose.contains("exit allowed by full mode\n"), "{verbose}");
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+    );
     assert!(!plain.contains("exit allowed"), "{plain}");
 }
 
@@ -1249,8 +1291,11 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
     let page = ConversationHistoryResult { events: undo_events(), next_cursor: None };
     let options = RenderOptions::new(80).with_terminal(false);
     let home = Some(Path::new("/home/user"));
-    let plain =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: false, home });
+    let plain = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: false, home, groups: &DiffGroups::default() },
+    );
     for line in [
         "changed ~/.zshrc; efr undo reverts it\n",
         "changed 1 file in ~; efr undo reverts this turn\nnot covered: target/ (ignored, large)\n",
@@ -1263,8 +1308,11 @@ fn history_shows_each_undo_as_one_line_and_snapshots_when_verbose() {
         assert!(plain.contains(line), "{line:?} in {plain}");
     }
     assert!(!plain.contains("snapshot"), "{plain}");
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home });
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home, groups: &DiffGroups::default() },
+    );
     assert!(
         verbose.contains(
             "snapshot before the turn of project: 120 files, 3 left out, 45 ms (1a2b3c4)\n"
@@ -1364,8 +1412,11 @@ fn wake_turn_marked_in_history() {
     );
     assert!(!plain.contains("mismatched"), "the tail shows only with --verbose: {plain}");
 
-    let verbose =
-        transcript(conversation(), &page, &Shown { options: &options, verbose: true, home: None });
+    let verbose = transcript(
+        conversation(),
+        &page,
+        &Shown { options: &options, verbose: true, home: None, groups: &DiffGroups::default() },
+    );
     assert!(verbose.contains("    error[E0308]: mismatched types\n"), "{verbose}");
     assert!(verbose.contains("    efr: this is a job notice\n"), "{verbose}");
     // NOTE: the tail and the notice come from a program: no escape or format character

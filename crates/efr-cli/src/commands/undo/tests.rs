@@ -176,7 +176,7 @@ async fn undo_with(
 
 #[tokio::test]
 async fn efr_undo_needs_yes_without_a_terminal() {
-    let (exit, stdout, stderr, asked) = undo_with(&[], None, vec![Ok(preview())]).await;
+    let (exit, stdout, stderr, asked) = Box::pin(undo_with(&[], None, vec![Ok(preview())])).await;
 
     assert_eq!(exit, Exit::Usage);
     assert_eq!(stdout, preview_rows(&preview(), false, &plain()));
@@ -193,7 +193,7 @@ async fn efr_undo_needs_yes_without_a_terminal() {
 #[tokio::test]
 async fn efr_undo_yes_applies_the_turn_of_the_preview() {
     let (exit, stdout, _, asked) =
-        undo_with(&["--yes", "--force"], None, vec![Ok(preview()), Ok(applied())]).await;
+        Box::pin(undo_with(&["--yes", "--force"], None, vec![Ok(preview()), Ok(applied())])).await;
 
     assert_eq!(exit, Exit::Success);
     let [dry_run, apply] = asked.try_into().expect("a preview, then the undo");
@@ -208,7 +208,7 @@ async fn efr_undo_yes_applies_the_turn_of_the_preview() {
 async fn a_key_answers_the_question() {
     let keys = Arc::new(ScriptedKeys::default());
     let (exit, stdout, _, asked) =
-        undo_with(&[], Some(keys), vec![Ok(preview()), Ok(applied())]).await;
+        Box::pin(undo_with(&[], Some(keys), vec![Ok(preview()), Ok(applied())])).await;
 
     assert_eq!(exit, Exit::Success);
     assert_eq!(asked.len(), 2, "y applies it");
@@ -218,7 +218,8 @@ async fn a_key_answers_the_question() {
 
 #[tokio::test]
 async fn efr_undo_dry_run_changes_nothing() {
-    let (exit, stdout, _, asked) = undo_with(&["--dry-run"], None, vec![Ok(preview())]).await;
+    let (exit, stdout, _, asked) =
+        Box::pin(undo_with(&["--dry-run"], None, vec![Ok(preview())])).await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(asked.len(), 1);
     assert!(stdout.starts_with("undo turn "), "{stdout}");
@@ -262,7 +263,7 @@ async fn efr_undo_list_shows_undone_turns() {
         ],
         ..preview()
     };
-    let (exit, stdout, _, asked) = undo_with(&["--list"], None, vec![Ok(listed)]).await;
+    let (exit, stdout, _, asked) = Box::pin(undo_with(&["--list"], None, vec![Ok(listed)])).await;
 
     assert_eq!(exit, Exit::Success);
     let [list] = asked.try_into().expect("one list");
@@ -284,7 +285,7 @@ async fn a_refused_undo_says_why_and_what_to_do() {
             .with_data(serde_json::json!({
                 "refused": { "kind": "later_turns_not_undone", "turn_id": turn() }
             }));
-    let (exit, stdout, stderr, _) = undo_with(&[], None, vec![Err(body)]).await;
+    let (exit, stdout, stderr, _) = Box::pin(undo_with(&[], None, vec![Err(body)])).await;
 
     assert_eq!(exit, Exit::DaemonError);
     assert_eq!(stdout, "");
@@ -309,7 +310,7 @@ async fn efr_undo_without_force_fails_when_only_force_acts() {
         ..preview()
     };
     let (exit, stdout, stderr, asked) =
-        undo_with(&["--yes"], None, vec![Ok(skipped.clone())]).await;
+        Box::pin(undo_with(&["--yes"], None, vec![Ok(skipped.clone())])).await;
 
     assert_eq!(exit, Exit::DaemonError);
     assert_eq!(stdout, preview_rows(&skipped, false, &plain()));
@@ -322,7 +323,7 @@ async fn efr_undo_without_force_fails_when_only_force_acts() {
     assert_eq!(asked.len(), 1, "only the preview");
 
     let (exit, _, _, asked) =
-        undo_with(&["--yes", "--force"], None, vec![Ok(skipped), Ok(applied())]).await;
+        Box::pin(undo_with(&["--yes", "--force"], None, vec![Ok(skipped), Ok(applied())])).await;
     assert_eq!(exit, Exit::Success);
     assert_eq!(asked.len(), 2, "--force applies it");
 }

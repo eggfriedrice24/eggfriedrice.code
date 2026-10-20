@@ -1,3 +1,4 @@
+use efr_config::DiffGroups;
 use efr_protocol::{
     ChangeKind, ClientFrame, ConversationDiff, ConversationDiffResult, ConversationStatus,
     ConversationSummary, ConversationsListResult, ErrorBody, ErrorCode, FileChange, FileChanges,
@@ -65,7 +66,7 @@ fn a_diff_on_a_terminal_is_painted_and_ends_with_its_counts() {
     for cols in [40_u16, 80] {
         for (name, colour) in [("colour", ColourMode::Ansi16), ("NO_COLOR", ColourMode::None)] {
             let options = RenderOptions::new(cols).with_colour(colour);
-            let text = shown(&result(Some(DIFF)), false, &options);
+            let text = shown(&result(Some(DIFF)), false, &DiffGroups::default(), &options);
             out.push(format!("=== {cols} columns, {name}\n{}", readable(&text)));
         }
     }
@@ -75,11 +76,11 @@ fn a_diff_on_a_terminal_is_painted_and_ends_with_its_counts() {
 #[test]
 fn in_a_pipe_the_diff_is_the_daemons_text() {
     let options = RenderOptions::new(80).with_terminal(false);
-    assert_eq!(shown(&result(Some(DIFF)), false, &options), DIFF);
+    assert_eq!(shown(&result(Some(DIFF)), false, &DiffGroups::default(), &options), DIFF);
     // A control character cannot reach a terminal behind the pipe; a tab stays.
     let odd = "@@ -1 +1 @@\n-\told\n+new\x1b[2J\n";
     assert_eq!(
-        shown(&result(Some(odd)), false, &options),
+        shown(&result(Some(odd)), false, &DiffGroups::default(), &options),
         "@@ -1 +1 @@\n-\told\n+new\u{241b}[2J\n"
     );
 }
@@ -88,7 +89,7 @@ fn in_a_pipe_the_diff_is_the_daemons_text() {
 fn a_cut_diff_counts_the_lines_it_left_out() {
     let options = RenderOptions::new(80).with_colour(ColourMode::None);
     let cut = "@@ -1 +1,3 @@\n-old\n+new\n+more\n... 19997 more lines\n";
-    let text = readable(&shown(&result(Some(cut)), false, &options));
+    let text = readable(&shown(&result(Some(cut)), false, &DiffGroups::default(), &options));
     assert!(text.contains("\u{2026} 19997 more lines"), "{text}");
     assert!(!text.contains("... 19997"), "{text}");
 }
@@ -97,8 +98,17 @@ fn a_cut_diff_counts_the_lines_it_left_out() {
 fn the_stat_lists_the_files() {
     let options = RenderOptions::new(80).with_terminal(false);
     assert_eq!(
-        shown(&result(None), true, &options),
-        "changed src/main.rs  +1 \u{2212}1\nnew     notes.md     +1\n2 files changed, +2 \u{2212}1\n"
+        shown(&result(None), true, &DiffGroups::default(), &options),
+        "code   +1  \u{2212}1\ndocs   +1\ntotal  +2  \u{2212}1\n\n\
+         changed src/main.rs  +1 \u{2212}1\nnew     notes.md     +1\n2 files changed, +2 \u{2212}1\n"
+    );
+    // A turn that changed only code shows no table.
+    let mut code = result(None);
+    code.changes.files.truncate(1);
+    (code.changes.added, code.changes.removed) = (1, 1);
+    assert_eq!(
+        shown(&code, true, &DiffGroups::default(), &options),
+        "changed src/main.rs  +1 \u{2212}1\n1 file changed, +1 \u{2212}1\n"
     );
 }
 

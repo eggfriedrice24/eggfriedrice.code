@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
+use efr_config::DiffGroups;
 use efr_protocol::{
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationsList,
     ConversationsListResult, Event, EventEnvelope, FileChanges, JudgeKind, Launch, Method, Origin,
@@ -70,7 +71,12 @@ pub(crate) async fn run(
     let page: ConversationHistoryResult = client.call(method).await?;
     let size = ctx.screen.size();
     let options = ctx.render_options(effective_width(size));
-    let shown = Shown { options: &options, verbose: args.verbose, home: ctx.home.as_deref() };
+    let shown = Shown {
+        options: &options,
+        verbose: args.verbose,
+        home: ctx.home.as_deref(),
+        groups: &ctx.settings.diff.groups,
+    };
     let mut text = String::new();
     if let Some(picked) = picked {
         let line = format!("{}; efr history lists them all", picked.words());
@@ -123,6 +129,8 @@ pub(crate) struct Shown<'a> {
     pub(crate) verbose: bool,
     /// The home directory, which paths of the sandbox's lines start with as `~`.
     pub(crate) home: Option<&'a Path>,
+    /// The groups of `[diff.groups]`, for the line of the files at the end of a turn.
+    pub(crate) groups: &'a DiffGroups,
 }
 
 /// The conversation that `query` names: a whole id, or the start of exactly one
@@ -266,6 +274,7 @@ struct Transcript<'a> {
     options: &'a RenderOptions,
     verbose: bool,
     home: Option<&'a Path>,
+    groups: &'a DiffGroups,
     out: String,
     spacing: Spacing,
     tools: HashMap<CallId, String>,
@@ -288,6 +297,7 @@ impl<'a> Transcript<'a> {
             options: shown.options,
             verbose: shown.verbose,
             home: shown.home,
+            groups: shown.groups,
             out,
             spacing: Spacing::default(),
             tools: HashMap::new(),
@@ -615,7 +625,7 @@ impl<'a> Transcript<'a> {
     /// what no snapshot covers. Nothing for a turn that undo could not take back.
     fn undo_lines(&mut self, changes: Option<&FileChanges>, undo: Option<&TurnUndoInfo>) {
         let Some(undo) = undo.filter(|undo| undo.undoable) else { return };
-        let lines: Vec<String> = changes::undo_line(changes, undo)
+        let lines: Vec<String> = changes::undo_line(changes, undo, self.groups)
             .into_iter()
             .chain(changes::not_covered_line(&undo.not_covered, undo.not_covered_more))
             .collect();

@@ -1,3 +1,4 @@
+use efr_config::DiffGroups;
 use efr_protocol::{ChangeKind, FileChange, FileChanges};
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
@@ -14,6 +15,11 @@ fn changes(files: Vec<FileChange>, more: u32) -> FileChanges {
     let added = files.iter().map(|file| file.added).sum();
     let removed = files.iter().map(|file| file.removed).sum();
     FileChanges { files, more, added, removed }
+}
+
+/// No groups of `[diff.groups]`: the built-in groups only.
+fn no_groups() -> DiffGroups {
+    DiffGroups::default()
 }
 
 fn text(pieces: &[(String, Tone)]) -> String {
@@ -85,11 +91,11 @@ fn a_path_cannot_drive_the_terminal() {
 fn nothing_changed_gives_no_row_and_no_line() {
     let none = FileChanges::default();
     assert!(call_row(&none).is_empty());
-    assert_eq!(turn_line(&none), None);
+    assert_eq!(turn_line(&none, &no_groups()), None);
     // Only files that the list left out still count.
     let left_out = FileChanges { more: 3, ..FileChanges::default() };
     assert_eq!(text(&call_row(&left_out)), "3 files changed");
-    assert_eq!(turn_line(&left_out).as_deref(), Some("3 files changed"));
+    assert_eq!(turn_line(&left_out, &no_groups()).as_deref(), Some("3 files changed"));
 }
 
 #[test]
@@ -102,9 +108,9 @@ fn the_line_of_a_turn_counts_files_and_lines() {
         ],
         0,
     );
-    assert_eq!(turn_line(&three).as_deref(), Some("3 files changed, +24 \u{2212}7"));
+    assert_eq!(turn_line(&three, &no_groups()).as_deref(), Some("3 files changed, +24 \u{2212}7"));
     let one = changes(vec![file("a.rs", ChangeKind::Modified, 5, 0)], 0);
-    assert_eq!(turn_line(&one).as_deref(), Some("1 file changed, +5"));
+    assert_eq!(turn_line(&one, &no_groups()).as_deref(), Some("1 file changed, +5"));
 }
 
 #[test]
@@ -149,7 +155,7 @@ fn the_stat_lists_each_file_with_its_counts() {
         ("NO_COLOR", RenderOptions::new(80).with_colour(ColourMode::None)),
         ("not a terminal", RenderOptions::new(80).with_terminal(false)),
     ] {
-        shown.push(format!("=== {name}\n{}", readable(&stat(&changes, &options))));
+        shown.push(format!("=== {name}\n{}", readable(&stat(&changes, &no_groups(), &options))));
     }
     insta::assert_snapshot!(shown.join("\n"));
 }
@@ -178,16 +184,20 @@ fn the_undo_line_names_the_roots_and_the_home_files() {
         0,
     );
     assert_eq!(
-        super::undo_line(Some(&two), &undo(&[("a", 1), ("b", 1)], 3)).as_deref(),
+        super::undo_line(Some(&two), &undo(&[("a", 1), ("b", 1)], 3), &no_groups()).as_deref(),
         Some("changed 2 files (+1) in a, b and 3 in ~; efr undo reverts this turn")
     );
     assert_eq!(
-        super::undo_line(Some(&two), &undo(&[("a", 1), ("empty", 0)], 0)).as_deref(),
+        super::undo_line(Some(&two), &undo(&[("a", 1), ("empty", 0)], 0), &no_groups()).as_deref(),
         Some("changed 2 files (+1) in a; efr undo reverts this turn")
     );
-    assert_eq!(super::undo_line(None, &undo(&[], 0)), None, "nothing changed");
+    assert_eq!(super::undo_line(None, &undo(&[], 0), &no_groups()), None, "nothing changed");
     let off = efr_protocol::TurnUndoInfo { undoable: false, ..undo(&[("a", 1)], 1) };
-    assert_eq!(super::undo_line(Some(&two), &off), None, "undo cannot take it back now");
+    assert_eq!(
+        super::undo_line(Some(&two), &off, &no_groups()),
+        None,
+        "undo cannot take it back now"
+    );
 }
 
 #[test]
@@ -206,9 +216,84 @@ fn the_undo_line_of_a_turn_that_only_moved_refs_names_them() {
     let mut info = undo(&[], 0);
     info.roots = vec![efr_protocol::RootFiles { shown: "app".to_owned(), files: 0, refs: 1 }];
     assert_eq!(
-        super::undo_line(None, &info).as_deref(),
+        super::undo_line(None, &info, &no_groups()).as_deref(),
         Some("moved 1 ref in app; efr undo reverts this turn")
     );
     info.roots[0].refs = 0;
-    assert_eq!(super::undo_line(None, &info), None, "nothing to take back");
+    assert_eq!(super::undo_line(None, &info, &no_groups()), None, "nothing to take back");
+}
+
+fn evals() -> DiffGroups {
+    DiffGroups::new(vec![("evals".to_owned(), vec!["evals/".to_owned()])])
+}
+
+#[test]
+fn the_line_of_a_turn_names_at_most_two_groups_that_are_not_code() {
+    let many = changes(
+        vec![
+            file("src/a.rs", ChangeKind::Modified, 55, 44),
+            file("tests/a.rs", ChangeKind::Added, 77, 0),
+            file("evals/case.toml", ChangeKind::Added, 503, 0),
+            file("README.md", ChangeKind::Modified, 3, 1),
+            file("docs/logo.png", ChangeKind::Added, 0, 0),
+        ],
+        0,
+    );
+    assert_eq!(
+        turn_line(&many, &evals()).as_deref(),
+        Some("5 files changed, +638 \u{2212}45 (evals +503, tests +77)")
+    );
+    // Without the group of the file, its files are code.
+    assert_eq!(
+        turn_line(&many, &no_groups()).as_deref(),
+        Some("5 files changed, +638 \u{2212}45 (tests +77, docs +3 \u{2212}1)")
+    );
+    // A group without changed lines is left out of the line.
+    let binary = changes(
+        vec![file("a.rs", ChangeKind::Modified, 2, 0), file("docs/a.png", ChangeKind::Added, 0, 0)],
+        0,
+    );
+    assert_eq!(turn_line(&binary, &no_groups()).as_deref(), Some("2 files changed, +2"));
+}
+
+#[test]
+fn the_undo_line_names_the_groups_after_the_counts() {
+    let two = changes(
+        vec![file("a.rs", ChangeKind::Modified, 1, 0), file("tests/b.rs", ChangeKind::Added, 9, 2)],
+        0,
+    );
+    assert_eq!(
+        super::undo_line(Some(&two), &undo(&[("app", 2)], 0), &no_groups()).as_deref(),
+        Some(
+            "changed 2 files (+10 \u{2212}2; tests +9 \u{2212}2) in app; efr undo reverts this turn"
+        )
+    );
+}
+
+#[test]
+fn the_table_of_the_groups_aligns_its_counts_and_ends_with_the_total() {
+    let mut listed = changes(
+        vec![
+            file("src/a.rs", ChangeKind::Modified, 120, 30),
+            file("tests/a.rs", ChangeKind::Added, 77, 0),
+            file("evals/case.toml", ChangeKind::Added, 503, 14),
+            file("Cargo.lock", ChangeKind::Modified, 0, 0),
+        ],
+        3,
+    );
+    // The files that the list leaves out added 20 lines and removed 1.
+    listed.added += 20;
+    listed.removed += 1;
+    let mut shown = Vec::new();
+    for (name, options) in [
+        ("colour", RenderOptions::new(80)),
+        ("NO_COLOR", RenderOptions::new(80).with_colour(ColourMode::None)),
+        ("not a terminal", RenderOptions::new(80).with_terminal(false)),
+    ] {
+        let table = super::group_table(&listed, &evals(), &options);
+        shown.push(format!("=== {name}\n{}", readable(&table)));
+    }
+    insta::assert_snapshot!(shown.join("\n"));
+    let code = changes(vec![file("src/a.rs", ChangeKind::Modified, 1, 0)], 0);
+    assert_eq!(super::group_table(&code, &evals(), &RenderOptions::new(80)), "");
 }

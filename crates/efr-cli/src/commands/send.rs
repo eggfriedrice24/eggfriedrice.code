@@ -190,8 +190,10 @@ async fn send_and_follow(
         progress: progress::wanted(render.progress, &ctx.term),
         diff_lines: usize::try_from(render.diff_lines).unwrap_or(usize::MAX),
     };
-    let mut view =
-        TurnView::new(result.turn_id, options).with_home(ctx.home.clone()).with_look(look);
+    let mut view = TurnView::new(result.turn_id, options)
+        .with_home(ctx.home.clone())
+        .with_look(look)
+        .with_groups(ctx.settings.diff.groups.clone());
     if reader.is_some() {
         view = view.with_input();
     }

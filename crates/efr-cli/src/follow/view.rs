@@ -132,6 +132,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use efr_config::DiffGroups;
 use efr_protocol::{
     ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
     ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch, Mode, Origin,
@@ -568,6 +569,8 @@ pub(crate) struct TurnView {
     jobs: Box<Jobs>,
     /// What `config.toml` switches.
     look: Look,
+    /// The groups of `[diff.groups]`, for the line of the files at the end of a turn.
+    groups: DiffGroups,
     /// On a terminal: the committed output since the last frame.
     pending: String,
     /// Something changed since the last frame.
@@ -646,6 +649,7 @@ impl TurnView {
             surfaces: HashSet::new(),
             jobs: Box::default(),
             look: Look::default(),
+            groups: DiffGroups::default(),
             pending: String::new(),
             dirty: false,
             status: None,
@@ -666,6 +670,12 @@ impl TurnView {
     /// The same view with `look`.
     pub(crate) fn with_look(mut self, look: Look) -> TurnView {
         self.look = look;
+        self
+    }
+
+    /// The same view with the groups of `[diff.groups]`.
+    pub(crate) fn with_groups(mut self, groups: DiffGroups) -> TurnView {
+        self.groups = groups;
         self
     }
 
@@ -1669,8 +1679,10 @@ impl TurnView {
                 // without the end's line: they say what the turn left behind. A turn
                 // that undo can take back says so in the lines before the end.
                 let undoable = self.ended_with(changes.as_ref(), undo.as_ref());
-                let changed =
-                    changes.as_ref().filter(|_| !undoable).and_then(format::changes::turn_line);
+                let changed = changes
+                    .as_ref()
+                    .filter(|_| !undoable)
+                    .and_then(|changes| format::changes::turn_line(changes, &self.groups));
                 let line = self
                     .summary()
                     .then(|| format::turn_done(self.took(), usage.as_ref(), context.as_ref()));
@@ -2835,7 +2847,7 @@ impl TurnView {
             ended.map(|ended| *ended).filter(|(_, undo)| undo.undoable)
         {
             undo.home_files = undo.home_files.saturating_sub(own);
-            lines.extend(format::changes::undo_line(changes.as_ref(), &undo));
+            lines.extend(format::changes::undo_line(changes.as_ref(), &undo, &self.groups));
             lines.extend(format::changes::not_covered_line(&not_covered, undo.not_covered_more));
         }
         lines
