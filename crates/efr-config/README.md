@@ -184,7 +184,8 @@ values through `ConfigMode`, with a description of each mode for this file.
 `permissions.allow_full` (default `false`, live) is the gate of full mode: a terminal,
 a prompt or `permissions.mode` can choose `full` only when it is true. `validate`
 refuses `permissions.mode = "full"` without it, with an error that says to set
-`permissions.allow_full = true`, so efrd does not start with such a file and a reload
+`permissions.allow_full = true` or another `permissions.mode` (the user who turns the
+gate off while full is the default reads it too), so efrd does not start with such a file and a reload
 of it changes nothing. The check holds for an override too. The settings tool of efrd
 never writes either key; the user sets them by hand or with `efr config set`. The gate
 is a config value, not a lock: a program that can write the file can change it. `model.name` and `model.effort` are checked here for their form only: the

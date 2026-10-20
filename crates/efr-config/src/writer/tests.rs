@@ -276,11 +276,14 @@ fn efr_config_set_allow_full() {
     assert_eq!(settings.permissions.mode, efr_protocol::Mode::Full);
     let full = fs::read_to_string(&path).unwrap();
 
-    // The gate cannot go while full is the default of the file.
+    // The gate cannot go while full is the default of the file, and the error says how
+    // to turn full mode off.
     let file = ConfigFile::open(&path).unwrap();
     let mut edit = file.edit().unwrap();
     assert!(edit.unset("permissions.allow_full").unwrap());
-    invalid_mode(file.write(&edit).unwrap_err());
+    let error = file.write(&edit).unwrap_err();
+    assert!(error.to_string().ends_with("or set permissions.mode to manual, cautious or auto"));
+    invalid_mode(error);
     assert_eq!(fs::read_to_string(&path).unwrap(), full);
 }
 

@@ -536,10 +536,12 @@ protection against a prompt injection or a mistake in a script.
    - `permissions.mode = "full"` next to `permissions.allow_full = true` for every
      turn that names no mode. Without the gate key, `mode = "full"` is an error: efrd
      does not start, a reload keeps the old settings, and the error says to set
-     `permissions.allow_full = true`. With full mode as the default, efrd writes a
+     `permissions.allow_full = true` or another `permissions.mode`. With full mode as the default, efrd writes a
      warning to its log at start and at each reload that makes full the default,
      `efr status` shows `default mode full`, and `,mode cautious` or `,mode auto`
-     still moves one terminal down.
+     still moves one terminal down. To turn full mode off while it is the default,
+     set `permissions.mode` to another mode first, or in the same edit: the gate key
+     alone cannot go while `mode = "full"` stays.
 
 `,mode full` asks efrd first. When `config.toml` does not allow full mode, or efrd
 refuses it, it fails with the reason, and the terminal keeps its old mode. Else it

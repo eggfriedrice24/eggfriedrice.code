@@ -301,7 +301,7 @@ into the GitHub release notes, and it stops when the section is missing.
   allows full mode, and refuses to set `permissions.mode = "full"`. You set them by
   hand or with `efr config set`. `permissions.mode = "full"` in `config.toml` needs
   `permissions.allow_full = true`; without it, efrd does not load the file, and the
-  error says to set the key.
+  error says to set the key or another `permissions.mode`.
 - When `config.toml` makes full mode the default, efrd writes a warning to its log at
   the start and at the reload that makes it so. When efrd cannot run full mode (it
   runs as root, `undo.enabled` or `snapshot.enabled` is false, or the hidden shell is
