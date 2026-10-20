@@ -32,6 +32,13 @@ virtme_ng=1.41
 virtme_ng_sha256=2031f0f2c67947829e030d66b28950adcef351a17a8455483b57d27b6246f2d2
 virtme_ng_dir=/opt/virtme-ng-$virtme_ng
 
+# efr's bus filter needs xdg-dbus-proxy 0.1.9 or later: 0.1.5, Ubuntu 24.04's package,
+# cannot serve sd-bus clients such as hostnamectl (that came in 0.1.6), and versions
+# before 0.1.9 let some messages past the filter. So `tools` builds the release tarball,
+# by its pinned hash, into /usr/bin, where root owns it as efrd requires.
+dbus_proxy=0.1.9
+dbus_proxy_sha256=5450dda586ec3bb3ca709d311e845487883faa3b09cf562608d7e84f4311dced
+
 self="$(realpath "${BASH_SOURCE[0]}")"
 
 say() { echo "sandbox-vm: $*"; }
@@ -55,9 +62,10 @@ as_root() {
 cmd_tools() {
     as_root apt-get update -q
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        busybox-static ca-certificates curl dbus-daemon file gir1.2-glib-2.0 iproute2 kmod \
-        python3-argcomplete python3-gi python3-requests python3-venv qemu-system-x86 ripgrep \
-        systemd udev virtiofsd xdg-dbus-proxy zsh zstd
+        busybox-static ca-certificates curl dbus-daemon file gcc gir1.2-glib-2.0 iproute2 kmod \
+        libglib2.0-dev meson ninja-build pkg-config python3-argcomplete python3-gi \
+        python3-requests python3-venv qemu-system-x86 ripgrep systemd udev virtiofsd xz-utils \
+        zsh zstd
     # The wheel by its pinned hash, without pip's resolver: its two dependencies come
     # from apt.
     local dl wheel="virtme_ng-$virtme_ng-py3-none-any.whl"
@@ -68,6 +76,19 @@ cmd_tools() {
     as_root "$virtme_ng_dir/bin/pip" install -q --no-deps --no-index "$dl/$wheel"
     rm -rf "$dl"
     "$virtme_ng_dir/bin/vng" --version
+    local tarball="xdg-dbus-proxy-$dbus_proxy.tar.xz"
+    dl="$(mktemp -d)"
+    curl -fsSL -o "$dl/$tarball" \
+        "https://github.com/flatpak/xdg-dbus-proxy/releases/download/$dbus_proxy/$tarball"
+    echo "$dbus_proxy_sha256  $dl/$tarball" | sha256sum -c -
+    tar -C "$dl" -xJf "$dl/$tarball"
+    meson setup -Dman=disabled -Dtests=false --prefix=/usr \
+        "$dl/build" "$dl/xdg-dbus-proxy-$dbus_proxy" >/dev/null
+    ninja -C "$dl/build" >/dev/null
+    as_root meson install -C "$dl/build" --no-rebuild >/dev/null
+    rm -rf "$dl"
+    /usr/bin/xdg-dbus-proxy --version | grep -qx "xdg-dbus-proxy $dbus_proxy" ||
+        fail "xdg-dbus-proxy $dbus_proxy is not the one in /usr/bin"
 }
 
 # Ubuntu's own package, as in .github/ubuntu-shell.Dockerfile: owned by root and not
