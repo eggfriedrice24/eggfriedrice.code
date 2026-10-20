@@ -327,6 +327,7 @@ fn answering(roots: &Roots, outcome: Result<&'static str, &'static str>) -> Join
                 seq: Seq::new(3),
                 queued: false,
                 settings: None,
+                route: None,
             },
         );
         let (sub, _) = conn.request();
@@ -436,6 +437,7 @@ fn the_terminals_settings_reach_the_prompt_and_the_overrides_lead_the_reply() {
                 seq: Seq::new(3),
                 queued: false,
                 settings: Some(settings),
+                route: None,
             },
         );
         let (sub, _) = conn.request();
@@ -578,6 +580,7 @@ fn sigterm_while_a_turn_runs_ends_efr_by_the_signal() {
                 seq: Seq::new(3),
                 queued: false,
                 settings: None,
+                route: None,
             },
         );
         let (sub, _) = conn.request();

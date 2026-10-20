@@ -20,7 +20,7 @@ fn hello(protocol: u32) -> Method {
 }
 
 fn list() -> Method {
-    Method::ConversationsList(ConversationsList { cursor: None, limit: None })
+    Method::ConversationsList(ConversationsList { cursor: None, limit: None, tty: None })
 }
 
 fn code(gate: &Gate) -> Option<ErrorCode> {

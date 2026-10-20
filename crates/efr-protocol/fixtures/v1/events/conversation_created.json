@@ -1,5 +1,9 @@
 {
   "kind": "conversation_created",
   "origin": "shell",
-  "tty": "/dev/pts/3"
+  "tty": "/dev/pts/3",
+  "route": {
+    "kind": "project",
+    "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+  }
 }

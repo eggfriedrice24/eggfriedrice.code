@@ -192,6 +192,7 @@ fn a_prompt_send_result_reports_the_settings_of_its_turn() {
             overridden: OverriddenSettings { model: true, ..OverriddenSettings::default() },
             fallback: None,
         }),
+        route: None,
     };
     let value = serde_json::to_value(&result).unwrap();
     assert_eq!(

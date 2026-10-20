@@ -12,5 +12,23 @@
       "model": true,
       "effort": true
     }
+  },
+  "route": {
+    "scope": {
+      "scope": {
+        "kind": "project",
+        "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+      },
+      "name": "app",
+      "dir": "/home/me/p/app"
+    },
+    "switch": {
+      "kind": "back",
+      "title": "fix the tests",
+      "updated_at": "2026-10-03T10:00:05Z"
+    },
+    "hint": {
+      "root": "/home/me/p/tool"
+    }
   }
 }

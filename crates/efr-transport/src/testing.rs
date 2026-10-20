@@ -196,7 +196,11 @@ pub(crate) fn hello_frame(id: u64, protocol: u32) -> ClientFrame {
 pub(crate) fn list_frame(id: u64) -> ClientFrame {
     ClientFrame::Request {
         id: RequestId::new(id),
-        method: Method::ConversationsList(ConversationsList { cursor: None, limit: None }),
+        method: Method::ConversationsList(ConversationsList {
+            cursor: None,
+            limit: None,
+            tty: None,
+        }),
     }
 }
 

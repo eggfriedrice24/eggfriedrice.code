@@ -34,6 +34,7 @@ mod jobs;
 mod method;
 mod methods;
 mod presence;
+mod route;
 mod sandbox;
 #[cfg(feature = "schema")]
 pub mod schema;
@@ -115,6 +116,7 @@ pub use methods::turn_steer::{LateSteer, TurnSteer, TurnSteerResult};
 pub use methods::turn_undo::{TurnUndo, TurnUndoResult};
 pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use presence::{Presence, PresenceSource};
+pub use route::{AttachHow, NewReason, RepoHint, RouteLabel, RouteScope, Routed, Switch};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
 pub use sandbox::record::{
     ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCodeFact, GitCodeFacts, GitCounts, HostFact,

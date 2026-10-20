@@ -8,12 +8,13 @@ use super::{
     FIXTURES_DIR, all, always_saved_samples, approval_decision_samples, daemon_roots,
     draft_part_samples, event_path, event_samples, floor_edit_exit_sample, grant_samples,
     input_wait_samples, launch_samples, method_samples, method_stem, models_list_sample,
-    undo_refused_samples, withdraw_target_samples,
+    route_scope_samples, switch_samples, undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
-    AlwaysSaved, ApprovalDecision, BlockReason, BusProxyOff, DraftPart, Event, ExitKind,
-    FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource, NotSavedReason,
-    RootSource, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
+    AlwaysSaved, ApprovalDecision, AttachHow, BlockReason, BusProxyOff, DraftPart, Event, ExitKind,
+    FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource, NewReason,
+    NotSavedReason, RootSource, RouteScope, Switch, UndoAction, UndoReason, UndoRefused,
+    WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -134,10 +135,11 @@ fn event_index(event: &Event) -> usize {
         Event::JobNotice { .. } => 47,
         Event::JobNoticeHeld { .. } => 48,
         Event::AlwaysRuleSaved { .. } => 49,
+        Event::TerminalAttached { .. } => 50,
     }
 }
 
-const EVENT_COUNT: usize = 50;
+const EVENT_COUNT: usize = 51;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -364,6 +366,46 @@ fn block_reason_index(reason: BlockReason) -> usize {
 
 const BLOCK_REASON_COUNT: usize = 11;
 
+/// The position of a route scope key in the enum, for the same purpose as
+/// `method_index`.
+fn route_scope_index(scope: &RouteScope) -> usize {
+    match scope {
+        RouteScope::Project(_) => 0,
+        RouteScope::Outside => 1,
+        RouteScope::Unknown => 2,
+    }
+}
+
+const ROUTE_SCOPE_COUNT: usize = 3;
+
+/// The position of a switch, and of the reason of a new conversation, for the same
+/// purpose as `method_index`; a switch other than `New` counts once.
+fn switch_index(switch: &Switch) -> usize {
+    match switch {
+        Switch::Back { .. } => 0,
+        Switch::PickedUp { .. } => 1,
+        Switch::New { reason: NewReason::Scope, .. } => 2,
+        Switch::New { reason: NewReason::Idle { .. }, .. } => 3,
+        Switch::New { reason: NewReason::Moved { .. }, .. } => 4,
+        Switch::New { reason: NewReason::Unknown, .. } => 5,
+        Switch::Unknown => 6,
+    }
+}
+
+const SWITCH_COUNT: usize = 7;
+
+/// The position of a way a conversation came to a terminal, for the same purpose as
+/// `method_index`.
+fn attach_how_index(how: AttachHow) -> usize {
+    match how {
+        AttachHow::PickedUp => 0,
+        AttachHow::Resumed => 1,
+        AttachHow::Unknown => 2,
+    }
+}
+
+const ATTACH_HOW_COUNT: usize = 3;
+
 /// The position of an approval answer in the enum, for the same purpose as
 /// `method_index`.
 fn approval_decision_index(decision: ApprovalDecision) -> usize {
@@ -578,6 +620,16 @@ fn every_approval_decision_and_always_outcome_has_a_sample() {
     assert_eq!(saved, (0..ALWAYS_SAVED_COUNT).collect::<Vec<_>>());
     let reasons: Vec<usize> = NotSavedReason::ALL.into_iter().map(not_saved_reason_index).collect();
     assert_eq!(reasons, (0..NOT_SAVED_REASON_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_route_scope_switch_and_attach_way_has_a_sample() {
+    let scopes: Vec<usize> = route_scope_samples().iter().map(route_scope_index).collect();
+    assert_eq!(scopes, (0..ROUTE_SCOPE_COUNT).collect::<Vec<_>>());
+    let switches: Vec<usize> = switch_samples().iter().map(switch_index).collect();
+    assert_eq!(switches, (0..SWITCH_COUNT).collect::<Vec<_>>());
+    let ways: Vec<usize> = AttachHow::ALL.into_iter().map(attach_how_index).collect();
+    assert_eq!(ways, (0..ATTACH_HOW_COUNT).collect::<Vec<_>>());
 }
 
 #[test]

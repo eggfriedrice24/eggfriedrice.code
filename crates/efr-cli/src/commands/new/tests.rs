@@ -14,6 +14,7 @@ fn sent() -> PromptSendResult {
         seq: Seq::new(5),
         queued: false,
         settings: None,
+        route: None,
     }
 }
 

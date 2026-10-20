@@ -193,6 +193,7 @@ async fn tab(conn: &mut Conn, keys: &ScriptedKeys, text: &str, turn: TurnId, seq
         seq: Seq::new(seq),
         queued: true,
         settings: None,
+        route: None,
     };
     conn.reply(id, &result).await;
 }
@@ -302,6 +303,7 @@ async fn tab_queues_a_prompt_and_the_view_follows_it_after_the_turn() {
             seq: Seq::new(11),
             queued: true,
             settings: None,
+            route: None,
         };
         conn.reply(id, &queued).await;
         shows(&seen, "\u{21b3} queued: then update the docs").await;

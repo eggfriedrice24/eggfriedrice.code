@@ -8,7 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CommandId, ConversationId, EffectiveSettings, Seq, ShellContext, TurnId, TurnSettings,
+    CommandId, ConversationId, EffectiveSettings, Routed, Seq, ShellContext, TurnId, TurnSettings,
 };
 
 /// The params of `prompt.send`.
@@ -136,4 +136,9 @@ pub struct PromptSendResult {
     /// settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<EffectiveSettings>,
+    /// Where a prompt from a terminal went: its scope, and how the terminal's
+    /// conversation changed. Absent for a prompt with no terminal or with a
+    /// conversation id, and from a daemon before routing by scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<Box<Routed>>,
 }

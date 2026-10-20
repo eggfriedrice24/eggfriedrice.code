@@ -142,7 +142,11 @@ async fn list(ctx: &Context, out: &mut Output, args: &JobsListArgs) -> Result<()
 
 /// The title of each listed conversation, `(untitled)` for one with none.
 async fn titles(client: &Client) -> Result<HashMap<ConversationId, String>, CliError> {
-    let method = Method::ConversationsList(ConversationsList { cursor: None, limit: Some(TITLES) });
+    let method = Method::ConversationsList(ConversationsList {
+        cursor: None,
+        limit: Some(TITLES),
+        tty: None,
+    });
     let list: ConversationsListResult = client.call(method).await?;
     Ok(list
         .conversations

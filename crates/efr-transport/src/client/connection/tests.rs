@@ -34,7 +34,7 @@ async fn connected() -> (Client, FakeServer<DuplexStream>) {
 }
 
 fn list() -> Method {
-    Method::ConversationsList(ConversationsList { cursor: None, limit: Some(10) })
+    Method::ConversationsList(ConversationsList { cursor: None, limit: Some(10), tty: None })
 }
 
 fn subscribe() -> Method {

@@ -1,0 +1,10 @@
+{
+  "kind": "terminal_attached",
+  "tty": "/dev/pts/7",
+  "route": {
+    "kind": "project",
+    "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+  },
+  "shell_pid": 4242,
+  "how": "picked_up"
+}

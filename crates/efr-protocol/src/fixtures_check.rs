@@ -20,10 +20,10 @@ use crate::{
     AdminLoginApiKeyResult, AdminLoginOpenAi, AdminLoginOpenAiItem, AdminLogout, AdminLogoutResult,
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
-    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes, BlockReason, Blocked,
-    BusKind, BusProxyOff, BusRefusal, CacheMode, CacheSummary, CallId, Capabilities, CatalogOrigin,
-    CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color, CommandId,
-    Compaction, CompactionBrief, CompactionId, CompactionSummary, CompactionTrigger,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, AttachHow, Base64Bytes, BlockReason,
+    Blocked, BusKind, BusProxyOff, BusRefusal, CacheMode, CacheSummary, CallId, Capabilities,
+    CatalogOrigin, CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color,
+    CommandId, Compaction, CompactionBrief, CompactionId, CompactionSummary, CompactionTrigger,
     ConfigFileError, ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse,
     ConversationCompact, ConversationCompactResult, ConversationContext, ConversationContextResult,
     ConversationDiff, ConversationDiffResult, ConversationHistory, ConversationHistoryResult,
@@ -36,20 +36,21 @@ use crate::{
     HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState,
     JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer,
     Launch, LeaseReport, LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo,
-    ModelSource, ModelsList, ModelsListResult, NetworkMode, NotSavedReason, NoticeKind, Origin,
-    OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
+    ModelSource, ModelsList, ModelsListResult, NetworkMode, NewReason, NotSavedReason, NoticeKind,
+    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
     PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
     ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
     PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RefChange, ReportedFile,
-    RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RowCells, SandboxCheck,
-    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
-    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
-    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason,
-    SurfaceChange, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RefChange, RepoHint,
+    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
+    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
+    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
+    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
+    ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
+    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
+    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -134,7 +135,38 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("judge_kinds.json", &JudgeKind::ALL.to_vec()));
     fixtures.push(fixture("full_refusals.json", &FullRefusal::ALL.to_vec()));
     fixtures.push(fixture("context_part_kinds.json", &ContextPartKind::ALL.to_vec()));
+    fixtures.push(fixture("route_scopes.json", &route_scope_samples()));
+    fixtures.push(fixture("route_switches.json", &switch_samples()));
+    fixtures.push(fixture("attach_hows.json", &AttachHow::ALL.to_vec()));
     fixtures
+}
+
+/// Every form of a route scope key, so `route_scopes.json` freezes the wire form of
+/// each.
+pub(crate) fn route_scope_samples() -> Vec<RouteScope> {
+    vec![RouteScope::Project(project_id()), RouteScope::Outside, RouteScope::Unknown]
+}
+
+/// Every switch of a terminal's conversation and every reason of a new one, so
+/// `route_switches.json` freezes the wire form of each.
+pub(crate) fn switch_samples() -> Vec<Switch> {
+    let updated_at = at("2026-10-03T10:00:05Z");
+    let home = RouteLabel { scope: RouteScope::Outside, name: None, dir: "/home/me".into() };
+    vec![
+        Switch::Back { title: Some("fix the tests".into()), updated_at },
+        Switch::PickedUp { title: Some("fix the proxy test".into()), updated_at },
+        Switch::New { from: Some(home), reason: NewReason::Scope },
+        Switch::New { from: None, reason: NewReason::Idle { hours: 13 } },
+        Switch::New {
+            from: None,
+            reason: NewReason::Moved {
+                tty: "/dev/pts/7".into(),
+                title: Some("fix the tests".into()),
+            },
+        },
+        Switch::New { from: None, reason: NewReason::Unknown },
+        Switch::Unknown,
+    ]
 }
 
 /// Every answer to an approval request, so `approval_decisions.json` freezes the wire
@@ -778,6 +810,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
         Method::ConversationsList(ConversationsList {
             cursor: Some(PageCursor::new("c1:019a9b1c-3d00-7a10-8b20-000000000001")),
             limit: Some(20),
+            tty: Some("/dev/pts/3".into()),
         }),
         Method::ConversationSubscribe(ConversationSubscribe {
             conversation_id: conversation_id(),
@@ -1053,6 +1086,18 @@ fn answer_fixtures() -> Vec<Fixture> {
                 seq: Seq::new(43),
                 queued: false,
                 settings: Some(effective_settings()),
+                route: Some(Box::new(Routed {
+                    scope: RouteLabel {
+                        scope: RouteScope::Project(project_id()),
+                        name: Some("app".into()),
+                        dir: "/home/me/p/app".into(),
+                    },
+                    switch: Some(Switch::Back {
+                        title: Some("fix the tests".into()),
+                        updated_at: at("2026-10-03T10:00:05Z"),
+                    }),
+                    hint: Some(RepoHint { root: "/home/me/p/tool".into() }),
+                })),
             },
         ),
         fixture(
@@ -1496,7 +1541,17 @@ pub(crate) fn event_samples() -> Vec<Event> {
     future.insert("device_id".into(), json!(device_id()));
     future.insert("label".into(), json!("phone"));
     vec![
-        Event::ConversationCreated { origin: Origin::Shell, tty: Some("/dev/pts/3".into()) },
+        Event::ConversationCreated {
+            origin: Origin::Shell,
+            tty: Some("/dev/pts/3".into()),
+            route: Some(RouteScope::Project(project_id())),
+        },
+        Event::TerminalAttached {
+            tty: "/dev/pts/7".into(),
+            route: RouteScope::Project(project_id()),
+            shell_pid: Some(4242),
+            how: AttachHow::PickedUp,
+        },
         Event::PromptQueued {
             turn_id: turn_id(),
             command_id: command_id(),

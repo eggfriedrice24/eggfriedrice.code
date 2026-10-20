@@ -16,7 +16,7 @@ fn conversation_n(n: u64) -> ConversationId {
 }
 
 fn created() -> Event {
-    Event::ConversationCreated { origin: Origin::Shell, tty: None }
+    Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None }
 }
 
 #[tokio::test]

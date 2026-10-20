@@ -14,7 +14,11 @@ use crate::TransportError;
 fn list(id: u64) -> ClientFrame {
     ClientFrame::Request {
         id: RequestId::new(id),
-        method: Method::ConversationsList(ConversationsList { cursor: None, limit: Some(5) }),
+        method: Method::ConversationsList(ConversationsList {
+            cursor: None,
+            limit: Some(5),
+            tty: None,
+        }),
     }
 }
 

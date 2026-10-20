@@ -47,7 +47,11 @@ fn client_frames_decode_on_the_daemon_side() {
     let frames = vec![
         ClientFrame::Request {
             id: RequestId::new(7),
-            method: Method::ConversationsList(ConversationsList { cursor: None, limit: Some(2) }),
+            method: Method::ConversationsList(ConversationsList {
+                cursor: None,
+                limit: Some(2),
+                tty: None,
+            }),
         },
         ClientFrame::Cancel { id: RequestId::new(7) },
     ];

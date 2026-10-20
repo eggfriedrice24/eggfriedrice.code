@@ -1,0 +1,48 @@
+[
+  {
+    "kind": "back",
+    "title": "fix the tests",
+    "updated_at": "2026-10-03T10:00:05Z"
+  },
+  {
+    "kind": "picked_up",
+    "title": "fix the proxy test",
+    "updated_at": "2026-10-03T10:00:05Z"
+  },
+  {
+    "kind": "new",
+    "from": {
+      "scope": {
+        "kind": "outside"
+      },
+      "dir": "/home/me"
+    },
+    "reason": {
+      "kind": "scope"
+    }
+  },
+  {
+    "kind": "new",
+    "reason": {
+      "kind": "idle",
+      "hours": 13
+    }
+  },
+  {
+    "kind": "new",
+    "reason": {
+      "kind": "moved",
+      "tty": "/dev/pts/7",
+      "title": "fix the tests"
+    }
+  },
+  {
+    "kind": "new",
+    "reason": {
+      "kind": "unknown"
+    }
+  },
+  {
+    "kind": "unknown"
+  }
+]

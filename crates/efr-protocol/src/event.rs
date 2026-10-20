@@ -11,12 +11,12 @@ use serde_json::{Map, Value};
 
 use crate::compaction::{is_zero_u32, is_zero_u64};
 use crate::{
-    Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction, ContextUse, ConversationId,
-    EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChanges, Grant,
-    HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind, Launch, NoticeKind, Origin,
-    PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange, ReportedFile, Risk,
-    SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase, SurfaceChange, TurnId, TurnSettings,
-    TurnUndoInfo, UndoId, UserAuthorization, Verdict,
+    AttachHow, Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction, ContextUse,
+    ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource,
+    FileChanges, Grant, HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind, Launch,
+    NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange,
+    ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase,
+    SurfaceChange, TurnId, TurnSettings, TurnUndoInfo, UndoId, UserAuthorization, Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -53,6 +53,27 @@ pub enum Event {
         /// The terminal it is the active conversation of, when it came from a shell.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tty: Option<String>,
+        /// The scope key of its first prompt: with `tty`, the terminal's slot that it
+        /// takes. Absent in conversations from before routing by scope, and when the
+        /// first prompt had no working directory.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route: Option<RouteScope>,
+    },
+
+    /// The conversation became the conversation of a terminal for one scope key,
+    /// because a prompt from a new terminal picked it up or the user resumed it there.
+    /// The terminal's slot for that key held another conversation before, or none; the
+    /// slot of another terminal that held this conversation lets it go.
+    TerminalAttached {
+        /// The terminal.
+        tty: String,
+        /// The scope key of the slot.
+        route: RouteScope,
+        /// The pid of the shell that took it, when it said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shell_pid: Option<u32>,
+        /// How it came there.
+        how: AttachHow,
     },
 
     /// A prompt was accepted and waits for its turn. Prompts sent while a turn runs queue
@@ -940,6 +961,7 @@ impl Event {
             // or show it as part of the undone turn.
             Event::UndoApplied { .. }
             | Event::ConversationCreated { .. }
+            | Event::TerminalAttached { .. }
             | Event::ShellStarted { .. }
             | Event::ShellExited { .. }
             | Event::CwdChanged { .. }

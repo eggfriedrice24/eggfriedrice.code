@@ -179,7 +179,8 @@ async fn new_starts_a_conversation_only_with_a_first_prompt() {
     assert_eq!(bare.status.code(), Some(2), "{}", text(&bare.stderr));
     let client = daemon.client().await.unwrap();
     let list = || async {
-        let method = Method::ConversationsList(ConversationsList { cursor: None, limit: None });
+        let method =
+            Method::ConversationsList(ConversationsList { cursor: None, limit: None, tty: None });
         client.call::<ConversationsListResult>(method).await.unwrap().conversations
     };
     assert!(list().await.is_empty(), "a bare new records nothing");

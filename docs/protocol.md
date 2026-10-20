@@ -512,3 +512,23 @@ No protocol version has shipped yet.
   file or a credential helper can give the call a token for it. Such hosts were
   `not_allowed` before. No host grant opens them. A reader from before reads it as
   `unknown`. `block_reasons.json` now lists it.
+- Version 1, additive: routing by scope. `conversation_created` gains `route` (absent
+  in conversations from before, and for a first prompt without a working directory):
+  the scope key of its first prompt, the new wire enum `route_scope`
+  (`{"kind": "project", "value": "<project id>"}` or `{"kind": "outside"}`; a kind
+  that a reader does not know, with or without a value, reads as `unknown`). New event
+  kind `terminal_attached` with `tty`, `route`, `shell_pid` (absent when unknown) and
+  `how` (`picked_up`, `resumed`, or `unknown`): the conversation became the
+  conversation of that terminal's slot for that key. A reader from before reads it as
+  `unknown`. The result of `prompt.send` gains `route` (absent for a prompt with no
+  terminal or with a conversation id): the `scope` of the prompt (`scope`, `name` of a
+  project, `dir`: the project's root or the prompt's working directory), the
+  `switch` (absent when the conversation did not change, at a terminal's first prompt
+  and at `,new`; `back` and `picked_up` with `title` and `updated_at`, `new` with
+  `from` and a `reason`: `scope`, `idle` with `hours`, or `moved` with `tty` and
+  `title`) and `hint` (a git repository that is not a project; absent for now). The
+  params of `conversations.list` gain `tty`: only that terminal's conversations, its
+  current one first, in one page; a daemon from before ignores it. New fixtures
+  `events/terminal_attached.json`, `route_scopes.json`, `route_switches.json` and
+  `attach_hows.json`; `events/conversation_created.json`, `prompt_send_result.json`
+  and `conversations_list_params.json` now set the new members.

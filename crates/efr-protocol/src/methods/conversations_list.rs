@@ -18,6 +18,11 @@ pub struct ConversationsList {
     /// The most conversations to return; the daemon picks a default and a maximum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Only the conversations of this terminal, its current one first: the one of its
+    /// last prompt, `,new` or resume. One page holds them all, with no cursor. A daemon
+    /// from before routing by scope ignores it and lists every conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tty: Option<String>,
 }
 
 /// The result of `conversations.list`.
@@ -52,8 +57,8 @@ pub struct ConversationSummary {
     /// The scope of the last turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<Scope>,
-    /// The terminal the conversation is active in, when it is the active conversation of
-    /// one.
+    /// The terminal that holds the conversation, when one does: it is that terminal's
+    /// conversation for its scope.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tty: Option<String>,
 }
