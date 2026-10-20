@@ -1618,10 +1618,14 @@ const ROUNDS: u128 = 3;
 /// A slower machine is another matter: in the sandbox job of CI, a VM in a VM, every
 /// new process is slower, also when nothing else runs. There the fastest call cost
 /// 26.7 ms in `cautious` and 111.9 ms in `auto`, 85 ms apart, with no change in efr.
-/// So the bound grows with the fastest call in `cautious` above
-/// [`DEBUG_CAUTIOUS_FASTEST`]: by [`DEBUG_SLOWER_MACHINE_FACTOR`] times the excess (see
-/// [`debug_auto_adds_at_most`]). Load leaves the fastest call in `cautious` at 5 to 8
-/// ms, so the bound stays at 75 ms on a developer's machine, also under load.
+/// So the bound grows with the speed of `cautious` above [`DEBUG_CAUTIOUS_FASTEST`]: by
+/// [`DEBUG_SLOWER_MACHINE_FACTOR`] times the excess (see [`debug_auto_adds_at_most`]).
+/// The speed is the mean of the fastest quarter of the calls in `cautious`
+/// ([`fastest_quarter`]), not the one fastest call: in the VM one call in `cautious`
+/// once took 18.9 ms while the others took 20 to 65 ms, and that one call made the
+/// bound 107.7 ms against an `auto` that added 109.8 ms, about as much as on other
+/// runs. Load leaves the fastest calls in `cautious` at 5 to 8 ms, so the bound stays
+/// at about 75 ms on a developer's machine, also under load.
 const DEBUG_AUTO_ADDS_AT_MOST: Duration = Duration::from_millis(75);
 
 /// The fastest call in `cautious` on a developer's machine in a debug build, idle or
@@ -1636,9 +1640,10 @@ const DEBUG_CAUTIOUS_FASTEST: Duration = Duration::from_millis(8);
 /// fails.
 const DEBUG_SLOWER_MACHINE_FACTOR: u32 = 3;
 
-/// The bound of the debug build for this run, from its fastest call in `cautious`.
-fn debug_auto_adds_at_most(fastest_cautious: Duration) -> Duration {
-    let slower = fastest_cautious.saturating_sub(DEBUG_CAUTIOUS_FASTEST);
+/// The bound of the debug build for this run, from the speed of its calls in
+/// `cautious` ([`fastest_quarter`]).
+fn debug_auto_adds_at_most(cautious_speed: Duration) -> Duration {
+    let slower = cautious_speed.saturating_sub(DEBUG_CAUTIOUS_FASTEST);
     DEBUG_AUTO_ADDS_AT_MOST + slower * DEBUG_SLOWER_MACHINE_FACTOR
 }
 
@@ -1732,6 +1737,31 @@ fn call_times(log: &str) -> Vec<f64> {
 /// The smallest of `values`.
 fn fastest(values: &[f64]) -> f64 {
     values.iter().copied().fold(f64::INFINITY, f64::min)
+}
+
+/// The mean of the smallest quarter of `values` (at least one value): a speed that one
+/// fast outlier does not move much.
+fn fastest_quarter(values: &[f64]) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let count = sorted.len().div_ceil(4).max(1);
+    let quarter = &sorted[..count.min(sorted.len())];
+    quarter.iter().sum::<f64>() / quarter.len() as f64
+}
+
+#[test]
+fn the_speed_of_cautious_is_the_fastest_quarter_not_one_outlier() {
+    // The calls of the CI run whose one fast call made the bound too small.
+    let calls = [
+        58.6, 26.1, 27.5, 30.5, 32.7, 18.9, 22.7, 34.8, 28.4, 39.5, 51.9, 35.4, 45.5, 44.1, 38.3,
+        27.2, 25.5, 21.6, 20.7, 19.9, 65.4, 43.1, 40.7, 42.0, 34.0, 29.4, 28.9, 32.0, 35.5, 32.6,
+    ];
+    let speed = fastest_quarter(&calls);
+    assert!((22.0..24.0).contains(&speed), "{speed:.2}");
+    let bound = debug_auto_adds_at_most(Duration::from_secs_f64(speed / 1000.0));
+    assert!(bound.as_secs_f64() * 1000.0 > 109.8, "that run's own cost passes: {bound:?}");
+    assert_eq!(fastest_quarter(&[7.0]), 7.0);
+    assert_eq!(fastest_quarter(&[5.0, 6.0, 7.0, 8.0, 50.0]), 5.5);
 }
 
 /// One turn of `calls` calls from `cwd` in `mode`, answered with yes: the time per call.
@@ -1967,7 +1997,8 @@ async fn shell_routine_calls_in_auto_cost_close_to_cautious() {
     // NOTE: a debug build runs the launcher and the daemon several times slower, so
     // only a release build holds the fixed bounds; a debug build compares the modes.
     if cfg!(debug_assertions) {
-        let bound = ms(debug_auto_adds_at_most(Duration::from_secs_f64(fastest_cautious / 1000.0)));
+        let speed = fastest_quarter(&cautious_calls);
+        let bound = ms(debug_auto_adds_at_most(Duration::from_secs_f64(speed / 1000.0)));
         // NOTE: the turns from the home dir (no project, the $SCRATCH root) are bound too:
         // a cost that only that path adds would pass the project's calls.
         for (place, fastest_auto, auto_calls) in [
