@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_permissions::{AllowRule, Engine, Policy};
-use efr_protocol::{AlwaysSaved, Mode, ModelInfo, Origin, SandboxStatus};
+use efr_protocol::{AlwaysSaved, FullModeStatus, Mode, ModelInfo, Origin, SandboxStatus};
 use efr_provider::Provider;
 use efr_scope::Home;
 use efr_stdx::rng::Rng;
@@ -86,6 +86,9 @@ pub struct ConversationConfig {
     pub max_model_calls: u32,
     /// The most prompts that may wait behind the running turn.
     pub max_queued: usize,
+    /// Whether a turn may run in full mode: `permissions.allow_full`, and why the
+    /// daemon refuses it. Read when a prompt arrives and when its turn starts.
+    pub full_mode: FullModeStatus,
 }
 
 impl ConversationConfig {
@@ -96,7 +99,7 @@ impl ConversationConfig {
     /// 200 ms between updates, 16 ms
     /// between drafts, no approval timeout, the classifier on, a wait of 5 minutes for a
     /// question while the user is away, 6 turns per hour that job notices start, 64
-    /// model calls per turn and 16 queued prompts.
+    /// model calls per turn, 16 queued prompts and no full mode.
     pub fn new(model: impl Into<String>, scratch_root: impl Into<PathBuf>) -> Self {
         ConversationConfig {
             model: model.into(),
@@ -120,6 +123,7 @@ impl ConversationConfig {
             max_wakes_per_hour: 6,
             max_model_calls: 64,
             max_queued: 16,
+            full_mode: FullModeStatus { allowed: false, refused: None },
         }
     }
 

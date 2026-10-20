@@ -6,8 +6,8 @@ use efr_config::ModelCompany;
 use efr_conversation::ConversationError;
 use efr_oauth_openai::OAuthError;
 use efr_protocol::{
-    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, Origin, PtyId, ScopeName,
-    Seq, TurnId,
+    CallId, CommandId, ConversationId, ErrorBody, ErrorCode, ErrorFrame, FullRefusal, Origin,
+    PtyId, ScopeName, Seq, TurnId,
 };
 use efr_provider::ProviderError;
 use efr_shell::ShellError;
@@ -200,6 +200,25 @@ fn an_invalid_turn_setting_is_invalid_with_its_choices_as_data() {
             "choices": ["low", "high"],
         }))
     );
+}
+
+#[test]
+fn full_mode_errors_are_invalid_with_the_mode_choices() {
+    let refused = ConversationError::FullModeRefused { refusal: FullRefusal::Root };
+    for error in [ConversationError::FullModeOff, refused] {
+        let message = error.to_string();
+        let body = frame(DaemonError::from(error)).error;
+        assert_eq!(body.code, ErrorCode::Invalid, "{message}");
+        assert_eq!(body.message, message);
+        assert_eq!(
+            body.data,
+            Some(json!({
+                "setting": "mode",
+                "value": "full",
+                "choices": ["manual", "cautious", "auto"],
+            }))
+        );
+    }
 }
 
 #[test]

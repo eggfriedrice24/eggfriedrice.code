@@ -842,7 +842,9 @@ fn conversation_code(error: &ConversationError) -> ErrorCode {
         | ConversationError::RemoteAlwaysAnswer { .. } => ErrorCode::Forbidden,
         ConversationError::NoAlwaysOffer { .. } => ErrorCode::Invalid,
         ConversationError::QueueFull { .. } => ErrorCode::Busy,
-        ConversationError::InvalidSetting { .. } => ErrorCode::Invalid,
+        ConversationError::InvalidSetting { .. }
+        | ConversationError::FullModeOff
+        | ConversationError::FullModeRefused { .. } => ErrorCode::Invalid,
         ConversationError::CompactionBusy { .. } | ConversationError::NothingToCompact { .. } => {
             ErrorCode::Conflict
         }

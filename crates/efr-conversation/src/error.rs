@@ -4,7 +4,9 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use efr_protocol::{CallId, ConversationId, Origin, QuestionId, TurnId, UndoRefused};
+use efr_protocol::{
+    CallId, ConversationId, FullRefusal, Mode, Origin, QuestionId, TurnId, UndoRefused,
+};
 use efr_provider::ProviderError;
 use efr_stdx::StdxError;
 use efr_store::StoreError;
@@ -177,6 +179,23 @@ pub enum ConversationError {
         choices: Vec<String>,
         /// True when the value is the config's default rather than the prompt's own.
         from_config: bool,
+    },
+
+    /// A turn asked for full mode, but `permissions.allow_full` is false. Nothing was
+    /// recorded for a prompt; a turn that starts with it fails.
+    #[error(
+        "full mode is off; set permissions.allow_full = true in config.toml by hand to turn \
+         it on (docs/permissions.md, \"Full mode\")"
+    )]
+    FullModeOff,
+
+    /// A turn asked for full mode, which the config allows, but the daemon refuses it,
+    /// such as when it runs as root. Nothing was recorded for a prompt; a turn that
+    /// starts with it fails.
+    #[error("full mode cannot run: {}", .refusal.describe())]
+    FullModeRefused {
+        /// Why the daemon refuses full mode.
+        refusal: FullRefusal,
     },
 
     /// The scratch root could not be created.
@@ -370,8 +389,19 @@ impl ConversationError {
 
     /// The data of the wire error, for an [`InvalidSetting`](Self::InvalidSetting): the
     /// setting, its value, the choices and, for an effort, the model, so a client can
-    /// offer the choices. `None` for every other error.
+    /// offer the choices. For [`FullModeOff`](Self::FullModeOff) and
+    /// [`FullModeRefused`](Self::FullModeRefused): the mode `full` and the other modes as
+    /// the choices. `None` for every other error.
     pub fn data(&self) -> Option<serde_json::Value> {
+        if matches!(
+            self,
+            ConversationError::FullModeOff | ConversationError::FullModeRefused { .. }
+        ) {
+            let choices = [Mode::Manual, Mode::Cautious, Mode::Auto].map(Mode::as_str);
+            return Some(
+                serde_json::json!({ "setting": "mode", "value": Mode::Full.as_str(), "choices": choices }),
+            );
+        }
         let ConversationError::InvalidSetting { setting, value, model, choices, .. } = self else {
             return None;
         };
