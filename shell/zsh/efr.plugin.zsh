@@ -974,9 +974,17 @@ _efr_runtime_root() {
   [[ $REPLY == /* ]]
 }
 
+# When this shell loaded the plugin, in whole seconds. A notice file that was last
+# written before it belongs to an earlier terminal with the same name, such as one
+# before a reboot, and is dropped unseen. Re-sourcing keeps the first value. 0, when
+# zsh/datetime is missing, drops nothing.
+(( ${+_efr_shell_start} )) || typeset -gi _efr_shell_start=${${EPOCHREALTIME-0}%%[.,]*}
+
 # The daemon leaves notices (an approval waiting, a finished turn) in one file per
 # terminal under its runtime root; the prompt shows them. Moving the file first means
-# a notice written while printing lands in a new file instead of being lost.
+# a notice written while printing lands in a new file instead of being lost. The rule
+# of _efr_shell_start works per file: the time of the file is the time of its last
+# line, so one new line keeps the older lines of the same file too.
 _efr_print_notices() {
   [[ -n $TTY ]] || return 0
   local REPLY
@@ -985,6 +993,12 @@ _efr_print_notices() {
   [[ -s $file ]] || return 0
   local shown="$file.shown.$$"
   zf_mv -f -- "$file" "$shown" 2>/dev/null || return 0
+  local -a mtime
+  if (( _efr_shell_start > 0 )) && zstat -A mtime +mtime -- "$shown" 2>/dev/null \
+      && (( mtime[1] < _efr_shell_start )); then
+    zf_rm -f -- "$shown" 2>/dev/null
+    return 0
+  fi
   print -r -- "$(<$shown)"
   zf_rm -f -- "$shown" 2>/dev/null
 }

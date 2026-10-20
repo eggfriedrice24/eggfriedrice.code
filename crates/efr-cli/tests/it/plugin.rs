@@ -1008,7 +1008,45 @@ fn notice(root: &Path, text: &str) -> PathBuf {
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("pts-77");
     std::fs::write(&file, format!("{text}\n")).unwrap();
+    written_after_the_shell_started(&file);
     file
+}
+
+/// Gives `file` a time an hour from now: the plugin of a shell that a test starts after
+/// the write must take it as written after its own start, also when a second boundary
+/// passes between the two. Never a sleep.
+fn written_after_the_shell_started(file: &Path) {
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    std::fs::File::options().write(true).open(file).unwrap().set_modified(later).unwrap();
+}
+
+#[test]
+fn e2e_notices_older_than_the_shell_are_dropped() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let runtime = home.path().join("runtime");
+    let file = notice(&runtime, "efr restarted; a queued prompt did not run");
+    let file_text = file.display().to_string();
+    // NOTE: the old time is set after the plugin loaded, from its own start, and the
+    // new notice is written after that: no test clock and no sleep decide the order.
+    let script = format!(
+        "source {plugin}\nTTY=/dev/pts/77\n\
+         touch -d @$(( _efr_shell_start - 100 )) {file_text}\n\
+         _efr_print_notices\nprint -r -- 'after the old one'\n\
+         print -r -- 'efr: turn finished: fix nginx' > {file_text}\n\
+         _efr_print_notices\n",
+        plugin = plugin().display()
+    );
+    let mut zsh = home.zsh();
+    zsh.env("EFR_RUNTIME_DIR", &runtime);
+    let output = zsh.args(["-f", "-i", "-c", &script]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+    let shown = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(shown, "after the old one\nefr: turn finished: fix nginx\n");
+    assert!(!file.exists(), "the old notice is gone, and so is the new one that showed");
 }
 
 /// Shows the notices of `/dev/pts/77` as the prompt would, with `EFR_RUNTIME_DIR` set
@@ -1238,6 +1276,7 @@ async fn e2e_the_prompt_shows_the_notice_that_the_daemon_wrote() {
         .until(|| std::fs::read(&file).is_ok_and(|text| text.ends_with(b"\n")))
         .await
         .unwrap();
+    written_after_the_shell_started(&file);
 
     let home = Home::new();
     let script = format!("source {}\nTTY={TTY}\n_efr_print_notices\n", plugin().display());
