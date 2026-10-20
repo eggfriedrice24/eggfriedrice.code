@@ -113,8 +113,9 @@ pub use methods::{Base64Bytes, ConfigFileError, PageCursor};
 pub use presence::{Presence, PresenceSource};
 pub use sandbox::exit::{ExitInfo, ExitKind, ExitSource, Needs};
 pub use sandbox::record::{
-    ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCounts, HostFact, JudgeKind, Judgement,
-    PathClassName, PauseReason, ProgramFact, Risk, TargetFact, UserAuthorization, Verdict,
+    ActionFacts, ChainStep, ExitFacts, ExitRecord, GitCodeFact, GitCodeFacts, GitCounts, HostFact,
+    JudgeKind, Judgement, PathClassName, PauseReason, ProgramFact, Risk, TargetFact,
+    UserAuthorization, Verdict,
 };
 pub use sandbox::status::{BusProxyOff, CheckOutcome, SandboxCheck, SandboxPaths, SandboxStatus};
 pub use sandbox::summary::{

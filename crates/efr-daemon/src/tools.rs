@@ -75,6 +75,7 @@ use crate::sandbox::{PrepareInput, SandboxService, facts, lock, quarantine, unit
 use crate::trusted_programs::TrustedPrograms;
 
 mod cache_deletes;
+mod git_code;
 mod job_tools;
 mod settings_tool;
 mod shell_children;
@@ -197,6 +198,10 @@ pub(crate) struct DaemonToolbox {
     /// The full work that runs: each turn from its first full call to its end, which a
     /// reload reads for the config hold.
     full: FullTurns,
+    /// The git code check of each call whose line may run git outside the sandbox,
+    /// until it runs, and the write roots of the calls past their timeout (v0.0.4,
+    /// DV22).
+    git_checks: git_code::GitChecks,
 }
 
 /// What the facts of one call said efr covers: its turn and each ask with its answer.
@@ -256,6 +261,7 @@ impl DaemonToolbox {
             job_env: None,
             wakes: Arc::default(),
             full: FullTurns::default(),
+            git_checks: git_code::GitChecks::default(),
         }
     }
 
@@ -475,6 +481,8 @@ impl DaemonToolbox {
         let conversation = call.context.conversation_id;
         facts.remotes = sandbox.remote_facts(conversation, &request.remotes).await;
         facts.refused_hosts = sandbox.proxy().refused_hosts(conversation, turn_began);
+        facts.git_code =
+            self.git_code_facts(&call.context, sandbox, &request.git_code, &shell_path).await;
         let projects = cover_projects(
             sandbox.projects().await,
             self.settings.borrow().sandbox.write_projects,
@@ -755,11 +763,33 @@ impl DaemonToolbox {
             jobs.check_guards(Some(&prepared.guard_roots)).await;
             tracing::debug!(phase = "job_guards", elapsed_ms = %watch, "phase=job_guards elapsed_ms={}", watch);
         }
+        // NOTE: an upload runs outside with the user's rights, and a `.git` file, a
+        // `commondir` or an `include.path` can point anywhere, so every running contained
+        // job's guard runs first, not only the ones of the line's dir (v0.0.4, DV23). The
+        // recheck of a line with a git code check below runs it itself.
+        let git_checked = !prepared.contained && self.git_checks.has(call.context.call_id);
+        let uploads = !prepared.contained
+            && call.context.exits.iter().any(|need| need.kind == efr_protocol::ExitKind::Upload);
+        if uploads
+            && !git_checked
+            && let Some(jobs) = &self.jobs
+        {
+            jobs.check_guards(None).await;
+        }
         let turn_id = call.context.turn_id;
         // NOTE: under the plan lock, so no other call of these projects writes while
         // the snapshot reads them.
         let snapshot = self.snapshot_before(&call.context, &prepared.projects).await;
         if let Some(stop) = self.check_covered(&call.context, &prepared.projects).await {
+            if let Some((taken, _)) = snapshot {
+                taken.discard();
+            }
+            remove_call_dir(prepared.run.dir.clone()).await;
+            return ToolOutcome::error(stop);
+        }
+        // NOTE: under the plan lock, right before the exit child starts: a part of the
+        // git code that changed since the question stops the line (v0.0.4, DV22).
+        if git_checked && let Some(stop) = self.recheck_git_code(&call.context, sandbox).await {
             if let Some((taken, _)) = snapshot {
                 taken.discard();
             }
@@ -798,6 +828,11 @@ impl DaemonToolbox {
         // turn's record of its roots is then not complete (plan PB39).
         let ended =
             matches!(&result, Ok(result) if result.sandbox.is_some() || result.sandbox_failed);
+        // NOTE: a contained call that runs on can still write its roots; an outside git
+        // line counts them as writable until its launcher wrote its result (DV23).
+        if prepared.contained && !ended {
+            self.git_checks.keep_timed_out(prepared.run.dir.clone(), prepared.write_roots.clone());
+        }
         let mut outcome = match result {
             Ok(result) => {
                 if result.sandbox_failed {
@@ -1223,6 +1258,7 @@ impl DaemonToolbox {
     /// Drops what the facts of the call `call` said, once it ran or stopped.
     fn forget_call(&self, call: CallId) {
         self.covered.lock().unwrap_or_else(PoisonError::into_inner).remove(&call);
+        self.git_checks.forget(call);
     }
 
     /// Changes the home tally of the turn `turn`.
@@ -1608,6 +1644,7 @@ impl Toolbox for DaemonToolbox {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|_, (turn, _)| *turn != turn_id);
+        self.git_checks.end_turn(turn_id);
         let tally = self.home_turns.lock().unwrap_or_else(PoisonError::into_inner).remove(&turn_id);
         let mut tally = tally.unwrap_or_default();
         let unfinished = reason_text(efr_protocol::UndoReason::CallUnfinished);

@@ -362,6 +362,7 @@ async fn tracked_files(git: &Git, home: &Home, dir: &Path) -> Option<u32> {
     }
 }
 
+pub(crate) mod git_code;
 pub(crate) mod remotes;
 
 #[cfg(test)]

@@ -103,6 +103,8 @@ fn facts(remotes: Vec<RemoteFact>, refused: &[&str]) -> CallFacts {
             ("git".to_owned(), Some(PathBuf::from("/usr/bin/git")), false),
             ("curl".to_owned(), Some(PathBuf::from("/usr/bin/curl")), false),
         ],
+        // NOTE: the project's git code lies in its pinned git dir (v0.0.4, DV22).
+        git_code: Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() }),
         ..CallFacts::default()
     }
 }

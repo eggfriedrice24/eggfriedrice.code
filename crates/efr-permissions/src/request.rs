@@ -8,7 +8,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use efr_protocol::{Mode, Needs, Origin, Scope};
+use efr_protocol::{GitCodeFacts, Mode, Needs, Origin, Scope};
 
 use crate::Policy;
 
@@ -228,6 +228,29 @@ pub struct CallFacts {
     /// paths and the named sockets of the call, with its path after every link (phase
     /// E). An always-allow rule covers no path that has no entry here.
     pub real_paths: Vec<(PathBuf, PathBuf)>,
+    /// The git code of the repositories of
+    /// [`FactRequest::git_code`](crate::FactRequest), merged: checked only when efrd
+    /// checked each one (v0.0.4, DV22). `None` for a line that asks for none; for a
+    /// line that asks, `None` counts as not checked, and only the user may approve its
+    /// `outside` or `upload` exit.
+    pub git_code: Option<GitCodeFacts>,
+}
+
+/// A repository whose git code efrd checks before a git or gh line may run outside the
+/// sandbox (v0.0.4, DV22): its hooks, the config keys that run a program and the
+/// programs that they run, as git finds them from the line's options.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GitCodeAsk {
+    /// The directory git starts in: the line's directory after each `-C`.
+    pub dir: PathBuf,
+    /// The `--git-dir` of the line, resolved from [`dir`](Self::dir).
+    pub git_dir: Option<PathBuf>,
+    /// The `--work-tree` of the line, resolved from [`dir`](Self::dir).
+    pub work_tree: Option<PathBuf>,
+    /// True when the line can reach the submodules (`push`, `fetch`, `pull`,
+    /// `submodule update`, a gh command that pushes): efrd then checks each module git
+    /// dir too.
+    pub recurse: bool,
 }
 
 /// One git remote of a directory, or one submodule URL of its `.gitmodules` (phase D2,

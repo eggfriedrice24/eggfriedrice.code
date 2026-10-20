@@ -1521,7 +1521,8 @@ fn outside(line: &str) -> Requirements {
 
 #[test]
 fn exits_outside_from_a_project_with_trusted_programs_is_classifier() {
-    let facts = programs(&[("git", Some("/usr/bin/git"), false)]);
+    let mut facts = programs(&[("git", Some("/usr/bin/git"), false)]);
+    facts.git_code = Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() });
     assert_eq!(approver_of(outside("git pull").with_facts(facts)), Approver::Classifier);
     // A program in a cache overlay or the private tmp was not written in the sandbox.
     let facts = programs(&[("cargo", Some("/home/u/.cargo/bin/cargo"), false)]);

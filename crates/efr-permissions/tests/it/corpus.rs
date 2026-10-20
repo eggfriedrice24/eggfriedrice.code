@@ -20,7 +20,7 @@ use efr_permissions::{
     Policy, Preset, RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact,
     Subject, TargetKind,
 };
-use efr_protocol::{BusKind, ExitKind, Grant, Mode, Origin, ProjectId, Scope};
+use efr_protocol::{BusKind, ExitKind, GitCodeFacts, Grant, Mode, Origin, ProjectId, Scope};
 use pretty_assertions::assert_eq;
 use serde::Deserialize;
 
@@ -350,6 +350,10 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         remotes: remote_facts(&line.remotes),
         refused_hosts: Vec::new(),
         real_paths: Vec::new(),
+        // NOTE: the project's git code lies in its pinned git dir, which no contained
+        // call writes (v0.0.4, DV22).
+        git_code: (!request.git_code.is_empty())
+            .then(|| GitCodeFacts { checked: true, items: Vec::new() }),
     })
 }
 

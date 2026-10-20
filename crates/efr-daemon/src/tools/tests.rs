@@ -1185,6 +1185,7 @@ pub(super) fn home_write(target: &Path) -> efr_permissions::ExitNeed {
         copies: vec![efr_permissions::CoverAsk::Home(target.to_path_buf())],
         covered: Some(true),
         installs: Vec::new(),
+        notes: Vec::new(),
     }
 }
 

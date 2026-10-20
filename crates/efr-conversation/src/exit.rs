@@ -26,8 +26,8 @@ use efr_permissions::{
 };
 use efr_protocol::{
     ActionFacts, BusKind, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord,
-    ExitSource, Grant, HostFact, Judgement, Launch, Mode, PathClassName, PauseReason, ProgramFact,
-    Risk, SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
+    ExitSource, GitCodeFacts, Grant, HostFact, Judgement, Launch, Mode, PathClassName, PauseReason,
+    ProgramFact, Risk, SandboxSummary, Scope, TargetFact, TurnId, UserAuthorization, Verdict,
 };
 use efr_store::conversations::{Turn as StoredTurn, TurnStatus};
 use serde_json::Value;
@@ -645,7 +645,27 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
     if let Some(fact) = narrower_than_outside(decision, home) {
         push(fact);
     }
+    // NOTE: the engine's own notes, such as the file of the git code that a sandboxed
+    // command can write, or what a publish runs (v0.0.4, B4).
+    for need in decision.exits() {
+        for note in &need.notes {
+            push(note.clone());
+        }
+    }
     facts
+}
+
+/// The git code of an `outside` or `upload` exit of `decision` for the record, only
+/// when it made the exit one that only the user may approve: efrd could not check it,
+/// or a sandboxed command can write a part of it (v0.0.4, DV22). A clean check stays
+/// out of the record, so the reviewer never reads it as a reason to allow.
+fn git_code(decision: &Decision, requirements: &Requirements) -> Option<GitCodeFacts> {
+    let leaves =
+        decision.exits().any(|need| matches!(need.kind, ExitKind::Outside | ExitKind::Upload));
+    if !leaves {
+        return None;
+    }
+    requirements.facts.as_ref()?.git_code.clone().filter(|code| !code.clean())
 }
 
 /// A fact for a question where the model asked to run outside the sandbox, but every
@@ -1041,6 +1061,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             refusals_in_a_row: turn.refusals_in_a_row,
             denials_in_a_row: turn.denials_in_a_row,
             denials_this_turn: turn.denials_this_turn,
+            git_code: git_code(action.decision, action.requirements),
         },
     }
 }

@@ -544,6 +544,7 @@ fn the_record_holds_the_line_the_facts_and_no_model_reason() {
         remotes: Vec::new(),
         refused_hosts: Vec::new(),
         real_paths: Vec::new(),
+        git_code: None,
     };
     let requirements = shell("./build.sh > ~/notes/today.txt").with_needs(needs).with_facts(facts);
     let decision = decide(&engine, requirements.clone());
@@ -944,4 +945,70 @@ fn wake_turn_user_messages_exclude_later_prompts() {
     });
     let waiting = std::collections::HashSet::from([behind]);
     assert_eq!(super::wake_user_messages(&page, &waiting), vec!["run the server"]);
+}
+
+/// The record and the question of `line` with the git code fact `code`.
+fn git_code_record(line: &str, code: Option<efr_protocol::GitCodeFacts>) -> (ExitRecord, ExitInfo) {
+    let engine = engine();
+    let facts = CallFacts {
+        programs: vec![("git".to_owned(), Some(PathBuf::from("/usr/bin/git")), false)],
+        git_code: code,
+        ..CallFacts::default()
+    };
+    let requirements = shell(line).with_facts(facts);
+    let decision = decide(&engine, requirements.clone());
+    let launch = grant(&decision);
+    let action = Action {
+        tool: "shell",
+        decision: &decision,
+        requirements: &requirements,
+        launch: &launch,
+        cwd: Path::new(APP),
+        scope: &Scope::Project(app()),
+        scratch: Path::new(SCRATCH),
+        engine: &engine,
+        payload: None,
+    };
+    let record = record(action, &["push it".to_owned()], &TurnExits::default());
+    (record, question(&decision, &requirements, &launch))
+}
+
+#[test]
+fn writable_git_code_reaches_the_record_and_the_question() {
+    let hook = format!("{SCRATCH}/r/.git/hooks/pre-push");
+    let code = efr_protocol::GitCodeFacts {
+        checked: true,
+        items: vec![efr_protocol::GitCodeFact {
+            repo: format!("{SCRATCH}/r").into(),
+            item: "hooks/pre-push".to_owned(),
+            file: hook.into(),
+            writable: true,
+        }],
+    };
+    let line = "git push https://git.test/r.git main";
+    let (record, info) = git_code_record(line, Some(code.clone()));
+    assert_eq!(record.facts.git_code, Some(code));
+    assert!(info.user_only);
+    assert_eq!(
+        info.facts,
+        ["git runs ~/.local/share/efr/scratch/2026-10-04-fix-0a1b2c3d/r/.git/hooks/pre-push, \
+             which a sandboxed command can write"]
+    );
+}
+
+#[test]
+fn a_clean_git_code_check_stays_out_of_the_record() {
+    // NOTE: so the reviewer never reads a clean check as a reason to allow.
+    let line = "git push https://git.test/r.git main";
+    let clean = efr_protocol::GitCodeFacts { checked: true, items: Vec::new() };
+    let (record, info) = git_code_record(line, Some(clean));
+    assert_eq!(record.facts.git_code, None);
+    assert!(info.facts.is_empty(), "{:?}", info.facts);
+    // A line that leaves nothing outside records none either.
+    let late = efr_protocol::GitCodeFacts { checked: false, items: Vec::new() };
+    let (record, _) = git_code_record("git status", Some(late.clone()));
+    assert_eq!(record.facts.git_code, None);
+    let (record, info) = git_code_record(line, Some(late.clone()));
+    assert_eq!(record.facts.git_code, Some(late));
+    assert_eq!(info.facts, ["efr could not check the git code of ~/p/app"]);
 }

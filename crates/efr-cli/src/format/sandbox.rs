@@ -12,9 +12,10 @@ use std::path::Path;
 
 use efr_protocol::{
     AdminSandboxCheckResult, BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, ChainStep,
-    CheckOutcome, DesktopKind, ExitInfo, ExitKind, ExitRecord, ExitSource, Grant, JudgeKind,
-    Launch, Mode, ModeFallback, PathClassName, PauseReason, Presence, PresenceSource, ProgramFact,
-    ReportedFile, Risk, SandboxExplainResult, SandboxStatus, SurfaceChange, TargetFact, Verdict,
+    CheckOutcome, DesktopKind, ExitInfo, ExitKind, ExitRecord, ExitSource, GitCodeFacts, Grant,
+    JudgeKind, Launch, Mode, ModeFallback, PathClassName, PauseReason, Presence, PresenceSource,
+    ProgramFact, ReportedFile, Risk, SandboxExplainResult, SandboxStatus, SurfaceChange,
+    TargetFact, Verdict,
 };
 
 use super::card::{self, Card, Row};
@@ -1154,6 +1155,9 @@ pub(crate) fn exit_record(
             git.modified, git.untracked, git.staged
         ));
     }
+    if let Some(code) = &facts.git_code {
+        lines.extend(git_code_lines(code, home));
+    }
     if !facts.sandbox_export_names.is_empty() {
         let names: Vec<String> = facts.sandbox_export_names.iter().map(|n| one_line(n)).collect();
         lines.push(format!("  exported in the sandbox: {}", names.join(", ")));
@@ -1176,6 +1180,35 @@ pub(crate) fn exit_record(
         ));
     }
     lines.push(format!("  user messages: {}", record.user_messages.len()));
+    lines
+}
+
+/// The lines of the git code fact of an exit record (v0.0.4, DV22): whether efr could
+/// check it, then each part that a sandboxed command can write, and the count of the
+/// others.
+fn git_code_lines(code: &GitCodeFacts, home: Option<&Path>) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !code.checked {
+        lines.push("  git code: efr could not check it".to_owned());
+    }
+    let mut others = 0;
+    for item in &code.items {
+        if item.writable {
+            lines.push(format!(
+                "  git code: {} in {}, which a sandboxed command can write",
+                one_line(&item.item),
+                tilde(&item.file, home)
+            ));
+        } else {
+            others += 1;
+        }
+    }
+    if others > 0 {
+        lines.push(format!(
+            "  git code: {} that the sandbox cannot write",
+            plural(others, "part", "parts")
+        ));
+    }
     lines
 }
 

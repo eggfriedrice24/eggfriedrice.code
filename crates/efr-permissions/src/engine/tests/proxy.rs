@@ -323,6 +323,8 @@ pub(super) fn remote_facts(remotes: Vec<RemoteFact>) -> CallFacts {
     CallFacts {
         remotes: vec![(PathBuf::from(APP), remotes)],
         programs: vec![("git".to_owned(), Some(PathBuf::from("/usr/bin/git")), false)],
+        // NOTE: the project's git code lies in its pinned git dir (v0.0.4, DV22).
+        git_code: Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() }),
         ..CallFacts::default()
     }
 }

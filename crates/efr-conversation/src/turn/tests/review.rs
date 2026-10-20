@@ -413,7 +413,9 @@ async fn outside_with_program_changed_this_turn_asks_user() {
 async fn outside_with_cwd_in_root_goes_to_classifier() {
     let judge = FakeJudge::answering(vec![allows()]);
     let setup = reviewed(Some(Arc::clone(&judge)));
-    let facts = programs(&[("git", "/usr/bin/git", false)]);
+    let mut facts = programs(&[("git", "/usr/bin/git", false)]);
+    // NOTE: the git code of the project, which no contained call writes (v0.0.4, DV22).
+    facts.git_code = Some(efr_protocol::GitCodeFacts { checked: true, items: Vec::new() });
     let requirements = outside_requirements("git pull", &setup.cwd, facts);
     let (_, question) = decided(
         setup,

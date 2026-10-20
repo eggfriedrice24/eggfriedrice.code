@@ -23,6 +23,7 @@
 mod cover;
 mod critical;
 mod envelope;
+mod git_code;
 mod names;
 mod needs;
 mod persist;
@@ -52,7 +53,7 @@ use crate::network::{HostList, Preset};
 use crate::path_class::normalize;
 use crate::policy::read_only_commands;
 use crate::{
-    Access, AutoSupport, CallFacts, CoverAsk, Egress, Locations, PathAccess, PathClass,
+    Access, AutoSupport, CallFacts, CoverAsk, Egress, GitCodeAsk, Locations, PathAccess, PathClass,
     Requirements, Source, TargetKind,
 };
 
@@ -195,6 +196,10 @@ pub struct ExitNeed {
     /// source of a link into a unit dir or of a copy into a floor, the file of
     /// `crontab <file>`. Empty for any other exit.
     pub installs: Vec<Installed>,
+    /// efr's own notes for the question about this exit, one short sentence each, such
+    /// as the file of the git code that a sandboxed command can write, or the project
+    /// code that a publish runs (v0.0.4, B4). Empty for most exits.
+    pub notes: Vec<String>,
 }
 
 /// One file that a persistence form installs, as the classifier reads it.
@@ -236,6 +241,7 @@ impl ExitNeed {
             copies: Vec::new(),
             covered: None,
             installs: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -273,6 +279,7 @@ impl fmt::Debug for ExitNeed {
             .field("copies", &self.copies)
             .field("covered", &self.covered)
             .field("installs", &self.installs)
+            .field("notes", &self.notes)
             .finish()
     }
 }
@@ -411,6 +418,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut fetch: Option<Ecosystem> = None;
     let mut linked: Vec<PathBuf> = Vec::new();
     let mut installs: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+    let mut git_triggers: Vec<git_code::Trigger> = Vec::new();
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
@@ -443,6 +451,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
             fetch = fetch.or_else(|| programs::package_fetch(command));
+            git_triggers.extend(git_code::trigger(command, dir, input.locations));
             let mount_view =
                 input.support.mount_view && programs::runs_mount_view(command, by_shell);
             let rustup = command.first().is_some_and(|word| programs::base_name(word) == "rustup");
@@ -658,6 +667,8 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             _ => {}
         }
     }
+    // NOTE: after the rules above, so that nothing lowers the approver again.
+    git_code::apply(&mut found, &git_triggers, input.facts, input.locations.home());
     named_targets(found, input.locations.home())
 }
 
@@ -871,6 +882,12 @@ pub struct FactRequest {
     /// joined. The answers go to [`CallFacts::real_paths`]; an always-allow rule covers
     /// no grant whose path has no answer.
     pub real_paths: Vec<PathBuf>,
+    /// The repositories whose git code efrd checks, because the line runs git there
+    /// outside the sandbox when it gets an `outside` or `upload` exit: a git command
+    /// that reaches a remote, or a gh command that runs git in the repository (v0.0.4,
+    /// DV22). The answer goes to [`CallFacts::git_code`]; with no answer such an exit
+    /// is one that only the user may approve.
+    pub git_code: Vec<GitCodeAsk>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the
@@ -926,6 +943,11 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
             }
             covers.extend(persist::covers(command));
+            if let Some(git_code::Trigger::Ask(ask)) = git_code::trigger(command, dir, locations)
+                && !request.git_code.contains(&ask)
+            {
+                request.git_code.push(ask);
+            }
             if remotes::remote_command(command).is_some()
                 && !remotes::steers_git(&segment.words)
                 && let Some(git_dir) = remotes::remote_dir(command, dir, &at)
@@ -1123,6 +1145,11 @@ impl Found {
                     }
                 }
                 known.installs.extend(need.installs);
+                for note in need.notes {
+                    if !known.notes.contains(&note) {
+                        known.notes.push(note);
+                    }
+                }
                 known.backup_before_write |= need.backup_before_write;
                 known.covered = match (known.covered, need.covered) {
                     (Some(a), Some(b)) => Some(a && b),
@@ -1142,6 +1169,7 @@ fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
     need.approver = exit.approver;
     need.names = exit.names;
     need.hosts = exit.hosts;
+    need.notes = exit.notes;
     need
 }
 

@@ -558,6 +558,7 @@ fn the_verbose_record_names_every_fact_but_no_user_message() {
         refusals_in_a_row: 1,
         denials_in_a_row: 0,
         denials_this_turn: 0,
+        git_code: None,
     };
     let grants = [Grant::Write { path: PathBuf::from("/home/u/Documents") }];
     let lines = exit_record(&[ExitKind::Write], &grants, ExitSource::Needs, &record, home());
@@ -1165,4 +1166,38 @@ fn check_shows_the_bus_filter() {
         SandboxStatus { bus_proxy_off: Some(efr_protocol::BusProxyOff::NoProgram), ..ready() };
     assert_eq!(line(off).as_deref(), Some("bus filter off (xdg-dbus-proxy is not installed)"));
     assert_eq!(line(SandboxStatus::unavailable("no bwrap")), None);
+}
+
+#[test]
+fn the_verbose_record_names_the_writable_git_code() {
+    let mut record = record("git push origin main");
+    record.facts.git_code = Some(efr_protocol::GitCodeFacts {
+        checked: false,
+        items: vec![
+            efr_protocol::GitCodeFact {
+                repo: PathBuf::from("/home/u/p/app/vendor/x"),
+                item: "hooks/pre-push".to_owned(),
+                file: PathBuf::from("/home/u/p/app/vendor/x/.git/hooks/pre-push"),
+                writable: true,
+            },
+            efr_protocol::GitCodeFact {
+                repo: PathBuf::from("/home/u/p/app"),
+                item: "ssh (PATH)".to_owned(),
+                file: PathBuf::from("/usr/bin/ssh"),
+                writable: false,
+            },
+        ],
+    });
+    let lines = exit_record(&[ExitKind::Upload], &[], ExitSource::Predicted, &record, home());
+    let git: Vec<&str> =
+        lines.iter().map(String::as_str).filter(|line| line.contains("git code")).collect();
+    assert_eq!(
+        git,
+        [
+            "  git code: efr could not check it",
+            "  git code: hooks/pre-push in ~/p/app/vendor/x/.git/hooks/pre-push, which a \
+             sandboxed command can write",
+            "  git code: 1 part that the sandbox cannot write",
+        ]
+    );
 }

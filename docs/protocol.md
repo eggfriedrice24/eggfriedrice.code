@@ -490,3 +490,10 @@ No protocol version has shipped yet.
   mode started the job, and a config reload turned full mode off, so efrd stopped it.
   Its notice starts no turn of its own. A reader from before reads it as `unknown`.
   `job_stop_causes.json` now lists it.
+- Version 1, additive: the `facts` of an exit record gain `git_code` (absent when
+  efr did not use it): for an `outside` or `upload` exit of a git or gh line, the git
+  code that the line runs outside the sandbox, when it made the exit one that only the
+  user may approve. It holds `checked` (false when efr could not check it) and `items`
+  (absent when empty), each with `repo`, `item` (such as `hooks/pre-push` or
+  `core.sshcommand`), `file` and `writable` (a contained call can write the file).
+  `events/exit_requested.json` now sets it.

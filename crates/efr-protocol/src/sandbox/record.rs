@@ -137,6 +137,48 @@ pub struct ExitFacts {
     /// Classifier denials in this turn.
     #[serde(default)]
     pub denials_this_turn: u8,
+    /// For an `outside` or `upload` exit of a git or gh line: the git code that the line
+    /// runs outside the sandbox, when it made the exit one that only the user may
+    /// approve: efr could not check it, or a sandboxed command can write a part of it.
+    /// Absent for any other exit, so a clean check is never a reason to allow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_code: Option<GitCodeFacts>,
+}
+
+/// The git code that a git or gh line runs outside the sandbox: the hooks, the config
+/// keys that run a program, and the programs that they run, of the repository and of
+/// each submodule that the line can reach.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GitCodeFacts {
+    /// False when efr could not check it: git did not answer in time or failed, efr
+    /// found no repository, or the submodules lie too deep or behind a link.
+    pub checked: bool,
+    /// What git runs, each once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<GitCodeFact>,
+}
+
+impl GitCodeFacts {
+    /// True when efr checked the git code and a contained call can write none of it.
+    pub fn clean(&self) -> bool {
+        self.checked && !self.items.iter().any(|item| item.writable)
+    }
+}
+
+/// One part of the git code of a line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GitCodeFact {
+    /// The repository: its work tree, or its git dir (also the git dir of a submodule).
+    pub repo: PathBuf,
+    /// What runs, such as `core.sshCommand`, `hooks/pre-push` or `ssh (PATH)`.
+    pub item: String,
+    /// The file that holds it, or the program that runs.
+    pub file: PathBuf,
+    /// True when a contained call can write the file: it lies in a registered project,
+    /// in the `$SCRATCH` of a conversation, below a write rule or a write root of the
+    /// config, or in a write root of a running contained job, and no floor of the
+    /// sandbox keeps it read-only.
+    pub writable: bool,
 }
 
 /// The engine's path classes, as the protocol names them (`efr-protocol` cannot name

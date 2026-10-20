@@ -94,7 +94,18 @@
       ],
       "refusals_in_a_row": 1,
       "denials_in_a_row": 2,
-      "denials_this_turn": 4
+      "denials_this_turn": 4,
+      "git_code": {
+        "checked": true,
+        "items": [
+          {
+            "repo": "/home/me/.local/share/efr/scratch/c/r",
+            "item": "hooks/pre-push",
+            "file": "/home/me/.local/share/efr/scratch/c/r/.git/hooks/pre-push",
+            "writable": true
+          }
+        ]
+      }
     }
   }
 }

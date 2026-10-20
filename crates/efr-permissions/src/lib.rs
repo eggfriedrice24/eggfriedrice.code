@@ -88,8 +88,9 @@ pub use network::{HostList, HostRule, HostTable, HostVerdict, MirrorHost, Pacman
 pub use path_class::{Locations, PathClass, secret_paths};
 pub use policy::{Action, Check, CommandPattern, Policy, Resource, Rule, Under};
 pub use request::{
-    Access, CallFacts, ConversationPolicy, CoverAsk, Coverage, DecisionInput, PathAccess,
-    RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact, TargetKind,
+    Access, CallFacts, ConversationPolicy, CoverAsk, Coverage, DecisionInput, GitCodeAsk,
+    PathAccess, RemoteFact, RemoteUrl, Requirements, SettingsChange, Source, SourceFact,
+    TargetKind,
 };
 pub use support::{AutoSupport, Egress};
 pub use tables::{

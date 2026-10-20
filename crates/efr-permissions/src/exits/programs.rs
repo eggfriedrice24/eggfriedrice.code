@@ -29,6 +29,8 @@ pub(super) struct Found {
     /// with the filtered bus proxy it is no exit, and the line gets the view
     /// `Grant::BusFilter` of its bus instead.
     pub(super) bus_read: bool,
+    /// efr's notes for the question, such as what a publish runs.
+    pub(super) notes: Vec<String>,
 }
 
 impl Found {
@@ -42,6 +44,7 @@ impl Found {
             names: Vec::new(),
             hosts: Vec::new(),
             bus_read: false,
+            notes: Vec::new(),
         }
     }
 
