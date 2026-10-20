@@ -274,14 +274,26 @@ Git runs programs that a repository's config names (`core.fsmonitor`, hooks, fil
 So the sandbox protects the git dir of each project:
 
 - `.git` is a mount point: a call cannot rename or remove it.
-- `config`, `config.worktree` and `hooks/` are read-only, also in `modules/*` and
-  `worktrees/*`, and so are the files that `include.path` names and the directory that
-  `core.hooksPath` names inside a write root.
+- `config`, `config.worktree` and `hooks/` are read-only, also in `worktrees/*` and in
+  each submodule git dir, and so are the files that `include.path` names and the
+  directory that `core.hooksPath` names inside a write root.
 - `git add`, `git commit`, `git stash`, new branches and a local `git fetch` work.
   `git config` fails.
 
+git keeps the git dir of a submodule below `.git/modules/`, at its path: the
+submodule `vendor/foo` has `.git/modules/vendor/foo`, and a submodule of a submodule
+has `.git/modules/a/modules/b`. efr looks for these git dirs at each depth, down to 8
+levels below `modules/`. A dir that holds `HEAD` or `config` is a git dir. efr does not
+look in the `objects`, `refs`, `logs` and `lfs` dirs of a git dir. A relative
+`core.hooksPath` of a submodule is relative to its work tree: its `core.worktree`, else
+its path in `.gitmodules`. A symbolic link below `modules/` stops the call, because git
+would follow it to a git dir that efr cannot make read-only. A deeper tree keeps what
+efr found read-only, and the surface guard reports `modules too deep`.
+
 A call can still add new files to a git dir, such as `commondir`. After each call, the
-surface guard checks the git dirs. It moves a planted setting that runs programs to
+surface guard checks the git dirs: those of the projects and their submodules, the git
+dir that a `.git` file names, and the include files and the `core.hooksPath` dir that
+their config names. It moves a planted setting that runs programs to
 quarantine, where nothing reads it, and the turn asks you before its next call:
 
 ```
