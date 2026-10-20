@@ -8,15 +8,15 @@ use efr_permissions::{
     AutoSupport, CallFacts, Engine, Locations, Requirements, SettingsChange, TargetKind,
 };
 use efr_protocol::{
-    ApprovalDecision, ChainStep, Event, ExitInfo, ExitKind, JudgeKind, Launch, Mode, Needs,
-    ProjectId, Risk, Scope, UserAuthorization, Verdict,
+    ApprovalDecision, AttachHow, ChainStep, Event, ExitInfo, ExitKind, JudgeKind, Launch, Mode,
+    Needs, Origin, ProjectId, Risk, RouteScope, Scope, UserAuthorization, Verdict,
 };
 use efr_scope::{Basis, Derivation};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 use crate::exit::{EXIT_DENIED, reviewer_denied};
-use crate::testing::{FakeJudge, Harness, Script, Setup, allows, denies, judged, unanswered};
+use crate::testing::{DONE, FakeJudge, Harness, Script, Setup, allows, denies, judged, unanswered};
 
 fn app() -> ProjectId {
     "0192f0c1-7a00-7000-8000-000000000001".parse().unwrap()
@@ -188,6 +188,81 @@ async fn one_exit_requested_per_reviewed_call() {
     assert_eq!(seen.turn_model, crate::testing::MODEL);
     assert_eq!(seen.record.action.line, "git push origin main");
     assert_eq!(seen.record.user_messages, vec!["push this branch"]);
+}
+
+/// Sends each prompt of `said` in turn to a model that answers the earlier ones with
+/// text and calls `git push origin main` in the last one, and waits for the push's
+/// question, or for the end of the last turn. The last prompt records `before` first,
+/// as the daemon's routing does for a pick-up. A question gets a "no". Returns the
+/// harness and whether the question came.
+async fn push_after(
+    judge: &Arc<FakeJudge>,
+    said: &[&str],
+    before: Option<Event>,
+) -> (Harness, bool) {
+    let mut calls: Vec<(&str, Value)> = vec![(DONE, Value::Null); said.len() - 1];
+    calls.push(shell("git push origin main"));
+    let script = Script::new(calls);
+    let setup = reviewed(Some(Arc::clone(judge)));
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    let (last, earlier) = said.split_last().expect("one prompt at least");
+    for text in earlier {
+        let sent = h.prompt(text).await;
+        h.wait_end(sent.turn_id).await;
+    }
+    let cwd = h.cwd.clone();
+    let params = h.prompt_params(&cwd, last);
+    let routing = crate::PromptRouting::new(before, None);
+    let sent = h.handle.send_routed_prompt(params, Origin::Shell, routing).await.unwrap();
+    let asked = h
+        .wait_for(|e| {
+            matches!(e, Event::ApprovalRequested { .. })
+                || (e.turn_id() == Some(sent.turn_id)
+                    && matches!(e, Event::TurnCompleted { .. } | Event::TurnFailed { .. }))
+        })
+        .await;
+    let question = matches!(asked, Event::ApprovalRequested { .. });
+    if let Event::ApprovalRequested { call_id, .. } = asked {
+        h.answer(call_id, ApprovalDecision::Deny).await;
+        h.wait_end(sent.turn_id).await;
+    }
+    (h, question)
+}
+
+/// A pick-up by another terminal ends the naming window: "commit and push" said before
+/// it does not name the push of the prompt that picked the conversation up.
+#[tokio::test]
+async fn a_push_named_before_a_pick_up_asks_the_user() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let attached = Event::TerminalAttached {
+        tty: "/dev/pts/6".to_owned(),
+        route: RouteScope::Outside,
+        shell_pid: None,
+        how: AttachHow::PickedUp,
+    };
+    let said = ["commit and push", "now do it"];
+    let (h, asked) = push_after(&judge, &said, Some(attached)).await;
+    assert!(asked, "the user decides");
+    assert_eq!(judge.calls(), 0, "the reviewer never sees it");
+    assert_eq!(count(&h, "terminal_attached").await, 1);
+}
+
+/// The naming window through a turn (v0.0.4, DV30): "commit and push" three turns ago
+/// no longer names the push of "now do it", so the user decides; the turn before still
+/// counts, and then the reviewer decides with every message in its record.
+#[tokio::test]
+async fn a_push_named_three_turns_ago_asks_the_user() {
+    let judge = FakeJudge::answering(vec![allows()]);
+    let said = ["commit and push", "fix the tests", "and the docs", "now do it"];
+    let (_h, asked) = push_after(&judge, &said, None).await;
+    assert!(asked, "the user decides");
+    assert_eq!(judge.calls(), 0, "the reviewer never sees it");
+
+    let judge = FakeJudge::answering(vec![allows()]);
+    let (_h, asked) = push_after(&judge, &["commit and push", "now do it"], None).await;
+    assert!(!asked, "the reviewer decides");
+    assert_eq!(judge.calls(), 1);
+    assert_eq!(judge.seen()[0].record.user_messages, ["commit and push", "now do it"]);
 }
 
 #[tokio::test]

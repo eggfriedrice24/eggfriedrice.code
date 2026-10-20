@@ -70,7 +70,7 @@ impl Turn {
         let line = call.input.get("command").and_then(serde_json::Value::as_str);
         let requirements =
             line.map_or_else(Requirements::none, |line| Requirements::none().with_command(line));
-        let approver = exit::route(&decision, &self.user_messages, None);
+        let approver = exit::route(&decision, &self.user_messages.naming, None);
         let ruling = Ruling {
             requirements,
             decision,

@@ -279,10 +279,10 @@ pub(crate) fn source(decision: &Decision) -> ExitSource {
     }
 }
 
-/// Who approves `need` once the user's messages of the conversation are known: an exit
-/// that the classifier judges only when a message names it goes to the classifier when
-/// one of `messages` names it, else to the user. `messages` must be the uncut list, so
-/// the route and the record read the same names.
+/// Who approves `need` once the user's messages are known: an exit that the classifier
+/// judges only when a message names it goes to the classifier when one of `messages`
+/// names it, else to the user. `messages` must be the uncut messages of the naming
+/// window ([`UserMessages::naming`]), so the route and the record read the same names.
 pub(crate) fn approver(need: &ExitNeed, messages: &[String]) -> Approver {
     match need.approver {
         Approver::ClassifierWhenNamed if exits::names_match(&need.names, messages) => {
@@ -571,6 +571,14 @@ pub(crate) fn package_fetch(decision: &Decision) -> Option<Ecosystem> {
     decision.exits().find_map(|need| need.package_fetch)
 }
 
+/// [`package_fetch`] when a message of the naming window (`naming`,
+/// [`UserMessages::naming`]) asks to build, install, update or fetch, else `None`. The
+/// record holds every message of the conversation, so the window is checked here, for
+/// [`effective`].
+pub(crate) fn fetch_asked(decision: &Decision, naming: &[String]) -> Option<Ecosystem> {
+    package_fetch(decision).filter(|_| asks_to_fetch(naming))
+}
+
 /// What the approval question shows about the exits of `decision`, which run with
 /// `launch` after a "yes".
 pub(crate) fn info(
@@ -855,6 +863,111 @@ pub(crate) fn wake_user_messages(page: &[EventEnvelope], waiting: &HashSet<TurnI
     messages_until(page, None, waiting)
 }
 
+/// How many turns of the user the naming rule reads: the current one and the one
+/// before it (v0.0.4, DV30).
+const NAMING_TURNS: usize = 2;
+
+/// The user messages that the naming rule reads for the turn `turn_id` (v0.0.4, DV30),
+/// from the events of `page`: the prompt of the turn, and the prompt and the steers of
+/// the turn of the user before it, oldest first. A turn before the newest
+/// `terminal_attached` never counts: after a pick-up or a resume, only what the user
+/// said since then names a target. A wake turn has no prompt and is no turn of the
+/// user, so the turn before is the newest one that a prompt started. Withdrawn
+/// prompts and steers that went again as a prompt count as in [`user_messages`].
+pub(crate) fn naming_messages(page: &[EventEnvelope], turn_id: TurnId) -> Vec<String> {
+    naming_window(page, Some(turn_id), &HashSet::new())
+}
+
+/// The user messages that the naming rule reads for a turn that job notices started:
+/// the user's newest turn before it and the turn before that, as [`naming_messages`]
+/// reads them, without the turns of `waiting`, which came after it.
+pub(crate) fn wake_naming_messages(
+    page: &[EventEnvelope],
+    waiting: &HashSet<TurnId>,
+) -> Vec<String> {
+    naming_window(page, None, waiting)
+}
+
+/// The messages of the newest [`NAMING_TURNS`] turns of `page` up to the prompt of
+/// `until`, after the newest `terminal_attached` and without the prompts of the turns
+/// `skipped`.
+fn naming_window(
+    page: &[EventEnvelope],
+    until: Option<TurnId>,
+    skipped: &HashSet<TurnId>,
+) -> Vec<String> {
+    let withdrawn = withdrawn_prompts(page);
+    let left = crate::history::left_steers(page);
+    let mut turns: Vec<(TurnId, Vec<String>)> = Vec::new();
+    for envelope in page {
+        match &envelope.event {
+            // NOTE: the conversation moved to this terminal: what the user said before
+            // was said in another terminal, or long ago.
+            Event::TerminalAttached { .. } => turns.clear(),
+            Event::PromptQueued { turn_id: prompt, .. }
+                if withdrawn.contains(prompt) || skipped.contains(prompt) => {}
+            Event::TurnSteered { .. } if left.contains(&envelope.seq) => {}
+            Event::PromptQueued { turn_id: prompt, text, .. } => {
+                turns.push((*prompt, vec![text.clone()]));
+                if Some(*prompt) == until {
+                    break;
+                }
+            }
+            Event::TurnSteered { turn_id, text } => {
+                if let Some((_, messages)) = turns.iter_mut().rev().find(|(id, _)| id == turn_id) {
+                    messages.push(text.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    let from = turns.len().saturating_sub(NAMING_TURNS);
+    turns.drain(from..).flat_map(|(_, messages)| messages).collect()
+}
+
+/// The user messages that the exits of one turn read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct UserMessages {
+    /// Every user message of the conversation so far, oldest first: the reviewer's
+    /// record keeps them ([`user_messages`]).
+    pub(crate) all: Vec<String>,
+    /// The messages that the naming rule reads ([`naming_messages`]): whether a message
+    /// names a target, a host or an upload, for the route and the record.
+    pub(crate) naming: Vec<String>,
+}
+
+impl UserMessages {
+    /// The messages of the turn `turn_id` that a prompt started, from `page`.
+    pub(crate) fn of_turn(page: &[EventEnvelope], turn_id: TurnId) -> Self {
+        UserMessages { all: user_messages(page, turn_id), naming: naming_messages(page, turn_id) }
+    }
+
+    /// The messages of a turn that job notices started, from `page`, without the turns
+    /// of `waiting`.
+    pub(crate) fn of_wake_turn(page: &[EventEnvelope], waiting: &HashSet<TurnId>) -> Self {
+        UserMessages {
+            all: wake_user_messages(page, waiting),
+            naming: wake_naming_messages(page, waiting),
+        }
+    }
+
+    /// Adds a steer of the running turn: the turn is in the window of the naming rule.
+    pub(crate) fn steered(&mut self, text: &str) {
+        self.all.push(text.to_owned());
+        self.naming.push(text.to_owned());
+    }
+}
+
+/// The prompts of `page` that the user withdrew.
+fn withdrawn_prompts(page: &[EventEnvelope]) -> HashSet<TurnId> {
+    page.iter()
+        .filter_map(|envelope| match envelope.event {
+            Event::PromptWithdrawn { turn_id, .. } => Some(turn_id),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The turns of `turns` that wait to start.
 pub(crate) fn waiting_turns(turns: &[StoredTurn]) -> HashSet<TurnId> {
     turns
@@ -871,13 +984,7 @@ fn messages_until(
     until: Option<TurnId>,
     skipped: &HashSet<TurnId>,
 ) -> Vec<String> {
-    let withdrawn: HashSet<TurnId> = page
-        .iter()
-        .filter_map(|envelope| match envelope.event {
-            Event::PromptWithdrawn { turn_id, .. } => Some(turn_id),
-            _ => None,
-        })
-        .collect();
+    let withdrawn = withdrawn_prompts(page);
     let left = crate::history::left_steers(page);
     let mut messages = Vec::new();
     for envelope in page {
@@ -951,17 +1058,19 @@ pub(crate) struct Action<'a> {
 /// The record of the exits of `action`: the user messages, the action, and the facts
 /// that efr collected itself.
 ///
-/// `messages` is every user message of the conversation. The record keeps the newest
-/// ones within [`ExitRecord::MAX_USER_MESSAGES_BYTES`] ([`bounded`]), but whether a
-/// message names a target or a host is checked on all of them, with the same check as
-/// the route ([`approver`]), so the two never disagree.
-pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) -> ExitRecord {
+/// The record keeps the newest of every user message of the conversation
+/// (`messages.all`) within [`ExitRecord::MAX_USER_MESSAGES_BYTES`] ([`bounded`]), so the
+/// reviewer reads the whole request. Whether a message names a target or a host is
+/// checked on the uncut messages of the naming window (`messages.naming`), with the
+/// same check as the route ([`approver`]), so the two never disagree.
+pub(crate) fn record(action: Action<'_>, messages: &UserMessages, turn: &TurnExits) -> ExitRecord {
     let home = action.engine.locations().home();
+    let naming = messages.naming.as_slice();
     let mut targets: Vec<TargetFact> = Vec::new();
     for need in action.decision.exits() {
         let Some(path) = &need.target else { continue };
         let forms = if need.names.is_empty() { path_forms(path, home) } else { need.names.clone() };
-        let named = exits::names_match(&forms, messages);
+        let named = exits::names_match(&forms, naming);
         if let Some(known) = targets.iter_mut().find(|known| known.path == *path) {
             known.named_in_user_messages |= named;
             known.backup_before_write |= need.backup_before_write;
@@ -989,7 +1098,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
             masked: place.is_some_and(|place| place.masked),
         });
     }
-    let hosts = host_facts(action.decision, action.requirements, action.engine, messages);
+    let hosts = host_facts(action.decision, action.requirements, action.engine, naming);
     let programs = action
         .requirements
         .facts
@@ -1031,7 +1140,7 @@ pub(crate) fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) 
     }
     ExitRecord {
         version: ExitRecord::VERSION,
-        user_messages: bounded(messages),
+        user_messages: bounded(&messages.all),
         action: ActionFacts {
             tool: action.tool.to_owned(),
             line: action.requirements.command.clone().unwrap_or_default(),

@@ -1,20 +1,29 @@
 //! The naming rule under efr's proxy (phase D2, DP23): when the allow list, a project's
-//! git remote or a refusal of the proxy counts for a host, and when it never does.
+//! git remote or a refusal of the proxy counts for a host, and when it never does. And
+//! the window of the naming rule (v0.0.4, DV30): which user messages name a target, a
+//! host or an upload, while the reviewer's record keeps every message.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_permissions::{
-    AutoSupport, CallFacts, Decision, Egress, Engine, HostList, Locations, Preset, RemoteFact,
-    RemoteUrl, Requirements,
+    Approver, AutoSupport, CallFacts, Decision, Egress, Engine, HostList, Locations, Preset,
+    RemoteFact, RemoteUrl, Requirements,
 };
 use efr_protocol::{
-    ExitRecord, Grant, HostFact, Judgement, Needs, Risk, Scope, UserAuthorization, Verdict,
+    AttachHow, CommandId, Event, EventEnvelope, ExitRecord, Grant, HostFact, Judgement, Needs,
+    Origin, Risk, RouteScope, Scope, Seq, TurnId, TurnSettings, UserAuthorization, Verdict,
 };
+use efr_stdx::id::uuid_v7;
+use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
 
-use super::super::{Action, TurnExits, effective, grant, package_fetch};
-use super::{APP, HOME, SCRATCH, app, decide, record, shell};
+use super::super::{
+    Action, TurnExits, UserMessages, effective, fetch_asked, grant, naming_messages, package_fetch,
+    route, user_messages, wake_naming_messages,
+};
+use super::{APP, HOME, SCRATCH, app, decide, envelope, record, record_with, shell};
 
 /// The default allow list of spec 8.3.
 fn default_list() -> HostList {
@@ -196,12 +205,9 @@ fn project_remote_push_still_needs_the_verb() {
     assert!(host_fact(&record, "github.com").project_remote);
     // The host counts as named, but the route needs "push" in a user message.
     let said = ["fix the typo".to_owned()];
-    assert_eq!(super::super::route(&decision, &said, None), Some(efr_permissions::Approver::User));
+    assert_eq!(route(&decision, &said, None), Some(Approver::User));
     let said = ["fix the typo and push".to_owned()];
-    assert_eq!(
-        super::super::route(&decision, &said, None),
-        Some(efr_permissions::Approver::Classifier)
-    );
+    assert_eq!(route(&decision, &said, None), Some(Approver::Classifier));
 }
 
 #[test]
@@ -213,10 +219,7 @@ fn remote_changed_since_first_call_needs_name() {
     let (decision, record) = record_on(&engine, &requirements, &["fetch the latest"]);
     assert!(!host_fact(&record, "git.work.test").project_remote);
     assert_eq!(verdict(&decision, &record), Verdict::AskUser);
-    assert_eq!(
-        super::super::route(&decision, &["fetch".to_owned()], None),
-        Some(efr_permissions::Approver::User)
-    );
+    assert_eq!(route(&decision, &["fetch".to_owned()], None), Some(Approver::User));
 }
 
 #[test]
@@ -279,12 +282,9 @@ fn ssh_outside_needs_named_host_in_the_record() {
     assert!(!host_fact(&record, "evil.example").named_in_user_messages);
     // No message names the host, so the classifier is never asked.
     let said = ["check the uptime of the server".to_owned()];
-    assert_eq!(super::super::route(&decision, &said, None), Some(efr_permissions::Approver::User));
+    assert_eq!(route(&decision, &said, None), Some(Approver::User));
     let said = ["check the uptime of evil.example".to_owned()];
-    assert_eq!(
-        super::super::route(&decision, &said, None),
-        Some(efr_permissions::Approver::Classifier)
-    );
+    assert_eq!(route(&decision, &said, None), Some(Approver::Classifier));
 }
 
 #[test]
@@ -296,4 +296,181 @@ fn needs_hosts_raw_word_normalized_in_the_record() {
     let hosts: Vec<&str> = record.facts.hosts.iter().map(|fact| fact.host.as_str()).collect();
     assert_eq!(hosts, ["gitlab.test"]);
     assert!(record.facts.hosts[0].named_in_user_messages);
+}
+
+/// The id of the turn `n` of a test conversation.
+fn turn(n: u64) -> TurnId {
+    TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(n)))
+}
+
+/// `event` at the sequence number `seq`.
+fn at(seq: u64, event: Event) -> EventEnvelope {
+    EventEnvelope { seq: Seq::new(seq), ..envelope(event) }
+}
+
+/// The prompt `text` of `turn_id`, at `seq`.
+fn prompt(seq: u64, turn_id: TurnId, text: &str) -> EventEnvelope {
+    at(
+        seq,
+        Event::PromptQueued {
+            turn_id,
+            command_id: CommandId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seq + 100))),
+            text: text.to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: TurnSettings::default(),
+            steers: Vec::new(),
+        },
+    )
+}
+
+/// The steer `text` into `turn_id`, at `seq`.
+fn steer(seq: u64, turn_id: TurnId, text: &str) -> EventEnvelope {
+    at(seq, Event::TurnSteered { turn_id, text: text.to_owned() })
+}
+
+/// A pick-up of the conversation by another terminal, at `seq`.
+fn attached(seq: u64) -> EventEnvelope {
+    at(
+        seq,
+        Event::TerminalAttached {
+            tty: "/dev/pts/6".to_owned(),
+            route: RouteScope::Outside,
+            shell_pid: None,
+            how: AttachHow::PickedUp,
+        },
+    )
+}
+
+/// Who approves `git push origin main` after the user messages `said`.
+fn push_route(said: &[String]) -> Option<Approver> {
+    route(&decide(&super::engine(), shell("git push origin main")), said, None)
+}
+
+#[test]
+fn naming_rule_ignores_a_name_from_an_older_turn() {
+    let current = turn(4);
+    let page = vec![
+        prompt(1, turn(1), "commit and push"),
+        prompt(2, turn(2), "fix the tests"),
+        prompt(3, turn(3), "and the docs"),
+        prompt(4, current, "now do it"),
+    ];
+
+    let naming = naming_messages(&page, current);
+
+    assert_eq!(naming, ["and the docs", "now do it"]);
+    assert_eq!(push_route(&naming), Some(Approver::User), "the push of turn 1 is too old");
+    // The whole conversation still names the push: that is what the reviewer reads.
+    assert_eq!(push_route(&user_messages(&page, current)), Some(Approver::Classifier));
+}
+
+#[test]
+fn naming_rule_reads_the_turn_before() {
+    let (first, withdrawn, current) = (turn(1), turn(2), turn(3));
+    let page = vec![
+        prompt(1, first, "commit and push"),
+        steer(2, first, "only the parser"),
+        prompt(3, withdrawn, "never mind"),
+        at(4, Event::PromptWithdrawn { turn_id: withdrawn, origin: Origin::Shell }),
+        prompt(5, current, "now do it"),
+        prompt(6, turn(4), "and tag it"),
+    ];
+
+    let naming = naming_messages(&page, current);
+
+    // A withdrawn prompt is no turn, and a prompt queued behind is no earlier request.
+    assert_eq!(naming, ["commit and push", "only the parser", "now do it"]);
+    assert_eq!(push_route(&naming), Some(Approver::Classifier));
+}
+
+#[test]
+fn naming_rule_stops_at_terminal_attached() {
+    let current = turn(2);
+    let picked_up =
+        vec![prompt(1, turn(1), "commit and push"), attached(2), prompt(3, current, "now do it")];
+
+    let naming = naming_messages(&picked_up, current);
+
+    assert_eq!(naming, ["now do it"], "only the turn after the pick-up counts");
+    assert_eq!(push_route(&naming), Some(Approver::User));
+    // A turn after the pick-up, before the current one, counts.
+    let current = turn(3);
+    let later = vec![
+        prompt(1, turn(1), "fix the tests"),
+        attached(2),
+        prompt(3, turn(2), "commit and push"),
+        prompt(4, current, "now do it"),
+    ];
+    assert_eq!(naming_messages(&later, current), ["commit and push", "now do it"]);
+}
+
+#[test]
+fn naming_rule_for_a_wake_turn() {
+    let behind = turn(9);
+    let waiting = HashSet::from([behind]);
+    let long = vec![
+        prompt(1, turn(1), "commit and push"),
+        prompt(2, turn(2), "run the server"),
+        prompt(3, turn(3), "and watch the logs"),
+        prompt(4, behind, "push it"),
+    ];
+
+    let naming = wake_naming_messages(&long, &waiting);
+
+    // The user's newest turn before the wake turn and the turn before that, without the
+    // prompt that queued behind the wake turn.
+    assert_eq!(naming, ["run the server", "and watch the logs"]);
+    assert_eq!(push_route(&naming), Some(Approver::User));
+    let short = vec![prompt(1, turn(1), "commit and push"), prompt(2, turn(2), "run the server")];
+    let naming = wake_naming_messages(&short, &HashSet::new());
+    assert_eq!(naming, ["commit and push", "run the server"]);
+    assert_eq!(push_route(&naming), Some(Approver::Classifier));
+    // After a pick-up and no prompt since, a wake turn reads no message at all.
+    let picked_up = vec![prompt(1, turn(1), "commit and push"), attached(2)];
+    assert!(wake_naming_messages(&picked_up, &HashSet::new()).is_empty());
+}
+
+#[test]
+fn reviewer_record_keeps_every_message() {
+    let engine = engine(Egress::Proxy);
+    let requirements = shell("curl https://extra.test/x");
+    let decision = decide(&engine, requirements.clone());
+    let launch = grant(&decision);
+    let action = Action {
+        tool: "shell",
+        decision: &decision,
+        requirements: &requirements,
+        launch: &launch,
+        cwd: Path::new(APP),
+        scope: &Scope::Project(app()),
+        scratch: Path::new(SCRATCH),
+        engine: &engine,
+        payload: None,
+    };
+    let all: Vec<String> =
+        ["fetch from extra.test", "fix the tests", "and the docs", "now do it again"]
+            .map(str::to_owned)
+            .to_vec();
+    let messages = UserMessages { all: all.clone(), naming: all[2..].to_vec() };
+
+    let record = record_with(action, &messages, &TurnExits::default());
+
+    assert_eq!(record.user_messages, all, "the reviewer reads the whole request");
+    assert!(!host_fact(&record, "extra.test").named_in_user_messages, "the name is too old");
+    assert_eq!(verdict(&decision, &record), Verdict::AskUser);
+}
+
+#[test]
+fn registry_exception_reads_the_naming_window() {
+    let engine = engine(Egress::None);
+    let needs = Needs { hosts: vec!["index.crates.io".to_owned()], ..Needs::default() };
+    let decision = decide(&engine, shell("cargo build").with_needs(needs));
+    assert_eq!(package_fetch(&decision), Some(efr_permissions::exits::Ecosystem::Crates));
+    // The window holds a build request: the registries need no name.
+    let asked = ["fix the tests".to_owned(), "and build it".to_owned()];
+    assert_eq!(fetch_asked(&decision, &asked), package_fetch(&decision));
+    // The build request is older than the window: the host needs its name.
+    let other = ["look at the code".to_owned()];
+    assert_eq!(fetch_asked(&decision, &other), None);
 }

@@ -141,7 +141,10 @@ impl Turn {
         };
         drop(judging);
         let verdict = match &outcome.judgement {
-            Some(judgement) => exit::effective(record, judgement, exit::package_fetch(decision)),
+            Some(judgement) => {
+                let fetch = exit::fetch_asked(decision, &self.user_messages.naming);
+                exit::effective(record, judgement, fetch)
+            }
             None => Verdict::AskUser,
         };
         let judgement = outcome.judgement.as_ref();

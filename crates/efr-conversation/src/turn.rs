@@ -391,8 +391,9 @@ struct Turn {
     /// Where the hidden shell is by the log, for the fresh block when the toolbox cannot
     /// tell.
     logged_shell_cwd: Option<PathBuf>,
-    /// The user messages of the conversation so far, for the record of an exit.
-    user_messages: Vec<String>,
+    /// The user messages of the conversation so far, for the record of an exit, and
+    /// those of the naming window, for its route.
+    user_messages: exit::UserMessages,
     /// The exits, refusals and exports of the turn so far.
     exits: TurnExits,
     /// Set when the turn must end after the current call, such as after three
@@ -498,7 +499,7 @@ impl Turn {
             misses,
             fresh,
             logged_shell_cwd: None,
-            user_messages: Vec::new(),
+            user_messages: exit::UserMessages::default(),
             exits,
             stop: None,
             carried: None,
@@ -562,9 +563,10 @@ impl Turn {
         let _ = self.control.mode.set(settings.mode);
         self.meter = Meter::new(context::context_base(&snapshot.page, &settings.model));
         self.user_messages = if self.spec.is_wake() {
-            exit::wake_user_messages(&snapshot.user_events, &exit::waiting_turns(&snapshot.turns))
+            let waiting = exit::waiting_turns(&snapshot.turns);
+            exit::UserMessages::of_wake_turn(&snapshot.user_events, &waiting)
         } else {
-            exit::user_messages(&snapshot.user_events, turn_id)
+            exit::UserMessages::of_turn(&snapshot.user_events, turn_id)
         };
         // NOTE: the notices go before `turn_started` in its batch: the first notice of a
         // wake turn makes the turn's row, which `turn_started` then updates.
@@ -684,7 +686,7 @@ impl Turn {
                 self.record(vec![Event::SteeringDelivered { turn_id, steers: seqs }]).await?;
             }
             for steer in steers {
-                self.user_messages.push(steer.text.clone());
+                self.user_messages.steered(&steer.text);
                 self.push(&mut window, Message::user(steer.text));
             }
             let estimate = match self.guard(&mut window, &base).await? {
@@ -1232,7 +1234,7 @@ impl Turn {
             engine.locations().home(),
             &call.context.cwd,
         );
-        let approver = exit::route(&decision, &self.user_messages, payload.as_ref());
+        let approver = exit::route(&decision, &self.user_messages.naming, payload.as_ref());
         tracing::debug!(phase = "exit_prediction", elapsed_ms = %watch, "phase=exit_prediction elapsed_ms={}", watch);
         Judged::Ruled(Box::new(Ruling {
             requirements,

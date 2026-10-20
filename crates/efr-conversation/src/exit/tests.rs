@@ -18,8 +18,8 @@ use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
 
 use super::{
-    Action, TurnExits, bounded, change_names, floor_kinds, grant, info, kinds, quarantined, route,
-    source, tilde, user_messages,
+    Action, TurnExits, UserMessages, bounded, change_names, floor_kinds, grant, info, kinds,
+    quarantined, route, source, tilde, user_messages,
 };
 
 const HOME: &str = "/home/u";
@@ -44,10 +44,17 @@ fn engine() -> Engine {
     Engine::with_defaults(locations)
 }
 
-/// The record of `action`, as [`super::record`] makes it. Every record of these tests
-/// also passes the check of the wave 2 integration: `on_allow_list` holds only under
-/// efr's proxy, and only for a host whose exits have `Grant::Host` grants only.
+/// The record of `action`, as [`super::record`] makes it when `messages` are every user
+/// message and the naming window too. Every record of these tests also passes the check
+/// of the wave 2 integration: `on_allow_list` holds only under efr's proxy, and only for
+/// a host whose exits have `Grant::Host` grants only.
 fn record(action: Action<'_>, messages: &[String], turn: &TurnExits) -> ExitRecord {
+    let messages = UserMessages { all: messages.to_vec(), naming: messages.to_vec() };
+    record_with(action, &messages, turn)
+}
+
+/// The record of `action` with the user messages `messages`, as [`record`] checks it.
+fn record_with(action: Action<'_>, messages: &UserMessages, turn: &TurnExits) -> ExitRecord {
     let made = super::record(action, messages, turn);
     for fact in made.facts.hosts.iter().filter(|fact| fact.on_allow_list) {
         assert_eq!(action.engine.support().egress, Egress::Proxy, "{fact:?}");
