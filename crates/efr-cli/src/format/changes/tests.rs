@@ -297,3 +297,29 @@ fn the_table_of_the_groups_aligns_its_counts_and_ends_with_the_total() {
     let code = changes(vec![file("src/a.rs", ChangeKind::Modified, 1, 0)], 0);
     assert_eq!(super::group_table(&code, &evals(), &RenderOptions::new(80)), "");
 }
+
+#[test]
+fn a_group_without_changed_lines_has_no_row_of_the_table() {
+    let options = RenderOptions::new(80).with_terminal(false);
+    let binary = changes(
+        vec![
+            file("src/a.rs", ChangeKind::Modified, 2, 0),
+            file("tests/b.rs", ChangeKind::Added, 4, 1),
+            file("docs/logo.png", ChangeKind::Added, 0, 0),
+        ],
+        // The files that the list leaves out changed no line either.
+        2,
+    );
+    insta::assert_snapshot!(super::group_table(&binary, &no_groups(), &options));
+    // Code and a group of binary files only: the line of the turn names no group, and
+    // there is no table.
+    let only = changes(
+        vec![
+            file("src/a.rs", ChangeKind::Modified, 2, 0),
+            file("docs/a.png", ChangeKind::Added, 0, 0),
+        ],
+        0,
+    );
+    assert_eq!(turn_line(&only, &no_groups()).as_deref(), Some("2 files changed, +2"));
+    assert_eq!(super::group_table(&only, &no_groups(), &options), "");
+}

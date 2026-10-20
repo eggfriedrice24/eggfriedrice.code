@@ -6,7 +6,6 @@ expression: "shown.join(\"\\n\")"
 \e[2mevals\e[0m       \e[32m+503\e[0m  \e[31m−14\e[0m
 \e[2mcode\e[0m        \e[32m+120\e[0m  \e[31m−30\e[0m
 \e[2mtests\e[0m        \e[32m+77\e[0m
-\e[2mgenerated\e[0m
 \e[2mnot listed\e[0m   \e[32m+20\e[0m   \e[31m−1\e[0m
 \e[2mtotal\e[0m       \e[32m+720\e[0m  \e[31m−45\e[0m
 
@@ -14,7 +13,6 @@ expression: "shown.join(\"\\n\")"
 \e[2mevals\e[0m       +503  \e[1m−14\e[0m
 \e[2mcode\e[0m        +120  \e[1m−30\e[0m
 \e[2mtests\e[0m        +77
-\e[2mgenerated\e[0m
 \e[2mnot listed\e[0m   +20   \e[1m−1\e[0m
 \e[2mtotal\e[0m       +720  \e[1m−45\e[0m
 
@@ -22,6 +20,5 @@ expression: "shown.join(\"\\n\")"
 evals       +503  −14
 code        +120  −30
 tests        +77
-generated
 not listed   +20   −1
 total       +720  −45

@@ -415,24 +415,30 @@ pub(crate) fn stat(changes: &FileChanges, groups: &DiffGroups, options: &RenderO
 }
 
 /// The table of the groups at the top of `efr diff --stat`: one row per group with
-/// changed files, the largest first, then the files that the list leaves out and the
+/// changed lines, the largest first, then the files that the list leaves out and the
 /// total. A muted label, then `+N` in the `success` role and `−N` in the `error` role,
-/// each column aligned; a count of 0 is left out. Empty when every listed file is code.
+/// each column aligned; a count of 0 is left out. A row without changed lines, such as
+/// a group of binary files, is left out, but the total always shows. Empty when every
+/// group with changed lines is code, as the line of the turn names no group then.
 pub(crate) fn group_table(
     changes: &FileChanges,
     groups: &DiffGroups,
     options: &RenderOptions,
 ) -> String {
-    let mut rows = groups::breakdown(&changes.files, groups);
+    let all = groups::breakdown(&changes.files, groups);
+    let mut rows: Vec<GroupCount> = all.iter().filter(|row| row.lines() > 0).cloned().collect();
     if groups::only_code(&rows) {
         return String::new();
     }
     if changes.more > 0 {
-        let added = rows.iter().fold(changes.added, |left, row| left.saturating_sub(row.added));
+        let added = all.iter().fold(changes.added, |left, row| left.saturating_sub(row.added));
         let removed =
-            rows.iter().fold(changes.removed, |left, row| left.saturating_sub(row.removed));
+            all.iter().fold(changes.removed, |left, row| left.saturating_sub(row.removed));
         let files = usize::try_from(changes.more).unwrap_or(usize::MAX);
-        rows.push(GroupCount { name: NOT_LISTED.to_owned(), files, added, removed });
+        let more = GroupCount { name: NOT_LISTED.to_owned(), files, added, removed };
+        if more.lines() > 0 {
+            rows.push(more);
+        }
     }
     rows.push(GroupCount {
         name: "total".to_owned(),

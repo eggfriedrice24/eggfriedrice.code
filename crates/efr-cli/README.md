@@ -228,10 +228,11 @@ Replies:
   `a_spec.rb` or `a.spec.ts`), `docs` (a `*.md` file, a file below `docs/`), else
   `code`. The first group that matches wins. The files that a list leaves out (more
   than 50) have no group. The table of `efr diff --stat` has one row per group with
-  changed files, the largest first, then `not listed` for the files that the list
-  leaves out, then `total`: a muted label, `+N` in the `success` role and `−N` in the
-  `error` role, each column aligned, a count of 0 left out. In a pipe it is plain
-  text.
+  changed lines, the largest first, then `not listed` for the lines of the files that
+  the list leaves out, then `total`: a muted label, `+N` in the `success` role and
+  `−N` in the `error` role, each column aligned, a count of 0 left out. A row without
+  changed lines (a group of binary files) is left out, so the table shows when the
+  line of the turn names a group. In a pipe it is plain text.
 - The progress bar of the terminal's tab (OSC 9;4): an indeterminate bar (`9;4;3`)
   while the turn runs, sent again on every tick, a paused one (`9;4;4`) while the user
   is asked something, `9;4;0` on every way out, and `9;4;2;100` when the turn failed.
@@ -998,7 +999,7 @@ never its text. `format/changes/tests.rs`
 checks the rows, the turn line with its groups (at most two, a group without lines
 left out), the undo line with its groups, the split of a diff, the list of `efr diff
 --stat` and the table of the groups (colour, `NO_COLOR`, a pipe, `not listed`, none
-for code alone); `format/groups/tests.rs` checks the built-in groups as a table of
+for code alone, no row for a group without changed lines); `format/groups/tests.rs` checks the built-in groups as a table of
 paths, the groups of the file before them and the breakdown; `commands/diff/tests.rs`
 runs `efr diff` against a fake daemon (the conversation it picks, `--turn`, a
 terminal, a pipe, a turn that changed nothing, no snapshot, no conversation,

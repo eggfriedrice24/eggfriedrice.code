@@ -401,8 +401,7 @@ async fn efr_diff_stat_all_adds_up_every_turn_of_the_conversation() {
     assert_eq!(stderr, "2 turns of the newest conversation that changed files\n");
     assert_eq!(
         stdout,
-        "tests       +30\ncode        +14  \u{2212}2\ndocs         +5\nnot listed\ntotal       +49  \
-         \u{2212}2\n\nnew     docs/b.md   +5\nnew     src/a.rs    +14 \u{2212}2\nnew     tests/a.rs  \
+        "tests  +30\ncode   +14  \u{2212}2\ndocs    +5\ntotal  +49  \u{2212}2\n\nnew     docs/b.md   +5\nnew     src/a.rs    +14 \u{2212}2\nnew     tests/a.rs  \
          +30\n\u{2026} 1 more file\n4 files changed, +49 \u{2212}2\n"
     );
 }
