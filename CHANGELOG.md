@@ -487,6 +487,10 @@ into the GitHub release notes, and it stops when the section is missing.
   your terminal hears it once. If you did not make the change, take it out of the file;
   then run `efr config reload`. `efr config reload` does not load such a change while
   full work runs.
+- Note: an older `efr` cannot read the history of a full turn. efr and efrd ship
+  together, so update both. `docs/permissions.md`, "Full mode", marks each floor of
+  full mode as one that holds for every process or only for what the command line
+  shows, and `docs/adr/0015-full-mode.md` records the decision.
 - A command that gets the network view runs in your machine's network namespace.
   Only Unix and netlink sockets work there, `listen` fails, and Landlock refuses TCP
   and connects to abstract Unix sockets outside the sandbox. Any program in such a

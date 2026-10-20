@@ -11,7 +11,7 @@ line, how efr keeps its own config out of reach, and how you add your own rules 
 
 ## Permission modes
 
-Every turn runs in one of three modes. The mode is the built-in policy of the turn,
+Every turn runs in one of four modes. The mode is the built-in policy of the turn,
 and your `[[permissions.rules]]` come after it, so your rules win where they match in
 every mode.
 
@@ -20,9 +20,11 @@ every mode.
 | `manual` | Nothing, except what your rules allow. Every read, write, command and network access asks; secrets are denied. |
 | `cautious` | The default: reading outside secrets, writing in `$SCRATCH` and in the turn's registered project, and the read-only commands of the table below. |
 | `auto` | Every shell command, in a kernel sandbox: it writes only in the turn's project, the registered projects that it names, `$SCRATCH`, a private `/tmp` and private tool caches, and it has no network. An action that leaves the sandbox (an exit) asks. The file tools follow `cautious`. See "The auto sandbox". |
+| `full` | Every command and file tool call, as you, with no sandbox and no question, after you allow the mode with `permissions.allow_full = true`. efr still reads each line: it denies secrets and its own config, and asks before `sudo`, before a process that outlives the turn and before a delete of `~`, `/`, a system dir or a project. A script or a program that a line starts is not read. See "Full mode". |
 
 `permissions.mode` in `config.toml` sets the mode of a turn when the prompt names none.
-A turn keeps its mode until it ends. In `auto`, the kernel holds what a command does,
+It can be `full` only next to `permissions.allow_full = true`; see "Full mode". A turn
+keeps its mode until it ends. In `auto`, the kernel holds what a command does,
 not the engine's reading of the line: build scripts, tests, git hooks and code that the
 model wrote in the same turn run in the same sandbox, so they cannot write your
 config, reach the network or use `sudo` either. When the sandbox cannot run on this
@@ -40,7 +42,7 @@ link to it, and the next tool call uses the new set of projects. The home direct
 and `/` are a project only when you name them. No tool may write `projects.toml`; see
 "Config protection".
 
-A turn from the phone runs with at most `cautious`: `auto` there counts as
+A turn from the phone runs with at most `cautious`: `auto` and `full` there count as
 `cautious`, and the engine asks for everything outside `$SCRATCH` anyway.
 
 ## How the engine decides
@@ -60,14 +62,21 @@ effect. The strictest effect decides the call, in the order
 3. A turn from the phone asks for everything outside `$SCRATCH`, also when a rule
    allows it.
 
-Some floors hold in every mode, whatever the rules say:
+Some floors hold in every mode, whatever the rules say. In full mode most of them hold
+only for what the command line shows; see "Full mode":
 
-- a call that can wait for input at the terminal, such as `sudo`, asks; once you
+- a call that can wait for input at the terminal, such as `sudo`, asks, except in
+  full mode, where only the privileged programs of the next item ask; once you
   approve it, it may run past the model's timeout while you follow the turn in a
   terminal, up to `interactive_timeout_minutes` under `[shell]` (60 by default);
 - a program that runs commands as another user (`sudo`, `doas`, `su`, `pkexec`,
-  `run0`) asks;
+  `run0`) asks, and only your own machine answers the question, never a phone;
 - a turn from the phone runs with at most `cautious` and asks outside `$SCRATCH`;
+- in full mode, a delete of `~`, `/`, a system dir, a project or a dir that holds
+  efr's files, a secret or more than one project asks you at your own machine, and
+  the question waits at most 2 minutes; see "Full mode";
+- full mode never runs while efrd runs as root, while `snapshot.enabled` or
+  `undo.enabled` is `false`, or when the hidden shell is no zsh;
 - secrets are denied unless a rule of yours names them, and the daemon's own
   `secrets/` is denied even then;
 - the rules of a conversation only make a decision stricter;
@@ -75,12 +84,13 @@ Some floors hold in every mode, whatever the rules say:
 - a change of efr's settings through the settings tool asks, and a turn from the
   phone cannot make one; see "The settings tool";
 - a background job asks before it starts in `manual` and `cautious`, and its question
-  is local only; privilege, masked reads, persistence, desktop commands that type or
-  start programs, the bus and container engine or service manager sockets never run as
-  a job; see "Background jobs";
+  is local only; in `auto` and full mode it starts with no question; privilege, masked
+  reads, persistence, desktop commands that type or start programs, the bus and
+  container engine or service manager sockets never run as a job; see "Background
+  jobs";
 - a delete or a move of a file through `apply_patch` asks in `manual` and `cautious`;
-  in `auto` it runs when efr's snapshot holds each file, so `efr undo` brings it back;
-  see "Edits with apply_patch".
+  in `auto` and full mode it runs when efr's snapshot holds each file, so `efr undo`
+  brings it back; see "Edits with apply_patch".
 
 ## Path classes
 
@@ -499,17 +509,235 @@ There are two allow lists. `[[sandbox.allow]]` covers shell calls in `auto`.
 `[[permissions.rules]]` with `write allow` (below, "Your rules") covers `write_file`
 and `edit` in every mode, also in `auto`.
 
+## Full mode
+
+In full mode, the model's commands run as you, with no sandbox and no questions. Read
+this section before you turn it on. Where `auto` can run, `auto` is the safe choice:
+its sandbox holds every program that a command starts, and full mode holds none.
+
+**What full mode promises.** Full mode is a protection against mistakes, not against a
+hostile model or a prompt injection. efr reads each command line before it runs. A
+line that reads a secret, writes efr's config or dirs, uses `sudo`, starts a process
+that outlives the turn, or deletes a tree that full mode guards stops at a floor or a
+question. A program that the line starts (a script, `python3 -c`, a build step, a
+program that the model wrote) is not read: it can do what you can do, also answer
+efr's own questions on its socket, write `config.toml`, or send an API key from the
+environment to a host. efr records and can undo only what it saw. Full mode offers no
+protection against a prompt injection or a mistake in a script.
+
+### Turn it on
+
+1. Set `permissions.allow_full = true` in `config.toml` yourself: `efr config edit`,
+   or `efr config set permissions.allow_full true`. efrd reads the change at once. The
+   settings tool of the model never changes this key.
+2. Choose full mode where you want it:
+   - `,mode full` for the prompts of one terminal, `,mode default` to stop;
+   - `efr send --mode full` (or `--mode=full`) for one prompt;
+   - `permissions.mode = "full"` next to `permissions.allow_full = true` for every
+     turn that names no mode. Without the gate key, `mode = "full"` is an error: efrd
+     does not start, a reload keeps the old settings, and the error says to set
+     `permissions.allow_full = true`. With full mode as the default, efrd writes a
+     warning to its log at start and at each reload that makes full the default,
+     `efr status` shows `default mode full`, and `,mode cautious` or `,mode auto`
+     still moves one terminal down.
+
+`,mode full` asks efrd first. When `config.toml` does not allow full mode, or efrd
+refuses it, it fails with the reason, and the terminal keeps its old mode. Else it
+prints three lines:
+
+- `efr: full mode: commands run with your rights, with no sandbox and no questions.`
+- `efr: efr reads each line: it denies secrets and its own config, and asks for sudo,
+  for a process that outlives the turn and for a delete of ~, / or a project.`
+- `efr: a script or a program that a line starts is not read; it can do what you can.`
+
+`efr status` shows `full mode allowed`, `full mode off (permissions.allow_full is
+false)` or `full mode refused (<reason>)`. The zsh plugin does not take `full` from an
+`EFR_MODE` of the environment when it loads; it says so on one line. `,mode full` is
+the only way to make a terminal full. A script that runs `efr send` with
+`EFR_MODE=full` chose full mode for that prompt.
+
+**The gate is a config value, not a lock.** efr's tools never change it, and in
+`manual`, `cautious` and `auto` no command writes `config.toml` without your yes. Once
+the gate is on, a command of a full turn can write the file, and a process that a
+full turn left behind can turn the gate on again after you turned it off.
+
+### Where full mode never runs
+
+- A turn from the phone runs with at most `cautious`, with no error.
+- A turn that a job notice starts runs with at most `auto` (as `cautious` when the
+  sandbox cannot run), and records the fallback `a turn that a job notice starts runs
+  with at most auto`.
+- efrd refuses full mode while it runs as root, while `snapshot.enabled` or
+  `undo.enabled` is `false` (then `efr undo` cannot revert the turn), and when
+  `shell.program` is no zsh (then efr cannot clear sudo's cached password before a
+  call). A prompt that names full mode then fails with the reason, such as `full mode
+  cannot run: efrd runs as root`. With full mode as the default, a turn that names no
+  mode runs as `auto` and records why.
+- When you turn the gate off, or turn undo or the snapshots off, while a full turn
+  runs, the next call of that turn does not run, and the turn stops with `full mode
+  was turned off while this turn ran; send the prompt again`. A full prompt that waits
+  in the queue fails when it starts.
+
+### What still holds
+
+A floor is "hard" when it holds for every process. It is "text" when it holds only for
+what the command line shows: a script or a program that the line starts gets past it.
+
+| Floor | Kind | What happens |
+|---|---|---|
+| Secrets, efr's config, efr's own programs and dirs | hard for the file tools, text for a shell line | denied. A shell line that names such a path is denied; a link that the same line makes is not resolved, so `ln -s ~/.config/efr c && cp x c/config.toml` runs |
+| A delete that full mode guards | text | asks, at your own machine, at most 2 minutes ("The delete guard", below) |
+| `sudo` and the other programs that give more rights | text | asks, and only your own machine answers. One question covers the whole line: a yes runs every command of the line, and the card says so |
+| A process that outlives the turn | text | asks: `systemd-run --user`, `at`, `batch`, `crontab`, `systemctl --user enable` and the other `persistence` forms, and a write of a file that runs code later, such as `~/.zshrc`. A phone can answer it, as in `auto` |
+| A delete that `efr undo` cannot revert | text for a shell line | asks, as in `cautious`, when the snapshot does not hold every file of the delete (over its limits, or a file that it leaves out). A job refuses it |
+| A change of efr's settings through the settings tool | hard | asks, as in every mode |
+| Your own `ask` and `deny` rules | text for a shell line | keep their effect. A rule `[[permissions.rules]]` with `action = "execute"`, `resource = { command = { program = "git", args = ["push"] } }` and `effect = "ask"` keeps a question for `git push` |
+| The answer to efr's questions | text | "only your own machine" means a local process, not a person: any process that runs as you on this machine can answer, also one that a full turn left behind |
+| The environment of the hidden shell | text | the same as in `cautious`: a command can read an API key from it and send it out, with no record. efr does not clean it in full mode |
+| Undo | hard for the project, `$SCRATCH` and the named projects; text outside them | efr takes its snapshot before each call that can write, and copies a file outside the roots first when the line names it. A file that a script writes outside the roots has no copy |
+| The record | text | `exit_judged` rows with the judge `full` list what efr saw. A script's actions are not in them |
+
+### What full mode lets through
+
+- Every action that `auto` would hold in its sandbox, and every exit that a built-in
+  rule asks about, runs with no review and no question: a write outside the project,
+  an upload such as `git push` or `cat .env | curl -T - host`, a synced folder, a
+  masked read, the network and the bus. efr records each exit that it saw with the
+  judge `full`, and copies a file outside the roots first where `auto` makes a copy.
+- No sandbox means no write roots, no masks, no private `/tmp`, no private caches, no
+  network proxy and no bus filter. `network.*`, `[[sandbox.allow]]`, `[[dbus.allow]]`
+  and `dbus.proxy` do not apply: a command uses your real network and your real bus.
+  `systemctl --user start` of a unit that exists is a recorded `bus` exit, and it
+  starts a process that outlives the turn.
+- No reviewer and no always rule reads a full call.
+- A call that waits for input at the terminal and needs no more rights, such as `ssh`
+  that asks for a password, runs with no question and the model's timeout.
+- A background job starts with no question; see "Background jobs".
+
+### The delete guard
+
+Before a full call runs, efr reads its line for deletes of a tree that only you may
+risk. It reads `rm -r`, a pattern of a plain `rm`, `find` with `-delete` or an
+`-exec` of `rm`, `shred`, `srm` or `wipe`, the sources of `mv`, the destination of
+`rsync --del*`, `chmod -R`, `chown -R`, `chgrp -R`, `setfacl -R`, `shred -u`, `srm`,
+`wipe`, and `git clean -fd`. It looks behind `sudo`, `env`, `nice`, `timeout`,
+`setsid`, `nohup` and `xargs`, into each substitution, into a branch that never runs
+(`false && rm -rf ~`), and one level into the literal string of `sh -c`, `bash -c`,
+`zsh -c` and `eval`.
+
+A delete asks when its target is:
+
+- `/`, `~` or a dir above `~`;
+- a system dir: a dir directly below `/`, a dir such as `/usr/lib` or `/etc/x`, or a
+  disk below `/run/media` or `/media`. `/tmp/x` and `/var/tmp/x` do not ask;
+- the turn's project root or a registered project root;
+- a dir that holds efr's config or files, a secret, a file that runs code later, or
+  more than one project, such as `rm -rf ~/.config` or `rm -rf ~/p`;
+- a target that efr cannot read: a word with a variable or a substitution (`$HOME`
+  and `${HOME}` at its start read as `~`), a pattern of a tree form whose dir is empty
+  or not known (`rm -rf *`, `"$X"/*`), or the input of `xargs`, unless a `find` with
+  plain roots that do not ask gives it.
+
+`rm -rf build`, `rm -rf ~/x`, `rm -rf build/*`, `rm *.o` and `rm -rf ~/.cache/pip`
+run. A plain `rm` with a pattern asks only in `/`, `~`, a dir above `~` or a system
+dir. `git clean` in the turn's own project root runs: the project snapshot covers it.
+A delete of efr's own dirs, such as `rm -rf ~/.local/share/efr`, is denied, not asked.
+No rule of yours lifts the question, but your `deny` rule wins.
+
+The question shows `full mode still asks for this: delete of ~ (your home directory)`
+on its first row and `expires in 2 min`. Only your own machine answers it, and no `a`
+(always) is offered. When nobody answers in 120 seconds, the delete does not run, and
+the model reads `efr did not run this delete of ~: the user did not answer in 120
+seconds. Do not try it another way. Delete narrower paths that you can name, or ask
+the user to run it.` When you are away, the delete does not run at once. After 3 such
+questions expired in one turn, each later guarded delete of the turn is refused with
+no question, and 3 refusals in a row stop the turn. Your answer does not reset the
+count. A background job refuses a guarded delete.
+
+The guard reads only the line. These limits are known:
+
+- A delete inside a script or a program, such as `./clean.sh` or `python3 -c`, is not
+  seen, and a `sh -c` string inside another `sh -c` string is not read.
+- Some deletes that are safe ask: `find . -name '*.o' -delete` and `find . -delete`
+  in the project root (the target is the project), `mv *.txt dir/`, `rm -rf *`,
+  `rm -rf "$TMPDIR"/x` and `rm -rf $(mktemp -d)`. Name the paths, such as
+  `rm -rf build/*.o`, and the delete runs.
+
+### sudo
+
+Every `sudo` line asks, and only your own machine answers. For a full call, efr
+forgets sudo's cached password before and after the call, whatever `shell.sudo_cache`
+says, so a password from an earlier call or from your own terminal is gone before the
+line runs. This needs efr's zsh integration in the hidden shell: a hidden shell that is
+no zsh refuses full mode, and a zsh whose integration did not load does not run a full
+call. Limits:
+
+- When your sudoers shares the cache across terminals (`timestamp_type=global` or
+  `!tty_tickets`), a full call also clears your own terminal's cache.
+- A `NOPASSWD` rule, or a polkit rule with no authentication, lets a script that a
+  full call starts get root with no question.
+- One yes runs every command of the line: `sudo a; sudo rm -rf /etc` is one question.
+
+### The config hold
+
+A command of a full turn can write `config.toml` with a script, and efrd reloads the
+file by itself. While a full turn or a job that it started runs, efrd does not load a
+change of `config.toml` that loosens permissions, such as a new `allow` rule,
+`permissions.allow_full` turned on or `shell.sudo_cache` set to `keep`. efrd keeps the
+old settings and writes one warning to its log. Your terminal shows one line about it,
+`efr status` shows `config held` with the keys that loosen, and `efr config reload`
+says why: `config.toml changed while a full turn ran, and the change loosens
+permissions.rules. If you did not make this change, take it out of the file. Then run
+efr config reload.`
+
+- The hold counts every reload: the file watcher, `systemctl --user reload efrd`,
+  `efr project add` and `remove`, and also a change of the settings tool and the save
+  of an always rule, because their reload reads the whole file.
+- The hold stays after the full work ends: each later automatic reload holds again
+  while the file still loosens the running settings. A change that does not loosen
+  applies as usual and clears the hold.
+- `efr config reload` applies a held change only when no full work runs. While full
+  work runs it fails with `efr does not load a change that loosens permissions while a
+  full turn or its job runs; run efr config reload again after it ends`.
+- The hold also holds a change that you make in your editor while a full turn runs.
+- The hold makes a script's change visible and stops its silent apply. It does not
+  stop a process that runs as you: such a process can run `efr config reload` after
+  the turn ends.
+
+### What you see
+
+- A full turn starts with one red line: `full mode: no sandbox, no questions; efr undo
+  reverts the project and the files efr saw`. The status row shows `full` in red.
+- At its end, one dim line lists what efr saw full mode let through, such as `efr saw 2
+  actions that full mode let through: write ~/notes.txt, upload (git push)`. A turn
+  with no such action shows no line.
+- `efr history --verbose` shows `exit allowed by full mode` for each recorded exit.
+- A turn that asked for full mode and runs with less starts with `this turn runs as
+  auto: <reason>`.
+- The zsh plugin shows `full ` before the typed text while the terminal's prompts run
+  in full mode, in and out of sticky mode. It reads `config.toml` for a default of
+  full. `EFR_FULL_STYLE` sets its style (`fg=red` by default).
+
+`crates/efr-permissions/src/full.rs` holds the settle pass of a full call,
+`crates/efr-permissions/src/exits/critical.rs` the delete guard, and
+`docs/adr/0015-full-mode.md` the decision.
+
 ## Background jobs
 
 A `shell` call with `background: true` starts a background job: the command runs on
 after its call and its turn. [`docs/sandbox.md`](sandbox.md) tells how a job runs and
 ends. The engine decides a job as follows.
 
-- Jobs start in every mode. Outside `auto`, each job asks you first. The question names
-  the command, the time limit and the lifetime of the grants: `runs as a job for up to
-  60 minutes; these grants stay open until it ends`. No reviewer decides it, and no
-  rule of the mode skips the question. An approved job runs outside the sandbox, with
-  your rights.
+- Jobs start in every mode. In `manual` and `cautious`, each job asks you first. The
+  question names the command, the time limit and the lifetime of the grants: `runs as
+  a job for up to 60 minutes; these grants stay open until it ends`. No reviewer
+  decides it, and no rule of the mode skips the question. An approved job runs outside
+  the sandbox, with your rights.
+- In full mode, a job starts with no question and runs with your rights, outside any
+  sandbox. The kinds below are still refused, and so are a delete that full mode
+  guards, a delete that undo cannot revert, and every use of the bus: with no sandbox,
+  efr cannot hold a job to the bus filter. While a job of a full turn runs, the config
+  hold of "Full mode" holds.
 - In `auto`, the job's line goes through the exits like any line. A line with no exit
   runs at once in the sandbox. The record of an exit has the facts of the job:
   `background`, `max_minutes` (always the time limit that efr uses) and `watch`. The
@@ -693,7 +921,9 @@ a `config` exit, which is denied. The sandbox also holds the code that a call ru
 efr's config directory and the files behind its links are read-only in the sandbox, so
 a build, a test or a script that the model wrote cannot write them either. A command
 that runs outside the sandbox, in any mode, runs with your rights and can write any
-file you can; that is why such a command asks.
+file you can; that is why such a command asks. In full mode every command runs so,
+with no question: the line cannot name the file, but a script or a program that the
+line starts can write it. The config hold of "Full mode" makes such a change visible.
 
 You change the file yourself, in your editor or with `efr config`, or you approve a
 change of the settings tool. The daemon reads the links in the directory each time it
@@ -712,8 +942,9 @@ no file stays changed.
   `auto`, and a change elsewhere asks. A secret or efr's config is denied.
 - A delete or a move asks in `manual` and `cautious`, from every surface, and also
   when a rule of yours allows the write. No rule can turn the question into an allow.
-  The question says `delete or move files`. In `auto`, a delete or a move runs with no
-  question when efr's snapshot holds each deleted or moved path and the destination of
+  The question says `delete or move files`. In `auto` and full mode, a delete or a move
+  runs with no question when efr's snapshot holds each deleted or moved path and the
+  destination of
   a move that exists (outside the roots, the home store copy), so `efr undo` brings it
   back. Else it asks, as in the other modes.
 - The question shows the unified diff of every file of the patch. A line
@@ -756,6 +987,9 @@ The model reads and changes efr's settings with its `settings` tool, never with
 - The tool refuses every rule that names secrets (the class `secrets`, or an `under`
   path at or below a secret location), to add and to remove. You write such rules by
   hand.
+- The tool never changes `permissions.allow_full` and never sets `permissions.mode` to
+  `full`. Nothing is asked or written, and the model reads that you set them in your
+  own terminal (`efr config edit` or `efr config set`).
 - A turn from the phone can read the settings, after your approval as for every call
   of a remote turn, but a change is denied.
 - When the file changes between the question and your answer, nothing is written; the
