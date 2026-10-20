@@ -26,6 +26,7 @@ mod git_config;
 mod inner;
 mod landlock;
 mod layers;
+mod modules;
 mod mounts;
 mod names;
 mod paths;
@@ -59,6 +60,7 @@ pub use layers::{
     CacheDeletes, CacheLayer, CacheLayers, DeleteLimits, LayerEntry, LayerView, MAX_DELETE_ENTRIES,
     MAX_LAYERS_BYTES, STAGING_DIR,
 };
+pub use modules::{MAX_MODULE_DEPTH, module_git_dirs};
 pub use mounts::{
     MAX_MOUNTS_BYTES, MAX_STATVFS_PATH_BYTES, MAX_STATVFS_PATHS, MOUNTS_FILE, MountEntry,
     MountSizes, MountSnapshot, SIZES_FILE, StatvfsLine, StatvfsValues, is_dummy, is_masked,

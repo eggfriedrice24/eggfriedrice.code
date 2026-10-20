@@ -117,6 +117,14 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// The submodule git dirs below a `modules/` go deeper than
+    /// [`MAX_MODULE_DEPTH`](crate::MAX_MODULE_DEPTH), so a list of them is not complete.
+    #[error("the git modules dir goes too deep at {at:?}")]
+    ModulesTooDeep {
+        /// The first dir that the walk did not list.
+        at: PathBuf,
+    },
+
     /// A floor is reached through a symbolic link that lies in a write root, which a
     /// sandboxed call could change.
     #[error("the read-only path {path:?} is reached through a symbolic link in a write root")]
