@@ -379,7 +379,11 @@ Replies:
   the command of the call's `tool_call_started`; what the summary says besides follows
   after `why:`. Any other summary shows as one plain row. Only a last line of plain
   names counts as the line of the parts that ask; anything else stays on the first
-  row. `efr history` joins both with `; `, as the daemon's notices do.
+  row. `efr history` joins both with `; `, as the daemon's notices do. The summary of a
+  question in a job notice turn starts with `(job notice turn) `
+  (`efr_protocol::WAKE_QUESTION`): the card puts it at the end of the title, such as
+  `? allow this command (job notice turn)`, and reads the rest as any summary, so the
+  command keeps its rows.
 - When the question is answered, its card gives its place to one line: `✓ allowed` in
   the `success` role, `✗ denied` in the `error` role, `✓ allowed from the phone` for
   an answer from another client, `✗ the approval expired`, and for a question that
@@ -469,6 +473,9 @@ Replies:
   that efr could not copy gets `changed ~/.aws/config; efr undo cannot revert it
   (masked)`; the reason comes from the turn's `not covered` names, which then leave it
   out. A covered file that runs no code gets no line: the line of the turn counts it.
+  A file that several calls changed gets one line (`format::changes::add_home_change`):
+  the backup and the real file of the last event count, and it is covered only when
+  each event says so. `efr history` shows the same line once, at the first event.
   An event from before the home store names its copy as before: `changed ~/.zshrc;
   backup at ~/.local/share/efr/file-backups/<conversation>/<turn>/1/.zshrc`, or for a
   file that did not exist before `changed <path>, which did not exist before; record

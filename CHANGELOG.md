@@ -53,6 +53,7 @@ into the GitHub release notes, and it stops when the section is missing.
   will write. A whole directory still asks you, and so do the unit, cron and linger
   changes that the next entry does not name. efr copies the file first, and at the end
   of the turn each such file gets one line: `changed ~/.zshrc; efr undo reverts it`.
+  A file that two calls changed also gets one line, in the view and in `efr history`.
   The line comes also when the turn failed or you interrupted it.
 - In `auto`, the reviewer can now allow a change that you name to a unit
   (`systemctl --user enable`, `mask`), a link into a `*.wants` directory, the autostart
@@ -171,7 +172,9 @@ into the GitHub release notes, and it stops when the section is missing.
   the conversation and `jobs.max_wakes_per_hour_daemon` times per hour in all. Such a
   turn runs at most 20 tool calls, and a job that it starts never starts another one.
   A question in such a turn waits only the away wait unless you follow the
-  conversation. A `watch` pattern can also wake the model on a matching output line.
+  conversation. Its card has `(job notice turn)` in the title, such as `? allow this
+  command (job notice turn)`, and shows the command and why it asks, as any question
+  does. A `watch` pattern can also wake the model on a matching output line.
   The turn runs in the mode of your newest prompt, so outside `auto` its commands ask
   you as usual. Every end of a job starts such a turn, also a stop by you. Only the
   notice of a job that the model stopped, or that efrd stopped because full mode went
@@ -541,6 +544,10 @@ into the GitHub release notes, and it stops when the section is missing.
   it. An older message does not count, and then you decide: a "now do it" three turns
   after "commit and push" asks you. After another terminal picked up the conversation,
   only your messages since then count. The reviewer still reads all your messages.
+- The `+`/`-` counts of the turn line and of `efr diff` use a plain `-`, not the
+  minus sign.
+- `efr status` shows its times in your time zone, such as `started 2026-10-20 12:00:00
+  CEST (2h 0m ago)`.
 
 ### Fixed
 
