@@ -159,6 +159,10 @@ the hold. A held reload still applies each key that turns full mode off or down
 (`reload::full_lowered`: `permissions.allow_full` off, a lower `permissions.mode`,
 `undo.enabled` or `snapshot.enabled` off), so the gate goes off at once and the
 running full turn stops at its next call (`gate_off_applies_while_a_change_is_held`).
+While a change is held, `reload::kept` keeps the running settings in
+`held-config.toml` in the state dir; `start` reads it, and while `config.toml` still
+loosens against it, efrd starts with the kept settings and the change stays held
+(`held_change_stays_held_after_a_restart`). The file goes when no change is held.
 The hold works against a line or a script of a full turn; a process that the
 turn left behind runs as the user and can call `admin.config_reload` itself.
 A reload runs the sandbox probe again when `[sandbox]` changed in any key but `allow`,

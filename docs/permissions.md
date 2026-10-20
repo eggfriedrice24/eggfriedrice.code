@@ -699,6 +699,10 @@ efr config reload.`
 - The hold stays after the full work ends: each later automatic reload holds again
   while the file still loosens the running settings. A change that does not loosen
   applies as usual and clears the hold.
+- The hold stays after a restart of efrd, such as a reboot or `systemctl --user
+  restart efrd`. While a change is held, efrd keeps its running settings in
+  `held-config.toml` in its state dir, and it starts with them while `config.toml`
+  still loosens them. A change that turns full mode off still applies at the start.
 - `efr config reload` applies a held change only when no full work runs. While full
   work runs it fails with `efr does not load a change that loosens permissions while a
   full turn or its job runs; run efr config reload again after it ends`.

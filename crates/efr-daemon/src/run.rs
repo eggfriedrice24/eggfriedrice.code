@@ -386,6 +386,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // before anything else happens.
     let socket = dirs.checked_socket_path().map_err(|source| DaemonError::SocketPath { source })?;
     let lock = DaemonLock::acquire(&dirs.lock_path())?;
+    // NOTE: a change that the config hold kept back before this start stays held
+    // (full mode, DF17), so a restart never applies it in silence.
+    let (config, held) = Box::pin(reload::kept::restore(dirs.state(), config)).await;
     let settings = Arc::new(config);
     // NOTE: read once: a command of a full turn would run as root with no question, so
     // full mode is refused for the whole life of such an efrd (DF27).
@@ -499,6 +502,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
     let connections = Arc::new(Connections::default());
     let (reloads, reload_requests) = Reloads::new();
+    reloads.held_at_start(held);
     let settings_tool = SettingsTool::new(
         dirs.config(),
         settings_receiver.clone(),
