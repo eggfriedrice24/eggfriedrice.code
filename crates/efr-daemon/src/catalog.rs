@@ -46,7 +46,7 @@ mod list;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -112,6 +112,9 @@ pub(crate) struct Models {
     warned: Mutex<HashSet<Clamp>>,
     /// Why the last fetch ended without a list, for a catalog that has none.
     no_list: Mutex<NoList>,
+    /// How many logouts of the provider efrd has seen. A fetch that started before a
+    /// logout ended with the old key, so its answer says nothing about the login now.
+    logouts: AtomicU64,
     /// Where a fetch with a stored API key reports whether the key works; `None` for
     /// a provider without a key.
     refusals: Option<Arc<KeyRefusals>>,
@@ -170,6 +173,7 @@ impl Models {
             ended: watch::Sender::new(0),
             warned: Mutex::default(),
             no_list: Mutex::new(NoList::NotFetched),
+            logouts: AtomicU64::new(0),
             refusals: None,
         }
     }
@@ -196,6 +200,15 @@ impl Models {
     /// True when efrd fetches the catalog from the backend.
     pub(crate) fn fetches(&self) -> bool {
         self.refresh.is_some()
+    }
+
+    /// The stored key of the provider was deleted: a prompt now reads that no key is
+    /// stored, and the answer of a fetch that started before counts for nothing.
+    pub(crate) fn logged_out(&self) {
+        // NOTE: counted before `no_list` is set, so a fetch that ends in between sees
+        // the logout and leaves `no_list` alone.
+        self.logouts.fetch_add(1, Ordering::AcqRel);
+        *self.no_list.lock().unwrap_or_else(PoisonError::into_inner) = NoList::NotLoggedIn;
     }
 
     /// The current list.
@@ -297,6 +310,7 @@ impl Models {
 
     /// One fetch, and the wait until the next one.
     async fn fetch(&self, refresh: &Refresh) -> Duration {
+        let logouts = self.logouts.load(Ordering::Acquire);
         let used = self
             .refusals
             .as_ref()
@@ -305,7 +319,8 @@ impl Models {
             Fetcher::OpenAi(catalog, client) => fetch_openai(catalog, client, refresh).await,
             Fetcher::Anthropic(catalog, client) => fetch_anthropic(catalog, client, refresh).await,
         };
-        if let Some(used) = &used {
+        let stale = self.logouts.load(Ordering::Acquire) != logouts;
+        if let Some(used) = used.as_ref().filter(|_| !stale) {
             match &fetched {
                 Ok(()) => used.worked(),
                 Err(error) => used.failed(error),
@@ -330,7 +345,11 @@ impl Models {
         };
         // NOTE: kept before the end is announced, so a prompt that waits for this fetch
         // reads why it gave no list.
-        *self.no_list.lock().unwrap_or_else(PoisonError::into_inner) = no_list;
+        if stale {
+            tracing::debug!(provider = %self.provider, "a logout came during the fetch; its answer is dropped");
+        } else {
+            *self.no_list.lock().unwrap_or_else(PoisonError::into_inner) = no_list;
+        }
         self.ended.send_modify(|ended| *ended = ended.wrapping_add(1));
         wait
     }

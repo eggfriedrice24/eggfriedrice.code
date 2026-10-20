@@ -336,6 +336,9 @@ impl Providers {
         }
         if deleted {
             self.refusals.reset(provider);
+            if provider == self.configured {
+                self.models.logged_out();
+            }
         }
         Ok(deleted)
     }

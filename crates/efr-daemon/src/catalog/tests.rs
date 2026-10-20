@@ -672,6 +672,39 @@ async fn a_failed_anthropic_fetch_keeps_no_list_and_tries_again_soon() {
 }
 
 #[tokio::test]
+async fn a_fetch_that_a_logout_overtakes_says_nothing_about_the_login() {
+    let server = MockServer::start().await;
+    let refused = json!({"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}});
+    Mock::given(method("GET"))
+        .and(path(ANTHROPIC_MODELS_PATH))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(refused).set_delay(Duration::from_millis(500)),
+        )
+        .mount(&server)
+        .await;
+    let setup = anthropic_fetching(&server);
+    let refresh = setup.models.refresh.as_ref().unwrap();
+    let fetch = setup.models.fetch(refresh);
+    tokio::pin!(fetch);
+    let asked = Wait::new("the fetch's request").until_some_async(async || {
+        (!server.received_requests().await.unwrap().is_empty()).then_some(())
+    });
+    tokio::select! {
+        _ = &mut fetch => panic!("the fetch ended before its answer came"),
+        asked = asked => asked.unwrap(),
+    }
+
+    setup.models.logged_out();
+    fetch.await;
+
+    assert!(
+        matches!(setup.models.missing(), Some(super::NoList::NotLoggedIn)),
+        "the refusal of the deleted key is not the reason: {:?}",
+        setup.models.missing()
+    );
+}
+
+#[tokio::test]
 async fn a_prompt_waits_for_one_fetch_while_there_is_no_list() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

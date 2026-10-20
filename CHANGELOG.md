@@ -388,6 +388,11 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
+- After `efr logout anthropic` or `efr logout openai-api`, a prompt says that no key
+  is stored and how to log in. Before, a model list fetch that started before the
+  logout could end after it, and the prompt then said that the provider rejected the
+  old key.
+
 - The reviewer writes its reason before its verdict, and efr asks again once when the
   reason is empty. The second request stays within `classifier.timeout_secs` of that
   step.
