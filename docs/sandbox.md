@@ -391,7 +391,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
 | `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5173`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer, else you |
 | `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
-| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent); refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
+| `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent, git's credential cache); refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
 | `bus` | `notify-send`, `busctl`, `resolvectl`, `systemctl get-default`, `nmcli device status`, `iwctl station wlan0 show`; `nmcli radio wifi off`; `hostnamectl` and `systemctl --failed` only while the bus filter is off (see "The bus filter"); `needs.bus` | the sandbox, with the whole bus socket | the reviewer, else you; only you for a form of `nmcli` or `iwctl` that changes something, because the bus filter has no rules for NetworkManager and iwd |
 | `device` | `nvme smart-log /dev/nvme0n1` | the sandbox, with that one device | the reviewer, else you |
@@ -558,9 +558,13 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   exit 2 · 1.5s`, and no word about the sandbox: every shell call of `auto` runs
   there. A turn in which a call ran in the sandbox ends with one dim line that says
   where the sandbox can write, such as `sandbox: writes in the project, $SCRATCH,
-  private /tmp; no network`. When a call of the turn ran with the proxy, the line says
-  `network through efr's proxy` in place of `no network`. When a call of the turn had
-  the network view, the line ends with `; host network view (no sending)`.
+  private /tmp; no network`. When the turn changed files in projects, the line names
+  them first: `sandbox: wrote in app and lib; could write $SCRATCH, private /tmp; no
+  network`. When a call of the turn ran with the proxy, also a background job that
+  the turn started, the line says `network through efr's proxy` in place of `no
+  network`. When a call of the turn had the whole network (a raw network program or a
+  `localhost` port), the line says `full network`. When a call of the turn had the
+  network view, the line ends with `; host network view (no sending)`.
 - Three refusals in a row without a person (by a floor) stop the turn. A refusal of
   the reviewer does not count here; it has its own pause (above).
 
@@ -830,7 +834,9 @@ it.
   other.test:443: not on the allow list. To reach a host, call shell again with
   needs.hosts.]`, and the model can ask for the host with `needs.hosts`. The record of
   that next exit says that the proxy refused the host (`refused_by_proxy`). This is a
-  fact, never your permission.
+  fact, never your permission. A host that a deny holds (`network.deny`, or a
+  credential of "Credentials", below) gets the note `efr denies this host for this
+  command ... A host grant does not help`, and it never counts as `refused_by_proxy`.
 - Programs that do not use HTTP keep the whole network after a review: `nslookup`,
   `dig`, `host`, `drill`, `ping`, `traceroute`, `tracepath`, `mtr`, `nc`, `ncat`,
   `netcat`, `socat`, `telnet` and `ftp`. So does a `needs.hosts` entry of
@@ -868,7 +874,8 @@ with a count; `and N more` counts the rest.
 
 | Reason | Why |
 |---|---|
-| `not on the allow list` | the host is not on a list, or the deny list holds it, or efrd denies it for the call because a file holds a credential for it |
+| `not on the allow list` | the host is not on a list, and no grant of the call names it |
+| `denied for this command` | the deny list holds the host, or efrd denies it for the call because a file or a credential helper can give the call a token for it (see "Credentials"); no grant opens it |
 | `a private address` | the name resolves to a local or private address |
 | `the TLS name differs from the host` | the server name of the TLS hello is not the host |
 | `not TLS` | no TLS hello with a server name, or a hello that asks for Encrypted Client Hello |
@@ -898,8 +905,23 @@ call:
   a password or a token for a host, efrd denies that host for the call. The output says why: `[efr: efr blocks registry.npmjs.org for
   this command: ~/p/app/.npmrc holds a credential for it. Move the credential to a file
   that the sandbox hides, such as ~/.npmrc.]`. A git `http.extraHeader` with no URL
-  denies every remote host and the hosts of `@github-read`; a shell credential helper
-  or a credential store in a write root denies the hosts of the remotes.
+  denies every remote host and the hosts of `@github-read`.
+- git runs the same credential helpers in the sandbox, so a helper that can find a
+  token there denies its hosts. A helper for one site
+  (`credential.https://git.example.com.helper`, also with a path) denies only that
+  site; a helper with no site, or with a site that efr cannot read (a `*` or no
+  `https://`), denies the hosts of every remote of the repository.
+
+  | Helper | What efr does |
+  |---|---|
+  | `!gh auth git-credential` (`gh auth setup-git` writes it) | no deny while the sandbox hides gh's token: the `hosts.yml` of gh's config dir (`$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`, else `~/.config/gh`, from the hidden shell) lies under a read mask, no `sandbox.env_keep` pattern keeps `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN`, and the command has no grant of the whole session bus. Else it denies its hosts, and the note says why |
+  | `libsecret`, `store` (its own files), `cache`, `manager` (Git Credential Manager) | no deny: the keyring needs the whole session bus, `~/.git-credentials` and `~/.gcm` are secrets, and the cache's socket needs a socket grant that only you approve |
+  | any other `!` command, `store --file` | denies its hosts |
+  | any other program, such as `oauth` or `pass-git-helper` | denies its hosts, because a credential helper that efr does not know can hand out a token; the note names it |
+
+- hub's `~/.config/hub`, Copilot's `~/.config/github-copilot` and Git Credential
+  Manager's `~/.gcm` are secrets, so a command in the sandbox cannot use their GitHub
+  tokens while github.com is open.
 
 ### When the proxy closes
 
@@ -1719,6 +1741,9 @@ it cannot write `dbus.allow` or `sandbox.allow`: only an editor, the `a` answer 
 | a pinned hook that runs project code, such as `.husky/pre-push` that runs `npx lint-staged` | that project code runs with your rights, also when a sandboxed command wrote it | efr checks the hook file and the program of its `#!` line, not what the hook calls; the turn-end list names changed files that run code later |
 | the hidden shell writes its environment at a prompt | before its first prompt, efrd checks the git code with its own start environment, not with the git variables that your startup files set | a sandboxed command cannot change `HOME`, `XDG_*` or `GIT_*` of the hidden shell |
 | an outside background job that runs git | efrd checks its git code for the question, but not again when the job starts | the question names each writable part that efrd found |
+| gh's config dir comes from the hidden shell's environment, which it writes at a prompt | the first sandboxed command after you log in, before any hidden shell had a prompt, cannot reach the hosts of gh's credential helper, such as github.com | efrd takes the dir of the newest hidden shell, since they all run your startup files; with none it denies those hosts, and the note says why; the next command works |
+| Git Credential Manager can keep its plain store in another dir (`GCM_PLAINTEXT_STORE_PATH`) | a command in the sandbox can read the tokens there and use them at github.com | efr hides only `~/.gcm`; add the other dir to `permissions.secret_paths` |
+| a credential helper that efr does not know | git in the sandbox cannot reach the hosts of its repository through the proxy | the note names the helper; a helper for one site blocks only that site |
 | changes to your caches while an overlay uses them | old or wrong cache content in the sandbox | `sandbox.cache_mode = "tmp"` |
 | no network with `network.mode = "none"`, or a host that is not on the allow list | a build that must download fails | with the proxy, the registries are on the default list; a host that the line shows is a review for that one host; without the proxy, the network is an exit, and `sandbox.offline_hints` tells package managers to use the cache |
 | the proxy cannot see inside TLS | a command can send data to a host on your allow list, with no credentials: at most `max_upload_bytes` (4 MiB) per command, counted from the first byte of each connection | no credentials in the sandbox (masks, the environment filter, the token deny); the server name check; the cut of Encrypted Client Hello; a short default list |

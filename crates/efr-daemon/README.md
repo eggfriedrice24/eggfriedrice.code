@@ -633,7 +633,15 @@ spec; `docs/sandbox.md` for the user's view):
   call's frozen policy: its `Grant::Host` entries, `network.max_upload_bytes`, and the
   hosts that a file of the call's projects holds a credential for (`proxy/tokens.rs`:
   the registry files of each project root and the call's dir, and one hardened
-  `git config` run per repository; the call's output says why). A foreground call
+  `git config` run per repository; the call's output says why). A credential helper
+  denies the host of its scope, or every remote when it has none (v0.0.4). gh's helper
+  denies only when the call can reach gh's token (`HelperFacts::gh_open`): when the
+  call's masks do not hide the `hosts.yml` of gh's config dir (from the hidden shell's
+  `env` file, else the newest `env` file of any hidden shell, else unknown, which
+  denies), when `sandbox.env_keep` keeps a GitHub token variable, or when the call has
+  the whole session bus. The proxy refuses a denied host with the reason `denied`,
+  which `refused_hosts` leaves out. A job's start outcome carries a `SandboxSummary`
+  with `proxied`, so the turn's trace names its network. A foreground call
   closes its socket after its launcher wrote the result (a grace of 200 ms for open
   tunnels) and merges the refusals into `sandbox.blocked` and the model's output; a
   call past its timeout keeps its socket until `result.json` appears or its dir goes

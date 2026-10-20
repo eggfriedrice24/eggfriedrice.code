@@ -246,12 +246,18 @@ into the GitHub release notes, and it stops when the section is missing.
   `network.max_upload_bytes` set what the proxy lets through. The proxy runs only when
   its self-test passes; else `efr sandbox check` warns, and commands have no network.
 - With the proxy, a command that the proxy refused shows
-  `network: blocked <host:port> (<reason>)`, and the model reads why. A background job
-  lists its refusals in the line of its end, in the view, in `efr history` and in
-  `efr jobs stop`. The dim line at the end of a turn says `network through efr's
-  proxy` in place of `no network` when a command of the turn ran with the proxy. The
-  reviewer sees the hosts that the proxy refused in the last command and in the jobs,
-  but only as a fact, never as your request.
+  `network: blocked <host:port> (<reason>)`, and the model reads why. A host on the
+  deny list, or one that efr blocks because a file or a credential helper can give the
+  command a token for it, shows `denied for this command`, and the model reads that no
+  host grant helps. A background job lists its refusals in the line of its end, in the
+  view, in `efr history` and in `efr jobs stop`. The dim line at the end of a turn says
+  `network through efr's proxy` in place of `no network` when a command of the turn
+  ran with the proxy, also a background job that the turn started, and `full network`
+  when a command had the whole network. When the turn changed files in projects, the
+  line names them: `sandbox: wrote in app and lib; could write $SCRATCH, private /tmp;
+  ...`. The reviewer sees the hosts that the proxy refused in the last command and in
+  the jobs, but only as a fact, never as your request; a denied host is not one of
+  them.
 - With the proxy, Node's `fetch` uses the proxy through `NODE_USE_ENV_PROXY=1`, so
   Node prints an "experimental" warning on stderr in sandboxed commands.
 - With `[dbus] proxy = true` in `auto`, read-only system queries run with no review:
@@ -493,6 +499,11 @@ into the GitHub release notes, and it stops when the section is missing.
   (`efr_providers::anthropic`, before `efr_provider_anthropic`) and the vt100 screen
   (`efr_screen::vt100`, before `efr_screen_vt100`). If your `EFR_LOG` or the `log` key
   names an old target, change it.
+- A git credential helper that efr does not know (not a `!` command, `libsecret`,
+  `store`, `cache` or `manager`), such as `oauth` or `pass-git-helper`, now blocks the
+  hosts of the repository's remotes for sandboxed commands, as a `!` helper does,
+  because it can hand out a token. The note names the helper. A helper for one site
+  blocks only that site.
 
 ### Fixed
 
@@ -571,9 +582,10 @@ into the GitHub release notes, and it stops when the section is missing.
   four advisories of rustls 0.23.45 (RUSTSEC-2026-0346 to RUSTSEC-2026-0349).
 - efr now also treats `~/.config/git/credentials`, `~/.config/npm/npmrc`,
   `~/.config/pnpm/rc`, `~/.config/pypoetry/auth.toml` and
-  `~/.config/composer/auth.json` as secrets, as it treats `~/.git-credentials` and
-  `~/.npmrc`. No mode reads them. The sandbox also hides `~/.gcm`,
-  `~/.config/glab-cli`, `~/.yarnrc.yml`, `~/.yarnrc`, `~/.bunfig.toml`,
+  `~/.config/composer/auth.json`, and hub's `~/.config/hub`, Copilot's
+  `~/.config/github-copilot` and Git Credential Manager's `~/.gcm`, as secrets, as it
+  treats `~/.git-credentials` and `~/.npmrc`. No mode reads them. The sandbox also
+  hides `~/.config/glab-cli`, `~/.yarnrc.yml`, `~/.yarnrc`, `~/.bunfig.toml`,
   `~/.config/pip/pip.conf` and `~/.pip/pip.conf`, because they can hold a token. In
   `auto`, `read_file` of one of them asks you.
 - A sandboxed command no longer gets `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`,
@@ -585,7 +597,14 @@ into the GitHub release notes, and it stops when the section is missing.
   project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or `.cargo/config.toml`
   holds a password or a token for a host, efr blocks that host for sandboxed commands
   and says why. Your git config counts also for a command outside a project. Move the
-  token to a file that the sandbox hides, such as `~/.npmrc`.
+  token to a file that the sandbox hides, such as `~/.npmrc`. A git credential helper
+  that can give a sandboxed command a token blocks its hosts too: a helper for one site
+  blocks only that site, a helper for every site blocks the hosts of the repository's
+  remotes. A `gh auth git-credential` helper blocks no host while the sandbox hides
+  gh's token (gh's `hosts.yml` is under a read mask, no `sandbox.env_keep` pattern
+  keeps a GitHub token variable, and the command has no grant of the whole session
+  bus), so `git clone` and `git fetch` from GitHub work in the sandbox. A socket grant
+  to git's credential cache asks only you.
 - With `network.mode = "proxy"`, `efr sandbox check` warns about each
   `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
   allowed hosts.

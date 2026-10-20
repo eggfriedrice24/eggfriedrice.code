@@ -398,14 +398,21 @@ Replies:
   (`tool_call_started` with a contained `launch`, not refused) ends with one muted
   line, `sandbox: writes in the project, $SCRATCH, private /tmp; no network`, before
   the end-of-turn line, with `network through efr's proxy` in place of `no network`
-  when a contained call ran with the proxy (`SandboxSummary.proxied`, phase D2), and
+  when a contained call ran with the proxy (`SandboxSummary.proxied`, phase D2, also on
+  the outcome of a job's start from v0.0.4), `full network` when a contained call had
+  `Grant::OpenNetwork` (this wins over the proxy), and
   `; host network view (no sending)` at its end when a contained call had
-  `Grant::NetView`; a failed contained call ends `✗ exit 2 · 1.5s`, as any other. A
-  call's `sandbox` summary adds muted rows under its result: `network: blocked
-  <host>:<port> (<reason>)` (with `; N times` when the proxy refused it more than
-  once), `network: and N more refused` for the refusals past the list
-  (`blocked_more`), the bus calls that the bus filter refused (phase E, `bus_refused`):
-  `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`, with the member
+  `Grant::NetView`. When the turn's end event names roots that the turn changed
+  (`TurnUndoInfo.roots` but `$SCRATCH`), the line names them first:
+  `sandbox: wrote in app and lib; could write $SCRATCH, private /tmp; ...`
+  (`format::sandbox::contained_trace`, `TraceNetwork`). A failed contained call ends
+  `✗ exit 2 · 1.5s`, as any other. A call's `sandbox` summary adds muted rows under its
+  result: `network: blocked <host>:<port> (<reason>)` (the reason `denied for this
+  command` for a host that a deny holds, from v0.0.4; with `; N times` when the proxy
+  refused it more than once), `network: and N more refused` for the refusals past the
+  list (`blocked_more`), the bus calls that the bus filter refused (phase E,
+  `bus_refused`): `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`,
+  with the member
   after the service's own name, `; N times` for a count over one, and `bus: and N more
   refused` (`bus_refused_more`), each part through `format::one_line` because the
   command wrote it, and the background jobs that stopped. `efr history` and `efr jobs`

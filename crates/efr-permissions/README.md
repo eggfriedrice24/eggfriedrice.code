@@ -46,7 +46,7 @@ Modules:
   | UserConfig | `~/.config`, `~/.zshrc`, other dot entries in `~`, extra config roots, a repository's `.git` in `~` or `$SCRATCH` | free | approval |
   | UserData | `~/Documents`, `~/p`, `~/.local/share`, `~/.cache` | free | approval, free inside the turn's registered project |
   | System | everything outside `~` | free | approval |
-  | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/git/credentials`, `~/.config/gh/hosts.yml`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc` (its tokens, and back doors to every other path), the daemon's `secrets/`, and the roots the config adds | denied | denied |
+  | Secrets | `~/.ssh`, `~/.gnupg`, `~/.password-store`, `~/.local/share/keyrings`, `~/.netrc`, the credential files of common tools (`~/.aws/credentials`, `~/.codex/auth.json`, `~/.git-credentials`, `~/.config/git/credentials`, `~/.config/gh/hosts.yml`, `~/.config/hub`, `~/.config/github-copilot`, `~/.gcm`, `~/.docker/config.json`, `~/.kube/config`, `~/.npmrc`, `~/.pypirc`, `~/.config/gcloud` and more, listed in `path_class.rs`), `/etc/shadow`, `/etc/gshadow`, a process's `environ`, `root`, `cwd`, `fd`, `map_files` and `mem` under `/proc` (its tokens, and back doors to every other path), the daemon's `secrets/`, and the roots the config adds | denied | denied |
 
   `with_sealed_root` adds a secret root that no rule opens, which the daemon uses for
   its own `secrets/`. `with_write_sealed_root` adds a root that no tool may write and
@@ -62,7 +62,8 @@ Modules:
   `with_link_floor_root` (floors with no group, with a `FloorGroup`, or with the group
   and the names of a dotfile link), `with_synced_root`, `with_sandbox_mask` and
   `with_credential_socket` (the socket of a credential agent, such as
-  `$SSH_AUTH_SOCK`).
+  `$SSH_AUTH_SOCK`; the engine also knows such sockets by a word of their path, also
+  `credential` for git's credential cache from v0.0.4).
   Classification
   is lexical: `.` and `..` are resolved by name,
   nothing is read from the disk, and a relative path has no class. Symbolic links may
@@ -306,8 +307,15 @@ Modules:
   line scans of DP25: `token_hosts` finds a token key or a URL with a password in a
   project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or cargo config and
   gives every host that the file names plus the ecosystem's registry hosts;
-  `git_tokens` finds the remotes, `insteadOf` bases, `extraHeader`s and credential
-  helpers of the git config that carry a credential. `Engine::with_hosts` gives the
+  `git_tokens` finds the remotes, `insteadOf` bases and `extraHeader`s of the git
+  config that carry a credential, and the credential helpers that can hand a call a
+  token: `helper_kind` sorts a helper value into a `HelperKind` (gh's
+  `gh auth git-credential`, libsecret, `store` with or without `--file`, `cache`, Git
+  Credential Manager, another shell form, or a program that efr does not know), and
+  `HelperScope` holds the host of a scoped helper, or every remote for an unscoped one
+  and for a scope whose host efr cannot read (v0.0.4). `HelperKind::denies` says
+  whether a helper denies its hosts: gh's only when efrd finds that the call can reach
+  gh's token. `Engine::with_hosts` gives the
   engine the list (`Engine::hosts`; empty by default). `FactRequest::remotes` names
   the directories of git commands that reach a remote, and `CallFacts` gets their
   remotes (`RemoteFact`, each URL a `RemoteUrl`) and `refused_hosts`, the hosts that
