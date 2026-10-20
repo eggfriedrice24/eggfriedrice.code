@@ -113,7 +113,7 @@ fn each_key_has_a_kind() {
     );
     assert_eq!(
         kind("permissions.mode"),
-        Some(Kind::Choice(vec!["manual".to_owned(), "cautious".to_owned(), "auto".to_owned()]))
+        Some(Kind::Choice(["manual", "cautious", "auto", "full"].map(str::to_owned).to_vec()))
     );
     assert_eq!(
         kind("shell.sudo_cache"),

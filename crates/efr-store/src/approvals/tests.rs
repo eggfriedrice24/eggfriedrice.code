@@ -13,6 +13,7 @@ fn requested(turn: u64, call: u64, summary: &str) -> Event {
         diff_preview: Some("-a\n+b\n".to_owned()),
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     }
 }
 

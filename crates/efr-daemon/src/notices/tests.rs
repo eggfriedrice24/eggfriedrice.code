@@ -54,6 +54,7 @@ fn finished_and_failed_turns_and_waiting_approvals_get_a_line() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
 
     assert_eq!(
@@ -98,6 +99,7 @@ fn the_parts_that_ask_follow_the_summary_on_the_same_line() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
     assert_eq!(
         line(&approval, Some("fix nginx")).as_deref(),
@@ -209,6 +211,7 @@ fn a_notice_shows_a_stand_in_for_each_format_character() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
 
     let text = line(&approval, Some("title\u{2066}")).unwrap();

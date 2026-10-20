@@ -35,6 +35,7 @@ pub(crate) async fn handle(
         config: Some(reload::status(state).await),
         sandbox: Some(sandbox),
         sandbox_paths: Some(state.sandbox.paths().await),
+        full_mode: None,
     };
     responder.item(&result).await?;
     Ok(())

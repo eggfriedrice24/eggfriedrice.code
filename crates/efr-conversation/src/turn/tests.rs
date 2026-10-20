@@ -567,6 +567,7 @@ async fn an_asked_tool_call_waits_for_approval_and_runs_once_approved() {
             diff_preview: Some("+\"alias ll='ls -l'\"".to_owned()),
             interactive: false,
             exit: None,
+            expires_in_secs: None,
         }
     );
     assert_eq!(
@@ -793,6 +794,7 @@ async fn a_patch_that_deletes_a_project_file_asks_even_in_auto() {
             diff_preview: None,
             interactive: false,
             exit: None,
+            expires_in_secs: None,
         }
     );
     h.finish();

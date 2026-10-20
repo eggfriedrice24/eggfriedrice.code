@@ -252,7 +252,10 @@ fn values_of_the_wrong_kind_rules_and_unknown_keys_cannot_be_set() {
     let error = edit.set_text("shell.idle_minutes", "soon").unwrap_err();
     assert_eq!(error.to_string(), "shell.idle_minutes = \"soon\" is not a whole number");
     let error = edit.set_text("permissions.mode", "yolo").unwrap_err();
-    assert_eq!(error.to_string(), "permissions.mode = \"yolo\" is not manual, cautious or auto");
+    assert_eq!(
+        error.to_string(),
+        "permissions.mode = \"yolo\" is not manual, cautious, auto or full"
+    );
     for key in ["permissions.rules", "shell.colour", "model", "nothing"] {
         let error = edit.set_text(key, "x").unwrap_err();
         assert!(matches!(error, ConfigError::UnknownKey { .. }), "{key}: {error:?}");

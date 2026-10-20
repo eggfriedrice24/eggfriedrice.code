@@ -315,6 +315,33 @@ pub enum JudgeKind {
     Always,
     /// Nobody answered a question while the user was away, so the call did not run.
     PresenceExpired,
+    /// Full mode let the exit run with no review and no question, or a question of
+    /// full mode expired.
+    Full,
+}
+
+impl JudgeKind {
+    /// Every judge.
+    pub const ALL: [JudgeKind; 6] = [
+        JudgeKind::Classifier,
+        JudgeKind::User,
+        JudgeKind::Floor,
+        JudgeKind::Always,
+        JudgeKind::PresenceExpired,
+        JudgeKind::Full,
+    ];
+
+    /// The wire form of the judge, such as `presence_expired`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            JudgeKind::Classifier => "classifier",
+            JudgeKind::User => "user",
+            JudgeKind::Floor => "floor",
+            JudgeKind::Always => "always",
+            JudgeKind::PresenceExpired => "presence_expired",
+            JudgeKind::Full => "full",
+        }
+    }
 }
 
 /// The step of the classifier's chain that gave a verdict: its own model, the turn's

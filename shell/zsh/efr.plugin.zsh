@@ -960,7 +960,7 @@ _efr_probe_background() {
 # accepts. Only the first argument completes.
 _efr_complete_mode() {
   (( CURRENT == 2 )) || return 1
-  compadd -- default manual cautious auto
+  compadd -- default manual cautious auto full
 }
 
 _efr_complete_model() {

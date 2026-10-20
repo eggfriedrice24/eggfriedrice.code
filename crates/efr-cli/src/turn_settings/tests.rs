@@ -84,7 +84,7 @@ async fn an_unknown_mode_in_the_variable_is_a_usage_error_with_the_choices() {
     assert_eq!(
         run::message(&error),
         "efr: EFR_MODE names the mode \"yolo\", which does not exist; choose one of: manual, \
-         cautious, auto\n"
+         cautious, auto, full\n"
     );
     assert_eq!(error.exit(), crate::error::Exit::Usage);
 }

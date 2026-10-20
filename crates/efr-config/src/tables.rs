@@ -291,9 +291,14 @@ impl From<ModelLimits> for ModelEntry {
 #[serde(default, deny_unknown_fields)]
 #[non_exhaustive]
 pub struct PermissionSettings {
-    /// The default permission mode of a turn: `manual`, `cautious` or `auto`. A prompt
-    /// may choose another one for its turn. A turn from the phone runs with at most
-    /// `cautious`.
+    /// The default permission mode of a turn: `manual`, `cautious`, `auto` or `full`. A
+    /// prompt may choose another one for its turn. `full` needs
+    /// `permissions.allow_full = true`; without it, efrd does not load the file. A turn
+    /// from the phone runs with at most `cautious`, and a turn that a job notice starts
+    /// with at most `auto`.
+    // NOTE: the file is read as the protocol's `Mode`; the schema gives the values with
+    // the words of this file, and says that `full` needs the gate key.
+    #[schemars(with = "ConfigMode")]
     pub mode: Mode,
     /// Files and directories that count as secrets on top of the built-in ones, so the
     /// model may never read or write them: absolute, or below the home directory as
@@ -312,6 +317,44 @@ impl PermissionSettings {
     /// The machine policy of `mode`: its built-in rules, then the user's.
     pub fn policy(&self, mode: Mode) -> Policy {
         Policy::base(mode).then(self.rules.clone())
+    }
+}
+
+/// The JSON schema of `permissions.mode`: the modes that the file may name, each with
+/// its description for this file.
+struct ConfigMode;
+
+impl JsonSchema for ConfigMode {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ConfigMode".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A permission mode that `permissions.mode` may name.",
+            "oneOf": [
+                {
+                    "const": "manual",
+                    "description": "Every call asks, except what your own rules allow.",
+                    "type": "string"
+                },
+                {
+                    "const": "cautious",
+                    "description": "The built-in rules let commands and files be read with no question. The default.",
+                    "type": "string"
+                },
+                {
+                    "const": "auto",
+                    "description": "Shell commands run at once in a kernel sandbox. An action that leaves the sandbox goes to the reviewer or to you. Without the sandbox, a turn runs as `cautious`.",
+                    "type": "string"
+                },
+                {
+                    "const": "full",
+                    "description": "Commands run as you, with no sandbox and no questions. efr still reads each line for a small set of floors (docs/permissions.md, \"Full mode\"). Valid only with `permissions.allow_full = true`; without it, efrd does not load the file.",
+                    "type": "string"
+                }
+            ]
+        })
     }
 }
 

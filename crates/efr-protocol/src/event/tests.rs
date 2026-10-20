@@ -585,6 +585,7 @@ fn an_approval_of_a_call_that_may_wait_for_input_says_so_and_an_old_one_does_not
         diff_preview: None,
         interactive,
         exit: None,
+        expires_in_secs: None,
     };
     let wire = json!({
         "kind": "approval_requested",
@@ -605,6 +606,31 @@ fn an_approval_of_a_call_that_may_wait_for_input_says_so_and_an_old_one_does_not
     });
     assert_eq!(serde_json::to_value(requested(false)).unwrap(), old);
     assert_eq!(serde_json::from_value::<Event>(old).unwrap(), requested(false));
+}
+
+#[test]
+fn expires_in_secs_is_left_out_when_absent() {
+    let requested = |expires_in_secs| Event::ApprovalRequested {
+        turn_id: turn(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        summary: "full mode still asks for this: delete of ~ (your home directory)".to_owned(),
+        diff_preview: None,
+        interactive: false,
+        exit: None,
+        expires_in_secs,
+    };
+    let old = json!({
+        "kind": "approval_requested",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "summary": "full mode still asks for this: delete of ~ (your home directory)",
+    });
+    assert_eq!(serde_json::to_value(requested(None)).unwrap(), old);
+    assert_eq!(serde_json::from_value::<Event>(old.clone()).unwrap(), requested(None));
+    let mut limited = old;
+    limited["expires_in_secs"] = json!(120);
+    assert_eq!(serde_json::to_value(requested(Some(120))).unwrap(), limited);
+    assert_eq!(serde_json::from_value::<Event>(limited).unwrap(), requested(Some(120)));
 }
 
 #[test]

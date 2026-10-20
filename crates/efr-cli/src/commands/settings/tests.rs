@@ -51,7 +51,7 @@ fn without_a_config_the_defaults_and_the_daemons_model_apply() {
             ),
         ]
     );
-    assert_eq!(lines[0].choices, ["manual", "cautious", "auto"]);
+    assert_eq!(lines[0].choices, ["manual", "cautious", "auto", "full"]);
     assert_eq!(lines[1].choices, ["gpt-5.5", "gpt-5.4", "my-model"]);
     assert_eq!(lines[2].choices, ["low", "medium", "high", "xhigh"]);
 }
@@ -281,7 +281,7 @@ async fn efr_settings_asks_the_daemon_for_its_models_and_prints_the_settings() {
     assert_eq!(
         captured.stdout(),
         format!(
-            "mode = auto  # EFR_MODE; choices: manual, cautious, auto\n\
+            "mode = auto  # EFR_MODE; choices: manual, cautious, auto, full\n\
              model = gpt-5.5  # --model; choices: gpt-5.5, gpt-5.4, my-model\n\
              effort = high  # {}; choices: low, medium, high, xhigh\n",
             config.display()
@@ -317,6 +317,7 @@ async fn choose_auto(sandbox: Option<SandboxStatus>) -> String {
             config: None,
             sandbox,
             sandbox_paths: None,
+            full_mode: None,
         };
         conn.reply(id, &status).await;
         conn.until_closed().await;
@@ -371,7 +372,7 @@ async fn an_unknown_mode_fails_before_any_connection() {
     let (mut out, captured) = capture();
     let exit = run::run(&command(&["settings"]), &ctx, &mut out).await;
     assert_eq!(exit, Exit::Usage);
-    assert!(captured.stderr().contains("choose one of: manual, cautious, auto"));
+    assert!(captured.stderr().contains("choose one of: manual, cautious, auto, full"));
 }
 
 #[tokio::test]

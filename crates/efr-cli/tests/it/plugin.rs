@@ -1103,7 +1103,7 @@ impl Home {
 /// What the fake `efr settings` prints: the lines of a terminal without settings of
 /// its own, as the real one prints them.
 const SETTINGS: &str = "\
-mode = cautious  # default; choices: manual, cautious, auto
+mode = cautious  # default; choices: manual, cautious, auto, full
 model = gpt-5.5  # the daemon's default; choices: gpt-5.5, gpt-5.4, my-model
 effort = medium  # the default of gpt-5.5; choices: low, medium, high
 ";
@@ -1237,7 +1237,7 @@ fn e2e_a_bare_setting_shows_its_line_in_the_terminals_words() {
     assert_eq!(
         stdout.lines().collect::<Vec<_>>(),
         [
-            "mode = auto  # this terminal (,mode); choices: manual, cautious, auto",
+            "mode = auto  # this terminal (,mode); choices: manual, cautious, auto, full",
             "model = gpt-5.4  # this terminal (,model); choices: gpt-5.5, gpt-5.4, my-model",
             "effort = medium  # the default of gpt-5.5; choices: low, medium, high",
         ]

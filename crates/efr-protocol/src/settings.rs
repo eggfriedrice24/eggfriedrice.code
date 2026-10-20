@@ -15,9 +15,11 @@ use crate::{ModeFallback, ProtocolError};
 /// The permission mode of a turn: the base policy, which the user's own rules follow and
 /// win over where they match.
 ///
-/// The floors hold in every mode: an interactive call asks, a privileged program asks,
-/// secrets are denied unless a user rule names them, and no tool writes efr's config. A
-/// turn from a remote origin runs with at most [`Mode::Cautious`].
+/// Some floors hold in every mode: a privileged program such as `sudo` asks, secrets
+/// are denied unless a user rule names them, and no tool writes efr's config. Full mode
+/// keeps these floors and the other questions that `docs/permissions.md` names in its
+/// section "Full mode"; the other modes also ask for an interactive call. A turn from a
+/// remote origin runs with at most [`Mode::Cautious`].
 ///
 /// The variants are ordered from the strictest to the loosest, so the remote cap is
 /// `mode.min(Mode::Cautious)`.
@@ -51,11 +53,16 @@ pub enum Mode {
     /// answers it. When the sandbox is not available, a turn runs as `cautious` and
     /// [`EffectiveSettings::fallback`] says why.
     Auto,
+    /// Every call runs at once as the user, with no sandbox and no question. efr still
+    /// reads each line for a small set of floors (`docs/permissions.md`, "Full mode").
+    /// The user allows it with `permissions.allow_full`; a phone turn runs with at most
+    /// `cautious`, a turn that a job notice starts with at most `auto`.
+    Full,
 }
 
 impl Mode {
     /// Every mode, from the strictest to the loosest.
-    pub const ALL: [Mode; 3] = [Mode::Manual, Mode::Cautious, Mode::Auto];
+    pub const ALL: [Mode; 4] = [Mode::Manual, Mode::Cautious, Mode::Auto, Mode::Full];
 
     /// The wire form of the mode, such as `auto`.
     pub const fn as_str(self) -> &'static str {
@@ -63,7 +70,60 @@ impl Mode {
             Mode::Manual => "manual",
             Mode::Cautious => "cautious",
             Mode::Auto => "auto",
+            Mode::Full => "full",
         }
+    }
+}
+
+/// Why the daemon refuses full mode although `permissions.allow_full` is true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum FullRefusal {
+    /// efrd runs as root.
+    Root,
+    /// `snapshot.enabled` is false, so `efr undo` cannot revert the turn.
+    SnapshotOff,
+    /// `undo.enabled` is false.
+    UndoOff,
+    /// `shell.program` is no zsh, so efr cannot clear sudo's cache before a call.
+    NoZsh,
+}
+
+impl FullRefusal {
+    /// Every refusal, in the order in which the daemon checks them.
+    pub const ALL: [FullRefusal; 4] =
+        [FullRefusal::Root, FullRefusal::SnapshotOff, FullRefusal::UndoOff, FullRefusal::NoZsh];
+
+    /// The wire form of the refusal, such as `snapshot_off`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            FullRefusal::Root => "root",
+            FullRefusal::SnapshotOff => "snapshot_off",
+            FullRefusal::UndoOff => "undo_off",
+            FullRefusal::NoZsh => "no_zsh",
+        }
+    }
+
+    /// The text after "full mode cannot run: ", such as "efrd runs as root".
+    pub const fn describe(self) -> &'static str {
+        match self {
+            FullRefusal::Root => "efrd runs as root",
+            FullRefusal::SnapshotOff => {
+                "snapshot.enabled is false, so efr undo cannot revert the turn"
+            }
+            FullRefusal::UndoOff => "undo.enabled is false, so efr undo cannot revert the turn",
+            FullRefusal::NoZsh => {
+                "shell.program is no zsh, so efr cannot clear sudo's cached password before \
+                 a call"
+            }
+        }
+    }
+}
+
+impl fmt::Display for FullRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

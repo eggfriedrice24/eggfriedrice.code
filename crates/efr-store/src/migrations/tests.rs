@@ -393,6 +393,7 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
             diff_preview: None,
             interactive: false,
             exit: None,
+            expires_in_secs: None,
         },
         Event::ApprovalResolved {
             turn_id: crate::testing::turn(1),

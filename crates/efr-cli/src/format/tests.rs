@@ -281,6 +281,7 @@ fn status_result() -> AdminStatusResult {
         config: None,
         sandbox: None,
         sandbox_paths: None,
+        full_mode: None,
     }
 }
 

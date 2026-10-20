@@ -68,6 +68,7 @@ fn approval(diff: Option<&str>) -> Event {
         diff_preview: diff.map(str::to_owned),
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     }
 }
 
@@ -365,6 +366,7 @@ fn approval_of_parts() -> Event {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     }
 }
 
@@ -397,6 +399,7 @@ fn only_a_line_of_plain_names_passes_for_the_parts_that_ask() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
     let step = framed(view.event(&event, SIZE, true), &mut view);
     assert_eq!(
@@ -416,6 +419,7 @@ fn approval_summaries_cannot_drive_the_terminal() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
     let out = framed(view.event(&event, SIZE, false), &mut view).out;
     assert!(!out.contains("\u{1b}]52"), "{}", readable(&out));
@@ -1249,6 +1253,7 @@ fn shell_approval(interactive: bool) -> Event {
         diff_preview: None,
         interactive,
         exit: None,
+        expires_in_secs: None,
     }
 }
 
@@ -1358,6 +1363,7 @@ fn the_end_of_the_turn_or_a_new_approval_ends_the_kept_keys() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
     assert_eq!(framed(view.event(&approval, SIZE, true), &mut view).ask, Some(Ask::Approval(next)));
     // The call that kept keys is over; a late wait of it asks nothing more of the keys.
@@ -1655,6 +1661,7 @@ fn exit_events(line: &str, facts: ExitFacts, info: ExitInfo) -> [Event; 2] {
             diff_preview: None,
             interactive: true,
             exit: Some(info),
+            expires_in_secs: None,
         },
     ]
 }
@@ -1733,6 +1740,7 @@ fn an_exit_without_its_record_keeps_the_summary() {
         diff_preview: None,
         interactive: false,
         exit: Some(info),
+        expires_in_secs: None,
     };
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(&mut view, &[approval], false);
@@ -1754,6 +1762,7 @@ fn an_exit_without_its_record_says_why_once() {
         diff_preview: None,
         interactive: false,
         exit: Some(info),
+        expires_in_secs: None,
     };
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(&mut view, &[contained_started("npm ci"), approval], false);
@@ -1805,6 +1814,7 @@ fn a_question_without_an_exit_shows_each_line_of_a_command_of_several() {
         diff_preview: None,
         interactive: false,
         exit: None,
+        expires_in_secs: None,
     };
     let mut view = raw_view();
     let (_, err, _) = feed(&mut view, &[tool_started(FROM_SRC), approval.clone()], true);

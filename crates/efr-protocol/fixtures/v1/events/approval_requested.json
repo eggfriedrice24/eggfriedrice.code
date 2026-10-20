@@ -37,5 +37,6 @@
     },
     "user_only": true,
     "always": "write under ~/Documents"
-  }
+  },
+  "expires_in_secs": 120
 }

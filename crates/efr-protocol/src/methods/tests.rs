@@ -5,10 +5,10 @@ use crate::{
     AdminConfigReloadResult, AdminLogoutResult, AdminProjectAdd, AdminProjectRemove,
     AdminStatusResult, Base64Bytes, CatalogOrigin, CatalogStatus, ConfigFileError, ConfigStatus,
     ConversationId, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
-    EffectiveSettings, InputRespond, LateSteer, LoginKind, Mode, ModelInfo, ModelSource,
-    ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult,
-    PromptWithdraw, ProviderStatus, RootSource, Seq, ShellContext, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, LateSteer, LoginKind, Mode,
+    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo,
+    PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RootSource, Seq, ShellContext,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -315,6 +315,40 @@ fn a_status_from_before_roots_and_config_parses_without_them() {
 }
 
 #[test]
+fn an_older_admin_status_without_full_mode_parses() {
+    let old = json!({
+        "daemon_id": "019a9b1c-3d00-7a10-8b20-000000000007",
+        "version": "0.1.0",
+        "protocol": 1,
+        "pid": 1234,
+        "started_at": "2026-10-03T08:00:00Z",
+        "screen_backend": "vt100",
+        "conversations": 2,
+        "shells": 1,
+        "providers": [],
+    });
+    let mut status: AdminStatusResult = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(status.full_mode, None);
+    assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+    status.full_mode = Some(FullModeStatus { allowed: true, refused: None });
+    let mut allowed = old;
+    allowed["full_mode"] = json!({ "allowed": true });
+    assert_eq!(serde_json::to_value(&status).unwrap(), allowed, "no refusal is left out");
+}
+
+#[test]
+fn a_config_status_without_held_parses() {
+    let old = json!({ "path": "/home/u/.config/efr/config.toml", "exists": true });
+    let mut status: ConfigStatus = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(status.held, None);
+    assert_eq!(serde_json::to_value(&status).unwrap(), old, "nothing new is written");
+    status.held = Some(HeldConfig { loosens: vec!["permissions.rules".to_owned()] });
+    let mut held = old;
+    held["held"] = json!({ "loosens": ["permissions.rules"] });
+    assert_eq!(serde_json::to_value(&status).unwrap(), held);
+}
+
+#[test]
 fn a_provider_from_before_logins_by_key_is_inactive_with_no_login_kind() {
     let old = json!({ "provider": "openai", "logged_in": true });
     let status: ProviderStatus = serde_json::from_value(old.clone()).unwrap();
@@ -405,6 +439,7 @@ fn a_missing_plain_config_file_is_its_path_and_a_false_exists() {
         symlink_target: None,
         reload_error: None,
         restart_needed: Vec::new(),
+        held: None,
     };
     let value = serde_json::to_value(&config).unwrap();
     assert_eq!(value, json!({ "path": "/home/me/.config/efr/config.toml", "exists": false }));
