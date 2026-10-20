@@ -43,6 +43,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   test's own bus sockets, and `bus_proxy_program` names the `xdg-dbus-proxy` to run.
   Without them the daemon keeps `dbus.proxy = false` across reloads and has no bus at
   all, so it never reaches the machine's buses.
+- For full mode, `TestDaemonBuilder::as_root(true)` makes the daemon count as running
+  as root, so `admin.status` and every full turn see `FullRefusal::Root` without the
+  test being root.
 - `fake_launcher`: `FakeLauncher`, one `/bin/sh` script in place of `efr-sbx` for the
   tests of `efr-daemon`, `efr-cli` and the eval. `run --call-dir D` runs a call's line
   with `/bin/sh`; `run --call-dir D --job` runs a job as the real launcher's contract

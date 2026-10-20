@@ -261,6 +261,11 @@ into the GitHub release notes, and it stops when the section is missing.
   hand or with `efr config set`. `permissions.mode = "full"` in `config.toml` needs
   `permissions.allow_full = true`; without it, efrd does not load the file, and the
   error says to set the key.
+- When `config.toml` makes full mode the default, efrd writes a warning to its log at
+  the start and at the reload that makes it so. When efrd cannot run full mode (it
+  runs as root, `undo.enabled` or `snapshot.enabled` is false, or the hidden shell is
+  no zsh), a turn that names no mode runs as `auto` and records why. A prompt that
+  names full mode then fails with the reason.
 - `network.mode` is now `"proxy"` by default. Package fetches such as `cargo build`
   with a new dependency, `npm install` and `pip install` run with no review. Set
   `network.mode = "none"` to get the old behavior: no network, and a review that opens

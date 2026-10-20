@@ -31,8 +31,11 @@ turns.
   from a remote origin runs with at most `cautious`. After that cap, `full` runs only
   when the daemon allows it (`ConversationConfig::full_mode`): else `FullModeOff`
   (`permissions.allow_full` is false) or `FullModeRefused` with the daemon's
-  `FullRefusal`, both `invalid` with the other modes as the choices. Until efrd fills
-  `full_mode`, it is off, so every full turn fails. The turn sends its model, its
+  `FullRefusal`, both `invalid` with the other modes as the choices. A `full` that
+  comes from the config default and meets a `FullRefusal` does not fail: the turn
+  runs as `auto` (or `cautious` when `auto` cannot run either) with a `ModeFallback`
+  whose `asked` is `full` and whose reason starts with `full mode cannot run:`. efrd
+  fills `full_mode` from `permissions.allow_full` and its refusals. The turn sends its model, its
   effort as the request's `effort` (in the manual compaction's summary request too),
   and its mode in the permission
   engine's `DecisionInput` and as a line of the preamble.

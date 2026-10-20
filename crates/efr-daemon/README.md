@@ -1005,6 +1005,32 @@ whose event no subscription from the terminal was handed goes back to the notice
 and is written; any other is dropped. A terminal whose subscription received a turn's
 last event never hears about that turn.
 
+### Full mode
+
+Full mode runs the model's commands as the user, with no sandbox and no questions,
+while efr still reads each line for a small set of floors. efrd's part:
+
+- `full.rs`: `full::status` says whether a turn may run in full mode:
+  `permissions.allow_full`, and the first refusal that holds, in this order: efrd runs
+  as root (`FullRefusal::Root`), `snapshot.enabled` is false, `undo.enabled` is false,
+  `shell.program` is no zsh (`efr_shell::gets_integration`, the test that gives a
+  hidden shell the integration; a zsh named by its path counts). The conversations
+  read it in `ConversationConfig::full_mode` at each resolve and before each call
+  (`settings.rs`, from the latest settings, so a reload that turns undo off stops full
+  mode from the next call on), and `admin.status` reports the same value as
+  `full_mode`. efrd reads its effective uid once at the start (`run.rs`); a build with
+  `test-sandbox-fake` takes it from `Deps::with_runs_as_root` instead.
+- `permissions.mode = "full"` is a valid default only next to
+  `permissions.allow_full = true` (`efr-config` refuses it otherwise, at the start and
+  at a reload). At the start, and at a reload that makes full the default, efrd writes
+  one WARN line to its log; when a refusal holds, the line names it, and a turn that
+  names no mode runs as `auto` with the reason in its fallback, while a prompt that
+  names full mode fails.
+- A full call collects the facts of its line and copies home files first as an `auto`
+  call does (`CallContext::predicts`), with no sandbox, and its snapshot roots record
+  the mode `full`, so undo covers what the turn wrote outside its roots. It clears
+  sudo's cache before and after its line (`shell.sudo_cache` above).
+
 ### Features
 
 - `local-pty` (default): hidden shells on PTYs opened in this process through

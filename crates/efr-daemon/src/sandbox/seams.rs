@@ -9,8 +9,9 @@
 //! replace the probe's result. For background jobs it can give every job a fixed
 //! environment, so a test needs no hidden zsh that writes its `env` file, and it can
 //! hand a test the side of a socket peer by pid ([`PeerProbe`]), and it can name the
-//! program that measures the host's mounts. `just install` refuses an `efrd` built with the feature
-//! (`efrd --test-seams` prints `on`).
+//! program that measures the host's mounts, and it can say that efrd runs as root, so a
+//! test sees full mode refused without being root. `just install` refuses an `efrd`
+//! built with the feature (`efrd --test-seams` prints `on`).
 //!
 //! The proxy (phase D2) gets its resolver and connector here ([`Seams::proxy_deps`]):
 //! a test build never reaches the internet. With a table of test names and the server
@@ -73,6 +74,9 @@ pub(crate) struct Seams {
     /// The test's own `xdg-dbus-proxy`.
     #[cfg(feature = "test-sandbox-fake")]
     bus_proxy_program: Option<PathBuf>,
+    /// Whether efrd runs as root, in place of its effective uid (full mode, DF27).
+    #[cfg(feature = "test-sandbox-fake")]
+    runs_as_root: Option<bool>,
 }
 
 /// The system bus of a test build without the seam: a path below `/proc`, where no
@@ -186,6 +190,11 @@ impl Seams {
     /// The `xdg-dbus-proxy` that a test named, in place of a trusted program.
     pub(crate) fn bus_proxy_program(&self) -> Option<&Path> {
         self.bus_proxy_program.as_deref()
+    }
+
+    /// Whether efrd runs as root, as a test said, in place of its effective uid.
+    pub(crate) fn runs_as_root(&self) -> Option<bool> {
+        self.runs_as_root
     }
 
     /// These seams with the test names of `EFR_TEST_PROXY_HOSTS` and the test buses of
@@ -350,6 +359,11 @@ impl Seams {
     pub(crate) fn bus_proxy_program(&self) -> Option<&Path> {
         None
     }
+
+    /// Without the feature efrd reads its effective uid.
+    pub(crate) fn runs_as_root(&self) -> Option<bool> {
+        None
+    }
 }
 
 #[cfg(feature = "test-sandbox-fake")]
@@ -439,6 +453,15 @@ impl Deps {
     #[must_use]
     pub fn with_bus_proxy_program(mut self, program: impl Into<PathBuf>) -> Self {
         self.seams.bus_proxy_program = Some(program.into());
+        self
+    }
+
+    /// Says whether efrd runs as root, in place of its effective uid, so a test sees
+    /// full mode refused as it is for root (`FullRefusal::Root`) without being root.
+    /// Only with the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_runs_as_root(mut self, root: bool) -> Self {
+        self.seams.runs_as_root = Some(root);
         self
     }
 }

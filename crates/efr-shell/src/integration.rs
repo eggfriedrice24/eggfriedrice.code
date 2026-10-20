@@ -55,8 +55,10 @@ pub(crate) fn install(dir: &Path) -> Result<(), StdxError> {
         .map_err(|source| StdxError::WriteFile { path: editor, source })
 }
 
-/// True for a shell that can load the integration: a zsh.
-pub(crate) fn supports(program: &Path) -> bool {
+/// True for a shell program that gets efr's integration: a zsh, by the name of its file
+/// (`zsh`, `zsh-5.9`), so a zsh named by its path counts too. Only such a shell has the
+/// marks and the key that forgets sudo's cached credentials.
+pub fn supports(program: &Path) -> bool {
     program.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with("zsh"))
 }
 

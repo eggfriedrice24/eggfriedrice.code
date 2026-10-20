@@ -27,6 +27,7 @@ mod conversations;
 mod discovery;
 mod engine;
 mod error;
+mod full;
 mod gc;
 mod home;
 mod jobs;

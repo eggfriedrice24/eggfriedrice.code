@@ -148,3 +148,38 @@ fn the_conversations_read_the_latest_settings() {
     assert_eq!(after.scratch_root, PathBuf::from("/d/scratch"));
     assert_eq!(before.model, "gpt-6.1-sol", "a value read stays");
 }
+
+#[test]
+fn full_status_changes_when_undo_goes_off_at_reload() {
+    use efr_protocol::{FullModeStatus, FullRefusal};
+
+    let mut allowed = Settings::default();
+    allowed.permissions.allow_full = true;
+    let (sender, receiver) = watch::channel(Arc::new(allowed.clone()));
+    let live = LiveSettings::new(
+        receiver,
+        PathBuf::from("/d/scratch"),
+        HostInfo::default(),
+        TimeZone::UTC,
+        builtin_models(),
+    );
+    let root = LiveSettings::new(
+        sender.subscribe(),
+        PathBuf::from("/d/scratch"),
+        HostInfo::default(),
+        TimeZone::UTC,
+        builtin_models(),
+    )
+    .with_root(true);
+
+    let before = live.current().full_mode;
+    // NOTE: a reload sends the new settings on this watch.
+    let mut undo_off = allowed;
+    undo_off.undo.enabled = false;
+    sender.send_replace(Arc::new(undo_off));
+    let after = live.current().full_mode;
+
+    assert_eq!(before, FullModeStatus { allowed: true, refused: None });
+    assert_eq!(after, FullModeStatus { allowed: true, refused: Some(FullRefusal::UndoOff) });
+    assert_eq!(root.current().full_mode.refused, Some(FullRefusal::Root));
+}

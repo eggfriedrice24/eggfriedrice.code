@@ -15,13 +15,16 @@
 //! records why ([`ModeFallback`]); there is no `auto` with less. `full` runs only when
 //! the daemon allows it ([`ConversationConfig::full_mode`]); else the prompt or the turn
 //! fails. The check comes after the cap of a remote origin, so a phone's `full` runs as
-//! `cautious` with no error.
+//! `cautious` with no error. A `full` that comes from the config default, not from the
+//! prompt, does not fail when the daemon refuses full mode (it runs as root, undo or
+//! snapshots are off, the shell is no zsh): the turn runs as `auto` and records why, as
+//! the config's `permissions.mode = "full"` needs `permissions.allow_full` anyway.
 
 use std::path::Path;
 
 use crate::{ConversationConfig, ConversationError};
 use efr_protocol::{
-    EffectiveSettings, ErrorBody, ErrorCode, Mode, ModeFallback, ModelInfo, Origin,
+    EffectiveSettings, ErrorBody, ErrorCode, FullRefusal, Mode, ModeFallback, ModelInfo, Origin,
     OverriddenSettings, SandboxStatus, TurnSettings, is_effort_word,
 };
 
@@ -39,7 +42,8 @@ pub(crate) struct Place<'a> {
 /// ([`efr_permissions::effective_mode`]), and an `auto` turn that `place` cannot hold
 /// runs as `cautious` with the reason in `fallback`. A `full` turn after that cap fails
 /// unless the daemon allows full mode ([`ConversationConfig::full_mode`]); it never
-/// falls back.
+/// falls back, except a `full` of the config default that the daemon refuses: that turn
+/// runs as `auto`, or as `cautious` when `auto` cannot run either, with both reasons.
 pub(crate) fn resolve(
     asked: &TurnSettings,
     config: &ConversationConfig,
@@ -48,11 +52,25 @@ pub(crate) fn resolve(
 ) -> Result<EffectiveSettings, ConversationError> {
     // NOTE: the engine's own cap, so the recorded mode is the one the engine decides by.
     let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(config.mode), origin);
-    if mode == Mode::Full {
-        check_full(config)?;
-    }
-    let fallback = (mode == Mode::Auto).then(|| auto_fallback(place)).flatten();
-    let mode = if fallback.is_some() { Mode::Cautious } else { mode };
+    // NOTE: a default of full that the daemon refuses falls back, so no prompt that
+    // names no mode fails while efrd runs as root or undo is off (OQF3).
+    let refused_default =
+        (mode == Mode::Full && asked.mode.is_none()).then_some(config.full_mode.refused).flatten();
+    let mode = match refused_default {
+        Some(_) => Mode::Auto,
+        None => {
+            if mode == Mode::Full {
+                check_full(config)?;
+            }
+            mode
+        }
+    };
+    let auto = (mode == Mode::Auto).then(|| auto_fallback(place)).flatten();
+    let mode = if auto.is_some() { Mode::Cautious } else { mode };
+    let fallback = match refused_default {
+        Some(refusal) => Some(full_fallback(refusal, auto)),
+        None => auto,
+    };
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
     let info = check_model(&model, asked.model.is_none(), &config.models)?;
     let effort = asked.effort.clone().or_else(|| config.effort.clone());
@@ -82,6 +100,17 @@ fn check_full(config: &ConversationConfig) -> Result<(), ConversationError> {
         Some(refusal) => Err(ConversationError::FullModeRefused { refusal }),
         None => Ok(()),
     }
+}
+
+/// The fallback of a config default of full that the daemon refuses for `refusal`: to
+/// `auto`, and further to `cautious` with the reason of `auto` when `auto` cannot run.
+fn full_fallback(refusal: FullRefusal, auto: Option<ModeFallback>) -> ModeFallback {
+    let mut reason = format!("full mode cannot run: {}", refusal.describe());
+    if let Some(auto) = auto {
+        reason.push_str("; ");
+        reason.push_str(&auto.reason);
+    }
+    ModeFallback { asked: Mode::Full, reason }
 }
 
 /// Why `place` cannot run an `auto` turn, or `None` when it can.

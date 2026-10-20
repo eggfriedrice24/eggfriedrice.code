@@ -384,6 +384,49 @@ fn resolve_refuses_full_with_each_refusal() {
 }
 
 #[test]
+fn a_refused_config_default_of_full_runs_as_auto_with_the_reason() {
+    let mut config = allowing_full(Some(FullRefusal::Root));
+    config.mode = Mode::Full;
+
+    let settings = resolve(&TurnSettings::default(), &config, Origin::Shell, place(&ready()));
+    let unavailable = SandboxStatus::unavailable("bubblewrap is not installed");
+    let no_sandbox =
+        resolve(&TurnSettings::default(), &config, Origin::Shell, place(&unavailable)).unwrap();
+    let named =
+        resolve(&asked(Some(Mode::Full), None, None), &config, Origin::Shell, place(&ready()));
+
+    let settings = settings.unwrap();
+    assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(
+        settings.fallback,
+        Some(ModeFallback {
+            asked: Mode::Full,
+            reason: "full mode cannot run: efrd runs as root".to_owned()
+        })
+    );
+    assert!(!settings.overridden.mode);
+    assert_eq!(no_sandbox.mode, Mode::Cautious, "auto falls back further without a sandbox");
+    assert_eq!(
+        no_sandbox.fallback,
+        Some(ModeFallback {
+            asked: Mode::Full,
+            reason: "full mode cannot run: efrd runs as root; bubblewrap is not installed"
+                .to_owned()
+        })
+    );
+    assert!(
+        matches!(named, Err(ConversationError::FullModeRefused { refusal: FullRefusal::Root })),
+        "a prompt that names full still fails: {named:?}"
+    );
+
+    // A config default of full that the daemon allows runs as full.
+    let mut allowed = allowing_full(None);
+    allowed.mode = Mode::Full;
+    let full = resolve(&TurnSettings::default(), &allowed, Origin::Shell, place(&ready())).unwrap();
+    assert_eq!((full.mode, full.fallback), (Mode::Full, None));
+}
+
+#[test]
 fn a_phone_full_prompt_is_capped_before_the_gate() {
     let full = asked(Some(Mode::Full), None, None);
     let phone = resolve(&full, &config(), Origin::Phone, place(&ready())).unwrap();
