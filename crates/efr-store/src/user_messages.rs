@@ -5,7 +5,9 @@
 //! rebuilds its history from (efr's auto spec, section 9.2). A long conversation can
 //! push an early "edit my zshrc" out of that page, and the name must not get lost. So
 //! this read selects only the events that carry a user message, or take one back,
-//! across the whole log of the conversation.
+//! across the whole log of the conversation. It reads the `terminal_attached` events
+//! too: the naming rule reads only the newest turns, and never a turn before a pick-up
+//! or a resume in another terminal (v0.0.4).
 
 use efr_protocol::{ConversationId, Event, EventEnvelope};
 use rusqlite::{Connection, Row, params};
@@ -14,24 +16,29 @@ use crate::{StoreError, sql};
 
 const TABLE: &str = "events";
 
-/// The kinds of the events that [`of_conversation`] reads: a prompt, a steer, and the
-/// events that take one back.
-const KINDS: [&str; 4] =
-    ["prompt_queued", "turn_steered", "prompt_withdrawn", "steering_withdrawn"];
+/// The kinds of the events that [`of_conversation`] reads: a prompt, a steer, the
+/// events that take one back, and the moves of the conversation to a terminal.
+const KINDS: [&str; 5] = [
+    "prompt_queued",
+    "turn_steered",
+    "prompt_withdrawn",
+    "steering_withdrawn",
+    "terminal_attached",
+];
 
-/// Every `prompt_queued`, `turn_steered`, `prompt_withdrawn` and `steering_withdrawn`
-/// of one conversation, oldest first.
+/// Every `prompt_queued`, `turn_steered`, `prompt_withdrawn`, `steering_withdrawn` and
+/// `terminal_attached` of one conversation, oldest first.
 pub fn of_conversation(
     conn: &Connection,
     conversation_id: ConversationId,
 ) -> Result<Vec<EventEnvelope>, StoreError> {
     let mut stmt = conn.prepare(
         "SELECT seq, conversation_id, created_at, payload FROM events \
-         WHERE conversation_id = ?1 AND kind IN (?2, ?3, ?4, ?5) ORDER BY seq",
+         WHERE conversation_id = ?1 AND kind IN (?2, ?3, ?4, ?5, ?6) ORDER BY seq",
     )?;
     let rows = stmt
         .query_map(
-            params![conversation_id.to_string(), KINDS[0], KINDS[1], KINDS[2], KINDS[3]],
+            params![conversation_id.to_string(), KINDS[0], KINDS[1], KINDS[2], KINDS[3], KINDS[4]],
             Raw::from_row,
         )?
         .collect::<Result<Vec<_>, _>>()?;

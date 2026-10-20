@@ -71,9 +71,10 @@ across a restart:
   candidate of a pick-up, and `route` reads one conversation's key. A route that this
   build cannot read counts as `outside`.
 - `user_messages`: `of_conversation` reads every prompt and steer of a conversation,
-  and the events that take one back, from the whole log. The name check of an exit in
-  `auto` reads them, so an early "edit my zshrc" still names the file after the page
-  of newest events has moved past it.
+  the events that take one back, and each `terminal_attached`, from the whole log. The
+  record of an exit in `auto` keeps the messages for the reviewer, and the name check
+  reads those of the newest two turns after the last `terminal_attached`, also when the
+  page of newest events does not reach back to them.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

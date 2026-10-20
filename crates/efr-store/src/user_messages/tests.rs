@@ -87,3 +87,33 @@ async fn job_notice_never_in_user_messages_kinds() {
 
     assert_eq!(read, [committed.events()[1].clone()], "only the prompt is a user message");
 }
+
+/// A move of the conversation to a terminal reads back in its place among the prompts,
+/// because the naming rule never reads a turn before it (v0.0.4).
+#[tokio::test]
+async fn a_terminal_attached_reads_back_between_the_prompts() {
+    use efr_protocol::{AttachHow, RouteScope};
+
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    let attached = Event::TerminalAttached {
+        tty: "/dev/pts/6".to_owned(),
+        route: RouteScope::Outside,
+        shell_pid: Some(42),
+        how: AttachHow::PickedUp,
+    };
+    let committed = writer
+        .append(
+            Batch::new()
+                .event(id, testing::created(None))
+                .event(id, testing::queued(1, "commit and push"))
+                .event(id, attached)
+                .event(id, testing::queued(2, "now do it")),
+        )
+        .await
+        .unwrap();
+
+    let read = on_writer(&writer, move |conn| of_conversation(conn, id)).await.unwrap();
+
+    assert_eq!(read, committed.events()[1..].to_vec());
+}
