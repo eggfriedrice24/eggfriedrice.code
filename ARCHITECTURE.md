@@ -220,7 +220,10 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   with the diff: `crates/efr-daemon/src/tools/settings_tool.rs`.
 - What a call or a turn changed in files: the snapshot store in `crates/efr-snapshot/`,
   which roots a call snapshots in `crates/efr-daemon/src/tools/snapshot.rs`, and the
-  diff of a turn in `crates/efr-daemon/src/methods/conversation_diff.rs`.
+  diff of a turn in `crates/efr-daemon/src/methods/conversation_diff.rs`. The groups
+  of the changed files (generated, tests, docs, code) in
+  `crates/efr-cli/src/format/groups.rs`, the groups of `[diff.groups]` and their globs
+  in `crates/efr-config/src/tables/diff.rs`.
 - The reviewer of the `auto` exits (the classifier): the approver of each exit
   (`Approver`) in `crates/efr-permissions/src/exits.rs`, and the words that name an
   exit and the one check of them (`names_match`) in

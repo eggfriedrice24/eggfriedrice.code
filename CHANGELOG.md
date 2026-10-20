@@ -299,6 +299,16 @@ into the GitHub release notes, and it stops when the section is missing.
   before the typed text, in and out of sticky mode, also when `config.toml` makes full
   mode the default. On Enter the tag stays only on a `,` line. `EFR_FULL_STYLE` sets
   its style (default `fg=red`).
+- The changed files of a turn now fall into groups: generated (lock files, `*.snap`
+  snapshots, `fixtures/`), tests, docs and code. The line at the end of a turn names
+  up to two groups that are not code, the largest first, such as `9 files changed, +635
+  −44 (evals +503, tests +77)`. A turn that changed only code shows the line as before.
+  `efr diff --stat` starts with a table of every group and a total row, and
+  `efr diff --stat --all` adds up every turn of the conversation that undo did not
+  take back. Your own groups go in `config.toml`, such as `[diff.groups] evals =
+  ["evals/", "*.eval.toml"]`; they match first, in the order of the file.
+- `efr history` shows the line of the changed files, such as `3 files changed, +24 −7`,
+  for each turn that `efr undo` cannot take back.
 
 ### Changed
 
