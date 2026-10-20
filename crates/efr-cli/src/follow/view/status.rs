@@ -8,7 +8,8 @@
 //! While efr counts the user away from the conversation (`presence_changed`), `away`
 //! follows the time in the `warning` role: a question then waits only a short time. A
 //! turn in full mode shows `full` in the `error` role before it: its commands run as
-//! the user, with no sandbox and no question.
+//! the user, with no sandbox and no question. While a call runs and this row hides, the
+//! call's row shows the tag (`call.rs`).
 //!
 //! Events only change the state. The times come from the frame that shows the row
 //! ([`Status::at`]): the follow loop writes a frame within one frame time of every
@@ -53,8 +54,9 @@ const MIN_WORDS: usize = 10;
 /// What the row says while efr counts the user away.
 const AWAY: &str = "away";
 
-/// What the row says while the turn runs in full mode.
-const FULL: &str = "full";
+/// What the row says while the turn runs in full mode; the running call's row says it
+/// too, while the status row hides.
+pub(crate) const FULL: &str = "full";
 
 /// What the turn does now.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,6 +180,11 @@ impl Status {
     /// The turn runs in full mode, or not.
     pub(crate) fn set_full(&mut self, full: bool) {
         self.full = full;
+    }
+
+    /// True while the turn runs in full mode.
+    pub(crate) fn full(&self) -> bool {
+        self.full
     }
 
     /// The turn started: its time counts from the next frame.

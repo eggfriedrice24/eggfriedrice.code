@@ -139,7 +139,8 @@ Replies:
   a while), `away` follows the time in the `warning` role, until the next
   `presence_changed` says present. A turn in full mode (`turn_started` with `mode:
   full`) shows `full` in the `error` role before `away`, and the row counts it in its
-  width. After the time comes the gauge of
+  width. While a call runs and the status row hides, the call's own row shows `full`
+  after its time in the same way. After the time comes the gauge of
   the model's context (see "Context" below), such as `⠼ writing  12s  ctx 43%`. A band of three characters in the
   `text` role moves over the state one character per tick, then rests for a second. The
   band starts with a reset (SGR 0), so it shows on a dim `muted` and on a `muted` with

@@ -724,7 +724,8 @@ efr config reload.`
 ### What you see
 
 - A full turn starts with one red line: `full mode: no sandbox, no questions; efr undo
-  reverts the project and the files efr saw`. The status row shows `full` in red.
+  reverts the project and the files efr saw`. The status row shows `full` in red, and
+  so does the row of a running call.
 - At its end, one dim line lists what efr saw full mode let through, such as `efr saw 2
   actions that full mode let through: write ~/notes.txt, upload (git push)`. A turn
   with no such action shows no line.

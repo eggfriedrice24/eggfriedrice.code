@@ -13,7 +13,8 @@
 //!
 //! While the call runs, its first row carries the spinner (accent), what the call does
 //! (code) cut to the width with `…` at the cut, from 1 s on how long it has run, and the
-//! gauge of the model's context that the status row would show (`ctx 43%`);
+//! tag `full` in the `error` role of a turn in full mode and the gauge of the model's
+//! context that the status row would show (`ctx 43%`);
 //! a few more lines of a command of several follow, then the last [`TAIL_LINES`] lines
 //! of its output with text in them, each after `  │ `. The status row hides meanwhile,
 //! so the screen shows one sign of work. A call whose approval waits shows nothing yet:
@@ -58,7 +59,7 @@ use efr_protocol::{CallId, ContextUse, FileChanges};
 use efr_render::{RenderOptions, text_width};
 use jiff::Timestamp;
 
-use super::status::gauge_room;
+use super::status::{FULL, gauge_room};
 use crate::follow::since_then;
 use crate::format::{self, CallText, CommandRow, RowEnd, Tone};
 
@@ -212,12 +213,14 @@ impl Call {
         MARK.chars().count() + 1 + self.text.name.chars().count() + 1
     }
 
-    /// The rows of the running call at `now`, with `spinner`, the gauge of `context` and
-    /// their newlines: each cut to the width with `…` at the cut.
+    /// The rows of the running call at `now`, with `spinner`, the tag `full` when `full`,
+    /// the gauge of `context` and their newlines: each cut to the width with `…` at the
+    /// cut.
     pub(crate) fn running(
         &self,
         spinner: char,
         now: Timestamp,
+        full: bool,
         context: Option<&ContextUse>,
         options: &RenderOptions,
     ) -> String {
@@ -225,9 +228,13 @@ impl Call {
         let time = (elapsed >= SHOW_TIME).then(|| format::elapsed(elapsed));
         let method = options.width_method();
         let width = usize::from(options.width());
+        // The spinner and a space, the time after two spaces, and `full` after two more.
         let mut reserve = 2;
         if let Some(time) = &time {
             reserve += 2 + text_width(time, method);
+        }
+        if full {
+            reserve += 2 + FULL.len();
         }
         let mut room = width.saturating_sub(reserve);
         let gauge = gauge_room(context, &mut room, options);
@@ -238,6 +245,10 @@ impl Call {
         if let Some(time) = time {
             out.push_str("  ");
             out.push_str(&format::paint(&time, Tone::Dim, options));
+        }
+        if full {
+            out.push_str("  ");
+            out.push_str(&format::paint(FULL, Tone::Failure, options));
         }
         if let Some(gauge) = gauge {
             out.push_str("  ");
