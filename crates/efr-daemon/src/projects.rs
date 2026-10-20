@@ -7,7 +7,8 @@
 //! runs one at a time, and is followed by a reload, so the permission engine trusts a
 //! new project from the next tool call on. The model reaches them only by running
 //! `efr` in its shell, which no built-in rule of any mode allows, so that asks unless
-//! a rule of the user's allows it.
+//! a rule of the user's allows it. After a change, efrd writes the projects again for
+//! the zsh plugin's scope marker (`projects_file.rs`).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -56,14 +57,22 @@ pub(crate) async fn add(
     let id = ProjectId::from_uuid(uuid_v7(&*state.clock, &*state.rng));
     let file = state.engine_parts.registry.clone();
     let lock = std::sync::Arc::clone(&state.registry_writes);
-    blocking("admin.project_add", move || {
+    let added = blocking("admin.project_add", move || {
         change(&file, &lock, |edit| {
             edit.register(id, root.clone(), name.clone())
                 .map(|project| info(&project))
                 .map_err(|source| DaemonError::Registry { source })
         })
     })
-    .await
+    .await?;
+    write_file(state).await;
+    Ok(added)
+}
+
+/// Writes the projects for the zsh plugin's scope marker after a change.
+async fn write_file(state: &State) {
+    let registry = state.engine_parts.registry.clone();
+    crate::projects_file::refresh(registry, state.dirs.runtime()).await;
 }
 
 /// Takes the project whose root is `params.path` out of the registry, and returns it
@@ -78,7 +87,7 @@ pub(crate) async fn remove(
     }
     let file = state.engine_parts.registry.clone();
     let lock = std::sync::Arc::clone(&state.registry_writes);
-    blocking("admin.project_remove", move || {
+    let removed = blocking("admin.project_remove", move || {
         // NOTE: the root is registered with links resolved, and the user may name it
         // through a link, so a path that matches no root is tried in its real form too.
         let real = std::fs::canonicalize(&path).ok();
@@ -96,7 +105,9 @@ pub(crate) async fn remove(
             }
         })
     })
-    .await
+    .await?;
+    write_file(state).await;
+    Ok(removed)
 }
 
 /// The root that `params` registers: the directory with links resolved, or with

@@ -37,6 +37,7 @@ mod reconcile;
 mod resume;
 mod routing;
 mod sandbox;
+mod scope_marker;
 mod shell_tool;
 mod snapshots;
 mod subscribe;

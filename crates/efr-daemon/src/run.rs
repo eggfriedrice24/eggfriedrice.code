@@ -730,6 +730,9 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         full,
         procs: procs.unwrap_or_else(|| Arc::new(SystemProcView)),
     });
+    // NOTE: written before the socket opens, so a shell that sees efrd also finds the
+    // projects for its scope marker.
+    crate::projects_file::refresh(state.engine_parts.registry.clone(), state.dirs.runtime()).await;
     let peer_state = Arc::downgrade(&state);
     // NOTE: weak, so the probe that the seams keep never keeps the state alive.
     job_seams.fill_peer_probe(Arc::new(move |pid| {

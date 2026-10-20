@@ -434,10 +434,17 @@ async fn summary(
 /// The project registry as the file holds it now, and `pwd` with its links resolved,
 /// read on the blocking pool; the key needs no git run. A registry that cannot be read
 /// counts as empty, so the prompt goes outside projects, and the next turn reports it.
+/// A registry that differs from the zsh plugin's copy (`projects_file.rs`), after a
+/// hand edit of `projects.toml`, is written there again.
 pub(crate) async fn read_place(state: &State, pwd: Option<PathBuf>) -> (Registry, Option<PathBuf>) {
     let file = state.engine_parts.registry.clone();
+    let projects = crate::projects_file::path(state.dirs.runtime());
     let read = tokio::task::spawn_blocking(move || {
         let registry = Registry::load(&file);
+        let written = registry.as_ref().ok().map(|registry| {
+            crate::projects_file::sync(&projects, &crate::projects_file::text(registry))
+        });
+        crate::projects_file::log(written);
         let resolved = pwd.and_then(|pwd| std::fs::canonicalize(pwd).ok());
         (registry, resolved)
     })

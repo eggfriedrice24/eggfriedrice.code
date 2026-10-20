@@ -39,6 +39,7 @@ mod notices;
 mod presence;
 mod proc_view;
 mod projects;
+mod projects_file;
 mod providers;
 mod ptys;
 mod receipts;
