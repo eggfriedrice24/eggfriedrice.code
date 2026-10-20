@@ -99,11 +99,29 @@ async fn real_daemon(
     model: Arc<Recorder>,
     extra: &[(&str, &str)],
 ) -> Option<TestDaemon> {
+    real_daemon_with(test, dirs, model, extra, false).await
+}
+
+/// [`real_daemon`] that allows full mode when `allow_full`. `config.toml` then holds
+/// the gate key and the wake limit of the builder, so the reload of `add_project`
+/// keeps both.
+async fn real_daemon_with(
+    test: &str,
+    dirs: &Arc<TestDirs>,
+    model: Arc<Recorder>,
+    extra: &[(&str, &str)],
+    allow_full: bool,
+) -> Option<TestDaemon> {
     if !zsh_enabled(test) {
         return None;
     }
     let launcher = real_launcher(test)?;
     std::fs::create_dir_all(dirs.home().join("project")).unwrap();
+    if allow_full {
+        let file = "[permissions]\nmode = \"auto\"\nallow_full = true\n\n[jobs]\n\
+                    max_wakes_per_hour = 0\n";
+        crate::full::write_config(dirs, file);
+    }
     // NOTE: the clock starts after the files of the test were written, so no script of
     // the test counts as a program that changed in the turn (which asks the user).
     let start = jiff::Timestamp::now().checked_add(jiff::SignedDuration::from_mins(1)).unwrap();
@@ -112,8 +130,9 @@ async fn real_daemon(
         .dirs(Arc::clone(dirs))
         .shell_env(shell_env(dirs, extra))
         .sandbox_launcher(&launcher)
-        .config(|config| {
+        .config(move |config| {
             config.permissions.mode = Mode::Auto;
+            config.permissions.allow_full = allow_full;
             // NOTE: a job notice would start a turn of its own when a job ends, and that
             // turn would take the scripted answers of the test's next turn; no test of
             // this helper needs a wake turn (the wake tests use their own daemon).
@@ -491,6 +510,26 @@ async fn shell_exit_child_job_keeps_efr_home() {
     // NOTE: a contained call never sees an `EFR_` name (the sandbox's filter drops it),
     // so the value shows that the call ran in the exit child.
     assert!(output.lines().any(|line| line == efr_home), "the exit child keeps it: {output}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_full_job_has_no_new_privs() {
+    let test = "shell_full_job_has_no_new_privs";
+    let dirs = target_dirs();
+    // NOTE: with no_new_privs, sudo and every other setuid program get no rights, so a
+    // full job cannot use sudo's cached password. No test runs a real sudo.
+    let line = "grep NoNewPrivs /proc/self/status";
+    let model = Recorder::new(vec![job(line), None]);
+    let Some(daemon) = real_daemon_with(test, &dirs, model, &[], true).await else { return };
+
+    let (sent, events) = turn(&daemon, 1, "check it", Mode::Full, ApprovalDecision::Deny).await;
+    assert!(questions(&events).is_empty(), "a full job starts with no question");
+    let [(info, _)] = one_job(&events);
+    assert_eq!(info.launch, Launch::Unsandboxed, "a full job runs in the exit child");
+    let end = ended(&daemon, sent.conversation_id, "j1").await;
+
+    assert_eq!((end.exit_code, end.tail.as_str()), (Some(0), "NoNewPrivs:\t1"));
     daemon.stop().await.unwrap();
 }
 
