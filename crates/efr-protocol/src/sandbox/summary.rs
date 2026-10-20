@@ -153,6 +153,10 @@ pub enum BlockReason {
     BadRequest,
     /// The call had too many open tunnels.
     Limit,
+    /// The host is on the deny list, or efrd denies it for the call because a file or a
+    /// credential helper can give the call a token for it (v0.0.4). No host grant opens
+    /// it. An older client reads it as `Unknown`.
+    Denied,
     /// A reason that this build does not know.
     #[serde(other)]
     Unknown,
@@ -160,7 +164,7 @@ pub enum BlockReason {
 
 impl BlockReason {
     /// Every reason, in the order of the enum.
-    pub const ALL: [BlockReason; 10] = [
+    pub const ALL: [BlockReason; 11] = [
         BlockReason::NotAllowed,
         BlockReason::PrivateAddress,
         BlockReason::SniMismatch,
@@ -170,6 +174,7 @@ impl BlockReason {
         BlockReason::NotTls,
         BlockReason::BadRequest,
         BlockReason::Limit,
+        BlockReason::Denied,
         BlockReason::Unknown,
     ];
 }

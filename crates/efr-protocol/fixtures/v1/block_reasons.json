@@ -8,5 +8,6 @@
   "not_tls",
   "bad_request",
   "limit",
+  "denied",
   "unknown"
 ]

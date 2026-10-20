@@ -357,11 +357,12 @@ fn block_reason_index(reason: BlockReason) -> usize {
         BlockReason::NotTls => 6,
         BlockReason::BadRequest => 7,
         BlockReason::Limit => 8,
-        BlockReason::Unknown => 9,
+        BlockReason::Denied => 9,
+        BlockReason::Unknown => 10,
     }
 }
 
-const BLOCK_REASON_COUNT: usize = 10;
+const BLOCK_REASON_COUNT: usize = 11;
 
 /// The position of an approval answer in the enum, for the same purpose as
 /// `method_index`.

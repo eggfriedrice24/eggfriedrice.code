@@ -507,3 +507,8 @@ No protocol version has shipped yet.
   only sizes, counts and labels, never the text of a message. New fixtures
   `conversation_context_params.json`, `conversation_context_result.json` and
   `context_part_kinds.json`.
+- Version 1, additive: `block_reason` gains `denied`, before `unknown`: the proxy
+  refused a host that the deny list holds, or that efrd denies for the call because a
+  file or a credential helper can give the call a token for it. Such hosts were
+  `not_allowed` before. No host grant opens them. A reader from before reads it as
+  `unknown`. `block_reasons.json` now lists it.

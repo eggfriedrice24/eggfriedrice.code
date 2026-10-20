@@ -17,6 +17,7 @@ fn block_reason_unknown_reads_as_unknown() {
     assert_eq!(serde_json::to_value(BlockReason::NotTls).unwrap(), json!("not_tls"));
     assert_eq!(serde_json::to_value(BlockReason::BadRequest).unwrap(), json!("bad_request"));
     assert_eq!(serde_json::to_value(BlockReason::Limit).unwrap(), json!("limit"));
+    assert_eq!(serde_json::to_value(BlockReason::Denied).unwrap(), json!("denied"));
     let later: BlockReason = serde_json::from_value(json!("rate_limited")).unwrap();
     assert_eq!(later, BlockReason::Unknown);
     let blocked: Blocked =
