@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 use crate::SandboxError;
 use crate::fs_view::{FileKind, FsView};
+use crate::git_config::parse_config;
+use crate::paths::{expand_home, normalize};
 
 /// The deepest dir below `modules/` that the walk lists: `modules/a/modules/b` has the
 /// depth 3. A deeper dir stops the walk with [`SandboxError::ModulesTooDeep`].
@@ -124,6 +126,99 @@ fn is_module_name(name: &OsString) -> bool {
 
 fn kind_of(fs: &dyn FsView, path: &Path, kind: Option<FileKind>) -> Option<FileKind> {
     kind.or_else(|| fs.lstat(path).ok())
+}
+
+/// The most bytes of a `.gitmodules` that [`module_work_tree`] reads.
+const MAX_GITMODULES: usize = 1024 * 1024;
+
+/// A path that a git config names, where git reads more config or runs hooks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ConfigPath {
+    /// The file of an `include.path` or an `includeIf.<condition>.path`.
+    Include(PathBuf),
+    /// The dir of `core.hooksPath`.
+    HooksPath(PathBuf),
+}
+
+/// The include files and the hooks path that the config `text` of `git_dir` names, in
+/// the order of the text. An include path is relative to the git dir; a relative hooks
+/// path is relative to `work_tree`, the dir where git runs the hooks, and with no known
+/// work tree only an absolute one counts. A path that starts with `~` counts only with
+/// a `home`.
+pub(crate) fn config_paths(
+    text: &str,
+    git_dir: &Path,
+    work_tree: Option<&Path>,
+    home: Option<&Path>,
+) -> Vec<ConfigPath> {
+    let mut found = Vec::new();
+    for (key, value) in parse_config(text) {
+        let hooks = key == "core.hookspath";
+        let include =
+            key == "include.path" || (key.starts_with("includeif.") && key.ends_with(".path"));
+        if !include && !hooks {
+            continue;
+        }
+        let named = match home {
+            Some(home) => expand_home(Path::new(&value), home),
+            None if value.starts_with('~') => continue,
+            None => PathBuf::from(&value),
+        };
+        let base = match (hooks, work_tree) {
+            (false, _) => git_dir,
+            (true, Some(tree)) => tree,
+            (true, None) if named.is_absolute() => git_dir,
+            (true, None) => continue,
+        };
+        let Some(path) = normalize(&base.join(named)) else { continue };
+        found.push(if hooks { ConfigPath::HooksPath(path) } else { ConfigPath::Include(path) });
+    }
+    found
+}
+
+/// The work tree of the module git dir `module`, whose config is `text`: its
+/// `core.worktree`, which git writes for each module, else the path that the
+/// `.gitmodules` of its superproject gives its name. `trees` holds each git dir above
+/// it with its work tree.
+pub(crate) fn module_work_tree(
+    module: &Path,
+    text: &str,
+    trees: &[(PathBuf, Option<PathBuf>)],
+    fs: &dyn FsView,
+) -> Result<Option<PathBuf>, SandboxError> {
+    if let Some((_, value)) = parse_config(text).into_iter().find(|(key, _)| key == "core.worktree")
+    {
+        return Ok(normalize(&module.join(value)));
+    }
+    // NOTE: the deepest superproject first: `modules/a/modules/b` is the module `b` of
+    // the module `a` before it is a module named `a/modules/b`. A `.gitmodules` lies
+    // in a work tree that a call can write, so it decides only where efr looks for a
+    // module's relative hooks path when the module's own config does not say.
+    let mut parents: Vec<&(PathBuf, Option<PathBuf>)> =
+        trees.iter().filter(|(git_dir, _)| module.starts_with(git_dir.join("modules"))).collect();
+    parents.sort_by_key(|(git_dir, _)| std::cmp::Reverse(git_dir.as_os_str().len()));
+    for (git_dir, tree) in parents {
+        let Some(tree) = tree else { continue };
+        let Ok(name) = module.strip_prefix(git_dir.join("modules")) else { continue };
+        let gitmodules = tree.join(".gitmodules");
+        match fs.lstat(&gitmodules) {
+            Ok(FileKind::File) => {}
+            Ok(_) => continue,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(source) => return Err(SandboxError::Io { path: gitmodules, source }),
+        }
+        let bytes = fs
+            .read_file(&gitmodules, MAX_GITMODULES)
+            .map_err(|source| SandboxError::Io { path: gitmodules.clone(), source })?;
+        let key = format!("submodule.{}.path", name.display());
+        let found = parse_config(&String::from_utf8_lossy(&bytes))
+            .into_iter()
+            .find(|(known, _)| *known == key);
+        if let Some((_, path)) = found {
+            return Ok(normalize(&tree.join(path)));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]

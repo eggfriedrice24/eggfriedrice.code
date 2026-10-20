@@ -9,11 +9,10 @@ use efr_protocol::{BusKind, CacheMode, DesktopKind, Grant};
 use crate::SandboxError;
 use crate::desktop::{desktop_socket_path, is_desktop_socket};
 use crate::fs_view::{FileKind, FsView, Memo, Resolved, resolve};
-use crate::git_config::parse_config;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
-use crate::modules;
+use crate::modules::{self, ConfigPath, config_paths, module_work_tree};
 use crate::mounts::{MOUNTS_FILE, SIZES_FILE};
-use crate::paths::{depth, expand_home, is_within, normalize, too_wide};
+use crate::paths::{depth, is_within, normalize, too_wide};
 use crate::plan::{
     Mount, MountOp, MountOrigin, MountPlan, NO_PROXY, NO_PROXY_VARIABLES, OpKind, PROXY_URL,
     PROXY_VARIABLES, PlanNote, SERVICE_SOCKETS, SYSTEM_BUS_SOCKET,
@@ -494,7 +493,7 @@ impl Builder<'_> {
         for module in walk.git_dirs {
             self.git_surface(&module)?;
             let text = self.config_text(&module)?;
-            let tree = self.module_work_tree(&module, &text, &trees)?;
+            let tree = module_work_tree(&module, &text, &trees, self.fs)?;
             self.config_floors(&module, &text, tree.as_deref())?;
             trees.push((module, tree));
         }
@@ -514,81 +513,25 @@ impl Builder<'_> {
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 
-    /// The include files and the hooks path of the config `text` of `git_dir`, read-only
-    /// where a call can write them. An include path is relative to the git dir; a
-    /// relative hooks path is relative to `work_tree`, the dir where git runs the hooks,
-    /// and with no known work tree only an absolute one counts.
+    /// The include files and the hooks path that the config `text` of `git_dir` names,
+    /// read-only where a call can write them.
     fn config_floors(
         &mut self,
         git_dir: &Path,
         text: &str,
         work_tree: Option<&Path>,
     ) -> Result<(), SandboxError> {
-        for (key, value) in parse_config(text) {
-            let hooks = key == "core.hookspath";
-            let include =
-                key == "include.path" || (key.starts_with("includeif.") && key.ends_with(".path"));
-            if !include && !hooks {
-                continue;
-            }
-            let named = expand_home(Path::new(&value), &self.spec.runtime.home);
-            let base = match (hooks, work_tree) {
-                (false, _) => git_dir,
-                (true, Some(tree)) => tree,
-                (true, None) if named.is_absolute() => git_dir,
-                (true, None) => continue,
+        let home = self.spec.runtime.home.clone();
+        for named in config_paths(text, git_dir, work_tree, Some(&home)) {
+            let (path, kind) = match named {
+                ConfigPath::Include(path) => (path, FloorKind::GitConfig),
+                ConfigPath::HooksPath(path) => (path, FloorKind::GitHooks),
             };
-            let Some(path) = normalize(&base.join(named)) else { continue };
             if self.writable(&path) {
-                let kind = if hooks { FloorKind::GitHooks } else { FloorKind::GitConfig };
                 self.floor(&path, kind)?;
             }
         }
         Ok(())
-    }
-
-    /// The work tree of the module git dir `module`, whose config is `text`: its
-    /// `core.worktree`, which git writes for each module, else the path that the
-    /// `.gitmodules` of its superproject gives its name. `trees` holds each git dir
-    /// above it with its work tree.
-    fn module_work_tree(
-        &self,
-        module: &Path,
-        text: &str,
-        trees: &[(PathBuf, Option<PathBuf>)],
-    ) -> Result<Option<PathBuf>, SandboxError> {
-        if let Some((_, value)) =
-            parse_config(text).into_iter().find(|(key, _)| key == "core.worktree")
-        {
-            return Ok(normalize(&module.join(value)));
-        }
-        // NOTE: the deepest superproject first: `modules/a/modules/b` is the module `b`
-        // of the module `a` before it is a module named `a/modules/b`.
-        let mut parents: Vec<&(PathBuf, Option<PathBuf>)> = trees
-            .iter()
-            .filter(|(git_dir, _)| module.starts_with(git_dir.join("modules")))
-            .collect();
-        parents.sort_by_key(|(git_dir, _)| std::cmp::Reverse(git_dir.as_os_str().len()));
-        for (git_dir, tree) in parents {
-            let Some(tree) = tree else { continue };
-            let Ok(name) = module.strip_prefix(git_dir.join("modules")) else { continue };
-            let gitmodules = tree.join(".gitmodules");
-            if self.lstat(&gitmodules)? != Some(FileKind::File) {
-                continue;
-            }
-            let bytes = self
-                .fs
-                .read_file(&gitmodules, MAX_GIT_CONFIG)
-                .map_err(|source| SandboxError::Io { path: gitmodules.clone(), source })?;
-            let key = format!("submodule.{}.path", name.display());
-            let found = parse_config(&String::from_utf8_lossy(&bytes))
-                .into_iter()
-                .find(|(known, _)| *known == key);
-            if let Some((_, path)) = found {
-                return Ok(normalize(&tree.join(path)));
-            }
-        }
-        Ok(None)
     }
 
     /// `config`, `config.worktree` and `hooks` of one git dir, read-only.
