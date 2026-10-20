@@ -19,6 +19,7 @@ use efr_protocol::{
 use efr_render::{RenderOptions, Role, WidthMethod, text_width};
 use efr_stdx::text::is_format;
 use jiff::Timestamp;
+use jiff::tz::TimeZone;
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation as _;
 
@@ -960,13 +961,22 @@ pub(crate) fn turn_interrupted(
     }
 }
 
-/// `efr status`: the daemon's identity and health, one fact per line. `file_mode` is
-/// the default mode that `config.toml` sets, as `efr` reads the file; the daemon does
-/// not report it, and a row shows it only when it is `full`.
+/// `at` in `zone`, to the second, as a person reads it: `2026-10-20 12:00:00 CEST`.
+/// A zone that jiff cannot name gives the time in UTC: `2026-10-20T10:00:00Z`.
+pub(crate) fn local_time(at: Timestamp, zone: &TimeZone) -> String {
+    let zoned = at.to_zoned(zone.clone());
+    jiff::fmt::strtime::format("%Y-%m-%d %H:%M:%S %Z", &zoned)
+        .unwrap_or_else(|_| format!("{at:.0}"))
+}
+
+/// `efr status`: the daemon's identity and health, one fact per line, with its times in
+/// `zone`. `file_mode` is the default mode that `config.toml` sets, as `efr` reads the
+/// file; the daemon does not report it, and a row shows it only when it is `full`.
 pub(crate) fn status(
     status: &AdminStatusResult,
     socket: &Path,
     now: Timestamp,
+    zone: &TimeZone,
     file_mode: Option<Mode>,
 ) -> String {
     let mut out = String::new();
@@ -984,7 +994,8 @@ pub(crate) fn status(
     );
     row("daemon id", &status.daemon_id.to_string());
     // Whole seconds: the nanoseconds of a start time say nothing to a person.
-    row("started", &format!("{:.0} ({})", status.started_at, ago(status.started_at, now)));
+    let started = local_time(status.started_at, zone);
+    row("started", &format!("{started} ({})", ago(status.started_at, now)));
     row("socket", &one_line(&socket.display().to_string()));
     row("screen", &one_line(&status.screen_backend));
     row("conversations", &status.conversations.to_string());
@@ -997,7 +1008,8 @@ pub(crate) fn status(
             (false, _) => "not logged in".to_owned(),
             (true, None) => "logged in".to_owned(),
             (true, Some(expires)) => {
-                format!("logged in, token expires {expires:.0} ({})", until(expires, now))
+                let at = local_time(expires, zone);
+                format!("logged in, token expires {at} ({})", until(expires, now))
             }
         };
         if let Some(hint) = &provider.key_hint {
@@ -1005,7 +1017,8 @@ pub(crate) fn status(
         }
         if let Some(refused) = provider.key_refused_at {
             let what = if provider.key_hint.is_some() { "" } else { ", key" };
-            let _ = write!(state, "{what} refused at {refused:.0} ({})", ago(refused, now));
+            let at = local_time(refused, zone);
+            let _ = write!(state, "{what} refused at {at} ({})", ago(refused, now));
         }
         if provider.active {
             state.push_str(" (active)");

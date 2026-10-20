@@ -22,6 +22,7 @@ use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
 use efr_transport::client::{Client, ConnectOptions, Discovered};
 use futures::{Stream, stream};
+use jiff::tz::TimeZone;
 use tokio::signal::unix::{SignalKind, signal};
 use zeroize::Zeroizing;
 
@@ -248,6 +249,9 @@ pub(crate) struct Context {
     pub(crate) term: TermFacts,
     pub(crate) settings: Settings,
     pub(crate) clock: Arc<dyn Clock>,
+    /// The time zone of the times that `efr` prints, such as the start of the daemon in
+    /// `efr status`: the system's, so tests set their own.
+    pub(crate) time_zone: TimeZone,
     pub(crate) rng: Arc<dyn Rng>,
     pub(crate) screen: Arc<dyn Screen>,
     pub(crate) keys: Arc<dyn Keys>,
@@ -308,6 +312,7 @@ impl Context {
             editor,
             settings,
             clock: Arc::new(SystemClock),
+            time_zone: TimeZone::system(),
             rng: Arc::new(rng),
             screen: Arc::new(StdoutScreen),
             keys: Arc::new(keys),

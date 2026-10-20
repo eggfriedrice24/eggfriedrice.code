@@ -153,7 +153,7 @@ async fn status_shows_every_provider_with_its_key_hint_and_the_active_one() {
     assert_eq!(
         rows,
         [
-            "provider       openai-subscription: logged in, token expires 2026-10-10T18:00:00Z (in 6d 6h)",
+            "provider       openai-subscription: logged in, token expires 2026-10-10 18:00:00 UTC (in 6d 6h)",
             "provider       openai-api: not logged in",
             "provider       anthropic-api: logged in, key sk-ant-...a1b2 (active)",
         ]

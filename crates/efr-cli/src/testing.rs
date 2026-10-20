@@ -29,6 +29,7 @@ use efr_stdx::rng::Rng;
 use efr_stdx::time::{Clock, Sleep};
 use efr_test_support::Wait;
 use jiff::Timestamp;
+use jiff::tz::TimeZone;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UnixListener, UnixStream};
@@ -900,6 +901,7 @@ impl TestEnv {
             term: TermFacts::default(),
             settings: Settings::default(),
             clock: Arc::new(StoppedClock),
+            time_zone: TimeZone::UTC,
             rng: Arc::new(CountingRng::default()),
             screen: Arc::new(FixedScreen(Size::default())),
             keys: Arc::new(NoKeys),

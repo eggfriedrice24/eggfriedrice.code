@@ -11,7 +11,8 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output) -> Result<(), CliError>
     let socket = ctx.socket().await?;
     let client = ctx.connect(Origin::Cli, None).await?;
     let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await?;
-    out.out(&format::status(&status, &socket, ctx.clock.now(), ctx.settings.turn.mode))?;
+    let (now, zone) = (ctx.clock.now(), &ctx.time_zone);
+    out.out(&format::status(&status, &socket, now, zone, ctx.settings.turn.mode))?;
     // Every prompt fails until the provider of new conversations has credentials
     // that it takes; stdout stays the daemon's answer alone. An earlier daemon names no
     // active provider, so then only no login at all is worth the line.
