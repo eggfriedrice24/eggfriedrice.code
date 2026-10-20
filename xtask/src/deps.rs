@@ -44,7 +44,6 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
     // The pure logic of the auto sandbox; no efr-stdx, because it reaches tokio.
     ("efr-sandbox", &["efr-protocol"]),
     // Tier 2
-    ("efr-screen-vt100", &["efr-screen"]),
     ("efr-screen-ghostty", &["efr-screen"]),
     ("efr-pty", &["efr-holder", "efr-stdx"]),
     ("efr-shell", &["efr-holder", "efr-screen", "efr-protocol", "efr-sandbox", "efr-stdx"]),
@@ -99,7 +98,6 @@ pub(crate) const ALLOWED: &[(&str, &[&str])] = &[
             "efr-http",
             "efr-screen",
             "efr-provider",
-            "efr-screen-vt100",
             "efr-screen-ghostty",
             "efr-pty",
             "efr-shell",

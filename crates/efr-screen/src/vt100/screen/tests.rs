@@ -1,9 +1,9 @@
-use efr_screen::row_text;
+use crate::row_text;
 use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 
 use super::*;
-use crate::test_sink::{Call, TestSink};
+use crate::vt100::test_sink::{Call, TestSink};
 
 fn size(cols: u16, rows: u16) -> Size {
     Size { cols, rows }

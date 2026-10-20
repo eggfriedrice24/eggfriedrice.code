@@ -840,7 +840,6 @@ dependencies = [
  "efr-scope",
  "efr-screen",
  "efr-screen-ghostty",
- "efr-screen-vt100",
  "efr-shell",
  "efr-snapshot",
  "efr-stdx",
@@ -1163,6 +1162,8 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
+ "vt100",
 ]
 
 [[package]]
@@ -1179,17 +1180,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "efr-screen-vt100"
-version = "0.0.3"
-dependencies = [
- "efr-screen",
- "pretty_assertions",
- "proptest",
- "tracing",
- "vt100",
-]
-
-[[package]]
 name = "efr-shell"
 version = "0.0.3"
 dependencies = [
@@ -1200,7 +1190,6 @@ dependencies = [
  "efr-pty",
  "efr-sandbox",
  "efr-screen",
- "efr-screen-vt100",
  "efr-stdx",
  "efr-test-support",
  "jiff",

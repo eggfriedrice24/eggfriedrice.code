@@ -6,9 +6,10 @@ use crate::ScreenSink;
 
 /// A terminal emulator that turns PTY output into a grid of cells.
 ///
-/// Implemented by `efr-screen-vt100` and `efr-screen-ghostty`. The trait deliberately
-/// has no `Send` bound: libghostty-vt types are neither `Send` nor `Sync`, so a screen
-/// is built on its actor thread by a `Send` factory and never leaves it (see
+/// Implemented by [`Vt100Screen`](crate::vt100::Vt100Screen) and `efr-screen-ghostty`.
+/// The trait deliberately has no `Send` bound: libghostty-vt types are neither `Send`
+/// nor `Sync`, so a screen is built on its actor thread by a `Send` factory and never
+/// leaves it (see
 /// [`ScreenActor::spawn`](crate::ScreenActor::spawn)). Other crates never hold a
 /// `Screen`; they talk to it through a [`ScreenHandle`](crate::ScreenHandle).
 ///

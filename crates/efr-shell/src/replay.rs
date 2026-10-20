@@ -35,7 +35,7 @@ use crate::capture::{Captured, Kept, clean, join, skip_escape};
 pub(crate) const MAX_ROWS: u16 = 200;
 
 /// The rows of scrollback that every backend keeps at least: vt100 keeps 1000
-/// (`efr_screen_vt100::DEFAULT_SCROLLBACK_ROWS`) and ghostty 5000. A replay whose
+/// (`efr_screen::vt100::DEFAULT_SCROLLBACK_ROWS`) and ghostty 5000. A replay whose
 /// scrollback holds this many may have lost its oldest rows.
 pub(crate) const TRUSTED_SCROLLBACK: usize = 1000;
 

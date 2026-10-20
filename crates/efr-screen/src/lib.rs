@@ -1,6 +1,6 @@
 //! The screen model boundary.
 //!
-//! - [`Screen`]: the trait a terminal backend implements (`efr-screen-vt100`,
+//! - [`Screen`]: the trait a terminal backend implements ([`vt100`],
 //!   `efr-screen-ghostty`). It has no `Send` bound, because libghostty-vt types are
 //!   neither `Send` nor `Sync`.
 //! - [`ScreenSink`]: where a backend reports PTY replies, bells and title changes.
@@ -12,6 +12,8 @@
 //!   so every backend reports the same marks.
 //! - [`ScreenCapture`] and [`row_text`]: snapshots in the wire form of
 //!   `efr_protocol::ScreenSnapshot`, and the text a row shows.
+//! - [`vt100`]: the backend over the pure-Rust vt100 crate, which needs no Zig:
+//!   `Vt100Screen` and its `factory`.
 //! - `conformance` (feature `conformance`, for test targets only): the suite every
 //!   backend runs over the fixtures in `fixtures/`.
 //! - The wire types the trait speaks ([`ScreenSnapshot`], [`RowCells`], [`Cell`],
@@ -19,8 +21,9 @@
 //!   backend crate depends on this crate alone.
 //!
 //! Allowed dependencies: `efr-protocol` and `efr-stdx`. What does not belong here: a
-//! terminal emulator (`efr-screen-vt100`, `efr-screen-ghostty`), PTY IO and shell
-//! state (`efr-shell`), and the choice of backend (`efr-daemon`).
+//! terminal emulator that needs a build tool of its own (`efr-screen-ghostty` needs
+//! Zig), PTY IO and shell state (`efr-shell`), and the choice of backend
+//! (`efr-daemon`).
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -36,6 +39,7 @@ mod screen;
 mod shell_marks;
 mod sink;
 mod snapshot;
+pub mod vt100;
 
 pub use actor::{SCREEN_STACK_SIZE, ScreenActor, ScreenEvent, ScreenEvents, ScreenHandle};
 pub use efr_protocol::{Cell, Color, Cursor, RowCells, ScreenSnapshot, Seq, Size};

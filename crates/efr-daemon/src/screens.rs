@@ -71,7 +71,7 @@ struct Vt100Screens;
 
 impl ScreenFactory for Vt100Screens {
     fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
-        ScreenActor::spawn(name, efr_screen_vt100::factory(size), size)
+        ScreenActor::spawn(name, efr_screen::vt100::factory(size), size)
     }
 }
 

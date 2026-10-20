@@ -514,8 +514,8 @@ Third-party crates: `tokio` (tasks, channels, `AsyncFd`), `bytes`, `rustix` (`fc
 `writev` for an answer), `which` (finding zsh on the given `PATH`), `jiff` (the clock's
 timestamps), `async-trait`, `thiserror` and `tracing`.
 
-Dev-dependencies: `efr-pty` and `efr-screen-vt100` for the e2e tests (vt100 also
-backs the capture screens of the replay tests), `efr-test-support` for the manual
+Dev-dependencies: `efr-pty` for the e2e tests, which watch zsh through `efr-screen`'s
+vt100 backend (vt100 also backs the capture screens of the replay tests), `efr-test-support` for the manual
 clock and the seeded generator.
 
 ## Invariant

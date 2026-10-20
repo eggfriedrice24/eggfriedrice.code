@@ -2,11 +2,11 @@
 //! OSC 7 working directory.
 //!
 //! vt100 owns its `Callbacks` value for the life of the parser, while a
-//! [`ScreenSink`] is lent to each [`Screen::feed`](efr_screen::Screen::feed) call
+//! [`ScreenSink`] is lent to each [`Screen::feed`](crate::Screen::feed) call
 //! only. So the recorder keeps what happened during one `process` call in order, and
 //! the screen hands it to that call's sink right after.
 
-use efr_screen::ScreenSink;
+use crate::ScreenSink;
 
 /// The longest title kept, in bytes. libghostty-vt cuts a title at the same length,
 /// so a hostile title costs both backends the same memory.
@@ -23,7 +23,7 @@ pub(crate) enum Notice {
     Title(String),
 }
 
-/// The `vt100::Callbacks` of a [`Vt100Screen`](crate::Vt100Screen).
+/// The `vt100::Callbacks` of a [`Vt100Screen`](crate::vt100::Vt100Screen).
 #[derive(Debug, Default)]
 pub(crate) struct Recorder {
     title: Option<String>,

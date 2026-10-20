@@ -251,7 +251,7 @@ async fn a_long_output_is_split_and_keeps_every_line() {
 
 #[test]
 fn the_trusted_scrollback_is_no_more_than_vt100_keeps() {
-    const { assert!(TRUSTED_SCROLLBACK <= efr_screen_vt100::DEFAULT_SCROLLBACK_ROWS) };
+    const { assert!(TRUSTED_SCROLLBACK <= efr_screen::vt100::DEFAULT_SCROLLBACK_ROWS) };
 }
 
 #[test]

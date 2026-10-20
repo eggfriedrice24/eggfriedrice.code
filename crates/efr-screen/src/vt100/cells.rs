@@ -1,6 +1,6 @@
 //! From vt100's cells to the wire cells.
 
-use efr_screen::{Cell, Color, RowCells};
+use crate::{Cell, Color, RowCells};
 
 /// Row `index` of what vt100 shows: the visible grid, or the scrollback rows the
 /// view is scrolled to. vt100 pads every row to the full width; the actor trims the

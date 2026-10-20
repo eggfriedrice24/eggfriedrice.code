@@ -157,7 +157,7 @@ jobs:
           args=()
           for crate in efr-stdx efr-protocol efr-store efr-credentials efr-permissions \
               efr-scope efr-holder efr-http efr-screen efr-provider efr-test-support \
-              efr-screen-vt100 efr-patch efr-proxy; do
+              efr-patch efr-proxy; do
             if [[ -d "crates/$crate" ]]; then args+=(-p "$crate"); fi
           done
           if [[ ${#args[@]} -eq 0 ]]; then
