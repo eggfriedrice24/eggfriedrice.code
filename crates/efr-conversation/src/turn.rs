@@ -170,6 +170,10 @@ pub(crate) struct TurnSpec {
     /// The recent commands of `prompt.send`, oldest first. They live only in memory,
     /// for the preamble.
     pub(crate) recent_commands: Vec<RecentCommand>,
+    /// When the terminal sent the prompt, or when job notices started the turn: the
+    /// preamble says how long ago a recent command ended from then, not from the start
+    /// of a turn that waited in the queue.
+    pub(crate) sent_at: jiff::Timestamp,
     /// The settings the prompt asked for, resolved when the turn starts.
     pub(crate) settings: TurnSettings,
     /// What started the turn: a prompt, or job notices.
@@ -955,7 +959,7 @@ impl Turn {
                 &self.spec.recent_commands,
                 self.config.recent_commands,
             ),
-            now: self.shared.deps.clock.now(),
+            now: self.spec.sent_at,
             repo,
             home: self.shared.deps.home.path().to_path_buf(),
             host: context

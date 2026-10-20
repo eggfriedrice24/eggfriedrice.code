@@ -193,6 +193,9 @@ struct NewPrompt {
     last_command: Option<String>,
     /// Only for the turn's preamble; never recorded.
     recent_commands: Vec<RecentCommand>,
+    /// When the terminal sent the context and the commands above: the preamble says
+    /// how long ago a recent command ended from then.
+    sent_at: jiff::Timestamp,
     settings: TurnSettings,
     /// The steers that an interrupt sends again as this prompt.
     steers: Vec<Seq>,
@@ -236,6 +239,7 @@ impl NewPrompt {
             context: self.context,
             last_command: self.last_command,
             recent_commands: self.recent_commands,
+            sent_at: self.sent_at,
             settings: self.settings,
             kind: TurnKind::Prompt,
             notices: Vec::new(),
@@ -460,6 +464,7 @@ impl ConversationActor {
             context: params.context,
             last_command: params.last_command,
             recent_commands: params.recent_commands,
+            sent_at: self.shared.deps.clock.now(),
             settings: params.settings,
             steers: Vec::new(),
         };
@@ -618,6 +623,7 @@ impl ConversationActor {
             context,
             last_command,
             recent_commands,
+            sent_at: self.shared.deps.clock.now(),
             settings,
             steers: Vec::new(),
         };
@@ -713,7 +719,7 @@ impl ConversationActor {
             // prompt holds steers that the turn took already, so it does not count
             // against `max_queued`, and values of the terminal that cannot work now
             // give way to the turn's own, which did.
-            let (context, last_command, recent_commands, settings) = match resend_as {
+            let (context, last_command, recent_commands, sent_at, settings) = match resend_as {
                 Some((context, last_command, recent_commands, settings)) => {
                     let settings = match self.resolve(&settings, origin) {
                         Ok(_) => settings,
@@ -722,12 +728,14 @@ impl ConversationActor {
                             running.spec.settings.clone()
                         }
                     };
-                    (context, last_command, recent_commands, settings)
+                    let now = self.shared.deps.clock.now();
+                    (context, last_command, recent_commands, now, settings)
                 }
                 None => (
                     running.spec.context.clone(),
                     running.spec.last_command.clone(),
                     running.spec.recent_commands.clone(),
+                    running.spec.sent_at,
                     running.spec.settings.clone(),
                 ),
             };
@@ -738,6 +746,7 @@ impl ConversationActor {
                 context,
                 last_command,
                 recent_commands,
+                sent_at,
                 settings,
                 steers: steers.iter().map(|steer| steer.seq).collect(),
             };
