@@ -1,0 +1,11 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: err
+---
+· $ curl -sS https://registry.npmjs.org/
+  ✓
+
+· $ psql -h db.lan
+  ✓
+
+sandbox: writes in $SCRATCH, private /tmp; full network

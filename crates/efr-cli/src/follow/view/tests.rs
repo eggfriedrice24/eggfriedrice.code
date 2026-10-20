@@ -1594,6 +1594,110 @@ fn trace_says_proxy_for_a_proxy_call() {
     assert!(err.ends_with("private /tmp; no network\n"), "{err:?}");
 }
 
+/// The events of a turn outside a project that only starts a contained job, whose
+/// start outcome carries `summary`.
+fn job_only_turn(summary: Option<SandboxSummary>) -> Vec<Event> {
+    let started = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "npm run dev", "background": true }),
+        manual_input: false,
+        launch: Some(Launch::contained()),
+        freeform: false,
+    };
+    let job_started = Event::JobStarted {
+        turn_id: turn(),
+        call_id: call(),
+        job: crate::testing::job(1, "npm run dev"),
+        launcher_pid: 4242,
+        launcher_start: 99,
+    };
+    let completed = Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: "job j1 started".to_owned(),
+        truncated: false,
+        is_error: false,
+        exit_code: None,
+        sandbox: summary,
+        refusal: None,
+        changes: None,
+        diff: None,
+    };
+    vec![started_in(Scope::Machine, None), started, job_started, completed, turn_completed()]
+}
+
+#[test]
+fn contained_trace_job_only_with_proxy() {
+    let summary = SandboxSummary { confined: true, proxied: true, ..SandboxSummary::default() };
+    let (_, err, _) = feed(&mut sandbox_view(false), &job_only_turn(Some(summary)), true);
+    insta::assert_snapshot!(err);
+    // The summary adds no line of its own: only the trace names the proxy now.
+    let (_, before, _) = feed(&mut sandbox_view(false), &job_only_turn(None), true);
+    let lines = |text: &str| text.lines().filter(|line| !line.starts_with("sandbox:")).count();
+    assert_eq!(lines(&err), lines(&before), "{err:?}\n{before:?}");
+    assert!(before.ends_with("private /tmp; no network\n"), "{before:?}");
+}
+
+#[test]
+fn contained_trace_full_network() {
+    let mut view = sandbox_view(false);
+    let open = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "psql -h db.lan" }),
+        manual_input: true,
+        launch: Some(Launch::Contained { grants: vec![Grant::OpenNetwork] }),
+        freeform: false,
+    };
+    let proxied = SandboxSummary { confined: true, proxied: true, ..SandboxSummary::default() };
+    let (_, err, _) = feed(
+        &mut view,
+        &[
+            started_in(Scope::Machine, None),
+            contained_started("curl -sS https://registry.npmjs.org/"),
+            contained_completed(0, Some(proxied)),
+            open,
+            contained_completed(0, None),
+            turn_completed(),
+        ],
+        true,
+    );
+    insta::assert_snapshot!(err);
+}
+
+#[test]
+fn contained_trace_names_each_written_project() {
+    let project = Scope::Project("019a9b1c-3d00-7a10-8b20-0000000000e1".parse().unwrap());
+    let root =
+        |shown: &str, files| efr_protocol::RootFiles { shown: shown.to_owned(), files, refs: 0 };
+    let ended = |roots| Event::TurnCompleted {
+        turn_id: turn(),
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: Some(efr_protocol::TurnUndoInfo { undoable: true, roots, ..Default::default() }),
+    };
+    let turn_of = |roots| {
+        let summary = SandboxSummary { confined: true, ..SandboxSummary::default() };
+        vec![
+            started_in(project.clone(), None),
+            contained_started("npm run build"),
+            contained_completed(0, Some(summary)),
+            ended(roots),
+        ]
+    };
+    let roots = vec![root("app", 3), root("lib", 1), root("$SCRATCH", 2)];
+    let (_, err, _) = feed(&mut sandbox_view(false), &turn_of(roots), true);
+    insta::assert_snapshot!(err);
+    // Only `$SCRATCH` changed, or nothing: the trace says where the calls could write.
+    let (_, err, _) = feed(&mut sandbox_view(false), &turn_of(vec![root("$SCRATCH", 2)]), true);
+    assert!(err.contains("sandbox: writes in the project, $SCRATCH, private /tmp"), "{err:?}");
+}
+
 #[test]
 fn bus_refused_line_in_view() {
     let refused = |member: &str, path: &str, count| BusRefusal {

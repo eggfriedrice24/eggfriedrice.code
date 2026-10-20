@@ -534,12 +534,12 @@ pub(crate) struct TurnView {
     traced: bool,
     /// A contained call of this turn had the network view: the end of the turn says so.
     traced_net_view: bool,
-    /// A contained call of this turn ran with efr's network proxy: the end of the turn
-    /// says so.
-    traced_proxied: bool,
-    /// Calls that run in the sandbox, whose failure says so, each with true when it
-    /// has the network view (`Grant::NetView`).
-    contained: HashMap<CallId, bool>,
+    /// The most network that a contained call of this turn had (efr's proxy, also for a
+    /// job's start, or the whole network): the end of the turn says so.
+    traced_network: sandbox::TraceNetwork,
+    /// Calls that run in the sandbox, whose failure says so, each with whether it has
+    /// the network view (`Grant::NetView`) and the whole network (`Grant::OpenNetwork`).
+    contained: HashMap<CallId, (bool, bool)>,
     /// The exit of each call, for the lines of its approval and of the reviewer.
     exits: HashMap<CallId, sandbox::Requested>,
     /// The row of what the reviewer thought of a call's exit before it handed the
@@ -636,7 +636,7 @@ impl TurnView {
             in_project: false,
             traced: false,
             traced_net_view: false,
-            traced_proxied: false,
+            traced_network: sandbox::TraceNetwork::None,
             contained: HashMap::new(),
             exits: HashMap::new(),
             reviewed: HashMap::new(),
@@ -1395,7 +1395,8 @@ impl TurnView {
                     settled = replaced;
                 }
                 if let Some(Launch::Contained { grants }) = launch {
-                    self.contained.insert(*call_id, grants.contains(&Grant::NetView));
+                    let open = grants.contains(&Grant::OpenNetwork);
+                    self.contained.insert(*call_id, (grants.contains(&Grant::NetView), open));
                 }
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
@@ -1436,18 +1437,29 @@ impl TurnView {
                 };
                 let settled = self.call_ended(*call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
-                let net_view = self.contained.remove(call_id);
+                let launched = self.contained.remove(call_id);
                 let contained =
-                    net_view.is_some() || summary.as_ref().is_some_and(|summary| summary.confined);
+                    launched.is_some() || summary.as_ref().is_some_and(|summary| summary.confined);
                 let setup = summary.as_ref().and_then(|summary| summary.setup_error.as_deref());
                 let denied = self.refused.contains(call_id);
                 // The end of the turn says once where the sandbox can write, when a call
                 // ran in it.
                 let ran = contained && !denied && refusal.is_none() && setup.is_none();
                 self.traced |= ran;
-                self.traced_net_view |= net_view == Some(true) && ran;
-                self.traced_proxied |=
-                    ran && summary.as_ref().is_some_and(|summary| summary.proxied);
+                let (net_view, open) = launched.unwrap_or_default();
+                self.traced_net_view |= net_view && ran;
+                // NOTE: the whole network wins over the proxy, which wins over none: the
+                // trace names the most that a call of the turn had.
+                let network = if open {
+                    sandbox::TraceNetwork::Full
+                } else if summary.as_ref().is_some_and(|summary| summary.proxied) {
+                    sandbox::TraceNetwork::Proxy
+                } else {
+                    sandbox::TraceNetwork::None
+                };
+                if ran {
+                    self.traced_network = self.traced_network.max(network);
+                }
                 // The job that the call started, first: it runs on after the call.
                 let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
@@ -2604,9 +2616,24 @@ impl TurnView {
         self.commit_question();
         self.question = None;
         let net_view = std::mem::take(&mut self.traced_net_view);
-        let proxied = std::mem::take(&mut self.traced_proxied);
+        let network = std::mem::take(&mut self.traced_network);
         if std::mem::take(&mut self.traced) {
-            let trace = sandbox::contained_trace(self.in_project, net_view, proxied);
+            // NOTE: the roots that the turn changed, from its end event, which comes
+            // before this; without it the trace says where the calls could write (C2.3).
+            let wrote: Vec<String> = self
+                .ended_undo
+                .as_ref()
+                .map(|ended| {
+                    ended
+                        .1
+                        .roots
+                        .iter()
+                        .map(|root| root.shown.clone())
+                        .filter(|shown| !shown.starts_with("$SCRATCH"))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let trace = sandbox::contained_trace(self.in_project, net_view, network, &wrote);
             // Whole, not cut to the width as a note is: it says where the calls wrote.
             let noted = self.dim_block(&[trace], self.size);
             step.out.push_str(&noted.out);

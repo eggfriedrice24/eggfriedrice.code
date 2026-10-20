@@ -43,20 +43,64 @@ pub(crate) const CONTAINED: &str = "sandbox: writes in $SCRATCH, private /tmp; n
 /// with efr's network proxy (`SandboxSummary::proxied`, phase D2).
 const PROXY_TRACE: &str = "network through efr's proxy";
 
+/// What the trace says in place of `no network` when a contained call of the turn had
+/// the whole network (`Grant::OpenNetwork`).
+const FULL_TRACE: &str = "full network";
+
 /// What the trace adds when a contained call of the turn had the network view.
 const NET_VIEW_TRACE: &str = "host network view (no sending)";
 
-/// The dim trace at the end of a turn with a contained call: [`CONTAINED_IN_PROJECT`]
-/// in a registered project, else [`CONTAINED`]; `network through efr's proxy` in place
-/// of `no network` when a call of the turn had the proxy (`proxied`); and the network
-/// view when a call of the turn had it (`Grant::NetView`), because that call saw the
-/// host's network.
-pub(crate) fn contained_trace(in_project: bool, net_view: bool, proxied: bool) -> String {
-    let mut trace = if in_project { CONTAINED_IN_PROJECT } else { CONTAINED }.to_owned();
-    if proxied {
-        trace = trace.replace("no network", PROXY_TRACE);
+/// The network that the contained calls of a turn had, the most that one call had: the
+/// trace names it (v0.0.4, DV21).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum TraceNetwork {
+    /// No network.
+    #[default]
+    None,
+    /// efr's network proxy (`SandboxSummary::proxied`), also for a job's start.
+    Proxy,
+    /// The whole network (`Grant::OpenNetwork`).
+    Full,
+}
+
+/// The dim trace at the end of a turn with a contained call. It says where the calls
+/// could write: [`CONTAINED_IN_PROJECT`] in a registered project, else [`CONTAINED`].
+/// When the turn wrote in roots that a client names (`wrote`, the `shown` names of the
+/// turn's undo roots but `$SCRATCH`), it names them first: `sandbox: wrote in app and
+/// lib; could write $SCRATCH, private /tmp; ...`. Then `network` in place of `no
+/// network`, and the network view when a call of the turn had it (`Grant::NetView`),
+/// because that call saw the host's network. Each name passes through [`one_line`].
+pub(crate) fn contained_trace(
+    in_project: bool,
+    net_view: bool,
+    network: TraceNetwork,
+    wrote: &[String],
+) -> String {
+    let mut trace = match wrote {
+        [] => if in_project { CONTAINED_IN_PROJECT } else { CONTAINED }.to_owned(),
+        names => {
+            let names: Vec<String> = names.iter().map(|name| one_line(name)).collect();
+            format!(
+                "sandbox: wrote in {}; could write $SCRATCH, private /tmp; no network",
+                and_list(&names)
+            )
+        }
+    };
+    match network {
+        TraceNetwork::None => {}
+        TraceNetwork::Proxy => trace = trace.replace("no network", PROXY_TRACE),
+        TraceNetwork::Full => trace = trace.replace("no network", FULL_TRACE),
     }
     if net_view { format!("{trace}; {NET_VIEW_TRACE}") } else { trace }
+}
+
+/// `a`, `a and b`, or `a, b and c`.
+fn and_list(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
+    }
 }
 
 /// The quarantine question in one line, for `efr history`.

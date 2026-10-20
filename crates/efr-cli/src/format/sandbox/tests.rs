@@ -12,9 +12,9 @@ use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
 use super::{
-    AWAY_EXPIRED, Requested, background_stopped, blocked, blocked_joined, blocked_lines,
-    bus_refused_lines, cache_freed, check, contained_trace, exit_card, exit_heading, exit_judged,
-    exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
+    AWAY_EXPIRED, Requested, TraceNetwork, background_stopped, blocked, blocked_joined,
+    blocked_lines, bus_refused_lines, cache_freed, check, contained_trace, exit_card, exit_heading,
+    exit_judged, exit_lines, exit_record, exit_summary, explain, fallback_note, fallback_warning,
     full_let_through, home_changed, judge_details, no_answer_row, paused, presence_changed,
     reviewed, reviewer_row, reviewing, setup_failed, status_line, surface_answered, surface_change,
     surface_changed, surface_report, survivors, tilde,
@@ -196,17 +196,41 @@ fn status_shows_network_proxy() {
 #[test]
 fn the_trace_names_the_proxy_in_place_of_no_network() {
     assert_eq!(
-        contained_trace(true, false, true),
+        contained_trace(true, false, TraceNetwork::Proxy, &[]),
         "sandbox: writes in the project, $SCRATCH, private /tmp; network through efr's proxy"
     );
     assert_eq!(
-        contained_trace(false, true, true),
+        contained_trace(false, true, TraceNetwork::Proxy, &[]),
         "sandbox: writes in $SCRATCH, private /tmp; network through efr's proxy; host network \
          view (no sending)"
     );
     assert_eq!(
-        contained_trace(false, false, false),
+        contained_trace(false, false, TraceNetwork::None, &[]),
         "sandbox: writes in $SCRATCH, private /tmp; no network"
+    );
+    assert_eq!(
+        contained_trace(true, false, TraceNetwork::Full, &[]),
+        "sandbox: writes in the project, $SCRATCH, private /tmp; full network"
+    );
+    assert!(TraceNetwork::Full > TraceNetwork::Proxy && TraceNetwork::Proxy > TraceNetwork::None);
+}
+
+#[test]
+fn the_trace_names_the_roots_that_the_turn_wrote() {
+    let names = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        contained_trace(true, false, TraceNetwork::None, &names(&["app"])),
+        "sandbox: wrote in app; could write $SCRATCH, private /tmp; no network"
+    );
+    assert_eq!(
+        contained_trace(false, false, TraceNetwork::Proxy, &names(&["app", "lib", "web"])),
+        "sandbox: wrote in app, lib and web; could write $SCRATCH, private /tmp; network \
+         through efr's proxy"
+    );
+    assert_eq!(
+        contained_trace(false, false, TraceNetwork::None, &names(&["a\u{1b}[31mpp"])),
+        "sandbox: wrote in a\u{241b}[31mpp; could write $SCRATCH, private /tmp; no network",
+        "a name passes through one_line"
     );
 }
 

@@ -1,0 +1,9 @@
+---
+source: crates/efr-cli/src/follow/view/tests.rs
+expression: err
+---
+· $ npm run dev (background)
+  ✓
+  job j1 started; output $SCRATCH/jobs/j1.out; ends in 180 minutes
+
+sandbox: writes in $SCRATCH, private /tmp; network through efr's proxy
