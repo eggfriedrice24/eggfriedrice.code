@@ -118,6 +118,20 @@ conversations or the daemon's socket. The config root stays readable and read-on
   a notice tells about, so a start of efrd finds the notices that no turn took.
   `turns.wake` is 1 for a turn that a job notice started; the limits of wake turns per
   hour count these rows, also over a restart.
+- `conversations.route`, `shell_pid` and `routed_seq` (migration 8): the slots of the
+  terminals. A terminal keeps one conversation per scope key, a registered project or
+  everything outside projects. A row with a `tty` is the conversation of that
+  terminal's slot for its `route` (the JSON of `efr_protocol::RouteScope`);
+  `shell_pid` is the shell that holds the slot, and `routed_seq` the slot's newest
+  routed event, so the terminal's current conversation is its row with the highest.
+  `conversation_created` with a tty and a route takes the slot from the row of the same
+  tty and route; one from before routing by scope has no route and takes every row of
+  its tty, as the daemon of then did. `terminal_attached` moves a conversation into a
+  slot. A `prompt_queued` whose context names the row's tty sets `routed_seq`, and
+  `shell_pid` only when it is unknown. `turn_started` gives a row without a route the
+  key of its scope. efrd reads every slot at its start from these columns in one query.
+  The index `conversations_tty` covers `(tty, route)`, and `conversations_route` finds
+  the newest conversation of a key.
 
 ## Migrations
 
@@ -128,8 +142,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
   after migrations finish.
 - Milestone 1 ships `0001_events.sql`, `0002_conversations.sql`,
   `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
-  `0005_turn_messages.sql`, `0006_compactions.sql` and `0007_jobs.sql` (the jobs of
-  phase C). The devices and scopes table waits for the phone milestone, because a
+  `0005_turn_messages.sql`, `0006_compactions.sql`, `0007_jobs.sql` (the jobs of
+  phase C) and `0008_routes.sql` (the route columns of the conversations, v0.0.4). The
+  first start of an efrd with a new migration rebuilds the projections from the log
+  once: about 3 s for 100,000 events in a debug build. The devices and scopes table waits for the phone milestone, because a
   forward-only migration makes an unused table permanent.
 - A migration never edits an earlier file. New columns use `ALTER TABLE ... ADD COLUMN`
   with a default so old projections keep reading.

@@ -85,7 +85,7 @@ pub(crate) fn pty(n: u64) -> PtyId {
 }
 
 pub(crate) fn created(tty: Option<&str>) -> Event {
-    Event::ConversationCreated { origin: Origin::Shell, tty: tty.map(str::to_owned) }
+    Event::ConversationCreated { origin: Origin::Shell, tty: tty.map(str::to_owned), route: None }
 }
 
 /// A writer over a migrated in-memory database.

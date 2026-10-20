@@ -436,3 +436,5 @@ async fn rebuilding_the_projections_reproduces_them_exactly() {
     assert!(before.iter().all(|rows| !rows.is_empty()));
     assert_eq!(before, after);
 }
+
+mod routes;

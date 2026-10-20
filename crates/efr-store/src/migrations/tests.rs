@@ -49,9 +49,9 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport { from: 0, to: 7, backup: None });
+    assert_eq!(report, MigrationReport { from: 0, to: 8, backup: None });
     assert!(report.applied());
-    assert_eq!(Migrations::version(&conn).unwrap(), 7);
+    assert_eq!(Migrations::version(&conn).unwrap(), 8);
     assert_eq!(
         tables(&conn),
         [
@@ -78,7 +78,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport { from: 7, to: 7, backup: None });
+    assert_eq!(report, MigrationReport { from: 8, to: 8, backup: None });
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -98,8 +98,8 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
 
     let backup = backups.join("efr.sqlite.2");
-    assert_eq!(report, MigrationReport { from: 2, to: 7, backup: Some(backup.clone()) });
-    assert_eq!(Migrations::version(&conn).unwrap(), 7);
+    assert_eq!(report, MigrationReport { from: 2, to: 8, backup: Some(backup.clone()) });
+    assert_eq!(Migrations::version(&conn).unwrap(), 8);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     let dir_mode = fs::metadata(&backups).unwrap().permissions().mode() & 0o777;
@@ -143,7 +143,7 @@ fn a_database_from_a_newer_build_is_refused() {
     let mut conn = db::open_in_memory().unwrap();
     conn.pragma_update(None, "user_version", 9).unwrap();
     let error = Migrations::new().migrate(&mut conn, None).unwrap_err();
-    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 7 }), "{error:?}");
+    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 8 }), "{error:?}");
 }
 
 static BROKEN: &[M<'static>] = &[
@@ -512,4 +512,60 @@ async fn write_fixture_databases() {
         }
         fs::copy(&path, &target).unwrap();
     }
+}
+
+#[test]
+fn migration_0008_rebuilds_the_route_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("efr.sqlite");
+    let mut conn = db::open(&path).unwrap();
+    Migrations::new().steps.to_version(&mut conn, 7).unwrap();
+    let id = crate::testing::conversation(1);
+    let project: efr_protocol::ProjectId = "00000009-0000-7000-8000-000000000001".parse().unwrap();
+    let mut context = efr_protocol::ShellContext::new("/srv/app");
+    context.tty = Some("pts-1".to_owned());
+    context.shell_pid = Some(4242);
+    let queued = efr_protocol::Event::PromptQueued {
+        turn_id: crate::testing::turn(1),
+        command_id: crate::testing::command(1),
+        text: "fix it".to_owned(),
+        origin: efr_protocol::Origin::Shell,
+        context: Some(context),
+        settings: efr_protocol::TurnSettings::default(),
+        steers: Vec::new(),
+    };
+    let old = [
+        crate::testing::created(Some("pts-1")),
+        queued,
+        efr_protocol::Event::TurnStarted {
+            turn_id: crate::testing::turn(1),
+            cwd: "/srv/app".into(),
+            scope: efr_protocol::Scope::Project(project),
+            settings: None,
+        },
+    ];
+    for (index, event) in old.into_iter().enumerate() {
+        let envelope = efr_protocol::EventEnvelope {
+            seq: efr_protocol::Seq::new(index as u64 + 1),
+            conversation_id: Some(id),
+            at: crate::sql::truncate_to_micros(crate::testing::start()),
+            event,
+        };
+        crate::events::insert(&conn, &envelope).unwrap();
+    }
+
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+
+    assert_eq!((report.from, report.to), (7, Migrations::new().latest()));
+    let rows = crate::conversations::slots(&conn).unwrap();
+    assert_eq!(
+        rows,
+        [crate::conversations::SlotRow {
+            tty: "pts-1".to_owned(),
+            route: efr_protocol::RouteScope::Project(project),
+            conversation_id: id,
+            shell_pid: Some(4242),
+            routed_seq: efr_protocol::Seq::new(2),
+        }]
+    );
 }

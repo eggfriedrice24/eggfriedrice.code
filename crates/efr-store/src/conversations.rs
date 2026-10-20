@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use efr_protocol::{
     CommandId, ConversationId, ConversationStatus, ConversationSummary, Event, EventEnvelope,
-    Scope, Seq, TurnId,
+    RouteScope, Scope, Seq, TurnId,
 };
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
@@ -131,8 +131,8 @@ pub(crate) fn apply(
     let id = conversation_id.to_string();
     let seq = sql::seq(envelope.seq);
     let at = sql::micros(envelope.at);
-    if let Event::ConversationCreated { origin, tty } = &envelope.event {
-        create(conn, conversation_id, origin, tty.as_deref(), seq, at)?;
+    if let Event::ConversationCreated { origin, tty, route } = &envelope.event {
+        create(conn, conversation_id, origin, tty.as_deref(), route.as_ref(), seq, at)?;
     } else {
         let touched = conn.execute(
             "UPDATE conversations SET updated_at = ?2, last_seq = ?3 WHERE id = ?1",
@@ -166,7 +166,30 @@ pub(crate) fn apply(
                     "UPDATE conversations SET cwd = ?2 WHERE id = ?1",
                     params![id, sql::path_text(&context.pwd)],
                 )?;
+                // NOTE: only a prompt from the row's own terminal makes its slot the
+                // current one; the first pid that it names stays, so a nested shell
+                // never takes the slot from the outer one (DV1).
+                if let Some(tty) = &context.tty {
+                    conn.execute(
+                        "UPDATE conversations SET routed_seq = ?3, \
+                         shell_pid = COALESCE(shell_pid, ?4) WHERE id = ?1 AND tty = ?2",
+                        params![id, tty, seq, context.shell_pid],
+                    )?;
+                }
             }
+        }
+        Event::TerminalAttached { tty, route, shell_pid, .. } => {
+            fill_routes(conn, tty)?;
+            let route = sql::to_json(route, "route")?;
+            conn.execute(
+                "UPDATE conversations SET tty = NULL WHERE tty = ?1 AND route = ?2 AND id <> ?3",
+                params![tty, route, id],
+            )?;
+            conn.execute(
+                "UPDATE conversations SET tty = ?2, route = ?3, shell_pid = ?4, routed_seq = ?5 \
+                 WHERE id = ?1",
+                params![id, tty, route, shell_pid, seq],
+            )?;
         }
         Event::JobNotice { turn_id, job_id, woke: true, .. } => {
             // NOTE: the first notice that starts a turn makes its row, as a prompt does
@@ -198,8 +221,14 @@ pub(crate) fn apply(
                 params![turn_id.to_string(), TurnStatus::Running.as_str(), at],
             )?;
             conn.execute(
-                "UPDATE conversations SET cwd = ?2, scope = ?3 WHERE id = ?1",
-                params![id, sql::path_text(cwd), sql::to_json(scope, "scope")?],
+                "UPDATE conversations SET cwd = ?2, scope = ?3, route = COALESCE(route, ?4) \
+                 WHERE id = ?1",
+                params![
+                    id,
+                    sql::path_text(cwd),
+                    sql::to_json(scope, "scope")?,
+                    sql::to_json(&route_of_scope(Some(scope)), "route")?
+                ],
             )?;
         }
         Event::ScopeChanged { to, .. } => {
@@ -234,6 +263,7 @@ fn create(
     conversation_id: ConversationId,
     origin: &efr_protocol::Origin,
     tty: Option<&str>,
+    route: Option<&RouteScope>,
     seq: i64,
     at: i64,
 ) -> Result<(), StoreError> {
@@ -246,23 +276,174 @@ fn create(
     if exists {
         return Err(StoreError::ConversationExists { conversation_id });
     }
-    if let Some(tty) = tty {
-        // A terminal has one active conversation: the newest one started from it.
-        conn.execute("UPDATE conversations SET tty = NULL WHERE tty = ?1", [tty])?;
+    let route = route.map(|route| sql::to_json(route, "route")).transpose()?;
+    match (tty, &route) {
+        (Some(tty), Some(route)) => {
+            // A terminal has one conversation per scope key: the newest one of the key.
+            fill_routes(conn, tty)?;
+            conn.execute(
+                "UPDATE conversations SET tty = NULL WHERE tty = ?1 AND route = ?2",
+                params![tty, route],
+            )?;
+        }
+        (Some(tty), None) => {
+            // NOTE: an event from before routing by scope: the daemon of then kept one
+            // conversation per terminal, so a rebuild of an old log gives its rows.
+            conn.execute("UPDATE conversations SET tty = NULL WHERE tty = ?1", [tty])?;
+        }
+        (None, _) => {}
     }
     conn.execute(
-        "INSERT INTO conversations (id, origin, status, tty, created_at, updated_at, last_seq) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
+        "INSERT INTO conversations (id, origin, status, tty, created_at, updated_at, last_seq, \
+         route, routed_seq) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?8)",
         params![
             id,
             sql::wire_name(origin, "origin")?,
             sql::wire_name(&ConversationStatus::Idle, "conversation status")?,
             tty,
             at,
-            seq
+            seq,
+            route,
+            tty.map(|_| seq)
         ],
     )?;
     Ok(())
+}
+
+/// Gives every row of `tty` without a route the key of its scope, as a start of the
+/// daemon reads it ([`slots`]), before a rule compares routes.
+fn fill_routes(conn: &Connection, tty: &str) -> Result<(), StoreError> {
+    let mut stmt =
+        conn.prepare("SELECT id, scope FROM conversations WHERE tty = ?1 AND route IS NULL")?;
+    let rows = stmt
+        .query_map([tty], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (id, scope) in rows {
+        let route = route_of_column(None, scope)?;
+        conn.execute(
+            "UPDATE conversations SET route = ?2 WHERE id = ?1",
+            params![id, sql::to_json(&route, "route")?],
+        )?;
+    }
+    Ok(())
+}
+
+/// The scope key of a turn's scope: its project, or `outside` for every other place.
+pub fn route_of_scope(scope: Option<&Scope>) -> RouteScope {
+    match scope {
+        Some(Scope::Project(id)) => RouteScope::Project(*id),
+        _ => RouteScope::Outside,
+    }
+}
+
+/// The scope key of a row from its `route` and `scope` columns: the route, else the
+/// key of the scope. A route that this build cannot read counts as `outside`, the key
+/// that never picks a conversation up.
+fn route_of_column(route: Option<String>, scope: Option<String>) -> Result<RouteScope, StoreError> {
+    if let Some(route) = route {
+        return Ok(match serde_json::from_str(&route) {
+            Ok(RouteScope::Unknown) | Err(_) => RouteScope::Outside,
+            Ok(route) => route,
+        });
+    }
+    let scope =
+        scope.map(|text| sql::from_json::<Scope>(&text, CONVERSATIONS, "scope")).transpose()?;
+    Ok(route_of_scope(scope.as_ref()))
+}
+
+/// One slot of a terminal as the projection holds it: the conversation that the
+/// terminal `tty` keeps for the scope key `route`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SlotRow {
+    /// The terminal.
+    pub tty: String,
+    /// The scope key.
+    pub route: RouteScope,
+    /// The conversation.
+    pub conversation_id: ConversationId,
+    /// The pid of the shell that holds the slot, when it said.
+    pub shell_pid: Option<u32>,
+    /// The sequence number of the slot's newest routed event.
+    pub routed_seq: Seq,
+}
+
+/// Every slot of every terminal, in one query: the rows with a tty, with no window of
+/// events. A row without a route gets the key of its scope; a row without a routed
+/// sequence number counts as the oldest.
+pub fn slots(conn: &Connection) -> Result<Vec<SlotRow>, StoreError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, tty, route, scope, shell_pid, COALESCE(routed_seq, 0) \
+         FROM conversations WHERE tty IS NOT NULL ORDER BY last_seq",
+    )?;
+    let raw = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    raw.into_iter()
+        .map(|(id, tty, route, scope, shell_pid, routed_seq)| {
+            Ok(SlotRow {
+                tty,
+                route: route_of_column(route, scope)?,
+                conversation_id: sql::parse(&id, CONVERSATIONS, "id")?,
+                shell_pid: shell_pid.and_then(|pid| u32::try_from(pid).ok()),
+                routed_seq: sql::to_seq(routed_seq, CONVERSATIONS, "routed_seq")?,
+            })
+        })
+        .collect()
+}
+
+/// The scope key of a conversation: its `route` column, else the key of its scope.
+/// `None` for a conversation that does not exist.
+pub fn route(
+    conn: &Connection,
+    conversation_id: ConversationId,
+) -> Result<Option<RouteScope>, StoreError> {
+    let row: Option<(Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT route, scope FROM conversations WHERE id = ?1",
+            [conversation_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    row.map(|(route, scope)| route_of_column(route, scope)).transpose()
+}
+
+/// The newest conversation (by its last activity) whose scope key is `route`, in any
+/// status: the only candidate of a pick-up (F4).
+pub fn newest_of_route(
+    conn: &Connection,
+    route: &RouteScope,
+) -> Result<Option<ConversationSummary>, StoreError> {
+    conn.query_row(
+        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
+         FROM conversations WHERE route = ?1 ORDER BY updated_at DESC, last_seq DESC LIMIT 1",
+        [sql::to_json(route, "route")?],
+        RawSummary::from_row,
+    )
+    .optional()?
+    .map(RawSummary::decode)
+    .transpose()
+}
+
+/// Every conversation that the terminal `tty` holds, one per scope key, its current
+/// one first: the slot with the newest routed event.
+pub fn of_tty(conn: &Connection, tty: &str) -> Result<Vec<ConversationSummary>, StoreError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
+         FROM conversations WHERE tty = ?1 \
+         ORDER BY COALESCE(routed_seq, 0) DESC, last_seq DESC",
+    )?;
+    let raw = stmt.query_map([tty], RawSummary::from_row)?.collect::<Result<Vec<_>, _>>()?;
+    raw.into_iter().map(RawSummary::decode).collect()
 }
 
 fn finish(

@@ -25,6 +25,7 @@ pub(crate) const STEPS: &[M<'static>] = &[
     M::up(include_str!("migrations/0005_turn_messages.sql")),
     M::up(include_str!("migrations/0006_compactions.sql")),
     M::up(include_str!("migrations/0007_jobs.sql")),
+    M::up(include_str!("migrations/0008_routes.sql")),
 ];
 
 /// The backups hold every conversation, like the database itself.

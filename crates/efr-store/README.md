@@ -61,6 +61,15 @@ across a restart:
   after it in the same batch sets `started_at`. `wake_starts_since` reads the start
   times of such turns for the limit of turns that notices start per hour, so a
   restart does not reset it.
+- `conversations` keeps the slots of the terminals (migration 8): `route`, `shell_pid`
+  and `routed_seq` of each row with a tty, from `conversation_created`,
+  `terminal_attached`, `prompt_queued` from the row's tty and `turn_started` (which
+  fills a missing route from the scope). An old `conversation_created` with no route
+  takes every row of its tty, so a rebuild of an old log gives the rows that its daemon
+  had. `slots` reads every slot in one query for efrd's start, `of_tty` lists one
+  terminal's conversations with its current one first, `newest_of_route` finds the
+  candidate of a pick-up, and `route` reads one conversation's key. A route that this
+  build cannot read counts as `outside`.
 - `user_messages`: `of_conversation` reads every prompt and steer of a conversation,
   and the events that take one back, from the whole log. The name check of an exit in
   `auto` reads them, so an early "edit my zshrc" still names the file after the page
