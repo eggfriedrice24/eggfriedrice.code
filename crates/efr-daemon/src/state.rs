@@ -62,6 +62,9 @@ pub(crate) struct State {
     pub(crate) dirs: Dirs,
     pub(crate) daemon_id: DaemonId,
     pub(crate) pid: u32,
+    /// efrd's own cgroup when the systemd user unit runs it (`sandbox/peers.rs`, DV49);
+    /// `None` for a hand-started efrd and a test daemon.
+    pub(crate) unit_cgroup: Option<String>,
     pub(crate) started_at: Timestamp,
     pub(crate) screen_backend: String,
     pub(crate) clock: Arc<dyn Clock>,

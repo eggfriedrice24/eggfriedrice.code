@@ -257,7 +257,8 @@ pub(crate) async fn peer_side(state: &State, context: &ConnectionContext) -> Pee
     let pid = context.pid();
     let shells = model_side_roots(state);
     let own = state.pid;
-    tokio::task::spawn_blocking(move || peers::side(pid, &shells, own))
+    let unit = state.unit_cgroup.clone();
+    tokio::task::spawn_blocking(move || peers::side(pid, &shells, own, unit.as_deref()))
         .await
         .unwrap_or(PeerSide::Unknown)
 }

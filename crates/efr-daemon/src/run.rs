@@ -124,6 +124,10 @@ pub struct Deps {
     /// are off. Only [`Deps::from_process`] sets it, so a test daemon never runs a real
     /// one.
     pub(crate) programs_path: Option<std::ffi::OsString>,
+    /// efrd's own cgroup when the systemd user unit runs it, for the peer check of
+    /// `sandbox/peers.rs`; `None` turns that rule off. Only [`Deps::from_process`] sets
+    /// it, so a test daemon never applies it.
+    pub(crate) unit_cgroup: Option<String>,
 }
 
 impl fmt::Debug for Deps {
@@ -146,6 +150,7 @@ impl fmt::Debug for Deps {
             .field("reload_on_hangup", &self.reload_on_hangup)
             .field("seams", &self.seams)
             .field("programs_path", &self.programs_path)
+            .field("unit_cgroup", &self.unit_cgroup)
             .finish_non_exhaustive()
     }
 }
@@ -180,6 +185,7 @@ impl Deps {
             reload_on_hangup: false,
             seams: Seams::default(),
             programs_path: None,
+            unit_cgroup: None,
         }
     }
 
@@ -202,6 +208,7 @@ impl Deps {
         let mut deps = Deps::new(dirs, home, Arc::new(SystemClock), Arc::new(rng));
         // NOTE: efrd's own PATH, never the hidden shell's (plan PB20).
         deps.programs_path = std::env::var_os("PATH");
+        deps.unit_cgroup = sandbox::peers::unit_cgroup();
         // NOTE: only a build with the test seams reads the smoke's test hosts.
         deps.seams = deps.seams.with_process_env();
         Ok(deps
@@ -381,6 +388,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         reload_on_hangup,
         seams,
         programs_path,
+        unit_cgroup,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -677,6 +685,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         dirs,
         daemon_id,
         pid: std::process::id(),
+        unit_cgroup,
         started_at: clock.now(),
         screen_backend,
         clock,
@@ -703,7 +712,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     job_seams.fill_peer_probe(Arc::new(move |pid| {
         let Some(state) = peer_state.upgrade() else { return "unknown" };
         let shells = crate::methods::model_side_roots(&state);
-        match sandbox::peers::side(Some(pid), &shells, state.pid) {
+        match sandbox::peers::side(Some(pid), &shells, state.pid, state.unit_cgroup.as_deref()) {
             sandbox::peers::PeerSide::User => "user",
             sandbox::peers::PeerSide::ModelSide => "model_side",
             sandbox::peers::PeerSide::Unknown => "unknown",
