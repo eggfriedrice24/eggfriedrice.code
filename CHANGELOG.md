@@ -69,7 +69,9 @@ into the GitHub release notes, and it stops when the section is missing.
   each terminal, but never a `,` line, an `efr` command or a line that starts with a
   space. The new key `context.recent_commands` sets how many the model sees (8 by
   default, 0 for none). Like the last command, they go to the model with their secrets
-  redacted, and never into the event log.
+  redacted, and never into the event log. The plugin keeps the first 2,000 characters
+  of each line and at most 64 KiB of recent commands, so a very long line never stops
+  a `,` line.
 - `efr away` and `,away` tell efr that you are away from the conversation of this
   terminal. efr also counts you away after 10 minutes without input in the
   conversation (`presence.away_after_minutes`). While you are away, the status row of a
