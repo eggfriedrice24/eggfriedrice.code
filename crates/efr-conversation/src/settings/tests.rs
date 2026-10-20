@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use efr_protocol::{
-    CacheMode, EffectiveSettings, ErrorCode, Mode, ModeFallback, ModelInfo, ModelSource,
-    NetworkMode, Origin, OverriddenSettings, SandboxStatus, TurnSettings,
+    CacheMode, EffectiveSettings, ErrorCode, FullModeStatus, FullRefusal, Mode, ModeFallback,
+    ModelInfo, ModelSource, NetworkMode, Origin, OverriddenSettings, SandboxStatus, TurnSettings,
 };
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -318,4 +318,77 @@ fn only_auto_needs_the_sandbox() {
     )
     .unwrap();
     assert_eq!((phone.mode, phone.fallback), (Mode::Cautious, None));
+}
+
+/// `config` with full mode allowed by `permissions.allow_full`, and `refused` as the
+/// daemon's refusal.
+fn allowing_full(refused: Option<FullRefusal>) -> ConversationConfig {
+    let mut config = config();
+    config.full_mode = FullModeStatus { allowed: true, refused };
+    config
+}
+
+#[test]
+fn resolve_refuses_full_while_the_daemon_does_not_allow_it() {
+    let full = asked(Some(Mode::Full), None, None);
+    let error = resolve(&full, &config(), Origin::Shell, place(&ready())).unwrap_err();
+    assert!(matches!(error, ConversationError::FullModeOff), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        "full mode is off; set permissions.allow_full = true in config.toml by hand to turn it \
+         on (docs/permissions.md, \"Full mode\")"
+    );
+    let body = failure(&error);
+    assert_eq!(body.code, ErrorCode::Invalid);
+    assert_eq!(
+        body.data,
+        Some(
+            json!({ "setting": "mode", "value": "full", "choices": ["manual", "cautious", "auto"] })
+        )
+    );
+
+    // A config default of full needs the same gate.
+    let mut config = config();
+    config.mode = Mode::Full;
+    let error = resolve(&TurnSettings::default(), &config, Origin::Shell, place(&ready()));
+    assert!(matches!(error, Err(ConversationError::FullModeOff)), "{error:?}");
+
+    // Allowed, with no refusal, the turn runs in full mode with no fallback, also with
+    // no sandbox.
+    let unavailable = SandboxStatus::unavailable("bubblewrap is not installed");
+    let settings =
+        resolve(&full, &allowing_full(None), Origin::Shell, place(&unavailable)).unwrap();
+    assert_eq!((settings.mode, settings.fallback), (Mode::Full, None));
+    assert!(settings.overridden.mode);
+}
+
+#[test]
+fn resolve_refuses_full_with_each_refusal() {
+    let full = asked(Some(Mode::Full), None, None);
+    for refusal in FullRefusal::ALL {
+        let error = resolve(&full, &allowing_full(Some(refusal)), Origin::Shell, place(&ready()))
+            .unwrap_err();
+        assert!(
+            matches!(error, ConversationError::FullModeRefused { refusal: got } if got == refusal),
+            "{error:?}"
+        );
+        assert_eq!(error.to_string(), format!("full mode cannot run: {}", refusal.describe()));
+        assert_eq!(failure(&error).code, ErrorCode::Invalid);
+    }
+    // A refusal holds only for full mode.
+    let auto = asked(Some(Mode::Auto), None, None);
+    let settings =
+        resolve(&auto, &allowing_full(Some(FullRefusal::Root)), Origin::Shell, place(&ready()))
+            .unwrap();
+    assert_eq!(settings.mode, Mode::Auto);
+}
+
+#[test]
+fn a_phone_full_prompt_is_capped_before_the_gate() {
+    let full = asked(Some(Mode::Full), None, None);
+    let phone = resolve(&full, &config(), Origin::Phone, place(&ready())).unwrap();
+    assert_eq!((phone.mode, phone.fallback), (Mode::Cautious, None), "no error, no fallback");
+    let refused = allowing_full(Some(FullRefusal::Root));
+    let phone = resolve(&full, &refused, Origin::Phone, place(&ready())).unwrap();
+    assert_eq!(phone.mode, Mode::Cautious);
 }

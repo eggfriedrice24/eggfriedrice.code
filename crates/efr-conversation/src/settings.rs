@@ -12,7 +12,10 @@
 //!
 //! `auto` needs the sandbox. Without an available sandbox, or in a registered project at
 //! the home directory, which is never a write root, the turn runs as `cautious` and
-//! records why ([`ModeFallback`]); there is no `auto` with less.
+//! records why ([`ModeFallback`]); there is no `auto` with less. `full` runs only when
+//! the daemon allows it ([`ConversationConfig::full_mode`]); else the prompt or the turn
+//! fails. The check comes after the cap of a remote origin, so a phone's `full` runs as
+//! `cautious` with no error.
 
 use std::path::Path;
 
@@ -34,7 +37,9 @@ pub(crate) struct Place<'a> {
 /// The settings a turn runs with: `asked`, the prompt's own, over the defaults of
 /// `config`. A turn from a remote origin runs with at most `cautious`
 /// ([`efr_permissions::effective_mode`]), and an `auto` turn that `place` cannot hold
-/// runs as `cautious` with the reason in `fallback`.
+/// runs as `cautious` with the reason in `fallback`. A `full` turn after that cap fails
+/// unless the daemon allows full mode ([`ConversationConfig::full_mode`]); it never
+/// falls back.
 pub(crate) fn resolve(
     asked: &TurnSettings,
     config: &ConversationConfig,
@@ -43,6 +48,9 @@ pub(crate) fn resolve(
 ) -> Result<EffectiveSettings, ConversationError> {
     // NOTE: the engine's own cap, so the recorded mode is the one the engine decides by.
     let mode = efr_permissions::effective_mode(asked.mode.unwrap_or(config.mode), origin);
+    if mode == Mode::Full {
+        check_full(config)?;
+    }
     let fallback = (mode == Mode::Auto).then(|| auto_fallback(place)).flatten();
     let mode = if fallback.is_some() { Mode::Cautious } else { mode };
     let model = asked.model.clone().unwrap_or_else(|| config.model.clone());
@@ -62,6 +70,18 @@ pub(crate) fn resolve(
         },
         fallback,
     })
+}
+
+/// Fails unless the daemon allows full mode: `permissions.allow_full` is true, and no
+/// refusal of the daemon holds, such as efrd that runs as root.
+fn check_full(config: &ConversationConfig) -> Result<(), ConversationError> {
+    if !config.full_mode.allowed {
+        return Err(ConversationError::FullModeOff);
+    }
+    match config.full_mode.refused {
+        Some(refusal) => Err(ConversationError::FullModeRefused { refusal }),
+        None => Ok(()),
+    }
 }
 
 /// Why `place` cannot run an `auto` turn, or `None` when it can.

@@ -28,7 +28,11 @@ turns.
   prompt keeps it; the result carries the effective settings. When the turn starts it
   resolves them again against the settings of that moment, fails with `invalid` and
   the choices when they no longer fit, and records them on `turn_started`. A turn
-  from a remote origin runs with at most `cautious`. The turn sends its model, its
+  from a remote origin runs with at most `cautious`. After that cap, `full` runs only
+  when the daemon allows it (`ConversationConfig::full_mode`): else `FullModeOff`
+  (`permissions.allow_full` is false) or `FullModeRefused` with the daemon's
+  `FullRefusal`, both `invalid` with the other modes as the choices. Until efrd fills
+  `full_mode`, it is off, so every full turn fails. The turn sends its model, its
   effort as the request's `effort` (in the manual compaction's summary request too),
   and its mode in the permission
   engine's `DecisionInput` and as a line of the preamble.
