@@ -291,6 +291,11 @@ pub(crate) struct DiffArgs {
     /// List the files that changed, with their counts of lines, instead of the diff.
     #[arg(long)]
     pub(crate) stat: bool,
+
+    /// With --stat, add up every turn of the conversation instead of one turn. A turn
+    /// that efr undo took back does not count.
+    #[arg(long, requires = "stat", conflicts_with = "turn")]
+    pub(crate) all: bool,
 }
 
 /// The arguments of `efr undo`.
