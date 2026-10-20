@@ -7,7 +7,7 @@ use efr_protocol::{
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 
-use super::{shown, sum_turns};
+use super::{shown, sum_turns, summed_kind};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{
@@ -340,13 +340,55 @@ fn the_sum_of_the_turns_merges_each_path_and_leaves_out_undone_turns() {
         FileChanges {
             files: vec![
                 changed("docs/b.md", ChangeKind::Added, 5, 0),
-                changed("src/a.rs", ChangeKind::Modified, 14, 2),
+                // New in turn 1 and changed in turn 4: still new.
+                changed("src/a.rs", ChangeKind::Added, 14, 2),
                 changed("tests/a.rs", ChangeKind::Added, 30, 0),
             ],
             more: 1,
             added: 49,
             removed: 2,
         }
+    );
+}
+
+#[test]
+fn the_kind_over_several_turns_follows_the_file_from_the_first_to_the_last() {
+    use ChangeKind::{Added, Deleted, Modified, Renamed};
+    // (first, so far, last) -> summed
+    let table = [
+        ((Modified, Modified, Modified), Modified),
+        ((Added, Added, Modified), Added),
+        ((Added, Added, Deleted), Deleted),
+        ((Added, Deleted, Added), Added),
+        ((Modified, Modified, Deleted), Deleted),
+        ((Deleted, Deleted, Added), Modified),
+        ((Renamed, Renamed, Modified), Renamed),
+        ((Renamed, Renamed, Deleted), Deleted),
+        ((Renamed, Deleted, Added), Modified),
+        ((Modified, Modified, Added), Modified),
+    ];
+    for ((first, so_far, last), summed) in table {
+        assert_eq!(summed_kind(first, so_far, last), summed, "{first:?} {so_far:?} {last:?}");
+    }
+}
+
+#[test]
+fn the_sum_keeps_the_source_of_a_renamed_file_only_while_it_stays_renamed() {
+    let renamed = |n: u8, kind: ChangeKind| {
+        let file = FileChange { from: Some("old.rs".to_owned()), ..changed("new.rs", kind, 1, 0) };
+        completed(n, Some(listed(vec![file], 0)))
+    };
+    let events = [renamed(1, ChangeKind::Renamed), renamed(2, ChangeKind::Modified)];
+    let (_, summed) = sum_turns(&events);
+    assert_eq!(
+        (summed.files[0].kind, summed.files[0].from.as_deref()),
+        (ChangeKind::Renamed, Some("old.rs"))
+    );
+    let events = [renamed(1, ChangeKind::Renamed), renamed(2, ChangeKind::Deleted)];
+    let (_, summed) = sum_turns(&events);
+    assert_eq!(
+        (summed.files[0].kind, summed.files[0].from.as_deref()),
+        (ChangeKind::Deleted, None)
     );
 }
 
@@ -360,7 +402,7 @@ async fn efr_diff_stat_all_adds_up_every_turn_of_the_conversation() {
     assert_eq!(
         stdout,
         "tests       +30\ncode        +14  \u{2212}2\ndocs         +5\nnot listed\ntotal       +49  \
-         \u{2212}2\n\nnew     docs/b.md   +5\nchanged src/a.rs    +14 \u{2212}2\nnew     tests/a.rs  \
+         \u{2212}2\n\nnew     docs/b.md   +5\nnew     src/a.rs    +14 \u{2212}2\nnew     tests/a.rs  \
          +30\n\u{2026} 1 more file\n4 files changed, +49 \u{2212}2\n"
     );
 }
