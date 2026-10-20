@@ -184,6 +184,8 @@ into the GitHub release notes, and it stops when the section is missing.
   files and the `core.hooksPath` dir that their config names. When the job
   planted a hook or a git setting that runs code, efr moves it to the quarantine and
   stops the job. After a restart, efr checks a job that the last efrd left running.
+  Before a git or upload line runs outside the sandbox, efr checks every running job
+  in the sandbox, not only the jobs of the line's projects.
 - While efr follows a turn, the view shows a line when a job starts, such as `job j3
   started; output $SCRATCH/jobs/j3.out; ends in 60 minutes`, and when a job of the
   conversation ends, such as `job j3 ended with exit 3 after 1 minute; 2.0 KB output`.
@@ -512,6 +514,18 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Security
 
+- Before an approved outside `git push`, `git fetch`, `git pull`, or a `gh` command that
+  runs git, efr checks the repository's git code and that of its submodules: hooks,
+  `core.sshCommand`, transport URLs and the other settings that run programs, and the
+  programs that they run. When a sandboxed command can write one of them, or efr could
+  not check them, only you can approve, and the question names the file. efr checks
+  again right before the command runs. git options that choose the code that git runs
+  (`-c`, `--exec-path`, `--receive-pack`, `--upload-pack` and others) also ask only
+  you. `efr history --verbose` shows what the check found.
+- `npm publish` (also with pnpm, yarn and bun), `cargo publish` (also with
+  `--no-verify`), `cargo yank` and `cargo owner` ask only you. The question says what
+  they run: the project's `prepublishOnly` and `prepack` scripts, the build of the
+  crate, or `.cargo/config.toml`, which can name a credential program.
 - A question for a line that runs `sudo` or another program as another user now takes
   an answer only from your own machine, never from a phone, also in `manual` and
   `cautious`.
