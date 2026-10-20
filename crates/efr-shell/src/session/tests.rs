@@ -35,6 +35,7 @@ fn order(id: u64, command: &str, mode: RunMode) -> (RunOrder, Answer, watch::Rec
         output_limit: 1024,
         call: Some(call_id(id)),
         forget_credentials: false,
+        forget_before: false,
         token: "0123456789abcdef".to_owned(),
         sandbox: None,
         reply,
@@ -200,6 +201,114 @@ fn a_sentinel_run_goes_into_a_nested_shell_while_a_forget_key_waits_for_the_oute
 
     assert_eq!(writes.len(), 1, "{writes:?}");
     assert!(String::from_utf8_lossy(&writes[0]).contains("eval 'id'"), "{writes:?}");
+}
+
+#[test]
+fn a_run_that_forgets_before_types_the_forget_key_before_its_line() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut order, _answer, _) = order(1, "sudo true", RunMode::Auto);
+    order.forget_before = true;
+
+    let writes: Vec<Vec<u8>> = core.submit(order).into_iter().map(|bytes| bytes.to_vec()).collect();
+
+    assert_eq!(
+        writes,
+        [b"\x1b[efr-forget~".to_vec(), b"\x1b[efr-clear~\x1b[200~sudo true\x1b[201~\r".to_vec()],
+        "the line editor runs the key before it reads the line"
+    );
+}
+
+#[test]
+fn a_forget_before_run_without_integration_fails_before_the_line() {
+    let (mut core, _) = core(false);
+    let (mut run, mut answer, _) = order(1, "sudo true", RunMode::Auto);
+    run.forget_before = true;
+
+    let writes = core.submit(run);
+
+    assert!(writes.is_empty(), "nothing is typed: {writes:?}");
+    assert!(
+        matches!(answer.try_recv().unwrap(), Err(ShellError::NoIntegration { .. })),
+        "the run fails"
+    );
+    let (next, _next_answer, _) = order(2, "ls", RunMode::Auto);
+    assert_eq!(core.submit(next).len(), 1, "a run without it still runs with sentinels");
+}
+
+#[test]
+fn a_forget_before_run_waits_for_a_new_shells_first_prompt() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    let (mut order, mut answer, _) = order(1, "id", RunMode::Sentinel);
+    order.forget_before = true;
+    assert!(core.submit(order).is_empty(), "the first prompt says whether it has the integration");
+
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07");
+
+    assert_eq!(at_prompt.len(), 2, "{at_prompt:?}");
+    assert_eq!(at_prompt[0], b"\x1b[efr-forget~".to_vec(), "the forget key goes first");
+    assert!(String::from_utf8_lossy(&at_prompt[1]).contains("eval 'id'"), "{at_prompt:?}");
+    assert!(answer.try_recv().is_err(), "the run goes on");
+}
+
+#[test]
+fn a_forget_before_run_in_a_shell_whose_integration_never_came_fails() {
+    let (mut core, _) = core(true);
+    let (mut order, mut answer, _) = order(1, "id", RunMode::Auto);
+    order.forget_before = true;
+    assert!(core.submit(order).is_empty());
+
+    let writes = core.startup_expired();
+
+    assert!(writes.is_empty(), "nothing is typed: {writes:?}");
+    assert!(matches!(answer.try_recv().unwrap(), Err(ShellError::NoIntegration { .. })));
+}
+
+#[test]
+fn a_forget_before_run_after_a_run_that_forgets_types_one_key() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (mut first, mut answer, _) = order(1, "sudo true", RunMode::Auto);
+    first.forget_credentials = true;
+    core.submit(first);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+    feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% ");
+    assert!(answer.try_recv().unwrap().is_ok());
+    let (mut second, _second_answer, _) = order(2, "ls", RunMode::Auto);
+    second.forget_before = true;
+    assert!(core.submit(second).is_empty(), "the next line waits for the prompt");
+
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;B\x07");
+
+    assert_eq!(
+        at_prompt,
+        [b"\x1b[efr-forget~".to_vec(), b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()],
+        "one key serves both"
+    );
+}
+
+#[test]
+fn a_forget_before_run_into_a_nested_shell_forgets_at_the_outer_prompt() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    feed(&mut core, &mut at, b"\x1b]133;C\x07");
+    let (mut order, mut answer, _) = order(1, "id", RunMode::Sentinel);
+    order.forget_before = true;
+
+    let writes = core.submit(order);
+    assert_eq!(writes.len(), 1, "the line goes to the program that holds the terminal");
+    feed(
+        &mut core,
+        &mut at,
+        b"__efr_0123456789abcdef_b\r\n\r\n__efr_0123456789abcdef_e:0:/root\r\n",
+    );
+    assert!(answer.try_recv().unwrap().is_ok());
+    let at_prompt = feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07");
+
+    assert_eq!(at_prompt, [b"\x1b[efr-forget~".to_vec()], "the outer zsh forgets at its prompt");
 }
 
 #[test]

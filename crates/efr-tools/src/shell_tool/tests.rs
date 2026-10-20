@@ -203,6 +203,34 @@ async fn a_call_that_forgets_credentials_asks_the_shell_to() {
 }
 
 #[tokio::test]
+async fn a_call_that_forgets_before_asks_the_shell_to() {
+    let fixture = Fixture::new();
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/tmp")));
+    let tool = ShellTool::new(runner.clone());
+    let context = fixture.context().with_forget_credentials(true).with_forget_before(true);
+
+    tool.invoke(context, json!({"command": "sudo true"}), &mut NoOutput).await.unwrap();
+
+    let request = runner.last_request();
+    assert!(request.forget_credentials && request.forget_before);
+}
+
+#[tokio::test]
+async fn a_shell_without_the_integration_tells_the_model_that_full_mode_needs_it() {
+    let fixture = Fixture::new();
+    let conversation = ids().conversation_id;
+    let tool =
+        ShellTool::new(FakeRunner::answering(Err(ShellError::NoIntegration { conversation })));
+    let context = fixture.context().with_forget_before(true);
+
+    let result = tool.invoke(context, json!({"command": "true"}), &mut NoOutput).await.unwrap();
+
+    assert!(result.is_error);
+    assert_eq!(result.output, super::NO_INTEGRATION);
+    assert!(result.output.starts_with("full mode needs efr's zsh integration"), "{result:?}");
+}
+
+#[tokio::test]
 async fn a_failing_command_is_an_error_result() {
     let fixture = Fixture::new();
     let tool = ShellTool::new(FakeRunner::answering(Ok(CommandResult::finished(

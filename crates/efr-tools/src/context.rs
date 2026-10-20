@@ -51,6 +51,9 @@ pub struct ToolContext {
     /// Make the hidden shell forget sudo's and doas's cached credentials when a
     /// command of this call ends (`shell.sudo_cache = "per_call"`).
     pub forget_credentials: bool,
+    /// Make the hidden shell forget them also right before a command of this call (full
+    /// mode). A shell without efr's zsh integration then does not run the command.
+    pub forget_before: bool,
     /// The longest a command of this call may run in all, past the model's timeout,
     /// while a person who can type answers follows the conversation
     /// (`shell.interactive_timeout_minutes`): set for a call that the user approved
@@ -85,6 +88,7 @@ impl ToolContext {
             clock,
             journal,
             forget_credentials: false,
+            forget_before: false,
             interactive_limit: None,
             sandbox: None,
         }
@@ -109,6 +113,14 @@ impl ToolContext {
     #[must_use]
     pub fn with_forget_credentials(mut self, forget: bool) -> Self {
         self.forget_credentials = forget;
+        self
+    }
+
+    /// Sets whether the hidden shell forgets the cached sudo and doas credentials also
+    /// right before a command of this call.
+    #[must_use]
+    pub fn with_forget_before(mut self, forget: bool) -> Self {
+        self.forget_before = forget;
         self
     }
 

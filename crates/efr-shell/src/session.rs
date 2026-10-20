@@ -85,6 +85,9 @@ pub(crate) struct RunOrder {
     pub(crate) call: Option<CallId>,
     /// Make the shell forget the cached sudo and doas credentials when the run ends.
     pub(crate) forget_credentials: bool,
+    /// Make the shell forget them before the line, too; a shell without the
+    /// integration fails the run before the line.
+    pub(crate) forget_before: bool,
     /// The sentinel token, drawn by the caller from the injected generator.
     pub(crate) token: String,
     /// The auto mode's call, whose command is in its `line` file already.
@@ -277,6 +280,9 @@ pub(crate) struct SessionCore {
     forget_pending: bool,
     /// The warning that this shell cannot forget credentials was logged.
     forget_warned: bool,
+    /// [`FORGET_CREDENTIALS`] went out at this prompt and no line came after it yet, so
+    /// a run that forgets before its line needs no second key.
+    forgot_at_prompt: bool,
     /// A sandboxed run's end to check once the current chunk is read.
     check: Option<CheckOrder>,
     /// A command line was typed into the shell.
@@ -303,6 +309,7 @@ impl SessionCore {
             orphan: None,
             forget_pending: false,
             forget_warned: false,
+            forgot_at_prompt: false,
             check: None,
             used: false,
             held: VecDeque::new(),
@@ -361,7 +368,7 @@ impl SessionCore {
             let _ = order.reply.send(Ok(end));
             return Vec::new();
         }
-        match self.placement(order.mode) {
+        match self.placement(order.mode, order.forget_before) {
             Placement::Now(delimiter) => self.start(order, delimiter),
             Placement::Wait => {
                 self.queued = Some(order);
@@ -374,8 +381,9 @@ impl SessionCore {
         }
     }
 
-    /// Whether a run in `mode` can be typed now.
-    fn placement(&self, mode: RunMode) -> Placement {
+    /// Whether a run in `mode` can be typed now; `forget_before` for a run that needs
+    /// the forget key at a ready prompt before its line.
+    fn placement(&self, mode: RunMode, forget_before: bool) -> Placement {
         // An orphaned sentinel run owns the foreground until its end marker. An
         // orphaned marked run holds the next marked line until its `D`, but a sentinel
         // run is meant for whatever runs in the foreground, such as a nested shell.
@@ -390,9 +398,14 @@ impl SessionCore {
         // read before the key, and the key would reach that line's command, which could
         // take it as part of an answer, or the drain before the next `D` would throw it
         // away and sudo would keep its credentials.
-        if self.forget_pending
+        // A run that forgets before its line waits for that `B` the same way, and for a
+        // new shell's first prompt, which says whether the shell has the integration.
+        if (self.forget_pending || forget_before)
             && matches!(self.state.phase, Phase::Finished | Phase::Prompting { .. })
         {
+            return Placement::Wait;
+        }
+        if forget_before && self.state.phase == Phase::Starting {
             return Placement::Wait;
         }
         match (mode, self.state.phase) {
@@ -540,8 +553,38 @@ impl SessionCore {
         let _ = order.reply.send(Err(ShellError::Busy { conversation: self.conversation }));
     }
 
+    /// Types [`FORGET_CREDENTIALS`] at a ready prompt.
+    fn forget_now(&mut self, writes: &mut Vec<Bytes>) {
+        self.forget_pending = false;
+        self.forgot_at_prompt = true;
+        writes.push(Bytes::from_static(FORGET_CREDENTIALS));
+    }
+
     fn start(&mut self, order: RunOrder, delimiter: Delimiter) -> Vec<Bytes> {
+        // NOTE: only the integration binds the forget key. A run that must forget before
+        // its line, as every call of full mode must, never runs in a shell without it:
+        // a cached password would let a `sudo` in a script run with no question.
+        if order.forget_before && !self.state.integration {
+            let conversation = self.conversation;
+            let _ = order.reply.send(Err(ShellError::NoIntegration { conversation }));
+            return Vec::new();
+        }
         self.used = true;
+        let forgot = std::mem::take(&mut self.forgot_at_prompt);
+        let mut writes = Vec::new();
+        if order.forget_before {
+            if self.state.phase == Phase::Ready {
+                // NOTE: the line editor runs the key's widget before it reads the line
+                // that follows, so `sudo -k` runs before the command.
+                if !forgot {
+                    writes.push(Bytes::from_static(FORGET_CREDENTIALS));
+                }
+            } else {
+                // NOTE: a program such as a nested shell holds the terminal, so the
+                // line goes to it; the outer zsh gets the key at its next prompt.
+                self.forget_pending = true;
+            }
+        }
         // NOTE: only the integration binds the forget key, and only its prompt marks
         // say when to type it, so a shell without it keeps sudo's cache.
         if order.forget_credentials && !self.state.integration && !self.forget_warned {
@@ -593,7 +636,8 @@ impl SessionCore {
                     typed: Stopwatch::start(),
                     ran: None,
                 });
-                vec![line]
+                writes.push(line);
+                writes
             }
             Err(error) => {
                 let _ = order.reply.send(Err(error));
@@ -678,8 +722,7 @@ impl SessionCore {
         // It still goes out before a queued line, which is typed after the marks of
         // this chunk, and before any later run, which is typed only at a ready prompt.
         if self.forget_pending && self.state.phase == Phase::Ready {
-            self.forget_pending = false;
-            writes.push(Bytes::from_static(FORGET_CREDENTIALS));
+            self.forget_now(writes);
         }
         if let Some(Machine::Marks(orphan)) = &mut self.orphan {
             match orphan.on_mark(mark) {
@@ -774,8 +817,7 @@ impl SessionCore {
         let mut writes = Vec::new();
         // The prompt may be ready already: no later mark would send the key.
         if self.forget_pending && self.state.phase == Phase::Ready {
-            self.forget_pending = false;
-            writes.push(Bytes::from_static(FORGET_CREDENTIALS));
+            self.forget_now(&mut writes);
         }
         writes.extend(self.start_queued());
         writes

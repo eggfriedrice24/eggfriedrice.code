@@ -610,6 +610,7 @@ impl Tool for ShellTool {
             .with_mode(mode)
             .with_call(ctx.ids.call_id)
             .with_forget_credentials(ctx.forget_credentials)
+            .with_forget_before(ctx.forget_before)
             .with_interactive_limit(ctx.interactive_limit)
             .with_sandbox(ctx.sandbox.clone());
         let mut progress = Relay { out };
@@ -638,6 +639,7 @@ impl Tool for ShellTool {
                  the user's working directory; variables and the directory of the old one are \
                  gone.",
             )),
+            Err(ShellError::NoIntegration { .. }) => Ok(ToolResult::error(NO_INTEGRATION)),
             Err(ShellError::InvalidCommand { reason }) => Ok(ToolResult::error(format!(
                 "The command cannot be typed into a shell: {reason}."
             ))),
@@ -645,6 +647,12 @@ impl Tool for ShellTool {
         }
     }
 }
+
+/// The model's answer for a call of full mode in a hidden shell without efr's zsh
+/// integration, which could not clear sudo's cached password before the command.
+const NO_INTEGRATION: &str = "full mode needs efr's zsh integration in the hidden shell, \
+     so it can clear sudo's cached password; this shell started without it. The command \
+     was not run. Tell the user.";
 
 /// The model's answer for a call whose shell did not reach a ready prompt within
 /// `timeout`, so the command was not run. `fresh` is true when no command ran in the

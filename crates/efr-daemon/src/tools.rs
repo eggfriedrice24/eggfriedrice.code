@@ -359,7 +359,11 @@ impl DaemonToolbox {
         .with_scope(call.scope.clone())
         .with_origin(call.origin)
         .with_shell_cwd(call.shell_cwd.clone())
-        .with_forget_credentials(self.forgets_credentials())
+        // NOTE: a full call clears sudo's cache before and after its line whatever
+        // `shell.sudo_cache` says (DF11): a cache from an earlier call or from the user's
+        // own terminal must not let a `sudo` in a script run with no question.
+        .with_forget_credentials(self.forgets_credentials() || call.is_full())
+        .with_forget_before(call.is_full())
         .with_interactive_limit(self.interactive_limit(call))
     }
 

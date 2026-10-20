@@ -481,6 +481,10 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   each call, before anything else runs there, so the next `sudo` asks for the password
   again. It needs the zsh integration: a hidden shell without it keeps the cache, and
   a call inside a nested shell forgets only when that shell exits. Every command with `sudo` still needs the user's approval with either value.
+  A call of full mode forgets after the call whatever the setting says, and before
+  its line too (`ToolContext::forget_before`): a cache from an earlier `keep` call or
+  from the user's own terminal (`timestamp_type=global` in sudoers) is gone before the
+  line runs. A hidden shell without the integration does not run such a call.
 
 ### The auto sandbox
 

@@ -123,6 +123,29 @@ fn each_call_reads_the_sudo_cache_from_the_latest_settings() {
 }
 
 #[test]
+fn full_forces_sudo_per_call() {
+    let home = tempfile::tempdir().unwrap();
+    let mut keep = Settings::default();
+    keep.shell.sudo_cache = SudoCache::Keep;
+    let (toolbox, _settings) = toolbox_with(home.path(), keep);
+    let mut call = call("shell", json!({"command": "sudo true"}), home.path());
+
+    let forgets = |toolbox: &DaemonToolbox, call: &ToolCall| {
+        let context = toolbox.context(&call.context);
+        (context.forget_credentials, context.forget_before)
+    };
+    let auto = {
+        call.context = call.context.clone().with_mode(Mode::Auto);
+        forgets(&toolbox, &call)
+    };
+    call.context = call.context.clone().with_mode(Mode::Full);
+    let full = forgets(&toolbox, &call);
+
+    assert_eq!(auto, (false, false), "keep leaves the cache to sudo outside full mode");
+    assert_eq!(full, (true, true), "a full call forgets before and after its line");
+}
+
+#[test]
 fn only_an_approved_interactive_call_gets_the_interactive_limit_of_the_latest_settings() {
     let home = tempfile::tempdir().unwrap();
     let (toolbox, settings) = toolbox_with(home.path(), Settings::default());
