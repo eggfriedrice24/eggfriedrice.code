@@ -17,6 +17,10 @@
 //! are about, and a system prompt that the user replaced in `config.toml` cannot lose
 //! them.
 //!
+//! A turn that job notices started (a wake turn) has no prompt: its block says so in
+//! its first line, and it names the directory of the job's turn as where the turn
+//! works, not as the user's shell.
+//!
 //! The list of the modes names `full` only when the user allowed full mode
 //! (`permissions.allow_full`) or the turn runs in it. With full mode off the preamble is
 //! byte for byte what it was before full mode existed, so no prompt cache breaks.
@@ -87,6 +91,9 @@ pub(crate) struct LiveState {
     /// True when the user allowed full mode (`permissions.allow_full`): the list of the
     /// modes names it. A full turn names it anyway.
     pub(crate) full_allowed: bool,
+    /// True for a turn that job notices started (a wake turn): the user sent no prompt,
+    /// and the turn works where the job's turn worked, not in the user's shell.
+    pub(crate) wake: bool,
 }
 
 impl fmt::Debug for LiveState {
@@ -111,6 +118,7 @@ impl fmt::Debug for LiveState {
             .field("model", &self.model)
             .field("effort", &self.effort)
             .field("full_allowed", &self.full_allowed)
+            .field("wake", &self.wake)
             .finish_non_exhaustive()
     }
 }
@@ -120,14 +128,26 @@ impl LiveState {
     /// can tell it from the user's words.
     pub(crate) fn render(&self) -> String {
         let mut text = String::from("<live_state>\n");
-        text.push_str(CURRENT_RULE);
-        // NOTE: writing to a String cannot fail, so the results are ignored.
-        let _ = write!(text, "The user's shell is in {}", self.cwd.display());
-        match &self.oldpwd {
-            Some(oldpwd) => {
-                let _ = writeln!(text, "; the previous directory was {}.", oldpwd.display());
+        // NOTE: a wake turn has no prompt and no shell context: its block must not say
+        // that the user sent something or where the user's shell is. Only new wake
+        // turns read this, so no saved block changes.
+        if self.wake {
+            text.push_str(WAKE_RULE);
+            // NOTE: writing to a String cannot fail, so the results are ignored.
+            let _ = writeln!(
+                text,
+                "This turn works in {}, where the job's turn worked.",
+                self.cwd.display()
+            );
+        } else {
+            text.push_str(CURRENT_RULE);
+            let _ = write!(text, "The user's shell is in {}", self.cwd.display());
+            match &self.oldpwd {
+                Some(oldpwd) => {
+                    let _ = writeln!(text, "; the previous directory was {}.", oldpwd.display());
+                }
+                None => text.push_str(".\n"),
             }
-            None => text.push_str(".\n"),
         }
         text.push_str(
             "Commands you run with the shell tool start there in a new hidden shell; \
@@ -246,6 +266,13 @@ impl LiveState {
 const CURRENT_RULE: &str = "\
 This block shows the state when the user sent this prompt. Only the newest live_state \
 block is current; an older one shows the state at its own prompt.
+";
+
+/// The first line of the block of a wake turn, in place of [`CURRENT_RULE`]: job
+/// notices started the turn, not a prompt of the user.
+const WAKE_RULE: &str = "\
+A job notice started this turn; the user sent no prompt. The newest live_state block is \
+current.
 ";
 
 /// Who changes the turn's settings, after the list of the real permission modes. A

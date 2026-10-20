@@ -30,6 +30,7 @@ fn minimal() -> LiveState {
         effort: None,
         egress: Egress::None,
         full_allowed: false,
+        wake: false,
     }
 }
 
@@ -57,6 +58,24 @@ fn a_full_live_state() {
 #[test]
 fn a_minimal_live_state() {
     assert_snapshot!(minimal().render());
+}
+
+/// A wake turn (v0.0.4, C1.8): the block says that a job notice started the turn and
+/// that the user sent no prompt, and names the job turn's directory as where the turn
+/// works, not as the user's shell.
+#[test]
+fn wake_turn_preamble_names_no_prompt() {
+    let state = LiveState {
+        cwd: PathBuf::from("/home/u/p/efr"),
+        agent_cwd: Some(PathBuf::from("/home/u/p/efr/web")),
+        mode: Mode::Auto,
+        wake: true,
+        ..minimal()
+    };
+    let text = state.render();
+    assert!(!text.contains("sent this prompt"), "{text}");
+    assert!(!text.contains("The user's shell is in"), "{text}");
+    assert_snapshot!(text);
 }
 
 #[test]

@@ -159,6 +159,15 @@ async fn job_notice_wakes_idle_conversation() {
     let first = first_texts(&request);
     assert_eq!(first.len(), 2, "{first:?}");
     assert_eq!(first[1], notice.text);
+    // Its preamble says so, and names no shell of the user (v0.0.4, C1.8).
+    let preamble = &first[0];
+    assert!(
+        preamble
+            .starts_with("<live_state>\nA job notice started this turn; the user sent no prompt."),
+        "{preamble}"
+    );
+    assert!(preamble.contains(", where the job's turn worked.\n"), "{preamble}");
+    assert!(!preamble.contains("The user's shell is in"), "{preamble}");
 }
 
 #[tokio::test]

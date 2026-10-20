@@ -719,6 +719,7 @@ impl Setup {
             effort: None,
             egress: efr_permissions::Egress::None,
             full_allowed: self.config.full_mode.allowed,
+            wake: false,
         }
     }
 
