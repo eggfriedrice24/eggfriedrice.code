@@ -587,6 +587,8 @@ into the GitHub release notes, and it stops when the section is missing.
   users and below hidden paths.
 - efr now uses rustls 0.23.46 for its connections to the provider. This version fixes
   four advisories of rustls 0.23.45 (RUSTSEC-2026-0346 to RUSTSEC-2026-0349).
+- efr now uses rustls-webpki 0.103.16, which rustls uses to check certificates. This
+  version fixes the advisory RUSTSEC-2026-0382 of rustls-webpki 0.103.15.
 - efr now also treats `~/.config/git/credentials`, `~/.config/npm/npmrc`,
   `~/.config/pnpm/rc`, `~/.config/pypoetry/auth.toml` and
   `~/.config/composer/auth.json`, and hub's `~/.config/hub`, Copilot's
