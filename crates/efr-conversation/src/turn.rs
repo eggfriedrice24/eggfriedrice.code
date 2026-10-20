@@ -517,14 +517,20 @@ impl Turn {
         self.scope = derivation.scope.clone();
         // NOTE: resolved again against the settings of this moment, because the config
         // may have changed while the prompt waited; what no longer fits fails the turn.
-        // `auto` needs the sandbox and a project below the home directory.
+        // `auto` needs the sandbox and a project below the home directory, and a wake
+        // turn runs with at most `auto`.
         let engine = Arc::clone(&shared.deps.engine.borrow());
         let sandbox = shared.deps.sandbox.borrow().clone();
         let project_root = match &self.scope {
             Scope::Project(id) => engine.locations().project_root(id),
             _ => None,
         };
-        let place = Place { sandbox: &sandbox, project_root, home: engine.locations().home() };
+        let place = Place {
+            sandbox: &sandbox,
+            project_root,
+            home: engine.locations().home(),
+            wake: self.spec.is_wake(),
+        };
         let settings =
             match settings::resolve(&self.spec.settings, &config, self.spec.origin, place) {
                 Ok(settings) => settings,

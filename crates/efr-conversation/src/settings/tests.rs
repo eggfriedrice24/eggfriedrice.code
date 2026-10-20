@@ -35,7 +35,12 @@ fn ready() -> SandboxStatus {
 
 /// A turn outside any registered project, with `sandbox`.
 fn place(sandbox: &SandboxStatus) -> Place<'_> {
-    Place { sandbox, project_root: None, home: Path::new(HOME) }
+    Place { sandbox, project_root: None, home: Path::new(HOME), wake: false }
+}
+
+/// A wake turn outside any registered project, with `sandbox`.
+fn woke(sandbox: &SandboxStatus) -> Place<'_> {
+    Place { wake: true, ..place(sandbox) }
 }
 
 fn model(id: &str, efforts: &[&str], default_effort: &str) -> ModelInfo {
@@ -434,4 +439,106 @@ fn a_phone_full_prompt_is_capped_before_the_gate() {
     let refused = allowing_full(Some(FullRefusal::Root));
     let phone = resolve(&full, &refused, Origin::Phone, place(&ready())).unwrap();
     assert_eq!(phone.mode, Mode::Cautious);
+}
+
+#[test]
+fn full_refused_without_allow_full() {
+    let full = asked(Some(Mode::Full), None, None);
+    let mut config = config();
+    config.full_mode = FullModeStatus { allowed: false, refused: None };
+    let error = resolve(&full, &config, Origin::Shell, place(&ready())).unwrap_err();
+    assert!(matches!(error, ConversationError::FullModeOff), "{error:?}");
+    // The gate holds also when the daemon would refuse full mode for another reason.
+    config.full_mode = FullModeStatus { allowed: false, refused: Some(FullRefusal::Root) };
+    let error = resolve(&full, &config, Origin::Shell, place(&ready())).unwrap_err();
+    assert!(matches!(error, ConversationError::FullModeOff), "{error:?}");
+}
+
+#[test]
+fn full_refused_as_root() {
+    let full = asked(Some(Mode::Full), None, None);
+    let config = allowing_full(Some(FullRefusal::Root));
+    let error = resolve(&full, &config, Origin::Shell, place(&ready())).unwrap_err();
+    assert!(
+        matches!(error, ConversationError::FullModeRefused { refusal: FullRefusal::Root }),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), "full mode cannot run: efrd runs as root");
+}
+
+#[test]
+fn full_refused_with_undo_off() {
+    let full = asked(Some(Mode::Full), None, None);
+    for refusal in [FullRefusal::UndoOff, FullRefusal::SnapshotOff] {
+        let config = allowing_full(Some(refusal));
+        let error = resolve(&full, &config, Origin::Shell, place(&ready())).unwrap_err();
+        assert!(
+            matches!(error, ConversationError::FullModeRefused { refusal: got } if got == refusal),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn wake_turn_of_full_runs_as_auto() {
+    let full = asked(Some(Mode::Full), None, None);
+    let settings = resolve(&full, &allowing_full(None), Origin::Shell, woke(&ready())).unwrap();
+    assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(
+        settings.fallback,
+        Some(ModeFallback {
+            asked: Mode::Full,
+            reason: "a turn that a job notice starts runs with at most auto".to_owned()
+        })
+    );
+    // The cap holds for a config default of full too.
+    let mut config = allowing_full(None);
+    config.mode = Mode::Full;
+    let default = resolve(&TurnSettings::default(), &config, Origin::Shell, woke(&ready()));
+    assert_eq!(default.unwrap().mode, Mode::Auto);
+    // A wake turn of another mode keeps its mode and records nothing.
+    let cautious = asked(Some(Mode::Cautious), None, None);
+    let settings = resolve(&cautious, &allowing_full(None), Origin::Shell, woke(&ready()));
+    assert_eq!(settings.map(|s| (s.mode, s.fallback)).unwrap(), (Mode::Cautious, None));
+}
+
+#[test]
+fn wake_turn_of_full_without_sandbox_runs_as_cautious() {
+    let full = asked(Some(Mode::Full), None, None);
+    let unavailable = SandboxStatus::unavailable("bubblewrap is not installed");
+    let settings = resolve(&full, &allowing_full(None), Origin::Shell, woke(&unavailable)).unwrap();
+    assert_eq!(settings.mode, Mode::Cautious);
+    assert_eq!(
+        settings.fallback,
+        Some(ModeFallback {
+            asked: Mode::Full,
+            reason: "a turn that a job notice starts runs with at most auto; bubblewrap is not \
+                     installed"
+                .to_owned()
+        })
+    );
+}
+
+#[test]
+fn wake_turn_of_full_with_the_gate_off_runs_as_auto() {
+    let full = asked(Some(Mode::Full), None, None);
+    let settings = resolve(&full, &config(), Origin::Shell, woke(&ready())).unwrap();
+    assert_eq!(settings.mode, Mode::Auto, "the cap comes before the gate");
+    assert_eq!(settings.fallback.map(|f| f.asked), Some(Mode::Full));
+    // So does a refusal of the daemon: the wake turn runs as auto with no error.
+    let refused = allowing_full(Some(FullRefusal::Root));
+    let settings = resolve(&full, &refused, Origin::Shell, woke(&ready())).unwrap();
+    assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(
+        settings.fallback.map(|f| f.reason),
+        Some(ModeFallback::WAKE_REASON.to_owned()),
+        "only the reason of the wake cap"
+    );
+}
+
+#[test]
+fn a_phone_wake_turn_of_full_runs_as_cautious_with_no_fallback() {
+    let full = asked(Some(Mode::Full), None, None);
+    let settings = resolve(&full, &allowing_full(None), Origin::Phone, woke(&ready())).unwrap();
+    assert_eq!((settings.mode, settings.fallback), (Mode::Cautious, None));
 }

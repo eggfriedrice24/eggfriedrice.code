@@ -506,6 +506,8 @@ impl ConversationActor {
             sandbox: &sandbox,
             project_root: None,
             home: engine.locations().home(),
+            // NOTE: a wake turn never comes through here: the actor starts it itself.
+            wake: false,
         };
         settings::resolve(settings, &config, origin, place)
     }

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_protocol::{
-    ApprovalDecision, Event, EventEnvelope, HeldReason, JobState, JobStopBy, Mode, NoticeKind, Seq,
-    TurnId, TurnSettings,
+    ApprovalDecision, EffectiveSettings, Event, EventEnvelope, FullModeStatus, HeldReason,
+    JobState, JobStopBy, Mode, ModeFallback, NoticeKind, SandboxStatus, Seq, TurnId, TurnSettings,
 };
 use efr_provider::{ContentBlock, Message, Request, Role};
 use pretty_assertions::assert_eq;
@@ -382,6 +382,75 @@ async fn wake_turn_follows_newest_prompt_mode() {
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(woke).await;
     assert_eq!(started_mode(&h, woke).await, Mode::Manual);
+}
+
+/// A setup whose turns run in full mode, which the daemon allows.
+fn full() -> Setup {
+    let mut setup = Setup::new();
+    setup.config.mode = Mode::Full;
+    setup.config.full_mode = FullModeStatus { allowed: true, refused: None };
+    setup
+}
+
+/// The settings that the turn `turn_id` started with.
+async fn started_settings(h: &Harness, turn_id: TurnId) -> EffectiveSettings {
+    turn_events(h, turn_id)
+        .await
+        .iter()
+        .find_map(|e| match &e.event {
+            Event::TurnStarted { settings: Some(settings), .. } => Some(settings.clone()),
+            _ => None,
+        })
+        .expect("the turn started with its settings")
+}
+
+#[tokio::test]
+async fn wake_turn_of_full_runs_as_auto() {
+    let (mut h, _, job_turn) = with_job(full(), Vec::new()).await;
+    assert_eq!(started_mode(&h, job_turn).await, Mode::Full, "the job started in full mode");
+    assert_eq!(h.toolbox.invoked().len(), 1, "a full job starts with no question");
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let woke = wake(&mut h).await;
+    let settings = started_settings(&h, woke).await;
+    assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(
+        settings.fallback,
+        Some(ModeFallback { asked: Mode::Full, reason: ModeFallback::WAKE_REASON.to_owned() })
+    );
+}
+
+#[tokio::test]
+async fn wake_turn_of_full_without_sandbox_runs_as_cautious() {
+    let mut setup = full();
+    setup.sandbox = SandboxStatus::unavailable("bubblewrap is not installed");
+    let (mut h, _, _) = with_job(setup, Vec::new()).await;
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let woke = wake(&mut h).await;
+    let settings = started_settings(&h, woke).await;
+    assert_eq!(settings.mode, Mode::Cautious);
+    assert_eq!(
+        settings.fallback.map(|fallback| fallback.reason),
+        Some(format!("{}; bubblewrap is not installed", ModeFallback::WAKE_REASON))
+    );
+}
+
+#[tokio::test]
+async fn wake_turn_of_full_with_the_gate_off_runs_as_auto() {
+    let (mut h, _, _) = with_job(full(), Vec::new()).await;
+    // The user turns full mode off after the job started.
+    let mut config = (**h.settings.borrow()).clone();
+    config.full_mode = FullModeStatus { allowed: false, refused: None };
+    h.settings.send_replace(Arc::new(config));
+
+    notify(&h, ended(&h, 1, 900, true)).await;
+    let woke = wake(&mut h).await;
+    let end = turn_events(&h, woke).await.pop().map(|e| e.event);
+    assert!(matches!(end, Some(Event::TurnCompleted { .. })), "no gate error: {end:?}");
+    let settings = started_settings(&h, woke).await;
+    assert_eq!(settings.mode, Mode::Auto);
+    assert_eq!(settings.fallback.map(|fallback| fallback.asked), Some(Mode::Full));
 }
 
 #[tokio::test]
