@@ -292,6 +292,60 @@ impl Watch {
     pub const MAX_PATTERN_CHARS: usize = 200;
 }
 
+/// A loopback port of a contained job that efr forwards to the same port of
+/// `127.0.0.1` on the user's machine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct PortForward {
+    /// The address that the job listens on, as text: `127.0.0.1`, `::1`.
+    pub listen: String,
+    /// The port, the same in the job and on the user's machine.
+    pub port: u16,
+}
+
+/// What efr did with a loopback port that a contained job listens on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ForwardOutcome {
+    /// efr forwards the port to the same port of `127.0.0.1`.
+    Forwarded,
+    /// The port is in use on the user's machine, or by another job.
+    InUse,
+    /// efr never forwards this port, such as a service port.
+    Refused,
+    /// The job or efrd forwards as many ports as it may.
+    Limit,
+    /// efr no longer forwards the port, such as after `jobs.forward_ports` turned off.
+    Stopped,
+    /// An outcome that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl ForwardOutcome {
+    /// Every outcome, in the order of the enum.
+    pub const ALL: [ForwardOutcome; 6] = [
+        ForwardOutcome::Forwarded,
+        ForwardOutcome::InUse,
+        ForwardOutcome::Refused,
+        ForwardOutcome::Limit,
+        ForwardOutcome::Stopped,
+        ForwardOutcome::Unknown,
+    ];
+
+    /// The wire form, such as `in_use`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ForwardOutcome::Forwarded => "forwarded",
+            ForwardOutcome::InUse => "in_use",
+            ForwardOutcome::Refused => "refused",
+            ForwardOutcome::Limit => "limit",
+            ForwardOutcome::Stopped => "stopped",
+            ForwardOutcome::Unknown => "unknown",
+        }
+    }
+}
+
 /// One job, as `jobs.list`, `jobs.stop` and `job_started` show it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct JobInfo {
@@ -333,6 +387,9 @@ pub struct JobInfo {
     /// How many lines of the output matched the watch pattern so far.
     #[serde(default)]
     pub wakes: u8,
+    /// The ports that efr forwards for the job. Absent when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forwards: Vec<PortForward>,
 }
 
 /// What the summary of a question in a job notice turn starts with. efrd puts it in

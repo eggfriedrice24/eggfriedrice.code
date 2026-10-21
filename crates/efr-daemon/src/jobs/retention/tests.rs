@@ -33,6 +33,7 @@ fn job(c: u128, number: u32, ended: Option<i64>) -> JobInfo {
         output_bytes: 0,
         watch: None,
         wakes: 0,
+        forwards: Vec::new(),
     }
 }
 

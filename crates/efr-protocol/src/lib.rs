@@ -62,7 +62,10 @@ pub use ids::{
     CallId, CommandId, CompactionId, ConversationId, DaemonId, DeviceId, PtyId, QuestionId,
     RequestId, Seq, TurnId, UndoId,
 };
-pub use jobs::{HeldReason, JobId, JobInfo, JobState, JobStopBy, NoticeKind, WAKE_QUESTION, Watch};
+pub use jobs::{
+    ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, NoticeKind, PortForward,
+    WAKE_QUESTION, Watch,
+};
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
 pub use methods::admin_login_api_key::{AdminLoginApiKey, AdminLoginApiKeyResult};

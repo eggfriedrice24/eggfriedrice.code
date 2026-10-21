@@ -108,6 +108,7 @@ impl Scene {
             output_bytes: 0,
             watch: None,
             wakes: 0,
+            forwards: Vec::new(),
         }
     }
 

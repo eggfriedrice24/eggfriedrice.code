@@ -1,0 +1,9 @@
+{
+  "kind": "job_port_forwarded",
+  "job_id": "j3",
+  "listen": "127.0.0.1",
+  "port": 8765,
+  "outcome": "in_use",
+  "by_job": "j2",
+  "reason": "a service port"
+}

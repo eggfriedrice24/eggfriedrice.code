@@ -32,6 +32,7 @@ fn job(command: &str) -> JobInfo {
         output_bytes: 10,
         watch: None,
         wakes: 0,
+        forwards: Vec::new(),
     }
 }
 

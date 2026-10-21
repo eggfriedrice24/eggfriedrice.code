@@ -138,10 +138,11 @@ fn event_index(event: &Event) -> usize {
         Event::JobNoticeHeld { .. } => 48,
         Event::AlwaysRuleSaved { .. } => 49,
         Event::TerminalAttached { .. } => 50,
+        Event::JobPortForwarded { .. } => 51,
     }
 }
 
-const EVENT_COUNT: usize = 51;
+const EVENT_COUNT: usize = 52;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {

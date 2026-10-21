@@ -1,7 +1,20 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{HeldReason, JobId, JobState, JobStopBy, NoticeKind};
+use super::{ForwardOutcome, HeldReason, JobId, JobState, JobStopBy, NoticeKind, PortForward};
+
+#[test]
+fn forward_outcome_reads_unknown_value() {
+    for outcome in ForwardOutcome::ALL {
+        let text = serde_json::to_value(outcome).unwrap();
+        assert_eq!(text, json!(outcome.as_str()));
+        assert_eq!(serde_json::from_value::<ForwardOutcome>(text).unwrap(), outcome);
+    }
+    let later: ForwardOutcome = serde_json::from_value(json!("remapped")).unwrap();
+    assert_eq!(later, ForwardOutcome::Unknown);
+    let forward = PortForward { listen: "::1".to_owned(), port: 5173 };
+    assert_eq!(serde_json::to_value(&forward).unwrap(), json!({ "listen": "::1", "port": 5173 }));
+}
 
 #[test]
 fn job_id_round_trip_and_refuses_bad_ids() {
