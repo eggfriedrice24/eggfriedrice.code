@@ -123,7 +123,14 @@ impl OrphanWatch {
             }
             let looked = self
                 .session
-                .look(self.run.id, self.run.offer, self.quiet, &*self.clock, &mut self.run.watch)
+                .look(
+                    self.run.id,
+                    self.run.offer,
+                    self.quiet,
+                    &*self.clock,
+                    &mut self.run.watch,
+                    self.run.contained,
+                )
                 .await;
             match looked {
                 Ok(Looked::Same) => {}

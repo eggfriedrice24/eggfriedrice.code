@@ -415,6 +415,17 @@ async fn raw_prompt(
     command: &str,
     prompt: &[u8],
 ) -> (FakeTerminal, JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+    prompt_in(harness, run, command, prompt, RAW).await
+}
+
+/// [`raw_prompt`] with the terminal in `modes`.
+async fn prompt_in(
+    harness: &Harness,
+    run: &SandboxRun,
+    command: &str,
+    prompt: &[u8],
+    modes: InputModes,
+) -> (FakeTerminal, JoinHandle<Result<CommandResult, ShellError>>, Heard) {
     let (mut listener, heard) = listener(true);
     let sessions = harness.sessions.clone();
     let request = sandboxed(run, command);
@@ -429,7 +440,7 @@ async fn raw_prompt(
     let mut output = b"\r\n\x1b]133;C\x07".to_vec();
     output.extend_from_slice(prompt);
     terminal.print(&output).await;
-    harness.modes.set(Some(RAW));
+    harness.modes.set(Some(modes));
     screen_shows(harness, "assword:").await;
     harness.clock.wait_for_sleeps(3).await;
     harness.clock.advance(Duration::from_secs(1));
@@ -462,6 +473,24 @@ async fn contained_looks_secret_wait_stops_at_once() {
     let ended = handle.await.unwrap().unwrap();
     assert_eq!(ended.completion, Completion::Unanswered);
     assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+    assert_eq!(*heard.secrets.borrow(), [true, false]);
+    assert_eq!(
+        harness.holder.signals(),
+        [(terminal.pty_id, Signal::Interrupt, SignalTarget::ForegroundGroup)]
+    );
+}
+
+#[tokio::test]
+async fn contained_password_prompt_in_line_mode_stops_at_once() {
+    let harness = Harness::sandboxed();
+    let run = prepare(&harness, SpecLaunch::Contained);
+    // NOTE: a contained command can read a line with echo on and print any prompt: the
+    // prompt alone counts, so no answer that may be a secret reaches it (DS50).
+    let line = InputModes::new(true, true);
+    let (terminal, handle, heard) =
+        prompt_in(&harness, &run, "./fake-login", b"Password: ", line).await;
+    let ended = handle.await.unwrap().unwrap();
+    assert_eq!(ended.completion, Completion::Unanswered);
     assert_eq!(*heard.secrets.borrow(), [true, false]);
     assert_eq!(
         harness.holder.signals(),

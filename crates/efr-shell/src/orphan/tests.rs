@@ -243,6 +243,12 @@ async fn contained_orphan_looks_secret_wait_is_stopped() {
     contained_wait_is_stopped(b"Password: ", RAW).await;
 }
 
+#[tokio::test]
+async fn contained_orphan_password_prompt_in_line_mode_is_stopped() {
+    // NOTE: the prompt alone counts for a contained command, in any modes (DS50).
+    contained_wait_is_stopped(b"Password: ", InputModes::new(true, true)).await;
+}
+
 /// A command left running whose request is `request`, at a hidden password prompt,
 /// while `followers` clients that can answer follow; after five looks, tells whether
 /// the watch interrupted it.

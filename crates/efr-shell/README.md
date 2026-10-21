@@ -131,9 +131,9 @@ and `D`, or the two sentinels):
   its own), a verification code or a one-time code, in any case (`efr_protocol::looks_secret`),
   so a client hides what the user types; the answer still goes as a visible one, so the
   kind check below holds. A change of the flag alone is a change too. A command in the
-  sandbox can turn line mode off itself and print such a prompt, so for a contained
-  call a visible wait that looks secret counts as a hidden one: it stops the command at
-  once (below).
+  sandbox can print such a prompt in any modes, so for a contained run or orphan the
+  prompt alone makes a visible wait look secret, also in line mode, and such a wait
+  counts as a hidden one: it stops the command at once (below).
 - A prompt that reads command lines (a shell's `$ `, a REPL's `>>> `) looks like a
   visible question, and an answer there would run as a command line. So two kinds of
   run report hidden waits only (`input::Offer`):

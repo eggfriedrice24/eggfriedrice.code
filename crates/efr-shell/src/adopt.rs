@@ -359,6 +359,8 @@ pub(crate) struct AdoptedWatch {
     pub(crate) holder: Arc<dyn PtyHolder>,
     pub(crate) quiet: Quiet,
     pub(crate) quiet_period: Duration,
+    /// True for a command in the sandbox (DS50).
+    pub(crate) contained: bool,
     pub(crate) looks: watch::Sender<(InputWait, bool)>,
 }
 
@@ -373,8 +375,10 @@ impl AdoptedWatch {
                 () = next => {}
                 _ = self.session.ended() => return,
             }
-            let looked =
-                self.session.look(self.id, self.offer, self.quiet, &*self.clock, &mut watch).await;
+            let looked = self
+                .session
+                .look(self.id, self.offer, self.quiet, &*self.clock, &mut watch, self.contained)
+                .await;
             match looked {
                 Ok(Looked::Same) => continue,
                 Ok(Looked::Changed { wait, told: Ok(()) }) => {
