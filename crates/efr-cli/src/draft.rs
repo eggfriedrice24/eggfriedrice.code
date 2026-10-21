@@ -7,6 +7,9 @@
 //! puts `, <text>` on the command line (`print -z`). The text never travels in an
 //! argument, which any local user can read. Without the variable, or when the file
 //! cannot be written, the text shows as one muted note instead.
+//!
+//! Only the input row's text comes here. The text of an answer line, which may be a
+//! password for a command in the hidden shell, never does.
 
 use std::path::Path;
 

@@ -65,6 +65,12 @@
 //! it showed, so the end events of a restarted daemon still reach it, and a request of
 //! the row whose answer was lost goes again with the same command id.
 //!
+//! A command that a shell call left running in the hidden shell asks with its own
+//! answer line, which takes the keys whenever nothing else asks
+//! (`Follower::offer_left`). Ctrl+C at that line sends `shell.interrupt` for the command
+//! and leaves the turn running. When the last turn ends while the command waits for an
+//! answer here, the loop goes on until the wait ends, the command ends, or Esc.
+//!
 //! Ctrl+X in the row asks `jobs.list` for the newest running job of the conversation,
 //! and after a `y` to the view's question it sends `jobs.stop`. efrd answers when the
 //! job ended, so the loop waits for the answer beside the events.
@@ -80,8 +86,9 @@ use efr_protocol::{
     ErrorCode, Event, InputRespond, InputRespondResult, JobId, JobState, JobsList, JobsListResult,
     JobsStop, JobsStopResult, LateSteer, Method, Origin, PromptSend, PromptSendResult,
     PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, TurnId, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, ShellInterrupt,
+    ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use efr_transport::client::{Client, ClientError, ItemStream};
@@ -212,6 +219,7 @@ pub(crate) async fn follow(
         tick: None,
         paste_until: None,
         stopping: None,
+        lingering: None,
     };
     // The first frame shows the status row and the notes before the first event.
     let result = match follower.paint(out, view, false) {
@@ -361,6 +369,10 @@ struct Follower<'a> {
     /// The stop of a job that the stop key asked for, while efrd ends the job: the loop
     /// goes on meanwhile, and the job's end shows when its `job_ended` comes.
     stopping: Option<(JobId, Stopping<'a>)>,
+    /// The last followed turn ended so, but `efr` stays open while a command that a
+    /// call left running in the hidden shell waits for an answer here
+    /// ([`TurnView::lingers`]).
+    lingering: Option<TurnEnd>,
 }
 
 /// The answer to a `jobs.stop`, which comes when the job ended.
@@ -596,12 +608,24 @@ impl Follower<'_> {
         loop {
             let again = match self.subscribe().await {
                 Ok(mut stream) => loop {
+                    // NOTE: the turn ended, and the command in the hidden shell no longer
+                    // waits here, or the user left it with Esc.
+                    if let Some(end) = self.lingering.take_if(|_| !view.lingers()) {
+                        return self.finished(end, view);
+                    }
                     self.watch_silence(view);
                     self.watch_tick(view);
                     tokio::select! {
                         () = &mut interrupt => {
+                            // Ctrl+C at the line of a command left running in the hidden
+                            // shell stops that command, not the turn.
+                            if let Some(call_id) = view.left_keys().filter(|_| {
+                                !matches!(self.keys, Some((_, Asking::Row)) | None)
+                            }) {
+                                interrupt = self.ctx.interrupt.wait();
+                                self.interrupt_left(call_id, out, view).await?;
                             // Ctrl+C clears the text of the input row first.
-                            if matches!(self.keys, Some((_, Asking::Row))) && view.row_clear() {
+                            } else if matches!(self.keys, Some((_, Asking::Row))) && view.row_clear() {
                                 interrupt = self.ctx.interrupt.wait();
                                 self.paint(out, view, false)?;
                             } else {
@@ -651,7 +675,10 @@ impl Follower<'_> {
                                 reconnects = 0;
                                 ends = 0;
                                 if let Some(end) = self.item(value, out, view).await? {
-                                    return self.finished(end, view);
+                                    if !view.lingers() {
+                                        return self.finished(end, view);
+                                    }
+                                    self.lingering = Some(end);
                                 }
                             }
                             Some(Err(ClientError::Server { body })) if body.code == ErrorCode::Overflow => {
@@ -874,41 +901,7 @@ impl Follower<'_> {
         write(out, &step)?;
         let urgent = !paced || step.ask.is_some() || step.settled || step.end.is_some();
         match step.ask {
-            Some(ask) => {
-                let (reader, before) = match self.keys.take() {
-                    Some((mut reader, Asking::Row)) => {
-                        // NOTE: the keys typed before the question are the row's, also
-                        // those still in the terminal (the mark) and the rest of a
-                        // paste; a key that would send stays in the row instead. So are
-                        // the keys typed before a password prompt showed: the user had
-                        // not seen it yet.
-                        while let Some(key) = reader.queued() {
-                            view.row_key(key);
-                        }
-                        reader.mark();
-                        self.paste_until =
-                            view.row_pasting().then(|| self.ctx.clock.now() + PASTE_GRACE);
-                        (reader, Some(Asking::Row))
-                    }
-                    Some((reader, before)) => (reader, Some(before)),
-                    // Starting the reader discards typeahead, so nothing typed before
-                    // the question answers it or stays queued for the shell.
-                    None => (self.ctx.keys.start()?, None),
-                };
-                // NOTE: the reader is held here before anything can fail, so the exit
-                // path still stops it and restores the terminal.
-                let (reader, asking, seeded, row) = take_over(reader, before, ask);
-                self.keys = Some((reader, asking));
-                for key in row {
-                    view.row_key(key);
-                }
-                let size = self.ctx.screen.size();
-                match seeded {
-                    Some(Seed::Shown(text)) => write(out, &view.typed(&text))?,
-                    Some(Seed::Unshown(count)) => write(out, &view.typed_ahead(count, size))?,
-                    None => {}
-                }
-            }
+            Some(ask) => self.take_keys(ask, out, view)?,
             None if step.end.is_some() => {
                 if let Some((keys, asking)) = self.keys.take() {
                     stop_into(keys, &asking, view).await;
@@ -917,10 +910,18 @@ impl Follower<'_> {
             None if step.settled => match self.keys.take() {
                 // The row asked for nothing, so nothing of it is settled.
                 Some((reader, Asking::Row)) => self.keys = Some((reader, Asking::Row)),
+                // NOTE: what settled is not the line of a command left running in the
+                // hidden shell, which still asks: its keys stay.
+                Some((reader, asking)) if left_owns(view, &asking) => {
+                    self.keys = Some((reader, asking));
+                }
                 Some((reader, asking)) => self.release(reader, &asking, view).await,
                 None => {}
             },
             None => {}
+        }
+        if step.end.is_none() {
+            self.offer_left(out, view)?;
         }
         if urgent {
             self.paint(out, view, false)?;
@@ -930,8 +931,108 @@ impl Follower<'_> {
         Ok(step.end)
     }
 
-    /// Handles one key; `None` means the key source ended.
+    /// The keys go to `ask`: from the input row, from what read them before, or from a
+    /// reader that starts now. Another question closes the line of a command left
+    /// running in the hidden shell, which comes back after it.
+    fn take_keys(
+        &mut self,
+        ask: Ask,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        if !view.left_asks(&ask) {
+            view.left_yield();
+        }
+        let (reader, before) = match self.keys.take() {
+            Some((mut reader, Asking::Row)) => {
+                // NOTE: the keys typed before the question are the row's, also
+                // those still in the terminal (the mark) and the rest of a
+                // paste; a key that would send stays in the row instead. So are
+                // the keys typed before a password prompt showed: the user had
+                // not seen it yet.
+                while let Some(key) = reader.queued() {
+                    view.row_key(key);
+                }
+                reader.mark();
+                self.paste_until = view.row_pasting().then(|| self.ctx.clock.now() + PASTE_GRACE);
+                (reader, Some(Asking::Row))
+            }
+            Some((reader, before)) => (reader, Some(before)),
+            // Starting the reader discards typeahead, so nothing typed before
+            // the question answers it or stays queued for the shell.
+            None => (self.ctx.keys.start()?, None),
+        };
+        // NOTE: the reader is held here before anything can fail, so the exit
+        // path still stops it and restores the terminal.
+        let (reader, asking, seeded, row) = take_over(reader, before, ask);
+        self.keys = Some((reader, asking));
+        for key in row {
+            view.row_key(key);
+        }
+        let size = self.ctx.screen.size();
+        match seeded {
+            Some(Seed::Shown(text)) => write(out, &view.typed(&text))?,
+            Some(Seed::Unshown(count)) => write(out, &view.typed_ahead(count, size))?,
+            None => {}
+        }
+        Ok(())
+    }
+
+    /// The line of a command left running in the hidden shell takes the keys when it
+    /// needs them and nothing else reads them but the input row.
+    fn offer_left(&mut self, out: &mut Output, view: &mut TurnView) -> Result<(), CliError> {
+        if !matches!(self.keys, Some((_, Asking::Row)) | None) || !self.ctx.keys.available() {
+            return Ok(());
+        }
+        let Some(step) = view.left_offer() else {
+            return Ok(());
+        };
+        write(out, &step)?;
+        match step.ask {
+            Some(ask) => self.take_keys(ask, out, view),
+            None => Ok(()),
+        }
+    }
+
+    /// Ctrl+C at the line of the command that call `call_id` left running in the
+    /// hidden shell: efrd sends it SIGINT. Its end comes as an event; a refusal is a
+    /// note.
+    async fn interrupt_left(
+        &mut self,
+        call_id: CallId,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let method = Method::ShellInterrupt(ShellInterrupt {
+            conversation_id: self.target.conversation,
+            call_id,
+            command_id: self.ctx.command_id(),
+            close: false,
+        });
+        match self.send::<ShellInterruptResult>(method).await? {
+            Ok(_) => Ok(()),
+            Err(body) => {
+                let step = view.left_not_stopped(&body.message, self.ctx.screen.size());
+                self.apply(step, out, view, false).await.map(drop)
+            }
+        }
+    }
+
+    /// Handles one key; `None` means the key source ended. Afterwards the line of a
+    /// command left running in the hidden shell takes the keys when nothing else does.
     async fn key(
+        &mut self,
+        key: Option<Key>,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        self.one_key(key, out, view).await?;
+        self.offer_left(out, view)?;
+        self.schedule(out, view)
+    }
+
+    /// Handles one key.
+    async fn one_key(
         &mut self,
         key: Option<Key>,
         out: &mut Output,
@@ -960,6 +1061,14 @@ impl Follower<'_> {
             view.row_key(key);
             self.keys = Some((reader, asking));
             return self.schedule(out, view);
+        }
+        // NOTE: Esc at the line of a command that still waits in the hidden shell after
+        // the turn leaves it there, and `efr` ends.
+        if let (Key::Esc, Asking::Input { call_id, .. }) = (key, &asking)
+            && let Some(step) = view.left_leave(*call_id, self.ctx.screen.size())
+        {
+            stop(reader, &asking).await;
+            return self.show(out, view, &step);
         }
         // A line or a question reads bytes; Esc alone is the escape byte there.
         let key = key.byte();
@@ -1703,6 +1812,14 @@ fn take_over(
         (Some(Asking::Pending { call_id, line }), Ask::Retain(kept)) if kept == call_id => {
             (reader, Asking::Pending { call_id, line }, None, row)
         }
+        // The same wait asks again, such as the line of a command left running in the
+        // hidden shell at the end of the turn: what was typed stays.
+        (
+            Some(Asking::Input { call_id, kind, line }),
+            Ask::Input { call_id: asked, kind: again },
+        ) if asked == call_id && again == kind => {
+            (reader, Asking::Input { call_id, kind, line }, None, row)
+        }
         (before, ask) => {
             // A running reader is kept, so echo never comes back between two questions.
             // NOTE: the row's keys before the question are told apart by the mark.
@@ -1728,6 +1845,18 @@ fn take_over(
             };
             (reader, asking, None, row)
         }
+    }
+}
+
+/// True when `asking` reads the keys for the line of a command left running in the
+/// hidden shell, which still asks.
+fn left_owns(view: &TurnView, asking: &Asking) -> bool {
+    match asking {
+        Asking::Input { call_id, .. } => {
+            view.left_asks(&Ask::Input { call_id: *call_id, kind: AnswerKind::Visible })
+        }
+        Asking::Discard => view.left_keys().is_some_and(|call| view.left_asks(&Ask::Discard(call))),
+        _ => false,
     }
 }
 

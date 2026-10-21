@@ -106,12 +106,21 @@ pub(crate) enum Outcome<'a> {
     Refused(&'a str),
     /// Its sandbox could not start, for this reason.
     NotStarted(&'a str),
+    /// It answered the model while its command still runs in the hidden shell
+    /// (`left_running`), such as after its timeout.
+    LeftRunning,
 }
 
 impl Outcome<'_> {
     /// True when the call failed, so its last output lines stay on the screen.
     pub(crate) fn failed(self) -> bool {
         matches!(self, Outcome::Exited(_) | Outcome::Failed)
+    }
+
+    /// True when the last output lines stay on the screen under the call: it failed, or
+    /// its command still runs, and its last line may be the prompt that it waits at.
+    pub(crate) fn keeps_tail(self) -> bool {
+        self.failed() || self == Outcome::LeftRunning
     }
 
     /// The result's text without the time, and its tone.
@@ -132,6 +141,9 @@ impl Outcome<'_> {
                 ),
                 Tone::Failure,
             ),
+            // NOTE: no check mark: the command did not end, and the shell takes no
+            // other call until it does.
+            Outcome::LeftRunning => (LEFT_RUNNING.to_owned(), Tone::Attention),
         }
     }
 
@@ -362,6 +374,9 @@ impl Call {
         indented(&text, tone, options)
     }
 }
+
+/// The result of a call whose command still runs in the hidden shell.
+pub(crate) const LEFT_RUNNING: &str = "still runs in the hidden shell";
 
 /// The mark after what a call that starts a background job runs.
 const BACKGROUND: &str = "(background)";

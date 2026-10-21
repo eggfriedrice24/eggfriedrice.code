@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/follow/view/tests/left.rs
+expression: bare(&step.out)
+---
+the hidden shell: rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack (you approved it)
+u@h's password: 
+type the answer and press Enter; it is not shown, and the agent sees it only if the program prints it
+enter answers · ctrl+c stops the command, not the turn

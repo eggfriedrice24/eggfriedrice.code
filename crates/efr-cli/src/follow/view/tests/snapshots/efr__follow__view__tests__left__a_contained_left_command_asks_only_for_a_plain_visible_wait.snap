@@ -1,0 +1,16 @@
+---
+source: crates/efr-cli/src/follow/view/tests/left.rs
+expression: "bare(&format!(\"{}{}\", step.out, typed.out))"
+---
+• $ ./setup.sh
+the hidden shell: ./setup.sh (sandbox)
+Go on? [y/N] 
+type the answer and press Enter; the agent sees it if the program shows it
+> 
+enter answers · ctrl+c stops the command, not the turn
+• $ ./setup.sh
+the hidden shell: ./setup.sh (sandbox)
+Go on? [y/N] 
+type the answer and press Enter; the agent sees it if the program shows it
+> y
+enter answers · ctrl+c stops the command, not the turn

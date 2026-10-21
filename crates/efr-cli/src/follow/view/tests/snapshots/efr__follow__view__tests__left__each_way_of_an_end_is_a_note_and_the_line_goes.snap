@@ -1,0 +1,12 @@
+---
+source: crates/efr-cli/src/follow/view/tests/left.rs
+expression: "shots.join(\"\\n\")"
+---
+[ended] rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack ended in the hidden shell with exit 23
+[stopped] rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack stopped in the hidden shell
+[limit] efr stopped rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack in the hidden shell: nobody answered its input in time
+[closed] the hidden shell closed with rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack in it; the next call starts a new shell
+[shell_exited] the hidden shell exited with rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack in it
+[moved] rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack moved to a background job
+[unknown] rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack no longer runs in the hidden shell
+[teleported] rsync -a -e 'ssh -o PreferredAuthentications=password' u@h:.config/Slack ./slack no longer runs in the hidden shell
