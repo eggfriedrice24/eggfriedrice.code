@@ -110,6 +110,16 @@ pub(crate) fn call_ended(call_dir: &Path) -> bool {
     call_dir.join(RESULT_FILE).exists() || std::fs::symlink_metadata(call_dir).is_err()
 }
 
+/// The dirs of `call_dirs` whose call ended ([`call_ended`]): the reach socket
+/// `$CALL/reach.sock` of such a call past its timeout may close (DS42).
+pub(crate) async fn ended_calls(call_dirs: Vec<PathBuf>) -> Vec<PathBuf> {
+    tokio::task::spawn_blocking(move || {
+        call_dirs.into_iter().filter(|dir| call_ended(dir)).collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// Closes the proxy listener of each call past its timeout that ended since
 /// ([`call_ended`]), and returns how many it closed. The gc pass and the next prepare
 /// of a call call it.

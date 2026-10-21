@@ -779,7 +779,9 @@ impl DaemonToolbox {
             let held = self.not_ready(call.context.conversation_id, &error);
             return ToolOutcome::error(not_ready_text(held, timeout));
         }
-        let input = PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view };
+        let reach = self.jobs.as_ref().map(JobTable::forwards);
+        let input =
+            PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view, reach };
         let watch = Stopwatch::start();
         let prepared = sandbox.prepare(&call.context, &input).await;
         tracing::debug!(phase = "sandbox_prepare", elapsed_ms = %watch, "phase=sandbox_prepare elapsed_ms={}", watch);
@@ -861,6 +863,7 @@ impl DaemonToolbox {
         let notes = prepared.notes.clone();
         let proxy = prepared.proxy;
         let bus = prepared.bus;
+        let reach = prepared.reach;
         let mut sink = CallSink {
             out,
             connections: &self.connections,
@@ -949,6 +952,13 @@ impl DaemonToolbox {
             } else {
                 sandbox.bus().keep_timed_out(bus, prepared.run.dir.clone());
             }
+        }
+        // NOTE: as the proxy socket: a call that runs on past its timeout keeps its reach
+        // until its launcher wrote the result (DS42); one that ended drops it here.
+        if let Some(reach) = reach
+            && !ended
+        {
+            sandbox.keep_reach(reach, prepared.run.dir.clone());
         }
         let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(!ended), limits));
         outcome.changes = self.snapshot_after(snapshot).await;

@@ -16,7 +16,9 @@
 //! proxy socket `$CALL/proxy.sock` there, served by efrd's proxy (`proxy.rs`, phase D2).
 //! A call with a filtered bus view gets one `xdg-dbus-proxy` for each bus in
 //! `$CALL/bus/` (`bus.rs`, phase E); efrd drops a view of a bus that the machine lacks
-//! before it writes the spec.
+//! before it writes the spec. A contained foreground call of a conversation with a job
+//! whose ports efrd forwards gets a reach plan and its reach socket `$CALL/reach.sock`
+//! (`jobs/forward/reach.rs`, v0.0.4 shell items DS34-DS42).
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -46,6 +48,8 @@ use tokio::sync::{Semaphore, watch};
 
 use crate::DaemonError;
 use crate::engine::load_registry;
+use crate::jobs::forward::Forwards;
+use crate::jobs::forward::reach::{self, ReachCall};
 use crate::trusted_programs::TrustedPrograms;
 
 pub(crate) mod bus;
@@ -154,6 +158,9 @@ struct Inner {
     proxy: proxy::ProxyService,
     /// The filtered bus proxies of the calls (phase E).
     bus: bus::BusService,
+    /// The reach of each call past its timeout, with its call dir, until its launcher
+    /// wrote the result or its dir went (DS42).
+    reaches: Mutex<Vec<(PathBuf, ReachCall)>>,
     /// The snapshots of the pinned project git dirs' remotes, per conversation (DP22).
     remotes: facts::remotes::Snapshots,
     writer: WriterHandle,
@@ -181,6 +188,9 @@ pub(crate) struct PrepareInput<'a> {
     /// True when the line runs `df` or `findmnt` (`exits::mount_view_line`): the call
     /// gets the snapshot of the host's mounts.
     pub(crate) mount_view: bool,
+    /// The forwards of efrd's jobs, for the reach of a contained foreground call
+    /// (v0.0.4 shell items, DS34); `None` for a job, or without jobs.
+    pub(crate) reach: Option<&'a Forwards>,
 }
 
 /// A prepared call: the run for the shell, the plan lock, and what the tool result says.
@@ -207,6 +217,8 @@ pub(crate) struct Prepared {
     pub(crate) proxy: Option<proxy::ProxyCall>,
     /// The filtered bus proxies of a call with a bus view, until the call ends.
     pub(crate) bus: Option<bus::BusCall>,
+    /// The reach socket of a call with a reach plan, served until the call ends (DS42).
+    pub(crate) reach: Option<ReachCall>,
     /// Counts the call as running until it drops; `None` for a job.
     _running: Option<Running>,
 }
@@ -305,6 +317,7 @@ impl SandboxService {
                 mounts,
                 proxy,
                 bus,
+                reaches: Mutex::new(Vec::new()),
                 remotes: facts::remotes::Snapshots::default(),
                 writer,
                 clock,
@@ -1037,7 +1050,13 @@ impl SandboxService {
         let watch = Stopwatch::start();
         let planned = plan::build(&plan_input);
         tracing::debug!(phase = "plan_build", elapsed_ms = %watch, "phase=plan_build elapsed_ms={}", watch);
-        let spec = planned.spec;
+        let mut spec = planned.spec;
+        // NOTE: a contained foreground call of a conversation with a forwarding job
+        // reaches the forwarded ports in its own namespace (DS34); a job never does.
+        let reach_forwards = input.reach.filter(|_| job.is_none());
+        if let Some(forwards) = reach_forwards {
+            spec.reach = reach::plan_of(&input.settings.jobs, forwards, &spec);
+        }
         let mut notes: Vec<String> = planned.notes.iter().map(|note| (*note).to_owned()).collect();
         notes.extend(bus_notes);
         if spec.launch == SpecLaunch::Contained
@@ -1086,6 +1105,28 @@ impl SandboxService {
         .await
         .map_err(|_| DaemonError::TaskPanicked { task: "sandbox call dir" })??;
         tracing::debug!(phase = "call_dir_write", elapsed_ms = %watch, "phase=call_dir_write elapsed_ms={}", watch);
+        // NOTE: the reach socket exists before the launcher starts, as the proxy socket
+        // below: the plan binds it into the call for the reach helper (DS42).
+        let reach = match (&spec.reach, reach_forwards) {
+            (Some(plan), Some(forwards)) => {
+                self.sweep_reaches().await;
+                match reach::bind(&call_dir).await {
+                    Ok(listener) => Some(reach::serve(
+                        forwards.clone(),
+                        Arc::clone(&self.inner.clock),
+                        call.conversation_id,
+                        call.call_id,
+                        listener,
+                        &plan.ports,
+                    )),
+                    Err(error) => {
+                        remove_dir(call_dir.clone()).await;
+                        return Err(error);
+                    }
+                }
+            }
+            _ => None,
+        };
         // NOTE: the socket exists before the launcher starts: the plan binds it into
         // the call, and the launcher refuses a proxy plan without it.
         let proxy = match &spec.network {
@@ -1134,6 +1175,7 @@ impl SandboxService {
                 Ok(started) => Some(started),
                 Err(error) => {
                     drop(proxy);
+                    drop(reach);
                     remove_dir(call_dir.clone()).await;
                     return Err(error);
                 }
@@ -1166,8 +1208,44 @@ impl SandboxService {
             contained: spec.launch == SpecLaunch::Contained,
             proxy,
             bus,
+            reach,
             _running: running,
         })
+    }
+
+    /// Keeps the reach of a call that passed its timeout until `result.json` appears in
+    /// `call_dir` or the dir goes ([`gc::sweep_reaches`]), as the proxy socket (DS42).
+    pub(crate) fn keep_reach(&self, reach: ReachCall, call_dir: PathBuf) {
+        self.reaches().push((call_dir, reach));
+    }
+
+    fn reaches(&self) -> std::sync::MutexGuard<'_, Vec<(PathBuf, ReachCall)>> {
+        // NOTE: each change is whole, so a poisoned lock still holds a usable list.
+        self.inner.reaches.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Ends the reach of each call past its timeout whose `result.json` appeared or
+    /// whose call dir went, and returns how many it ended. The gc pass and the prepare
+    /// of a call with a reach call it.
+    pub(crate) async fn sweep_reaches(&self) -> usize {
+        let held: Vec<PathBuf> = self.reaches().iter().map(|(dir, _)| dir.clone()).collect();
+        if held.is_empty() {
+            return 0;
+        }
+        let ended = gc::ended_calls(held).await;
+        let gone: Vec<(PathBuf, ReachCall)> = {
+            let mut reaches = self.reaches();
+            let (gone, kept) =
+                std::mem::take(&mut *reaches).into_iter().partition(|(dir, _)| ended.contains(dir));
+            *reaches = kept;
+            gone
+        };
+        let count = gone.len();
+        drop(gone);
+        if count > 0 {
+            tracing::debug!(count, "the reach of calls that ended after their timeout ended");
+        }
+        count
     }
 
     /// `launch` without the bus views that efrd cannot serve, the buses of the views
@@ -1235,6 +1313,7 @@ impl SandboxService {
     /// ended after their timeout.
     pub(crate) async fn gc(&self, settings: &Settings) {
         gc::sweep_proxies(&self.inner.proxy).await;
+        self.sweep_reaches().await;
         self.inner.bus.sweep().await;
         let root = self.inner.dirs.state().join(plan::SANDBOX_DIR);
         let now = std::time::SystemTime::from(self.inner.clock.now());

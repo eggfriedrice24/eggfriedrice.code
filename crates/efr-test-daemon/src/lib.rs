@@ -14,6 +14,8 @@
 //! - [`FakeForwarder`]: the forwarder of a job's port forwards, which a test plays on the
 //!   job's forward socket, with an [`echo_server`] behind each port;
 //!   [`TestDaemon::host_ports`] says which free port stands for a forwarded port.
+//! - [`FakeReach`]: the reach helper of a contained call, which a test plays on the
+//!   call's reach socket with no TCP port.
 //! - [`FakeProcView`]: the process facts that routing reads (which shell runs, which
 //!   terminal a peer runs on), set by the test; [`TestDaemonBuilder::proc_view`].
 //! - [`FakePtyHolder`]: a `PtyHolder` over socketpairs, whose shell the test plays
@@ -35,6 +37,7 @@ mod error;
 mod fake_forwarder;
 mod fake_launcher;
 mod fake_procs;
+mod fake_reach;
 mod pty_script;
 mod replay;
 mod test_daemon;
@@ -46,6 +49,7 @@ pub use error::TestDaemonError;
 pub use fake_forwarder::{FakeForwarder, connect_socket, echo_server};
 pub use fake_launcher::FakeLauncher;
 pub use fake_procs::FakeProcView;
+pub use fake_reach::{FakeReach, Told};
 pub use pty_script::{
     FakePtyHolder, FakeTerminal, PROMPT, PtyScript, PtyStep, command_output, typed_command,
 };

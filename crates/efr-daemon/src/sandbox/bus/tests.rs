@@ -773,6 +773,7 @@ impl Fixture {
             engine: &self.engine,
             named_paths: Vec::new(),
             mount_view: false,
+            reach: None,
         }
     }
 

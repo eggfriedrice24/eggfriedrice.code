@@ -190,6 +190,7 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
         engine: &engine,
         named_paths: Vec::new(),
         mount_view: false,
+        reach: None,
     };
 
     let before = service.prepare(&call(&fixture, Launch::contained(), Vec::new()), &input).await;
@@ -251,6 +252,7 @@ async fn a_desktop_grant_binds_the_socket_of_the_prompts_terminal() {
         engine: &engine,
         named_paths: Vec::new(),
         mount_view: false,
+        reach: None,
     };
     let instance = fixture.root.join("xrt/hypr/abc_1760000000_1");
     std::fs::create_dir_all(&instance).unwrap();
@@ -325,6 +327,7 @@ async fn mount_view_only_for_mount_lines() {
         engine: &engine,
         named_paths: Vec::new(),
         mount_view,
+        reach: None,
     };
 
     let (no_df, with_df) = (input(false), input(true));
@@ -361,6 +364,7 @@ async fn mount_view_job_gets_snapshot_at_start() {
         engine: &engine,
         named_paths: Vec::new(),
         mount_view: true,
+        reach: None,
     };
     let job = JobInput {
         plan: JobPlan::new(60, 19),
@@ -385,6 +389,7 @@ async fn mount_view_failure_adds_a_note() {
         engine: &engine,
         named_paths: Vec::new(),
         mount_view: false,
+        reach: None,
     };
     let first = call(&fixture, Launch::contained(), Vec::new());
     let prepared = service.prepare(&first, &input).await.unwrap();
@@ -410,6 +415,7 @@ async fn an_unmask_grant_gives_the_mounts_below_its_path_their_sizes() {
         engine: &engine,
         named_paths: Vec::new(),
         mount_view: false,
+        reach: None,
     };
     let first = call(&fixture, Launch::contained(), Vec::new());
     let prepared = service.prepare(&first, &input).await.unwrap();

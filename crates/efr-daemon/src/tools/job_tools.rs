@@ -386,7 +386,13 @@ impl DaemonToolbox {
         let engine = Arc::clone(&engine.borrow());
         // NOTE: a job gets the snapshot of its start and keeps it.
         let mount_view = efr_permissions::exits::mount_view_line(&command);
-        let input = PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view };
+        let input = PrepareInput {
+            settings: &settings,
+            engine: &engine,
+            named_paths,
+            mount_view,
+            reach: None,
+        };
         let limit_secs = u64::from(minutes) * 60;
         // NOTE: the launch of a job outside `auto` is the exit child, which gets no
         // forwards; the plan names the socket that efrd binds below.

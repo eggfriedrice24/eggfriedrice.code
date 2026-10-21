@@ -14,7 +14,7 @@ use efr_sandbox::{
 };
 use efr_stdx::time::Clock;
 use efr_store::Batch;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream, UnixListener, UnixStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
@@ -62,6 +62,7 @@ pub(crate) fn serve(table: JobTable, key: JobKey, socket: ForwardSocket) -> JobF
         connections: Arc::new(Semaphore::new(MAX_FORWARD_CONNECTIONS)),
         warned: Mutex::new(BTreeSet::new()),
     });
+    forwards.serving(key, Arc::downgrade(&ctx));
     let control = Control {
         ctx,
         listener,
@@ -75,8 +76,9 @@ pub(crate) fn serve(table: JobTable, key: JobKey, socket: ForwardSocket) -> JobF
     JobForward { key, forwards, token, off }
 }
 
-/// What every task of one job's forwards shares.
-struct Ctx {
+/// What every task of one job's forwards shares. A call's reach finds it through
+/// [`Forwards`] and opens its connections with [`Ctx::reach`].
+pub(super) struct Ctx {
     table: JobTable,
     clock: Arc<dyn Clock>,
     key: JobKey,
@@ -168,22 +170,32 @@ impl Ctx {
     }
 
     /// One host connection to the forwarded `port`, whose listener is on `local`: the
-    /// peer check, the `Open`, the wait for `Data` and the copy.
-    async fn connect(&self, port: u16, local: u16, mut tcp: TcpStream, peer: SocketAddr) {
+    /// peer check, then [`open`](Self::open).
+    async fn connect(&self, port: u16, local: u16, tcp: TcpStream, peer: SocketAddr) {
         if !self.peer_is_own(local, peer).await {
             if locked(&self.warned).insert(port) {
                 tracing::warn!(job = %self.job, port, "a process of another user or an unknown process connected to a forwarded port; efrd closed the connection");
             }
             return;
         }
+        self.open(port, tcp).await;
+    }
+
+    /// The `Open` of `port`, the wait for the forwarder's `Data` and the copy of `stream`
+    /// both ways, for a host connection or a connection of a call's reach (DS41). False
+    /// when the job's server was not reached: `stream` then closes with no byte.
+    async fn open<S>(&self, port: u16, mut stream: S) -> bool
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let addr = match locked(&self.ports).get(&port) {
             Some(known) if known.live => known.addr,
-            _ => return,
+            _ => return false,
         };
         let (id, answer) = self.wait_data();
         if self.opens.send(Frame::open(id, Listen { addr, port })).await.is_err() {
             locked(&self.pending).waiting.remove(&id);
-            return;
+            return false;
         }
         let answer = self.clock.timeout(OPEN_WAIT, answer).await;
         let (status, mut unix) = match answer {
@@ -191,15 +203,37 @@ impl Ctx {
             _ => {
                 locked(&self.pending).waiting.remove(&id);
                 tracing::debug!(job = %self.job, port, "the forwarder did not answer an open in time");
-                return;
+                return false;
             }
         };
         if status != 0 {
             tracing::debug!(job = %self.job, port, status, "the forwarder could not connect in the job");
-            return;
+            return false;
         }
-        let copied = tokio::io::copy_bidirectional(&mut tcp, &mut unix).await;
+        let copied = tokio::io::copy_bidirectional(&mut stream, &mut unix).await;
         tracing::trace!(job = %self.job, port, ?copied, "a forwarded connection ended");
+        true
+    }
+
+    /// A connection of a call's reach helper to the forwarded `port`: one place of the
+    /// job's connections, then [`open`](Self::open), until the copy ends or the job's
+    /// forwards end. False when it got no place or did not reach the job's server.
+    pub(super) async fn reach(&self, port: u16, stream: UnixStream) -> bool {
+        let Ok(permit) = Arc::clone(&self.connections).try_acquire_owned() else {
+            tracing::debug!(job = %self.job, port, "a job has as many forwarded connections as it may");
+            return false;
+        };
+        let opened = tokio::select! {
+            () = self.token.cancelled() => false,
+            opened = self.open(port, stream) => opened,
+        };
+        drop(permit);
+        opened
+    }
+
+    /// The job, for the log of a call's reach.
+    pub(super) fn job(&self) -> &JobId {
+        &self.job
     }
 }
 
@@ -419,6 +453,7 @@ impl Control {
         let port = target.port;
         let local = listener.local_addr().map_or(port, |addr| addr.port());
         locked(&ctx.ports).insert(port, Port { addr: target.addr, live: true });
+        ctx.forwards.forwarded(ctx.key, port);
         let listen = target.addr.to_string();
         let forward = PortForward { listen: listen.clone(), port };
         ctx.table.update(ctx.key, |info| info.forwards.push(forward));
