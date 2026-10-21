@@ -33,15 +33,22 @@
 //!   each port ([`JobForward::turn_off`]). A later `true` does not open them again:
 //!   [`Forwards`] counts each turn off, and a job that read the old settings forwards
 //!   nothing.
+//! - The reach of a contained call (`forward/reach.rs`, v0.0.4 shell items DS34-DS48):
+//!   [`Forwards`] also knows which job serves each forwarded port, and a `watch` changes
+//!   at each forward and each release. A contained
+//!   foreground call of a conversation with such a job gets a reach plan, and efrd
+//!   routes each connection of the call's reach helper to the job's forwarder.
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use efr_config::JobsSettings;
 use efr_permissions::Egress;
-use efr_protocol::{ForwardOutcome, Grant, JobId, Launch, PortForward};
-use efr_sandbox::{FORWARD_SOCKET_FILE, ForwardPlan, MAX_DAEMON_FORWARDS};
+use efr_protocol::{ConversationId, ForwardOutcome, Grant, JobId, Launch, PortForward};
+use efr_sandbox::{BRIDGE_PORT, FORWARD_SOCKET_FILE, ForwardPlan, MAX_DAEMON_FORWARDS, MIN_PORT};
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::JobKey;
@@ -50,6 +57,7 @@ use crate::sandbox::proxy::bind_socket;
 use crate::sandbox::seams::HostPorts;
 
 mod host;
+pub(crate) mod reach;
 mod serve;
 
 pub(crate) use host::SystemHostPorts;
@@ -95,8 +103,9 @@ pub(crate) fn plan_of(
     Some(ForwardPlan::new(socket, egress == Egress::Proxy))
 }
 
-/// The forwards of every job of efrd: the host ports that jobs hold, and how often a
-/// reload turned forwards off. Cheap to clone; clones share everything.
+/// The forwards of every job of efrd: the host ports that jobs hold, how often a
+/// reload turned forwards off, and the routes of the calls' reach (DS39, DS41). Cheap to
+/// clone; clones share everything.
 #[derive(Clone)]
 pub(crate) struct Forwards {
     inner: Arc<Shared>,
@@ -111,14 +120,26 @@ impl std::fmt::Debug for Forwards {
 struct Shared {
     ports: Arc<dyn HostPorts>,
     held: Mutex<Held>,
+    /// Counts each change of the forwarded ports or of the jobs that forward; a call's
+    /// reach waits on it (DS39).
+    changes: watch::Sender<u64>,
 }
 
 #[derive(Default)]
 struct Held {
     /// The job that holds each forwarded host port.
-    ports: std::collections::BTreeMap<u16, JobKey>,
+    ports: BTreeMap<u16, JobKey>,
+    /// The ports of `ports` that efrd forwards: their host bind worked (DS35).
+    bound: BTreeSet<u16>,
+    /// Each running job whose forwards efrd serves, with its tasks (DS41).
+    jobs: HashMap<JobKey, Route>,
     /// How often a reload turned `jobs.forward_ports` off.
     generation: u64,
+}
+
+/// The forwards of one job as a call's reach finds them.
+struct Route {
+    ctx: Weak<serve::Ctx>,
 }
 
 /// Why a job cannot hold a host port in efrd's table.
@@ -133,12 +154,19 @@ pub(crate) enum Taken {
 impl Forwards {
     /// The forwards of an efrd that binds host ports through `ports`.
     pub(crate) fn new(ports: Arc<dyn HostPorts>) -> Forwards {
-        Forwards { inner: Arc::new(Shared { ports, held: Mutex::new(Held::default()) }) }
+        let (changes, _) = watch::channel(0);
+        Forwards { inner: Arc::new(Shared { ports, held: Mutex::new(Held::default()), changes }) }
     }
 
     fn lock(&self) -> MutexGuard<'_, Held> {
         // NOTE: each change is whole, so a poisoned lock still holds a usable table.
         self.inner.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Tells every waiter that the forwarded ports or the forwarding jobs changed. The
+    /// caller holds no lock of the table.
+    fn changed(&self) {
+        self.inner.changes.send_modify(|count| *count = count.wrapping_add(1));
     }
 
     /// The host ports.
@@ -176,15 +204,92 @@ impl Forwards {
 
     /// Frees `port` when the job `key` holds it.
     pub(crate) fn release(&self, key: JobKey, port: u16) {
-        let mut held = self.lock();
-        if held.ports.get(&port) == Some(&key) {
-            held.ports.remove(&port);
+        let unbound = {
+            let mut held = self.lock();
+            if held.ports.get(&port) == Some(&key) {
+                held.ports.remove(&port);
+                held.bound.remove(&port)
+            } else {
+                false
+            }
+        };
+        if unbound {
+            self.changed();
         }
     }
 
-    /// Frees every port of the job `key`.
+    /// Frees every port of the job `key`, and ends the routes of a call's reach to it.
     pub(crate) fn release_job(&self, key: JobKey) {
-        self.lock().ports.retain(|_, holder| *holder != key);
+        let changed = {
+            let mut held = self.lock();
+            let Held { ports, bound, jobs, .. } = &mut *held;
+            let mut changed = jobs.remove(&key).is_some();
+            ports.retain(|port, holder| {
+                let keep = *holder != key;
+                if !keep {
+                    changed |= bound.remove(port);
+                }
+                keep
+            });
+            changed
+        };
+        if changed {
+            self.changed();
+        }
+    }
+
+    /// Marks `port` of the job `key` as forwarded, once its host bind worked: a call's
+    /// reach routes it from now on (DS35).
+    pub(crate) fn forwarded(&self, key: JobKey, port: u16) {
+        let added = {
+            let mut held = self.lock();
+            held.ports.get(&port) == Some(&key) && held.bound.insert(port)
+        };
+        if added {
+            self.changed();
+        }
+    }
+
+    /// Records that efrd serves the forwards of the job `key` with `ctx`.
+    fn serving(&self, key: JobKey, ctx: Weak<serve::Ctx>) {
+        self.lock().jobs.insert(key, Route { ctx });
+        self.changed();
+    }
+
+    /// The ports that efrd forwards for the running jobs of `conversation` and that a
+    /// call's reach helper may listen on: from [`MIN_PORT`] up, never [`BRIDGE_PORT`],
+    /// sorted (DS35, DS43).
+    pub(crate) fn ports_of(&self, conversation: ConversationId) -> Vec<u16> {
+        let held = self.lock();
+        held.bound
+            .iter()
+            .copied()
+            .filter(|port| *port >= MIN_PORT && *port != BRIDGE_PORT)
+            .filter(|port| held.ports.get(port).is_some_and(|key| key.conversation == conversation))
+            .collect()
+    }
+
+    /// True while a running job of `conversation` has forwards that efrd serves (DS34).
+    pub(crate) fn has_forward_job(&self, conversation: ConversationId) -> bool {
+        self.lock().jobs.keys().any(|key| key.conversation == conversation)
+    }
+
+    /// The forwards of the job of `conversation` that forwards `port`, while it runs;
+    /// `None` for a port of another conversation or one that efrd does not forward
+    /// (DS41).
+    fn route(&self, conversation: ConversationId, port: u16) -> Option<Arc<serve::Ctx>> {
+        let held = self.lock();
+        if !held.bound.contains(&port) {
+            return None;
+        }
+        let key = held.ports.get(&port).filter(|key| key.conversation == conversation)?;
+        held.jobs.get(key)?.ctx.upgrade()
+    }
+
+    /// A receiver that sees each change of the forwarded ports and of the forwarding
+    /// jobs.
+    pub(crate) fn changes(&self) -> watch::Receiver<u64> {
+        self.inner.changes.subscribe()
     }
 }
 

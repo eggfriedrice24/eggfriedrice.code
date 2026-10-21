@@ -77,6 +77,14 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   job's port, which `TestDaemon::host_ports` names (`real_port`), and the machine's own
   tcp tables, where a test can make a port count as in use, add a listener on `::1` or
   show another uid. Only `TestDaemonBuilder::system_host_ports` binds the real ports.
+- `fake_reach`: `FakeReach`, the reach helper of a contained call (`efr-sbx reach`) as
+  a test plays it, because the fake launcher starts none. It connects to the call's
+  reach socket (from the spec that the fake launcher kept, through `connect_socket`)
+  and sends `Hello`. It keeps each `Reach` and `Unreach` of efrd (`told`,
+  `told_at_least`), sends a `Bound` (`bound`) or any 28 bytes (`send_raw`), and
+  `closed` waits until efrd closed the control connection. `open` is a process of the
+  call that connects to a port: a data connection that sends `Connect` and then carries
+  the bytes. It binds no TCP port, and it encodes the frames by hand.
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
