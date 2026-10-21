@@ -214,6 +214,17 @@ into the GitHub release notes, and it stops when the section is missing.
   its command. `--all` lists the jobs of every conversation with its title, and
   `--conversation` names another one. `efr jobs stop <id>` stops a job and shows how
   it ended and the last 10 lines of its output. An unknown job exits 1.
+- In `auto`, a loopback port that a contained background job listens on is now
+  reachable on the same port of `127.0.0.1` on your machine, so your browser opens a
+  dev server that the model started. The view shows `job j1 listens on
+  127.0.0.1:8765 -> http://localhost:8765`, and `efr jobs` lists the ports. efr forwards
+  ports from 1024 up, never a port that is in use on your machine, never port 3128 of a
+  proxy job, and no well-known service port, such as 5432 or 6379, or 1455 of
+  `efr login`. Only your own user's programs can connect. The forward ends with the job.
+  `jobs.forward_ports = false` turns it off. A foreground call gets no forward. UDP is
+  not forwarded. Before, the browser could reach such a server only after a review
+  that gave the job the whole network. `docs/sandbox.md`, "Ports of a job", has the
+  details and the limits.
 - In `auto`, `df` and `findmnt` now run with no review and show your machine's
   mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
   reads the mounts outside the sandbox. A mount that does not answer in one second
@@ -388,15 +399,6 @@ into the GitHub release notes, and it stops when the section is missing.
   `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add
   ~/p/tool registers it.` efr never registers a repository by itself.
   `conversation.repo_hint = false` turns it off.
-- In `auto`, a loopback port that a contained background job listens on is now
-  reachable on the same port of `127.0.0.1` on your machine, so your browser opens a
-  dev server that the model started. The view shows `job j1 listens on
-  127.0.0.1:8765 -> http://localhost:8765`, and `efr jobs` lists the ports. efr forwards
-  ports from 1024 up, never a port that is in use on your machine, never port 3128 of a
-  proxy job, and no well-known service port, such as 5432 or 6379, or 1455 of
-  `efr login`. Only your own user's programs can connect. The forward ends with the job.
-  `jobs.forward_ports = false` turns it off. A foreground call gets no forward. UDP is
-  not forwarded.
 
 ### Changed
 
