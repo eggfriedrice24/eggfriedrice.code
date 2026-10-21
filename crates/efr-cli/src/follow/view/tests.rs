@@ -1493,7 +1493,7 @@ fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
     // The call's first rows come first: nothing showed it before.
     assert_eq!(
         step.err,
-        "\u{b7} $ ssh-add\n\nsandbox: the command asked for a password; efr does not type \
+        "\u{b7} $ ssh-add\n\nsandbox: the command asked for a secret; efr does not type \
          secrets into the sandbox\n"
     );
 }
@@ -1510,7 +1510,7 @@ fn masked_wait_of_contained_call_shows_the_sandbox_note() {
     assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
     assert!(
         step.err.contains(
-            "sandbox: the command asked for a password; efr does not type secrets into the sandbox"
+            "sandbox: the command asked for a secret; efr does not type secrets into the sandbox"
         ),
         "{:?}",
         step.err
