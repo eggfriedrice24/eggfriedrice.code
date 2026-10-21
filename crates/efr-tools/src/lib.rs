@@ -10,7 +10,8 @@
 //! - [`ToolRegistry`]: the specs for the provider request and dispatch by name; it
 //!   never hands out a tool.
 //! - [`ShellTool`] over `efr_shell::CommandRunner`, with the members of a background
-//!   job ([`job_request`], [`JobRequest`], [`WatchInput`], [`job_started_text`]),
+//!   job ([`job_request`], [`JobRequest`], [`WatchInput`], [`job_started_text`]) and
+//!   the answer of a call that the user moved into a job ([`job_moved_text`]),
 //!   [`ReadFileTool`] and
 //!   [`WriteFileTool`], which records each original in a [`WriteJournal`]
 //!   ([`JournalEntry`], [`FileSnapshot`], [`Original`]) before it writes, and
@@ -62,8 +63,8 @@ pub use output::{DEFAULT_OUTPUT_LIMIT, Truncated, truncate_middle};
 pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
 pub use shell_tool::{
-    JobRequest, NotReady, ShellTool, WatchInput, blocked_note, bus_note, job_request,
-    job_started_text, not_ready_text,
+    JobRequest, NotReady, ShellTool, WatchInput, blocked_note, bus_note, job_moved_text,
+    job_request, job_started_text, not_ready_text,
 };
 pub use tool::{
     AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,

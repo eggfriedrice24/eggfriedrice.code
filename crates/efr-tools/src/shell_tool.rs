@@ -8,11 +8,14 @@ mod words;
 mod writes;
 
 use std::borrow::Cow;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use efr_protocol::{BlockReason, Blocked, BusKind, BusRefusal, InputWait, Needs, SandboxSummary};
+use efr_protocol::{
+    BlockReason, Blocked, BusKind, BusRefusal, InputWait, JobInfo, Needs, SandboxSummary,
+};
 use efr_shell::{
     CommandResult, CommandRunner, Completion, OutputUpdate, RunMode, RunProgress, RunRequest,
     ShellError,
@@ -140,6 +143,34 @@ pub fn job_started_text(
     format!(
         "job {id} started: {command}\noutput: {output}\n{limit}\nYou will get a notice when it \
          ends. Do not poll. Do other work, or end your response."
+    )
+}
+
+/// The answer of a `shell` call whose running command the user moved into the job
+/// `info` (Ctrl+B in `efr`), after the call ran for `after`. efrd puts it after the
+/// output so far. The hidden shell of the next call is a new one in `cwd`. `contained`
+/// says that the command runs in the sandbox, where a moved command gets no port
+/// forwards and no reach.
+pub fn job_moved_text(info: &JobInfo, after: Duration, cwd: &Path, contained: bool) -> String {
+    let id = &info.id;
+    let seconds = after.as_secs();
+    let output = info.output.display();
+    let limit = info.ends_by.as_second().saturating_sub(info.started_at.as_second()).max(0);
+    let minutes = (limit + 30) / 60;
+    let unit = if minutes == 1 { "minute" } else { "minutes" };
+    let ports = if contained {
+        "efr does not forward the ports of a moved command, and the command no longer \
+         reaches the forwarded ports of other jobs; to open a server in the browser, start \
+         it with background: true. "
+    } else {
+        ""
+    };
+    format!(
+        "[the user moved this command to the background after {seconds}s: job {id}. The \
+         output so far is above; the rest goes to {output}. Time limit: {minutes} {unit}. \
+         You get a notice when it ends; do not poll. The hidden shell is new: the \
+         variables, functions and aliases of the old one are gone. {ports}cwd {cwd}]",
+        cwd = cwd.display(),
     )
 }
 

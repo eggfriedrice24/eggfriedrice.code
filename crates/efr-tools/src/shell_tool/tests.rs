@@ -714,6 +714,75 @@ fn job_started_text_names_the_clamp() {
     assert_eq!(text.lines().count(), 4);
 }
 
+/// A job that the user moved from a running call, with a limit of `minutes` from the
+/// move.
+fn moved_job(minutes: u32) -> efr_protocol::JobInfo {
+    let ends = format!("2026-10-21T{:02}:{:02}:42Z", 10 + minutes / 60, minutes % 60);
+    serde_json::from_value(json!({
+        "id": "j3",
+        "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+        "command": "make",
+        "launch": { "kind": "contained" },
+        "state": "running",
+        "started_at": "2026-10-21T10:00:42Z",
+        "ends_by": ends,
+        "output": "/home/u/.local/share/efr/scratch/c/jobs/j3.out",
+        "output_bytes": 0,
+        "moved_from": {
+            "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+            "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+            "after_secs": 42,
+        },
+    }))
+    .unwrap()
+}
+
+#[test]
+fn job_moved_text_names_the_job_the_output_the_limit_and_the_new_shell() {
+    let text = super::job_moved_text(
+        &moved_job(60),
+        Duration::from_secs(42),
+        std::path::Path::new("/home/u/app"),
+        false,
+    );
+    assert_eq!(
+        text,
+        "[the user moved this command to the background after 42s: job j3. The output so \
+         far is above; the rest goes to /home/u/.local/share/efr/scratch/c/jobs/j3.out. Time \
+         limit: 60 minutes. You get a notice when it ends; do not poll. The hidden shell is \
+         new: the variables, functions and aliases of the old one are gone. cwd /home/u/app]"
+    );
+    assert_eq!(text.lines().count(), 1, "one line, as the other notes of a call");
+    let one = super::job_moved_text(
+        &moved_job(1),
+        Duration::from_secs(3),
+        std::path::Path::new("/"),
+        false,
+    );
+    assert!(one.contains(" after 3s: job j3."), "{one}");
+    assert!(one.contains("Time limit: 1 minute. "), "{one}");
+}
+
+#[test]
+fn job_moved_text_of_a_contained_call_says_it_gets_no_ports() {
+    let text = super::job_moved_text(
+        &moved_job(60),
+        Duration::from_secs(42),
+        std::path::Path::new("/home/u/app"),
+        true,
+    );
+    assert!(
+        text.ends_with(
+            "of the old one are gone. efr does not forward the ports of a moved command, and \
+             the command no longer reaches the forwarded ports of other jobs; to open a server \
+             in the browser, start it with background: true. cwd /home/u/app]"
+        ),
+        "{text}"
+    );
+}
+
 #[test]
 fn the_schema_names_the_job_members_with_their_limits() {
     let schema = tool().spec().input_schema;

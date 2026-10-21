@@ -101,7 +101,12 @@ The tools:
   with a job id and an output file, that the job runs until it ends, `max_minutes`
   passes or `job_stop` stops it, that a notice comes at its end so the model does not
   poll, and that the `&`, `nohup` and `setsid` processes of a normal call stop when the
-  call ends. After
+  call ends. `job_moved_text` (from v0.0.4) is the answer of a call whose running
+  command the user moved into a job with Ctrl+B: the job id, the output file, the time
+  limit from the move, no poll, the new hidden shell without the old variables,
+  functions and aliases, and for a contained command that it gets no port forwards and
+  no longer reaches the forwarded ports of other jobs. efrd writes it after the output
+  so far. After
   a run through the sandbox's launcher, the answer names what `result.json` reports:
   the sandbox note after a contained command that failed (where it writes and that
   secrets read as empty, never a list of what it cannot do), the exports that stay in the
