@@ -28,6 +28,10 @@
 //! - The end: dropping the [`ReachCall`] closes the socket, the control connection and
 //!   every copy. A call that ended drops it; a call that runs on past its timeout keeps
 //!   it until its launcher wrote the result (`SandboxService::keep_reach`).
+//! - The fact of a line ([`fact`], DS43, DS44): the forwarded ports of the conversation.
+//!   When the line names a loopback port that is not forwarded yet and a job of the
+//!   conversation began to forward less than [`REACH_SETTLE`] ago, efrd first waits for
+//!   that port up to the rest of that time.
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -36,10 +40,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use efr_config::JobsSettings;
-use efr_protocol::{CallId, ConversationId, Grant};
+use efr_permissions::network::host_and_port;
+use efr_protocol::{CallId, ConversationId, Grant, Needs};
 use efr_sandbox::{
-    FRAME_LEN, Frame, FrameKind, Listen, MAX_REACH_CONNECTIONS, NetworkPlan, REACH_SOCKET_FILE,
-    REACH_VERSION, ReachPlan, SandboxError, SandboxSpec, SpecLaunch,
+    BRIDGE_PORT, FRAME_LEN, Frame, FrameKind, Listen, MAX_REACH_CONNECTIONS, MIN_PORT, NetworkPlan,
+    REACH_SOCKET_FILE, REACH_VERSION, ReachPlan, SandboxError, SandboxSpec, SpecLaunch,
 };
 use efr_stdx::time::Clock;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -54,6 +59,11 @@ use crate::sandbox::proxy::bind_socket;
 
 /// How long efrd waits for the reach helper's `Hello` before it warns once.
 pub(crate) const HELLO_WAIT: Duration = super::HELLO_WAIT;
+
+/// How long after a job of the conversation began to forward the fact of a line waits
+/// for a loopback port that the line names (DS44): the forwarder reports a port once it
+/// was stable for a second.
+pub(crate) const REACH_SETTLE: Duration = Duration::from_secs(3);
 
 /// How long the accept of the reach socket waits after it failed, such as at the limit
 /// of open files.
@@ -337,6 +347,50 @@ async fn read_frames(
             return;
         }
     }
+}
+
+/// The loopback ports that a line names (DS44): each URL of `command` and each entry of
+/// `needs.hosts` on `localhost`, `127.0.0.1` or `[::1]` with a port from [`MIN_PORT`] up
+/// but [`BRIDGE_PORT`]. It only predicts; the classifier reads the line itself.
+pub(crate) fn named_ports(command: &str, needs: Option<&Needs>) -> Vec<u16> {
+    let quotes = |c: char| c.is_whitespace() || "'\"`()<>;|&".contains(c);
+    let urls = command.split(quotes).filter(|word| word.contains("://"));
+    let hosts = needs.into_iter().flat_map(|needs| needs.hosts.iter().map(String::as_str));
+    let mut ports = Vec::new();
+    for word in urls.chain(hosts) {
+        let Some((host, port)) = host_and_port(word) else { continue };
+        let loopback = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
+        if loopback && port >= MIN_PORT && port != BRIDGE_PORT && !ports.contains(&port) {
+            ports.push(port);
+        }
+    }
+    ports
+}
+
+/// The fact `CallFacts::reach_ports` of a line of `conversation` that names the loopback
+/// ports `named` (DS43, DS44): the conversation's forwarded ports. When a named port is
+/// not among them and a job of the conversation began to forward less than
+/// [`REACH_SETTLE`] ago, it waits on `clock` for the port up to the rest of that time.
+pub(crate) async fn fact(
+    forwards: &Forwards,
+    clock: &Arc<dyn Clock>,
+    conversation: ConversationId,
+    named: &[u16],
+) -> Vec<u16> {
+    let ports = forwards.ports_of(conversation);
+    let missing: Vec<u16> = named.iter().filter(|port| !ports.contains(port)).copied().collect();
+    if missing.is_empty() {
+        return ports;
+    }
+    let Some(since) = forwards.newest_start(conversation) else { return ports };
+    let age = Duration::try_from(clock.now().duration_since(since)).unwrap_or(Duration::ZERO);
+    let rest = REACH_SETTLE.saturating_sub(age);
+    if rest.is_zero() {
+        return ports;
+    }
+    tracing::debug!(%conversation, ports = ?missing, wait_ms = rest.as_millis(), "a line names a port of a new job; efrd waits for its forward");
+    let _ = clock.timeout(rest, forwards.wait_for(conversation, &missing)).await;
+    forwards.ports_of(conversation)
 }
 
 #[cfg(test)]
