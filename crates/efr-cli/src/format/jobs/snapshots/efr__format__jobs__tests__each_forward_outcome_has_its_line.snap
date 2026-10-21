@@ -1,0 +1,16 @@
+---
+source: crates/efr-cli/src/format/jobs/tests.rs
+expression: "lines.join(\"\\n\")"
+---
+job j1 listens on 127.0.0.1:8765 -> http://localhost:8765
+job j1 listens on [::1]:5173 -> http://localhost:5173
+job j1 listens on 127.0.0.1:8765; not forwarded: 127.0.0.1:8765 is in use on this machine
+job j1 listens on 127.0.0.1:8765; not forwarded: 127.0.0.1:8765 is in use by job j2
+job j1 listens on 127.0.0.1:6379; not forwarded: efr does not forward port 6379 (a service port)
+job j1 listens on 127.0.0.1:6379; not forwarded: efr does not forward port 6379
+job j1 listens on 127.0.0.1:9000; not forwarded: the job forwards 8 ports already
+job j1 listens on [::1]:9001; not forwarded: efrd forwards 32 ports already
+job j1 listens on 127.0.0.1:9002; not forwarded: efr forwards as many ports as it may
+job j1: port 8765 is no longer forwarded (jobs.forward_ports is off)
+job j1: port 5173 is no longer forwarded
+job j1 listens on 127.0.0.1:8766

@@ -23,7 +23,8 @@
 //! again because it wrote no real reason.
 //!
 //! Background jobs show as the view shows them: a job's start, its end, a line that
-//! matched its `watch` pattern and a notice that did not start a turn. A turn that a
+//! matched its `watch` pattern, a notice that did not start a turn and a port that efr
+//! forwards or not, with the URL as an OSC 8 link on a terminal. A turn that a
 //! job notice started shows `🤖 (job notice, not your input)` where a prompt would
 //! stand. `--verbose` adds the text of each notice and the tail of each end, through
 //! `format::lines`, so the output of a job cannot drive the terminal.
@@ -434,9 +435,17 @@ impl<'a> Transcript<'a> {
             }
             event @ (Event::JobEnded { .. }
             | Event::JobWatchMatched { .. }
-            | Event::JobNoticeHeld { .. }) => {
+            | Event::JobNoticeHeld { .. }
+            | Event::JobPortForwarded { .. }) => {
                 if let Some(line) = jobs::conversation_line(event) {
-                    self.dim_lines(&[line]);
+                    let url = jobs::link_of(event);
+                    self.out.push_str(self.spacing.before(Block::Note));
+                    let painted = format::paint(&line, Tone::Dim, self.options);
+                    let _ = writeln!(
+                        self.out,
+                        "{}",
+                        jobs::linked(&painted, url.as_deref(), self.options)
+                    );
                 }
                 if let Event::JobEnded { tail, surface_changes, .. } = event
                     && self.verbose

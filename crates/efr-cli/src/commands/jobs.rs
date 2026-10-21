@@ -6,7 +6,8 @@
 //! a muted line on stderr that says which; `--conversation` names another, and `--all`
 //! lists the jobs of every conversation with its title. One row per job, newest first:
 //! its id, its state, when it ends or ended, the size of its output and its command,
-//! with a mark when processes of the job may still run.
+//! with the ports that efr forwards for a running job, such as `(ports 8765, 5173)`,
+//! and a mark when processes of the job may still run.
 //!
 //! `efr jobs stop <id>` stops a job of the same conversation. efrd answers when the job
 //! ended, so the command then shows how it ended and the last lines of its output. The
