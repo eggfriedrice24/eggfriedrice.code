@@ -206,7 +206,7 @@ pub(crate) fn plain_view(words: &[String]) -> Option<Vec<String>> {
 const MAX_UNKNOWN: usize = 4;
 
 /// How deep [`views`] reads an alias of an alias before it gives up and fails closed.
-const MAX_ALIAS_DEPTH: usize = 4;
+pub(crate) const MAX_ALIAS_DEPTH: usize = 4;
 
 /// The dirs that a git command works in by its own options: the `-C` dirs in order,
 /// each relative to the one before, and the `--work-tree` dir (DL25).
@@ -385,6 +385,15 @@ fn tight(words: &[String], aliases: Vec<Alias>, depth: usize, out: &mut Views) {
 /// for another key. A value from the environment, a shell command, a value with a quote
 /// or a backslash, an empty value and a key with no value cannot be read.
 fn alias_of(value: &str, from_env: bool) -> Option<Alias> {
+    let (name, text) = alias_setting(value, from_env)?;
+    Some(Alias { name: name.to_ascii_lowercase(), value: text.map(str::to_owned) })
+}
+
+/// The name and the value of the alias that the config value `value` of `-c` or
+/// `--config-env` (`from_env`) sets, or `None` for another key. The value is `None`
+/// when efr cannot read it: a value from the environment, a shell command, a value with
+/// a quote or a backslash, an empty value and a key with no value.
+pub(crate) fn alias_setting(value: &str, from_env: bool) -> Option<(&str, Option<&str>)> {
     let (key, text) = match value.split_once('=') {
         Some((key, text)) => (key, Some(text)),
         None => (value, None),
@@ -399,7 +408,7 @@ fn alias_of(value: &str, from_env: bool) -> Option<Alias> {
             && !text.starts_with('!')
             && !text.contains(['\'', '"', '\\'])
     };
-    Some(Alias { name: name.to_ascii_lowercase(), value: text.filter(readable).map(str::to_owned) })
+    Some((name, text.filter(readable)))
 }
 
 /// Adds the reading of git with `args` whose subcommand stands at `sub`, and the
