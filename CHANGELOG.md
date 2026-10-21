@@ -597,6 +597,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `git -c push.default=current push`, in both forms (`--git-dir=x` and `--git-dir x`).
   Before, such a line ran with no question, also in full mode. An `allow` rule skips only
   the options that change nothing, such as `--no-pager`.
+- An `ask` or `deny` rule in `[[permissions.rules]]` now also matches the command behind
+  a wrapper, such as `env git push`, `nice -n 5 git push` or `timeout 60 git push`, and
+  a program by its path, such as `/usr/bin/git push`. Before, such a line ran with no
+  question, also in full mode. An `allow` rule still matches only the program itself.
 - After `efr logout anthropic` or `efr logout openai-api`, a prompt says that no key
   is stored and how to log in. Before, a model list fetch that started before the
   logout could end after it, and the prompt then said that the provider rejected the
