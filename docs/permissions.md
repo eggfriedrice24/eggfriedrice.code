@@ -637,7 +637,9 @@ Before a full call runs, efr reads its line for deletes of a tree that only you 
 risk. It reads `rm -r`, a pattern of a plain `rm`, `find` with `-delete` or an
 `-exec` of `rm`, `shred`, `srm` or `wipe`, the sources of `mv`, the destination of
 `rsync --del*`, `chmod -R`, `chown -R`, `chgrp -R`, `setfacl -R`, `shred -u`, `srm`,
-`wipe`, and `git clean -fd`. It looks behind `sudo`, `env`, `nice`, `timeout`,
+`wipe`, and `git clean -fd`, also through an alias that the line sets, such as
+`git -c alias.c=clean c -fd`. An alias that efr cannot read, such as a shell command
+with `!`, counts as a `git clean` of the whole work tree. It looks behind `sudo`, `env`, `nice`, `timeout`,
 `setsid`, `nohup` and `xargs`, into each substitution, into a branch that never runs
 (`false && rm -rf ~`), and one level into the literal string of `sh -c`, `bash -c`,
 `zsh -c` and `eval`.

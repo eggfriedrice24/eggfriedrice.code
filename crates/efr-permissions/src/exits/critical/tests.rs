@@ -324,6 +324,19 @@ fn critical_git_clean_in_home() {
     assert_eq!(targets("false && git --config-env a.b=HOME -C ~ clean -fdx"), home);
     assert_eq!(targets("git --work-tree /etc clean -fd"), [path("/etc", CriticalWhy::SystemDir)]);
     assert_eq!(targets_in("git --attr-source HEAD clean -fdx", Some(HOME)), home);
+    // An alias that the line sets for its subcommand reads as its value (git's own
+    // `-C` first, then the alias's), and one that efr cannot read fails closed.
+    assert_eq!(targets_in("git -c alias.c=clean c -fdx", Some(HOME)), home);
+    assert_eq!(targets_in("git -c 'alias.c=clean -fdx' c", Some(HOME)), home);
+    assert_eq!(targets("git -C ~ -c alias.C=clean c -fdx"), home);
+    assert_eq!(
+        targets("git -c 'alias.c=-C /etc clean' c -fdx"),
+        [path("/etc", CriticalWhy::SystemDir)]
+    );
+    assert_eq!(targets_in("git -c alias.c=clean -c alias.d=c d -fdx", Some(HOME)), home);
+    assert_eq!(targets("git -C ~ -c 'alias.c=!git clean -fdx' c"), home);
+    assert_eq!(targets("git -C ~ --config-env alias.c=X c -fdx"), home);
+    assert_eq!(targets("git -C ~ -c alias.c=c c -fdx"), home);
 }
 
 #[test]
@@ -337,6 +350,10 @@ fn not_critical_git_clean_in_the_project_root() {
 #[test]
 fn not_critical_git_clean_without_d() {
     assert_eq!(targets_in("git clean -f", Some(HOME)), []);
+    assert_eq!(targets_in("git -c alias.c=clean c -f", Some(HOME)), []);
+    assert_eq!(targets_in("git -c 'alias.c=clean -n' c -fd", Some(HOME)), []);
+    assert_eq!(targets_in("git -c alias.c=clean d -fdx", Some(HOME)), []);
+    assert_eq!(targets_in("git -c alias.c=status c -fdx", Some(HOME)), []);
     assert_eq!(targets_in("git clean -fdn", Some(HOME)), []);
     assert_eq!(targets_in("git clean --dry-run -fd", Some(HOME)), []);
     assert_eq!(targets_in("git status", Some(HOME)), []);

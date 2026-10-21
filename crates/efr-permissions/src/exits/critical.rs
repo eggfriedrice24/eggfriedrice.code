@@ -778,6 +778,17 @@ struct GitClean<'w> {
 /// ([`git::exact`]), so `git --config-env a.b=HOME -C ~ clean -fdx` is a clean in `~`
 /// (DL28).
 fn git_clean_args<'w>(args: &[Word<'w>]) -> Option<GitClean<'w>> {
+    git_clean_at(args, 0)
+}
+
+/// [`git_clean_args`] for an alias of the line `depth` levels deep.
+///
+/// NOTE: when the line sets an alias for its subcommand with `-c alias.<name>=...`,
+/// the guard reads the alias as git does: its value in place of the subcommand, after
+/// the line's own options. An alias that efr cannot read (a shell command, a value
+/// from `--config-env`, a quote) or that is too deep fails closed: it counts as a
+/// clean of the whole work tree.
+fn git_clean_at<'w>(args: &[Word<'w>], depth: usize) -> Option<GitClean<'w>> {
     let texts: Vec<&str> = args.iter().map(|word| word.text).collect();
     let parse = git::exact(&texts);
     let mut dirs = Vec::new();
@@ -794,7 +805,19 @@ fn git_clean_args<'w>(args: &[Word<'w>]) -> Option<GitClean<'w>> {
     }
     let at = parse.sub?;
     if args[at].text != "clean" {
-        return None;
+        let value = line_alias(args, &parse, args[at].text)?;
+        return match value {
+            Some(value) if depth < git::MAX_ALIAS_DEPTH => {
+                let expanded: Vec<Word<'w>> = args[..at]
+                    .iter()
+                    .copied()
+                    .chain(value.split_whitespace().map(|text| Word { text, raw: text }))
+                    .chain(args[at + 1..].iter().copied())
+                    .collect();
+                git_clean_at(&expanded, depth + 1)
+            }
+            _ => Some(GitClean { dirs, pathspecs: Vec::new() }),
+        };
     }
     let (mut force, mut directories, mut dry) = (false, false, false);
     let mut pathspecs = Vec::new();
@@ -821,6 +844,28 @@ fn git_clean_args<'w>(args: &[Word<'w>]) -> Option<GitClean<'w>> {
         }
     }
     (force && directories && !dry).then_some(GitClean { dirs, pathspecs })
+}
+
+/// The alias `name` that git's own options in `args` set (the last one wins, and git
+/// compares the name without case): `Some(Some(value))` for a value that efr reads,
+/// `Some(None)` for one that it cannot read, and `None` when the line sets no alias of
+/// that name.
+fn line_alias<'w>(args: &[Word<'w>], parse: &git::GitParse, name: &str) -> Option<Option<&'w str>> {
+    let mut found = None;
+    for global in parse.globals.iter().filter(|g| g.is("-c") || g.is("--config-env")) {
+        let value = match global.option.map(|option| option.form) {
+            Some(git::Form::Next) => args.get(global.at + 1).map(|word| word.text),
+            Some(git::Form::Joined) => args[global.at].text.split_once('=').map(|(_, value)| value),
+            Some(git::Form::Flag) | None => None,
+        };
+        let Some(value) = value else { continue };
+        if let Some((alias, text)) = git::alias_setting(value, global.is("--config-env"))
+            && alias.eq_ignore_ascii_case(name)
+        {
+            found = Some(text);
+        }
+    }
+    found
 }
 
 /// The literal string of a shell with `args` and `-c`, or `None` when it runs a file
