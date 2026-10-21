@@ -15,6 +15,7 @@
 //! which costs an approval; a character wrongly known would let an allowed program
 //! smuggle in another command.
 
+pub(crate) mod git;
 mod lexer;
 
 use std::fmt;

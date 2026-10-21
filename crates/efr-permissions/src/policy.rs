@@ -28,7 +28,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use self::check::Check;
-use crate::command::{self, is_plain_char};
+use crate::command::{self, git, is_plain_char};
 use crate::path_class::{normalize, rehome};
 use crate::{Access, Effect, PathClass, PermissionsError};
 
@@ -756,18 +756,56 @@ impl Rule {
 
     /// True when the simple command `part` matches `pattern`, in the place the pattern
     /// names.
+    ///
+    /// NOTE: for the program `git` the effect decides which words count (DL20). A rule
+    /// that asks or denies also reads each view of [`git::views`]: git's own options
+    /// before the subcommand skipped, and an alias of the line read as its command; its
+    /// `under` also counts the dirs of `-C` and `--work-tree`. A rule that allows reads
+    /// only the view with the plain options skipped ([`git::plain_view`]), because
+    /// skipping `-c`, `-C` or `--exec-path` would let a line run other code or work on
+    /// another repository with no question. A rule that matches more only asks or
+    /// denies more.
     fn runs(&self, pattern: &CommandPattern, part: &Part<'_>, cx: &MatchContext<'_>) -> bool {
-        !part.privileged
-            && pattern.matches_command(part.words, part.pattern)
-            && pattern.under.as_ref().is_none_or(|under| {
-                part.dir.is_some_and(|dir| match under {
-                    Under::Path(root) => self.contains(root, dir, cx),
-                    Under::Project => {
-                        cx.project_root.is_some_and(|root| self.inside(root, dir, cx))
-                    }
-                    Under::Scratch => cx.scratch.is_some_and(|root| self.inside(root, dir, cx)),
-                })
-            })
+        if part.privileged {
+            return false;
+        }
+        let raw = pattern.matches_command(part.words, part.pattern);
+        let git = pattern.program == "git" && part.words.first().is_some_and(|word| word == "git");
+        if !git {
+            return raw && self.placed(pattern, part.dir, &[], cx);
+        }
+        if self.effect < Effect::Ask {
+            let plain = || {
+                git::plain_view(part.words)
+                    .is_some_and(|view| pattern.matches_command(&view, part.pattern))
+            };
+            return (raw || plain()) && self.placed(pattern, part.dir, &[], cx);
+        }
+        let views = git::views(part.words);
+        let matched = raw
+            || views.unreadable
+            || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
+        let dirs: Vec<PathBuf> =
+            views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)).collect();
+        matched && self.placed(pattern, part.dir, &dirs, cx)
+    }
+
+    /// True when `pattern` has no `under`, or when the dir `dir` where the command
+    /// starts, or one of the dirs `also` that git works in, lies where it names. With
+    /// no dir known, a pattern with `under` matches nothing.
+    fn placed(
+        &self,
+        pattern: &CommandPattern,
+        dir: Option<&Path>,
+        also: &[PathBuf],
+        cx: &MatchContext<'_>,
+    ) -> bool {
+        let Some(under) = pattern.under.as_ref() else { return true };
+        dir.into_iter().chain(also.iter().map(PathBuf::as_path)).any(|dir| match under {
+            Under::Path(root) => self.contains(root, dir, cx),
+            Under::Project => cx.project_root.is_some_and(|root| self.inside(root, dir, cx)),
+            Under::Scratch => cx.scratch.is_some_and(|root| self.inside(root, dir, cx)),
+        })
     }
 
     /// True when `path` is `root`, an `under` path, or below it, in any form of `~`.

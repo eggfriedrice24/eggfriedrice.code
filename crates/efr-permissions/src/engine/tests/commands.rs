@@ -700,6 +700,39 @@ fn secrets_stay_denied_until_a_user_rule_opens_one() {
     assert_eq!(opened.effect(), Effect::Allow);
 }
 
+#[rstest]
+// The results of the git rows before the rules read git's own options (DL20).
+#[case::status("git status --short", Effect::Allow)]
+#[case::no_pager_row("git --no-pager log -1", Effect::Allow)]
+#[case::no_pager_branch_row("git --no-pager branch -vv", Effect::Allow)]
+#[case::no_pager_remote_row("git --no-pager remote -v", Effect::Allow)]
+#[case::config("git -c core.pager=sh log", Effect::Ask)]
+#[case::dir("git -C /tmp status", Effect::Ask)]
+#[case::dir_joined_value("git --git-dir=/x/.git status", Effect::Ask)]
+#[case::work_tree("git --work-tree /x diff", Effect::Ask)]
+#[case::exec_path("git --exec-path=/x log", Effect::Ask)]
+#[case::exec_path_prints("git --exec-path log", Effect::Ask)]
+#[case::paginate("git -p log", Effect::Ask)]
+#[case::paginate_long("git --paginate log", Effect::Ask)]
+#[case::bare("git --bare log", Effect::Ask)]
+#[case::version("git --version log", Effect::Ask)]
+#[case::unknown("git --zz log", Effect::Ask)]
+#[case::plain_then_dir("git --no-pager -C /tmp log", Effect::Ask)]
+#[case::no_pager_branch_delete("git --no-pager branch -D x", Effect::Ask)]
+#[case::no_pager_remote_add("git --no-pager remote add origin x", Effect::Ask)]
+#[case::no_pager_push("git --no-pager push", Effect::Ask)]
+// The plain options alone now count as nothing for the read-only rows (DL23).
+#[case::no_pager_short("git -P log", Effect::Allow)]
+#[case::no_optional_locks("git --no-optional-locks status", Effect::Allow)]
+#[case::no_advice_branch("git --no-advice branch -vv", Effect::Allow)]
+#[case::pathspecs("git --literal-pathspecs --icase-pathspecs ls-files", Effect::Allow)]
+#[case::no_pager_twice("git --no-pager --no-pager log", Effect::Allow)]
+#[case::plain_branch_delete("git -P branch -D x", Effect::Ask)]
+#[case::plain_push("git --no-optional-locks push", Effect::Ask)]
+fn built_in_git_rows_skip_only_the_plain_options(#[case] line: &str, #[case] expected: Effect) {
+    assert_eq!(effect_of(line), expected, "{line:?}");
+}
+
 /// Simple commands the defaults allow, and ones they do not.
 const ALLOWED: &[&str] =
     &["ls -la", "cat README.md", "git status", "rg -n x src", "wc -l a", "echo 'a;b'"];

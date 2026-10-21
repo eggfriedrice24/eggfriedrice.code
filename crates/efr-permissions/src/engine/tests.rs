@@ -7,6 +7,7 @@ mod coverage;
 mod destructive;
 mod full;
 mod git_code;
+mod git_rules;
 mod jobs;
 mod modes;
 mod protection;
