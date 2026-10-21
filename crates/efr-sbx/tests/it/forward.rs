@@ -35,6 +35,11 @@ const POLL_MS: u32 = 20;
 const STABLE_MS: u32 = 40;
 const EPHEMERAL_STABLE_MS: u32 = 200;
 
+/// The wait for a port of the ephemeral range in the test of a short-lived server: 70
+/// times the 30 ms life of that server, so a stall of the machine under load does not
+/// make the server count.
+const SHORT_LIFE_STABLE_MS: u32 = 2000;
+
 /// A port of the job's own loopback where nothing listens.
 const CLOSED_PORT: u16 = 20099;
 
@@ -202,6 +207,16 @@ pub(crate) fn prepare(
     line: &str,
     serve: bool,
 ) -> (PathBuf, Option<TestForward>) {
+    prepare_with(fixture, line, serve, EPHEMERAL_STABLE_MS)
+}
+
+/// [`prepare`] with `ephemeral_stable_ms` for the ports of the ephemeral range.
+fn prepare_with(
+    fixture: &Fixture,
+    line: &str,
+    serve: bool,
+    ephemeral_stable_ms: u32,
+) -> (PathBuf, Option<TestForward>) {
     let call_dir = fixture.prepare_job(line, JobPlan::new(600, 19));
     let forward = if serve {
         Some(TestForward::serve(&call_dir))
@@ -216,7 +231,7 @@ pub(crate) fn prepare(
         socket: spec.runtime.forward_socket(),
         poll_ms: POLL_MS,
         stable_ms: STABLE_MS,
-        ephemeral_stable_ms: EPHEMERAL_STABLE_MS,
+        ephemeral_stable_ms,
         max_ports: 8,
         proxy,
     };
@@ -535,11 +550,13 @@ fn short_lived_port_zero_server_is_not_reported() {
     let ready = sandbox_or_skip!();
     let fixture = Fixture::new(&ready);
     // A server that lives 30 ms, then one that stays: only the second counts.
+    // NOTE: the forwarder's debounce runs on real time, so no marker can bound the
+    // first server's life; the long wait of the ephemeral range leaves a wide margin.
     let line = format!(
         "{l} self-test --echo 127.0.0.1:0 --echo-ms 30; {l} self-test --echo 127.0.0.1:0",
         l = launcher(&fixture)
     );
-    let (call_dir, forward) = prepare(&fixture, &line, true);
+    let (call_dir, forward) = prepare_with(&fixture, &line, true, SHORT_LIFE_STABLE_MS);
     let forward = forward.unwrap();
     let mut job = start(&fixture, &call_dir);
     let mut seen = Vec::new();
