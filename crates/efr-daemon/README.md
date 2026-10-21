@@ -134,7 +134,11 @@ the appliers take the new values:
   command (`efr-shell`);
 - `shell.program` and `shell.login` for the hidden shells started from then on;
 - `log`, through the reload layer of the tracing filter (`telemetry.rs`). An invalid
-  filter is an error of the file.
+  filter is an error of the file;
+- `jobs.forward_ports` from true to false: after the settings went out, efrd stops the
+  port forwards of every running job, with a `stopped` event for each port
+  (`JobTable::forwards_off`). A job that read the old settings and starts later
+  forwards nothing; a later `true` does not open the forwards of a running job again.
 
 Everything that can fail runs before the first send, so a refused file changes nothing.
 
@@ -934,6 +938,34 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
 - Retention (`jobs/retention.rs`): the hourly snapshot collector removes a job's output
   7 days after the job's end, and keeps at most 20 outputs of ended jobs per
   conversation; only a `j<n>.out` in a `jobs` dir, and a link as a link.
+- Port forwards (`jobs/forward.rs`, `jobs/forward/serve.rs`, v0.0.4 live items DL1-DL16):
+  a job that runs contained in `auto` with a network namespace of its own
+  (`network.mode = "none"` or the proxy, no grant of the whole network, no network
+  view) gets a `ForwardPlan` in its job plan while `jobs.forward_ports` is true when it
+  starts (`forward::plan_of`), and efrd binds `$CALL/forward.sock` (0600, through
+  `/proc/self/fd` as the proxy socket, `sandbox/proxy/bind.rs`) before the launcher
+  starts; the start result gets one sentence for the model. The job's entry keeps a
+  `JobForward` until the job ends. Its first connection must send `Hello` within 5 s
+  on efrd's clock (else a warning and no forwards); only that connection reports
+  `Listen` and `Gone`, every later one is a data connection whose first frame must be
+  the `Data` of a waiting `Open`. efrd decodes each frame with
+  `efr_sandbox::Frame::decode`; a bad frame or another kind closes the forwarder, and
+  the job runs on with no forwards. efrd checks each `Listen` again, as it trusts no
+  report from the job: below 1024, the bridge's port of a proxy job and the service
+  ports are `refused`; a job forwards at most 8 ports and efrd 32 (`forward::Forwards`,
+  `limit`); a port that another job holds (`in_use`, with `by_job` in the same
+  conversation), a `LISTEN` row on `::1` or `::` of the host, or a failed bind is
+  `in_use`. Each outcome is one `job_port_forwarded` in the conversation; a refusal of
+  a port comes once for each job, at most 32 in all. A forwarded port listens on
+  `127.0.0.1:<port>` through `sandbox::seams::HostPorts` (no `SO_REUSEPORT`). Each
+  host connection passes the peer check first: the uid of the peer's row in the host's
+  `/proc/net/tcp` must be efrd's own (`efr_sandbox::peer_uid`); else it closes, with one
+  warning for each job and port. Then efrd sends `Open`, waits 5 s for the `Data`, and
+  copies bytes with `copy_bidirectional`, at most 64 connections for each job. A `Gone`
+  keeps the port for the job, and a connection then closes at once. The listeners and
+  connections close when the job ends (its `JobInfo` ends with no forwards), at efrd's
+  stop, and at a reload that turns forwards off. `jobs.list` and the `jobs` tool show
+  the forwarded ports of a running job from the table (`forwarded ports 8765, 5173`).
 
 ### The reviewer, presence and the home store
 
@@ -1177,7 +1209,9 @@ A model-side peer holds no `approve` scope at all.
 When a turn finishes or fails, an approval waits, a background job ends (`efr: job j3
 ended (exit 0): <title>`, with the processes that may still run and a lost launcher),
 or a job's notice waits for the next prompt (`...; no wake turn (wake limit reached)`),
-and no subscription from the
+or efr forwards a port of a job or says why not (`efr: <title>: job j1 listens on
+127.0.0.1:8765 -> http://localhost:8765`; the title comes first, so a cut never takes
+the URL), and no subscription from the
 conversation's terminal (a connection whose hello named that tty) was handed the event,
 nor a live lease from it names the conversation, the daemon appends one line to
 `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`), which the zsh plugin prints at
@@ -1244,8 +1278,11 @@ while efr still reads each line for a small set of floors. efrd's part:
   `Deps::with_sandbox_launcher` names the `efr-sbx` to copy,
   `Deps::with_probe_override` replaces the probe's result, `Deps::with_job_env` gives
   every background job a fixed environment, `Deps::with_peer_probe` lets a test ask
-  for the side of a socket peer by pid, and `Deps::with_statvfs_helper` names the
-  program that measures the mounts of the mount view. Only `efr-test-daemon`
+  for the side of a socket peer by pid, `Deps::with_statvfs_helper` names the
+  program that measures the mounts of the mount view, and `Deps::with_test_host_ports`
+  binds a free port of `127.0.0.1` for each job port forward (`TestHostPorts`; a test
+  build without it gets a map of its own, and only `Deps::with_system_host_ports` and the
+  smoke's `efrd` bind the real ports). Only `efr-test-daemon`
   turns it on; `just install` refuses an `efrd` whose hidden `--test-seams` says `on`.
 
 `cfg(feature = ...)` appears only in `screens.rs`, `shells.rs` and `sandbox/seams.rs`
@@ -1417,6 +1454,24 @@ its turn. `sandbox::jobs_guard::shell_job_planted_hook_quarantined_before_next_t
 runs a job on the real `efr-sbx` (`just test-sandbox`, a real zsh) that plants a hook
 in a new repository, and checks that the next contained call's guard check moves it to
 the quarantine and stops the job.
+
+The `jobs_forward` module tests efrd's side of the job port forwards with the
+`FakeLauncher`, which starts no forwarder, and `efr-test-daemon`'s `FakeForwarder`,
+which the test plays on the job's forward socket with an echo server behind each port.
+efrd binds each forwarded port through `TestHostPorts`, which takes a free port of
+`127.0.0.1` in its place and reads the machine's own tcp tables. It covers the record,
+`jobs.list` and the start note, bytes both ways with a half close, a gone port that
+keeps the port, a port in use (a failed bind, a listener on `::1`, another job), the
+refusals that efrd checks again (service ports, the bridge's port of a proxy job), the
+limits of a job and of efrd, a peer of another uid, a bad frame and a port below 1024,
+the close at the job's end, at efrd's stop and at a reload that turns forwards off, no
+reopen after a reload that turns them on, and no forwards for a job outside `auto`,
+for a network view job, and with `jobs.forward_ports = false`. `real_host_bind` binds a
+free port below 32768 of the machine through the system's host ports, and tries another
+when a program took it. The unit tests of `jobs/forward/` cover the plan of each launch,
+the socket in a deep call dir, the table of held ports, the lines, and the two checks
+of the plan: a listener of std and tokio has no `SO_REUSEPORT`, and the peer's row of
+an accepted connection is in `/proc/net/tcp` at once.
 
 The `login` module also runs `admin.login_api_key` and `admin.logout` against the
 local server's `/v1/models`: a key that is checked with its organization and project
