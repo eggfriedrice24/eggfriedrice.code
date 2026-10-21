@@ -1,8 +1,8 @@
 use std::os::unix::fs::PermissionsExt as _;
 
 use efr_protocol::{
-    CallId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, HeldReason, JobId,
-    JobState, JobStopBy, Seq, TurnId,
+    CallId, ConversationId, ErrorBody, ErrorCode, Event, EventEnvelope, ForwardOutcome, HeldReason,
+    JobId, JobState, JobStopBy, Seq, TurnId,
 };
 use pretty_assertions::assert_eq;
 
@@ -321,6 +321,41 @@ fn held_notice_line_names_reason() {
             )
         );
     }
+}
+
+#[test]
+fn port_forward_notice_line_keeps_the_url_whole() {
+    let forwarded = |outcome, reason: Option<&str>| Event::JobPortForwarded {
+        job_id: JobId::nth(1),
+        listen: "127.0.0.1".to_owned(),
+        port: 8765,
+        outcome,
+        by_job: None,
+        reason: reason.map(str::to_owned),
+    };
+    assert_eq!(
+        line(&forwarded(ForwardOutcome::Forwarded, None), Some("dev server"), None).as_deref(),
+        Some("efr: dev server: job j1 listens on 127.0.0.1:8765 -> http://localhost:8765")
+    );
+    assert_eq!(
+        line(&forwarded(ForwardOutcome::InUse, None), None, None).as_deref(),
+        Some(
+            "efr: a conversation: job j1 listens on 127.0.0.1:8765; not forwarded: \
+             127.0.0.1:8765 is in use on this machine"
+        )
+    );
+    let off = forwarded(ForwardOutcome::Stopped, Some("jobs.forward_ports is off"));
+    assert_eq!(
+        line(&off, Some("dev"), None).as_deref(),
+        Some("efr: dev: job j1: port 8765 is no longer forwarded (jobs.forward_ports is off)")
+    );
+    let long = "t".repeat(400);
+    let text = line(&forwarded(ForwardOutcome::Forwarded, None), Some(&long), None).unwrap();
+    assert!(
+        text.ends_with(": job j1 listens on 127.0.0.1:8765 -> http://localhost:8765"),
+        "{text}"
+    );
+    assert!(text.chars().count() <= 200, "{text}");
 }
 
 fn completed() -> Event {

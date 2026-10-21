@@ -1,7 +1,9 @@
 //! Notices for terminals that do not show their conversation right now.
 //!
-//! When a turn finishes or fails, an approval waits, a background job ends, or a job's
-//! notice waits for the next prompt because it could start no turn, and no subscription
+//! When a turn finishes or fails, an approval waits, a background job ends, efr forwards
+//! a port of a job or says why not (`efr: <title>: job j1 listens on 127.0.0.1:8765 ->
+//! http://localhost:8765`, DL15), or a job's notice waits for the next prompt because
+//! it could start no turn, and no subscription
 //! from the conversation's terminal was handed the event (nor a live lease from it names
 //! the conversation), the daemon appends one line to
 //! `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`). The zsh plugin prints and
@@ -147,6 +149,20 @@ pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> O
             let extra = format!("; no wake turn ({})", held_reason(*reason));
             let text = format!("efr: job {job_id} waits for your next prompt: {title}");
             return Some(with_extra(&text, &extra));
+        }
+        Event::JobPortForwarded { job_id, listen, port, outcome, by_job, reason } => {
+            // NOTE: the title comes first, so a long one is cut and the URL at the end
+            // of the line stays whole.
+            let forward = crate::jobs::forward::line(
+                job_id,
+                listen,
+                *port,
+                *outcome,
+                by_job.as_ref(),
+                reason.as_deref(),
+            );
+            let forward = one_line(&forward, MAX_CHARS);
+            return Some(with_extra(&format!("efr: {title}"), &format!(": {forward}")));
         }
         _ => return None,
     };

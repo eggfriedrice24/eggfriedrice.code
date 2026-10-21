@@ -249,7 +249,6 @@ impl Drop for JobForward {
 /// The line of a `job_port_forwarded` event (DL15), without a prefix: `job j1 listens
 /// on 127.0.0.1:8765 -> http://localhost:8765`, `...; not forwarded: ...`, or `job j1:
 /// port 8765 is no longer forwarded (jobs.forward_ports is off)`.
-#[cfg_attr(not(test), expect(dead_code, reason = "the notices show the line in a later step"))]
 pub(crate) fn line(
     job: &JobId,
     listen: &str,
