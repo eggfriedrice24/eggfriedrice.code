@@ -236,6 +236,7 @@ fn job_info() -> JobInfo {
             PortForward { listen: "::1".into(), port: 5173 },
         ],
         moved_from: None,
+        waits_input: false,
     }
 }
 
@@ -1508,7 +1509,15 @@ fn answer_fixtures() -> Vec<Fixture> {
                 active: true,
             },
         ),
-        fixture("jobs_list_result.json", &JobsListResult { jobs: vec![job_info()] }),
+        fixture(
+            "jobs_list_result.json",
+            &JobsListResult {
+                jobs: vec![
+                    job_info(),
+                    JobInfo { waits_input: true, ..moved_job_info() },
+                ],
+            },
+        ),
         fixture("jobs_stop_result.json", &JobsStopResult { job: job_info() }),
         fixture("conversation_context_result.json", &context_report()),
         fixture("conversations_recent_result.json", &recent_list()),

@@ -30,6 +30,7 @@ fn job(started: i64, ended: Option<i64>) -> JobInfo {
         wakes: 0,
         forwards: Vec::new(),
         moved_from: None,
+        waits_input: false,
     }
 }
 

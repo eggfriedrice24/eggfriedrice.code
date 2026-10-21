@@ -1079,7 +1079,10 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   its session. A call through the launcher takes its `result.json` from the
   call's dir and removes only that dir; a line typed into the shell takes the exit
   status of its `D` mark and is never `launcher_lost`. A wait for a password that
-  efr-shell stopped in the job adds a note to the notice. The shell's end closes its
+  efr-shell stopped in the job adds a note to the notice. A task follows
+  `AdoptedRun::looks` and keeps `JobInfo::waits_input` true while the command waits
+  for plain input (DS27), which `jobs.list` shows; a stop while it waits adds a note to
+  the notice. The shell's end closes its
   recording and records no `shell_exited`. At start, a moved job of the last efrd reads
   its result in the call's dir and gets no guard check of a job.
 

@@ -1594,7 +1594,9 @@ records the decision.
     a part and writes `[efr: N bytes of output dropped]` in its place.
   - Nobody follows a job. When the moved command asks for a password, efr stops it at
     once, and the notice says so. A plain question waits, and nobody can answer it:
-    stop the job with `efr jobs stop`.
+    stop the job with `efr jobs stop`. While it waits, `efr jobs` shows `(waits for
+    input; efr jobs stop ends it)`, and the notice of its stop says that it waited for
+    input.
 - **How it ends.** As every job: when its command ends, when you or the model stop
   it, at its time limit, or when efrd stops. A stop sends SIGINT to the command, and
   efr closes its shell when the command did not end after 6 seconds. At the end, efr

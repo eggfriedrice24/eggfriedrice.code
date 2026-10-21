@@ -736,6 +736,9 @@ impl JobTable {
         if job.full && self.inner.full.is_off() {
             self.request_stop(key, JobStopBy::FullOff);
         }
+        // NOTE: `efr jobs` says while the command waits for input that nobody can type
+        // in a job (DS27).
+        tokio::spawn(self.clone().follow_looks(key, run.looks()));
         let task = JobTask {
             table: self.clone(),
             key,
@@ -759,6 +762,22 @@ impl JobTable {
                 // NOTE: a job that the store did not take must not run unseen.
                 let _ = self.stop(key, JobStopBy::DaemonStop).await;
                 Err(DaemonError::from(source))
+            }
+        }
+    }
+
+    /// Keeps `waits_input` of the moved job `key` as `looks` tells the command's waits,
+    /// until the job leaves the table or the watch of the command ends. A wait for a
+    /// secret stops the command, so only a plain visible wait counts (DS27).
+    async fn follow_looks(self, key: JobKey, mut looks: watch::Receiver<(InputWait, bool)>) {
+        loop {
+            let waits = *looks.borrow_and_update() == (InputWait::Visible, false);
+            if self.update(key, |info| info.waits_input = waits).is_none() {
+                return;
+            }
+            if looks.changed().await.is_err() {
+                // NOTE: the command ended; its end clears the mark.
+                return;
             }
         }
     }
@@ -1433,6 +1452,13 @@ impl JobTask {
                 // once (DS27); the notice says why the command ended.
                 let looked = *run.looks().borrow();
                 let secret = is_secret(looked);
+                // NOTE: a stop of a command that waited for input that nobody can type
+                // in a job says so (DS27).
+                let refused = if stopped_by.is_some() && looked == (InputWait::Visible, false) {
+                    joined_notes(Some(INPUT_WAIT_STOP.to_owned()), refused)
+                } else {
+                    refused
+                };
                 let refused = if secret {
                     // NOTE: the word password shows only outside the sandbox (DS50).
                     let contained = table
@@ -1482,8 +1508,9 @@ impl JobTask {
         final_info.stopped_by = ended.stopped_by;
         final_info.output_bytes = self.output.bytes();
         final_info.ended_at = Some(now);
-        // NOTE: the forwards ended with the job.
+        // NOTE: the forwards ended with the job, and so did any wait.
         final_info.forwards.clear();
+        final_info.waits_input = false;
         let tail = self.output.tail();
         // NOTE: the changes that a guard check moved while the job ran are gone from
         // the surface, so the launcher's end guard no longer sees them.
@@ -1566,6 +1593,11 @@ impl JobTask {
 /// password that nobody could type (DS27).
 const SECRET_STOP: &str =
     "[efr stopped the command: it waited for a password, and nobody can type one in a job]";
+
+/// The note of a job's end when efr stopped its moved command while it waited for
+/// input that nobody can type in a job (DS27).
+const INPUT_WAIT_STOP: &str =
+    "[the command waited for input when it stopped; nobody can type input in a job]";
 
 /// [`SECRET_STOP`] for a moved command in the sandbox, where efr types no secret
 /// (DS50).

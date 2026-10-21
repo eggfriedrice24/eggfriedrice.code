@@ -34,6 +34,7 @@ fn job(command: &str) -> JobInfo {
         wakes: 0,
         forwards: Vec::new(),
         moved_from: None,
+        waits_input: false,
     }
 }
 

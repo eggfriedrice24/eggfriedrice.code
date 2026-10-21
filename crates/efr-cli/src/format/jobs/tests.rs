@@ -422,3 +422,19 @@ fn the_list_marks_a_moved_job() {
         "j3  running  ends in 1h 0m  0 B  make deploy  (moved by you)\n"
     );
 }
+
+#[test]
+fn the_list_marks_a_moved_job_that_waits_for_input() {
+    let mut job = moved(42, Vec::new());
+    job.waits_input = true;
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert_eq!(
+        list(&rows, now()),
+        "j3  running  ends in 1h 0m  0 B  make deploy  (moved by you)  (waits for input; efr \
+         jobs stop ends it)\n"
+    );
+    // NOTE: a job that ended waits for nothing.
+    job.state = JobState::Exited;
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert!(!list(&rows, now()).contains("waits for input"));
+}

@@ -394,6 +394,11 @@ pub struct JobInfo {
     /// that the model started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_from: Option<MovedCall>,
+    /// True while the command of a running job that the user moved waits for input that
+    /// is not a secret, such as `[Y/n]`: nobody can type it in a job (DS27). Absent when
+    /// false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waits_input: bool,
 }
 
 /// The `shell` call that a job came from, when the user moved a running call into a job
