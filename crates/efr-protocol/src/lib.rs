@@ -116,6 +116,8 @@ pub use methods::pty_resize::{PtyResize, PtyResizeResult};
 pub use methods::pty_write::{PtyWrite, PtyWriteResult};
 pub use methods::sandbox_explain::{SandboxExplain, SandboxExplainResult, SandboxPathRole};
 pub use methods::sandbox_surface_respond::{SandboxSurfaceRespond, SandboxSurfaceRespondResult};
+pub use methods::shell_interrupt::{ShellInterrupt, ShellInterruptResult};
+pub use methods::shell_status::{BusyShell, ShellStatus, ShellStatusResult};
 pub use methods::turn_interrupt::{
     ResentSteers, TurnInterrupt, TurnInterruptResult, WithdrawnSteer,
 };

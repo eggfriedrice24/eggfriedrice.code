@@ -10,7 +10,8 @@ use crate::{
     ConversationResume, ConversationSubscribe, ConversationsList, ConversationsRecent, Hello,
     InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList,
     PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, TurnInterrupt, TurnSteer, TurnUndo,
+    SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer,
+    TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -132,6 +133,13 @@ pub enum Method {
     /// `conversation.resume`: make a conversation this terminal's conversation again.
     #[serde(rename = "conversation.resume")]
     ConversationResume(ConversationResume),
+    /// `shell.interrupt`: stop the command that a `shell` call left running in the
+    /// hidden shell, or close that shell.
+    #[serde(rename = "shell.interrupt")]
+    ShellInterrupt(ShellInterrupt),
+    /// `shell.status`: the command that holds the hidden shell, if any.
+    #[serde(rename = "shell.status")]
+    ShellStatus(ShellStatus),
 }
 
 impl Method {
@@ -174,6 +182,8 @@ impl Method {
             Method::ConversationContext(_) => "conversation.context",
             Method::ConversationsRecent(_) => "conversations.recent",
             Method::ConversationResume(_) => "conversation.resume",
+            Method::ShellInterrupt(_) => "shell.interrupt",
+            Method::ShellStatus(_) => "shell.status",
         }
     }
 
@@ -193,6 +203,7 @@ impl Method {
             Method::TurnUndo(params) => Some(params.command_id),
             Method::JobsStop(params) => Some(params.command_id),
             Method::ConversationResume(params) => Some(params.command_id),
+            Method::ShellInterrupt(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -216,7 +227,8 @@ impl Method {
             | Method::ConversationDiff(_)
             | Method::JobsList(_)
             | Method::ConversationContext(_)
-            | Method::ConversationsRecent(_) => None,
+            | Method::ConversationsRecent(_)
+            | Method::ShellStatus(_) => None,
         }
     }
 
@@ -258,7 +270,9 @@ impl Method {
             | Method::JobsStop(_)
             | Method::ConversationContext(_)
             | Method::ConversationsRecent(_)
-            | Method::ConversationResume(_) => false,
+            | Method::ConversationResume(_)
+            | Method::ShellInterrupt(_)
+            | Method::ShellStatus(_) => false,
         }
     }
 }
@@ -267,8 +281,8 @@ impl ScopeName {
     /// The scope that a connection needs to call `method`.
     ///
     /// `hello`, `lease.report`, `models.list`, `projects.list`, `sandbox.explain`,
-    /// `conversation.diff`, `jobs.list`, `conversation.context` and
-    /// `conversations.recent` need only `read`, which every connection holds. Adding or
+    /// `conversation.diff`, `jobs.list`, `conversation.context`,
+    /// `conversations.recent` and `shell.status` need only `read`, which every connection holds. Adding or
     /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
     /// a phone never holds.
     pub const fn for_method(method: &Method) -> ScopeName {
@@ -284,7 +298,8 @@ impl ScopeName {
             | Method::ConversationDiff(_)
             | Method::JobsList(_)
             | Method::ConversationContext(_)
-            | Method::ConversationsRecent(_) => ScopeName::Read,
+            | Method::ConversationsRecent(_)
+            | Method::ShellStatus(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)
@@ -297,10 +312,13 @@ impl ScopeName {
             // A quarantine question is answered like an approval, by the user.
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.
+            // A stop of a command left in the hidden shell signals what runs on that
+            // PTY, so it needs the same scope, which a phone never holds.
             Method::PtyAttach(_)
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
-            | Method::InputRespond(_) => ScopeName::Terminal,
+            | Method::InputRespond(_)
+            | Method::ShellInterrupt(_) => ScopeName::Terminal,
             Method::AdminProjectAdd(_)
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)

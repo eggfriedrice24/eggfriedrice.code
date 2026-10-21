@@ -3,13 +3,13 @@ use serde_json::json;
 
 use crate::{
     AdminConfigReloadResult, AdminLogoutResult, AdminProjectAdd, AdminProjectRemove,
-    AdminStatusResult, Base64Bytes, CatalogOrigin, CatalogStatus, ConfigFileError, ConfigStatus,
-    ConversationId, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
-    EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, LateSteer, LoginKind, Mode,
-    ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo,
-    PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RecentCommand, RootSource, Seq,
-    ShellContext, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult,
-    WithdrawTarget,
+    AdminStatusResult, ApprovedBy, Base64Bytes, BusyShell, CatalogOrigin, CatalogStatus,
+    ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
+    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, FullModeStatus, HeldConfig,
+    InputRespond, InputWait, LateSteer, LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult,
+    OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw,
+    ProviderStatus, RecentCommand, RootSource, Seq, ShellContext, ShellStatusResult, TurnInterrupt,
+    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -614,4 +614,35 @@ fn a_recent_command_reads_with_only_its_command_and_shows_it_in_debug_by_length(
     let text = format!("{recent:?}");
     assert!(!text.contains("hunter2"), "{text}");
     assert!(text.contains("<20 bytes>"), "{text}");
+}
+
+#[test]
+fn a_free_hidden_shell_is_an_empty_status_and_a_busy_one_round_trips() {
+    let free: ShellStatusResult = serde_json::from_value(json!({})).unwrap();
+    assert_eq!(free, ShellStatusResult { busy: None });
+    assert_eq!(serde_json::to_value(&free).unwrap(), json!({}));
+    let busy = json!({
+        "busy": {
+            "call_id": TURN,
+            "command": "make",
+            "since": "2026-10-21T10:00:00Z",
+            "contained": true,
+            "input": "none",
+        }
+    });
+    let read: ShellStatusResult = serde_json::from_value(busy.clone()).unwrap();
+    let shell: BusyShell = read.busy.clone().unwrap();
+    assert!(!shell.looks_secret);
+    assert_eq!(shell.prompt, "");
+    assert_eq!(shell.approved_by, None);
+    assert_eq!(serde_json::to_value(&read).unwrap(), busy, "empty members stay off the wire");
+    let mut with = busy;
+    with["busy"]["approved_by"] = json!("reviewer");
+    with["busy"]["input"] = json!("visible");
+    with["busy"]["prompt"] = json!("Continue? [Y/n]");
+    let read: ShellStatusResult = serde_json::from_value(with.clone()).unwrap();
+    let shell = read.busy.clone().unwrap();
+    assert_eq!(shell.approved_by, Some(ApprovedBy::Reviewer));
+    assert_eq!(shell.input, InputWait::Visible);
+    assert_eq!(serde_json::to_value(&read).unwrap(), with);
 }

@@ -79,10 +79,12 @@ fn method_index(method: &Method) -> usize {
         Method::ConversationContext(_) => 32,
         Method::ConversationsRecent(_) => 33,
         Method::ConversationResume(_) => 34,
+        Method::ShellInterrupt(_) => 35,
+        Method::ShellStatus(_) => 36,
     }
 }
 
-const METHOD_COUNT: usize = 35;
+const METHOD_COUNT: usize = 37;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {

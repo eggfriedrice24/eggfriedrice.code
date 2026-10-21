@@ -46,6 +46,8 @@ pub(crate) mod pty_resize;
 pub(crate) mod pty_write;
 pub(crate) mod sandbox_explain;
 pub(crate) mod sandbox_surface_respond;
+pub(crate) mod shell_interrupt;
+pub(crate) mod shell_status;
 pub(crate) mod turn_interrupt;
 pub(crate) mod turn_steer;
 pub(crate) mod turn_undo;
