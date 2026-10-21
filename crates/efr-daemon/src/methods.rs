@@ -17,7 +17,8 @@
 //! scopes by its own pairing, never through this walk.
 //!
 //! Presence: a prompt, a steer, an interrupt, a withdraw, an answer, a compaction, an
-//! undo, a resume and keys for the hidden shell are input of a person, so each one makes
+//! undo, a resume, a stop of a command left running in the hidden shell and keys for
+//! the hidden shell are input of a person, so each one makes
 //! its conversation present (`presence.rs`). `Input` takes a side for every method, as the scope does.
 
 use std::sync::Arc;
@@ -65,6 +66,8 @@ mod pty_resize;
 mod pty_write;
 mod sandbox_explain;
 mod sandbox_surface_respond;
+mod shell_interrupt;
+mod shell_status;
 mod turn_interrupt;
 mod turn_steer;
 mod turn_undo;
@@ -173,6 +176,7 @@ impl Input {
             // NOTE: a resume is the user's choice of a conversation, so it ends their
             // absence there, as a prompt would.
             Method::ConversationResume(params) => Some(params.conversation_id),
+            Method::ShellInterrupt(params) => Some(params.conversation_id),
             // NOTE: a stop is the user's input; without a conversation it is the
             // terminal's active one, as for a prompt.
             Method::JobsStop(params) => match params.conversation_id {
@@ -208,8 +212,6 @@ impl Input {
             | Method::JobsList(_)
             | Method::ConversationContext(_)
             | Method::ConversationsRecent(_)
-            // NOTE: no handler serves these two yet, so neither marks the user present.
-            | Method::ShellInterrupt(_)
             | Method::ShellStatus(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
@@ -458,10 +460,11 @@ impl Dispatcher for Methods {
                 Method::ConversationResume(params) => {
                     Box::pin(conversation_resume::handle(state, &context, params, &responder)).await
                 }
-                // NOTE: the protocol has the two methods of a command left running in the
-                // hidden shell; efrd serves them in a later step of v0.0.4.
-                Method::ShellInterrupt(_) | Method::ShellStatus(_) => {
-                    Err(DaemonError::InvalidParams { reason: "not built yet" })
+                Method::ShellInterrupt(params) => {
+                    shell_interrupt::handle(state, params, &responder).await
+                }
+                Method::ShellStatus(params) => {
+                    shell_status::handle(state, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

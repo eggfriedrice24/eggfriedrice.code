@@ -7,8 +7,15 @@
 //! was reported and the job that waited still holds the terminal, and for a hidden
 //! answer the terminal reads a line with echo off. A `manual` answer, which the user
 //! chose to type for a command that reported no wait, skips the check against a
-//! reported wait and its kind and keeps the rest. Anything else writes nothing. An
-//! answer after the call ended gets `not_found`. The text is a `SecretText`, so it never
+//! reported wait and its kind and keeps the rest. Anything else writes nothing.
+//!
+//! A command that its call left running in the hidden shell at the timeout still takes
+//! an answer with that call's id: the shell's watch reports its waits as
+//! `shell_command_input_changed`, and the same checks hold. The shell refuses, as
+//! `conflict`, a hidden answer, an answer to a wait that looks secret and every manual
+//! answer for a command in the sandbox, running or left: efr types no secret into a
+//! sandboxed command. A manual answer reaches only a running call's command. An answer
+//! after the command ended gets `not_found`. The text is a `SecretText`, so it never
 //! reaches a log, an error message, the event log or a receipt; this handler logs only
 //! its length.
 
