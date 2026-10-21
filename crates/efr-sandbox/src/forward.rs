@@ -41,6 +41,12 @@ pub const MAX_JOB_FORWARDS: u8 = 8;
 /// The most ports that one efrd forwards for all its jobs.
 pub const MAX_DAEMON_FORWARDS: usize = 32;
 
+/// The most distinct ports, other than service ports, that the forwarder of one job
+/// reports over the job's life. It only guards efrd against a flood: efrd keeps the
+/// limit of [`MAX_JOB_FORWARDS`] itself, so a port that efrd refused, such as a port in
+/// use on the host, never keeps a later port from its forward.
+pub const MAX_REPORTED_PORTS: usize = 64;
+
 /// The most open connections of one job's forwards, the bridge's number.
 pub const MAX_FORWARD_CONNECTIONS: usize = 64;
 
@@ -251,10 +257,10 @@ struct Seen {
 ///
 /// The forwarder never reports a port below [`MIN_PORT`] or the bridge's port of a
 /// proxy job. It reports a service port, so efrd can say why it does not forward it,
-/// but such a port does not count to the limit. Of the other ports it reports at most
-/// `max_ports + 1` over the job's life: the ports that efrd can forward, and one more,
-/// so efrd can say once that the job reached its limit. A port that it reported
-/// before is reported again after it was gone.
+/// but such a port does not count. Of the other ports it reports at most
+/// [`MAX_REPORTED_PORTS`] over the job's life; efrd decides which of them it forwards
+/// and says once that the job reached its limit. A port that it reported before is
+/// reported again after it was gone.
 #[derive(Debug, Clone)]
 pub struct Debounce {
     stable_ms: u64,
@@ -275,7 +281,7 @@ impl Debounce {
             ephemeral_stable_ms: u64::from(plan.ephemeral_stable_ms),
             ephemeral,
             proxy: plan.proxy,
-            max_reports: usize::from(plan.max_ports) + 1,
+            max_reports: MAX_REPORTED_PORTS,
             seen: BTreeMap::new(),
             counted: BTreeSet::new(),
         }

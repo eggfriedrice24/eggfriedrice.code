@@ -52,9 +52,9 @@ pub use export_filter::{
 };
 pub use forward::{
     BRIDGE_PORT, Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen,
-    MAX_DAEMON_FORWARDS, MAX_FORWARD_CONNECTIONS, MAX_JOB_FORWARDS, MIN_PORT, PortRefusal,
-    SERVICE_PORTS, TCP_LISTEN, TCP_TIME_WAIT, TcpRow, loopback_listens, parse_tcp_table, peer_uid,
-    refusal, v6_holds,
+    MAX_DAEMON_FORWARDS, MAX_FORWARD_CONNECTIONS, MAX_JOB_FORWARDS, MAX_REPORTED_PORTS, MIN_PORT,
+    PortRefusal, SERVICE_PORTS, TCP_LISTEN, TCP_TIME_WAIT, TcpRow, loopback_listens,
+    parse_tcp_table, peer_uid, refusal, v6_holds,
 };
 pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
