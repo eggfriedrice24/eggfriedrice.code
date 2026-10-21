@@ -4,8 +4,11 @@
 //! stopped at once, also when the last client that could answer leaves while it waits,
 //! and one of two such clients leaving stops nothing. A call approved as one that waits
 //! for input runs past its timeout while a client that can answer follows, and a manual
-//! answer reaches a silent command that reported no wait. Every test drives a real zsh
-//! and skips with a message unless `EFR_TEST_ZSH=1`.
+//! answer reaches a silent command that reported no wait. `left` covers a command that
+//! its call left running in the hidden shell. Every test drives a real zsh and skips
+//! with a message unless `EFR_TEST_ZSH=1`, but the scope test of `left`.
+
+mod left;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
