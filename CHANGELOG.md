@@ -399,6 +399,13 @@ into the GitHub release notes, and it stops when the section is missing.
   `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add
   ~/p/tool registers it.` efr never registers a repository by itself.
   `conversation.repo_hint = false` turns it off.
+- When a command of the agent still runs in its hidden shell after its call answered the
+  model, efr now tells you: the call shows `still runs in the hidden shell`, the end of the
+  turn names the command, and the next prompt shows a notice. When it waits for input,
+  such as a password, you see the line that asks, and you answer it in the turn view or
+  after `,shell`; Ctrl+C there stops it. Such a command that waits for input ends after
+  `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
+  goes on while you follow the turn.
 
 ### Changed
 
@@ -612,6 +619,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - efr no longer sends an answer that may be a password into a sandboxed command. A
   sandboxed command could show a prompt that looked like a password prompt, and efr took
   your answer for it. Now efr stops such a command at once.
+- A command that waited for a password in the hidden shell after its call timed out
+  blocked every later call of the conversation for that call's timeout, with no word to
+  you. Now the next call fails at once, the model names the command, and you can answer
+  or stop it with `,shell`.
 - An `ask` or `deny` rule for `git` in `[[permissions.rules]]` now matches when git's own
   options come before the subcommand, such as `git -C ~/p/app push origin HEAD` or
   `git -c push.default=current push`, in both forms (`--git-dir=x` and `--git-dir x`).

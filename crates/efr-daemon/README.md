@@ -563,9 +563,10 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   such as `sudo`'s own pty they are the relay's; the shell appends `\r`. A text that
   is not one line of at most `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes
   without control characters is `invalid`; a conversation without a shell, or in which
-  no call's command runs (the call's command ended, or was left at its timeout and
-  goes on without a call, so an answer after the call's `tool_call_completed` always
-  is), is `not_found`; and a command that does not wait for that
+  the call's command no longer runs, is `not_found`. A command that its call left
+  running in the hidden shell at the timeout still takes an answer with that call's id,
+  with the same checks (see "A command left running" below); and a command that does
+  not wait for that
   input (another call's command, one not started yet, one with no wait reported, an
   answer of the other kind than the wait, a hidden answer while the terminal does not
   read a line or echoes, the shell itself or another job than the one that waited
@@ -593,15 +594,49 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   that nobody could answer it, with the advice to have the user run it in their own
   terminal or follow the turn while it retries. With one, the
   command waits until it ends or its timeout passes. A visible wait (a `[Y/n]`
-  question) never stops a command. The same count keeps a call that the user approved
-  because it may wait for input (`CallContext::approved_interactive`) running past the
-  model's `timeout_seconds`: `tools.rs` sets `ToolContext::interactive_limit` from
-  `shell.interactive_timeout_minutes` of the latest settings (60 by default), and the
-  shell asks once per quiet period past the timeout whether such a client still
-  follows. Without one, or once the limit passes, the call answers as at its timeout
-  (`Interactive` or `StillRunning`), and its command goes on without a call. A visible
-  wait whose prompt looks like a password prompt behind a relay carries `looks_secret`
-  on its `tool_call_input_changed` event.
+  question) never stops a command. The same count keeps a call running past the
+  model's `timeout_seconds` up to `shell.interactive_timeout_minutes` of the latest
+  settings (60 by default): a call outside the sandbox whose line may ask at the
+  terminal, whoever approved it (`CallContext::may_wait`, which `tools.rs` turns into
+  `ToolContext::interactive_limit`), and any call whose command waits for input at its
+  timeout (`ToolContext::input_limit`, set for every call). The shell asks once per
+  quiet period past the timeout whether such a client still follows. Without one, or
+  once the limit passes, the call answers as at its timeout (`Interactive` or
+  `StillRunning`, with `left_running` on its `tool_call_completed`), and its command
+  goes on in the hidden shell (see "A command left running" below). A visible wait
+  whose prompt looks like a password prompt behind a relay carries `looks_secret` on
+  its `tool_call_input_changed` event.
+- A command left running. A call whose command still runs when the call answers the
+  model leaves it in the hidden shell, which takes no other call until it ends.
+  `tools.rs` hands each call `input_limit` and the approver of the call
+  (`CallContext::approved_by`), and the shell keeps both with the command.
+  `shells/observer.rs` records the shell's notices of it as `shell_command_detached`,
+  `shell_command_input_changed` (each wait change, with the row of the screen that
+  asks) and `shell_command_ended` (`ended`, `stopped`, `limit`, `closed` or
+  `shell_exited`), events of the conversation that name the call. The shell's watch
+  asks `Connections::answerers` (`Followers` in `shells.rs`) whether a person can
+  answer a wait of it: a wait for a password stays while one follows, or, while nobody
+  does, only for a line that may ask at the terminal and that the user or the user's
+  own rule approved; in the sandbox it never stays. Any wait ends at the input limit
+  after the command's start. `input.respond` with the call's id answers it, and the
+  shell refuses a hidden answer, an answer to a wait that looks secret and every manual
+  answer for a command in the sandbox (`conflict`). `shell.status` (scope `read`,
+  `methods/shell_status.rs`) answers the command as a `BusyShell` from the shell's
+  live state, never from the log, so the event of an efrd that stopped since never
+  shows as busy. `shell.interrupt` (scope `terminal`, so never the phone or a
+  model-side peer, `methods/shell_interrupt.rs`) sends `SIGINT` to the command's job
+  only while that job holds the terminal and is not the shell itself, or with `close`
+  closes the hidden shell; it is `not_found` once the command no longer runs and
+  `conflict` when the job does not hold the terminal, and a final refusal gets a
+  receipt. A call that finds the shell held fails at once while the command waits for
+  input, and before a sandboxed call after its timeout otherwise, and the model reads
+  the command's line from `not_ready_text` (`tools.rs` reads it from
+  `ShellSessions::busy`). `Toolbox::busy_shell` gives the turn's preamble the same
+  command. The notices (`notices.rs`) tell the terminal at its next prompt, when no
+  client showed the event: the command left running, a wait that efr keeps for the
+  user with the row that asks, the approver and `type the password only after ,shell;
+  never at this prompt`, and a stop by efr at the limit or of a password wait that
+  nobody could answer.
 - `shell.sudo_cache` decides what happens to sudo's credential cache on the hidden
   shell's terminal, read from the latest settings at each call (`tools.rs` sets
   `ToolContext::forget_credentials`). `keep`, the default, leaves it to sudo (about
@@ -1213,7 +1248,11 @@ ended (exit 0): <title>`, with the processes that may still run and a lost launc
 or a job's notice waits for the next prompt (`...; no wake turn (wake limit reached)`),
 or efr forwards a port of a job or says why not (`efr: <title>: job j1 listens on
 127.0.0.1:8765 -> http://localhost:8765`; the title comes first, so a cut never takes
-the URL), and no subscription from the
+the URL), or a command still runs in the hidden shell after its call answered (`efr:
+<title>: the hidden shell still runs rsync -a ...`, a wait of it that efr keeps for you
+with the row that asks and who approved it, and a stop by efr; at most 300 characters,
+and a cut takes the title or the command, never the row, the approver or where to
+type), and no subscription from the
 conversation's terminal (a connection whose hello named that tty) was handed the event,
 nor a live lease from it names the conversation, the daemon appends one line to
 `$XDG_RUNTIME_DIR/efr/notices/<tty>` (`docs/storage.md`), which the zsh plugin prints at
@@ -1437,7 +1476,14 @@ the model. The `shell_` tests run a real zsh and skip with a message unless
 `EFR_TEST_ZSH=1`: a command runs and is recorded, a password typed through
 `input.respond` reaches only the program (not the model's next request, the event log,
 any file of the daemon's tree or any log line at any level), and a password prompt
-that no client can answer is stopped within seconds.
+that no client can answer is stopped within seconds. `input_respond::left` leaves a
+command running past a short timeout: it prints a marker and then reads a FIFO that the
+test writes after the call answered, so it waits for input only once it is left. The
+events and `left_running`, a follower that answers its password wait, the notices
+without a follower, the reviewer's and the user's approval of a wait, the refused
+password for a contained command (the fake launcher), `shell.interrupt` with and
+without `close` (and from the phone), the next call that fails at once, the preamble
+and the limit run there.
 
 The `jobs` module starts background jobs through `efr-test-daemon`'s `FakeLauncher`
 (a `/bin/sh` script in place of `efr-sbx`) with a fixed job environment, so it needs no
