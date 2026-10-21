@@ -89,7 +89,8 @@ The tools:
   the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`; the text
   of `needs.hosts` sends a server that the user's browser must reach to a background
   job, whose port efr forwards, and keeps `localhost` for a tool that does not use
-  `HTTPS_PROXY`, such as psql), and
+  `HTTPS_PROXY`, such as psql, but tells the model not to name the forwarded port of a
+  job, which a contained call reaches on 127.0.0.1), and
   `background`, `max_minutes` and `watch` (phase C: a background job, which efrd starts
   and which runs on after the call answers; `job_request` reads them, and a call that
   breaks their rules is `ToolError::InvalidJob`). The

@@ -104,12 +104,15 @@ fn hosts_member_text_holds_in_both_modes() {
     assert!(text.contains("HTTPS_PROXY"), "{text}");
     // A dev server for the browser runs as a job, whose port efr forwards (DL16 of the
     // v0.0.4 live items plan); `localhost` stays for a client of a service of the host.
+    // A contained call reaches the forwarded port of a job with no entry (DS45 of the
+    // v0.0.4 shell items plan).
     assert_eq!(
         *text,
         "Hosts that the command needs, such as gitlab.com. A server that the user's browser \
          must reach runs as a background job: in auto, efr forwards its port unless \
          jobs.forward_ports is off. For a tool that does not use HTTPS_PROXY, such as psql, \
-         name localhost or the host with its port."
+         name localhost or the host with its port. Do not name the forwarded port of a job: \
+         a contained call reaches it on 127.0.0.1."
     );
     for word in ["allow list", "efr's proxy", "phase"] {
         assert!(!text.contains(word), "{word:?} in {text}");
