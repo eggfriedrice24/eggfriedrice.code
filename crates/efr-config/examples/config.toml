@@ -453,6 +453,12 @@
 # priority of a job is always the lowest.
 # nice = 19
 
+# Forward each loopback port that a contained background job listens on to the same
+# port of 127.0.0.1, so your browser opens a dev server that the model started. Never
+# a port below 1024, a port that is in use on your machine or a service port. false
+# at a reload also stops the forwards of the jobs that run.
+# forward_ports = true
+
 [diff]
 # Groups of your own for the changed files of a turn: a name, then a list of globs.
 # The end of a turn and efr diff --stat count the lines of each group. A glob without

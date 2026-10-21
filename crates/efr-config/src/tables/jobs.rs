@@ -38,6 +38,11 @@ pub struct JobsSettings {
     /// job never runs at a higher priority than efrd. The disk priority of a job is
     /// always the lowest (the idle class).
     pub nice: u8,
+    /// Forward each loopback port that a contained background job listens on to the
+    /// same port of 127.0.0.1. A job reads it when it starts. `false` at a reload also
+    /// stops the forwards of the jobs that run; a later `true` does not start them
+    /// again.
+    pub forward_ports: bool,
 }
 
 impl Default for JobsSettings {
@@ -52,6 +57,7 @@ impl Default for JobsSettings {
             max_wakes_per_hour_daemon: 12,
             max_wakes_per_watch: 3,
             nice: 19,
+            forward_ports: true,
         }
     }
 }

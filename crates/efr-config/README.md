@@ -107,8 +107,11 @@ Modules:
   1440, default 480), `max_running` (1 to 64, default 4, per conversation),
   `max_running_daemon` (1 to 256, default 16), `max_wakes_per_hour` (0 to 60, default
   6, per conversation; 0: a notice never starts a turn), `max_wakes_per_hour_daemon` (0
-  to 120, default 12), `max_wakes_per_watch` (0 to 10, default 3) and `nice` (0 to 19,
-  default 19). Each key applies from the next job or notice.
+  to 120, default 12), `max_wakes_per_watch` (0 to 10, default 3), `nice` (0 to 19,
+  default 19) and `forward_ports` (default `true`: each loopback port that a contained
+  job listens on is forwarded to the same port of 127.0.0.1; `false` at a reload also
+  stops the forwards of the jobs that run). Each key applies from the next job or
+  notice.
 - `tables/snapshot`: `[snapshot]` (`SnapshotSettings`), efr's own snapshots of the
   files that the agent can change (the auto spec, section 10): `enabled`,
   `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:
