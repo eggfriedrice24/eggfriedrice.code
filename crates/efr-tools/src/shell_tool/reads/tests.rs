@@ -82,6 +82,13 @@ fn of(line: &str) -> (Vec<String>, Option<Depth>) {
 #[case::tree_cwd("tree -a", &[], Some(Depth::Tree))]
 // diff reads below its operands, which may be directories.
 #[case::diff("diff -u ~ /tmp/x", &["~:tree", "/tmp/x:tree"], None)]
+// The value of a separate `-o Name=value` of an ssh program, when it is a path.
+#[case::ssh_o_separate("ssh -o ControlPath=~/.ssh/cm h", &["ControlPath=~/.ssh/cm:one", "h:one", "~/.ssh/cm:one"], None)]
+#[case::ssh_o_joined("ssh -oControlPath=~/.ssh/cm h", &["~/.ssh/cm:one", "h:one"], None)]
+#[case::ssh_o_space("ssh -o 'ControlPath ~/.ssh/cm' h", &["ControlPath ~/.ssh/cm:one", "h:one", "~/.ssh/cm:one"], None)]
+#[case::scp_o_absolute("scp -o IdentityFile=/k a h:b", &["IdentityFile=/k:one", "a:one", "h:b:one", "b:one", "/k:one"], None)]
+#[case::ssh_o_not_a_path("ssh -o BatchMode=yes h", &["BatchMode=yes:one", "h:one"], None)]
+#[case::ssh_capital_s("ssh -S ~/.ssh/cm h", &["~/.ssh/cm:one", "h:one"], None)]
 fn reads_by_program(#[case] line: &str, #[case] expected: &[&str], #[case] cwd: Option<Depth>) {
     let (named, read_cwd) = of(line);
     assert_eq!(named, expected, "{line:?}");
