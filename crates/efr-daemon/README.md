@@ -1048,15 +1048,17 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   sandbox (the exit child, a line typed into the hidden shell, full mode) first gets a
   `preview` with a token, the line, the limit and one `ExitInfo` with the kinds and the
   reasons of the job decision; only a confirm with that token within 60 s and the same
-  exits moves it. The move: efrd makes `$CALL/moved` (`O_CREAT | O_EXCL`, 0600) for a
-  call through the launcher, reserves the place, puts it with the receiver of the
+  exits moves it. The move: efrd reserves the place, puts it with the receiver of the
   adopted run in the call's entry and calls `ShellSessions::request_move`; a refusal of
   efr-shell (the command did not start, a sentinel run, a shell or REPL, an input wait,
-  a full-screen program) removes the file and frees the place. The run answers its call
-  with `Completion::Moved`; the tool path, which still holds the call's proxy, bus,
-  reach and snapshot, takes the adopted run: the reach helper gets `Unreach` for every
-  port and the reach ends (`ReachCall::unreach_all`), the git roots of a contained call
-  stay counted until its `result.json`, and `JobTable::adopt` records `job_started`
+  a full-screen program) frees the place. The run answers its call with
+  `Completion::Moved`; the tool path, which still holds the call's proxy, bus, reach
+  and snapshot, takes the adopted run. It makes `$CALL/moved` (`O_CREAT | O_EXCL`,
+  0600) for a call through the launcher only then, so a launcher that ended before the
+  hand-over keeps the shell state of a call that did not move. Then the reach helper
+  gets `Unreach` for every port and the reach ends (`ReachCall::unreach_all`), the git
+  roots of a contained call stay counted until its `result.json`, and
+  `JobTable::adopt` records `job_started`
   (with `moved_from`, the shell's pid and start time as the launcher's) before the
   call answers with the output so far and `job_moved_text`, with no exit code. The
   handler waits up to 10 s on efrd's clock for the job and answers `moved`. The old PTY
