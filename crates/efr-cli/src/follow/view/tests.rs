@@ -1807,7 +1807,7 @@ fn exit_events(line: &str, facts: ExitFacts, info: ExitInfo) -> [Event; 2] {
             call_id: call(),
             summary: "a summary that the exit's whole line replaces".to_owned(),
             diff_preview: None,
-            interactive: true,
+            interactive: false,
             exit: Some(info),
             expires_in_secs: None,
         },
@@ -1876,6 +1876,39 @@ fn a_network_exit_question_runs_in_the_sandbox_with_full_network() {
 \u{2502} y allow \u{b7} n deny
 "
     );
+}
+
+/// The approval of `exit_events` for a call that may wait for input at the terminal.
+fn interactive_exit_events(line: &str, info: ExitInfo) -> [Event; 2] {
+    let [record, mut approval] = exit_events(line, ExitFacts::default(), info);
+    if let Event::ApprovalRequested { interactive, .. } = &mut approval {
+        *interactive = true;
+    }
+    [record, approval]
+}
+
+#[test]
+fn a_question_for_an_rsync_over_ssh_outside_the_sandbox_names_the_password() {
+    let line = "rsync -a -e ssh u@h:src/ dst/";
+    let info = exit_info(&[ExitKind::Upload], Launch::Unsandboxed);
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(&mut view, &interactive_exit_events(line, info), true);
+    assert!(err.contains("\u{2502} you may need to type your password\n"), "{err}");
+    assert_eq!(err.matches("type your password").count(), 1, "{err}");
+}
+
+#[test]
+fn a_question_names_no_password_in_the_sandbox_or_twice_for_sudo() {
+    let contained =
+        exit_info(&[ExitKind::Host], Launch::Contained { grants: vec![Grant::OpenNetwork] });
+    let mut view = sandbox_view(false);
+    let (_, err, _) =
+        feed(&mut view, &interactive_exit_events("git clone ssh://h/r", contained), true);
+    assert!(!err.contains("password"), "{err}");
+    let sudo = exit_info(&[ExitKind::Privilege], Launch::Unsandboxed);
+    let mut view = sandbox_view(false);
+    let (_, err, _) = feed(&mut view, &interactive_exit_events("sudo -v", sudo), true);
+    assert_eq!(err.matches("type your password").count(), 1, "{err}");
 }
 
 #[test]

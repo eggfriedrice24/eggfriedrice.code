@@ -990,6 +990,11 @@ pub(crate) fn paused(reason: PauseReason, denials: u8) -> String {
 pub(crate) const AWAY_EXPIRED: &str =
     "approval expired: nobody answered while you were away; the call did not run";
 
+/// The row of a question's card for a call outside the sandbox that may wait for a
+/// password at the terminal (the hard or the soft flag), when its exits do not say so
+/// already: `rsync` over ssh, `scp` or `git` over the network.
+pub(crate) const PASSWORD_ROW: &str = "you may need to type your password";
+
 /// The row of a question's card while efr counts the user away: the question does not
 /// wait long, and an answer counts as input.
 pub(crate) const AWAY_ROW: &str =

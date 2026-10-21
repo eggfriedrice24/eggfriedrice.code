@@ -143,9 +143,9 @@ use std::time::Duration;
 use efr_config::DiffGroups;
 use efr_protocol::{
     ApprovalDecision, ApprovedBy, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event,
-    EventEnvelope, ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch,
-    Mode, Origin, Presence, QuestionId, Risk, Scope, Seq, ShellCommandEnd, SurfaceChange, TurnId,
-    TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
+    EventEnvelope, ExitInfo, ExitKind, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind,
+    Launch, Mode, Origin, Presence, QuestionId, Risk, Scope, Seq, ShellCommandEnd, SurfaceChange,
+    TurnId, TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -3141,6 +3141,14 @@ impl TurnView {
             if wake.is_some() {
                 card::mark_wake(&mut card);
             }
+        }
+        // NOTE: a call that may ask for a password says so, but never one in the sandbox,
+        // where efr types no secret, and a privilege exit says it in its why row.
+        let privilege = request.exit.is_some_and(|exit| exit.kinds.contains(&ExitKind::Privilege));
+        let contained =
+            request.exit.is_some_and(|exit| matches!(exit.launch, Launch::Contained { .. }));
+        if self.interactive.contains(&call_id) && !privilege && !contained {
+            card.rows.push(card::Row::text(sandbox::PASSWORD_ROW, Tone::Dim));
         }
         // NOTE: a patch shows the diff of each of its files after a row that names it,
         // so a delete or a move stands out before the user answers. An edit is a patch
