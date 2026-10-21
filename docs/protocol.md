@@ -608,3 +608,16 @@ No protocol version has shipped yet.
   that are not valid. New fixtures `shell_interrupt_params.json`,
   `shell_interrupt_result.json`, `shell_status_params.json` and
   `shell_status_result.json`.
+- Version 1, additive: the move of a running `shell` call to a background job (Ctrl+B
+  in `efr`). New method `call.background` (scope `terminal`, with a command id) with
+  `conversation_id`, `call_id` and `confirm` (absent when not set). Without `confirm`,
+  a call in the sandbox moves at once, and a call outside the sandbox does not move:
+  the result is a `preview` (`token`, `command`, `max_minutes`, and `exits`, absent
+  when empty), and the client asks the user. A yes sends the method again with the
+  token in `confirm`. The result is `moved` (`job_id`) or `preview`; a kind that a
+  reader does not know reads as `unknown`. A refusal is `invalid` with a short reason.
+  `JobInfo` gains `moved_from` (absent for a job that the model started):
+  `call_id`, `turn_id`, `after_secs`, and `exits`, absent when empty. A daemon from
+  before refuses the method as a frame that is not valid. New fixtures
+  `call_background_params.json`, `call_background_result.json`,
+  `call_background_result_preview.json` and `events/job_started_moved.json`.

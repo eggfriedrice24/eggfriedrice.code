@@ -17,7 +17,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::{CallId, ConversationId, Launch, ProtocolError, TurnId};
+use crate::{CallId, ConversationId, ExitInfo, Launch, ProtocolError, TurnId};
 
 /// The id of a job: `j1`, `j2`, ... in the order in which the jobs of one conversation
 /// started. Ids repeat across conversations, so a job is named by its conversation and
@@ -390,6 +390,27 @@ pub struct JobInfo {
     /// The ports that efr forwards for the job. Absent when none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forwards: Vec<PortForward>,
+    /// The `shell` call that the user moved into this job with Ctrl+B. Absent for a job
+    /// that the model started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_from: Option<MovedCall>,
+}
+
+/// The `shell` call that a job came from, when the user moved a running call into a job
+/// (`call.background`). The job's `turn_id` and `call_id` name the same call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MovedCall {
+    /// The call that the user moved.
+    pub call_id: CallId,
+    /// The turn of that call.
+    pub turn_id: TurnId,
+    /// How long the call ran before the move, in seconds. The job's time limit counts
+    /// from the move.
+    pub after_secs: u64,
+    /// The exits of the job decision that the user's answer to the move covered. Absent
+    /// when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exits: Vec<ExitInfo>,
 }
 
 /// What the summary of a question in a job notice turn starts with. efrd puts it in

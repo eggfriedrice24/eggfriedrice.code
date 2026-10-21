@@ -6,8 +6,8 @@ use serde_json::json;
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
-    Base64Bytes, CallId, Capabilities, CommandId, ConversationCompact, ConversationContext,
-    ConversationDiff, ConversationHistory, ConversationId, ConversationResume,
+    Base64Bytes, CallBackground, CallId, Capabilities, CommandId, ConversationCompact,
+    ConversationContext, ConversationDiff, ConversationHistory, ConversationId, ConversationResume,
     ConversationSubscribe, ConversationsList, ConversationsRecent, Hello, InputRespond, JobId,
     JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
     ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
@@ -379,7 +379,56 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             false,
             false,
         ),
+        (
+            Method::CallBackground(CallBackground {
+                conversation_id: conversation(),
+                call_id: CallId::from_str(CALL).unwrap(),
+                command_id: command(),
+                confirm: None,
+            }),
+            "call.background",
+            ScopeName::Terminal,
+            true,
+            false,
+        ),
     ]
+}
+
+#[test]
+fn call_background_needs_terminal_scope_and_carries_a_command_id() {
+    let preview = Method::CallBackground(CallBackground {
+        conversation_id: conversation(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        command_id: command(),
+        confirm: None,
+    });
+    // NOTE: the phone and the model's own commands hold no `terminal` scope, so only a
+    // person at their own terminal can move a call to the background.
+    assert_eq!(ScopeName::for_method(&preview), ScopeName::Terminal);
+    assert_eq!(preview.command_id(), Some(command()));
+    assert!(!preview.is_stream());
+    assert_eq!(
+        serde_json::to_value(&preview).unwrap(),
+        json!({
+            "method": "call.background",
+            "params": { "conversation_id": CONVERSATION, "call_id": CALL, "command_id": COMMAND }
+        }),
+        "confirm is left out when absent"
+    );
+    let confirm = json!({
+        "method": "call.background",
+        "params": {
+            "conversation_id": CONVERSATION, "call_id": CALL, "command_id": COMMAND,
+            "confirm": 7
+        }
+    });
+    let read: Method = serde_json::from_value(confirm).unwrap();
+    assert!(matches!(read, Method::CallBackground(CallBackground { confirm: Some(7), .. })));
+    let no_command = json!({
+        "method": "call.background",
+        "params": { "conversation_id": CONVERSATION, "call_id": CALL }
+    });
+    assert!(serde_json::from_value::<Method>(no_command).is_err(), "a move is a write");
 }
 
 #[test]

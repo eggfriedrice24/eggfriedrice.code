@@ -22,38 +22,38 @@ use crate::{
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ApprovedBy, AttachHow, Base64Bytes,
     BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary,
-    CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome,
-    ClientFrame, Color, CommandId, Compaction, CompactionBrief, CompactionId, CompactionSummary,
-    CompactionTrigger, ConfigFileError, ConfigStatus, ContextItem, ContextPart, ContextPartKind,
-    ContextUse, ConversationCompact, ConversationCompactResult, ConversationContext,
-    ConversationContextResult, ConversationDiff, ConversationDiffResult, ConversationHistory,
-    ConversationHistoryResult, ConversationId, ConversationResume, ConversationResumeResult,
-    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
-    ConversationSummary, ConversationsList, ConversationsListResult, ConversationsRecent,
-    ConversationsRecentResult, CountedUse, Cursor, DaemonId, DaemonPaths, DaemonRoots, DesktopEnv,
-    DesktopKind, DeviceId, Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    EventEnvelope, ExitFacts, ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges,
-    ForwardOutcome, FullModeStatus, FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant,
-    HeldConfig, HeldReason, Hello, HelloResult, HostFact, InputRespond, InputRespondResult,
-    InputWait, JobId, JobInfo, JobState, JobStopBy, JobsList, JobsListResult, JobsStop,
-    JobsStopResult, JudgeKind, Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult,
-    LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult,
-    NetworkMode, NewReason, NotSavedReason, NoticeKind, Origin, OverriddenSettings,
-    PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, PortForward, Presence, PresenceSet,
-    PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList,
-    ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
-    ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite,
-    PtyWriteResult, QuestionId, RecentCommand, RecentConversation, RefChange, RepoHint,
-    ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles, RootSource, RouteLabel,
-    RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
-    SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
-    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact, TurnId,
-    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
-    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
-    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
-    WithdrawnSteer,
+    CallBackground, CallBackgroundResult, CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell,
+    ChainStep, ChangeKind, CheckOutcome, ClientFrame, Color, CommandId, Compaction,
+    CompactionBrief, CompactionId, CompactionSummary, CompactionTrigger, ConfigFileError,
+    ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse, ConversationCompact,
+    ConversationCompactResult, ConversationContext, ConversationContextResult, ConversationDiff,
+    ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
+    ConversationResume, ConversationResumeResult, ConversationSnapshot, ConversationStatus,
+    ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
+    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, CountedUse, Cursor,
+    DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart,
+    EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
+    ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus, FullRefusal,
+    GitCodeFact, GitCodeFacts, GitCounts, Grant, HeldConfig, HeldReason, Hello, HelloResult,
+    HostFact, InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState, JobStopBy,
+    JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer, Launch,
+    LeaseReport, LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo, ModelSource,
+    ModelsList, ModelsListResult, MovedCall, NetworkMode, NewReason, NotSavedReason, NoticeKind,
+    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason,
+    PortForward, Presence, PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId,
+    ProjectInfo, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
+    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
+    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
+    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
+    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
+    ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
+    SurfaceChange, Switch, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
+    TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction,
+    UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict,
+    Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -113,6 +113,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("events/tool_call_started_freeform.json", &freeform_call_sample()));
     fixtures.push(fixture("events/exit_requested_floor_edit.json", &floor_edit_exit_sample()));
     fixtures.push(fixture("events/exit_judged_full.json", &full_judged_sample()));
+    fixtures.push(fixture("events/job_started_moved.json", &moved_job_sample()));
     fixtures.extend(frame_fixtures());
     fixtures.push(fixture("input_waits.json", &input_wait_samples()));
     fixtures.push(fixture("modes.json", &Mode::ALL.to_vec()));
@@ -234,6 +235,56 @@ fn job_info() -> JobInfo {
             PortForward { listen: "127.0.0.1".into(), port: 8765 },
             PortForward { listen: "::1".into(), port: 5173 },
         ],
+        moved_from: None,
+    }
+}
+
+/// A job that the user moved from a running `shell` call with Ctrl+B: a call outside the
+/// sandbox, whose yes to the move covered the exit of the job decision.
+fn moved_job_info() -> JobInfo {
+    JobInfo {
+        id: JobId::nth(4),
+        command: "cargo test --workspace".into(),
+        launch: Launch::Unsandboxed,
+        state: JobState::Running,
+        started_at: at("2026-10-12T10:05:42Z"),
+        ends_by: at("2026-10-12T11:05:42Z"),
+        ended_at: None,
+        exit_code: None,
+        stopped_by: None,
+        output: "/home/me/.local/share/efr/scratch/2026-10-12-019a9b1c/jobs/j4.out".into(),
+        output_bytes: 0,
+        watch: None,
+        wakes: 0,
+        forwards: Vec::new(),
+        moved_from: Some(MovedCall {
+            call_id: call_id(),
+            turn_id: turn_id(),
+            after_secs: 42,
+            exits: vec![ExitInfo {
+                kinds: vec![ExitKind::Destructive],
+                launch: Launch::Unsandboxed,
+                grants: Vec::new(),
+                facts: vec!["a delete that undo does not cover as a job".into()],
+                model_reason: None,
+                judged: None,
+                user_only: false,
+                always: None,
+            }],
+        }),
+        ..job_info()
+    }
+}
+
+/// The start of a job that the user moved from a running call: the hidden shell's zsh
+/// stands in for the launcher.
+pub(crate) fn moved_job_sample() -> Event {
+    Event::JobStarted {
+        turn_id: turn_id(),
+        call_id: call_id(),
+        job: moved_job_info(),
+        launcher_pid: 48_190,
+        launcher_start: 9_118_002,
     }
 }
 
@@ -983,6 +1034,12 @@ pub(crate) fn method_samples() -> Vec<Method> {
             close: true,
         }),
         Method::ShellStatus(ShellStatus { conversation_id: conversation_id() }),
+        Method::CallBackground(CallBackground {
+            conversation_id: conversation_id(),
+            call_id: call_id(),
+            command_id: command_id(),
+            confirm: Some(7_310_442_918_005),
+        }),
     ]
 }
 
@@ -1480,6 +1537,19 @@ fn answer_fixtures() -> Vec<Fixture> {
                     prompt: "me@build's password: ".into(),
                     approved_by: Some(ApprovedBy::YourRule),
                 }),
+            },
+        ),
+        fixture(
+            "call_background_result.json",
+            &CallBackgroundResult::Moved { job_id: JobId::nth(4) },
+        ),
+        fixture(
+            "call_background_result_preview.json",
+            &CallBackgroundResult::Preview {
+                token: 7_310_442_918_005,
+                command: "cargo test --workspace".into(),
+                max_minutes: 60,
+                exits: moved_job_info().moved_from.map(|moved| moved.exits).unwrap_or_default(),
             },
         ),
         fixture(

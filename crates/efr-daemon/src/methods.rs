@@ -134,6 +134,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationResume(_) => ScopeName::Operate,
         Method::ShellInterrupt(_) => ScopeName::Terminal,
         Method::ShellStatus(_) => ScopeName::Read,
+        Method::CallBackground(_) => ScopeName::Terminal,
     }
 }
 
@@ -212,7 +213,9 @@ impl Input {
             | Method::JobsList(_)
             | Method::ConversationContext(_)
             | Method::ConversationsRecent(_)
-            | Method::ShellStatus(_) => None,
+            | Method::ShellStatus(_)
+            // NOTE: no handler serves a move yet, so it does not mark the user present.
+            | Method::CallBackground(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -465,6 +468,11 @@ impl Dispatcher for Methods {
                 }
                 Method::ShellStatus(params) => {
                     shell_status::handle(state, params, &responder).await
+                }
+                // NOTE: the protocol has the move of a running call to the background;
+                // efrd serves it in a later step of v0.0.4.
+                Method::CallBackground(_) => {
+                    Err(DaemonError::InvalidParams { reason: "not built yet" })
                 }
             };
             state.presence.record(touched).await;

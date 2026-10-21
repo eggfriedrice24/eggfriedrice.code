@@ -1,0 +1,9 @@
+{
+  "method": "call.background",
+  "params": {
+    "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+    "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+    "command_id": "019a9b1c-3d00-7a10-8b20-000000000003",
+    "confirm": 7310442918005
+  }
+}
