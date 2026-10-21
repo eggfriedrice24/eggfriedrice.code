@@ -74,6 +74,15 @@
 //! Ctrl+X in the row asks `jobs.list` for the newest running job of the conversation,
 //! and after a `y` to the view's question it sends `jobs.stop`. efrd answers when the
 //! job ended, so the loop waits for the answer beside the events.
+//!
+//! Ctrl+B in the row, whatever the row holds, sends `call.background` for the running
+//! shell call of the followed turn. efrd moves a call in the sandbox at once: it keeps
+//! its sandbox, so the key press is the user's answer. For a call outside the sandbox
+//! efrd answers a preview, and only a `y` to the view's one-key question sends
+//! `call.background` again with the preview's token. efrd answers once the job is
+//! recorded, within a few seconds, so the loop waits for that answer at most
+//! [`MOVE_WAIT`]. With no such call, a note says so. The key also acts while efr holds
+//! the keys for the call, and after the question they go back to the call.
 
 mod view;
 
@@ -81,14 +90,14 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallId, ConversationHistory,
-    ConversationHistoryResult, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, InputRespond, InputRespondResult, JobId, JobState, JobsList, JobsListResult,
-    JobsStop, JobsStopResult, LateSteer, Method, Origin, PromptSend, PromptSendResult,
-    PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand, SandboxSurfaceRespond,
-    SandboxSurfaceRespondResult, SecretText, Seq, ShellContext, ShellInterrupt,
-    ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallBackground, CallBackgroundResult,
+    CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSubscribe,
+    ConversationSubscribeItem, ErrorCode, Event, InputRespond, InputRespondResult, JobId, JobState,
+    JobsList, JobsListResult, JobsStop, JobsStopResult, LateSteer, Method, Origin, PromptSend,
+    PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, SecretText, Seq, ShellContext,
+    ShellInterrupt, ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
+    TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use efr_transport::client::{Client, ClientError, ItemStream};
@@ -104,7 +113,7 @@ use crate::error::CliError;
 use crate::keys::{self, Key, KeyReader};
 use crate::output::Output;
 use crate::row::Action;
-use view::AnswerKind;
+use view::{AnswerKind, Preview};
 
 pub(crate) use view::{Ask, Look, Step, TICK, TurnEnd, TurnView, spinner};
 
@@ -157,6 +166,14 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long the command waits at its end for the stop of a job that the user asked
 /// for: efrd answers when the job ended, at most about 6 s after the stop.
 const STOP_WAIT: Duration = Duration::from_secs(10);
+
+/// Ctrl+B, the background key, which also reaches the follow loop while efr holds the
+/// keys for the running call.
+const CTRL_B: u8 = 0x02;
+
+/// How long the background key waits for efrd's answer: efrd answers a move once the
+/// job is recorded, and gives up itself after 10 s.
+const MOVE_WAIT: Duration = Duration::from_secs(15);
 
 /// How long a shell call that reports no wait prints nothing before the view offers
 /// `Ctrl+\` to type an input for it.
@@ -399,6 +416,9 @@ enum Asking {
     Surface(QuestionId),
     /// The question of the stop key, with one key.
     StopJob,
+    /// The question of the background key about call `call_id`, with one key: `y` moves
+    /// it with `token`.
+    Move { call_id: CallId, token: u64 },
     /// The input row: nothing else takes the keys.
     Row,
 }
@@ -441,6 +461,7 @@ async fn stop(keys: KeyReader, asking: &Asking) {
         | Asking::Always(_)
         | Asking::Surface(_)
         | Asking::StopJob
+        | Asking::Move { .. }
         | Asking::Row => {
             keys.stop().await;
         }
@@ -1074,9 +1095,16 @@ impl Follower<'_> {
         let key = key.byte();
         match asking {
             Asking::Row => Ok(()),
+            // NOTE: Ctrl+B moves the call also while efr holds the keys for it: it is no
+            // character of a password, and the keys come back to the call after the
+            // move's question ([`TurnView::move_answered`]).
             Asking::Discard => {
                 self.keys = Some((reader, Asking::Discard));
-                Ok(())
+                if key == CTRL_B { Box::pin(self.background_key(out, view)).await } else { Ok(()) }
+            }
+            Asking::Pending { call_id, line } if key == CTRL_B => {
+                self.keys = Some((reader, Asking::Pending { call_id, line }));
+                Box::pin(self.background_key(out, view)).await
             }
             Asking::Pending { call_id, mut line } => {
                 pend(&mut line, key);
@@ -1141,6 +1169,31 @@ impl Follower<'_> {
                 self.show(out, view, &step)?;
                 match job {
                     Some(job) => Box::pin(self.stop_job(job, out, view)).await,
+                    None => Ok(()),
+                }
+            }
+            Asking::Move { call_id, token } => {
+                let yes = match key {
+                    b'y' | b'Y' => true,
+                    b'n' | b'N' | keys::ESC => false,
+                    _ => {
+                        self.keys = Some((reader, Asking::Move { call_id, token }));
+                        return Ok(());
+                    }
+                };
+                let (step, call) = view.move_answered(yes, self.ctx.screen.size());
+                if step.ask.is_some() {
+                    // NOTE: the call held the keys before the question: they go back to it.
+                    self.keys = Some((reader, Asking::Move { call_id, token }));
+                    self.apply(step, out, view, false).await?;
+                } else {
+                    self.release(reader, &Asking::Move { call_id, token }, view).await;
+                    self.show(out, view, &step)?;
+                }
+                match call {
+                    Some(call_id) => {
+                        Box::pin(self.move_call(call_id, Some(token), out, view)).await
+                    }
                     None => Ok(()),
                 }
             }
@@ -1238,6 +1291,7 @@ impl Follower<'_> {
             Action::Interrupt => self.escape(out, view).await,
             Action::Withdraw => self.withdraw(out, view).await,
             Action::StopJob => Box::pin(self.stop_key(out, view)).await,
+            Action::Background => Box::pin(self.background_key(out, view)).await,
         }
     }
 
@@ -1635,6 +1689,67 @@ impl Follower<'_> {
         self.apply(step, out, view, false).await.map(drop)
     }
 
+    /// Ctrl+B: moves the running shell call of the followed turn to the background, or
+    /// says that no such call runs.
+    async fn background_key(
+        &mut self,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        match view.background_call() {
+            Some(call_id) => self.move_call(call_id, None, out, view).await,
+            None => {
+                let step = view.note(crate::format::jobs::NO_CALL, self.ctx.screen.size());
+                self.apply(step, out, view, false).await.map(drop)
+            }
+        }
+    }
+
+    /// Sends `call.background` for `call_id`: with no `confirm` after Ctrl+B, with the
+    /// preview's token after a `y` to the question. A preview asks that question; a
+    /// refusal is a note. efrd answers once the job is recorded, at most [`MOVE_WAIT`]
+    /// later.
+    async fn move_call(
+        &mut self,
+        call_id: CallId,
+        confirm: Option<u64>,
+        out: &mut Output,
+        view: &mut TurnView,
+    ) -> Result<(), CliError> {
+        let method = Method::CallBackground(CallBackground {
+            conversation_id: self.target.conversation,
+            call_id,
+            command_id: self.ctx.command_id(),
+            confirm,
+        });
+        let ctx = self.ctx;
+        let answer = ctx.clock.timeout(MOVE_WAIT, self.send::<CallBackgroundResult>(method)).await;
+        let size = self.ctx.screen.size();
+        let step = match answer {
+            Ok(answer) => match answer? {
+                Ok(CallBackgroundResult::Moved { job_id }) => {
+                    view.moved(call_id, job_id);
+                    Step::default()
+                }
+                // NOTE: a preview after a `y` means that efrd wants a new answer; the
+                // user presses the key again rather than answering twice in a row.
+                Ok(CallBackgroundResult::Preview { token, command, max_minutes, exits })
+                    if confirm.is_none() =>
+                {
+                    let preview = Preview { token, command: &command, max_minutes, exits: &exits };
+                    view.move_question(call_id, &preview, size)
+                }
+                Ok(CallBackgroundResult::Preview { .. }) => {
+                    view.not_moved(call_id, MOVE_AGAIN, size)
+                }
+                Ok(_) => view.not_moved(call_id, MOVE_UNKNOWN, size),
+                Err(body) => view.not_moved(call_id, &body.message, size),
+            },
+            Err(_) => view.note(MOVE_UNCONFIRMED, size),
+        };
+        self.apply(step, out, view, false).await.map(drop)
+    }
+
     /// Asks efrd to stop `job`. The answer comes when the job ended, so the loop waits
     /// for it beside the events; on a connection made again, it waits here.
     async fn stop_job(
@@ -1842,6 +1957,7 @@ fn take_over(
                 Ask::Retain(call_id) => Asking::Pending { call_id, line: AnswerLine::new() },
                 Ask::Surface(question_id) => Asking::Surface(question_id),
                 Ask::StopJob => Asking::StopJob,
+                Ask::Move { call_id, token } => Asking::Move { call_id, token },
             };
             (reader, asking, None, row)
         }
@@ -1960,6 +2076,15 @@ enum TakeBack {
     /// The daemon refused for another reason, which the note gives.
     Refused(String),
 }
+
+/// Why the call did not move when efrd asked again after the user's `y`.
+const MOVE_AGAIN: &str = "efrd asks again; press ctrl+b again";
+
+/// Why the call did not move when efrd answered in a way that this efr does not know.
+const MOVE_UNKNOWN: &str = "efrd answered in a way that this efr does not know";
+
+/// The note when efrd did not answer the move in time.
+const MOVE_UNCONFIRMED: &str = "efrd did not confirm the move; efr jobs shows whether it moved";
 
 /// The note when Ctrl+C took back the followed prompt before it ran.
 const TAKEN_BACK: &str = "the prompt was taken back before it ran";

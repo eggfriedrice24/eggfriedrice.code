@@ -129,6 +129,13 @@
 //! starts a job says `(background)`, and its block names the job. A turn that a job
 //! notice started is marked once. Ctrl+X asks whether to stop the newest running job
 //! ([`TurnView::stop_question`]).
+//!
+//! Ctrl+B moves the running shell call of the followed turn to the background
+//! ([`TurnView::background_call`]): efrd moves a call in the sandbox at once, and for a
+//! call outside the sandbox it answers a preview, which the view asks about with one
+//! key ([`TurnView::move_question`]). The empty input row names the key once such a
+//! call has run for [`BACKGROUND_AFTER`]. A moved call's block ends with `(moved to
+//! job j3)` and the line of the job, from its `job_started`.
 
 mod call;
 mod input;
@@ -255,6 +262,20 @@ const ECHO_PREFIX: &str = "> ";
 /// of a question's card does.
 const GOES_ON: usize = 2;
 
+/// How long a shell call runs before the empty input row names Ctrl+B: a short call
+/// ends before anyone could move it, so the hint would only flash.
+pub(crate) const BACKGROUND_AFTER: Duration = Duration::from_secs(2);
+
+/// The answer line when the call ended while its move question waited.
+const MOVE_ENDED: &str = "the command ended; nothing moved";
+
+/// The answer line when the call began to wait for input while its move question
+/// waited: a call that waits for input cannot move.
+const MOVE_WAITS: &str = "the command waits for input; nothing moved";
+
+/// The name of the shell tool, whose running call the background key moves.
+const SHELL_TOOL: &str = "shell";
+
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TurnEnd {
@@ -359,6 +380,10 @@ pub(crate) enum Ask {
     /// The question of the stop key, answered with one key: `y` stops the job that the
     /// view asks about ([`TurnView::stop_answered`]), `n` lets it run.
     StopJob,
+    /// The question of the background key about call `call_id`, which runs outside the
+    /// sandbox, answered with one key: `y` moves it with the preview's `token`
+    /// ([`TurnView::move_answered`]), `n` leaves it in the turn.
+    Move { call_id: CallId, token: u64 },
 }
 
 /// What a question on the screen asks about.
@@ -367,6 +392,7 @@ enum About {
     Approval(CallId),
     Surface(QuestionId),
     StopJob,
+    Move,
 }
 
 /// The question on a terminal, as a card in the live zone until it is answered.
@@ -473,6 +499,20 @@ struct Changed<'a> {
     diff: Option<&'a str>,
 }
 
+/// What efrd's preview of a move to the background says, for the question of the
+/// background key.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Preview<'a> {
+    /// What `confirm` sends back after a `y`.
+    pub(crate) token: u64,
+    /// The command line of the call.
+    pub(crate) command: &'a str,
+    /// The time limit of the job, in minutes.
+    pub(crate) max_minutes: u32,
+    /// The exits of the job decision.
+    pub(crate) exits: &'a [ExitInfo],
+}
+
 /// The wait of a command left running in the hidden shell, from its event.
 struct Wait<'a> {
     input: InputWait,
@@ -490,6 +530,11 @@ struct Jobs {
     woken: HashSet<TurnId>,
     /// The job that the question of the stop key asks about, while it waits for a key.
     stopping: Option<JobId>,
+    /// The call that the question of the background key asks about, while it waits for
+    /// a key.
+    moving: Option<CallId>,
+    /// The calls of this turn that the user moved to a job, with the job.
+    moved: HashMap<CallId, JobId>,
 }
 
 /// The state of one followed turn on the screen.
@@ -953,9 +998,12 @@ impl TurnView {
     }
 
     /// True while an approval, the quarantine question or the question of the stop key
-    /// waits for a key.
+    /// or of the background key waits for a key.
     fn question_pending(&self) -> bool {
-        self.asking.is_some() || self.surface.is_some() || self.jobs.stopping.is_some()
+        self.asking.is_some()
+            || self.surface.is_some()
+            || self.jobs.stopping.is_some()
+            || self.jobs.moving.is_some()
     }
 
     /// The turn waits behind the running one: until it starts, the running turn's
@@ -1118,6 +1166,14 @@ impl TurnView {
             Some(status) if !self.ended && !asking && !call_shown => status.row(now, &options),
             _ => String::new(),
         };
+        // NOTE: the hint names Ctrl+B only once the call has run for a moment, so a
+        // short call does not make it flash.
+        let background = call_shown
+            && self.background_call().is_some()
+            && self.call.as_ref().is_some_and(|call| call.ran_for(now) >= BACKGROUND_AFTER);
+        if let Some(input) = &mut self.input {
+            input.background = background;
+        }
         // The input row is the last part of the live zone, and the cursor waits in it.
         let input = self.input.as_ref().filter(|input| input.shown && !self.ended);
         let tail =
@@ -1489,7 +1545,17 @@ impl TurnView {
                     }
                     _ => call::output_lines(output),
                 };
-                let settled = self.call_ended(*call_id);
+                let mut settled = self.call_ended(*call_id);
+                // NOTE: the move question about the call asks nothing any more; its keys
+                // go back.
+                let ended_question = match self.jobs.moving.take_if(|moving| moving == call_id) {
+                    Some(_) => {
+                        settled = true;
+                        self.answer_line(About::Move, false, MOVE_ENDED, size)
+                    }
+                    None => Step::default(),
+                };
+                let moved = self.jobs.moved.remove(call_id);
                 let tool = self.tools.get(call_id).map_or("the tool", String::as_str);
                 let launched = self.contained.remove(call_id);
                 let contained =
@@ -1542,12 +1608,13 @@ impl TurnView {
                         self.denied_block(&call, &notes, size)
                     }
                     Some(call) => {
-                        let outcome = match (refusal, setup, *exit_code) {
-                            (Some(reason), _, _) => Outcome::Refused(reason),
-                            (None, Some(reason), _) => Outcome::NotStarted(reason),
-                            (None, None, _) if *left_running => Outcome::LeftRunning,
-                            (None, None, Some(code)) if code != 0 => Outcome::Exited(code),
-                            (None, None, None) if *is_error => Outcome::Failed,
+                        let outcome = match (refusal, setup, *exit_code, &moved) {
+                            (Some(reason), ..) => Outcome::Refused(reason),
+                            (None, Some(reason), ..) => Outcome::NotStarted(reason),
+                            (None, None, ..) if *left_running => Outcome::LeftRunning,
+                            (None, None, _, Some(job)) => Outcome::Moved(job),
+                            (None, None, Some(code), None) if code != 0 => Outcome::Exited(code),
+                            (None, None, None, None) if *is_error => Outcome::Failed,
                             _ => Outcome::Ran,
                         };
                         let changed = Changed { changes: changes.as_ref(), diff: diff.as_deref() };
@@ -1573,7 +1640,8 @@ impl TurnView {
                     }
                 };
                 // The live tail goes either way.
-                Step { settled, ..step }
+                let err = format!("{}{}", ended_question.err, step.err);
+                Step { settled, err, ..step }
             }
             Event::ExitRequested { call_id, kinds, grants, source, record, .. } => {
                 let exit = sandbox::Requested::new(kinds, grants, *source, record);
@@ -1700,6 +1768,9 @@ impl TurnView {
                 self.whole_note(&sandbox::paused(*reason, *denials), size)
             }
             Event::JobStarted { call_id, job, .. } => {
+                if job.moved_from.is_some() {
+                    self.jobs.moved.insert(*call_id, job.id.clone());
+                }
                 let line = jobs::started(job);
                 // NOTE: efrd records the start before the call ends, so the line goes in
                 // the call's block, under its result.
@@ -2196,6 +2267,92 @@ impl TurnView {
         self.whole_note(&line, size)
     }
 
+    /// The call that the background key (Ctrl+B) can move: the running `shell` call of
+    /// the followed turn, which does not start a job, waits for no approval and was not
+    /// moved yet. `None` while the followed prompt waits behind another turn: the view
+    /// may not have seen the start of that turn's call, such as of a turn that a job
+    /// notice started.
+    pub(crate) fn background_call(&self) -> Option<CallId> {
+        let call = self.call.as_ref()?;
+        let shell = self.tools.get(&call.call_id).is_some_and(|tool| tool == SHELL_TOOL);
+        let movable = shell
+            && !call.awaiting
+            && !call.background()
+            && !self.queued
+            && !self.ended
+            && !self.jobs.moved.contains_key(&call.call_id);
+        movable.then_some(call.call_id)
+    }
+
+    /// The question of the background key about `call_id`, which runs outside the
+    /// sandbox: efrd's preview names its `command`, the time limit of the job in
+    /// minutes and the exits of the job decision. `y` moves the call with `token`.
+    pub(crate) fn move_question(
+        &mut self,
+        call_id: CallId,
+        preview: &Preview<'_>,
+        size: Size,
+    ) -> Step {
+        let before = self.finish_message();
+        let mut rows = card::command_rows(preview.command);
+        rows.push(card::Row::text(jobs::move_risk(preview.max_minutes), Tone::Attention));
+        for exit in preview.exits {
+            rows.push(card::Row::text(jobs::move_exit(exit, self.home.as_deref()), Tone::Dim));
+        }
+        let card = Card { title: jobs::MOVE_TITLE.to_owned(), rows };
+        let ask = Ask::Move { call_id, token: preview.token };
+        let step = Step { out: before, ask: Some(ask), ..Step::default() };
+        self.jobs.moving = Some(call_id);
+        // NOTE: the call keeps what it holds the keys for (a call allowed here that may
+        // ask, or one that asked for a password): they go back to it after the answer
+        // ([`keys_back`](Self::keys_back)).
+        self.show_question(step, card, About::Move, Footer::Keys(jobs::MOVE_KEYS), size)
+    }
+
+    /// The user answered the question of the background key: `yes` with `y`. The call
+    /// to move comes back with a `y`, while the question still asks about it. The keys
+    /// go back to the call when it held them before the question.
+    pub(crate) fn move_answered(&mut self, yes: bool, size: Size) -> (Step, Option<CallId>) {
+        let Some(call_id) = self.jobs.moving.take() else {
+            return (Step::default(), None);
+        };
+        let line =
+            if yes { "moving the command to the background" } else { "the command runs on here" };
+        let step = self.answer_line(About::Move, yes, line, size);
+        (self.keys_back(call_id, step), yes.then_some(call_id))
+    }
+
+    /// `step`, after which the keys go back to call `call_id` when it holds them: kept
+    /// for a call that the user allowed here as one that may wait for input, or for an
+    /// output line that looks like a password prompt ([`Ask::Retain`]), or thrown away
+    /// after it asked for a password ([`Ask::Discard`]). Otherwise they go to the input
+    /// row.
+    fn keys_back(&self, call_id: CallId, step: Step) -> Step {
+        let running = self.running.as_ref().filter(|running| running.call_id == call_id);
+        let ask = if running.is_some_and(|running| running.guarding) {
+            Some(Ask::Discard(call_id))
+        } else if self.retained == Some(call_id) || running.is_some_and(|running| running.held) {
+            Some(Ask::Retain(call_id))
+        } else {
+            None
+        };
+        Step { ask: ask.or(step.ask), ..step }
+    }
+
+    /// efrd moved call `call_id` to job `job_id`. The call's block says so when it ends;
+    /// its `job_started` names the job too.
+    pub(crate) fn moved(&mut self, call_id: CallId, job_id: JobId) {
+        self.jobs.moved.insert(call_id, job_id);
+        self.dirty = true;
+    }
+
+    /// efrd did not move call `call_id`: a note says why, and the keys go back to the
+    /// call when it held them.
+    pub(crate) fn not_moved(&mut self, call_id: CallId, reason: &str, size: Size) -> Step {
+        let step = self.whole_note(&jobs::not_moved(reason), size);
+        self.keys_back(call_id, step)
+    }
+
     /// Shows `card`, the question about `about`, with `footer`, after `step`'s output:
     /// in the live zone on a terminal until it is answered, on stderr otherwise.
     fn show_question(
@@ -2206,10 +2363,13 @@ impl TurnView {
         footer: Footer,
         size: Size,
     ) -> Step {
-        // NOTE: a question of the turn takes the keys from the question of the stop key,
-        // which then waits for no key.
+        // NOTE: a question of the turn takes the keys from the question of the stop key
+        // or of the background key, which then waits for no key.
         if about != About::StopJob {
             self.jobs.stopping = None;
+        }
+        if about != About::Move {
+            self.jobs.moving = None;
         }
         if self.terminal() {
             let before = std::mem::take(&mut step.out);
@@ -2283,6 +2443,11 @@ impl TurnView {
         running.stirred();
         let quiet = running.asking.is_none() && !running.guarding && !retained;
         let hold = free && quiet && looks_secret(open_line(tail));
+        // NOTE: the question of the background key reads the keys; whether the call
+        // holds them is settled when it is answered ([`keys_back`](Self::keys_back)).
+        if self.jobs.moving.is_some() {
+            return self.commit(String::new());
+        }
         let mut step = Step { settled, ..self.commit(String::new()) };
         let Some(running) = self.running.as_mut() else {
             return step;
@@ -2404,7 +2569,29 @@ impl TurnView {
         size: Size,
         can_ask: bool,
     ) -> Step {
+        // NOTE: a call that waits for input cannot move, so its wait ends the question
+        // of the background key and asks for the answer in its place.
+        let waits = matches!(input, InputWait::Hidden | InputWait::Visible);
+        let closed = match self.jobs.moving.take_if(|moving| *moving == call_id && waits) {
+            Some(_) => self.answer_line(About::Move, false, MOVE_WAITS, size),
+            None => Step::default(),
+        };
+        let step = self.input_changed_now(call_id, input, looks_secret, size, can_ask);
+        Step { err: format!("{}{}", closed.err, step.err), ..step }
+    }
+
+    /// [`input_changed`](Self::input_changed) once a question of the background key
+    /// about the call is closed.
+    fn input_changed_now(
+        &mut self,
+        call_id: CallId,
+        input: InputWait,
+        looks_secret: bool,
+        size: Size,
+        can_ask: bool,
+    ) -> Step {
         let approval_pending = self.question_pending();
+        let moving = self.jobs.moving.is_some();
         let (running, replaced) = self.running(call_id);
         if running.asking.is_some_and(AnswerKind::guards) {
             running.guarding = true;
@@ -2418,6 +2605,9 @@ impl TurnView {
             InputWait::Hidden => AnswerKind::Hidden,
             InputWait::Visible if looks_secret => AnswerKind::Masked,
             InputWait::Visible => AnswerKind::Visible,
+            // NOTE: the question of the background key reads the keys meanwhile; they go
+            // back to the call after its answer ([`keys_back`](Self::keys_back)).
+            _ if moving => return self.commit(String::new()),
             // No wait, or one this build does not know: nothing to ask, but a call that
             // asked for a password keeps the keys quiet until it completes.
             _ if running.guarding => {

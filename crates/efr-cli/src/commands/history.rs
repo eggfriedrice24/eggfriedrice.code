@@ -24,7 +24,9 @@
 //!
 //! Background jobs show as the view shows them: a job's start, its end, a line that
 //! matched its `watch` pattern, a notice that did not start a turn and a port that efr
-//! forwards or not, with the URL as an OSC 8 link on a terminal. A turn that a
+//! forwards or not, with the URL as an OSC 8 link on a terminal. A call that the user
+//! moved to a job with Ctrl+B shows `moved to job j3 by you after 42 seconds; ...` and
+//! the exits that the answer to the move covered. A turn that a
 //! job notice started shows `🤖 (job notice, not your input)` where a prompt would
 //! stand. `--verbose` adds the text of each notice and the tail of each end, through
 //! `format::lines`, so the output of a job cannot drive the terminal.
@@ -411,7 +413,14 @@ impl<'a> Transcript<'a> {
                 }
                 self.note(&line);
             }
-            Event::JobStarted { job, .. } => self.note(&jobs::started(job)),
+            Event::JobStarted { job, .. } => {
+                self.note(&jobs::started(job));
+                // NOTE: a call that the user moved with Ctrl+B names the exits that the
+                // answer to the move covered, as an approval names its exit.
+                for line in jobs::moved_exits(job, self.home) {
+                    self.note(&line);
+                }
+            }
             // NOTE: the conversation came to another terminal: a new split picked it up,
             // or the user resumed it there.
             Event::TerminalAttached { tty, how, .. } => {

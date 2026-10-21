@@ -27,7 +27,8 @@
 //! ends in a muted `↩`; then for a
 //! failed call the last lines of its output; then the result on its own row: `✓` in
 //! the `success` role, or `✗ exit 101`, `✗ failed` or `✗ refused: <why>` in the
-//! `error` role. The time follows for a call that ran 1 s or more. A result or a note
+//! `error` role, or `(moved to job j3)`, muted, for a call that the user moved to the
+//! background with Ctrl+B. The time follows for a call that ran 1 s or more. A result or a note
 //! wider than the screen goes on in the next row, indented 2 more columns.
 //!
 //! ```text
@@ -55,7 +56,7 @@
 
 use std::time::Duration;
 
-use efr_protocol::{CallId, ContextUse, FileChanges};
+use efr_protocol::{CallId, ContextUse, FileChanges, JobId};
 use efr_render::{RenderOptions, text_width};
 use jiff::Timestamp;
 
@@ -109,6 +110,8 @@ pub(crate) enum Outcome<'a> {
     /// It answered the model while its command still runs in the hidden shell
     /// (`left_running`), such as after its timeout.
     LeftRunning,
+    /// The user moved it to this background job with Ctrl+B: its command runs on there.
+    Moved(&'a JobId),
 }
 
 impl Outcome<'_> {
@@ -144,6 +147,9 @@ impl Outcome<'_> {
             // NOTE: no check mark: the command did not end, and the shell takes no
             // other call until it does.
             Outcome::LeftRunning => (LEFT_RUNNING.to_owned(), Tone::Attention),
+            // NOTE: no check mark either: the command runs on as a job, whose end comes
+            // later as a line of its own.
+            Outcome::Moved(job) => (format!("(moved to job {job})"), Tone::Dim),
         }
     }
 
@@ -193,6 +199,17 @@ impl Call {
         self
     }
 
+    /// True when the call starts a background job (`background: true`).
+    pub(crate) fn background(&self) -> bool {
+        self.background
+    }
+
+    /// How long the call has shown as running at `now`: from the first frame that
+    /// showed it, as its line counts.
+    pub(crate) fn ran_for(&self, now: Timestamp) -> Duration {
+        self.shown.map_or(Duration::ZERO, |shown| since_then(shown, now))
+    }
+
     /// Its approval was answered at `at`: the call runs from then.
     pub(crate) fn approved(&mut self, at: Option<Timestamp>) {
         self.awaiting = false;
@@ -236,7 +253,7 @@ impl Call {
         context: Option<&ContextUse>,
         options: &RenderOptions,
     ) -> String {
-        let elapsed = self.shown.map_or(Duration::ZERO, |shown| since_then(shown, now));
+        let elapsed = self.ran_for(now);
         let time = (elapsed >= SHOW_TIME).then(|| format::elapsed(elapsed));
         let method = options.width_method();
         let width = usize::from(options.width());

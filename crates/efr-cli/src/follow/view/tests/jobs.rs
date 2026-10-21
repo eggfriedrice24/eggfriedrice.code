@@ -1,13 +1,14 @@
 //! Background jobs in the view: the lines of a job's end, a matched line and a held
 //! notice and a port of a job, which belong to the conversation and show while any turn
 //! of it is followed; the mark of a turn that a job notice started; the question of the stop
-//! key.
+//! key; the call that the background key moves, its question and the block of a moved
+//! call.
 
 use efr_protocol::{Event, ForwardOutcome, HeldReason, JobId, JobState, JobStopBy, Seq, TurnId};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::super::{Ask, TurnView};
+use super::super::{Ask, Preview, TurnView};
 use super::{SIZE, feed, framed, raw_view, terminal_view};
 use crate::testing::{bare, call, job, turn};
 
@@ -238,4 +239,142 @@ fn stop_key_question_needs_yes() {
     let (step, stopped) = view.stop_answered(true, SIZE);
     assert_eq!(stopped, Some(JobId::nth(3)));
     assert!(bare(&framed(step, &mut view).out).contains("\u{2713} stopping job j3"));
+}
+
+/// The start of the test's shell call, with `input`.
+fn shell_with(input: serde_json::Value) -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input,
+        manual_input: false,
+        launch: None,
+        freeform: false,
+    }
+}
+
+/// The `job_started` of job 3, which the user moved from the test's call after 42 s,
+/// with `exits` that the move covered.
+fn moved_job_started(exits: Vec<efr_protocol::ExitInfo>) -> Event {
+    let mut job = job(3, "make deploy");
+    job.ends_by = job.started_at + jiff::SignedDuration::from_mins(60);
+    job.moved_from =
+        Some(efr_protocol::MovedCall { call_id: call(), turn_id: turn(), after_secs: 42, exits });
+    Event::JobStarted {
+        turn_id: turn(),
+        call_id: call(),
+        job,
+        launcher_pid: 4242,
+        launcher_start: 99,
+    }
+}
+
+/// The end of the test's call with no exit code: a moved call ends so.
+fn completed_without_code() -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: "[the user moved this command to the background after 42s: job j3.]".to_owned(),
+        truncated: false,
+        is_error: false,
+        exit_code: None,
+        sandbox: None,
+        refusal: None,
+        changes: None,
+        diff: None,
+        left_running: false,
+    }
+}
+
+#[test]
+fn ctrl_b_moves_only_the_running_shell_call_of_the_followed_turn() {
+    let mut view = terminal_view();
+    assert_eq!(view.background_call(), None, "no call runs");
+    feed(&mut view, &[shell_with(json!({ "command": "make deploy" }))], true);
+    assert_eq!(view.background_call(), Some(call()));
+    view.moved(call(), JobId::nth(3));
+    assert_eq!(view.background_call(), None, "a moved call moves once");
+
+    // A call that starts a job runs in the background already.
+    let mut view = terminal_view();
+    feed(&mut view, &[shell_with(json!({ "command": "npm run dev", "background": true }))], true);
+    assert_eq!(view.background_call(), None);
+
+    // A file tool has no command to move.
+    let mut view = terminal_view();
+    let read = Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "read_file".to_owned(),
+        input: json!({ "path": "a.txt" }),
+        manual_input: false,
+        launch: None,
+        freeform: false,
+    };
+    feed(&mut view, &[read], true);
+    assert_eq!(view.background_call(), None);
+
+    // NOTE: the call of a turn that the followed prompt waits behind, such as a turn
+    // that a job notice started, is not the view's to move.
+    let mut view = terminal_view();
+    view.queue();
+    let ahead = Event::ToolCallStarted {
+        turn_id: other_turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: json!({ "command": "sleep 600" }),
+        manual_input: false,
+        launch: None,
+        freeform: false,
+    };
+    feed(&mut view, &[notice(other_turn(), true), ahead], true);
+    assert_eq!(view.background_call(), None);
+}
+
+#[test]
+fn move_question_needs_yes() {
+    let mut view = terminal_view();
+    feed(&mut view, &[shell_with(json!({ "command": "make deploy" }))], true);
+    let mut exit =
+        crate::testing::exit_info(&[efr_protocol::ExitKind::Write], efr_protocol::Launch::Direct);
+    exit.facts = vec!["a job asks in cautious".to_owned()];
+    let exits = [exit];
+    let preview = Preview { token: 7, command: "make deploy", max_minutes: 60, exits: &exits };
+    let step = framed(view.move_question(call(), &preview, SIZE), &mut view);
+    assert_eq!(step.ask, Some(Ask::Move { call_id: call(), token: 7 }));
+    let shown = bare(&step.out);
+    assert!(shown.contains("? move this command to the background"), "{shown:?}");
+    assert!(shown.contains("make deploy"), "{shown:?}");
+    assert!(shown.contains("it keeps running with your full rights"), "{shown:?}");
+    assert!(shown.contains("as a job: write; efr: a job asks in"), "{shown:?}");
+    assert!(shown.contains("y move \u{b7} n no"), "{shown:?}");
+
+    let (step, moved) = view.move_answered(false, SIZE);
+    assert_eq!(moved, None, "n moves nothing");
+    let step = framed(step, &mut view);
+    assert!(bare(&step.out).contains("\u{2717} the command runs on here"), "{:?}", step.out);
+    assert_eq!(view.move_answered(true, SIZE).1, None, "no question waits now");
+
+    framed(view.move_question(call(), &preview, SIZE), &mut view);
+    let (step, moved) = view.move_answered(true, SIZE);
+    assert_eq!(moved, Some(call()));
+    let shown = bare(&framed(step, &mut view).out);
+    assert!(shown.contains("\u{2713} moving the command to the background"), "{shown:?}");
+}
+
+#[test]
+fn a_moved_call_ends_with_its_job_and_no_check_mark() {
+    let mut view = raw_view();
+    let events = [
+        shell_with(json!({ "command": "make deploy" })),
+        moved_job_started(Vec::new()),
+        completed_without_code(),
+    ];
+    let (_, err, _) = feed(&mut view, &events, true);
+    assert_eq!(
+        err,
+        "\u{b7} $ make deploy\n  (moved to job j3)\n  moved to job j3 by you after 42 seconds; \
+         output $SCRATCH/jobs/j3.out; ends in 60 minutes\n"
+    );
 }

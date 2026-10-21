@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 
 use super::{
     Ended, ListRow, conversation_line, ended, held, link_of, linked, list, matched, minutes,
-    output_name, ports, started, tail_lines,
+    move_exit, move_risk, moved_exits, not_moved, output_name, ports, started, tail_lines,
 };
 use crate::testing::{job, now};
 
@@ -361,5 +361,63 @@ fn a_running_job_lists_its_forwarded_ports() {
         list(&rows, now()),
         "j2  running         ends in 3h 0m    0 B  python3 -m http.server 8765  (ports 8765, 5173)\n\
          j1  stopped by you  ended 5m 0s ago  0 B  python3 -m http.server 8765\n"
+    );
+}
+
+/// Job 3, which the user moved from a call after `after_secs`, with `exits`.
+fn moved(after_secs: u64, exits: Vec<efr_protocol::ExitInfo>) -> efr_protocol::JobInfo {
+    let mut job = job(3, "make deploy");
+    job.ends_by = job.started_at + jiff::SignedDuration::from_mins(60);
+    job.moved_from = Some(efr_protocol::MovedCall {
+        call_id: crate::testing::call(),
+        turn_id: crate::testing::turn(),
+        after_secs,
+        exits,
+    });
+    job
+}
+
+#[test]
+fn a_moved_job_starts_with_who_moved_it_and_when() {
+    assert_eq!(
+        started(&moved(42, Vec::new())),
+        "moved to job j3 by you after 42 seconds; output $SCRATCH/jobs/j3.out; ends in 60 minutes"
+    );
+    assert!(started(&moved(150, Vec::new())).contains("after 2 minutes;"));
+    assert_eq!(moved_exits(&moved(42, Vec::new()), None), Vec::<String>::new());
+    assert_eq!(moved_exits(&job(3, "npm run dev"), None), Vec::<String>::new());
+    let mut exit =
+        crate::testing::exit_info(&[efr_protocol::ExitKind::Write], efr_protocol::Launch::Direct);
+    exit.facts = vec!["a job asks in\u{1b}[2J cautious".to_owned()];
+    assert_eq!(
+        moved_exits(&moved(42, vec![exit]), None),
+        ["your move covered: write; efr: a job asks in\u{241b}[2J cautious"],
+        "efr's facts go through one_line"
+    );
+}
+
+#[test]
+fn the_texts_of_the_background_key() {
+    assert_eq!(
+        move_risk(60),
+        "it keeps running with your full rights after the turn, for up to 60 minutes"
+    );
+    assert!(move_risk(1).ends_with("for up to 1 minute"));
+    assert_eq!(
+        not_moved("the command waits\u{1b}[2J for input"),
+        "the command was not moved: the command waits\u{241b}[2J for input"
+    );
+    let exit =
+        crate::testing::exit_info(&[efr_protocol::ExitKind::Host], efr_protocol::Launch::Direct);
+    assert_eq!(move_exit(&exit, None), "as a job: network");
+}
+
+#[test]
+fn the_list_marks_a_moved_job() {
+    let job = moved(42, Vec::new());
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert_eq!(
+        list(&rows, now()),
+        "j3  running  ends in 1h 0m  0 B  make deploy  (moved by you)\n"
     );
 }
