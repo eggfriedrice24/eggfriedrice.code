@@ -6,14 +6,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use efr_holder::{Signal, SignalTarget};
-use efr_protocol::{ApprovedBy, CallId, InputWait, ShellCommandEnd};
+use efr_protocol::{ApprovedBy, CallId, InputWait, SecretText, ShellCommandEnd};
 use efr_sandbox::{SandboxResult, SpecLaunch, nonce_hex};
 use efr_stdx::time::Clock as _;
 use efr_test_support::{TestClock, Wait};
 use pretty_assertions::assert_eq;
 
-use crate::testing::{FakeTerminal, Harness, conversation};
-use crate::{Completion, InputModes, NoProgress, RunRequest, SandboxRun, ShellNotice};
+use crate::testing::{FakeTerminal, Harness, JOB, OTHER_JOB, conversation};
+use crate::{Completion, InputModes, NoProgress, RunRequest, SandboxRun, ShellError, ShellNotice};
 
 const ZSH: &str = "/usr/bin/zsh";
 
@@ -353,4 +353,162 @@ async fn orphan_that_does_not_wait_has_no_limit() {
     assert!(harness.holder.signals().is_empty(), "{:?}", harness.holder.signals());
     assert!(harness.sessions.busy(conversation(1)).is_some());
     drop(terminal);
+}
+
+/// A command left running at a hidden password prompt that a client can answer.
+async fn left_at_a_password_prompt(harness: &Harness) -> FakeTerminal {
+    harness.followers.set(1);
+    let mut terminal = left(harness, request("sudo pacman -Syu"), b"connecting\r\n").await;
+    asks(harness, &mut terminal, b"[sudo] password for u: ", HIDDEN).await;
+    looks(harness, 1).await;
+    let hidden = ShellNotice::CommandInputChanged {
+        conversation: conversation(1),
+        call: Some(call()),
+        input: InputWait::Hidden,
+        contained: false,
+        looks_secret: false,
+        prompt: "[sudo] password for u:".to_owned(),
+    };
+    harness.notices.wait_for(|notice| *notice == hidden).await;
+    terminal
+}
+
+fn other_call() -> CallId {
+    "01920000-0000-7000-8000-0000000c0de2".parse().unwrap()
+}
+
+#[tokio::test]
+async fn answer_reaches_the_orphan_of_its_call() {
+    let harness = Harness::new(ZSH);
+    let mut terminal = left_at_a_password_prompt(&harness).await;
+    harness
+        .sessions
+        .answer(conversation(1), call(), &SecretText::new("hunter2"), true)
+        .await
+        .unwrap();
+    assert_eq!(terminal.typed_line().await, b"hunter2\r");
+    // The look after an answer says that the prompt is gone, so a prompt asked again
+    // is a new change.
+    looks(&harness, 1).await;
+    let ended = ShellNotice::CommandInputChanged {
+        conversation: conversation(1),
+        call: Some(call()),
+        input: InputWait::None,
+        contained: false,
+        looks_secret: false,
+        prompt: String::new(),
+    };
+    harness.notices.wait_for(|notice| *notice == ended).await;
+    terminal.print(b"\r\n\x1b]133;D;0\x07").await;
+    let ShellNotice::CommandEnded { how, exit_code, .. } = self::ended(&harness).await else {
+        unreachable!("the notice is an end");
+    };
+    assert_eq!((how, exit_code), (ShellCommandEnd::Ended, Some(0)));
+}
+
+#[tokio::test]
+async fn answer_for_another_call_is_refused() {
+    let harness = Harness::new(ZSH);
+    let mut terminal = left_at_a_password_prompt(&harness).await;
+    let text = SecretText::new("hunter2");
+    let other = harness.sessions.answer(conversation(1), other_call(), &text, true).await;
+    assert!(matches!(other, Err(ShellError::NoCall { .. })), "{other:?}");
+    // A manual answer goes only to a call that runs.
+    let manual = harness.sessions.answer_manual(conversation(1), call(), &text, true).await;
+    assert!(matches!(manual, Err(ShellError::NotWaiting { .. })), "{manual:?}");
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("ok"), true).await.unwrap();
+    // Only the accepted answer was typed.
+    assert_eq!(terminal.typed_line().await, b"ok\r");
+}
+
+#[tokio::test]
+async fn hidden_answer_needs_echo_off_for_orphan() {
+    let harness = Harness::new(ZSH);
+    let mut terminal = left_at_a_password_prompt(&harness).await;
+    // The program turned echo back on, as sudo does when its own timeout passes.
+    harness.modes.set(Some(InputModes::new(true, true)));
+    let text = SecretText::new("hunter2");
+    let echoed = harness.sessions.answer(conversation(1), call(), &text, true).await;
+    assert!(matches!(echoed, Err(ShellError::NotWaiting { .. })), "{echoed:?}");
+    let visible = harness.sessions.answer(conversation(1), call(), &text, false).await;
+    assert!(matches!(visible, Err(ShellError::NotWaiting { .. })), "a visible answer: {visible:?}");
+    harness.modes.set(Some(HIDDEN));
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("ok"), true).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"ok\r");
+}
+
+#[tokio::test]
+async fn interrupt_left_only_while_group_holds_terminal() {
+    let harness = Harness::new(ZSH);
+    let mut terminal = left_at_a_password_prompt(&harness).await;
+    // The job ended and a command that a later precmd hook started holds the terminal.
+    harness.modes.set_foreground(OTHER_JOB);
+    let refused = harness.sessions.interrupt_left(conversation(1), call(), false).await;
+    assert!(matches!(refused, Err(ShellError::NotWaiting { .. })), "{refused:?}");
+    assert!(!interrupted(&harness, &terminal));
+
+    harness.modes.set_foreground(JOB);
+    harness.sessions.interrupt_left(conversation(1), call(), false).await.unwrap();
+    assert!(interrupted(&harness, &terminal));
+    terminal.print(b"^C\r\n\x1b]133;D;130\x07").await;
+    let ShellNotice::CommandEnded { how, exit_code, .. } = ended(&harness).await else {
+        unreachable!("the notice is an end");
+    };
+    assert_eq!((how, exit_code), (ShellCommandEnd::Stopped, Some(130)));
+}
+
+#[tokio::test]
+async fn interrupt_left_with_no_known_group_never_signals_the_zsh() {
+    let harness = Harness::new(ZSH);
+    // The shell itself holds the terminal at every look of the run, so no look saw a
+    // job of the command.
+    let shell = 1000;
+    harness.modes.set_foreground(shell);
+    let terminal = left(&harness, request("./deploy"), b"deploying\r\n").await;
+    let refused = harness.sessions.interrupt_left(conversation(1), call(), false).await;
+    assert!(
+        matches!(refused, Err(ShellError::NotWaiting { reason, .. }) if reason.contains("shell itself")),
+        "{refused:?}"
+    );
+    assert!(harness.holder.signals().is_empty(), "{:?}", harness.holder.signals());
+
+    // A job that is not the shell's own holds the terminal now.
+    harness.modes.set_foreground(JOB);
+    harness.sessions.interrupt_left(conversation(1), call(), false).await.unwrap();
+    assert!(interrupted(&harness, &terminal));
+}
+
+#[tokio::test]
+async fn interrupt_left_close_ends_the_shell() {
+    let harness = Harness::new(ZSH);
+    let terminal = left_at_a_password_prompt(&harness).await;
+    harness.sessions.interrupt_left(conversation(1), call(), true).await.unwrap();
+    assert!(harness.holder.signals().contains(&(
+        terminal.pty_id,
+        Signal::Hangup,
+        SignalTarget::Child
+    )));
+    let ShellNotice::CommandEnded { how, exit_code, .. } = ended(&harness).await else {
+        unreachable!("the notice is an end");
+    };
+    assert_eq!((how, exit_code), (ShellCommandEnd::Closed, None));
+    harness.notices.wait_for(|notice| matches!(notice, ShellNotice::Exited { .. })).await;
+    assert_eq!(harness.sessions.busy(conversation(1)), None);
+}
+
+#[tokio::test]
+async fn interrupt_left_after_end_is_no_call() {
+    let harness = Harness::new(ZSH);
+    let none = harness.sessions.interrupt_left(conversation(1), call(), false).await;
+    assert!(matches!(none, Err(ShellError::NoShell { .. })), "{none:?}");
+    let mut terminal = left(&harness, request("make"), b"cc -c a.c\r\n").await;
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    ended(&harness).await;
+    let sessions = harness.sessions.clone();
+    Wait::new("a free shell").until(|| sessions.busy(conversation(1)).is_none()).await.unwrap();
+    let late = harness.sessions.interrupt_left(conversation(1), call(), false).await;
+    assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
+    let late = harness.sessions.interrupt_left(conversation(1), call(), true).await;
+    assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
+    assert!(harness.holder.signals().is_empty(), "{:?}", harness.holder.signals());
 }

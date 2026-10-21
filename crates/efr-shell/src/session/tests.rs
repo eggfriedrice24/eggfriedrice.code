@@ -644,7 +644,7 @@ fn a_probe_tells_whether_the_command_runs_and_when_it_last_printed() {
     assert!(running.running);
     assert_eq!(running.last_output, Some(TestClock::START));
     assert_eq!(running.answers, 0);
-    core.answered();
+    core.answered(call_id(1));
     assert_eq!(core.probe(1, None).unwrap().answers, 1);
     assert_eq!(core.probe(2, None), None, "another run");
     feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07");
