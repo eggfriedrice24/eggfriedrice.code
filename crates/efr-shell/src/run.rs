@@ -233,6 +233,12 @@ pub enum Completion {
     /// prompt looks like a password prompt, always ends this way: efr never types a
     /// secret into a sandboxed command.
     Unanswered,
+    /// The user moved the running command into a background job
+    /// ([`ShellSessions::request_move`](crate::ShellSessions::request_move)). The command
+    /// goes on in its old shell, which the job owns now; [`CommandResult::output`] is the
+    /// output up to the move, and the job keeps the rest. The conversation's next run
+    /// starts a new shell.
+    Moved,
     /// A sandboxed run whose sandbox did not start or did not report: the wrapper check
     /// failed or the integration is missing (nothing ran), the sandbox's setup failed
     /// ([`SandboxResult::setup_error`](efr_sandbox::SandboxResult::setup_error)), or the

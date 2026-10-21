@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use efr_holder::{ChildStatus, Signal, SignalTarget, Size};
-use efr_protocol::{CallId, ConversationId, InputWait, SecretText};
+use efr_protocol::{CallId, ConversationId, InputWait, PtyId, SecretText};
 use efr_stdx::time::Clock as _;
 use efr_test_support::Wait;
 use pretty_assertions::assert_eq;
@@ -821,8 +821,10 @@ async fn the_trait_runs_through_the_manager() {
 
 #[test]
 fn screen_names_use_the_random_end_of_the_id() {
-    assert_eq!(screen_name(conversation(7)), "screen-00000007");
-    assert!(screen_name(conversation(7)).len() <= 15);
+    let pty: PtyId = "01920000-0000-7000-8000-00000000abcd".parse().unwrap();
+    // Two shells of one conversation, one that a job adopted and the new one, differ.
+    assert_eq!(screen_name(conversation(7), pty), "screen-0007abcd");
+    assert!(screen_name(conversation(7), pty).len() <= 15);
     assert_eq!(replay_name(conversation(7)), "replay-00000007");
     assert!(replay_name(conversation(7)).len() <= 15);
     assert_eq!(tail_name(conversation(7)), "tail-00000007");

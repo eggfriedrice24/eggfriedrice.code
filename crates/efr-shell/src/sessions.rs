@@ -20,6 +20,7 @@ use efr_stdx::StdxError;
 use efr_stdx::time::{Clock as _, Sleep};
 use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
+use crate::adopt::{self, AdoptedRun, AdoptedWatch, Adoption, Parts, TeeReader};
 use crate::input::{self, InputWatch, Offer, Quiet};
 use crate::live_tail::{LiveTail, Step};
 use crate::modes::Terminal;
@@ -28,14 +29,14 @@ use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
 use crate::run::{Progress, RunMode, screen_tail, timed_out};
 use crate::session::{
-    Activity, Detached, INBOX_CAPACITY, Life, Looked, Msg, RunEnd, RunOrder, SessionActor,
-    SessionCore, SessionHandle, until,
+    Activity, Detached, ENDED, INBOX_CAPACITY, Life, Looked, Msg, NOT_STARTED, RunEnd, RunOrder,
+    SessionActor, SessionCore, SessionHandle, until,
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
-    CommandResult, Completion, LeftRunning, NoProgress, OutputUpdate, RunProgress, RunRequest,
-    SandboxRun, ShellConfig, ShellDeps, ShellError, ShellNotice, ShellState, env, integration,
-    sandbox, sentinel,
+    CommandResult, Completion, Delimiter, LeftRunning, NoProgress, OutputUpdate, RunProgress,
+    RunRequest, SandboxRun, ShellConfig, ShellDeps, ShellError, ShellNotice, ShellState, env,
+    integration, sandbox, sentinel,
 };
 
 /// The program looked for on the `PATH` when the config names none.
@@ -70,7 +71,73 @@ struct Inner {
     installed: OnceCell<()>,
     sessions: Mutex<HashMap<ConversationId, Slot>>,
     next_run: AtomicU64,
+    /// The runs of tool calls that a background job may adopt now, by call.
+    moves: Mutex<HashMap<CallId, MoveSlot>>,
+    /// Where the next shell of a conversation starts: the directory of its shell that a
+    /// job adopted.
+    restarts: Mutex<HashMap<ConversationId, PathBuf>>,
 }
+
+/// A run that takes a move request: it registers when it starts, and its registration
+/// goes when it stops waiting for its command.
+struct MoveSlot {
+    conversation: ConversationId,
+    run: u64,
+    requests: mpsc::Sender<MoveRequest>,
+}
+
+/// A request to hand a run to a background job.
+pub(crate) struct MoveRequest {
+    to: oneshot::Sender<AdoptedRun>,
+    reply: oneshot::Sender<Result<(), ShellError>>,
+}
+
+/// A run's end of its move requests; dropping it takes the run out of the map, so a
+/// later request fails at once.
+struct Moves {
+    requests: mpsc::Receiver<MoveRequest>,
+    inner: Arc<Inner>,
+    call: CallId,
+    run: u64,
+}
+
+impl Drop for Moves {
+    fn drop(&mut self) {
+        let mut moves = self.inner.moves.lock().unwrap_or_else(PoisonError::into_inner);
+        if moves.get(&self.call).is_some_and(|slot| slot.run == self.run) {
+            moves.remove(&self.call);
+        }
+    }
+}
+
+/// The next move request of a run, never when it takes none.
+async fn next_move(moves: &mut Option<Moves>) -> MoveRequest {
+    match moves {
+        Some(moves) => match moves.requests.recv().await {
+            Some(request) => request,
+            None => std::future::pending().await,
+        },
+        None => std::future::pending().await,
+    }
+}
+
+/// A move that the session's actor took.
+struct Moved {
+    request: MoveRequest,
+    adoption: Adoption,
+    output: TeeReader,
+}
+
+/// Why a run stopped waiting for its command before its end.
+enum Leave {
+    /// Its timeout passed.
+    Timeout,
+    /// A background job adopted it.
+    Moved(Box<Moved>),
+}
+
+/// Why a move fails once the run answered its caller.
+const ANSWERED: &str = "the call answered already";
 
 /// How the next shell starts. The daemon changes it when its config reloads; a running
 /// shell keeps what it started with.
@@ -117,6 +184,8 @@ impl ShellSessions {
                 installed: OnceCell::new(),
                 sessions: Mutex::new(HashMap::new()),
                 next_run: AtomicU64::new(0),
+                moves: Mutex::new(HashMap::new()),
+                restarts: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -368,6 +437,51 @@ impl ShellSessions {
         signalled
     }
 
+    /// Hands the running command of `call` to a background job, as the user asks with
+    /// Ctrl+B: the command keeps its PTY, its process tree and its sandbox, and the job
+    /// gets them as the [`AdoptedRun`] that goes on `to`. The call's run then answers its
+    /// caller with [`Completion::Moved`] and the output so far, and the conversation's
+    /// slot lets go of the shell: [`state`](Self::state), [`write`](Self::write),
+    /// [`answer`](Self::answer), [`interrupt`](Self::interrupt), [`close`](Self::close)
+    /// and [`close_all`](Self::close_all) no longer reach it, and the conversation's next
+    /// run starts a new shell in the old one's directory. The new shell has none of the
+    /// old one's variables, functions or aliases.
+    ///
+    /// It fails with [`ShellError::NotMovable`], and `to` is dropped, when the call's run
+    /// has not typed its command or the command has not started, the run answered
+    /// already (it ended, or it was left at its timeout), it is a sentinel run or its
+    /// line starts a shell or a REPL, the command waits for input, or a full-screen
+    /// program holds the screen. Nothing moves then, and the call goes on.
+    pub async fn request_move(
+        &self,
+        conversation: ConversationId,
+        call: CallId,
+        to: oneshot::Sender<AdoptedRun>,
+    ) -> Result<(), ShellError> {
+        let refused = |reason| ShellError::NotMovable { conversation, reason };
+        let requests = self
+            .moves_lock()
+            .get(&call)
+            .filter(|slot| slot.conversation == conversation)
+            .map(|slot| slot.requests.clone())
+            .ok_or(refused("the call does not run"))?;
+        let (reply, answer) = oneshot::channel();
+        requests.send(MoveRequest { to, reply }).await.map_err(|_| refused(ANSWERED))?;
+        answer.await.map_err(|_| refused(ANSWERED))?
+    }
+
+    fn moves_lock(&self) -> MutexGuard<'_, HashMap<CallId, MoveSlot>> {
+        // Every update leaves the map whole, so a poisoned lock still guards a usable map.
+        self.inner.moves.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lets run `run` of `call` take move requests until the returned end is dropped.
+    fn register_move(&self, conversation: ConversationId, call: CallId, run: u64) -> Moves {
+        let (requests, receiver) = mpsc::channel(1);
+        self.moves_lock().insert(call, MoveSlot { conversation, run, requests });
+        Moves { requests: receiver, inner: Arc::clone(&self.inner), call, run }
+    }
+
     /// Writes raw input to the conversation's shell, as `pty.write` does for an
     /// attached client. While a call through the sandbox's launcher runs, Ctrl+Z is
     /// left out: it would stop bwrap and the command but not the launcher, which waits
@@ -554,7 +668,8 @@ impl ShellSessions {
             let session = slot
                 .get_or_try_init(|| async {
                     spawned.store(true, Ordering::Relaxed);
-                    self.spawn(conversation, start_dir).await
+                    let dir = self.restart_dir(conversation).await;
+                    self.spawn(conversation, dir.as_deref().unwrap_or(start_dir)).await
                 })
                 .await?;
             let spawned = spawned.load(Ordering::Relaxed);
@@ -576,6 +691,20 @@ impl ShellSessions {
                 return Err(exited);
             }
         }
+    }
+
+    /// The directory of the conversation's shell that a background job adopted, once,
+    /// while it is still a directory: the next shell starts there, where the old one
+    /// was.
+    async fn restart_dir(&self, conversation: ConversationId) -> Option<PathBuf> {
+        let dir = self
+            .inner
+            .restarts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&conversation)?;
+        let is_dir = tokio::fs::metadata(&dir).await.is_ok_and(|meta| meta.is_dir());
+        is_dir.then_some(dir)
     }
 
     async fn spawn(
@@ -647,7 +776,7 @@ impl ShellSessions {
             reader::master(master).map_err(|source| ShellError::Master { conversation, source })?;
         let (screen, events) = deps
             .screens
-            .spawn(&screen_name(conversation), inner.config.size)
+            .spawn(&screen_name(conversation, pty_id), inner.config.size)
             .map_err(|source| ShellError::Screen { conversation, source })?;
         let (writer, writes) = mpsc::channel(WRITE_CAPACITY);
         let (inbox, messages) = mpsc::channel(INBOX_CAPACITY);
@@ -728,6 +857,7 @@ impl ShellSessions {
             session.until_started().await;
         }
         let id = self.inner.next_run.fetch_add(1, Ordering::Relaxed);
+        let mut moves = request.call.map(|call| self.register_move(session.conversation, call, id));
         let (reply, mut answer) = oneshot::channel();
         let (publish, mut updates) = watch::channel(Progress::default());
         let offer = Offer::of(request.mode, &request.command);
@@ -762,7 +892,7 @@ impl ShellSessions {
         let mut live = LiveTail::new(self.inner.config.tail_interval);
         // Set while a change that needs a screen is held for the interval.
         let mut held_tail: Option<Sleep> = None;
-        loop {
+        let leave = loop {
             tokio::select! {
                 biased;
                 ended = &mut answer => {
@@ -770,6 +900,11 @@ impl ShellSessions {
                     let result = self.finished(session, ended).await;
                     end_watch(&mut watch, progress);
                     return result;
+                }
+                request = next_move(&mut moves) => {
+                    if let Some(moved) = self.adopt(session, id, look.is_some(), &watch, request).await {
+                        break Leave::Moved(Box::new(moved));
+                    }
                 }
                 changed = updates.changed(), if updates_open => match changed {
                     Ok(()) => {
@@ -810,7 +945,7 @@ impl ShellSessions {
                     let waits = watch.current() != InputWait::None;
                     match self.extension(limits, waits, started, look.is_some(), progress) {
                         Some(wait) => deadline = deps.clock.sleep(wait),
-                        None => break,
+                        None => break Leave::Timeout,
                     }
                 }
                 () = until(&mut look) => {
@@ -837,6 +972,13 @@ impl ShellSessions {
                     look = Some(deps.clock.sleep(self.inner.config.quiet_period));
                 }
             }
+        };
+        // A request from now on finds no run to move.
+        drop(moves);
+        if let Leave::Moved(moved) = leave {
+            guard.disarm();
+            end_watch(&mut watch, progress);
+            return Ok(self.hand_over(session, id, offer, *moved, answer).await);
         }
 
         let detached = self.detach(session, id, true, &mut guard).await;
@@ -885,6 +1027,142 @@ impl ShellSessions {
                     sandbox: None,
                 })
             }
+        }
+    }
+
+    /// Asks the session's actor to hand run `id` to the background job of `request`, when
+    /// its command `started`, the run's last look saw no wait in `watch`, and no
+    /// full-screen program holds the screen. A refusal is the request's answer, and the
+    /// run goes on.
+    async fn adopt(
+        &self,
+        session: &SessionHandle,
+        id: u64,
+        started: bool,
+        watch: &InputWatch,
+        request: MoveRequest,
+    ) -> Option<Moved> {
+        let conversation = session.conversation;
+        let refuse = |request: MoveRequest, reason| {
+            let _ = request.reply.send(Err(ShellError::NotMovable { conversation, reason }));
+            None
+        };
+        if !started {
+            return refuse(request, NOT_STARTED);
+        }
+        if watch.current() != InputWait::None {
+            return refuse(request, "the command waits for input; answer it first");
+        }
+        // NOTE: a job reads its command's output as lines; a full-screen program has
+        // none to read, and nobody could reach its keys there.
+        match session.screen.snapshot(0).await {
+            Ok(capture) if capture.snapshot.alternate_screen => {
+                return refuse(request, "a full-screen program cannot move");
+            }
+            Ok(_) => {}
+            Err(_) => return refuse(request, "the screen of the hidden shell cannot be read"),
+        }
+        let (tee, output) = adopt::tee();
+        let (reply, adopted) = oneshot::channel();
+        if session.send(Msg::Adopt { id, tee, reply }).await.is_err() {
+            return refuse(request, ENDED);
+        }
+        match adopted.await {
+            Ok(Ok(adoption)) => Some(Moved { request, adoption, output }),
+            Ok(Err(reason)) => refuse(request, reason),
+            Err(_) => refuse(request, ENDED),
+        }
+    }
+
+    /// Hands the adopted run `id` to its job: the conversation's slot lets go of the
+    /// shell, a task looks for input of the command, the [`AdoptedRun`] goes to the
+    /// job, and the call's result holds the output up to the move. `answer` is the
+    /// run's reply channel, whose end the job awaits now.
+    async fn hand_over(
+        &self,
+        session: &SessionHandle,
+        id: u64,
+        offer: Offer,
+        moved: Moved,
+        answer: oneshot::Receiver<Result<RunEnd, ShellError>>,
+    ) -> CommandResult {
+        let Moved { request, adoption, output } = moved;
+        let conversation = session.conversation;
+        let deps = &self.inner.deps;
+        let config = &self.inner.config;
+        self.let_go(session, &adoption.cwd);
+        let captured = self.replayer(session).render(&adoption.kept).await;
+        let (looks, looked) = watch::channel((InputWait::None, false));
+        let watch = AdoptedWatch {
+            session: session.clone(),
+            id,
+            offer,
+            clock: Arc::clone(&deps.clock),
+            holder: Arc::clone(&deps.holder),
+            quiet: self.quiet(),
+            quiet_period: config.quiet_period,
+            close_grace: config.close_grace,
+            looks,
+        };
+        tokio::spawn(watch.run());
+        let adopted = AdoptedRun::new(Parts {
+            session: session.clone(),
+            call_dir: adoption.call_dir,
+            head: captured.text.clone(),
+            output,
+            end: answer,
+            looks: looked,
+            holder: Arc::clone(&deps.holder),
+            clock: Arc::clone(&deps.clock),
+            close_grace: config.close_grace,
+        });
+        tracing::info!(%conversation, pty_id = %session.pty_id, "a background job adopted a running call and its hidden shell");
+        match request.to.send(adopted) {
+            Ok(()) => {
+                let _ = request.reply.send(Ok(()));
+            }
+            Err(adopted) => {
+                // NOTE: nobody owns the command now, and nothing could ever stop it or
+                // close its shell, so it ends here.
+                tracing::warn!(%conversation, "nobody took the call that moved to the background; closing its shell");
+                if let Err(error) = adopted.close().await {
+                    tracing::warn!(%conversation, %error, "could not close an adopted shell");
+                }
+                let reason = "nobody took the command; efr closed its shell";
+                let _ = request.reply.send(Err(ShellError::NotMovable { conversation, reason }));
+            }
+        }
+        CommandResult {
+            completion: Completion::Moved,
+            exit_code: None,
+            output: captured.text,
+            truncated: captured.truncated,
+            output_bytes: captured.bytes,
+            output_range: adoption.range,
+            cwd_after: adoption.cwd,
+            screen_tail: None,
+            delimiter: Delimiter::Marks,
+            sandbox: None,
+        }
+    }
+
+    /// Takes `session` out of its conversation's slot, so nothing of the conversation
+    /// reaches it any more, and makes the conversation's next shell start in `cwd`.
+    fn let_go(&self, session: &SessionHandle, cwd: &Path) {
+        let conversation = session.conversation;
+        let mut sessions = self.lock();
+        let ours = sessions
+            .get(&conversation)
+            .and_then(|slot| slot.get())
+            .is_some_and(|current| current.pty_id == session.pty_id);
+        if ours {
+            sessions.remove(&conversation);
+            drop(sessions);
+            self.inner
+                .restarts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(conversation, cwd.to_path_buf());
         }
     }
 
@@ -1227,11 +1505,18 @@ async fn make_shell_dir(config: &ShellConfig, conversation: ConversationId, inte
     }
 }
 
-/// `screen-` and the last eight hex digits of the conversation id: the random end of
-/// a UUIDv7, so two conversations started in the same minute get different names, in
-/// the 15 bytes Linux shows of a thread name.
-fn screen_name(conversation: ConversationId) -> String {
-    format!("screen-{}", short_id(conversation))
+/// `screen-`, the last four hex digits of the conversation id and the last four of the
+/// PTY id: the random ends of two UUIDv7s, so two conversations started in the same
+/// minute get different names, and so do two shells of one conversation (one that a
+/// background job adopted, and the new one), in the 15 bytes Linux shows of a thread
+/// name.
+fn screen_name(conversation: ConversationId, pty_id: PtyId) -> String {
+    let pty = pty_id.to_string();
+    let pty = pty.get(pty.len().saturating_sub(4)..).unwrap_or(&pty);
+    let conversation = short_id(conversation);
+    let conversation =
+        conversation.get(conversation.len().saturating_sub(4)..).unwrap_or(&conversation);
+    format!("screen-{conversation}{pty}")
 }
 
 /// `replay-` and the same eight digits: the capture screen that reads a command's

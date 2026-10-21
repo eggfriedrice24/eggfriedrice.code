@@ -1015,3 +1015,53 @@ async fn e2e_keep_leaves_sudos_credentials_to_sudo() {
     assert_eq!(first.output, "sudo ran\n");
     assert_eq!(second.output, "true\n", "nothing asked sudo to forget");
 }
+
+#[tokio::test]
+async fn e2e_move_of_a_real_loop_keeps_its_output() {
+    use std::io::Read as _;
+
+    let Some(zsh) = Zsh::start("e2e_move_of_a_real_loop_keeps_its_output") else {
+        return;
+    };
+    let call: CallId = "01920000-0000-7000-8000-0000000e2e01".parse().unwrap();
+    let request = zsh
+        .request("for i in {1..20}; do print -P '%F{green}tick%f' $i; sleep 0.05; done; (exit 3)")
+        .with_call(call)
+        .with_timeout(Duration::from_secs(3600));
+    let (mut listener, mut heard) = listener(true);
+    let sessions = zsh.sessions.clone();
+    let conversation = zsh.conversation;
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation, request, &mut listener).await },
+        );
+    heard.output("tick 3").await;
+
+    let (to, adopted) = tokio::sync::oneshot::channel();
+    zsh.sessions.request_move(zsh.conversation, call, to).await.unwrap();
+    let mut adopted = adopted.await.unwrap();
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Moved);
+    assert_eq!(adopted.head(), result.output);
+    let mut output = adopted.take_output().unwrap();
+    let reader = tokio::task::spawn_blocking(move || {
+        let mut text = String::new();
+        output.read_to_string(&mut text).unwrap();
+        text
+    });
+    assert_eq!(adopted.ended().await.unwrap().exit_code, Some(3));
+    let rest = reader.await.unwrap();
+    assert!(!rest.contains('\x1b'), "{rest:?}");
+    let ticks: Vec<String> = format!("{}{rest}", result.output)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let expected: Vec<String> = (1..=20).map(|i| format!("tick {i}")).collect();
+    assert_eq!(ticks, expected);
+
+    // The job closes the old shell; its end is no exit of the conversation's shell.
+    adopted.close().await.unwrap();
+    zsh.notices.wait_for(|notice| matches!(notice, ShellNotice::AdoptedExited { .. })).await;
+    assert!(!zsh.notices.all().iter().any(|notice| matches!(notice, ShellNotice::Exited { .. })));
+}

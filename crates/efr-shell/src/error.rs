@@ -162,6 +162,16 @@ pub enum ShellError {
         reason: &'static str,
     },
 
+    /// A running call cannot move into a background job now. Nothing moved, and the
+    /// call goes on.
+    #[error("the call cannot move to the background: {reason}")]
+    NotMovable {
+        /// The conversation.
+        conversation: ConversationId,
+        /// Why not, in words for the user.
+        reason: &'static str,
+    },
+
     /// An answer is not one line that can be typed. The reason never quotes the text.
     #[error("the answer cannot be typed: {reason}")]
     InvalidAnswer {

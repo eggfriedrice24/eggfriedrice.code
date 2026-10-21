@@ -74,6 +74,19 @@ pub enum ShellNotice {
         /// How it ended; `None` when the holder could not tell.
         status: Option<ChildStatus>,
     },
+    /// A shell that a background job adopted with its running command
+    /// ([`ShellSessions::request_move`](crate::ShellSessions::request_move)) ended. It
+    /// was no longer the conversation's shell, so this is no [`Exited`](Self::Exited):
+    /// the daemon closes its recording and lets go of its PTY, but no client reads that
+    /// the conversation's hidden shell exited.
+    AdoptedExited {
+        /// Its conversation.
+        conversation: ConversationId,
+        /// Its PTY.
+        pty_id: PtyId,
+        /// How it ended; `None` when the holder could not tell.
+        status: Option<ChildStatus>,
+    },
     /// A run reached its timeout while its command goes on: the command was left
     /// running in the shell, which takes no other marked line until it ends.
     CommandDetached {
