@@ -69,7 +69,7 @@ use efr_sandbox::{
 use rustix::io::Errno;
 
 use crate::error::SbxError;
-use crate::helper::{self, Confinement, Helper, Slot, Step, Take};
+use crate::helper::{self, Confinement, HalfClose, Helper, Slot, Step, Take};
 use crate::os;
 use crate::self_test::socket_path;
 
@@ -412,7 +412,8 @@ pub(crate) fn route(tcp: TcpStream, listen: Listen, socket: &Path) {
         reset(tcp);
         return;
     };
-    let out = helper::spawn_copy(Helper::Reach, move || helper::copy(tcp_out, unix_out));
+    let out =
+        helper::spawn_copy(Helper::Reach, move || helper::copy(ClientReads(tcp_out), unix_out));
     let mut first = vec![0_u8; FIRST_READ];
     let read = loop {
         match unix.read(&mut first) {
@@ -437,6 +438,24 @@ pub(crate) fn route(tcp: TcpStream, listen: Listen, socket: &Path) {
     }
     if let Ok(out) = out {
         let _ = out.join();
+    }
+}
+
+/// The client's connection as the source of the copy to efrd. An error of that copy
+/// ends only the read side of the client's connection, never its write side: a
+/// shutdown of the write side sends the client an end before `route` resets it, and a
+/// client that reads the end first sees an empty answer and not a reset.
+pub(crate) struct ClientReads(pub(crate) TcpStream);
+
+impl Read for ClientReads {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl HalfClose for ClientReads {
+    fn half_close(&self, _how: Shutdown) {
+        let _ = self.0.shutdown(Shutdown::Read);
     }
 }
 

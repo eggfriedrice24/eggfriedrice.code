@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use efr_sandbox::{FRAME_LEN, Frame, FrameKind, InnerReach, Listen};
 
-use super::{ReachArgs, argv, check_ports, refused, refused_port, route};
+use super::{ClientReads, ReachArgs, argv, check_ports, refused, refused_port, route};
 use crate::helper::Step;
 use crate::testing::temp_dir;
 use crate::{Cli, Command};
@@ -182,4 +182,20 @@ fn route_resets_the_client_when_the_socket_does_not_answer() {
     let error = client.read(&mut byte).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset, "{error:?}");
     let _ = UnixStream::connect(&socket).unwrap_err();
+}
+
+#[test]
+fn a_failed_copy_to_efrd_never_ends_the_client_side() {
+    let (mut client, served, _) = pair();
+    let (unix, efrd) = UnixStream::pair().unwrap();
+    drop(efrd);
+    client.write_all(b"hello").unwrap();
+    client.shutdown(Shutdown::Write).unwrap();
+    crate::helper::copy(ClientReads(served.try_clone().unwrap()), unix);
+    let mut served = served;
+    served.write_all(b"x").unwrap();
+    drop(served);
+    let mut back = Vec::new();
+    client.read_to_end(&mut back).unwrap();
+    assert_eq!(back, b"x");
 }
