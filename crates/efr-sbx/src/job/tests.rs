@@ -10,7 +10,7 @@ use efr_sandbox::JobStop;
 use pretty_assertions::assert_eq;
 use rustix::process::{Pid, Signal};
 
-use super::{Event, JobProcesses, is_bridge, monitor, parse_env, stop_job};
+use super::{Event, JobProcesses, is_helper, monitor, parse_env, stop_job};
 use crate::exit_child::{POLL, Processes, end_descendants};
 use crate::os;
 
@@ -157,11 +157,11 @@ fn bridge_fake() -> Fake {
 #[test]
 fn job_stop_spares_bridge_by_name_and_parent() {
     let inits = BTreeSet::from([11]);
-    assert!(is_bridge("efr-bridge", Some(11), &inits));
-    assert!(!is_bridge("efr-bridge", Some(12), &inits), "a child of the job's shell");
-    assert!(!is_bridge("efr-bridge", None, &inits), "a parent that /proc did not show");
-    assert!(!is_bridge("node", Some(11), &inits), "another child of the init");
-    assert!(!is_bridge("efr-bridge", Some(11), &BTreeSet::new()), "an exit child's job");
+    assert!(is_helper("efr-bridge", Some(11), &inits));
+    assert!(!is_helper("efr-bridge", Some(12), &inits), "a child of the job's shell");
+    assert!(!is_helper("efr-bridge", None, &inits), "a parent that /proc did not show");
+    assert!(!is_helper("node", Some(11), &inits), "another child of the init");
+    assert!(!is_helper("efr-bridge", Some(11), &BTreeSet::new()), "an exit child's job");
     let mut fake = bridge_fake();
     fake.procs.retain(|(pid, _, _, _)| *pid != 14);
     let mut procs = JobProcesses::with_inits(fake, BTreeSet::from([10, 11]), inits, bridge_parents);
@@ -188,6 +188,39 @@ fn job_stop_does_not_spare_renamed_child_of_zsh() {
     let ending = stop_job(&mut procs);
     assert_eq!(terms(&procs.procs.sent), [12, 14]);
     assert_eq!(ending.stopped, ["zsh", "efr-bridge"], "{ending:?}");
+}
+
+#[test]
+fn job_stop_spares_forwarder_like_bridge() {
+    let inits = BTreeSet::from([11]);
+    assert!(is_helper("efr-forward", Some(11), &inits));
+    assert!(!is_helper("efr-forward", Some(12), &inits), "a child of the job's shell");
+    // bwrap (10) and its init (11) run the job's shell (12), the bridge (13) and the
+    // forwarder (15); the shell runs a child that named itself efr-forward (16).
+    let parents = |pid: i32| match pid {
+        11 => Some(10),
+        12 | 13 | 15 => Some(11),
+        16 => Some(12),
+        _ => None,
+    };
+    let fake = Fake {
+        procs: vec![
+            (10, "bwrap", None, true),
+            (11, "bwrap", None, true),
+            (12, "zsh", Some(Signal::TERM), true),
+            (13, "efr-bridge", None, true),
+            (15, "efr-forward", None, true),
+            (16, "efr-forward", Some(Signal::TERM), true),
+        ],
+        sent: Vec::new(),
+        elapsed: Duration::ZERO,
+    };
+    let mut procs = JobProcesses::with_inits(fake, BTreeSet::from([10, 11]), inits, parents);
+    let ending = stop_job(&mut procs);
+    // Both helpers get no SIGTERM and no name; the renamed child gets both.
+    assert_eq!(terms(&procs.procs.sent), [12, 16]);
+    assert_eq!(ending.stopped, ["zsh", "efr-forward"], "{ending:?}");
+    assert!(procs.procs.sent.contains(&(15, Signal::KILL)));
 }
 
 #[test]

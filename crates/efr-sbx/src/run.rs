@@ -4,7 +4,8 @@ use std::process::ExitCode;
 
 use crate::Command;
 use crate::{
-    bridge, call, dbus_proxy, guard_check, inner, layers, mounts, probe, self_test, statvfs,
+    bridge, call, dbus_proxy, forward, guard_check, inner, layers, mounts, probe, self_test,
+    statvfs,
 };
 
 /// Runs `command` and returns the process's exit status.
@@ -15,6 +16,7 @@ pub(crate) fn run(command: Command) -> ExitCode {
         Command::Inner { policy_fd } => inner::main(policy_fd),
         Command::Layers { pid } => layers::main(pid),
         Command::Bridge(args) => bridge::main(&args),
+        Command::Forward(args) => forward::main(&args),
         Command::DbusProxy(args) => dbus_proxy::main(&args),
         Command::Probe(args) => probe::main(&args),
         Command::SelfTest(args) => self_test::main(&args),

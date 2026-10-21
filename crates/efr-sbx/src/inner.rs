@@ -6,14 +6,19 @@
 //! 1. Read the `InnerPolicy` from the policy descriptor and close it. For a proxy plan,
 //!    bind `127.0.0.1:3128` and start the bridge's starter (`bridge.rs`) with the
 //!    listener, whose own copy here closes at once; the bridge applies a Landlock domain
-//!    and a seccomp profile of its own. When the call has cache overlays, tell the
-//!    launcher that bwrap's setup is done, wait while its layer helper mounts them (the
-//!    bridge starts meanwhile), and enter the start dir (bwrap started in `/`).
+//!    and a seccomp profile of its own. For a job with port forwards, start the
+//!    forwarder's starter (`forward.rs`) the same way, with no listener. When the call
+//!    has cache overlays, tell the launcher that bwrap's setup is done, wait while its
+//!    layer helper mounts them (the helpers start meanwhile), and enter the start dir
+//!    (bwrap started in `/`).
 //! 2. Move the records pipe to fd 3 and the terminal copy to fd 4; close every
 //!    descriptor from 5 up, so nothing opened outside keeps its rights inside.
 //! 3. Compile the seccomp profile. Then wait at most [`BRIDGE_WAIT`] from its start for
 //!    the bridge's starter, whose exit 0 says that the bridge runs confined; anything
-//!    else is a setup error.
+//!    else is a setup error. Then wait as long for the forwarder's starter; its failure
+//!    is no setup error: the job runs with no forwards, and this stage writes nothing
+//!    about it, since any line on fd 2 reads as a setup error. efrd sees that no
+//!    `Hello` came.
 //! 4. Apply Landlock, then seccomp.
 //! 5. Put the terminal copy on fd 2, so the child's stderr is the terminal again, and
 //!    run the child shell.
@@ -37,8 +42,8 @@ use efr_sandbox::{
 };
 
 use crate::error::SbxError;
-use crate::helper::Helper;
-use crate::{fds, landlock, os, seccomp};
+use crate::helper::{Helper, SELF_EXE};
+use crate::{fds, forward, landlock, os, seccomp};
 
 /// The number the terminal copy waits on until Landlock and seccomp are in place.
 const TERMINAL_PARKED_FD: RawFd = 4;
@@ -46,8 +51,8 @@ const TERMINAL_PARKED_FD: RawFd = 4;
 /// The lowest number the descriptors move to while 3 and 4 are filled.
 const SCRATCH_FD_MIN: RawFd = 10;
 
-/// How long the inner stage waits for the bridge's starter, which waits at most
-/// `bridge::READY_WAIT` for the server.
+/// How long the inner stage waits for a helper's starter (the bridge's, the
+/// forwarder's), which waits at most `helper::READY_WAIT` for the server.
 pub(crate) const BRIDGE_WAIT: Duration = Duration::from_secs(2);
 
 /// How often the inner stage looks whether the starter ended. The stage has one
@@ -88,6 +93,10 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
         Some(socket) => Some(spawn_bridge(socket)?),
         None => None,
     };
+    // NOTE: the forwarder starts beside the bridge, before this stage's own domain, for
+    // the same reasons. A forwarder that does not start leaves the job with no forwards
+    // and fails nothing, so a failed spawn is no error.
+    let forwarder = policy.forward.as_ref().and_then(spawn_forwarder);
     if let Some(sync) = policy.layers_sync {
         wait_for_layers(sync, policy.cwd.as_deref())?;
     }
@@ -107,6 +116,11 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
     let filters = seccomp::compile(&policy.seccomp)?;
     if let Some(bridge) = bridge {
         wait_for_bridge(bridge)?;
+    }
+    if let Some(forwarder) = forwarder {
+        // NOTE: the child starts only after the forwarder's starter ended, so the child
+        // never runs beside a forwarder that is not confined yet.
+        let _ = wait_for_starter(forwarder);
     }
     let (stdin, stdout) = (std::io::stdin(), std::io::stdout());
     let terminals: Vec<BorrowedFd<'_>> = policy
@@ -156,7 +170,7 @@ fn wait_for_layers(sync: LayersSync, cwd: Option<&Path>) -> Result<(), SbxError>
     }
 }
 
-/// The bridge's starter while it runs, and when it started.
+/// A helper's starter while it runs, and when it started.
 struct Starter {
     child: std::process::Child,
     start: std::time::Instant,
@@ -169,7 +183,7 @@ fn spawn_bridge(socket: &Path) -> Result<Starter, SbxError> {
     // process of the call can bind the same port beside it.
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, PROXY_PORT))
         .map_err(|error| SbxError::os("bind the bridge's port 127.0.0.1:3128", error))?;
-    let mut command = os::command(BRIDGE_PROGRAM);
+    let mut command = os::command(SELF_EXE);
     command
         .args(["bridge", "--listen-fd", "0", "--socket"])
         .arg(socket)
@@ -180,41 +194,63 @@ fn spawn_bridge(socket: &Path) -> Result<Starter, SbxError> {
     let spawned = command.spawn();
     // This stage's copy of the listener closes here, before the child exists.
     drop(command);
-    let child =
-        spawned.map_err(|source| SbxError::Spawn { program: BRIDGE_PROGRAM.into(), source })?;
+    let child = spawned.map_err(|source| SbxError::Spawn { program: SELF_EXE.into(), source })?;
     Ok(Starter { child, start: os::now() })
+}
+
+/// Runs the forwarder's starter for `forward`, with no listener; `None` when it does not
+/// spawn.
+fn spawn_forwarder(forward: &efr_sandbox::InnerForward) -> Option<Starter> {
+    let mut command = os::command(SELF_EXE);
+    command
+        .args(forward::argv(forward))
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let child = command.spawn().ok()?;
+    Some(Starter { child, start: os::now() })
 }
 
 /// Waits for the bridge's starter. Returns once it reported the server confined; a
 /// failure, an exit other than 0 or no exit within [`BRIDGE_WAIT`] of its start is a
 /// setup error, and the call does not run.
 fn wait_for_bridge(starter: Starter) -> Result<(), SbxError> {
+    wait_for_starter(starter).map_err(|end| match end {
+        StarterEnd::Failed(problem) => SbxError::HelperStart { helper: Helper::Bridge, problem },
+        StarterEnd::Wait(error) => SbxError::os("wait for the bridge's starter", error),
+    })
+}
+
+/// Why a helper's starter did not report its server confined.
+#[derive(Debug)]
+enum StarterEnd {
+    /// It failed or did not end in time.
+    Failed(&'static str),
+    /// The wait for it failed.
+    Wait(std::io::Error),
+}
+
+/// Waits for a helper's starter: `Ok` once it exited 0. A starter that is still there
+/// after [`BRIDGE_WAIT`] is killed.
+fn wait_for_starter(starter: Starter) -> Result<(), StarterEnd> {
     let Starter { child: mut starter, start } = starter;
     loop {
         match starter.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
             Ok(Some(_)) => {
-                return Err(SbxError::HelperStart {
-                    helper: Helper::Bridge,
-                    problem: "it did not report its own sandbox in place",
-                });
+                return Err(StarterEnd::Failed("it did not report its own sandbox in place"));
             }
             Ok(None) if start.elapsed() >= BRIDGE_WAIT => {
                 let _ = starter.kill();
                 let _ = starter.wait();
-                return Err(SbxError::HelperStart {
-                    helper: Helper::Bridge,
-                    problem: "its starter did not end in 2 s",
-                });
+                return Err(StarterEnd::Failed("its starter did not end in 2 s"));
             }
             Ok(None) => os::sleep(BRIDGE_POLL),
-            Err(error) => return Err(SbxError::os("wait for the bridge's starter", error)),
+            Err(error) => return Err(StarterEnd::Wait(error)),
         }
     }
 }
-
-/// The program of the bridge: this launcher, by the kernel's own link.
-const BRIDGE_PROGRAM: &str = "/proc/self/exe";
 
 /// Reads and closes the policy descriptor.
 fn read_policy(policy_fd: RawFd) -> Result<InnerPolicy, SbxError> {

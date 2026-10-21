@@ -11,6 +11,9 @@
 //! ([`PROXY_CHECKS`]): a tunnel through the bridge works, and the proxy socket, other
 //! addresses and the bridge itself are out of reach, each with its exact result.
 //! With `--bus-proxy` it runs the checks of the bus proxy's domain (`bus_proxy.rs`).
+//! With `--forward` it runs the checks of a job with port forwards ([`FORWARD_CHECKS`]):
+//! the forwarder is out of reach of the job's child. With `--echo ADDR` it is no check
+//! but a small TCP server for the forwarder's tests (`echo.rs`).
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -118,6 +121,24 @@ pub(crate) struct SelfTestArgs {
     /// With `--bus-proxy`: a file whose read must fail with EACCES.
     #[arg(long)]
     pub(crate) read: Option<PathBuf>,
+    /// Run the checks of a job with port forwards ([`FORWARD_CHECKS`]) instead of
+    /// [`CHECKS`].
+    #[arg(long)]
+    pub(crate) forward: bool,
+    /// Run no check: listen on this TCP address (port 0 for any), print
+    /// `echo <address>`, and send back the bytes of each connection, until killed.
+    #[arg(long)]
+    pub(crate) echo: Option<SocketAddr>,
+    /// With `--echo`: first bind a UDP socket on this address and print `udp
+    /// <address>`.
+    #[arg(long, requires = "echo")]
+    pub(crate) echo_udp: Option<SocketAddr>,
+    /// With `--echo`: end after this many milliseconds.
+    #[arg(long, requires = "echo")]
+    pub(crate) echo_ms: Option<u64>,
+    /// With `--echo`: end after the first connection ends.
+    #[arg(long, requires = "echo")]
+    pub(crate) echo_once: bool,
 }
 
 /// One check's outcome, as the self-test prints it.
@@ -184,6 +205,10 @@ pub(crate) const PROXY_CHECKS: &[&str] = &[
     "proxy_udp",
 ];
 
+/// The checks of a job with port forwards, in the order they run: a signal to the
+/// forwarder (`EPERM`) and its `/proc` files (root's, `EACCES`).
+pub(crate) const FORWARD_CHECKS: &[&str] = &["forward_signal", "forward_environ"];
+
 /// The checks of the probe's proxy launch: the tunnel, the socket, another address and
 /// the signal scope.
 pub(crate) const PROBE_PROXY_CHECKS: &[&str] =
@@ -208,6 +233,9 @@ pub(crate) fn main(args: &SelfTestArgs) -> std::process::ExitCode {
     if args.bus_proxy {
         return bus_proxy::main(args);
     }
+    if args.echo.is_some() {
+        return echo::main(args);
+    }
     let mut all = true;
     let mut out = io::stdout().lock();
     if args.proxy {
@@ -216,6 +244,19 @@ pub(crate) fn main(args: &SelfTestArgs) -> std::process::ExitCode {
                 continue;
             }
             let Some((ok, detail)) = proxy_check(name, args) else { continue };
+            all &= ok;
+            let line = CheckLine { name: (*name).to_owned(), ok, detail };
+            let text = serde_json::to_string(&line).unwrap_or_default();
+            let _ = writeln!(out, "{text}");
+        }
+        return if all { std::process::ExitCode::SUCCESS } else { std::process::ExitCode::FAILURE };
+    }
+    if args.forward {
+        for name in FORWARD_CHECKS {
+            if !args.checks.is_empty() && !args.checks.iter().any(|check| check == name) {
+                continue;
+            }
+            let (ok, detail) = forward_check(name);
             all &= ok;
             let line = CheckLine { name: (*name).to_owned(), ok, detail };
             let text = serde_json::to_string(&line).unwrap_or_default();
@@ -530,19 +571,13 @@ fn proxy_check(name: &str, args: &SelfTestArgs) -> Option<(bool, String)> {
             let done = TcpStream::connect_timeout(&address, Duration::from_secs(2)).map(drop);
             (is(&done, Errno::NETUNREACH), format!("{address}: {done:?}"))
         }
-        "proxy_bridge_signal" => match bridge_pid().and_then(|pid| Some((pid, inner_pid(pid)?))) {
+        "proxy_bridge_signal" => match bridge_pid() {
             None => (false, "no bridge of this call".to_owned()),
-            Some((host, pid)) => {
-                // NOTE: kill() takes the pid in the call's own pid namespace.
-                let done = rustix::process::Pid::from_raw(pid)
-                    .map(rustix::process::test_kill_process)
-                    .unwrap_or(Err(Errno::SRCH));
-                (done == Err(Errno::PERM), format!("{pid} (host {host}): {done:?}"))
-            }
+            Some(pid) => helper_signal(pid),
         },
         "proxy_bridge_environ" => match bridge_pid() {
             None => (false, "no bridge of this call".to_owned()),
-            Some(pid) => bridge_environ(pid),
+            Some(pid) => helper_environ(pid),
         },
         "proxy_port_taken" => {
             let done = TcpListener::bind((Ipv4Addr::LOCALHOST, efr_sandbox::PROXY_PORT)).map(drop);
@@ -609,10 +644,38 @@ fn tunnel() -> Result<String, String> {
     }
 }
 
+/// `(ok, detail)` for one check of [`FORWARD_CHECKS`].
+fn forward_check(name: &str) -> (bool, String) {
+    match (name, helper_pid(crate::forward::FORWARD_NAME)) {
+        (_, None) => (false, "no forwarder of this job".to_owned()),
+        ("forward_signal", Some(pid)) => helper_signal(pid),
+        (_, Some(pid)) => helper_environ(pid),
+    }
+}
+
+/// A signal to the helper that the host's `/proc` names `pid`, which must fail with
+/// EPERM: the signal scope of the call's domain.
+fn helper_signal(host: i32) -> (bool, String) {
+    let Some(pid) = inner_pid(host) else {
+        return (false, format!("no pid in the namespace of {host}"));
+    };
+    // NOTE: kill() takes the pid in the call's own pid namespace.
+    let done = rustix::process::Pid::from_raw(pid)
+        .map(rustix::process::test_kill_process)
+        .unwrap_or(Err(Errno::SRCH));
+    (done == Err(Errno::PERM), format!("{pid} (host {host}): {done:?}"))
+}
+
 /// The bridge of this call: the process named `efr-bridge` whose parent is an ancestor
-/// of this process, the namespace's init. The host's `/proc` shows every process, also
-/// the bridges of other calls; their parents are other inits.
+/// of this process, the namespace's init.
 pub(crate) fn bridge_pid() -> Option<i32> {
+    helper_pid(crate::bridge::BRIDGE_NAME)
+}
+
+/// The helper `name` of this call: the process of that name whose parent is an
+/// ancestor of this process, the namespace's init. The host's `/proc` shows every
+/// process, also the helpers of other calls; their parents are other inits.
+pub(crate) fn helper_pid(name: &str) -> Option<i32> {
     // NOTE: /proc is the host's procfs (the plan never mounts a new one), so its pids are
     // the host's; getpid() would give this process's pid in the call's namespace.
     let mut ancestors = Vec::new();
@@ -625,8 +688,8 @@ pub(crate) fn bridge_pid() -> Option<i32> {
     let entries = fs::read_dir("/proc").ok()?;
     entries.flatten().find_map(|entry| {
         let pid: i32 = entry.file_name().to_str()?.parse().ok()?;
-        let name = fs::read_to_string(entry.path().join("comm")).ok()?;
-        let ours = name.trim() == crate::bridge::BRIDGE_NAME
+        let comm = fs::read_to_string(entry.path().join("comm")).ok()?;
+        let ours = comm.trim() == name
             && crate::job::parent_pid(pid).is_some_and(|parent| ancestors.contains(&parent));
         ours.then_some(pid)
     })
@@ -640,10 +703,10 @@ fn inner_pid(pid: i32) -> Option<i32> {
     line.split_whitespace().last()?.parse().ok()
 }
 
-/// The bridge's environment from inside: the kernel gives the files of a process that is
+/// A helper's environment from inside: the kernel gives the files of a process that is
 /// not dumpable to root, which reads as the overflow uid in the call's user namespace,
 /// and the read fails with EACCES.
-fn bridge_environ(pid: i32) -> (bool, String) {
+fn helper_environ(pid: i32) -> (bool, String) {
     use std::os::unix::fs::MetadataExt;
     let path = format!("/proc/{pid}/environ");
     let overflow = fs::read_to_string("/proc/sys/kernel/overflowuid")
@@ -682,6 +745,7 @@ fn outcome(ok: bool, detail: String) -> (bool, String) {
 }
 
 mod bus_proxy;
+mod echo;
 
 #[cfg(test)]
 mod tests;

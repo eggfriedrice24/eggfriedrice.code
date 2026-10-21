@@ -8,7 +8,9 @@
 //! runs `efr-sbx probe --json` to learn whether `auto` can run here. efrd starts a
 //! background job itself with `efr-sbx run --job`.
 //! The inner stage of a proxy call starts `bridge`, which copies the call's TCP to its
-//! proxy socket. efrd runs `statvfs` to measure the host's mounts outside the sandbox,
+//! proxy socket, and the inner stage of a job with port forwards starts `forward`, which
+//! reports the job's loopback listens to efrd and connects efrd's host connections to
+//! them. efrd runs `statvfs` to measure the host's mounts outside the sandbox,
 //! and the `df` and `findmnt` of a call print them with `mounts`. efrd runs
 //! `xdg-dbus-proxy` through `dbus-proxy`, which confines it first.
 //!
@@ -31,6 +33,7 @@ mod exit_child;
 #[allow(unsafe_code)]
 mod fds;
 mod finish;
+mod forward;
 mod guard;
 mod guard_check;
 mod helper;
@@ -98,6 +101,10 @@ pub(crate) enum Command {
     /// call's proxy socket.
     #[command(hide = true)]
     Bridge(bridge::BridgeArgs),
+    /// The forwarder of a job with port forwards: reports the job's loopback listens to
+    /// the job's forward socket and connects efrd's host connections to them.
+    #[command(hide = true)]
+    Forward(forward::ForwardArgs),
     /// Confines `xdg-dbus-proxy` (Landlock, seccomp, a descriptor limit) and runs it:
     /// efrd's filtered bus of a call. The sync pipe on stdout moves to fd 3.
     #[command(hide = true)]

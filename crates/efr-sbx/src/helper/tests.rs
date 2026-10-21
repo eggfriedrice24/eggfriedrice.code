@@ -1,6 +1,6 @@
 //! The parts of the helpers' shared path that need no sandbox: the names, the ready
 //! byte, the place limit and the copy. The real starts and the confinement are in
-//! `tests/it/proxy.rs`.
+//! `tests/it/proxy.rs` and `tests/it/forward.rs`.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -13,11 +13,15 @@ use super::{Helper, READY, READY_WAIT, Slot, Step, copy_both, read_ready};
 
 #[test]
 fn helper_names_fit_the_kernel() {
-    // The kernel keeps 15 bytes of a process name.
-    assert!(Helper::Bridge.name().to_bytes().len() <= 15);
-    assert!(Helper::Bridge.copy_thread().len() <= 15);
+    for helper in [Helper::Bridge, Helper::Forwarder] {
+        // The kernel keeps 15 bytes of a process name.
+        assert!(helper.name().to_bytes().len() <= 15, "{helper:?}");
+        assert!(helper.copy_thread().len() <= 15, "{helper:?}");
+    }
     assert_eq!(Helper::Bridge.name().to_bytes(), b"efr-bridge");
+    assert_eq!(Helper::Forwarder.name().to_bytes(), b"efr-forward");
     assert_eq!(Helper::Bridge.to_string(), "network bridge");
+    assert_eq!(Helper::Forwarder.to_string(), "port forwarder");
     let words: Vec<&str> = Step::ALL.iter().map(|step| step.word()).collect();
     assert_eq!(words, ["close", "session", "name", "dumpable", "landlock", "seccomp"]);
     assert_eq!(READY, b'R');
