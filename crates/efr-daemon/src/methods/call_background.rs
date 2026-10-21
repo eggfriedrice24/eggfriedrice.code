@@ -20,7 +20,8 @@
 //! checks then (the command started, no sentinel run, no shell or REPL, no input wait,
 //! no full-screen program). The tool path adopts the run into the job table and
 //! answers with the job; the answer `moved` comes after the job is recorded, at most
-//! 10 s later on efrd's clock. The old shell's PTY is the job's from then on (DS56).
+//! 10 s later on efrd's clock. The old shell's PTY is the job's from the hand-over on
+//! (DS56): efr-shell's `ShellNotice::Adopted` marks it, whatever this handler does.
 //!
 //! The method needs `terminal`, which the phone and a model-side peer never hold. A
 //! refusal is `invalid` with the reason alone as its message, and it gets a receipt.
@@ -126,8 +127,8 @@ async fn background(
         Ok(Ok(Err(reason))) => return Err(refuse(reason)),
         Ok(Err(_)) | Err(_) => return Err(refuse(moves::UNFINISHED)),
     };
-    // NOTE: the old PTY id never reaches the conversation's new shell (DS56).
-    state.ptys.adopt(moved.pty);
+    // NOTE: the old PTY was marked adopted at the hand-over (`ShellNotice::Adopted`),
+    // also for a move whose answer did not come in time (DS56).
     tracing::info!(job = %moved.job, "a running call moved to the background");
     Ok(CallBackgroundResult::Moved { job_id: moved.job })
 }

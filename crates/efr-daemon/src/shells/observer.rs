@@ -9,7 +9,9 @@
 //! A shell that a background job adopted with its running command (Ctrl+B) is no
 //! longer its conversation's shell: its end closes its recording and lets go of its
 //! PTY, but records no `shell_exited`, so no client reads that the conversation's
-//! hidden shell exited.
+//! hidden shell exited. Its PTY is marked adopted at the hand-over
+//! (`ShellNotice::Adopted`), so `pty.write`, `pty.resize` and the idle collector never
+//! take the old PTY for the conversation's next shell (DS56).
 //!
 //! `ShellObserver::notice` runs on a shell's own task and must not block, so it only
 //! updates the PTY table and queues the notice; [`follow_notices`] writes the events.
@@ -49,6 +51,9 @@ impl ShellObserver for ShellNotices {
             ShellNotice::Started { conversation, pty_id, pid, .. } => {
                 self.ptys.started(*pty_id, *conversation, Some(*pid));
             }
+            // NOTE: at the hand-over, whatever happens to the move's request after it:
+            // the old PTY id never reaches the conversation's next shell (DS56).
+            ShellNotice::Adopted { pty_id, .. } => self.ptys.adopt(*pty_id),
             ShellNotice::Exited { pty_id, .. } | ShellNotice::AdoptedExited { pty_id, .. } => {
                 self.ptys.exited(*pty_id);
             }
@@ -139,3 +144,6 @@ fn event_of(notice: ShellNotice, recording: &StoreRecording) -> Option<(Conversa
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests;

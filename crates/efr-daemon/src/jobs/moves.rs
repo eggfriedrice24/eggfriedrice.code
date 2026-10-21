@@ -33,7 +33,7 @@ use std::time::Duration;
 use efr_config::Settings;
 use efr_conversation::CallContext;
 use efr_permissions::{Cause, ConversationPolicy, DecisionInput, Effect, Engine, Requirements};
-use efr_protocol::{CallId, ConversationId, ExitInfo, ExitKind, JobId, Launch, PtyId};
+use efr_protocol::{CallId, ConversationId, ExitInfo, ExitKind, JobId, Launch};
 use efr_shell::AdoptedRun;
 use jiff::Timestamp;
 use tokio::sync::oneshot;
@@ -184,8 +184,6 @@ pub(crate) fn check(
 #[derive(Debug, Clone)]
 pub(crate) struct Moved {
     pub(crate) job: JobId,
-    /// The old shell's PTY, which the job owns now (DS56).
-    pub(crate) pty: PtyId,
 }
 
 /// What the handler hands the tool path for a move that efr-shell takes: the job's

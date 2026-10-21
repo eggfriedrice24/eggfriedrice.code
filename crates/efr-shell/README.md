@@ -341,6 +341,9 @@ Ctrl+B in the turn view:
   no marks for the command (a sentinel run), the line starts a shell or a REPL, the
   command waits for input, or a full-screen program holds the screen. The reason is a
   short text for the user.
+- At the hand-over, before the slot lets go of the old shell, the observer gets
+  `ShellNotice::Adopted` with the old PTY: the daemon must never route it to the
+  conversation's next shell.
 - The conversation's slot lets go of the old shell at the move. `state`, `write`,
   `answer`, `interrupt`, `close`, `close_all`, `busy` and `screen` of the conversation
   no longer reach it. The next run of the conversation starts a new shell in the old

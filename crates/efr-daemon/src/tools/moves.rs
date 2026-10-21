@@ -163,7 +163,6 @@ impl DaemonToolbox {
         let now = self.clock.now();
         let after = Duration::try_from(now.duration_since(running.started)).unwrap_or_default();
         let head = run.head().to_owned();
-        let pty = run.pty_id();
         let output_path = context.scratch.join(efr_sandbox::JOB_DIR).join(output::file_name(&id));
         let proxied = proxy.is_some();
         let info = JobInfo {
@@ -211,7 +210,7 @@ impl DaemonToolbox {
                 return ToolOutcome::error(MOVE_FAILED);
             }
         };
-        let _ = reply.send(Ok(Moved { job: info.id.clone(), pty }));
+        let _ = reply.send(Ok(Moved { job: info.id.clone() }));
         // NOTE: the new hidden shell starts where the old one was at the move: its
         // directory changes only at a prompt, so it is where the call started.
         let cwd = context.shell_cwd.clone().unwrap_or_else(|| context.cwd.clone());

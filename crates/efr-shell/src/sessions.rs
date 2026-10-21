@@ -1090,6 +1090,7 @@ impl ShellSessions {
         let conversation = session.conversation;
         let deps = &self.inner.deps;
         let config = &self.inner.config;
+        deps.observer.notice(ShellNotice::Adopted { conversation, pty_id: session.pty_id });
         self.let_go(session, &adoption.cwd);
         let captured = self.replayer(session).render(&adoption.kept).await;
         let (looks, looked) = watch::channel((InputWait::None, false));

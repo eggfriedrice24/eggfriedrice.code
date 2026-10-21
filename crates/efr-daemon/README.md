@@ -1059,9 +1059,10 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   stay counted until its `result.json`, and `JobTable::adopt` records `job_started`
   (with `moved_from`, the shell's pid and start time as the launcher's) before the
   call answers with the output so far and `job_moved_text`, with no exit code. The
-  handler waits up to 10 s on efrd's clock for the job, marks the old PTY adopted
-  (`Ptys::adopt`: `pty.write` and `pty.resize` with it get `not_found`, the idle
-  collector skips it) and answers `moved`.
+  handler waits up to 10 s on efrd's clock for the job and answers `moved`. The old PTY
+  is marked adopted at the hand-over, whatever the handler does: efr-shell's
+  `ShellNotice::Adopted` reaches the shells' observer, which calls `Ptys::adopt`
+  (`pty.write` and `pty.resize` with it get `not_found`, the idle collector skips it).
 - The job of a moved call (`JobProcess::Adopted`): its time limit is
   `jobs.default_minutes` cut to `jobs.max_minutes`, from the move; its proxy socket and
   bus filters live in its entry; it has no state dir, no lifeline, no forwards and no
