@@ -212,7 +212,7 @@ pub(crate) struct Prepared {
 }
 
 /// What [`SandboxService::prepare_job`] needs besides a call's input.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct JobInput<'a> {
     pub(crate) plan: JobPlan,
     /// The line, which efrd writes to `$CALL/line`.
@@ -1017,7 +1017,7 @@ impl SandboxService {
             cache_mode: status.cache_mode,
             launcher: &self.inner.copy,
             desktops: &desktops,
-            job: job.as_ref().map(|job| job.plan),
+            job: job.as_ref().map(|job| job.plan.clone()),
             egress: input.engine.support().egress,
         };
         let roots: Vec<PathBuf> =

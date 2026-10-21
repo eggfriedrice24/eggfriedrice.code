@@ -186,6 +186,11 @@ pub struct LandlockPolicy {
     /// Every other call keeps TCP, so loopback servers in a call work.
     #[serde(default)]
     pub deny_tcp: bool,
+    /// True for the forwarder of a job: Landlock also handles the TCP bind right with
+    /// no rule, and leaves the TCP connect right unhandled, so the forwarder can connect
+    /// to the job's servers and can never listen.
+    #[serde(default)]
+    pub deny_tcp_bind: bool,
     /// Files with [`FsAccess::READ_FILE`]: the bus proxy's program and the loader's
     /// cache. Empty for every call, which reads all of `/`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -215,6 +220,32 @@ impl LandlockPolicy {
             devices: Vec::new(),
             scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
             deny_tcp: true,
+            deny_tcp_bind: false,
+            read_files: Vec::new(),
+            socket_dirs: Vec::new(),
+        }
+    }
+
+    /// The forwarder's own domain (`efr-sbx forward`): every file right handled and
+    /// only `RESOLVE_UNIX` on `socket`, the job's forward socket inside; the TCP bind
+    /// right handled with no rule. The TCP connect right stays: the job's namespace has
+    /// only `lo`, so a connect reaches only the job's own servers, and the forwarder
+    /// refuses the bridge's port in its own code. The scopes keep it from signals and
+    /// abstract sockets outside its domain.
+    pub fn forward(socket: &Path) -> LandlockPolicy {
+        LandlockPolicy {
+            min_abi: MIN_LANDLOCK_ABI,
+            required_errata: ERRATUM_DISCONNECTED_DIRS,
+            read_exec: Vec::new(),
+            write: Vec::new(),
+            write_files: Vec::new(),
+            dev_rw: Vec::new(),
+            tty_fds: Vec::new(),
+            resolve_unix: vec![socket.to_path_buf()],
+            devices: Vec::new(),
+            scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
+            deny_tcp: false,
+            deny_tcp_bind: true,
             read_files: Vec::new(),
             socket_dirs: Vec::new(),
         }
@@ -244,6 +275,7 @@ impl LandlockPolicy {
             devices: Vec::new(),
             scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
             deny_tcp: true,
+            deny_tcp_bind: false,
             read_files,
             socket_dirs: vec![dir.to_path_buf()],
         }
@@ -288,6 +320,7 @@ impl MountPlan {
             devices,
             scopes: vec![LandlockScope::AbstractUnixSocket, LandlockScope::Signal],
             deny_tcp: self.net_view,
+            deny_tcp_bind: false,
             read_files: Vec::new(),
             socket_dirs: Vec::new(),
         }

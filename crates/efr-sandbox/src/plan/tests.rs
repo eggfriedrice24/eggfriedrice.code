@@ -1618,6 +1618,110 @@ fn proxy_plan_refuses_a_socket_that_is_missing_or_not_a_socket() {
     assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ProxySocket { .. })));
 }
 
+/// A job with the default forward plan, with a proxy plan of the job's own socket when
+/// `proxy` is set, and the world with its line and its sockets.
+fn forward_job(proxy: bool) -> (SandboxSpec, FakeFs) {
+    let mut fs = world();
+    let mut spec = job_spec(&mut fs);
+    if proxy {
+        let socket = spec.runtime.proxy_socket();
+        fs.socket(&socket.to_string_lossy());
+        spec.network = NetworkPlan::Proxy { socket };
+    }
+    let socket = spec.runtime.forward_socket();
+    fs.socket(&socket.to_string_lossy());
+    spec.job = Some(crate::JobPlan {
+        forward: Some(crate::ForwardPlan::new(socket, proxy)),
+        ..crate::JobPlan::new(3600, 19)
+    });
+    (spec, fs)
+}
+
+#[test]
+fn forward_job_binds_its_socket_read_only() {
+    for proxy in [false, true] {
+        let (spec, fs) = forward_job(proxy);
+        let plan = plan(&spec, &fs);
+        let inside = PathBuf::from("/run/user/1000/efr-forward.sock");
+        assert_eq!(plan.forward_socket(), Some(inside.as_path()));
+        let binds: Vec<_> =
+            plan.mounts().iter().filter(|mount| mount.op.target() == inside.as_path()).collect();
+        assert_eq!(binds.len(), 1, "{binds:?}");
+        assert_eq!(
+            binds[0].op,
+            MountOp::Bind {
+                source: spec.runtime.forward_socket(),
+                target: inside.clone(),
+                writable: false
+            }
+        );
+        assert_eq!(binds[0].origin, MountOrigin::Asset);
+        assert!(plan.unshares_network());
+        // The inner stage gets the forwarder's plan with the socket inside.
+        let forward = InnerPolicy::new(&plan, 3, None).forward.unwrap();
+        assert_eq!(forward.socket, inside);
+        assert_eq!(forward.proxy, proxy);
+        assert_eq!(plan.proxy_socket().is_some(), proxy);
+        assert_eq!((forward.poll_ms, forward.stable_ms, forward.max_ports), (500, 1000, 8));
+        let back = forward.plan();
+        assert_eq!(back.socket, inside);
+        assert_eq!(back.ephemeral_stable_ms, 10_000);
+    }
+}
+
+#[test]
+fn forward_job_child_has_no_socket_rule() {
+    let (spec, fs) = forward_job(false);
+    let plan = plan(&spec, &fs);
+    let policy = plan.landlock();
+    assert!(policy.resolve_unix.is_empty(), "{:?}", policy.resolve_unix);
+    assert!(!policy.deny_tcp_bind);
+    for rule in policy.rules() {
+        assert!(!rule.access.contains(&crate::FsAccess::ResolveUnix), "{rule:?}");
+        assert_ne!(rule.path, spec.runtime.inside_forward_socket(), "{rule:?}");
+    }
+    // The child keeps phase 1's profile: its servers bind and listen.
+    assert_eq!(profile(&plan), SeccompProfile::phase1());
+}
+
+#[test]
+fn only_a_job_with_a_forward_plan_gets_the_forwarder() {
+    // A call that is not a job: no bind, no forwarder.
+    let none = plan_of(&spec(), &proxy_world());
+    assert_eq!(none.forward_socket(), None);
+    assert_eq!(InnerPolicy::new(&none, 3, None).forward, None);
+    // A job with no forward plan.
+    let mut fs = world();
+    let job = job_spec(&mut fs);
+    let plan = plan_of(&job, &fs);
+    assert_eq!(plan.forward_socket(), None);
+    assert!(
+        !plan.mounts().iter().any(|mount| mount.op.target() == job.runtime.inside_forward_socket())
+    );
+}
+
+#[test]
+fn forward_job_on_the_host_network_is_refused() {
+    let (mut spec, fs) = forward_job(false);
+    spec.grants = vec![Grant::NetView];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ForwardWithHostNetwork)));
+    spec.grants = vec![Grant::OpenNetwork];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ForwardWithHostNetwork)));
+    spec.grants = Vec::new();
+    spec.network = NetworkPlan::Open;
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ForwardWithHostNetwork)));
+}
+
+#[test]
+fn forward_job_refuses_a_socket_that_is_missing_or_not_a_socket() {
+    let (spec, _) = forward_job(false);
+    let mut fs = world();
+    fs.file(&spec.runtime.call_dir.join("line").to_string_lossy(), "cargo watch");
+    assert!(MountPlan::build(&spec, &fs).is_err());
+    fs.file(&spec.runtime.forward_socket().to_string_lossy(), "not a socket");
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ForwardSocket { .. })));
+}
+
 #[test]
 fn proxy_plan_sets_the_bridge_variables() {
     let mut spec = spec();

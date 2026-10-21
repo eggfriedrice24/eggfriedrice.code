@@ -3,7 +3,8 @@
 //! no build or test needs and stops typing into the shared terminal. A call with
 //! `Grant::NetView` keeps the host's network namespace and gets
 //! [`SeccompProfile::net_view`], which also takes every network socket away. The bridge
-//! of a proxy call gets [`SeccompProfile::bridge`], and the bus proxy of phase E
+//! of a proxy call gets [`SeccompProfile::bridge`], the forwarder of a job
+//! [`SeccompProfile::forward`], and the bus proxy of phase E
 //! [`SeccompProfile::bus_proxy`].
 
 use serde::{Deserialize, Serialize};
@@ -186,6 +187,10 @@ const NET_VIEW_DENIED: &[&str] = &["listen", "pidfd_getfd"];
 /// already.
 const BRIDGE_DENIED: &[&str] = &["bind", "listen", "execve", "execveat", "pidfd_getfd"];
 
+/// The calls that also fail with `EPERM` in the forwarder of a job; `ptrace` is in
+/// [`DENIED`] already. A `connect` picks its own port with no `bind` call.
+const FORWARD_DENIED: &[&str] = &["bind", "listen", "execve", "execveat", "pidfd_getfd"];
+
 /// The calls that also fail with `EPERM` in the bus proxy; `ptrace` is in [`DENIED`]
 /// already.
 const BUS_PROXY_DENIED: &[&str] = &["pidfd_getfd"];
@@ -254,6 +259,29 @@ impl SeccompProfile {
         }
         profile.rules.extend(
             BRIDGE_DENIED
+                .iter()
+                .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
+        );
+        profile
+    }
+
+    /// The profile of the forwarder of a job (`efr-sbx forward`), on the model of
+    /// [`bridge`](Self::bridge): phase 1 with only `AF_UNIX`, `AF_INET` and `AF_INET6`
+    /// sockets, and `bind`, `listen`, `execve`, `execveat`, `ptrace` and `pidfd_getfd`
+    /// refused. The forwarder connects to the forward socket and to the job's servers
+    /// on loopback, and needs none of them; code that took it over could not open a
+    /// port or run a program. The family filter cannot tell a stream socket from a
+    /// datagram one, but the job's namespace has only `lo`, so a datagram reaches only
+    /// the job.
+    pub fn forward() -> SeccompProfile {
+        let mut profile = SeccompProfile::phase1();
+        for rule in &mut profile.rules {
+            if let SyscallRule::AllowSocketFamilies { allowed, .. } = rule {
+                *allowed = vec![AF_UNIX, AF_INET, AF_INET6];
+            }
+        }
+        profile.rules.extend(
+            FORWARD_DENIED
                 .iter()
                 .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
         );

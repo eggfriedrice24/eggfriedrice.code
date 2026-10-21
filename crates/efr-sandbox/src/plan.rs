@@ -31,6 +31,9 @@
 //! - A proxy plan binds the call's socket read-only at `$XRT/efr-proxy.sock` for the
 //!   bridge, with no `RESOLVE_UNIX` rule for the child, and sets the proxy variables. It
 //!   always keeps the private network namespace.
+//! - A job with port forwards binds the job's socket read-only at
+//!   `$XRT/efr-forward.sock` for the forwarder, with no `RESOLVE_UNIX` rule for the
+//!   child, as the proxy socket. Only a job in a private network namespace gets it.
 //! - A socket grant never binds the system bus, the session bus, a socket of a service
 //!   manager or a container engine ([`SERVICE_SOCKETS`]), a socket below
 //!   `$XRT/systemd/`, or the control socket of a desktop. The plan checks the path after
@@ -44,6 +47,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use crate::inner::InnerForward;
 use crate::layers::CacheLayers;
 use crate::spec::{FloorKind, MaskKind, WriteRootKind};
 
@@ -274,6 +278,7 @@ pub struct MountPlan {
     pub(crate) layers: Option<CacheLayers>,
     pub(crate) layer_sources: Vec<PathBuf>,
     pub(crate) proxy_socket: Option<PathBuf>,
+    pub(crate) forward: Option<InnerForward>,
 }
 
 impl MountPlan {
@@ -354,6 +359,18 @@ impl MountPlan {
     /// other call, and never for a call that keeps the host's network namespace.
     pub fn proxy_socket(&self) -> Option<&Path> {
         self.proxy_socket.as_deref()
+    }
+
+    /// The inside path of a job's forward socket, `$XRT/efr-forward.sock`: the inner
+    /// stage starts the forwarder on it. `None` for every call that is not a job with
+    /// port forwards, and never for a call that keeps the host's network namespace.
+    pub fn forward_socket(&self) -> Option<&Path> {
+        self.forward.as_ref().map(|forward| forward.socket.as_path())
+    }
+
+    /// The forwarder's plan of a job with port forwards, with the socket inside.
+    pub fn forward(&self) -> Option<&InnerForward> {
+        self.forward.as_ref()
     }
 }
 

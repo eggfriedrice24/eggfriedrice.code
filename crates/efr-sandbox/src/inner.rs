@@ -4,7 +4,8 @@
 //! place. It reads this policy, moves the terminal copy to fd 2 and the records pipe
 //! to fd 3, closes every other descriptor, applies Landlock, then seccomp, and executes
 //! the child shell. It reports its own failure as a `setup-error` record on fd 3. For a
-//! proxy plan it starts the bridge first, before its own Landlock domain.
+//! proxy plan it starts the bridge first, before its own Landlock domain, and for a job
+//! with port forwards the forwarder.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use crate::SandboxError;
 use crate::landlock::LandlockPolicy;
 use crate::plan::MountPlan;
 use crate::seccomp::SeccompProfile;
+use crate::spec::ForwardPlan;
 
 /// The most bytes of a policy.
 pub const MAX_POLICY_BYTES: usize = 1024 * 1024;
@@ -49,6 +51,57 @@ pub struct InnerPolicy {
     /// `127.0.0.1:3128` of the call's network namespace. Only a proxy plan sets it.
     #[serde(default)]
     pub proxy_socket: Option<PathBuf>,
+    /// The port forwards of a job: `Some` starts the forwarder (`efr-sbx forward`)
+    /// before the inner stage's own Landlock domain. Only a job with a forward plan in a
+    /// network namespace of its own sets it.
+    #[serde(default)]
+    pub forward: Option<InnerForward>,
+}
+
+/// What the inner stage passes to the forwarder of a job: the job's forward plan, with
+/// the socket as the job sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InnerForward {
+    /// The job's forward socket inside, `$XRT/efr-forward.sock`.
+    pub socket: PathBuf,
+    /// [`ForwardPlan::poll_ms`].
+    pub poll_ms: u32,
+    /// [`ForwardPlan::stable_ms`].
+    pub stable_ms: u32,
+    /// [`ForwardPlan::ephemeral_stable_ms`].
+    pub ephemeral_stable_ms: u32,
+    /// [`ForwardPlan::max_ports`].
+    pub max_ports: u8,
+    /// [`ForwardPlan::proxy`].
+    pub proxy: bool,
+}
+
+impl InnerForward {
+    /// The forwarder's view of `plan`, with the socket at `socket` inside.
+    pub fn new(plan: &ForwardPlan, socket: PathBuf) -> InnerForward {
+        InnerForward {
+            socket,
+            poll_ms: plan.poll_ms,
+            stable_ms: plan.stable_ms,
+            ephemeral_stable_ms: plan.ephemeral_stable_ms,
+            max_ports: plan.max_ports,
+            proxy: plan.proxy,
+        }
+    }
+
+    /// The forward plan as the forwarder sees it: the socket is the one inside. The
+    /// forwarder gives it to [`Debounce::new`](crate::Debounce::new).
+    pub fn plan(&self) -> ForwardPlan {
+        ForwardPlan {
+            socket: self.socket.clone(),
+            poll_ms: self.poll_ms,
+            stable_ms: self.stable_ms,
+            ephemeral_stable_ms: self.ephemeral_stable_ms,
+            max_ports: self.max_ports,
+            proxy: self.proxy,
+        }
+    }
 }
 
 /// The two pipes between the inner stage and the launcher while the launcher's helper
@@ -80,6 +133,7 @@ impl InnerPolicy {
             layers_sync: None,
             cwd: None,
             proxy_socket: plan.proxy_socket().map(Path::to_path_buf),
+            forward: plan.forward().cloned(),
         }
     }
 

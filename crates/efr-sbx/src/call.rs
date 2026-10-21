@@ -76,7 +76,7 @@ fn run(call_dir: &Path, job: bool) -> Result<i32, SbxError> {
     let reserved = reserve_fds()?;
     let events = if job { Some(job::catch_stops()?) } else { None };
     let call = CallDir::open(call_dir)?;
-    let result = match (events, call.spec.job) {
+    let result = match (events, call.spec.job.clone()) {
         (None, None) => launch(&call, reserved, None),
         (Some(events), Some(plan)) => run_job(&call, reserved, plan, events),
         (None, Some(_)) => mismatch("a job's spec needs run --job"),
