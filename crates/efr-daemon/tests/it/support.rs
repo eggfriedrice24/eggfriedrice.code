@@ -74,3 +74,34 @@ pub(crate) fn zsh_enabled(test: &str) -> bool {
     }
     on
 }
+
+/// True while a socket of this process listens on TCP port `port` of the host.
+///
+/// NOTE: the efrd of a test runs in the test's process, so this sees efrd's own
+/// listener. A program that takes the port after efrd let it go does not count, so a
+/// test that waits for a closed listener never waits on a port that another program
+/// reused.
+pub(crate) fn listens_here(port: u16) -> bool {
+    let own: std::collections::BTreeSet<String> = std::fs::read_dir("/proc/self/fd")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| std::fs::read_link(entry.path()).ok())
+        .filter_map(|target| {
+            let target = target.to_string_lossy().into_owned();
+            Some(target.strip_prefix("socket:[")?.strip_suffix(']')?.to_owned())
+        })
+        .collect();
+    ["/proc/net/tcp", "/proc/net/tcp6"].iter().any(|table| {
+        std::fs::read_to_string(table).unwrap_or_default().lines().skip(1).any(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let listens = fields.get(3) == Some(&"0A");
+            let on_port = fields
+                .get(1)
+                .and_then(|local| local.rsplit_once(':'))
+                .and_then(|(_, hex)| u16::from_str_radix(hex, 16).ok())
+                == Some(port);
+            listens && on_port && fields.get(9).is_some_and(|inode| own.contains(*inode))
+        })
+    })
+}

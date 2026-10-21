@@ -39,7 +39,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use super::netview::target_dirs;
 use super::{real_launcher, skip, with_zsh};
 use crate::jobs_wake::{Answer, Recorder, turn};
-use crate::support::zsh_enabled;
+use crate::support::{listens_here, zsh_enabled};
 
 /// The port of the job's IPv4 server, in the job's own network namespace.
 const V4_PORT: u16 = 20080;
@@ -244,12 +244,6 @@ fn payload() -> Vec<u8> {
     (0..64 * 1024).map(|n: u32| (n % 251) as u8).collect()
 }
 
-/// True when nothing listens on `127.0.0.1:port`.
-fn refused(port: u16) -> bool {
-    std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
-        .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
-}
-
 /// The command name and the parent of the process `pid`, `None` when it is gone.
 fn name_and_parent(pid: u32) -> Option<(String, u32)> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -408,7 +402,7 @@ async fn shell_job_stop_frees_the_port() {
     let stopped: JobsStopResult = client.call(stop).await.unwrap();
     assert_eq!(stopped.job.state, JobState::Stopped);
     assert_eq!(ended(&daemon, conversation, "j1").await, JobState::Stopped);
-    Wait::new("the host port is free").until(|| refused(real)).await.unwrap();
+    Wait::new("the host port is free").until(|| !listens_here(real)).await.unwrap();
     Wait::new("the forwarder ended").until(|| forwarders().is_empty()).await.unwrap();
     let [job] = jobs(&daemon, conversation).await.try_into().unwrap();
     assert_eq!((job.state, job.forwards), (JobState::Stopped, Vec::new()));
@@ -427,7 +421,7 @@ async fn shell_restart_leaves_no_listener() {
     };
     let (conversation, real) = forwarded_job(&daemon, &line, V4_PORT, "127.0.0.1").await;
     daemon.restart().await.unwrap();
-    assert!(refused(real), "the listener closed with the old efrd");
+    assert!(!listens_here(real), "the listener closed with the old efrd");
     assert_eq!(daemon.host_ports().real_port(V4_PORT), None, "the new efrd bound nothing");
     Wait::new("the forwarder ended").until(|| forwarders().is_empty()).await.unwrap();
     let [job] = jobs(&daemon, conversation).await.try_into().unwrap();
