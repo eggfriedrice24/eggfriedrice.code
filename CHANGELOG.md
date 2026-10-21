@@ -410,8 +410,7 @@ into the GitHub release notes, and it stops when the section is missing.
   mode the mark 🔓 stands next to the robot while the terminal's prompts run in full
   mode, such as `🤖🔓 app › `; outside sticky mode the red first line of each turn
   says full mode. `EFR_FULL_MARK` sets another mark, and an empty value shows none.
-  `EFR_FULL_STYLE` (default `fg=red`) now sets the style of the mark; a colour emoji
-  keeps its own colours. `efr_prompt_info` shows the mark too.
+  `efr_prompt_info` shows the mark too.
 - A phone that answers a question that only your own machine answers gets the text
   `only the user's own machine answers a privilege exit, a delete that full mode guards,
   or a background job`.

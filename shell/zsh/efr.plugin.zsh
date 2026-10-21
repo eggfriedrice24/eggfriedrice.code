@@ -207,9 +207,6 @@ fi
 : ${EFR_TAG_STYLE:='fg=8'}
 # The region_highlight style of the scope after the robot: the same muted grey.
 : ${EFR_SCOPE_STYLE:='fg=8'}
-# The region_highlight style of the full mark, red as efr's error role and the turn's
-# first line in full mode; a colour emoji keeps its own colours.
-: ${EFR_FULL_STYLE:='fg=red'}
 # The scope of the next prompt for your own prompt (see efr_prompt_info): the name of
 # the registered project that holds $PWD, the outside mark (`○`) anywhere else, or
 # empty while efrd never wrote its projects file. precmd sets it.
@@ -762,7 +759,7 @@ _efr_print_setting() {
 
 # Shows the indicator before the typed text while sticky mode is on: the dim tag of the
 # terminal's own turn settings (see _efr_tag), the robot, the full mark while the
-# terminal's prompts run in full mode (EFR_FULL_MARK, in EFR_FULL_STYLE), and the
+# terminal's prompts run in full mode (EFR_FULL_MARK, unstyled), and the
 # muted scope of the next prompt with `›` after it (see _efr_update_scope), such as
 # `auto 🤖🔓 app › `. Without a projects file the scope part is left out. With $1
 # `tag` only the tag stays, for a prompt line whose first word takes the robot's
@@ -791,10 +788,7 @@ _efr_show_indicator() {
       if [[ -n $EFR_FULL_MARK ]] && _efr_full_mode; then
         PREDISPLAY+=$word
         mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")
-        start=${#PREDISPLAY}
-        PREDISPLAY+=$EFR_FULL_MARK
-        mine+=("P$start ${#PREDISPLAY} $EFR_FULL_STYLE memo=efr")
-        PREDISPLAY+=$gap
+        PREDISPLAY+=$EFR_FULL_MARK$gap
       else
         PREDISPLAY+=$word$gap
         mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")

@@ -749,8 +749,7 @@ efr config reload.`
 - In sticky mode, the zsh plugin shows the mark 🔓 next to the robot while the
   terminal's prompts run in full mode, such as `🤖🔓 app › `. It reads `config.toml`
   for a default of full. `EFR_FULL_MARK` sets another mark, and an empty value shows
-  none; `EFR_FULL_STYLE` sets its style (`fg=red` by default; a colour emoji keeps its
-  own colours). Outside sticky mode the plugin shows no mark: the red first line of
+  none. Outside sticky mode the plugin shows no mark: the red first line of
   the turn says full mode. `efr_prompt_info` shows the mark too.
 
 `crates/efr-permissions/src/full.rs` holds the settle pass of a full call,

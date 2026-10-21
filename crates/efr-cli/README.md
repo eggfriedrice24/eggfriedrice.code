@@ -1158,7 +1158,7 @@ without the replies), and no question without a terminal,
 with keys typed ahead or with `EFR_TERMINAL_BG` set. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
 tag of the terminal's settings before the robot, the bare setting words of sticky
 mode, a `,word` that names nothing as a prompt, the full mark next to the robot in
-sticky mode (`EFR_FULL_MARK`, `EFR_FULL_STYLE`) and no tag outside it, the mark of a
+sticky mode (`EFR_FULL_MARK`) and no tag outside it, the mark of a
 `config.toml` that makes full mode the default, until `,mode` or a change of the file
 says otherwise, and the scope marker: the project's name or `○` after the robot from a
 `projects.tsv` written by hand, the deepest root and whole components, a symlinked

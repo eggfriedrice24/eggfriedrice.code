@@ -2359,16 +2359,13 @@ fn e2e_mode_full_shows_the_mark_next_to_the_robot_in_sticky_mode() {
             "<C-Space>",
         ],
     );
-    // The mark stands next to the robot in the full style, in place of a `full` word in
-    // the dim tag; the terminal's other values stay in the tag.
+    // The mark stands next to the robot with no style of its own, in place of a `full`
+    // word in the dim tag; the terminal's other values stay in the tag.
     assert_eq!(
         typed_lines(&home),
         [
-            typed(
-                "gpt-5.4 🤖🔓 what changed?",
-                &[("P0", "fg=8"), ("P8", "fg=magenta"), ("P9", "fg=red")]
-            ),
-            typed("🤖🔓 and now", &[("P0", "fg=magenta"), ("P1", "fg=red")]),
+            typed("gpt-5.4 🤖🔓 what changed?", &[("P0", "fg=8"), ("P8", "fg=magenta")]),
+            typed("🤖🔓 and now", &[("P0", "fg=magenta")]),
             typed("auto 🤖 then", &[("P0", "fg=8"), ("P5", "fg=magenta")]),
         ]
     );
@@ -2483,7 +2480,7 @@ fn e2e_a_config_that_makes_full_the_default_shows_the_mark() {
     assert_eq!(
         typed_lines(&home),
         [
-            typed("🤖🔓 by default", &[("P0", "fg=magenta"), ("P1", "fg=red")]),
+            typed("🤖🔓 by default", &[("P0", "fg=magenta")]),
             typed("cautious 🤖 cautious", &[("P0", "fg=8"), ("P9", "fg=magenta")]),
             typed("🤖 auto", &[("P0", "fg=magenta")]),
         ]
