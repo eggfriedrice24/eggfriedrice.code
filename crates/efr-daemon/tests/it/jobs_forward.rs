@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::sandbox::{REVIEWER_ALLOWS, ScriptedModel, ready, run_turn};
+use crate::support::listens_here;
 
 /// What the start result of a job with forwards says (DL16).
 const START_NOTE: &str = "efr forwards each loopback port from 1024 up that this job \
@@ -231,12 +232,6 @@ async fn through(port: u16, bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut back = Vec::new();
     stream.read_to_end(&mut back).await?;
     Ok(back)
-}
-
-/// True when nothing listens on `127.0.0.1:port`.
-fn refused(port: u16) -> bool {
-    std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
-        .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
 }
 
 /// Writes `config.toml` with `text` and reloads it.
@@ -567,10 +562,10 @@ async fn job_end_closes_listeners() {
     forwarder.listen(LOCALHOST, 8765, Some(echo)).await.unwrap();
     forwarded(&daemon, conversation, 1).await;
     let real = daemon.host_ports().real_port(8765).unwrap();
-    assert!(!refused(real));
+    assert!(listens_here(real));
     release(&fifo).await;
     until(&daemon, conversation, |event| matches!(event, Event::JobEnded { .. })).await;
-    Wait::new("the listener closes").until(|| refused(real)).await.unwrap();
+    Wait::new("the listener closes").until(|| !listens_here(real)).await.unwrap();
     forwarder.closed().await;
     daemon.stop().await.unwrap();
 }
@@ -583,9 +578,9 @@ async fn efrd_stop_closes_listeners() {
     forwarder.listen(LOCALHOST, 8765, None).await.unwrap();
     forwarded(&daemon, conversation, 1).await;
     let real = daemon.host_ports().real_port(8765).unwrap();
-    assert!(!refused(real));
+    assert!(listens_here(real));
     daemon.stop().await.unwrap();
-    assert!(refused(real), "nothing listens after efrd stopped");
+    assert!(!listens_here(real), "nothing listens after efrd stopped");
     forwarder.closed().await;
 }
 
@@ -614,7 +609,7 @@ async fn reload_off_stops_forwards() {
         Forwarded::new("j1", "127.0.0.1", 8765, ForwardOutcome::Stopped)
             .because("jobs.forward_ports is off")
     );
-    assert!(refused(real), "the listener closed before the record");
+    assert!(!listens_here(real), "the listener closed before the record");
     forwarder.closed().await;
     let [job] = jobs(&daemon, conversation).await.try_into().unwrap();
     assert_eq!((job.state, job.forwards), (JobState::Running, Vec::new()), "the job runs on");
@@ -632,7 +627,7 @@ async fn reload_on_does_not_reopen() {
     // NOTE: the forwarder's connection is gone for good; a new one is no control
     // connection, and the job keeps no forward.
     assert!(FakeForwarder::connect(forwarder.socket()).await.is_err(), "the socket closed");
-    assert!(refused(real));
+    assert!(!listens_here(real));
     let [job] = jobs(&daemon, conversation).await.try_into().unwrap();
     assert_eq!(job.forwards, Vec::new());
     let client = daemon.client().await.unwrap();
@@ -719,7 +714,7 @@ async fn real_host_bind() {
     assert_eq!(through(port, b"real").await.unwrap(), b"real");
     release(&fifo).await;
     until(&daemon, conversation, |event| matches!(event, Event::JobEnded { .. })).await;
-    Wait::new("the real port is free again").until(|| refused(port)).await.unwrap();
+    Wait::new("the real port is free again").until(|| !listens_here(port)).await.unwrap();
     daemon.stop().await.unwrap();
 }
 
