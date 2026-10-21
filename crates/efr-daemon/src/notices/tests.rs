@@ -1,3 +1,5 @@
+mod left;
+
 use std::os::unix::fs::PermissionsExt as _;
 
 use efr_protocol::{
