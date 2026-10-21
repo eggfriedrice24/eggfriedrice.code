@@ -15,11 +15,11 @@
 //!   second call with that token in `confirm`, within 60 s and with the same decision,
 //!   moves it.
 //!
-//! The move: efrd makes `$CALL/moved` for a call through the launcher (DS23), reserves
-//! the job's place, and asks efr-shell to hand the run over; efr-shell makes its own
-//! checks then (the command started, no sentinel run, no shell or REPL, no input wait,
-//! no full-screen program). The tool path adopts the run into the job table and
-//! answers with the job; the answer `moved` comes after the job is recorded, at most
+//! The move: efrd reserves the job's place and asks efr-shell to hand the run over;
+//! efr-shell makes its own checks then (the command started, no sentinel run, no shell
+//! or REPL, no input wait, no full-screen program). The tool path makes `$CALL/moved`
+//! for a call through the launcher (DS23) once the run was handed over, adopts the run
+//! into the job table and answers with the job; the answer `moved` comes after the job is recorded, at most
 //! 10 s later on efrd's clock. The old shell's PTY is the job's from the hand-over on
 //! (DS56): efr-shell's `ShellNotice::Adopted` marks it, whatever this handler does.
 //!
@@ -100,26 +100,14 @@ async fn background(
             Some(token) => moves.answered(call_id, token, &check.exits, now).map_err(refuse)?,
         }
     }
-    // NOTE: before the hand-over, so a launcher that ends after it writes no shell state
-    // over the state of every later call (DS23).
-    let moved_file = match &call.call_dir {
-        Some(dir) => Some(
-            make_moved_file(dir.join(efr_sandbox::MOVED_FILE))
-                .await
-                .map_err(|_| refuse(moves::ENDED))?,
-        ),
-        None => None,
-    };
     let (to, adopted) = oneshot::channel();
     let (reply, answer) = oneshot::channel();
     let confirmed = Confirmed { slot, adopted, reply, check };
     if moves.confirm(call_id, confirmed).is_err() {
-        remove_moved_file(moved_file).await;
         return Err(refuse(moves::ENDED));
     }
     if let Err(error) = state.shells.request_move(conversation_id, call_id, to).await {
         moves.cancel(call_id);
-        remove_moved_file(moved_file).await;
         return Err(refuse(not_movable(&error)));
     }
     let moved = match state.clock.timeout(moves::MOVE_WAIT, answer).await {
@@ -138,27 +126,5 @@ fn not_movable(error: &ShellError) -> &'static str {
     match error {
         ShellError::NotMovable { reason, .. } => reason,
         _ => "the hidden shell could not hand the command over",
-    }
-}
-
-/// Makes `$CALL/moved` as an empty file in one call (`O_CREAT | O_EXCL`, 0600) and
-/// returns its path.
-async fn make_moved_file(path: std::path::PathBuf) -> std::io::Result<std::path::PathBuf> {
-    tokio::task::spawn_blocking(move || {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
-        Ok(path)
-    })
-    .await
-    .map_err(std::io::Error::other)?
-}
-
-/// Removes the `moved` file of a move that did not happen, so the launcher writes the
-/// shell state at its end as before.
-async fn remove_moved_file(path: Option<std::path::PathBuf>) {
-    let Some(path) = path else { return };
-    let removed = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
-    if !matches!(removed, Ok(Ok(()))) {
-        tracing::warn!("the moved mark of a call that did not move could not be removed");
     }
 }

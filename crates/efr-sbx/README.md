@@ -103,8 +103,9 @@ What the launcher writes, in order:
 | `$SBX/jobs/<call>/guard.json` | `guard-check` only: `{ "changes", "quarantined" }` |
 
 A call that efrd moved into a job (Ctrl+B in `efr`) ends as a job does. efrd makes
-the empty file `$CALL/moved` (`efr_sandbox::MOVED_FILE`) while the call runs, so the
-launcher looks for it only after the command ended, before the first of these writes.
+the empty file `$CALL/moved` (`efr_sandbox::MOVED_FILE`) while the call runs, after
+the hidden shell handed the call over, so the launcher looks for it only after the
+command ended, before the first of these writes.
 With the file, a contained call and an exit child write no `apply`, no `state.json`,
 no `state.zsh` and no `config-listings.json`, and `state_kept` is false; `result.json`
 comes as for any call. Else a call that ends an hour after its start would write the

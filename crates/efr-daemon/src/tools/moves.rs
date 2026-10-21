@@ -154,6 +154,13 @@ impl DaemonToolbox {
     pub(super) async fn finish_move(&self, adopted: Adopted, parts: MoveParts) -> ToolOutcome {
         let Adopted { running, confirmed, run } = adopted;
         let Confirmed { slot, reply, check, .. } = confirmed;
+        // NOTE: only now that efr-shell handed the run over: a launcher that ended
+        // before the hand-over wrote the shell state of a call that did not move. One
+        // that ends after it but before the mark writes its state before any later call
+        // of the conversation can run, since this call has not answered yet (DS23).
+        if let Some(dir) = &running.call_dir {
+            make_moved_file(dir.join(efr_sandbox::MOVED_FILE)).await;
+        }
         let MoveParts { proxy, bus, reach, guard_roots, write_roots } = parts;
         // NOTE: a job gets no reach (DS34, OQS10); the helper closes its listeners first.
         if let Some(reach) = reach {
@@ -241,5 +248,20 @@ impl DaemonToolbox {
             ..SandboxSummary::default()
         });
         ToolOutcome::ok(output).with_job(info).with_sandbox(summary)
+    }
+}
+
+/// Makes `$CALL/moved` as an empty file in one call (`O_CREAT | O_EXCL`, 0600), so the
+/// launcher of a moved call writes no shell state at its end (DS23).
+async fn make_moved_file(path: PathBuf) {
+    let made = tokio::task::spawn_blocking(move || {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)
+    })
+    .await;
+    if !matches!(made, Ok(Ok(_))) {
+        tracing::warn!(
+            "the moved mark of a call could not be made; its launcher may write the shell state of its start"
+        );
     }
 }
