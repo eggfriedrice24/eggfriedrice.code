@@ -158,7 +158,7 @@ impl Ctx {
         })
         .await;
         match rows {
-            Ok(Ok((rows, own))) => peer_uid(&rows, local, peer.port()) == Some(own),
+            Ok(Ok((rows, own))) => peer_uid(&rows, local, peer) == Some(own),
             Ok(Err(error)) => {
                 tracing::warn!(%error, "the host's tcp table could not be read; a forwarded connection closes");
                 false

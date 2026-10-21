@@ -343,16 +343,17 @@ impl Debounce {
 }
 
 /// The uid of the host process that connected to efrd's listener on `127.0.0.1:port`
-/// from `peer_port`, from the host's tcp rows (DL9); `None` when no row or two rows that
-/// disagree name it.
+/// from `peer`, from the host's tcp rows (DL9); `None` when no row or two rows that
+/// disagree name it, or when `peer` is no IPv4 loopback address.
 ///
-/// The peer's row has the local port `peer_port` and the remote address
+/// The peer's row has the local address `peer` and the remote address
 /// `127.0.0.1:port`, in that order. efrd's own accepted socket has the mirror row
-/// (local `port`, remote `peer_port`) with efrd's uid, and the match never takes it.
-/// A listener and a `TIME_WAIT` row (uid 0) never count. A v4-mapped address of a
-/// `tcp6` row counts as its IPv4 address.
-pub fn peer_uid(rows: &[TcpRow], port: u16, peer_port: u16) -> Option<u32> {
-    if port == peer_port {
+/// (local `port`, remote `peer`) with efrd's uid, and the match never takes it. A
+/// listener and a `TIME_WAIT` row (uid 0) never count. A v4-mapped address of a `tcp6`
+/// row counts as its IPv4 address.
+pub fn peer_uid(rows: &[TcpRow], port: u16, peer: SocketAddr) -> Option<u32> {
+    let peer_ip = v4_of(peer.ip()).filter(Ipv4Addr::is_loopback)?;
+    if port == peer.port() && peer_ip == Ipv4Addr::LOCALHOST {
         return None;
     }
     let mut uid = None;
@@ -360,12 +361,10 @@ pub fn peer_uid(rows: &[TcpRow], port: u16, peer_port: u16) -> Option<u32> {
         if row.state == TCP_LISTEN || row.state == TCP_TIME_WAIT {
             continue;
         }
-        let local = v4_of(row.local.ip());
-        let remote = v4_of(row.remote.ip());
-        let matches = row.local.port() == peer_port
+        let matches = row.local.port() == peer.port()
             && row.remote.port() == port
-            && local.is_some_and(|ip| ip.is_loopback())
-            && remote == Some(Ipv4Addr::LOCALHOST);
+            && v4_of(row.local.ip()) == Some(peer_ip)
+            && v4_of(row.remote.ip()) == Some(Ipv4Addr::LOCALHOST);
         if !matches {
             continue;
         }
