@@ -16,22 +16,37 @@
 //! root, and a wake turn needs a live conversation, so its terminal is the one that
 //! the conversation uses now.
 //!
+//! A command that a call left running in the hidden shell gets a line too
+//! ([`shell_line`]): when it stays there (`efr: <title>: the hidden shell still runs
+//! rsync -a ...`), when it waits for input that efr keeps for the user, with the row that
+//! asks and who approved the call, and when efr stopped it at its limit. The line says
+//! to answer only after `,shell`, never at the prompt where the notice shows, so a
+//! password never becomes a command line or a prompt to the agent. The events of such a
+//! command name only its call, so [`LeftCommands`] keeps the line and the approver of
+//! each one from its `shell_command_detached` until its `shell_command_ended`. The
+//! command and the row went through the screen of the hidden shell; a line keeps
+//! neither a control nor a format character of them.
+//!
 //! The decision waits while a client in the terminal may still show the event: `efr`
 //! sends a prompt and then follows its turn, which may already have ended, and it
 //! leaves as soon as it has shown the end, often before this task reads the commit.
 //! `connections.rs` holds such a notice and hands it back here once nobody was handed
 //! its event.
 
+use std::collections::HashMap;
 use std::fs::{DirBuilder, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_protocol::{
-    ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, JobState, JobStopBy, TurnId,
+    ApprovedBy, CallId, ConversationId, ErrorCode, Event, EventEnvelope, HeldReason, InputWait,
+    JobState, JobStopBy, ShellCommandEnd, TurnId,
 };
 use efr_stdx::text::is_format;
+use jiff::Timestamp;
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
@@ -169,6 +184,219 @@ pub(crate) fn line(event: &Event, title: Option<&str>, wake: Option<&Wake>) -> O
     Some(one_line(&text, MAX_CHARS))
 }
 
+/// The most characters of a command line in a notice, so the rest of the line fits.
+const COMMAND_CHARS: usize = 60;
+
+/// The most characters of the row that asks for input in a notice.
+const PROMPT_CHARS: usize = 40;
+
+/// The longest notice of a command left running that waits for input, in characters.
+/// It is longer than [`MAX_CHARS`]: it must keep the row that asks, who approved the
+/// call and where to type, and a cut must never take one of them.
+const MAX_WAIT_CHARS: usize = 300;
+
+/// The most characters after the command in such a notice: what it waits for, the row
+/// that asks ([`PROMPT_CHARS`]), the approver and where to type.
+const MAX_WAIT_EXTRA: usize = 170;
+
+/// The most commands left running that the notices keep in mind. A command leaves at
+/// its end, which a lagging subscription to the commits can miss, so the table is
+/// emptied once it is full.
+const MAX_LEFT: usize = 1024;
+
+/// What the notices know of a command that a call left running in a hidden shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Left {
+    /// The first characters of its line.
+    pub(crate) command: String,
+    /// When it started.
+    pub(crate) since: Timestamp,
+    /// True when it runs in the sandbox.
+    pub(crate) contained: bool,
+    /// Who approved its call.
+    pub(crate) approved_by: Option<ApprovedBy>,
+    /// True while its latest wait is for a secret: a hidden wait, or a visible one whose
+    /// row looks like a password prompt.
+    pub(crate) secret: bool,
+}
+
+/// The commands left running in the hidden shells, by call, from the committed events.
+#[derive(Debug, Default)]
+pub(crate) struct LeftCommands {
+    by_call: HashMap<CallId, Left>,
+}
+
+impl LeftCommands {
+    /// Takes the news of `event` and answers what is known of its command: at its end,
+    /// the last that was known, and the command is forgotten.
+    pub(crate) fn see(&mut self, event: &Event) -> Option<Left> {
+        match event {
+            Event::ShellCommandDetached {
+                call_id,
+                command,
+                since,
+                contained,
+                input,
+                looks_secret,
+                approved_by,
+                ..
+            } => {
+                if self.by_call.len() >= MAX_LEFT {
+                    self.by_call.clear();
+                }
+                let left = Left {
+                    command: command.clone(),
+                    since: *since,
+                    contained: *contained,
+                    approved_by: *approved_by,
+                    secret: secret_wait(*input, *looks_secret),
+                };
+                self.by_call.insert(*call_id, left.clone());
+                Some(left)
+            }
+            Event::ShellCommandInputChanged { call_id, input, looks_secret, .. } => {
+                let left = self.by_call.get_mut(call_id)?;
+                left.secret = secret_wait(*input, *looks_secret);
+                Some(left.clone())
+            }
+            Event::ShellCommandEnded { call_id, .. } => self.by_call.remove(call_id),
+            _ => None,
+        }
+    }
+}
+
+/// True for a wait for a secret: a hidden one, or a visible one that looks like a
+/// password prompt.
+fn secret_wait(input: InputWait, looks_secret: bool) -> bool {
+    input == InputWait::Hidden || (input == InputWait::Visible && looks_secret)
+}
+
+/// The notice for `event` of a command left running in a hidden shell, of a
+/// conversation titled `title`, if the event deserves one. `left` is what
+/// [`LeftCommands::see`] knew of the command, `at` when the event was recorded and
+/// `limit` how long such a command may wait for input
+/// (`shell.interactive_timeout_minutes`).
+///
+/// A wait that efr does not keep for the user gets no line: the hidden shell stops it
+/// at once, and its end gets one. That is a wait for a secret in the sandbox, or one
+/// of a call that neither the user nor the user's own rule approved.
+pub(crate) fn shell_line(
+    event: &Event,
+    title: Option<&str>,
+    left: Option<&Left>,
+    at: Timestamp,
+    limit: Duration,
+) -> Option<String> {
+    let title = title.filter(|title| !title.trim().is_empty()).unwrap_or("a conversation");
+    match event {
+        Event::ShellCommandDetached {
+            command,
+            contained,
+            input,
+            looks_secret,
+            prompt,
+            approved_by,
+            ..
+        } => {
+            let command = one_line(command, COMMAND_CHARS);
+            if *input == InputWait::None {
+                let text = format!("efr: {title}: the hidden shell still runs {command}");
+                return Some(with_extra(&text, "; ,shell shows it and stops it"));
+            }
+            let wait = Wait { input: *input, looks_secret: *looks_secret, prompt };
+            wait_line(title, &command, *contained, &wait, *approved_by)
+        }
+        Event::ShellCommandInputChanged { input, contained, looks_secret, prompt, .. } => {
+            if *input == InputWait::None {
+                return None;
+            }
+            let (command, approved_by) = match left {
+                Some(left) => (one_line(&left.command, COMMAND_CHARS), left.approved_by),
+                None => ("a command".to_owned(), None),
+            };
+            let wait = Wait { input: *input, looks_secret: *looks_secret, prompt };
+            wait_line(title, &command, *contained, &wait, approved_by)
+        }
+        Event::ShellCommandEnded { how: ShellCommandEnd::Limit, .. } => {
+            let Some(left) = left else {
+                let text = format!(
+                    "efr: {title}: efr stopped a command in the hidden shell: it waited for \
+                     input too long"
+                );
+                return Some(one_line(&text, MAX_CHARS));
+            };
+            let command = one_line(&left.command, COMMAND_CHARS);
+            let waited = Duration::try_from(at.duration_since(left.since)).unwrap_or_default();
+            // NOTE: both stops end as `limit`. A wait for a secret that nobody may answer
+            // stops at the look that sees it, long before the limit.
+            let why = if left.secret && left.contained {
+                "it asked for a password in the sandbox, where efr types none".to_owned()
+            } else if left.secret && waited < limit {
+                "it asked for a password while nobody followed".to_owned()
+            } else {
+                match waited.as_secs() / 60 {
+                    1 => "it waited for input for 1 minute".to_owned(),
+                    minutes => format!("it waited for input for {minutes} minutes"),
+                }
+            };
+            let text = format!("efr: {title}: efr stopped {command} in the hidden shell");
+            Some(with_extra(&text, &format!(": {why}")))
+        }
+        _ => None,
+    }
+}
+
+/// A wait of a command left running, as its event tells it.
+struct Wait<'a> {
+    input: InputWait,
+    looks_secret: bool,
+    /// The row that asks.
+    prompt: &'a str,
+}
+
+/// The notice for a command left running that waits for input, or `None` when efr
+/// does not keep the wait for the user.
+fn wait_line(
+    title: &str,
+    command: &str,
+    contained: bool,
+    wait: &Wait<'_>,
+    approved_by: Option<ApprovedBy>,
+) -> Option<String> {
+    let secret = secret_wait(wait.input, wait.looks_secret);
+    let person = matches!(approved_by, Some(ApprovedBy::You | ApprovedBy::YourRule));
+    if secret && (contained || !person) {
+        return None;
+    }
+    let mut asked = Vec::new();
+    let prompt = one_line(wait.prompt.trim(), PROMPT_CHARS);
+    if !prompt.is_empty() {
+        asked.push(format!("asked by \"{prompt}\""));
+    }
+    asked.extend(approved_by.and_then(approver).map(str::to_owned));
+    let asked = if asked.is_empty() { String::new() } else { format!(" ({})", asked.join("; ")) };
+    let (what, hint) = if secret {
+        ("a password", ". Type the password only after ,shell; never at this prompt.")
+    } else {
+        ("input", ". Answer it only after ,shell; never at this prompt.")
+    };
+    let text = format!("efr: {title}: the hidden shell still runs {command}");
+    let mut line = one_line(&text, MAX_WAIT_CHARS.saturating_sub(MAX_WAIT_EXTRA));
+    line.push_str(&format!(" and waits for {what}{asked}{hint}"));
+    Some(line)
+}
+
+/// Who let a call run, in a few words; `None` for a way that this build does not know.
+fn approver(approved_by: ApprovedBy) -> Option<&'static str> {
+    match approved_by {
+        ApprovedBy::You => Some("you approved it"),
+        ApprovedBy::YourRule => Some("your rule allowed it"),
+        ApprovedBy::Reviewer => Some("the reviewer allowed it"),
+        ApprovedBy::FullMode => Some("full mode let it run"),
+        _ => None,
+    }
+}
+
 /// `job j3`, or `jobs j3, j4` for the ids `jobs` of a job notice turn.
 fn job_words(jobs: &str) -> String {
     if jobs.contains(',') { format!("jobs {jobs}") } else { format!("job {jobs}") }
@@ -286,6 +514,7 @@ pub(crate) fn append(dir: &Path, tty: &str, line: &str) -> Result<Option<PathBuf
 /// that became ready, until `stop`.
 pub(crate) async fn follow(state: Arc<State>, stop: CancellationToken) {
     let mut committed = state.writer.subscribe();
+    let mut left = LeftCommands::default();
     loop {
         let batch = tokio::select! {
             () = stop.cancelled() => return,
@@ -299,7 +528,8 @@ pub(crate) async fn follow(state: Arc<State>, stop: CancellationToken) {
             None => {}
             Some(Ok(batch)) => {
                 for envelope in batch.events() {
-                    notify(&state, envelope).await;
+                    let known = left.see(&envelope.event);
+                    notify(&state, envelope, known.as_ref()).await;
                 }
             }
             Some(Err(RecvError::Lagged(missed))) => {
@@ -317,11 +547,14 @@ async fn write_ready(state: &State) {
     }
 }
 
-async fn notify(state: &State, envelope: &EventEnvelope) {
+async fn notify(state: &State, envelope: &EventEnvelope, left: Option<&Left>) {
     let Some(conversation_id) = envelope.conversation_id else {
         return;
     };
-    if line(&envelope.event, None, None).is_none() {
+    let minutes = state.settings.borrow().shell.interactive_timeout_minutes;
+    let limit = Duration::from_secs(minutes.saturating_mul(60));
+    let shell = |title| shell_line(&envelope.event, title, left, envelope.at, limit);
+    if line(&envelope.event, None, None).is_none() && shell(None).is_none() {
         return;
     }
     let summary =
@@ -338,7 +571,8 @@ async fn notify(state: &State, envelope: &EventEnvelope) {
         return;
     };
     let wake = wake_turn(&state.readers, conversation_id, envelope).await;
-    let Some(text) = line(&envelope.event, summary.title.as_deref(), wake.as_ref()) else {
+    let title = summary.title.as_deref();
+    let Some(text) = line(&envelope.event, title, wake.as_ref()).or_else(|| shell(title)) else {
         return;
     };
     let notice = Notice { tty, conversation: conversation_id, seq: envelope.seq, text };
