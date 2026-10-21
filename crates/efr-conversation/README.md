@@ -634,8 +634,10 @@ The design:
    keys of other services by their prefix (`AKIA`, `xoxb-`, `xoxp-`, `glpat-`, `AIza`,
    `npm_`, `hf_`, `pypi-`), a JSON web token, and a long random word: 32 or more
    characters of base64 or url-safe base64 with upper and lower case letters and
-   digits, but not hex of the length of a git id or a sha256 sum and not a path. A key
-   of only lower case hex or base32 stays visible. A value that names another value
+   digits, but not hex of the length of a git id or a sha256 sum and not a path (a
+   part between two `/` of three or more lower case letters, such as `src`; the last
+   part, and the first one before the only `/`, never count, so a base64 key with a
+   `/` stays hidden). A key of only lower case hex or base32 stays visible. A value that names another value
    (`$TOKEN`) stays. The events keep only the prompt's text; a turn
    rebuilt from its events has no preamble.
 2. The list of earlier turns comes from the conversation's turns

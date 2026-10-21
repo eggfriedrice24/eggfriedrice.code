@@ -160,6 +160,18 @@ fn a_name_that_starts_like_a_key_stays(#[case] line: &str) {
     "echo wJalrXUtnFEMI/K7MDENG/bPxRfiCY0EXAMPLEKEY > k",
     "echo [redacted] > k"
 )]
+#[case::aws_secret_with_a_lower_case_end(
+    "echo wJalrXUtnFEMIK7MDENGbPxRfiCY0EX/abc > k",
+    "echo [redacted] > k"
+)]
+#[case::aws_secret_with_a_lower_case_start(
+    "echo xyz/wJalrXUtnFEMIK7MDENGbPxRfiCY0EXAMPLEKEY > k",
+    "echo [redacted] > k"
+)]
+#[case::aws_secret_with_a_slash_first(
+    "echo /wJalrXUtnFEMIK7MDENGbPxRfiCY0EXAMPLEKEY > k",
+    "echo /[redacted] > k"
+)]
 #[case::jwt(
     "curl -H 'X: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.u8jzPde0IgxLd6GncfBAepfJBd0' x",
     "curl -H 'X: [redacted]' x"

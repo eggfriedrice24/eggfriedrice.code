@@ -275,9 +275,12 @@ fn keys(line: &str) -> Vec<Range<usize>> {
 /// base64 or url-safe base64 characters (with the `=` of its padding) of at least
 /// [`RANDOM_MIN_CHARS`] characters, with upper and lower case letters and digits. Hex
 /// of the length of a git id or a sha256 sum stays, and so does a path: a word with a
-/// `/` that starts with it, or that has a part between two `/` of three or more lower
-/// case letters, such as `src`. A long kebab-case or snake_case name has no upper case
-/// letter, so it stays too.
+/// part between two `/` of three or more lower case letters, such as `a/src/B`, or with
+/// two or more `/` and such a first part, such as `src/A/B` or (once its first `/` is
+/// left out, as every `/` at the start of a word) `/home/u/A`. The last part never
+/// counts, and neither does a first part before the only `/`: a random key of base64
+/// has a `/` and a short run of lower case letters often enough. A long
+/// kebab-case or snake_case name has no upper case letter, so it stays too.
 fn random_words(line: &str) -> Vec<Range<usize>> {
     let mut found = Vec::new();
     let mut start = None;
@@ -287,6 +290,9 @@ fn random_words(line: &str) -> Vec<Range<usize>> {
             continue;
         }
         let Some(from) = start.take() else { continue };
+        // NOTE: the `/` at the start of a word, such as the `//` of a URL, is no part
+        // of a key; the rest of the word is judged alone.
+        let from = from + line[from..at].bytes().take_while(|byte| *byte == b'/').count();
         if looks_random(&line[from..at]) {
             let padding = line[at..].bytes().take_while(|byte| *byte == b'=').take(2).count();
             found.push(from..at + padding);
@@ -309,9 +315,16 @@ fn looks_random(word: &str) -> bool {
     if HEX_ID_LENGTHS.contains(&word.len()) && word.chars().all(|c| c.is_ascii_hexdigit()) {
         return false;
     }
-    let lower_part = |part: &str| part.len() >= 3 && part.chars().all(|c| c.is_ascii_lowercase());
-    let path = word.contains('/') && (word.starts_with('/') || word.split('/').any(lower_part));
-    !path
+    !looks_like_a_path(word)
+}
+
+/// True for a `word` of [`random_words`] that looks like a path (see there).
+fn looks_like_a_path(word: &str) -> bool {
+    let lower_part = |part: &&str| part.len() >= 3 && part.chars().all(|c| c.is_ascii_lowercase());
+    let parts: Vec<&str> = word.split('/').collect();
+    let Some((first, rest)) = parts.split_first() else { return false };
+    let inner = rest.split_last().map_or(&[][..], |(_, inner)| inner);
+    inner.iter().any(lower_part) || (!inner.is_empty() && lower_part(first))
 }
 
 /// The bytes of `line` that hold each JSON web token: a word that starts with `eyJ`
