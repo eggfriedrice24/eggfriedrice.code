@@ -101,19 +101,21 @@ pub(crate) fn run(
     };
     let ending = end_descendants(&mut System { start: os::now() });
     let records = call::exit_records(launch::join(records)?, call);
+    // A job changes no state of the hidden shell: no apply. A call that efrd moved into
+    // a job while it ran ends as a job does.
+    let keeps_state = job.is_none() && !call::moved(call);
     let mut result = SandboxResult {
         started: true,
         exit_code,
         signal,
         cwd: Some(pwd.clone()),
-        state_kept: records.is_some() && job.is_none(),
+        state_kept: records.is_some() && keeps_state,
         ..SandboxResult::default()
     };
     result.summary.confined = false;
     result.summary.background_stopped = ending.stopped;
     result.summary.survivors = ending.survivors;
-    // A job changes no state of the hidden shell: no apply.
-    if let Some(records) = records.as_ref().filter(|_| job.is_none()) {
+    if let Some(records) = records.as_ref().filter(|_| keeps_state) {
         let cd = match records.cwd.as_deref().map(|cwd| finish::exit_child_cwd(cwd, spec, &RealFs))
         {
             Some(FinalCwd::Host(path)) if path != pwd => Some(path),

@@ -1,11 +1,13 @@
 //! How the launcher reports an error of its own.
 
+use std::os::unix::fs::PermissionsExt;
+
 use pretty_assertions::assert_eq;
 
-use efr_sandbox::{LaunchTiming, SandboxResult};
+use efr_sandbox::{LaunchTiming, MOVED_FILE, SandboxResult};
 
-use super::{CallDir, STARTED_FILE, failure, setup_failure, stopped_before_run};
-use crate::testing::TestCall;
+use super::{CallDir, STARTED_FILE, failure, moved, setup_failure, stopped_before_run};
+use crate::testing::{TestCall, private_file};
 
 #[test]
 fn an_error_after_the_start_is_a_launch_error_not_a_setup_failure() {
@@ -41,4 +43,23 @@ fn a_setup_that_ctrl_c_broke_is_an_interrupt_not_a_setup_failure() {
         }
     );
     assert_eq!(stopped.status(), 130);
+}
+
+#[test]
+fn a_moved_file_that_cannot_be_checked_counts_as_moved() {
+    let call = TestCall::new();
+    let dir = CallDir::open(call.call_dir()).unwrap();
+    let moved_file = call.call_dir().join(MOVED_FILE);
+    assert!(!moved(&dir), "no file: the call keeps its shell state");
+    private_file(&moved_file, b"");
+    assert!(moved(&dir), "efrd's empty file");
+    // NOTE: the safe side is to lose one call's shell state, never to write an old
+    // state over the state of later calls.
+    private_file(&moved_file, b"x");
+    assert!(moved(&dir), "a file with a byte in it");
+    std::fs::set_permissions(&moved_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(moved(&dir), "a file that others may read");
+    std::fs::remove_file(&moved_file).unwrap();
+    std::os::unix::fs::symlink(call.project(), &moved_file).unwrap();
+    assert!(moved(&dir), "a link");
 }
