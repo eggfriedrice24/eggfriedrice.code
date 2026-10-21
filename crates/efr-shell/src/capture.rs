@@ -6,6 +6,9 @@ use std::collections::VecDeque;
 
 use bytes::Bytes;
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the adopted run of a job reads it next"))]
+mod stream;
+
 /// The raw output of one run, kept within `limit` bytes: the first half of the limit
 /// from the start of the output and the second half from its end. The full output
 /// stays in the recording.
@@ -196,7 +199,12 @@ pub(crate) fn clean(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn push_text(out: &mut Vec<u8>, line_start: usize, carriage_return: &mut bool, byte: u8) {
+pub(crate) fn push_text(
+    out: &mut Vec<u8>,
+    line_start: usize,
+    carriage_return: &mut bool,
+    byte: u8,
+) {
     if *carriage_return {
         out.truncate(line_start);
         *carriage_return = false;
@@ -207,40 +215,44 @@ fn push_text(out: &mut Vec<u8>, line_start: usize, carriage_return: &mut bool, b
 /// The index after the escape sequence that starts at `start` (an `ESC`), or the end
 /// of `bytes` when the sequence is not complete.
 pub(crate) fn skip_escape(bytes: &[u8], start: usize) -> usize {
-    let Some(&kind) = bytes.get(start + 1) else {
-        return bytes.len();
-    };
+    escape_end(bytes, start).unwrap_or(bytes.len())
+}
+
+/// The index after the escape sequence that starts at `start` (an `ESC`), or `None`
+/// when `bytes` end inside it.
+pub(crate) fn escape_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let kind = *bytes.get(start + 1)?;
     let body = start + 2;
     match kind {
         // CSI: parameters and intermediates, then one final byte.
         b'[' => bytes[body.min(bytes.len())..]
             .iter()
             .position(|b| (0x40..=0x7e).contains(b))
-            .map_or(bytes.len(), |end| body + end + 1),
+            .map(|end| body + end + 1),
         // OSC: up to BEL or ST.
         b']' => string_end(bytes, body, true),
         // DCS, SOS, PM, APC: up to ST.
         b'P' | b'X' | b'^' | b'_' => string_end(bytes, body, false),
         // Character set designations take one more byte.
         b'(' | b')' | b'*' | b'+' | b'-' | b'.' | b'/' | b'#' | b'%' => {
-            (start + 3).min(bytes.len())
+            (start + 3 <= bytes.len()).then_some(start + 3)
         }
-        _ => start + 2,
+        _ => Some(start + 2),
     }
 }
 
 /// The index after the terminator of a control string that starts at `body`: ST
-/// (`ESC \`), or BEL too when `bel` is true.
-fn string_end(bytes: &[u8], body: usize, bel: bool) -> usize {
+/// (`ESC \`), or BEL too when `bel` is true; `None` when `bytes` end before it.
+fn string_end(bytes: &[u8], body: usize, bel: bool) -> Option<usize> {
     let mut at = body;
     while at < bytes.len() {
         match bytes[at] {
-            0x07 if bel => return at + 1,
-            0x1b if bytes.get(at + 1) == Some(&b'\\') => return at + 2,
+            0x07 if bel => return Some(at + 1),
+            0x1b if bytes.get(at + 1) == Some(&b'\\') => return Some(at + 2),
             _ => at += 1,
         }
     }
-    bytes.len()
+    None
 }
 
 #[cfg(test)]
