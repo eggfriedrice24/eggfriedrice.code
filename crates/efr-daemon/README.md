@@ -414,12 +414,16 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   terminal's slot of its own key, not of the user's directory, so a project
   conversation keeps its project; the result says whether a prompt from the user's
   directory continues it. efrd claims the slot (`Conversations::take` for `take`),
-  starts the hidden shell when none runs, in its last directory (the newest shell's
-  directory in the shells projection, else the last prompt's, else the user's; the
-  first that exists), then records `terminal_attached` (`how: resumed`) with the
-  receipt in one batch and completes the claim. The slot is then the terminal's
-  current one, and every other slot that held the conversation lets it go; that
-  terminal's next prompt says where it went. A job keeps running, and its notices go
+  chooses the directory of the hidden shell (the one of the shell that runs, else its
+  last directory: the newest shell's directory in the shells projection, else the
+  last prompt's, else the user's; the first that exists), records `terminal_attached`
+  (`how: resumed`) with the receipt in one batch, completes the claim, and only then
+  starts the shell when none runs, so a resume that fails starts nothing. The slot is
+  then the terminal's current one, and every other slot that held the conversation
+  lets it go; that terminal's next prompt says where it went. A pick-up starts the
+  hidden shell in the same directory, but before its prompt is recorded, so the turn
+  finds the shell and moves it to the user's directory by its own rule; when the
+  prompt fails, the shell ends. A job keeps running, and its notices go
   to the new terminal, because they follow the projection's `tty`. A `held` answer
   keeps no receipt, so the client asks and sends a new command with `take`.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water

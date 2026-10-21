@@ -17,12 +17,16 @@
 //! act on the conversation at once, and its job notices go to this terminal. Resuming
 //! the conversation that the slot holds already only makes the slot current.
 //!
-//! When the conversation has no hidden shell that runs, efrd starts one at once
+//! When the conversation has no hidden shell that runs, efrd starts one
 //! (`ShellSessions::open`, as a job's environment does) in its last directory: the
 //! directory of its newest shell (its `shell_started` or newest `cwd_changed`, from
 //! the shells projection) when it still exists, else the working directory of its last
-//! prompt, else the user's. The next turn moves the shell to the user's directory only
-//! when that differs from the last turn's, as always.
+//! prompt, else the user's. It starts the shell only after the event is recorded, so a
+//! resume that fails starts nothing; the answer names the directory that it chose. A
+//! pick-up (`prompt_send.rs`) starts the shell in the same directory, before its prompt
+//! is recorded so that the turn finds it, and ends it when the prompt fails. The next
+//! turn moves the shell to the user's directory only when that differs from the last
+//! turn's, as always.
 //!
 //! A retried command id answers from its receipt. A `held` answer keeps no receipt:
 //! the client asks the user and sends a new command with `take`.
@@ -113,18 +117,21 @@ async fn resume(
             _ => Err(DaemonError::ResumeRaced),
         };
     }
-    let shell_dir = start_shell(state, conversation_id, summary.cwd.as_deref(), &shell.pwd).await;
-    let result = ConversationResumeResult::Resumed {
-        conversation_id,
-        scope,
-        title: summary.title.clone(),
-        updated_at: summary.updated_at,
-        shell_dir,
-        here,
-        continues_here,
+    let planned = shell_dir(state, conversation_id, summary.cwd.as_deref(), &shell.pwd).await;
+    let answer = |shell_dir: Option<PathBuf>| {
+        let result = ConversationResumeResult::Resumed {
+            conversation_id,
+            scope: scope.clone(),
+            title: summary.title.clone(),
+            updated_at: summary.updated_at,
+            shell_dir,
+            here,
+            continues_here,
+        };
+        serde_json::to_value(&result)
+            .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })
     };
-    let value = serde_json::to_value(&result)
-        .map_err(|source| DaemonError::EncodeResult { method: METHOD, source })?;
+    let value = answer(planned.clone())?;
     let attached = Event::TerminalAttached {
         tty: tty.clone(),
         route: route.clone(),
@@ -143,10 +150,16 @@ async fn resume(
                 &route,
                 conversation_id,
                 committed.last_seq(),
-                summary.title,
+                summary.title.clone(),
             );
             tracing::info!(tty, conversation_id = %conversation_id, take, "a terminal resumed a conversation");
-            Ok(value)
+            let started = match &planned {
+                Some(dir) => start_shell(state, conversation_id, dir).await,
+                None => None,
+            };
+            // NOTE: the receipt keeps the chosen directory; this answer says where the
+            // shell is when it did not start there.
+            if started == planned { Ok(value) } else { answer(started) }
         }
         Err(StoreError::DuplicateCommand { receipt }) => {
             release(state, &tty, &route, before);
@@ -172,15 +185,19 @@ fn release(state: &State, tty: &str, route: &RouteScope, before: Option<Slot>) {
     state.conversations.release_claim(tty, route, before);
 }
 
-/// Starts the conversation's hidden shell when none runs, in its last directory that
-/// still exists: the newest shell's, else `prompt_dir` (the last prompt's), else
-/// `pwd`. The directory of the shell, or `None` when it could not start.
-async fn start_shell(
+/// The directory of the conversation's hidden shell: the one of the shell that runs,
+/// else its last directory that still exists, where [`start_shell`] starts one: the
+/// newest shell's, else `prompt_dir` (the last prompt's), else `pwd`. `None` when none
+/// exists. It starts nothing.
+pub(crate) async fn shell_dir(
     state: &State,
     conversation_id: ConversationId,
     prompt_dir: Option<&Path>,
     pwd: &Path,
 ) -> Option<PathBuf> {
+    if let Ok(shell) = state.shells.state(conversation_id).await {
+        return Some(shell.cwd);
+    }
     let shells = state
         .readers
         .with(move |conn| efr_store::shells::for_conversation(conn, conversation_id))
@@ -197,12 +214,21 @@ async fn start_shell(
         .chain(prompt_dir.map(Path::to_path_buf))
         .chain([pwd.to_path_buf()])
         .collect();
-    let dir = tokio::task::spawn_blocking(move || candidates.into_iter().find(|dir| dir.is_dir()))
+    tokio::task::spawn_blocking(move || candidates.into_iter().find(|dir| dir.is_dir()))
         .await
         .ok()
-        .flatten()?;
-    match state.shells.open(conversation_id, &dir).await {
-        Ok(info) if info.spawned => Some(dir),
+        .flatten()
+}
+
+/// Starts the conversation's hidden shell in `dir` when none runs (DV5). The directory
+/// of the shell, or `None` when it could not start.
+async fn start_shell(
+    state: &State,
+    conversation_id: ConversationId,
+    dir: &Path,
+) -> Option<PathBuf> {
+    match state.shells.open(conversation_id, dir).await {
+        Ok(info) if info.spawned => Some(dir.to_path_buf()),
         Ok(_) => state.shells.state(conversation_id).await.ok().map(|shell| shell.cwd),
         Err(error) => {
             tracing::info!(%conversation_id, %error, "the hidden shell of a resumed conversation did not start");

@@ -56,6 +56,7 @@ use efr_transport::{ConnectionContext, Responder};
 use serde_json::Value;
 
 use crate::conversations::{self, Slot};
+use crate::methods::conversation_resume;
 use crate::routing::{self, Before, Candidate, Outcome, Verdict};
 use crate::state::State;
 use crate::{DaemonError, receipts};
@@ -94,6 +95,9 @@ struct Routing {
     claim: Option<Option<Slot>>,
     /// The title of the conversation that the prompt continues or picks up.
     title: Option<String>,
+    /// The working directory of the last prompt of a conversation that the prompt picks
+    /// up, where its hidden shell starts when it has no newer one (DV5).
+    last_dir: Option<PathBuf>,
     switch: Option<efr_protocol::Switch>,
     /// The git work tree outside projects that the prompt's line names (DV53).
     hint: Option<RepoHint>,
@@ -184,8 +188,9 @@ async fn send_routed(
     routing: Routing,
     context_tty: &Option<String>,
 ) -> Result<PromptSendResult, ConversationError> {
-    let Routing { tty, key, label, target, claim, title, switch, hint } = routing;
+    let Routing { tty, key, label, target, claim, title, last_dir, switch, hint } = routing;
     let shell_pid = params.context.as_ref().and_then(|context| context.shell_pid);
+    let pwd = params.context.as_ref().map(|context| context.pwd.clone());
     // NOTE: the input marks the conversation that routing picked, before the prompt
     // (so its turn never reads the idle state that the input ends) and after it; the
     // terminal's current conversation may be another scope's, which the prompt does
@@ -196,6 +201,13 @@ async fn send_routed(
     let sent = match (target, claim) {
         (Some(conversation_id), Some(before)) => {
             keep_desktop(state, conversation_id, &params);
+            // NOTE: the shell starts before the prompt is recorded, so the turn finds
+            // it and moves it to the user's directory by its own rule; a shell that
+            // started later would stay in the last directory (DV5).
+            let spawned = match &pwd {
+                Some(pwd) => start_picked_up_shell(state, conversation_id, last_dir, pwd).await,
+                None => false,
+            };
             let attached = Event::TerminalAttached {
                 tty: tty.clone(),
                 route: key.clone(),
@@ -211,8 +223,14 @@ async fn send_routed(
                     state.conversations.attached(&tty, &key, conversation_id, routed_seq, title);
                     tracing::info!(tty, conversation_id = %conversation_id, "a new terminal picked up the project's conversation");
                 }
-                // NOTE: nothing was recorded, so the slot gets back what it held (S-18).
-                Err(_) => state.conversations.release_claim(&tty, &key, before),
+                // NOTE: nothing was recorded, so the slot gets back what it held (S-18),
+                // and a shell that the pick-up started ends.
+                Err(_) => {
+                    state.conversations.release_claim(&tty, &key, before);
+                    if spawned && let Err(error) = state.shells.close(conversation_id).await {
+                        tracing::info!(%conversation_id, %error, "the hidden shell of a failed pick-up did not end");
+                    }
+                }
             }
             sent
         }
@@ -258,6 +276,27 @@ async fn send_routed(
         }
     }
     sent
+}
+
+/// Starts the hidden shell of the conversation that a prompt from `pwd` picks up, in its
+/// last directory (`last_dir` is its last prompt's), as a resume does (DV5). True when
+/// a new shell started.
+async fn start_picked_up_shell(
+    state: &State,
+    conversation_id: ConversationId,
+    last_dir: Option<PathBuf>,
+    pwd: &std::path::Path,
+) -> bool {
+    let dir =
+        conversation_resume::shell_dir(state, conversation_id, last_dir.as_deref(), pwd).await;
+    let Some(dir) = dir else { return false };
+    match state.shells.open(conversation_id, &dir).await {
+        Ok(info) => info.spawned,
+        Err(error) => {
+            tracing::info!(%conversation_id, %error, "the hidden shell of a picked-up conversation did not start");
+            false
+        }
+    }
 }
 
 /// Records that the hint for the git work tree at `root` was shown now, in efrd and in
@@ -355,6 +394,7 @@ async fn route(
         target: None,
         claim: None,
         title: None,
+        last_dir: None,
         switch: routing::switch(before.as_ref(), outcome),
         hint: hint.clone(),
     };
@@ -397,6 +437,7 @@ async fn route(
             target: Some(conversation_id),
             claim: Some(slot),
             title: summary.title,
+            last_dir: summary.cwd,
             switch: routing::switch(before.as_ref(), outcome),
             ..new(Outcome::Fresh)
         });

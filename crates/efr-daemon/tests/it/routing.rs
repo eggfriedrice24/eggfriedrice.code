@@ -126,6 +126,21 @@ impl Place {
         sent
     }
 
+    /// Sends `params` that pick up a conversation whose hidden shell starts in another
+    /// directory than the prompt's: the shell ends at once (the fake shell never shows
+    /// a prompt, so the turn could not move it), then the turn ends.
+    pub(crate) async fn picked_up(&self, params: PromptSend) -> PromptSendResult {
+        let tty = params.context.as_ref().and_then(|context| context.tty.clone()).unwrap();
+        let client = self.daemon.client_for_tty(&tty).await.unwrap();
+        let sent: PromptSendResult = client.call(Method::PromptSend(params)).await.unwrap();
+        let holder = self.daemon.holder().unwrap();
+        let index = holder.specs().len() - 1;
+        let terminal = holder.terminal(index).await.unwrap();
+        assert!(holder.end(terminal.pty_id(), efr_daemon::ChildStatus::Exited { code: 0 }));
+        self.wait(&sent).await;
+        sent
+    }
+
     /// [`Place::send`] of a plain prompt.
     pub(crate) async fn at(&self, n: u128, pwd: &Path, tty: &str, pid: u32) -> PromptSendResult {
         self.send(Place::prompt(n, pwd, tty, pid)).await
@@ -299,7 +314,7 @@ async fn a_closed_split_is_picked_up_by_a_new_one() {
     place.procs.kill(100);
     place.procs.peer_on_tty("pts-2");
 
-    let two = place.at(2, &place.app.join("src"), "pts-2", 200).await;
+    let two = place.picked_up(Place::prompt(2, &place.app.join("src"), "pts-2", 200)).await;
 
     assert_eq!(two.conversation_id, one.conversation_id);
     assert!(
@@ -316,6 +331,24 @@ async fn a_closed_split_is_picked_up_by_a_new_one() {
     );
     assert_eq!(place.held_by("pts-1").await, Vec::<ConversationId>::new());
     assert_eq!(place.held_by("pts-2").await, [one.conversation_id]);
+    place.stop().await;
+}
+
+#[tokio::test]
+async fn a_pick_up_starts_the_hidden_shell_in_its_last_directory() {
+    let place = Place::start().await;
+    let src = place.app.join("src");
+    let one = place.at(1, &src, "pts-1", 100).await;
+    place.procs.kill(100);
+    place.procs.peer_on_tty("pts-2");
+    assert!(place.daemon.holder().unwrap().specs().is_empty(), "the turns ran no command");
+
+    let two = place.picked_up(Place::prompt(2, &place.app, "pts-2", 200)).await;
+
+    assert_eq!(two.conversation_id, one.conversation_id);
+    let specs = place.daemon.holder().unwrap().specs();
+    assert_eq!(specs.len(), 1);
+    assert_eq!(specs[0].cwd, src, "the directory of its last prompt, not the new one");
     place.stop().await;
 }
 
@@ -452,9 +485,19 @@ async fn failed_send_undoes_the_claim_and_records_no_attach() {
     assert_eq!(body.code, ErrorCode::Invalid);
     assert_eq!(place.attaches(one.conversation_id).await, Vec::<Event>::new());
     assert_eq!(place.held_by("pts-2").await, Vec::<ConversationId>::new());
+    // The shell that the pick-up started ended with it.
+    let holder = place.daemon.holder().unwrap();
+    assert_eq!(holder.specs().len(), 1);
+    let first = holder.terminal(0).await.unwrap().pty_id();
+    assert!(
+        holder.signals().iter().any(|(pty_id, signal, _)| {
+            *pty_id == first && *signal == efr_daemon::Signal::Hangup
+        })
+    );
     // The slot was given back: the next prompt picks the conversation up.
     let two = place.at(3, &place.app, "pts-2", 200).await;
     assert_eq!(two.conversation_id, one.conversation_id);
+    assert_eq!(holder.specs().len(), 2, "a new shell for the pick-up");
     place.stop().await;
 }
 

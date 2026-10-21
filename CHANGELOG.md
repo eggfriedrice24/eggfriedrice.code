@@ -354,7 +354,8 @@ into the GitHub release notes, and it stops when the section is missing.
   command with the words.
 - A new terminal in a registered project picks up the project's newest conversation
   when no open terminal holds it and it was active within
-  `conversation.tty_idle_hours`. The reply then starts with one dim line, such as
+  `conversation.tty_idle_hours`. Its hidden shell starts in its last directory, as
+  with `,resume`. The reply then starts with one dim line, such as
   `↪ picked up "fix the proxy test" in app (25 min ago); ,new starts fresh`. A
   conversation is never open in two terminals: a terminal whose shell still runs, or
   that follows the conversation, holds it. A phone never holds one. A conversation
