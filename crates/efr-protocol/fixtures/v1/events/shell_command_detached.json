@@ -1,0 +1,11 @@
+{
+  "kind": "shell_command_detached",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "command": "rsync -a -e ssh me@build:.cache/out ./out",
+  "since": "2026-10-03T10:00:01Z",
+  "contained": false,
+  "input": "hidden",
+  "looks_secret": true,
+  "prompt": "me@build's password: ",
+  "approved_by": "you"
+}

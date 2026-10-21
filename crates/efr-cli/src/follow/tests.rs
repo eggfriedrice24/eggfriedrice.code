@@ -637,6 +637,7 @@ fn shell_completed(exit_code: i32) -> Event {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     }
 }
 
@@ -1085,6 +1086,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
                         refusal: None,
                         changes: None,
                         diff: None,
+                        left_running: false,
                     },
                 ),
                 envelope(6, output(sudo, "[sudo] password for egg: ")),
@@ -1112,6 +1114,7 @@ async fn a_queued_prompt_asks_for_the_password_the_running_turn_waits_for() {
             refusal: None,
             changes: None,
             diff: None,
+            left_running: false,
         };
         conn.item(sub, &item(12, completed)).await;
         presser.stopped().await;

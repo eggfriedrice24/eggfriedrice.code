@@ -6,11 +6,11 @@ use serde::Deserialize as _;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    AlwaysSaved, ApprovalDecision, BlockReason, Blocked, BusKind, BusRefusal, CallId, CommandId,
-    Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope,
-    HeldReason, InputWait, JobId, JobState, Mode, NotSavedReason, NoticeKind, Origin,
-    OverriddenSettings, PromptSend, PtyId, RecentCommand, Scope, Seq, ShellContext, SnapshotPhase,
-    StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
+    AlwaysSaved, ApprovalDecision, ApprovedBy, BlockReason, Blocked, BusKind, BusRefusal, CallId,
+    CommandId, Compaction, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
+    EventEnvelope, HeldReason, InputWait, JobId, JobState, Mode, NotSavedReason, NoticeKind,
+    Origin, OverriddenSettings, PromptSend, PtyId, RecentCommand, Scope, Seq, ShellCommandEnd,
+    ShellContext, SnapshotPhase, StopReason, TurnId, TurnSettings, TurnStop, UndoId, Usage,
 };
 
 const TURN: &str = "01928c4e-7a3b-7c1d-8e2f-000000000001";
@@ -832,4 +832,84 @@ fn job_ended_without_bus_refusals_reads_as_before() {
         }]
     );
     assert_eq!(serde_json::to_value(&read).unwrap(), with, "a count of 1 stays off the wire");
+}
+
+#[test]
+fn a_tool_call_from_before_left_running_reads_as_one_that_ended() {
+    let old = json!({
+        "kind": "tool_call_completed",
+        "turn_id": TURN,
+        "call_id": CALL,
+        "output": "ok\n",
+        "truncated": false,
+        "is_error": false,
+    });
+    let event: Event = serde_json::from_value(old.clone()).unwrap();
+    let Event::ToolCallCompleted { left_running, .. } = &event else {
+        panic!("not a tool_call_completed event: {event:?}");
+    };
+    assert!(!left_running);
+    assert_eq!(serde_json::to_value(&event).unwrap(), old, "false stays off the wire");
+    let mut with = old;
+    with["left_running"] = json!(true);
+    let read: Event = serde_json::from_value(with.clone()).unwrap();
+    assert!(matches!(read, Event::ToolCallCompleted { left_running: true, .. }));
+    assert_eq!(serde_json::to_value(&read).unwrap(), with);
+}
+
+#[test]
+fn a_command_left_in_the_hidden_shell_belongs_to_no_turn() {
+    let call = CallId::from_str(CALL).unwrap();
+    let detached = Event::ShellCommandDetached {
+        call_id: call,
+        command: "git pull".to_owned(),
+        since: Timestamp::from_str("2026-10-21T10:00:00Z").unwrap(),
+        contained: true,
+        input: InputWait::None,
+        looks_secret: false,
+        prompt: String::new(),
+        approved_by: None,
+    };
+    let changed = Event::ShellCommandInputChanged {
+        call_id: call,
+        input: InputWait::Visible,
+        contained: true,
+        looks_secret: false,
+        prompt: "Continue? [Y/n]".to_owned(),
+    };
+    let ended =
+        Event::ShellCommandEnded { call_id: call, exit_code: None, how: ShellCommandEnd::Ended };
+    for event in [&detached, &changed, &ended] {
+        assert_eq!(event.turn_id(), None, "{event:?}");
+    }
+    // Empty members stay off the wire.
+    assert_eq!(
+        serde_json::to_value(&detached).unwrap(),
+        json!({
+            "kind": "shell_command_detached", "call_id": CALL, "command": "git pull",
+            "since": "2026-10-21T10:00:00Z", "contained": true, "input": "none"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(&ended).unwrap(),
+        json!({ "kind": "shell_command_ended", "call_id": CALL, "how": "ended" })
+    );
+    let wire = serde_json::to_value(&changed).unwrap();
+    assert_eq!(serde_json::from_value::<Event>(wire).unwrap(), changed);
+}
+
+#[test]
+fn a_later_end_or_approver_reads_as_unknown() {
+    let ended: Event = serde_json::from_value(json!({
+        "kind": "shell_command_ended", "call_id": CALL, "how": "suspended"
+    }))
+    .unwrap();
+    assert!(matches!(ended, Event::ShellCommandEnded { how: ShellCommandEnd::Unknown, .. }));
+    let by: ApprovedBy = serde_json::from_value(json!("a_peer")).unwrap();
+    assert_eq!(by, ApprovedBy::Unknown);
+    assert!(ApprovedBy::You.by_person());
+    assert!(ApprovedBy::YourRule.by_person());
+    for other in [ApprovedBy::Reviewer, ApprovedBy::FullMode, ApprovedBy::Unknown] {
+        assert!(!other.by_person(), "{other:?}");
+    }
 }

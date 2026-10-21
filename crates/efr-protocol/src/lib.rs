@@ -54,8 +54,8 @@ pub use changes::{
 pub use compaction::{Compaction, CompactionTrigger, ContextUse};
 pub use error::{ErrorBody, ErrorCode, ErrorFrame, ProtocolError};
 pub use event::{
-    AlwaysSaved, ApprovalDecision, Event, EventEnvelope, InputWait, NotSavedReason, StopReason,
-    TurnStop, Usage,
+    AlwaysSaved, ApprovalDecision, ApprovedBy, Event, EventEnvelope, InputWait, NotSavedReason,
+    ShellCommandEnd, StopReason, TurnStop, Usage,
 };
 pub use frame::{ClientFrame, ServerFrame};
 pub use ids::{

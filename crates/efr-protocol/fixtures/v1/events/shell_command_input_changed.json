@@ -1,0 +1,8 @@
+{
+  "kind": "shell_command_input_changed",
+  "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+  "input": "visible",
+  "contained": true,
+  "looks_secret": true,
+  "prompt": "Continue? [Y/n] "
+}

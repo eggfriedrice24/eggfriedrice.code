@@ -578,3 +578,22 @@ No protocol version has shipped yet.
   show the ports that efr forwards for a job. New fixtures
   `events/job_port_forwarded.json` and `forward_outcomes.json`;
   `jobs_list_result.json` and `jobs_stop_result.json` now set `forwards`.
+- Version 1, additive: a command left running in the hidden shell. Three new event
+  kinds of the conversation, not of a turn: `shell_command_detached` (`call_id`,
+  `command`, the first 200 characters of the line, `since`, `contained`, `input`, and
+  `looks_secret`, `prompt` and `approved_by`, each absent when not set): the command
+  of a `shell` call still runs after its call answered the model, and the shell takes
+  no other call until it ends; `shell_command_input_changed` (`call_id`, `input`,
+  `contained`, and `looks_secret` and `prompt`, each absent when not set): that
+  command began or stopped waiting for input; `shell_command_ended` (`call_id`, `how`,
+  and `exit_code`, absent when not known). `prompt` is the row of the screen that
+  holds the cursor, at most 200 characters. The new wire enum `how` is `ended`,
+  `stopped`, `limit`, `closed`, `shell_exited` or `moved`, and the new wire enum
+  `approved_by` is `you`, `your_rule`, `reviewer` or `full_mode`; a value that a
+  reader does not know reads as `unknown`. `tool_call_completed` gains `left_running`
+  (false when absent): true when the call answered while its command still runs. The
+  detach event and `tool_call_completed` come in either order; a client links them by
+  `call_id`. New fixtures `events/shell_command_detached.json`,
+  `events/shell_command_input_changed.json`, `events/shell_command_ended.json`,
+  `shell_command_ends.json` and `approved_bys.json`;
+  `events/tool_call_completed.json` now sets `left_running`.

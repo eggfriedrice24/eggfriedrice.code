@@ -11,10 +11,10 @@ use super::{
     route_scope_samples, switch_samples, undo_refused_samples, withdraw_target_samples,
 };
 use crate::{
-    AlwaysSaved, ApprovalDecision, AttachHow, BlockReason, BusProxyOff, DraftPart, Event, ExitKind,
-    FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource, NewReason,
-    NotSavedReason, RootSource, RouteScope, Switch, UndoAction, UndoReason, UndoRefused,
-    WithdrawTarget,
+    AlwaysSaved, ApprovalDecision, ApprovedBy, AttachHow, BlockReason, BusProxyOff, DraftPart,
+    Event, ExitKind, FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource,
+    NewReason, NotSavedReason, RootSource, RouteScope, ShellCommandEnd, Switch, UndoAction,
+    UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -139,10 +139,13 @@ fn event_index(event: &Event) -> usize {
         Event::AlwaysRuleSaved { .. } => 49,
         Event::TerminalAttached { .. } => 50,
         Event::JobPortForwarded { .. } => 51,
+        Event::ShellCommandDetached { .. } => 52,
+        Event::ShellCommandInputChanged { .. } => 53,
+        Event::ShellCommandEnded { .. } => 54,
     }
 }
 
-const EVENT_COUNT: usize = 52;
+const EVENT_COUNT: usize = 55;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {
@@ -460,6 +463,35 @@ fn bus_proxy_off_index(reason: BusProxyOff) -> usize {
 
 const BUS_PROXY_OFF_COUNT: usize = 5;
 
+/// The position of a way a command left in the hidden shell ended, for the same purpose
+/// as `method_index`.
+fn shell_command_end_index(how: ShellCommandEnd) -> usize {
+    match how {
+        ShellCommandEnd::Ended => 0,
+        ShellCommandEnd::Stopped => 1,
+        ShellCommandEnd::Limit => 2,
+        ShellCommandEnd::Closed => 3,
+        ShellCommandEnd::ShellExited => 4,
+        ShellCommandEnd::Moved => 5,
+        ShellCommandEnd::Unknown => 6,
+    }
+}
+
+const SHELL_COMMAND_END_COUNT: usize = 7;
+
+/// The position of an approver in the enum, for the same purpose as `method_index`.
+fn approved_by_index(by: ApprovedBy) -> usize {
+    match by {
+        ApprovedBy::You => 0,
+        ApprovedBy::YourRule => 1,
+        ApprovedBy::Reviewer => 2,
+        ApprovedBy::FullMode => 3,
+        ApprovedBy::Unknown => 4,
+    }
+}
+
+const APPROVED_BY_COUNT: usize = 5;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -639,6 +671,20 @@ fn every_route_scope_switch_and_attach_way_has_a_sample() {
 fn every_bus_proxy_off_reason_has_a_sample() {
     let covered: Vec<usize> = BusProxyOff::ALL.into_iter().map(bus_proxy_off_index).collect();
     assert_eq!(covered, (0..BUS_PROXY_OFF_COUNT).collect::<Vec<_>>());
+}
+
+#[test]
+fn every_shell_command_end_and_approver_has_a_sample() {
+    let ends: Vec<usize> = ShellCommandEnd::ALL.into_iter().map(shell_command_end_index).collect();
+    assert_eq!(ends, (0..SHELL_COMMAND_END_COUNT).collect::<Vec<_>>());
+    for how in ShellCommandEnd::ALL {
+        assert_eq!(serde_json::to_value(how).unwrap(), how.as_str());
+    }
+    let approvers: Vec<usize> = ApprovedBy::ALL.into_iter().map(approved_by_index).collect();
+    assert_eq!(approvers, (0..APPROVED_BY_COUNT).collect::<Vec<_>>());
+    for by in ApprovedBy::ALL {
+        assert_eq!(serde_json::to_value(by).unwrap(), by.as_str());
+    }
 }
 
 #[test]

@@ -208,6 +208,7 @@ fn a_background_call_says_so_and_its_block_names_the_job() {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     };
     let (_, err, _) = feed(&mut view, &[started, job_started, completed], true);
     assert_eq!(

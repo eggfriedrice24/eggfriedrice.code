@@ -529,6 +529,7 @@ async fn an_allowed_tool_call_runs_and_its_result_goes_back_to_the_model() {
             refusal: None,
             changes: None,
             diff: None,
+            left_running: false,
         }
     );
     h.finish();
@@ -991,6 +992,7 @@ async fn an_interrupt_while_a_tool_runs_stops_it_through_the_toolbox() {
             refusal: None,
             changes: None,
             diff: None,
+            left_running: false,
         }
     );
     h.finish();
@@ -1742,6 +1744,7 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
                 refusal: None,
                 changes: None,
                 diff: None,
+                left_running: false,
             },
         ]
     );

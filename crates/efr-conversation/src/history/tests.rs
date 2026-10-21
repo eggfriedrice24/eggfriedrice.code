@@ -65,6 +65,7 @@ fn finished(turn_id: TurnId, call_id: CallId, output: &str) -> Event {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     }
 }
 

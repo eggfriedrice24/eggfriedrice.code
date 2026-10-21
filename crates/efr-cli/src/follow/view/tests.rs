@@ -169,6 +169,7 @@ fn notes_sit_between_messages_and_dim() {
                 refusal: None,
                 changes: None,
                 diff: None,
+                left_running: false,
             },
             completed(1, "It exited with 3."),
         ],
@@ -213,6 +214,7 @@ fn refused_call_completed() -> Event {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     }
 }
 
@@ -273,6 +275,7 @@ fn a_call_that_efr_refused_says_why() {
         refusal: Some("efr's config (floor)".to_owned()),
         changes: None,
         diff: None,
+        left_running: false,
     };
     let contained = Event::ToolCallStarted {
         turn_id: turn(),
@@ -616,6 +619,7 @@ fn call_completed(exit_code: i32) -> Event {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     }
 }
 
@@ -1419,6 +1423,7 @@ fn contained_completed(exit_code: i32, sandbox: Option<SandboxSummary>) -> Event
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     }
 }
 
@@ -1624,6 +1629,7 @@ fn job_only_turn(summary: Option<SandboxSummary>) -> Vec<Event> {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     };
     vec![started_in(Scope::Machine, None), started, job_started, completed, turn_completed()]
 }
@@ -2339,6 +2345,7 @@ fn drafts_show_thinking_and_preparing_until_the_call_starts_and_completes() {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     };
     view.envelope(&sent(13, 50, done), SIZE, false);
     assert!(view.frame(SIZE, at(50)).contains("waiting for the model"));

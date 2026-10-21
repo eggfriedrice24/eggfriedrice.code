@@ -87,6 +87,7 @@ pub(crate) fn plan(
                 refusal: None,
                 changes: None,
                 diff: None,
+                left_running: false,
             });
         }
         settled.push(Event::TurnCancelled { turn_id: turn.id });
