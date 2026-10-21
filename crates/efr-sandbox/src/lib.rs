@@ -52,13 +52,13 @@ pub use export_filter::{
 };
 pub use forward::{
     BRIDGE_PORT, Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen,
-    MAX_DAEMON_FORWARDS, MAX_FORWARD_CONNECTIONS, MAX_JOB_FORWARDS, MAX_REPORTED_PORTS, MIN_PORT,
-    PortRefusal, SERVICE_PORTS, TCP_LISTEN, TCP_TIME_WAIT, TcpRow, loopback_listens,
-    parse_tcp_table, peer_uid, refusal, v6_holds,
+    MAX_DAEMON_FORWARDS, MAX_FORWARD_CONNECTIONS, MAX_JOB_FORWARDS, MAX_REACH_CONNECTIONS,
+    MAX_REPORTED_PORTS, MIN_PORT, PortRefusal, REACH_VERSION, SERVICE_PORTS, TCP_LISTEN,
+    TCP_TIME_WAIT, TcpRow, loopback_listens, parse_tcp_table, peer_uid, refusal, v6_holds,
 };
 pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
-pub use inner::{InnerForward, InnerPolicy, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
+pub use inner::{InnerForward, InnerPolicy, InnerReach, LayersSync, MAX_POLICY_BYTES, RECORDS_FD};
 pub use landlock::{
     BUS_PROXY_FILES, BUS_PROXY_READS, ERRATUM_DISCONNECTED_DIRS, FsAccess, LandlockPolicy,
     LandlockRule, LandlockScope, MIN_LANDLOCK_ABI,
@@ -101,8 +101,9 @@ pub use seccomp::{
 pub use spec::{
     BUS_FILTER_DIR, CacheOverlay, DesktopSocket, EnvPlan, FORWARD_SOCKET_FILE, Floor, FloorKind,
     ForwardPlan, JOB_BACKSTOP_SECS, JOB_DIR, JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan,
-    MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan, PROXY_SOCKET_FILE, RecordLimits, RuntimePaths,
-    SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, bus_filter_file, layer_name,
+    MAX_REACH_PORTS, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan, PROXY_SOCKET_FILE,
+    REACH_SOCKET_FILE, ReachPlan, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec,
+    SpecLaunch, WriteRoot, WriteRootKind, bus_filter_file, check_reach, layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

@@ -1722,6 +1722,101 @@ fn forward_job_refuses_a_socket_that_is_missing_or_not_a_socket() {
     assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ForwardSocket { .. })));
 }
 
+/// A contained call that reaches the ports 8765 and 5173, with a proxy plan of the
+/// call's own socket when `proxy` is set, and the world with its sockets.
+fn reach_call(proxy: bool) -> (SandboxSpec, FakeFs) {
+    let mut fs = world();
+    let mut spec = spec();
+    if proxy {
+        let socket = spec.runtime.proxy_socket();
+        fs.socket(&socket.to_string_lossy());
+        spec.network = NetworkPlan::Proxy { socket };
+    }
+    let socket = spec.runtime.reach_socket();
+    fs.socket(&socket.to_string_lossy());
+    spec.reach = Some(crate::ReachPlan::new(socket, vec![8765, 5173], proxy));
+    (spec, fs)
+}
+
+#[test]
+fn reach_socket_is_read_only_with_no_child_rule() {
+    for proxy in [false, true] {
+        let (spec, fs) = reach_call(proxy);
+        let plan = plan(&spec, &fs);
+        let inside = PathBuf::from("/run/user/1000/efr-reach.sock");
+        assert_eq!(plan.reach_socket(), Some(inside.as_path()));
+        let binds: Vec<_> =
+            plan.mounts().iter().filter(|mount| mount.op.target() == inside.as_path()).collect();
+        assert_eq!(binds.len(), 1, "{binds:?}");
+        assert_eq!(
+            binds[0].op,
+            MountOp::Bind {
+                source: spec.runtime.reach_socket(),
+                target: inside.clone(),
+                writable: false
+            }
+        );
+        assert_eq!(binds[0].origin, MountOrigin::Asset);
+        assert!(plan.unshares_network());
+        // The child gets no rule for the socket and keeps its TCP rights.
+        let policy = plan.landlock();
+        assert!(!policy.deny_tcp && !policy.deny_tcp_bind && !policy.deny_tcp_connect);
+        for rule in policy.rules() {
+            assert!(!rule.access.contains(&crate::FsAccess::ResolveUnix), "{rule:?}");
+            assert_ne!(rule.path, inside, "{rule:?}");
+        }
+        assert_eq!(profile(&plan), SeccompProfile::phase1());
+        // The inner stage gets the reach helper's plan with the socket inside.
+        let reach = InnerPolicy::new(&plan, 3, None).reach.unwrap();
+        assert_eq!(reach.socket, inside);
+        assert_eq!(reach.ports, vec![8765, 5173]);
+        assert_eq!(reach.proxy, proxy);
+        assert_eq!(plan.proxy_socket().is_some(), proxy);
+        // The policy reads back with the reach.
+        let policy = InnerPolicy::new(&plan, 3, None);
+        assert_eq!(InnerPolicy::from_json(&policy.to_json().unwrap()).unwrap(), policy);
+    }
+}
+
+#[test]
+fn only_a_call_with_a_reach_plan_gets_the_reach_helper() {
+    let none = plan_of(&spec(), &proxy_world());
+    assert_eq!(none.reach_socket(), None);
+    assert_eq!(InnerPolicy::new(&none, 3, None).reach, None);
+    assert!(
+        !none
+            .mounts()
+            .iter()
+            .any(|mount| { mount.op.target() == crate::testing::runtime().inside_reach_socket() })
+    );
+    // A policy from before the reach reads back with none.
+    let mut old = serde_json::to_value(InnerPolicy::new(&none, 3, None)).unwrap();
+    old.as_object_mut().unwrap().remove("reach");
+    let back: InnerPolicy = serde_json::from_value(old).unwrap();
+    assert_eq!(back.reach, None);
+}
+
+#[test]
+fn reach_call_on_the_host_network_is_refused() {
+    let (mut spec, fs) = reach_call(false);
+    spec.grants = vec![Grant::NetView];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ReachWithHostNetwork)));
+    spec.grants = vec![Grant::OpenNetwork];
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ReachWithHostNetwork)));
+    spec.grants = Vec::new();
+    spec.network = NetworkPlan::Open;
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ReachWithHostNetwork)));
+}
+
+#[test]
+fn reach_call_refuses_a_socket_that_is_missing_or_not_a_socket() {
+    let (spec, _) = reach_call(false);
+    let mut fs = world();
+    assert!(MountPlan::build(&spec, &fs).is_err());
+    fs.file(&spec.runtime.reach_socket().to_string_lossy(), "not a socket");
+    assert!(matches!(MountPlan::build(&spec, &fs), Err(SandboxError::ReachSocket { .. })));
+}
+
 #[test]
 fn proxy_plan_sets_the_bridge_variables() {
     let mut spec = spec();

@@ -213,6 +213,7 @@ pub(crate) fn spec() -> crate::SandboxSpec {
         limits: RecordLimits::default(),
         runtime,
         job: None,
+        reach: None,
     }
 }
 

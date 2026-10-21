@@ -107,6 +107,7 @@ impl Launcher {
             limits: RecordLimits::default(),
             runtime,
             job: None,
+            reach: None,
         };
         std::fs::write(dir.join("spec.json"), spec.to_json().unwrap()).unwrap();
         // The launcher refuses a call file that another user could read or write.

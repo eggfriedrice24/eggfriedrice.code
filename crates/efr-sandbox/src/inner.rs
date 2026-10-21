@@ -4,8 +4,8 @@
 //! place. It reads this policy, moves the terminal copy to fd 2 and the records pipe
 //! to fd 3, closes every other descriptor, applies Landlock, then seccomp, and executes
 //! the child shell. It reports its own failure as a `setup-error` record on fd 3. For a
-//! proxy plan it starts the bridge first, before its own Landlock domain, and for a job
-//! with port forwards the forwarder.
+//! proxy plan it starts the bridge first, before its own Landlock domain, for a job
+//! with port forwards the forwarder, and for a call with a reach the reach helper.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,7 @@ use crate::SandboxError;
 use crate::landlock::LandlockPolicy;
 use crate::plan::MountPlan;
 use crate::seccomp::SeccompProfile;
-use crate::spec::ForwardPlan;
+use crate::spec::{ForwardPlan, ReachPlan};
 
 /// The most bytes of a policy.
 pub const MAX_POLICY_BYTES: usize = 1024 * 1024;
@@ -56,6 +56,31 @@ pub struct InnerPolicy {
     /// network namespace of its own sets it.
     #[serde(default)]
     pub forward: Option<InnerForward>,
+    /// The reach of a contained foreground call: `Some` starts the reach helper
+    /// (`efr-sbx reach`) before the inner stage's own Landlock domain. Only a call with
+    /// a reach plan in a network namespace of its own sets it.
+    #[serde(default)]
+    pub reach: Option<InnerReach>,
+}
+
+/// What the inner stage passes to the reach helper of a call: the call's reach plan,
+/// with the socket as the call sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InnerReach {
+    /// The call's reach socket inside, `$XRT/efr-reach.sock`.
+    pub socket: PathBuf,
+    /// [`ReachPlan::ports`]: the ports that the helper binds before the child runs.
+    pub ports: Vec<u16>,
+    /// [`ReachPlan::proxy`].
+    pub proxy: bool,
+}
+
+impl InnerReach {
+    /// The helper's view of `plan`, with the socket at `socket` inside.
+    pub fn new(plan: &ReachPlan, socket: PathBuf) -> InnerReach {
+        InnerReach { socket, ports: plan.ports.clone(), proxy: plan.proxy }
+    }
 }
 
 /// What the inner stage passes to the forwarder of a job: the job's forward plan, with
@@ -134,6 +159,7 @@ impl InnerPolicy {
             cwd: None,
             proxy_socket: plan.proxy_socket().map(Path::to_path_buf),
             forward: plan.forward().cloned(),
+            reach: plan.reach().cloned(),
         }
     }
 

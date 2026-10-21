@@ -34,6 +34,9 @@
 //! - A job with port forwards binds the job's socket read-only at
 //!   `$XRT/efr-forward.sock` for the forwarder, with no `RESOLVE_UNIX` rule for the
 //!   child, as the proxy socket. Only a job in a private network namespace gets it.
+//! - A call with a reach binds the call's reach socket read-only at
+//!   `$XRT/efr-reach.sock` for the reach helper, with no `RESOLVE_UNIX` rule for the
+//!   child, as the proxy socket. Only a call in a private network namespace gets it.
 //! - A socket grant never binds the system bus, the session bus, a socket of a service
 //!   manager or a container engine ([`SERVICE_SOCKETS`]), a socket below
 //!   `$XRT/systemd/`, or the control socket of a desktop. The plan checks the path after
@@ -47,7 +50,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use crate::inner::InnerForward;
+use crate::inner::{InnerForward, InnerReach};
 use crate::layers::CacheLayers;
 use crate::spec::{FloorKind, MaskKind, WriteRootKind};
 
@@ -279,6 +282,7 @@ pub struct MountPlan {
     pub(crate) layer_sources: Vec<PathBuf>,
     pub(crate) proxy_socket: Option<PathBuf>,
     pub(crate) forward: Option<InnerForward>,
+    pub(crate) reach: Option<InnerReach>,
 }
 
 impl MountPlan {
@@ -371,6 +375,18 @@ impl MountPlan {
     /// The forwarder's plan of a job with port forwards, with the socket inside.
     pub fn forward(&self) -> Option<&InnerForward> {
         self.forward.as_ref()
+    }
+
+    /// The inside path of a call's reach socket, `$XRT/efr-reach.sock`: the inner stage
+    /// starts the reach helper on it. `None` for every call without a reach, and never
+    /// for a call that keeps the host's network namespace.
+    pub fn reach_socket(&self) -> Option<&Path> {
+        self.reach.as_ref().map(|reach| reach.socket.as_path())
+    }
+
+    /// The reach helper's plan of a call with a reach, with the socket inside.
+    pub fn reach(&self) -> Option<&InnerReach> {
+        self.reach.as_ref()
     }
 }
 

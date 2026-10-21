@@ -290,6 +290,7 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         limits: RecordLimits::default(),
         runtime,
         job: input.job.clone(),
+        reach: None,
     };
     Planned { spec, notes }
 }

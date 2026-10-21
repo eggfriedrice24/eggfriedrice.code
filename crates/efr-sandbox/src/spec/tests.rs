@@ -7,8 +7,8 @@ use crate::SandboxError;
 use crate::forward::MAX_JOB_FORWARDS;
 use crate::spec::{
     CacheOverlay, DesktopSocket, FORWARD_SOCKET_FILE, ForwardPlan, JOB_BACKSTOP_SECS, JOB_DIR,
-    JOB_FSIZE_BYTES, JobPlan, NetworkPlan, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
-    layer_name,
+    JOB_FSIZE_BYTES, JobPlan, MAX_REACH_PORTS, NetworkPlan, REACH_SOCKET_FILE, ReachPlan,
+    SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, check_reach, layer_name,
 };
 use crate::testing::spec;
 
@@ -155,10 +155,10 @@ fn a_job_with_forwards_reads_back_and_names_its_own_socket() {
     plain.job = Some(JobPlan::new(60, 19));
     let text = String::from_utf8(plain.to_json().unwrap()).unwrap();
     assert!(!text.contains("forward"), "{text}");
-    let old = text.replace("\"version\": 3", "\"version\": 2");
+    let old = text.replace(&format!("\"version\": {SPEC_VERSION}"), "\"version\": 2");
     assert!(matches!(
         SandboxSpec::from_json(old.as_bytes()),
-        Err(SandboxError::SpecVersion { found: 2, expected: 3 })
+        Err(SandboxError::SpecVersion { found: 2, expected: SPEC_VERSION })
     ));
 }
 
@@ -227,6 +227,130 @@ fn spec_check_refuses_forwards_that_do_not_fit_the_job() {
         set_forward(&mut spec, change);
         assert!(matches!(spec.check(), Err(SandboxError::ForwardPlan)));
     }
+}
+
+/// [`spec`] as a contained call in the `none` network that reaches the ports 8765 and
+/// 5173.
+fn reach_call() -> SandboxSpec {
+    let mut call = spec();
+    call.reach = Some(ReachPlan::new(call.runtime.reach_socket(), vec![8765, 5173], false));
+    call
+}
+
+fn set_reach(spec: &mut SandboxSpec, change: impl FnOnce(&mut ReachPlan)) {
+    change(spec.reach.as_mut().unwrap());
+}
+
+fn reach_problem(spec: &SandboxSpec) -> &'static str {
+    match check_reach(spec) {
+        Err(SandboxError::ReachPlan { problem }) => problem,
+        other => panic!("not a reach plan refusal: {other:?}"),
+    }
+}
+
+#[test]
+fn a_call_with_a_reach_reads_back_and_names_its_own_socket() {
+    let call = reach_call();
+    assert!(call.check().is_ok());
+    assert_eq!(call.version, 4);
+    assert_eq!(call.runtime.reach_socket(), call.runtime.call_dir.join(REACH_SOCKET_FILE));
+    assert_eq!(call.runtime.inside_reach_socket(), PathBuf::from("/run/user/1000/efr-reach.sock"));
+    let back = SandboxSpec::from_json(&call.to_json().unwrap()).unwrap();
+    assert_eq!(back, call);
+    // A call without a reach writes no `reach` member and passes the check.
+    let plain = spec();
+    let text = String::from_utf8(plain.to_json().unwrap()).unwrap();
+    assert!(!text.contains("reach"), "{text}");
+    assert!(check_reach(&plain).is_ok());
+}
+
+#[test]
+fn check_reach_refuses_what_does_not_fit_the_call() {
+    // A job.
+    let mut job = reach_call();
+    let call = job.call.to_string();
+    job.runtime.call_dir = job.runtime.shell_dir.join(JOB_DIR).join(call);
+    job.reach = Some(ReachPlan::new(job.runtime.reach_socket(), vec![8765], false));
+    job.job = Some(JobPlan::new(60, 19));
+    assert_eq!(reach_problem(&job), "a reach of a job");
+    assert!(matches!(job.check(), Err(SandboxError::ReachPlan { .. })));
+    // The exit child.
+    let mut exit = reach_call();
+    exit.launch = SpecLaunch::Unsandboxed;
+    assert_eq!(reach_problem(&exit), "a reach of the exit child");
+    // The host's network.
+    let mut open = reach_call();
+    open.network = NetworkPlan::Open;
+    assert!(matches!(check_reach(&open), Err(SandboxError::ReachWithHostNetwork)));
+    for grant in [Grant::OpenNetwork, Grant::NetView] {
+        let mut call = reach_call();
+        call.grants.push(grant.clone());
+        assert!(matches!(check_reach(&call), Err(SandboxError::ReachWithHostNetwork)), "{grant:?}");
+    }
+    // Another socket.
+    let base = reach_call();
+    let call_dir = base.runtime.call_dir.clone();
+    for socket in [
+        call_dir.join("proxy.sock"),
+        call_dir.parent().unwrap().join(REACH_SOCKET_FILE),
+        base.runtime.inside_reach_socket(),
+    ] {
+        let mut call = base.clone();
+        set_reach(&mut call, |plan| plan.socket = socket.clone());
+        assert!(
+            matches!(check_reach(&call), Err(SandboxError::ReachSocket { path }) if path == socket),
+            "{socket:?}"
+        );
+    }
+    let mut relative = reach_call();
+    set_reach(&mut relative, |plan| plan.socket = "reach.sock".into());
+    assert!(matches!(relative.check(), Err(SandboxError::SpecPath { field: "reach.socket", .. })));
+    // More than 32 ports.
+    let mut many = reach_call();
+    set_reach(&mut many, |plan| {
+        plan.ports = (0..=MAX_REACH_PORTS).map(|n| 20_000 + u16::try_from(n).unwrap()).collect();
+    });
+    assert_eq!(reach_problem(&many), "more than 32 ports");
+    let mut most = reach_call();
+    set_reach(&mut most, |plan| {
+        plan.ports = (0..MAX_REACH_PORTS).map(|n| 20_000 + u16::try_from(n).unwrap()).collect();
+    });
+    assert!(check_reach(&most).is_ok());
+    // The bridge's port, a port below 1024, a port twice.
+    for (ports, problem) in [
+        (vec![3128], "the port of the proxy bridge"),
+        (vec![1023], "a port below 1024"),
+        (vec![80], "a port below 1024"),
+        (vec![8765, 8765], "a port twice"),
+    ] {
+        let mut call = reach_call();
+        set_reach(&mut call, |plan| plan.ports = ports.clone());
+        assert_eq!(reach_problem(&call), problem, "{ports:?}");
+    }
+    for ports in [vec![1024], vec![8765], vec![]] {
+        let mut call = reach_call();
+        set_reach(&mut call, |plan| plan.ports = ports.clone());
+        assert!(check_reach(&call).is_ok(), "{ports:?}");
+    }
+}
+
+#[test]
+fn the_proxy_flag_of_a_reach_is_the_call_s_network() {
+    let mut proxy = reach_call();
+    proxy.network = NetworkPlan::Proxy { socket: proxy.runtime.proxy_socket() };
+    assert_eq!(reach_problem(&proxy), "a proxy flag of another network");
+    set_reach(&mut proxy, |plan| plan.proxy = true);
+    assert!(proxy.check().is_ok());
+    // The bridge's port stays refused in a proxy call too.
+    set_reach(&mut proxy, |plan| plan.ports = vec![3128]);
+    assert_eq!(reach_problem(&proxy), "the port of the proxy bridge");
+    let mut flag = reach_call();
+    set_reach(&mut flag, |plan| plan.proxy = true);
+    assert_eq!(reach_problem(&flag), "a proxy flag of another network");
+    // A host grant narrows the network: the call keeps its own namespace.
+    let mut host = reach_call();
+    host.grants.push(Grant::Host { host: "extra.test".to_owned(), port: 443 });
+    assert!(host.check().is_ok());
 }
 
 #[test]

@@ -91,6 +91,7 @@ impl TestCall {
                 desktops: Vec::new(),
             },
             job: None,
+            reach: None,
         };
         private_dir(&runtime.join("bin"));
         private_dir(&runtime.join("zsh"));

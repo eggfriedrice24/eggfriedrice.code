@@ -53,6 +53,15 @@ pub const MAX_FORWARD_CONNECTIONS: usize = 64;
 /// The version of the frames that a `Hello` carries in its status byte.
 pub const FORWARD_VERSION: u8 = 1;
 
+/// The version of the frames of a call's reach connection, which the reach helper's
+/// `Hello` carries in its status byte.
+pub const REACH_VERSION: u8 = 1;
+
+/// The most open connections of one call's reach: half of a job's
+/// [`MAX_FORWARD_CONNECTIONS`], so one call never takes all the places of a job's
+/// forwards. The helper and efrd each count them.
+pub const MAX_REACH_CONNECTIONS: usize = 32;
+
 /// The state `LISTEN` of a row of `/proc/net/tcp`.
 pub const TCP_LISTEN: u8 = 0x0A;
 
@@ -402,15 +411,20 @@ pub fn v6_holds(rows: &[TcpRow], port: u16) -> bool {
     })
 }
 
-/// The length of every frame between the forwarder and efrd.
+/// The length of every frame between the forwarder of a job or the reach helper of a
+/// call and efrd.
 pub const FRAME_LEN: usize = 28;
 
 /// The kind of a frame.
+///
+/// A job's forward connections take `Hello` and the kinds 2 to 5. A call's reach
+/// connections take `Hello` and the kinds 6 to 9 ([`FrameKind::is_reach`]). Each side
+/// refuses a kind of the other connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum FrameKind {
-    /// The forwarder's first frame on its control connection; the status is
-    /// [`FORWARD_VERSION`].
+    /// The first frame of the forwarder or of the reach helper on its control
+    /// connection; the status is [`FORWARD_VERSION`] or [`REACH_VERSION`].
     Hello = 1,
     /// The forwarder: a port listens and is stable.
     Listen = 2,
@@ -422,6 +436,19 @@ pub enum FrameKind {
     /// The forwarder's first frame on a data connection: the status is 0 when it
     /// connected, else the errno of the connect. With 0, opaque bytes follow both ways.
     Data = 5,
+    /// efrd to the reach helper of a call: listen on the address and the port in the
+    /// call's network namespace, because a job of the call's conversation serves that
+    /// port.
+    Reach = 6,
+    /// efrd to the reach helper: close the listener of the address and the port.
+    Unreach = 7,
+    /// The reach helper to efrd: the result of a `Reach`; the status is 0 when it
+    /// listens, else the errno of the bind. efrd only logs it.
+    Bound = 8,
+    /// The reach helper's first frame on a data connection: a process of the call
+    /// connected to the address and the port. Opaque bytes follow both ways when efrd
+    /// found the job's server; else efrd closes the connection.
+    Connect = 9,
 }
 
 impl FrameKind {
@@ -432,13 +459,33 @@ impl FrameKind {
             3 => Some(FrameKind::Gone),
             4 => Some(FrameKind::Open),
             5 => Some(FrameKind::Data),
+            6 => Some(FrameKind::Reach),
+            7 => Some(FrameKind::Unreach),
+            8 => Some(FrameKind::Bound),
+            9 => Some(FrameKind::Connect),
             _ => None,
         }
     }
 
-    /// True for the kinds that name a listen: `Listen`, `Gone` and `Open`.
+    /// True for the kinds of a job's forwards that name a listen: `Listen`, `Gone` and
+    /// `Open`.
     pub const fn has_listen(self) -> bool {
         matches!(self, FrameKind::Listen | FrameKind::Gone | FrameKind::Open)
+    }
+
+    /// True for the kinds of a call's reach connection: `Reach`, `Unreach`, `Bound`
+    /// and `Connect`. A reach connection takes only these and `Hello`; a forward
+    /// connection never takes them.
+    pub const fn is_reach(self) -> bool {
+        matches!(
+            self,
+            FrameKind::Reach | FrameKind::Unreach | FrameKind::Bound | FrameKind::Connect
+        )
+    }
+
+    /// True for every kind that names a loopback address and a port.
+    pub const fn names_port(self) -> bool {
+        self.has_listen() || self.is_reach()
     }
 }
 
@@ -448,8 +495,9 @@ impl FrameKind {
 /// big-endian, 0 u16, id u32 big-endian, the address in 16 bytes (an IPv4 address in
 /// the first 4, the rest 0).
 ///
-/// `Listen`, `Gone` and `Open` carry a loopback address and a port from [`MIN_PORT`]
-/// up, and status 0. `Hello` and `Data` carry no address: family 4, the address
+/// `Listen`, `Gone`, `Open` and the reach kinds carry a loopback address and a port
+/// from [`MIN_PORT`] up, and status 0 but for `Bound`. The reach kinds never carry
+/// [`BRIDGE_PORT`]. `Hello` and `Data` carry no address: family 4, the address
 /// `0.0.0.0` and port 0. Only `Open` and `Data` carry an id; the others have id 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Frame {
@@ -504,7 +552,33 @@ impl Frame {
         }
     }
 
-    /// The listen that a `Listen`, `Gone` or `Open` names.
+    /// The reach helper's `Hello`.
+    pub const fn reach_hello() -> Frame {
+        Frame { status: REACH_VERSION, ..Frame::hello() }
+    }
+
+    /// efrd's `Reach` of `listen`: the helper listens there in the call.
+    pub const fn reach(listen: Listen) -> Frame {
+        Frame { kind: FrameKind::Reach, status: 0, id: 0, addr: listen.addr, port: listen.port }
+    }
+
+    /// efrd's `Unreach` of `listen`: the helper closes that listener.
+    pub const fn unreach(listen: Listen) -> Frame {
+        Frame { kind: FrameKind::Unreach, status: 0, id: 0, addr: listen.addr, port: listen.port }
+    }
+
+    /// The helper's `Bound` of `listen`: `status` 0 when it listens, else the errno of
+    /// the bind.
+    pub const fn bound(listen: Listen, status: u8) -> Frame {
+        Frame { kind: FrameKind::Bound, status, id: 0, addr: listen.addr, port: listen.port }
+    }
+
+    /// The helper's `Connect` to `listen`: the first frame of a data connection.
+    pub const fn connect(listen: Listen) -> Frame {
+        Frame { kind: FrameKind::Connect, status: 0, id: 0, addr: listen.addr, port: listen.port }
+    }
+
+    /// The listen that a `Listen`, `Gone`, `Open` or a reach kind names.
     pub const fn target(&self) -> Listen {
         Listen { addr: self.addr, port: self.port }
     }
@@ -531,8 +605,9 @@ impl Frame {
 
     /// Reads a frame, and refuses an unknown kind, a reserved byte that is not 0, a
     /// family other than 4 and 6, and a frame that breaks the rules of its kind: an
-    /// address that is not loopback or a port below [`MIN_PORT`] for a listen, an
-    /// address, a port or an id where the kind has none.
+    /// address that is not loopback or a port below [`MIN_PORT`] for a kind that names
+    /// a port, [`BRIDGE_PORT`] for a reach kind, an address, a port or an id where the
+    /// kind has none.
     pub fn decode(bytes: &[u8; FRAME_LEN]) -> Result<Frame, SandboxError> {
         let refuse = |problem: &'static str| Err(SandboxError::Frame { problem });
         let Some(kind) = FrameKind::from_byte(bytes[0]) else {
@@ -558,14 +633,19 @@ impl Frame {
         let status = bytes[2];
         let port = u16::from_be_bytes([bytes[4], bytes[5]]);
         let id = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
-        if kind.has_listen() {
+        if kind.names_port() {
             if !addr.is_loopback() {
                 return refuse("an address that is not loopback");
             }
             if port < MIN_PORT {
                 return refuse("a port below 1024");
             }
-            if status != 0 {
+            // NOTE: efr never forwards the bridge's port, so no reach names it; a reach
+            // of it would give the call a route to the proxy grants of a job.
+            if kind.is_reach() && port == BRIDGE_PORT {
+                return refuse("the port of the proxy bridge");
+            }
+            if status != 0 && !matches!(kind, FrameKind::Bound) {
                 return refuse("a status where the kind has none");
             }
         } else if addr != IpAddr::V4(Ipv4Addr::UNSPECIFIED) || port != 0 {
