@@ -310,6 +310,7 @@ pub(crate) fn job(n: u32, command: &str) -> JobInfo {
         output_bytes: 0,
         watch: None,
         wakes: 0,
+        forwards: Vec::new(),
     }
 }
 

@@ -13,10 +13,11 @@ use crate::compaction::{is_zero_u32, is_zero_u64};
 use crate::{
     AttachHow, Blocked, BusRefusal, CallId, ChainStep, CommandId, Compaction, ContextUse,
     ConversationId, EffectiveSettings, ErrorBody, ExitInfo, ExitKind, ExitRecord, ExitSource,
-    FileChanges, Grant, HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind, Launch,
-    NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId, RefChange,
-    ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq, ShellContext, SnapshotPhase,
-    SurfaceChange, TurnId, TurnSettings, TurnUndoInfo, UndoId, UserAuthorization, Verdict,
+    FileChanges, ForwardOutcome, Grant, HeldReason, JobId, JobInfo, JobState, JobStopBy, JudgeKind,
+    Launch, NoticeKind, Origin, PauseReason, Presence, PresenceSource, PtyId, QuestionId,
+    RefChange, ReportedFile, Risk, RouteScope, SandboxSummary, Scope, Seq, ShellContext,
+    SnapshotPhase, SurfaceChange, TurnId, TurnSettings, TurnUndoInfo, UndoId, UserAuthorization,
+    Verdict,
 };
 
 /// Something that happened, as the event log records it and subscribers receive it.
@@ -802,6 +803,25 @@ pub enum Event {
         wakes_left: u8,
     },
 
+    /// A contained job listens on a loopback port: efr forwarded it to the same port of
+    /// 127.0.0.1, or says why not. It belongs to the conversation, not to a turn.
+    JobPortForwarded {
+        /// The job.
+        job_id: JobId,
+        /// The address that the job listens on, as text: `127.0.0.1`, `::1`.
+        listen: String,
+        /// The port.
+        port: u16,
+        /// What efr did with the port.
+        outcome: ForwardOutcome,
+        /// For `in_use`: the job of the same conversation that holds the port.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by_job: Option<JobId>,
+        /// For `refused` and `limit`: a short reason, such as `a service port`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+
     /// A job ended. It belongs to the conversation, not to a turn.
     JobEnded {
         /// The job.
@@ -977,6 +997,7 @@ impl Event {
             // NOTE: a job outlives its turn, so its match and its end are no part of a
             // turn that a view follows.
             | Event::JobWatchMatched { .. }
+            | Event::JobPortForwarded { .. }
             | Event::JobEnded { .. }
             | Event::JobNoticeHeld { .. }
             | Event::Unknown { .. } => None,

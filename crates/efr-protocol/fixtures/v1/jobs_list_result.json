@@ -26,7 +26,17 @@
         "pattern": "error|panic",
         "max_wakes": 3
       },
-      "wakes": 1
+      "wakes": 1,
+      "forwards": [
+        {
+          "listen": "127.0.0.1",
+          "port": 8765
+        },
+        {
+          "listen": "::1",
+          "port": 5173
+        }
+      ]
     }
   ]
 }

@@ -566,3 +566,15 @@ No protocol version has shipped yet.
   as frames that are not valid. New fixtures `conversations_recent_params.json`,
   `conversations_recent_result.json`, `conversation_resume_params.json`,
   `conversation_resume_result.json` and `conversation_resume_result_held.json`.
+- Version 1, additive: port forwards of contained jobs. New event kind
+  `job_port_forwarded` (`job_id`, `listen`, the address that the job listens on as
+  text such as `127.0.0.1` or `::1`, `port`, `outcome`, and `by_job` and `reason`,
+  each absent when not set). It belongs to the conversation, not to a turn. The new
+  wire enum `outcome` is `forwarded`, `in_use`, `refused`, `limit` or `stopped`; a
+  value that a reader does not know reads as `unknown`. `by_job` names the job of the
+  same conversation that holds the port of an `in_use` outcome; `reason` is a short
+  text for `refused` and `limit`, such as `a service port`. `JobInfo` gains `forwards`
+  (absent when empty), each with `listen` and `port`, so `jobs.list` and `jobs.stop`
+  show the ports that efr forwards for a job. New fixtures
+  `events/job_port_forwarded.json` and `forward_outcomes.json`;
+  `jobs_list_result.json` and `jobs_stop_result.json` now set `forwards`.

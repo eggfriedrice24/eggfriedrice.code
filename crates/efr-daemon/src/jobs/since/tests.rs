@@ -28,6 +28,7 @@ fn job(started: i64, ended: Option<i64>) -> JobInfo {
         output_bytes: 0,
         watch: None,
         wakes: 0,
+        forwards: Vec::new(),
     }
 }
 

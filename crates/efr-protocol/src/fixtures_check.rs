@@ -32,26 +32,26 @@ use crate::{
     ConversationsList, ConversationsListResult, ConversationsRecent, ConversationsRecentResult,
     CountedUse, Cursor, DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceId,
     Draft, DraftPart, EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts,
-    ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, FullModeStatus,
-    FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant, HeldConfig, HeldReason, Hello,
-    HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobId, JobInfo, JobState,
-    JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind, Judgement, LateSteer,
-    Launch, LeaseReport, LeaseReportResult, LoginKind, Method, Mode, ModeFallback, ModelInfo,
-    ModelSource, ModelsList, ModelsListResult, NetworkMode, NewReason, NotSavedReason, NoticeKind,
-    Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor, PathClassName, PauseReason, Presence,
-    PresenceSet, PresenceSetResult, PresenceSource, ProgramFact, ProjectId, ProjectInfo,
-    ProjectsList, ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw,
-    PromptWithdrawResult, ProviderStatus, PtyAttach, PtyAttachItem, PtyId, PtyResize,
-    PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId, RecentCommand, RecentConversation,
-    RefChange, RepoHint, ReportedFile, RequestId, ResentSteers, Risk, RootDir, RootFiles,
-    RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
-    SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
-    SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange,
-    Switch, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ExitInfo, ExitKind, ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome,
+    FullModeStatus, FullRefusal, GitCodeFact, GitCodeFacts, GitCounts, Grant, HeldConfig,
+    HeldReason, Hello, HelloResult, HostFact, InputRespond, InputRespondResult, InputWait, JobId,
+    JobInfo, JobState, JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult, JudgeKind,
+    Judgement, LateSteer, Launch, LeaseReport, LeaseReportResult, LoginKind, Method, Mode,
+    ModeFallback, ModelInfo, ModelSource, ModelsList, ModelsListResult, NetworkMode, NewReason,
+    NotSavedReason, NoticeKind, Origin, OverriddenSettings, PROTOCOL_VERSION, PageCursor,
+    PathClassName, PauseReason, PortForward, Presence, PresenceSet, PresenceSetResult,
+    PresenceSource, ProgramFact, ProjectId, ProjectInfo, ProjectsList, ProjectsListResult,
+    PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, ProviderStatus, PtyAttach,
+    PtyAttachItem, PtyId, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, QuestionId,
+    RecentCommand, RecentConversation, RefChange, RepoHint, ReportedFile, RequestId, ResentSteers,
+    Risk, RootDir, RootFiles, RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck,
+    SandboxExplain, SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus,
+    SandboxSummary, SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName,
+    ScreenSnapshot, SecretText, Seq, ServerFrame, ShellContext, Size, SnapshotPhase, StopReason,
+    SurfaceChange, Switch, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
+    TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction,
+    UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict,
+    Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -128,6 +128,7 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("job_stop_causes.json", &JobStopBy::ALL.to_vec()));
     fixtures.push(fixture("held_reasons.json", &HeldReason::ALL.to_vec()));
     fixtures.push(fixture("notice_kinds.json", &NoticeKind::ALL.to_vec()));
+    fixtures.push(fixture("forward_outcomes.json", &ForwardOutcome::ALL.to_vec()));
     fixtures.push(fixture("block_reasons.json", &BlockReason::ALL.to_vec()));
     fixtures.push(fixture("approval_decisions.json", &approval_decision_samples()));
     fixtures.push(fixture("always_saved.json", &always_saved_samples()));
@@ -225,6 +226,10 @@ fn job_info() -> JobInfo {
         output_bytes: 48_213,
         watch: Some(Watch { pattern: "error|panic".into(), max_wakes: 3 }),
         wakes: 1,
+        forwards: vec![
+            PortForward { listen: "127.0.0.1".into(), port: 8765 },
+            PortForward { listen: "::1".into(), port: 5173 },
+        ],
     }
 }
 
@@ -1916,6 +1921,7 @@ pub(crate) fn event_samples() -> Vec<Event> {
                 stopped_by: None,
                 output_bytes: 0,
                 wakes: 0,
+                forwards: Vec::new(),
                 ..job_info()
             },
             launcher_pid: 48_211,
@@ -1925,6 +1931,14 @@ pub(crate) fn event_samples() -> Vec<Event> {
             job_id: JobId::nth(3),
             line: "error: listen EADDRINUSE: address already in use :::3000".into(),
             wakes_left: 2,
+        },
+        Event::JobPortForwarded {
+            job_id: JobId::nth(3),
+            listen: "127.0.0.1".into(),
+            port: 8765,
+            outcome: ForwardOutcome::InUse,
+            by_job: Some(JobId::nth(2)),
+            reason: Some("a service port".into()),
         },
         Event::JobEnded {
             job_id: JobId::nth(3),
