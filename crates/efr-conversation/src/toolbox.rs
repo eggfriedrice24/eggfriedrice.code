@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
-    ApprovedBy, CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Mode, Origin,
-    ReportedFile, SandboxSummary, Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo,
+    ApprovedBy, BusyShell, CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Mode,
+    Origin, ReportedFile, SandboxSummary, Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo,
     TurnUndoInfo, TurnUndoResult, UndoId, UndoReason, UndoRefused,
 };
 use efr_provider::{EditTool, ToolDefinition};
@@ -66,6 +66,14 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
     /// from the event log, which a long conversation may have paged past. The default
     /// cannot tell.
     async fn shell_cwd(&self, _conversation_id: ConversationId) -> Option<PathBuf> {
+        None
+    }
+
+    /// The command that an earlier call left running in the conversation's hidden
+    /// shell, for the live-state preamble: the shell takes no other call until it ends.
+    /// `None` when the shell is free or the toolbox cannot tell. The default cannot
+    /// tell.
+    async fn busy_shell(&self, _conversation_id: ConversationId) -> Option<BusyShell> {
         None
     }
 

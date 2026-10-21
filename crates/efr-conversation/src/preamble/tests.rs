@@ -24,6 +24,7 @@ fn minimal() -> LiveState {
         scratch: PathBuf::from("/home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d"),
         agent_cwd: None,
         moved_from: None,
+        busy_shell: None,
         mode: Mode::Cautious,
         fallback: None,
         model: "gpt-5.5".to_owned(),
@@ -427,4 +428,60 @@ fn the_four_modes_are_in_the_preamble_when_full_mode_is_allowed() {
         assert!(text.contains(&format!("\nPermission mode: {mode}\n")), "{text}");
         assert!(text.contains("\n- full: do what the user asks."), "{text}");
     }
+}
+
+/// A command left running in the hidden shell since the epoch.
+fn busy(input: efr_protocol::InputWait, contained: bool) -> efr_protocol::BusyShell {
+    efr_protocol::BusyShell {
+        call_id: "01920000-0000-7000-8000-000000000003".parse().unwrap(),
+        command: "rsync -a -e ssh\n  u@h:src/ dst/".to_owned(),
+        since: Timestamp::UNIX_EPOCH,
+        contained,
+        input,
+        looks_secret: false,
+        prompt: "u@h's password: ".to_owned(),
+        approved_by: Some(efr_protocol::ApprovedBy::You),
+    }
+}
+
+/// The lines of the block that name the hidden shell's busy command.
+fn busy_lines(state: &LiveState) -> Vec<String> {
+    state
+        .render()
+        .lines()
+        .filter(|line| line.starts_with("The hidden shell still runs"))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn a_command_left_running_is_in_the_preamble() {
+    use efr_protocol::InputWait;
+    let at = |input, contained| LiveState {
+        busy_shell: Some(busy(input, contained)),
+        now: Timestamp::from_second(200).unwrap(),
+        ..minimal()
+    };
+    assert_eq!(
+        busy_lines(&at(InputWait::Hidden, false)),
+        ["The hidden shell still runs: `rsync -a -e ssh u@h:src/ dst/` (for 3 min; it waits for \
+          a password). The next shell call fails at once while it waits; the user answers or \
+          stops it with ,shell. Never ask the user to type the answer at their prompt."]
+    );
+    assert_eq!(
+        busy_lines(&at(InputWait::None, false)),
+        ["The hidden shell still runs: `rsync -a -e ssh u@h:src/ dst/` (for 3 min). The next \
+          shell call waits for it to end; the user can stop it with ,shell."]
+    );
+    // A command in the sandbox never gets a password, so the line says input.
+    let contained = busy_lines(&at(InputWait::Visible, true));
+    assert!(contained[0].contains("(for 3 min; it waits for input)"), "{contained:?}");
+    // The prompt row is the program's text: it never goes into the block.
+    assert!(!at(InputWait::Hidden, false).render().contains("password: "));
+}
+
+#[test]
+fn no_busy_line_by_default() {
+    assert!(busy_lines(&minimal()).is_empty());
+    assert!(busy_lines(&full()).is_empty());
 }

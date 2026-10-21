@@ -97,7 +97,7 @@ fn entry(command: &RecentCommand, cwd: &Path, now: Timestamp) -> String {
 }
 
 /// `secs` in rough words: `40 s`, `3 min`, `2 h` or `5 d`.
-fn rough(secs: u64) -> String {
+pub(super) fn rough(secs: u64) -> String {
     match secs {
         0..60 => format!("{secs} s"),
         60..3_600 => format!("{} min", secs / 60),
