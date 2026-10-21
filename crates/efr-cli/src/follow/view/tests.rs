@@ -1499,6 +1499,44 @@ fn a_hidden_prompt_in_a_contained_call_is_a_note_not_a_question() {
 }
 
 #[test]
+fn masked_wait_of_contained_call_shows_the_sandbox_note() {
+    // A prompt in the sandbox that looks like a password prompt can be a fake: efr asks
+    // for nothing, also with the input hidden as it types.
+    let mut view = sandbox_view(false);
+    framed(view.event(&started_in(Scope::Machine, None), WIDE, true), &mut view);
+    framed(view.event(&contained_started("./login.sh"), WIDE, true), &mut view);
+    framed(view.event(&output("Password: "), WIDE, true), &mut view);
+    let step = framed(view.event(&secret_input(), WIDE, true), &mut view);
+    assert_eq!(step.ask, None, "efr never asks for a secret for the sandbox");
+    assert!(
+        step.err.contains(
+            "sandbox: the command asked for a password; efr does not type secrets into the sandbox"
+        ),
+        "{:?}",
+        step.err
+    );
+    assert!(!step.err.contains(SECRET_NOTE), "{:?}", step.err);
+
+    // A plain question of the same call still asks, and shows what is typed.
+    let step = framed(view.event(&input(InputWait::Visible), WIDE, true), &mut view);
+    assert_eq!(step.ask, Some(Ask::Input { call_id: call(), kind: AnswerKind::Visible }));
+}
+
+#[test]
+fn manual_line_is_off_for_contained_call() {
+    let mut view = TurnView::new(turn(), RenderOptions::new(400));
+    let size = Size { cols: 400, rows: 20 };
+    framed(view.event(&contained_started("./deploy"), size, true), &mut view);
+    assert_eq!(view.silence(), None, "a call in the sandbox is never offered Ctrl+\\");
+    framed(view.event(&output("[sudo] password for u:"), size, true), &mut view);
+    assert_eq!(view.silence(), None);
+    assert_eq!(view.manual_offer(), None);
+    assert_eq!(framed(view.silent(call(), size), &mut view).ask, None);
+    assert_eq!(framed(view.manual(call(), size), &mut view).ask, None);
+    assert!(!view.manual_open());
+}
+
+#[test]
 fn a_turn_outside_a_project_writes_only_in_scratch_and_tmp() {
     let mut view = sandbox_view(false);
     let (_, err, _) = feed(
