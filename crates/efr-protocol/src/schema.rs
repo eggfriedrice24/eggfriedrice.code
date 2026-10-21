@@ -23,8 +23,9 @@ use crate::{
     PresenceSetResult, ProjectsList, ProjectsListResult, PromptSend, PromptSendResult,
     PromptWithdraw, PromptWithdrawResult, PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult,
     PtyWrite, PtyWriteResult, RequestId, SandboxExplain, SandboxExplainResult,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, TurnInterrupt,
-    TurnInterruptResult, TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
+    SandboxSurfaceRespond, SandboxSurfaceRespondResult, ScopeName, ShellInterrupt,
+    ShellInterruptResult, ShellStatus, ShellStatusResult, TurnInterrupt, TurnInterruptResult,
+    TurnSteer, TurnSteerResult, TurnUndo, TurnUndoResult,
 };
 
 /// The JSON Schema (draft 2020-12) document of the protocol.
@@ -151,6 +152,12 @@ pub fn document() -> Value {
             "conversation.resume",
             ScopeName::Operate,
         ),
+        unary::<ShellInterrupt, ShellInterruptResult>(
+            &mut generator,
+            "shell.interrupt",
+            ScopeName::Terminal,
+        ),
+        unary::<ShellStatus, ShellStatusResult>(&mut generator, "shell.status", ScopeName::Read),
     ];
     let frames = json!({
         "client": client_frame(&mut generator),

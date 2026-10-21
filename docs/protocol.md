@@ -597,3 +597,14 @@ No protocol version has shipped yet.
   `events/shell_command_input_changed.json`, `events/shell_command_ended.json`,
   `shell_command_ends.json` and `approved_bys.json`;
   `events/tool_call_completed.json` now sets `left_running`.
+- Version 1, additive: the hidden shell's state and a stop of a command left running.
+  New method `shell.interrupt` (scope `terminal`, with a command id) with
+  `conversation_id`, `call_id` and `close` (false when absent): SIGINT to the group of
+  the command that the call left running, or with `close` a close of the hidden shell.
+  Its result is empty. New method `shell.status` (scope `read`, no command id) with
+  `conversation_id`. Its result has `busy` (absent when the shell is free): `call_id`,
+  `command`, `since`, `contained`, `input`, and `looks_secret`, `prompt` and
+  `approved_by`, each absent when not set. A daemon from before refuses both as frames
+  that are not valid. New fixtures `shell_interrupt_params.json`,
+  `shell_interrupt_result.json`, `shell_status_params.json` and
+  `shell_status_result.json`.

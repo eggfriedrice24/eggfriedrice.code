@@ -11,8 +11,8 @@ use crate::{
     ConversationSubscribe, ConversationsList, ConversationsRecent, Hello, InputRespond, JobId,
     JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
     ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
-    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, Size,
-    TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
+    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt,
+    ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -360,6 +360,25 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             true,
             false,
         ),
+        (
+            Method::ShellInterrupt(ShellInterrupt {
+                conversation_id: conversation(),
+                call_id: CallId::from_str(CALL).unwrap(),
+                command_id: command(),
+                close: false,
+            }),
+            "shell.interrupt",
+            ScopeName::Terminal,
+            true,
+            false,
+        ),
+        (
+            Method::ShellStatus(ShellStatus { conversation_id: conversation() }),
+            "shell.status",
+            ScopeName::Read,
+            false,
+            false,
+        ),
     ]
 }
 
@@ -379,6 +398,41 @@ fn jobs_stop_needs_operate_scope() {
     );
     let bad = json!({ "method": "jobs.stop", "params": { "command_id": COMMAND, "job_id": "3" } });
     assert!(serde_json::from_value::<Method>(bad).is_err(), "a job id is j and a number");
+}
+
+#[test]
+fn shell_interrupt_needs_terminal_scope_and_shell_status_read_scope() {
+    let stop = Method::ShellInterrupt(ShellInterrupt {
+        conversation_id: conversation(),
+        call_id: CallId::from_str(CALL).unwrap(),
+        command_id: command(),
+        close: false,
+    });
+    // NOTE: the phone holds no `terminal` scope, so it can never stop or close what
+    // runs in a hidden shell.
+    assert_eq!(ScopeName::for_method(&stop), ScopeName::Terminal);
+    assert_eq!(stop.command_id(), Some(command()));
+    assert_eq!(
+        serde_json::to_value(&stop).unwrap(),
+        json!({
+            "method": "shell.interrupt",
+            "params": { "conversation_id": CONVERSATION, "call_id": CALL, "command_id": COMMAND }
+        }),
+        "close is left out when false"
+    );
+    let close = json!({
+        "method": "shell.interrupt",
+        "params": {
+            "conversation_id": CONVERSATION, "call_id": CALL, "command_id": COMMAND,
+            "close": true
+        }
+    });
+    let read: Method = serde_json::from_value(close).unwrap();
+    assert!(matches!(read, Method::ShellInterrupt(ShellInterrupt { close: true, .. })));
+    let status = Method::ShellStatus(ShellStatus { conversation_id: conversation() });
+    assert_eq!(ScopeName::for_method(&status), ScopeName::Read);
+    assert_eq!(status.command_id(), None);
+    assert!(!status.is_stream());
 }
 
 #[test]

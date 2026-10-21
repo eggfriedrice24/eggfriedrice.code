@@ -129,6 +129,8 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ConversationContext(_) => ScopeName::Read,
         Method::ConversationsRecent(_) => ScopeName::Read,
         Method::ConversationResume(_) => ScopeName::Operate,
+        Method::ShellInterrupt(_) => ScopeName::Terminal,
+        Method::ShellStatus(_) => ScopeName::Read,
     }
 }
 
@@ -205,7 +207,10 @@ impl Input {
             | Method::PresenceSet(_)
             | Method::JobsList(_)
             | Method::ConversationContext(_)
-            | Method::ConversationsRecent(_) => None,
+            | Method::ConversationsRecent(_)
+            // NOTE: no handler serves these two yet, so neither marks the user present.
+            | Method::ShellInterrupt(_)
+            | Method::ShellStatus(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -452,6 +457,11 @@ impl Dispatcher for Methods {
                 }
                 Method::ConversationResume(params) => {
                     Box::pin(conversation_resume::handle(state, &context, params, &responder)).await
+                }
+                // NOTE: the protocol has the two methods of a command left running in the
+                // hidden shell; efrd serves them in a later step of v0.0.4.
+                Method::ShellInterrupt(_) | Method::ShellStatus(_) => {
+                    Err(DaemonError::InvalidParams { reason: "not built yet" })
                 }
             };
             state.presence.record(touched).await;

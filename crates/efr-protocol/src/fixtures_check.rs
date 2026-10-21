@@ -21,8 +21,8 @@ use crate::{
     AdminProjectAdd, AdminProjectAddResult, AdminProjectRemove, AdminProjectRemoveResult,
     AdminSandboxCheck, AdminSandboxCheckResult, AdminStatus, AdminStatusResult, AlwaysSaved,
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, ApprovedBy, AttachHow, Base64Bytes,
-    BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, CacheMode, CacheSummary, CallId,
-    Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome,
+    BlockReason, Blocked, BusKind, BusProxyOff, BusRefusal, BusyShell, CacheMode, CacheSummary,
+    CallId, Capabilities, CatalogOrigin, CatalogStatus, Cell, ChainStep, ChangeKind, CheckOutcome,
     ClientFrame, Color, CommandId, Compaction, CompactionBrief, CompactionId, CompactionSummary,
     CompactionTrigger, ConfigFileError, ConfigStatus, ContextItem, ContextPart, ContextPartKind,
     ContextUse, ConversationCompact, ConversationCompactResult, ConversationContext,
@@ -48,11 +48,12 @@ use crate::{
     RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain, SandboxExplainResult,
     SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary, SandboxSurfaceRespond,
     SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot, SecretText, Seq, ServerFrame,
-    ShellCommandEnd, ShellContext, Size, SnapshotPhase, StopReason, SurfaceChange, Switch,
-    TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry,
-    UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict, Watch,
-    WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    ShellCommandEnd, ShellContext, ShellInterrupt, ShellInterruptResult, ShellStatus,
+    ShellStatusResult, Size, SnapshotPhase, StopReason, SurfaceChange, Switch, TargetFact, TurnId,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, TurnStop,
+    TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused,
+    UndoableTurn, Usage, UserAuthorization, Verdict, Watch, WithdrawTarget, WithdrawnPrompt,
+    WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -975,6 +976,13 @@ pub(crate) fn method_samples() -> Vec<Method> {
             context: shell_context(),
             take: true,
         }),
+        Method::ShellInterrupt(ShellInterrupt {
+            conversation_id: conversation_id(),
+            call_id: call_id(),
+            command_id: command_id(),
+            close: true,
+        }),
+        Method::ShellStatus(ShellStatus { conversation_id: conversation_id() }),
     ]
 }
 
@@ -1456,6 +1464,22 @@ fn answer_fixtures() -> Vec<Fixture> {
                 shell_dir: Some("/home/me/p/app/src".into()),
                 here: true,
                 continues_here: true,
+            },
+        ),
+        fixture("shell_interrupt_result.json", &ShellInterruptResult {}),
+        fixture(
+            "shell_status_result.json",
+            &ShellStatusResult {
+                busy: Some(BusyShell {
+                    call_id: call_id(),
+                    command: "rsync -a -e ssh me@build:.cache/out ./out".into(),
+                    since: at("2026-10-03T10:00:01Z"),
+                    contained: false,
+                    input: InputWait::Hidden,
+                    looks_secret: true,
+                    prompt: "me@build's password: ".into(),
+                    approved_by: Some(ApprovedBy::YourRule),
+                }),
             },
         ),
         fixture(
