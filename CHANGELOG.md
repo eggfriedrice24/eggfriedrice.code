@@ -238,7 +238,8 @@ into the GitHub release notes, and it stops when the section is missing.
   the command ends. The next call gets a new hidden shell in the same directory. In
   tmux, press Ctrl+B twice. A command that waits for input, that can ask at the
   terminal (such as `sudo`), or that efr does not allow as a job cannot move, and
-  neither can a call that holds the sandbox's cache.
+  neither can a call that holds the sandbox's cache. `docs/sandbox.md`, "Moving a call
+  to the background", has the details.
 - In `auto`, `df` and `findmnt` now run with no review and show your machine's
   mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
   reads the mounts outside the sandbox. A mount that does not answer in one second
@@ -426,6 +427,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it moves
+  the running shell call to the background. The Left arrow still moves the cursor back.
 - efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a password,
   also with a remote shell in `-e`, `RSYNC_RSH`, `GIT_SSH_COMMAND` or `core.sshCommand`.
   Such a call outside the sandbox runs past the model's timeout while you follow the
