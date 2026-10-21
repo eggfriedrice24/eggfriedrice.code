@@ -12,6 +12,7 @@ mod jobs;
 mod modes;
 mod protection;
 mod proxy;
+mod reach;
 mod settings;
 
 use std::path::PathBuf;

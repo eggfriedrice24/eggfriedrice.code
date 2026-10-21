@@ -459,8 +459,15 @@ fn find_exec(words: &[String]) -> Vec<&[String]> {
 }
 
 /// The exits of one command, its program first. `hosts` is the host list of efr's
-/// proxy, which only [`Egress::Proxy`] reads.
-pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList) -> Vec<Found> {
+/// proxy, which only [`Egress::Proxy`] reads. `reach` holds the forwarded ports of the
+/// conversation's running jobs, which a contained call reaches on loopback with no exit
+/// ([`CallFacts::reach_ports`](crate::CallFacts::reach_ports)).
+pub(super) fn classify(
+    words: &[String],
+    support: &AutoSupport,
+    hosts: &HostList,
+    reach: &[u16],
+) -> Vec<Found> {
     let Some((first, args)) = words.split_first() else {
         return Vec::new();
     };
@@ -469,7 +476,7 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
     if PRIVILEGED.contains(&program) || PRIVILEGE_EXITS.contains(&program) {
         found.push(Found::of(ExitKind::Privilege));
     }
-    let network = Network { support, hosts, urls: line_urls(words) };
+    let network = Network { support, hosts, urls: line_urls(words), reach };
     match program {
         "systemctl" => found.extend(systemctl(args)),
         "loginctl" => found.push(match verb(args, &[]) {
@@ -570,7 +577,7 @@ pub(super) fn classify(words: &[String], support: &AutoSupport, hosts: &HostList
             {
                 let mut inner = vec![module.clone()];
                 inner.extend(rest.iter().cloned());
-                found.extend(classify(&inner, support, hosts));
+                found.extend(classify(&inner, support, hosts, reach));
             }
         }
         "gem" => found.extend(match verb(args, &[]) {
@@ -950,6 +957,8 @@ struct Network<'a> {
     hosts: &'a HostList,
     /// The host and port of each URL of the command ([`line_urls`]).
     urls: Vec<(String, u16)>,
+    /// The forwarded ports of the conversation's running jobs ([`reaches_job`]).
+    reach: &'a [u16],
 }
 
 impl Network<'_> {
@@ -960,12 +969,21 @@ impl Network<'_> {
     /// the list allows or denies needs nothing, because the proxy decides it. A host
     /// that the proxy cannot serve ([`ProxyRoute::Open`]) gets the whole network. A
     /// line with no URL host has no exit.
+    ///
+    /// A URL of a forwarded port of the conversation's jobs ([`reaches_job`]) is no
+    /// network use: the call's reach helper serves it (DS43). A command whose every URL
+    /// is such a URL has no exit, with or without the proxy.
     fn host(&self) -> Option<Found> {
+        let urls: Vec<&(String, u16)> =
+            self.urls.iter().filter(|(host, port)| !reaches_job(self.reach, host, *port)).collect();
+        if urls.is_empty() && !self.urls.is_empty() {
+            return None;
+        }
         match self.support.egress {
             Egress::None => Some(open_network()),
             Egress::Proxy => {
                 let mut grants: Vec<Grant> = Vec::new();
-                for (host, port) in &self.urls {
+                for (host, port) in urls {
                     match proxy_route(self.hosts, host, *port) {
                         ProxyRoute::Listed | ProxyRoute::Denied => {}
                         ProxyRoute::Open => return Some(open_network()),
@@ -992,6 +1010,14 @@ impl Network<'_> {
             Egress::Proxy => Some(Found::remote_shell(host, steered)),
         }
     }
+}
+
+/// True when `host` and `port` name a forwarded port of the conversation's running jobs
+/// on loopback: `localhost`, `127.0.0.1` or `::1` (as [`host_and_port`] gives `[::1]`)
+/// with a port of `reach`. A contained call reaches it through its reach helper, so it
+/// needs no exit (DS43). The fact only predicts; the sandbox enforces.
+pub(super) fn reaches_job(reach: &[u16], host: &str, port: u16) -> bool {
+    reach.contains(&port) && matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 /// A `host` exit with the whole network for one call.

@@ -412,6 +412,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     // sandbox with the user's ssh agent and keys; a variable of the line, such as
     // `GIT_SSH_COMMAND` or `SSH_ASKPASS`, would choose the command that they run there.
     let ssh_env = segments.iter().any(|segment| programs::sets_ssh_env(&segment.words));
+    let reach = input.facts.map_or(&[][..], |facts| &facts.reach_ports[..]);
     let mut found = Found::default();
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
     let mut writes: Vec<(PathBuf, String)> = Vec::new();
@@ -477,7 +478,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     _ => Vec::new(),
                 }
             };
-            for mut exit in programs::classify(command, input.support, input.hosts) {
+            for mut exit in programs::classify(command, input.support, input.hosts, reach) {
                 if exit.kind == ExitKind::Outside && rustup && rustup_env {
                     exit.approver = Approver::User;
                 }
@@ -636,7 +637,16 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 | ExitKind::Outside
         )
     });
-    if input.network && !networked && input.support.egress == Egress::None {
+    // NOTE: a line whose every URL is a forwarded port of the conversation's jobs makes
+    // no network use (DS43); a line with no URL keeps the flag's exit.
+    let line_urls: Vec<(String, u16)> = segments
+        .iter()
+        .flat_map(|segment| programs::commands(&segment.words))
+        .flat_map(programs::line_urls)
+        .collect();
+    let reach_only = !line_urls.is_empty()
+        && line_urls.iter().all(|(host, port)| programs::reaches_job(reach, host, *port));
+    if input.network && !networked && !reach_only && input.support.egress == Egress::None {
         let mut need = ExitNeed::new(ExitKind::Host, input.line, ExitSource::Predicted);
         need.grants = vec![Grant::OpenNetwork];
         for segment in &segments {
@@ -652,7 +662,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     }
     if let Some(asked) = input.needs {
         let dir = start.as_deref();
-        let cx = needs::NeedsContext { support: input.support, hosts: input.hosts };
+        let cx = needs::NeedsContext { support: input.support, hosts: input.hosts, reach };
         for need in needs::exits(asked, &envelope, dir, input.facts, &made, &cx) {
             found.push(need);
         }
@@ -692,7 +702,8 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
 /// dropped: a host that is no host name in ASCII, and under efr's proxy a host that the
 /// allow list holds or the user's config denies (spec 7.3, DP21).
 pub fn notes(input: &ExitInput<'_>) -> Vec<String> {
-    let cx = needs::NeedsContext { support: input.support, hosts: input.hosts };
+    let reach = input.facts.map_or(&[][..], |facts| &facts.reach_ports[..]);
+    let cx = needs::NeedsContext { support: input.support, hosts: input.hosts, reach };
     input.needs.map(|asked| needs::host_notes(asked, &cx)).unwrap_or_default()
 }
 
@@ -980,7 +991,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
             let destroys =
-                programs::classify(command, &AutoSupport::default(), &HostList::default())
+                programs::classify(command, &AutoSupport::default(), &HostList::default(), &[])
                     .iter()
                     .any(|found| found.kind == ExitKind::Destructive);
             if destroys {

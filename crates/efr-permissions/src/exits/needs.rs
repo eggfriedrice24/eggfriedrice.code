@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
-use super::programs::{ProxyRoute, is_host_device, proxy_route};
+use super::programs::{ProxyRoute, is_host_device, proxy_route, reaches_job};
 use super::{Approver, ExitNeed, WriteFacts, write_need};
 use crate::jobs::service_socket;
 use crate::network::{HostList, host_and_port};
@@ -17,6 +17,8 @@ use crate::{AutoSupport, CallFacts, Egress};
 pub(super) struct NeedsContext<'a> {
     pub(super) support: &'a AutoSupport,
     pub(super) hosts: &'a HostList,
+    /// The forwarded ports of the conversation's running jobs (DS43).
+    pub(super) reach: &'a [u16],
 }
 
 /// The exits that `needs` asks for, each list cut at its limit. A write that the
@@ -57,6 +59,11 @@ pub(super) fn exits(
     }
     for word in needs.hosts.iter().take(Needs::MAX_HOSTS) {
         let Some((host, port)) = host_and_port(word) else { continue };
+        // NOTE: the call reaches a forwarded port of its jobs on loopback with no
+        // grant; [`host_notes`] tells the model.
+        if reaches_job(machine.reach, &host, port) {
+            continue;
+        }
         let grant = match support.egress {
             Egress::None => Grant::OpenNetwork,
             Egress::Proxy => match proxy_route(machine.hosts, &host, port) {
@@ -246,6 +253,10 @@ pub(super) fn host_notes(needs: &Needs, machine: &NeedsContext<'_>) -> Vec<Strin
                 let shown: String = word.trim().chars().take(NOTE_WORD_CHARS).collect();
                 format!("[efr: needs.hosts {shown:?} is not a host name, so efr ignored it.]")
             }
+            Some((host, port)) if reaches_job(machine.reach, &host, port) => format!(
+                "[efr: {host}:{port} is a forwarded port of a job of this conversation; a \
+                 contained call reaches it on 127.0.0.1 with no needs.hosts entry.]"
+            ),
             Some(_) if machine.support.egress == Egress::None => continue,
             Some((host, port)) => match proxy_route(machine.hosts, &host, port) {
                 ProxyRoute::Listed => format!(

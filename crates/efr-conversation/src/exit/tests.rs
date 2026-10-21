@@ -554,6 +554,7 @@ fn the_record_holds_the_line_the_facts_and_no_model_reason() {
         remotes: Vec::new(),
         refused_hosts: Vec::new(),
         real_paths: Vec::new(),
+        reach_ports: Vec::new(),
         git_code: None,
     };
     let requirements = shell("./build.sh > ~/notes/today.txt").with_needs(needs).with_facts(facts);
