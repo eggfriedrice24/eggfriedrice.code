@@ -195,8 +195,8 @@ and `D`, or the two sentinels):
   tool call that `RunRequest::call` named. The text is one line of at most
   `efr_protocol::InputRespond::MAX_TEXT_BYTES` bytes without control characters
   (U+0000 to U+001F, U+007F), else `InvalidAnswer`; the session's actor checks that
-  this call's command runs now (`NoCall` when no call's command runs: nothing was
-  typed, or the run was left at its timeout and its command goes on without a call;
+  this call's command runs now, also when its run was left at its timeout (`NoCall`
+  when no call's command runs: nothing was typed, or the run's caller went away;
   `NotWaiting` when another call's command runs or this call's command has not started
   yet), reads the foreground group and the modes, refuses (`NotWaiting`) while the
   shell's own group holds the terminal, while the run reports no wait, while the group
@@ -306,6 +306,17 @@ went on:
   watch closes the shell (`SIGHUP`, then `SIGKILL`); the next run starts a new shell. A
   process that the command moved to a session of its own with `setsid` survives that
   close, as it survives any close of a hidden shell.
+- `ShellSessions::answer` reaches the command left running of the call that its run
+  named, with every check of an answer to a running call; a manual answer
+  (`answer_manual`) reaches only a call that runs. While another run is active, such as
+  a sentinel run typed into a shell that the command started, the command takes no
+  answer.
+- `ShellSessions::interrupt_left(conversation, call, close)` stops it as the user asks:
+  `SIGINT` to the job whose wait was reported, or that the last look saw, only while
+  that job holds the terminal; with no such job known, to the job in the foreground,
+  only when that is not the shell itself (else `NotWaiting`, and nothing is signalled).
+  With `close` it closes the shell, for a command that ignores `SIGINT`. The end is then
+  `stopped` or `closed`. `NoCall` when the call's command no longer runs.
 
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:

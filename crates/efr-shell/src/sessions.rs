@@ -12,7 +12,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use efr_holder::{PtyHandle, Signal, SignalTarget, Size, SpawnSpec};
-use efr_protocol::{ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText};
+use efr_protocol::{
+    ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText, ShellCommandEnd,
+};
 use efr_screen::ScreenHandle;
 use efr_stdx::StdxError;
 use efr_stdx::time::{Clock as _, Sleep};
@@ -303,6 +305,64 @@ impl ShellSessions {
         let (reply, answered) = oneshot::channel();
         session.send(Msg::Answer { call, text: text.clone(), hidden, manual, reply }).await?;
         answered.await.map_err(|_| session.exited())?
+    }
+
+    /// Stops the command left running of `call` in the conversation's shell, as the user
+    /// asks. Without `close`, it sends `SIGINT` to the job whose wait was reported, or
+    /// that the last look saw, only while that job holds the terminal; with no such
+    /// job known, to the job in the terminal's foreground, only when that is not the
+    /// shell itself. With `close`, it closes the shell (`SIGHUP`, then `SIGKILL` after
+    /// the close grace), for a command that ignores `SIGINT`; the next run starts a new
+    /// shell. The command's end is then `stopped` or `closed`.
+    ///
+    /// It fails with [`ShellError::NoShell`] or [`ShellError::NoCall`] when no command
+    /// of that call goes on, and with [`ShellError::NotWaiting`] when its job does not
+    /// hold the terminal or the shell itself does; then nothing is signalled.
+    pub async fn interrupt_left(
+        &self,
+        conversation: ConversationId,
+        call: CallId,
+        close: bool,
+    ) -> Result<(), ShellError> {
+        let session = self.existing(conversation)?;
+        let deps = &self.inner.deps;
+        let how = if close { ShellCommandEnd::Closed } else { ShellCommandEnd::Stopped };
+        let (reply, target) = oneshot::channel();
+        session.send(Msg::Stop { call, how, reply }).await?;
+        let target = target.await.map_err(|_| session.exited())??;
+        if close {
+            return session.close(&*deps.holder, &*deps.clock, self.inner.config.close_grace).await;
+        }
+        let refused = |reason| ShellError::NotWaiting { conversation, reason };
+        let terminal = |source| ShellError::Terminal { conversation, source };
+        // NOTE: the group is read right before the signal, as for the stop of an
+        // unanswered hidden wait: the job may have ended, and zsh in its precmd hooks,
+        // or a command that a later hook started, holds the terminal then.
+        let allowed = match target.group {
+            Some(group) => match session.terminal.holds(group) {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(refused("the command's job does not hold the terminal")),
+                Err(source) => Err(terminal(source)),
+            },
+            None => match session.terminal.job() {
+                Ok(Some(_)) => Ok(()),
+                Ok(None) => Err(refused("the shell itself holds the terminal")),
+                Err(source) => Err(terminal(source)),
+            },
+        };
+        let signalled = match allowed {
+            Ok(()) => deps
+                .holder
+                .signal(session.pty_id, Signal::Interrupt, SignalTarget::ForegroundGroup)
+                .await
+                .map_err(|source| ShellError::Holder { conversation, source }),
+            Err(error) => Err(error),
+        };
+        if signalled.is_err() {
+            // The command goes on, and its end is no stop.
+            let _ = session.send(Msg::Stopping { id: target.id, how: None }).await;
+        }
+        signalled
     }
 
     /// Writes raw input to the conversation's shell, as `pty.write` does for an

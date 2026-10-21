@@ -73,6 +73,13 @@ pub(crate) enum Msg {
     /// The command of run `id`, left running, is being stopped for `how`; `None` takes
     /// that back, when the stop did not go out.
     Stopping { id: u64, how: Option<ShellCommandEnd> },
+    /// Mark the command left running of `call` as being stopped for `how`, and tell what
+    /// to signal.
+    Stop {
+        call: CallId,
+        how: ShellCommandEnd,
+        reply: oneshot::Sender<Result<StopTarget, ShellError>>,
+    },
     /// Type `text` for the running command of `call`, if it waits for such input, or,
     /// with `manual`, if the job that the last look saw holds the terminal. `Debug` shows no text:
     /// `SecretText` hides it.
@@ -155,6 +162,19 @@ pub(crate) struct Answerable {
     pub(crate) looked: Option<u32>,
     /// The command runs in the auto mode's sandbox, which no hidden answer reaches.
     pub(crate) contained: bool,
+    /// The command was left running at its run's timeout; only an answer to a wait
+    /// that a look reported reaches it, never a manual one.
+    pub(crate) left: bool,
+}
+
+/// What a stop of a command left running signals: the job whose wait was reported, or
+/// the one that the last look saw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StopTarget {
+    /// The run's id.
+    pub(crate) id: u64,
+    /// The process group of that job; `None` when no look saw one.
+    pub(crate) group: Option<u32>,
 }
 
 /// Which run a [`Check`] belongs to.
@@ -239,8 +259,13 @@ struct Orphan {
     /// The command runs in the auto mode's sandbox.
     contained: bool,
     approved_by: Option<ApprovedBy>,
+    /// Which waits the run reports.
+    offer: Offer,
     /// The wait that the run reported last, with the process group of its job.
     waiting: Option<Waiting>,
+    /// The process group in the terminal's foreground at the last look while the
+    /// command ran.
+    looked: Option<u32>,
     /// The cursor's row of the screen at the last change of the wait.
     prompt: String,
     /// How many answers were typed for the run.
@@ -263,7 +288,9 @@ impl Orphan {
             command: active.command,
             started: active.since,
             approved_by: active.approved_by,
+            offer: active.offer,
             waiting: active.waiting,
+            looked: active.looked,
             prompt: active.prompt,
             answers: active.answers,
             stopping: None,
@@ -586,11 +613,15 @@ impl SessionCore {
     /// another way. While the command runs, the job's group is kept as the one a manual
     /// answer may reach.
     pub(crate) fn probe(&mut self, id: u64, job: Option<Job>) -> Option<Probe> {
-        if let Some(orphan) = self.orphan.as_ref().filter(|orphan| orphan.id == id && orphan.left) {
+        let busy = self.active.is_some();
+        if let Some(orphan) = self.orphan.as_mut().filter(|orphan| orphan.id == id && orphan.left) {
             // NOTE: while a run is active, such as a sentinel run typed into a shell that
             // the command started, the terminal is that run's: a wait there is its wait.
-            let job = job.filter(|_| self.active.is_none());
+            let job = job.filter(|_| !busy);
             let running = orphan.machine.running();
+            if running {
+                orphan.looked = job.map(|job| job.group);
+            }
             let answers = orphan.answers;
             return Some(Probe { running, last_output: self.last_output, job, answers });
         }
@@ -642,6 +673,28 @@ impl SessionCore {
     /// answer to it is checked against.
     pub(crate) fn answerable(&self, call: CallId) -> Result<Answerable, ShellError> {
         let conversation = self.conversation;
+        if let Some(orphan) =
+            self.orphan.as_ref().filter(|orphan| orphan.left && orphan.call == Some(call))
+        {
+            // A run that is active, such as a sentinel run typed into a shell that the
+            // command started, holds the terminal.
+            if self.active.is_some() {
+                return Err(ShellError::NotWaiting { conversation, reason: "another call runs" });
+            }
+            if !orphan.machine.running() {
+                return Err(ShellError::NotWaiting {
+                    conversation,
+                    reason: "the command does not run now",
+                });
+            }
+            return Ok(Answerable {
+                waiting: orphan.waiting,
+                offer: orphan.offer,
+                looked: orphan.looked,
+                contained: orphan.contained,
+                left: true,
+            });
+        }
         let Some(active) = &self.active else {
             return Err(ShellError::NoCall { conversation });
         };
@@ -659,14 +712,37 @@ impl SessionCore {
             offer: active.offer,
             looked: active.looked,
             contained: active.machine.contained(),
+            left: false,
         })
     }
 
-    /// An answer was typed for the active run.
-    pub(crate) fn answered(&mut self) {
-        if let Some(active) = &mut self.active {
+    /// An answer was typed for the command of `call`.
+    pub(crate) fn answered(&mut self, call: CallId) {
+        if let Some(orphan) =
+            self.orphan.as_mut().filter(|orphan| orphan.left && orphan.call == Some(call))
+        {
+            orphan.answers = orphan.answers.saturating_add(1);
+        } else if let Some(active) = &mut self.active {
             active.answers = active.answers.saturating_add(1);
         }
+    }
+
+    /// Marks the command left running of `call` as being stopped for `how`; tells what
+    /// to signal. [`ShellError::NoCall`] when no command of that call goes on.
+    pub(crate) fn stop(
+        &mut self,
+        call: CallId,
+        how: ShellCommandEnd,
+    ) -> Result<StopTarget, ShellError> {
+        let conversation = self.conversation;
+        let orphan = self
+            .orphan
+            .as_mut()
+            .filter(|orphan| orphan.left && orphan.call == Some(call))
+            .ok_or(ShellError::NoCall { conversation })?;
+        orphan.stopping = Some(how);
+        let group = orphan.waiting.map(|waiting| waiting.group).or(orphan.looked);
+        Ok(StopTarget { id: orphan.id, group })
     }
 
     /// The first marked prompt did not come in time.
@@ -1160,6 +1236,9 @@ impl SessionActor {
                 }
                 Msg::Waiting { id, waiting, prompt } => self.core.waiting(id, waiting, prompt),
                 Msg::Stopping { id, how } => self.core.stopping(id, how),
+                Msg::Stop { call, how, reply } => {
+                    let _ = reply.send(self.core.stop(call, how));
+                }
                 Msg::Answer { call, text, hidden, manual, reply } => {
                     let typed = answer(&mut self.core, &self.terminal, call, &text, hidden, manual);
                     let _ = reply.send(typed);
@@ -1255,6 +1334,9 @@ fn answer(
         input::check_contained(run.waiting, hidden, manual).map_err(refused)?;
     }
     if manual {
+        if run.left {
+            return Err(refused("a manual answer reaches only a call that runs"));
+        }
         input::check_manual(run.offer).map_err(refused)?;
     }
     let job = terminal.job().map_err(|source| ShellError::Terminal { conversation, source })?;
@@ -1277,7 +1359,7 @@ fn answer(
     terminal
         .write_line(text.expose_secret())
         .map_err(|source| ShellError::Terminal { conversation, source })?;
-    core.answered();
+    core.answered(call);
     Ok(())
 }
 

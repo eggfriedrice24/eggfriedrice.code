@@ -1113,9 +1113,11 @@ async fn the_timeout_ends_a_wait() {
     let result = run.await.unwrap().unwrap();
     assert_eq!(result.completion, Completion::Interactive);
     assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
-    // The call is over: its answers no longer reach the command.
+    // The call is over, but its command was left running at the same wait: an answer
+    // for the call still reaches it.
     let late = harness.sessions.answer(conversation(1), call(), &SecretText::new("pw"), true).await;
-    assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
+    assert!(late.is_ok(), "{late:?}");
+    assert_eq!(terminal.typed_line().await, b"pw\r");
 }
 
 #[tokio::test]
