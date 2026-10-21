@@ -18,9 +18,13 @@
 //! password: a call's sink says yes while the conversation has a live subscription
 //! with `answers_input` (see `connections.rs`), so a command that asks for a password
 //! while nobody who can type it follows the turn is stopped at once instead of waiting
-//! for its timeout. The same subscriptions keep a call that the user approved because it
-//! may wait for input running past the model's timeout, up to
-//! `shell.interactive_timeout_minutes`, while one of them follows the conversation.
+//! for its timeout. The same subscriptions keep a call outside the sandbox whose line may
+//! ask at the terminal running past the model's timeout, and any call whose command
+//! waits for input at its timeout, up to `shell.interactive_timeout_minutes`, while one
+//! of them follows the conversation. A command that still runs at the end of its call
+//! stays in the hidden shell: the next call fails at once while it waits for input
+//! (`not_ready_text` names it), [`Toolbox::busy_shell`] tells the turn's preamble, and
+//! the shells hear the same count for its waits (`shells.rs`).
 //!
 //! Before any call runs, it copies the targets of the call's approved exits
 //! ([`ExitNeed::copies`](efr_permissions::ExitNeed::copies)) into the home store of
@@ -58,9 +62,9 @@ use efr_shell::{ShellError, ShellSessions};
 use efr_snapshot::HomeState;
 use efr_stdx::time::{Clock, Stopwatch};
 use efr_tools::{
-    AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, ReadFileTool, ShellTool,
+    AccessMode, ApplyPatchTool, CallIds, EditTool, JournalEntry, NotReady, ReadFileTool, ShellTool,
     ToolContext, ToolError, ToolOutputSink, ToolRegistry, ToolRequirements, ToolResult, ToolSpec,
-    WriteFileTool, WriteJournal, WrittenKind, blocked_note, bus_note, not_ready_message,
+    WriteFileTool, WriteJournal, WrittenKind, blocked_note, bus_note, not_ready_text,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -383,6 +387,17 @@ impl DaemonToolbox {
         .with_forget_credentials(self.forgets_credentials() || call.is_full())
         .with_forget_before(call.is_full())
         .with_interactive_limit(self.interactive_limit(call))
+        .with_input_limit(Some(self.input_limit()))
+        .with_approved_by(call.approved_by)
+    }
+
+    /// How long any command may run past the model's timeout while it waits for input
+    /// and someone who can answer follows it, and how long a command left running in the
+    /// hidden shell may wait for input: `shell.interactive_timeout_minutes` of the latest
+    /// settings, so a change reaches the next call.
+    fn input_limit(&self) -> Duration {
+        let minutes = self.settings.borrow().shell.interactive_timeout_minutes;
+        Duration::from_secs(minutes.saturating_mul(60))
     }
 
     /// How long a call outside the sandbox whose line may ask at the terminal may run
@@ -392,6 +407,38 @@ impl DaemonToolbox {
     fn interactive_limit(&self, call: &CallContext) -> Option<Duration> {
         let minutes = self.settings.borrow().shell.interactive_timeout_minutes;
         call.may_wait.then(|| Duration::from_secs(minutes.saturating_mul(60)))
+    }
+
+    /// What holds the conversation's hidden shell when a call found it not free: the
+    /// command that an earlier call left running there, from the shell's live state, so
+    /// the model reads its line and whether it waits.
+    fn not_ready(&self, conversation: ConversationId, error: &ShellError) -> NotReady {
+        if matches!(error, ShellError::NotReady { fresh: true, .. }) {
+            return NotReady::Fresh;
+        }
+        let left = self.shells.busy(conversation);
+        if let ShellError::HeldBy { command, waiting, .. } = error {
+            // NOTE: a wait for a secret of a contained command never stays (DS50), so
+            // only a command outside the sandbox may wait for a password here.
+            let (contained, looks_secret) =
+                left.as_ref().map_or((false, false), |left| (left.contained, left.looks_secret));
+            let secret = !contained && (*waiting == InputWait::Hidden || looks_secret);
+            // NOTE: in `auto` the model has no nested shell to type into.
+            return NotReady::Waiting {
+                command: command.clone(),
+                input: *waiting,
+                secret,
+                nested: false,
+            };
+        }
+        match left {
+            Some(left) => {
+                let ran = Duration::try_from(self.clock.now().duration_since(left.since))
+                    .unwrap_or_default();
+                NotReady::Running { command: left.command, ran }
+            }
+            None => NotReady::Held,
+        }
     }
 
     /// True when the latest settings make the hidden shell forget sudo's credentials
@@ -729,8 +776,8 @@ impl DaemonToolbox {
         if let Some(timeout) = timeout
             && let Err(error) = free
         {
-            let fresh = matches!(error, ShellError::NotReady { fresh: true, .. });
-            return ToolOutcome::error(not_ready_message(fresh, timeout));
+            let held = self.not_ready(call.context.conversation_id, &error);
+            return ToolOutcome::error(not_ready_text(held, timeout));
         }
         let input = PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view };
         let watch = Stopwatch::start();
@@ -1559,6 +1606,10 @@ impl Toolbox for DaemonToolbox {
             .flatten()
     }
 
+    async fn busy_shell(&self, conversation_id: ConversationId) -> Option<efr_protocol::BusyShell> {
+        self.shells.busy(conversation_id).and_then(busy_shell)
+    }
+
     async fn background_jobs(&self, conversation_id: ConversationId) -> Vec<efr_protocol::JobInfo> {
         let Some(jobs) = &self.jobs else { return Vec::new() };
         match jobs.list(Some(conversation_id)).await {
@@ -1820,8 +1871,9 @@ impl ToolOutputSink for CallSink<'_> {
     }
 
     fn can_answer(&mut self) -> bool {
-        // NOTE: asked once per quiet period past the timeout of an approved interactive
-        // call, so the call answers the model soon after the last client goes away.
+        // NOTE: asked once per quiet period past the timeout of a call that may wait, or
+        // whose command waits for input, so the call answers the model soon after the
+        // last client goes away.
         self.connections.answerers(self.conversation_id) > 0
     }
 }
@@ -1874,6 +1926,31 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     requirements
 }
 
+/// A command left running in a hidden shell as the wire tells it; `None` for one that
+/// no call left, which no client can answer or stop.
+pub(crate) fn busy_shell(left: efr_shell::LeftRunning) -> Option<efr_protocol::BusyShell> {
+    let efr_shell::LeftRunning {
+        call,
+        command,
+        since,
+        contained,
+        input,
+        looks_secret,
+        prompt,
+        approved_by,
+    } = left;
+    Some(efr_protocol::BusyShell {
+        call_id: call?,
+        command,
+        since,
+        contained,
+        input,
+        looks_secret,
+        prompt,
+        approved_by,
+    })
+}
+
 /// A tool result as the conversation records it.
 pub(crate) fn outcome(result: ToolResult) -> ToolOutcome {
     let base = if result.is_error {
@@ -1884,6 +1961,7 @@ pub(crate) fn outcome(result: ToolResult) -> ToolOutcome {
     base.with_truncated(result.truncated)
         .with_exit_code(result.exit_code)
         .with_sandbox(result.sandbox)
+        .with_left_running(result.left_running)
 }
 
 /// A tool error with its causes, for the model: the reason a file could not be read
