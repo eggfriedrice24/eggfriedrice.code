@@ -638,9 +638,9 @@ into the GitHub release notes, and it stops when the section is missing.
 ### Security
 
 - Before an approved outside `git push`, `git fetch`, `git pull`, `git send-email`, or a
-  `gh` command that runs git, efr checks the repository's git code and that of its submodules: hooks,
-  `core.sshCommand`, transport URLs and the other settings that run programs, and the
-  programs that they run. When a sandboxed command can write one of them, or efr could
+  `gh` command that runs git, efr checks the repository's git code and that of its
+  submodules: hooks, `core.sshCommand`, transport URLs and the other settings that run
+  programs, and the programs that they run. When a sandboxed command can write one of them, or efr could
   not check them, only you can approve, and the question names the file. efr checks
   again right before the command runs. git options that choose the code that git runs
   (`-c`, `--exec-path`, `--receive-pack`, `--upload-pack` and others) also ask only
