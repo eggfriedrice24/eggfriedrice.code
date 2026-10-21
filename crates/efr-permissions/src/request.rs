@@ -48,6 +48,12 @@ pub struct Requirements {
     pub network: bool,
     /// True when the call may wait for input at the terminal, such as a `sudo` prompt.
     pub interactive: bool,
+    /// True when the call may ask for a password or a question at the terminal through
+    /// a program that [`interactive`](Self::interactive) does not cover, such as `rsync`
+    /// to another host or `git` over ssh (the soft flag). The engine gives it no reason;
+    /// the check point reads it for how long the call may run and for the question's
+    /// text.
+    pub may_prompt: bool,
     /// The change of efr's own settings that the call makes, which only the settings
     /// tool declares. It asks in every mode and is denied for a remote origin, whatever
     /// the rules say.
@@ -124,6 +130,13 @@ impl Requirements {
     /// Marks the call as one that may wait for input at the terminal.
     pub fn with_interactive(mut self) -> Self {
         self.interactive = true;
+        self
+    }
+
+    /// Marks the call as one that may ask for a password or a question through a
+    /// program that [`interactive`](Self::interactive) does not cover.
+    pub fn with_may_prompt(mut self) -> Self {
+        self.may_prompt = true;
         self
     }
 

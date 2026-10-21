@@ -39,6 +39,8 @@ struct Line {
     network: bool,
     #[serde(default)]
     interactive: bool,
+    #[serde(default)]
+    may_prompt: bool,
 }
 
 #[test]
@@ -72,6 +74,7 @@ fn the_shell_tool_declares_what_the_auto_corpus_says() {
             paths(AccessMode::Write),
             declared.network,
             declared.interactive,
+            declared.may_prompt,
         );
         let fixture = (
             line.reads.clone(),
@@ -79,6 +82,7 @@ fn the_shell_tool_declares_what_the_auto_corpus_says() {
             line.writes.clone(),
             line.network,
             line.interactive,
+            line.may_prompt,
         );
         assert_eq!(found, fixture, "line {} {text:?}", line.n);
         checked += 1;

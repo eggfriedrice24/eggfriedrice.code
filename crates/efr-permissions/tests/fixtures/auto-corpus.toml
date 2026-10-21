@@ -65,7 +65,7 @@
 #               file that did not change in the turn
 #   exits       every exit kind that the engine predicts in phase A, in any order; a
 #               line whose `pb` is R has none in phase B, and any other line the same
-#   reads, trees, writes, network, interactive
+#   reads, trees, writes, network, interactive, may_prompt
 #               what the shell tool declares for the line
 #   missing, dirs, files, tracked
 #               the facts that the daemon collects: paths that do not exist, that are
@@ -541,6 +541,7 @@ pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/fetch", "/home/u/p/efr/origin"]
 network = true
+may_prompt = true
 
 [[line]]
 n = 28
@@ -552,6 +553,7 @@ pd2 = "R"
 exits = ["host"]
 reads = ["/home/u/p/efr/pull"]
 network = true
+may_prompt = true
 
 [[line]]
 n = 29
@@ -933,6 +935,7 @@ pb = "N(upload)"
 exits = ["upload"]
 reads = ["/home/u/p/efr/push", "/home/u/p/efr/origin", "/home/u/p/efr/main"]
 network = true
+may_prompt = true
 remotes = ["origin=github.com"]
 
 [[line]]
@@ -1046,6 +1049,7 @@ pb = "N(upload)"
 exits = ["upload"]
 reads = ["/home/u/p/efr/build.tar", "/home/u/p/efr/user@host:/tmp", "/tmp"]
 network = true
+may_prompt = true
 
 [[line]]
 n = 65
@@ -1056,6 +1060,7 @@ pb = "N(upload)"
 exits = ["upload"]
 reads = ["/home/u/p/efr/push", "/home/u/p/efr/https:/new-remote.example/x", "/home/u/p/efr/main"]
 network = true
+may_prompt = true
 
 [[line]]
 n = 66
@@ -1097,6 +1102,7 @@ pb = "N(upload)"
 exits = ["upload"]
 reads = ["/home/u/p/app", "/home/u/p/efr/remote:backup", "/home/u/p/efr/backup"]
 network = true
+may_prompt = true
 
 [[line]]
 n = 70
@@ -1561,6 +1567,7 @@ pb = "N(upload)"
 exits = ["upload"]
 reads = ["/home/u/p/efr/push", "/home/u/p/efr/https:/new-remote.example/x", "/home/u/p/efr/main"]
 network = true
+may_prompt = true
 
 [[line]]
 n = 108

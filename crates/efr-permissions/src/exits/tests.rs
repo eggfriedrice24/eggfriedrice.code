@@ -223,3 +223,30 @@ fn the_hosts_of_a_command_come_from_its_urls_and_remotes(
 fn mount_view_line_finds_df_findmnt(#[case] line: &str, #[case] expected: bool) {
     assert_eq!(super::mount_view_line(line), expected, "{line:?}");
 }
+
+/// The operands of `rsync` that are on another host, and those that are not.
+// NOTE: the same rows as in `efr-tools/src/shell_tool/prompts/tests.rs`, whose copy of
+// `is_remote` gives the soft flag; a change here changes both.
+const REMOTE_ROWS: &[(&str, bool)] = &[
+    ("host:path", true),
+    ("user@host:path", true),
+    ("u@h:", true),
+    ("host::module", true),
+    ("rsync://host/module", true),
+    ("eggfriedrice@t:.config/Slack", true),
+    ("./a:b", false),
+    ("/abs/a:b", false),
+    ("dir/a:b", false),
+    (":path", false),
+    ("plain", false),
+    ("-e", false),
+    ("--rsh=ssh:x", false),
+    ("", false),
+];
+
+#[test]
+fn remote_rows_match_the_classifier() {
+    for (operand, remote) in REMOTE_ROWS {
+        assert_eq!(super::programs::is_remote(operand), *remote, "{operand:?}");
+    }
+}

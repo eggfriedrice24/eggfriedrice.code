@@ -200,6 +200,12 @@ pub struct ToolRequirements {
     /// True when the call may wait for input at the terminal, such as a `sudo`
     /// password.
     pub interactive: bool,
+    /// True when the call may ask for a password or a question at the terminal through
+    /// a program that `interactive` does not cover, such as `rsync` to another host,
+    /// `scp` or `git` over ssh (the soft flag). It adds no permission reason and does not
+    /// refuse a job: it lets a call outside the sandbox run past the model's timeout
+    /// while a person who can answer follows the turn.
+    pub may_prompt: bool,
     /// What the model asks for beyond the `auto` sandbox (the shell tool's `needs`).
     /// Only the `auto` mode reads it.
     pub needs: Option<Needs>,
@@ -313,6 +319,14 @@ impl ToolRequirements {
         self
     }
 
+    /// Sets whether the call may ask for a password or a question through a program
+    /// that `interactive` does not cover.
+    #[must_use]
+    pub fn with_may_prompt(mut self, may_prompt: bool) -> Self {
+        self.may_prompt = may_prompt;
+        self
+    }
+
     /// Sets what the model asks for beyond the `auto` sandbox.
     #[must_use]
     pub fn with_needs(mut self, needs: Option<Needs>) -> Self {
@@ -371,6 +385,7 @@ impl fmt::Debug for ToolRequirements {
             .field("command_dir", &self.command_dir)
             .field("network", &self.network)
             .field("interactive", &self.interactive)
+            .field("may_prompt", &self.may_prompt)
             .field("needs", &self.needs)
             .field("nested", &self.nested)
             .field("timeout", &self.timeout)

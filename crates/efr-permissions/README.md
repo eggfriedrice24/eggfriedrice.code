@@ -75,7 +75,10 @@ Modules:
   forms.
 - `request`: `DecisionInput`, `Requirements` (paths with `Access`: `Read`, `ReadTree`
   for a path read with everything below it, or `Write`; a command line and the
-  directory it starts in; network; interactive; a `SettingsChange`, which only the
+  directory it starts in; network; interactive; `may_prompt`, the soft flag of a line
+  that may ask for a password through ssh, which gives no reason and which the check
+  point reads for the call's time limit and the question's text; a
+  `SettingsChange`, which only the
   daemon's settings tool declares; `destructive`, for a call that deletes or moves a
   file (a delete or a move of `apply_patch`); the shell tool's `needs` and
   `nested_shell`; and

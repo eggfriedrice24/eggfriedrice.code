@@ -1952,7 +1952,10 @@ fn host_of(word: &str) -> Option<String> {
 
 /// True for an `rsync` operand on another host: `host:path`, `user@host:path` or
 /// `rsync://`.
-fn is_remote(arg: &str) -> bool {
+// NOTE: `efr-tools/src/shell_tool/prompts.rs` has a copy for its soft flag, since that
+// crate cannot name this one; `remote_rows_match_the_classifier` in both crates holds
+// the same rows.
+pub(super) fn is_remote(arg: &str) -> bool {
     if arg.starts_with('-') {
         return false;
     }
