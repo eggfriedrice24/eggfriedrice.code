@@ -14,6 +14,7 @@ mod git_code;
 mod jobs;
 mod jobs_guard;
 mod mount_view;
+mod moved;
 mod netview;
 mod proxy;
 mod reach;

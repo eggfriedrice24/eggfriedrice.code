@@ -15,7 +15,7 @@
 //! machine. Their dirs stay below the target dir, not below /tmp, which the sandbox
 //! replaces with its own.
 
-mod registry;
+pub(super) mod registry;
 
 use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
@@ -43,7 +43,7 @@ use crate::jobs_wake::{REVIEWER_ASKS, Recorder, turn};
 use crate::support::zsh_enabled;
 
 /// The test names and the loopback address of the server behind each.
-const REGISTRY: (&str, &str) = ("registry.test", "127.0.0.2");
+pub(super) const REGISTRY: (&str, &str) = ("registry.test", "127.0.0.2");
 const GIT: (&str, &str) = ("git.test", "127.0.0.3");
 
 /// The test's own environment variable `name`.
@@ -80,24 +80,24 @@ fn script(path: &Path, body: &str) {
 
 /// True when `test` can run: zsh and the real launcher are there. Else it says
 /// `skipped:` once, before the test makes its CA and servers.
-fn can_run(test: &str) -> bool {
+pub(super) fn can_run(test: &str) -> bool {
     zsh_enabled(test) && real_launcher(test).is_some()
 }
 
 /// What a test gives the daemon of [`proxy_daemon`].
-struct Options<'a> {
+pub(super) struct Options<'a> {
     /// The tools that must be on the hidden shell's `PATH`.
     tools: &'a [&'a str],
     /// The proxy's test names and their servers.
-    hosts: Vec<(&'a str, SocketAddr)>,
+    pub(super) hosts: Vec<(&'a str, SocketAddr)>,
     /// `network.allow`.
-    allow: Vec<String>,
+    pub(super) allow: Vec<String>,
     /// More variables of the hidden shell, which win over the defaults.
     env: BTreeMap<String, String>,
 }
 
 impl<'a> Options<'a> {
-    fn new(tools: &'a [&'a str]) -> Self {
+    pub(super) fn new(tools: &'a [&'a str]) -> Self {
         Options { tools, hosts: Vec::new(), allow: Vec::new(), env: BTreeMap::new() }
     }
 }
@@ -107,7 +107,7 @@ impl<'a> Options<'a> {
 /// `skipped:` line without zsh, the launcher or one of the tools, or when the probe
 /// says that the sandbox is unavailable. The probe's proxy self-test must pass on a
 /// machine where the sandbox is ready.
-async fn proxy_daemon(
+pub(super) async fn proxy_daemon(
     test: &str,
     dirs: &Arc<TestDirs>,
     model: Arc<dyn Provider>,
