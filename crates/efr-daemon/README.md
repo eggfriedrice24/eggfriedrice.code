@@ -1032,6 +1032,51 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   forwarded ports (`reach::fact`); when the line names a loopback port that is not
   forwarded yet and a job of the conversation began to forward less than 3 s ago, efrd
   first waits for that port up to the rest of the 3 s on its clock.
+- A call moved into a job (`call.background`, Ctrl+B in `efr`; v0.0.4 shell items
+  DS15-DS33 and DS53-DS56, with the user's change of OQS2). The tool path registers
+  each foreground `shell` call while it runs (`jobs/moves.rs`, `Moves::register`, from
+  `tools/moves.rs`), with the requirements and facts that the turn judged
+  (`DaemonToolbox::requirements` keeps them per call until the call answers). The
+  handler (`methods/call_background.rs`, scope `terminal`, so never the phone or a
+  model-side peer) refuses with `invalid` and the reason alone as the message: the call
+  does not run, `jobs.enabled` is false, no free place, the hard `interactive` flag, a
+  nested shell, a contained call whose plan holds the cache layer lock (an existing
+  cache with a private layer: the `overlay` mode, or `tmp` with `keep_downloads`), or a
+  job decision of the line (`moves::check`: the engine of the key press with
+  `Requirements::background` and the default time limit) that denies it (`this cannot
+  run as a job` for `NotAsJob`). A contained call moves at once. A call outside the
+  sandbox (the exit child, a line typed into the hidden shell, full mode) first gets a
+  `preview` with a token, the line, the limit and one `ExitInfo` with the kinds and the
+  reasons of the job decision; only a confirm with that token within 60 s and the same
+  exits moves it. The move: efrd makes `$CALL/moved` (`O_CREAT | O_EXCL`, 0600) for a
+  call through the launcher, reserves the place, puts it with the receiver of the
+  adopted run in the call's entry and calls `ShellSessions::request_move`; a refusal of
+  efr-shell (the command did not start, a sentinel run, a shell or REPL, an input wait,
+  a full-screen program) removes the file and frees the place. The run answers its call
+  with `Completion::Moved`; the tool path, which still holds the call's proxy, bus,
+  reach and snapshot, takes the adopted run: the reach helper gets `Unreach` for every
+  port and the reach ends (`ReachCall::unreach_all`), the git roots of a contained call
+  stay counted until its `result.json`, and `JobTable::adopt` records `job_started`
+  (with `moved_from`, the shell's pid and start time as the launcher's) before the
+  call answers with the output so far and `job_moved_text`, with no exit code. The
+  handler waits up to 10 s on efrd's clock for the job, marks the old PTY adopted
+  (`Ptys::adopt`: `pty.write` and `pty.resize` with it get `not_found`, the idle
+  collector skips it) and answers `moved`.
+- The job of a moved call (`JobProcess::Adopted`): its time limit is
+  `jobs.default_minutes` cut to `jobs.max_minutes`, from the move; its proxy socket and
+  bus filters live in its entry; it has no state dir, no lifeline, no forwards and no
+  guard while it runs (only the launcher's end guard). Its output file starts with the
+  output so far, then the rest as plain text from the shell's tee. A stop sends
+  `SIGINT` to the shell's foreground job and closes the shell when the command did not
+  end within 6 s. At the end efrd kills every process below the shell
+  (`sweep::kill_descendants`, by the parent of each in `/proc`, through a pidfd; the
+  shell is a child subreaper, so a `setsid` child stays below it), closes the shell and
+  sweeps its session. A call through the launcher takes its `result.json` from the
+  call's dir and removes only that dir; a line typed into the shell takes the exit
+  status of its `D` mark and is never `launcher_lost`. A wait for a password that
+  efr-shell stopped in the job adds a note to the notice. The shell's end closes its
+  recording and records no `shell_exited`. At start, a moved job of the last efrd reads
+  its result in the call's dir and gets no guard check of a job.
 
 ### The reviewer, presence and the home store
 

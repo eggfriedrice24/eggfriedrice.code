@@ -25,6 +25,7 @@ mod input_respond;
 mod interrupt;
 mod jobs;
 mod jobs_forward;
+mod jobs_moved;
 mod jobs_undo;
 mod jobs_wake;
 mod login;

@@ -42,6 +42,8 @@ pub(crate) struct Process {
     pub(crate) name: String,
     /// The state letter, such as `S`, `T` or `Z`.
     pub(crate) state: char,
+    /// The parent's pid.
+    pub(crate) parent: u32,
     pub(crate) session: u32,
     /// The start time in clock ticks after boot.
     pub(crate) start: u64,
@@ -53,12 +55,13 @@ pub(crate) fn parse_stat(pid: u32, stat: &str) -> Option<Process> {
     let close = stat.rfind(')')?;
     let name = stat.get(open + 1..close)?.to_owned();
     let fields: Vec<&str> = stat.get(close + 1..)?.split_whitespace().collect();
-    // NOTE: the fields after the name start with the state (field 3); the session is
-    // field 6 and the start time field 22.
+    // NOTE: the fields after the name start with the state (field 3); the parent is
+    // field 4, the session field 6 and the start time field 22.
     let state = fields.first()?.chars().next()?;
+    let parent = fields.get(1)?.parse().ok()?;
     let session = fields.get(3)?.parse().ok()?;
     let start = fields.get(19)?.parse().ok()?;
-    Some(Process { pid, name, state, session, start })
+    Some(Process { pid, name, state, parent, session, start })
 }
 
 /// The process `pid` below `proc_root`, or `None` when it is gone.
@@ -85,6 +88,79 @@ pub(crate) fn members(proc_root: &Path, session: u32) -> Vec<Process> {
         .filter_map(|pid| process(proc_root, pid))
         .filter(|process| process.session == session && process.state != 'Z')
         .collect()
+}
+
+/// Every live process below `proc_root` that descends from `pid`, by the parent of
+/// each, parents before children; `pid` itself is not in the list. A hidden shell is a
+/// child subreaper, so every process that a command of it left behind stays below it,
+/// also one that called `setsid`, and one in a pid namespace of its own: `/proc` of
+/// efrd's namespace names each by its pid there.
+pub(crate) fn descendants(proc_root: &Path, pid: u32) -> Vec<Process> {
+    if pid == 0 {
+        return Vec::new();
+    }
+    let Ok(entries) = std::fs::read_dir(proc_root) else { return Vec::new() };
+    let all: Vec<Process> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|pid| process(proc_root, pid))
+        .filter(|process| process.state != 'Z')
+        .collect();
+    let mut found: Vec<Process> = Vec::new();
+    let mut parents = vec![pid];
+    while let Some(parent) = parents.pop() {
+        for child in all.iter().filter(|process| process.parent == parent) {
+            if child.pid != pid && !found.iter().any(|known| known.pid == child.pid) {
+                parents.push(child.pid);
+                found.push(child.clone());
+            }
+        }
+    }
+    found
+}
+
+/// Kills every process that descends from `pid` with SIGKILL (DS55), each through a
+/// pidfd that is checked again after it opened, waits up to a second for them to go,
+/// and returns the names of those that are still there. `pid` itself lives on; efrd's
+/// own process is never hit. It blocks.
+pub(crate) fn kill_descendants(pid: u32) -> Vec<String> {
+    let own = std::process::id();
+    if pid == 0 || pid == own {
+        return Vec::new();
+    }
+    let proc_root = Path::new("/proc");
+    let begin = Instant::now();
+    loop {
+        let left: Vec<Process> =
+            descendants(proc_root, pid).into_iter().filter(|process| process.pid != own).collect();
+        if left.is_empty() {
+            return Vec::new();
+        }
+        for member in &left {
+            kill_child(proc_root, member, Signal::KILL);
+        }
+        // NOTE: a real-time grace, as the sweep of a session.
+        if begin.elapsed() >= SWEEP_GRACE {
+            let mut names: Vec<String> =
+                descendants(proc_root, pid).into_iter().map(|member| member.name).collect();
+            names.sort();
+            names.dedup();
+            return names;
+        }
+        std::thread::sleep(SWEEP_POLL);
+    }
+}
+
+/// Sends `signal` to `member` through a pidfd, only when the process that the pidfd
+/// holds still has the parent and the start time of `member`.
+fn kill_child(proc_root: &Path, member: &Process, signal: Signal) {
+    let Some(pid) = i32::try_from(member.pid).ok().and_then(Pid::from_raw) else { return };
+    let Ok(fd) = pidfd_open(pid, PidfdFlags::empty()) else { return };
+    let same = process(proc_root, member.pid)
+        .is_some_and(|now| now.parent == member.parent && now.start == member.start);
+    if same {
+        let _ = pidfd_send_signal(&fd, signal);
+    }
 }
 
 /// True while a process of the session `session` lives.

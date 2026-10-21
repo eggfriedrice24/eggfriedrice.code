@@ -247,3 +247,43 @@ async fn the_fact_does_not_wait_without_a_new_job() {
     assert_eq!(fact(&forwards, &shared, own.conversation, &[9000]).await, [8765], "an old job");
     assert!(clock.requested_sleeps().is_empty(), "{:?}", clock.requested_sleeps());
 }
+
+#[tokio::test]
+async fn moved_call_loses_reach() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let clock = TestClock::new();
+    let forwards = forwards();
+    let own = key(1, 1);
+    forwards.serving(own, Weak::new(), clock.shared().now());
+    forward(&forwards, own, 8765);
+    let dir = tempfile::tempdir().unwrap();
+    let listener = super::bind(dir.path()).await.unwrap();
+    let call = CallId::from_uuid(uuid::Uuid::from_u128(100));
+    let reach =
+        super::serve(forwards.clone(), clock.shared(), own.conversation, call, listener, &[8765]);
+    // NOTE: the helper of the call, as `FakeReach` plays it: `Hello` on the control
+    // connection; it holds the port of its plan from its start.
+    let mut helper =
+        tokio::net::UnixStream::connect(dir.path().join(efr_sandbox::REACH_SOCKET_FILE))
+            .await
+            .unwrap();
+    helper.write_all(&efr_sandbox::Frame::reach_hello().encode()).await.unwrap();
+    Wait::new("the hello").until(|| *reach.hello.borrow()).await.unwrap();
+
+    reach.unreach_all().await;
+
+    let mut frames = Vec::new();
+    let mut bytes = [0u8; efr_sandbox::FRAME_LEN];
+    while helper.read_exact(&mut bytes).await.is_ok() {
+        frames.push(efr_sandbox::Frame::decode(&bytes).unwrap());
+    }
+    let unreached: Vec<(efr_sandbox::FrameKind, u16)> =
+        frames.iter().map(|frame| (frame.kind, frame.port)).collect();
+    assert_eq!(
+        unreached,
+        [(efr_sandbox::FrameKind::Unreach, 8765), (efr_sandbox::FrameKind::Unreach, 8765)],
+        "both addresses of the port, then the reach ended"
+    );
+    assert_eq!(forwards.ports_of(own.conversation), [8765], "the job keeps its forward");
+}
