@@ -11,10 +11,13 @@ use std::collections::VecDeque;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use bytes::Bytes;
-use efr_holder::{ChildStatus, PtyHolder, Size};
-use efr_protocol::{ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText, Seq};
+use efr_holder::{ChildStatus, HolderError, PtyHolder, Signal, SignalTarget, Size};
+use efr_protocol::{
+    ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText, Seq, ShellCommandEnd,
+};
 use efr_screen::{ScreenHandle, ShellMark, ShellMarkKind, ShellMarkScanner};
 use efr_stdx::time::{Clock, Sleep, Stopwatch};
 use jiff::Timestamp;
@@ -22,7 +25,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::capture::Kept;
-use crate::input::{self, Offer, Probe, Waiting};
+use crate::input::{self, InputWatch, Look, Offer, Probe, Quiet, Waiting};
 use crate::modes::{Job, Terminal};
 use crate::run::{
     Check, Delimiter, FORGET_CREDENTIALS, Facts, MarkRun, MarkStep, Progress, RunMode, RunOutput,
@@ -60,11 +63,16 @@ pub(crate) enum Msg {
     Detach { id: u64, left: bool, reply: oneshot::Sender<Detached> },
     /// Tell the shell's state.
     State { reply: oneshot::Sender<ShellState> },
-    /// Tell what a look at run `id` needs; `None` once the run ended or was left.
+    /// Tell what a look at run `id` needs, also when its command was left running;
+    /// `None` once the command ended, or its run was left another way.
     Probe { id: u64, reply: oneshot::Sender<Option<Probe>> },
     /// The wait that run `id` reported last changed: its kind and the process group of
-    /// the job that waits, as the look read it, or `None` when nothing waits.
-    Waiting { id: u64, waiting: Option<Waiting> },
+    /// the job that waits, as the look read it, or `None` when nothing waits, with the
+    /// cursor's row of the screen while it waits.
+    Waiting { id: u64, waiting: Option<Waiting>, prompt: String },
+    /// The command of run `id`, left running, is being stopped for `how`; `None` takes
+    /// that back, when the stop did not go out.
+    Stopping { id: u64, how: Option<ShellCommandEnd> },
     /// Type `text` for the running command of `call`, if it waits for such input, or,
     /// with `manual`, if the job that the last look saw holds the terminal. `Debug` shows no text:
     /// `SecretText` hides it.
@@ -197,6 +205,8 @@ struct Active {
     /// the command ran; `None` before the first such look and while the shell itself
     /// held the terminal then. A manual answer reaches only that job.
     looked: Option<u32>,
+    /// The cursor's row of the screen at the last change of the wait.
+    prompt: String,
     /// Since the line was typed, and since the command started, for the `phase` lines.
     typed: Stopwatch,
     ran: Option<Stopwatch>,
@@ -218,6 +228,8 @@ impl Active {
 /// goes on in the shell, which takes no other marked line until it ends. It keeps what
 /// is known of the run, so its call, its line and its start can be told.
 struct Orphan {
+    /// The run's id, which a look names.
+    id: u64,
     machine: Machine,
     call: Option<CallId>,
     /// The first [`LEFT_COMMAND_CHARS`] characters of the line.
@@ -229,6 +241,12 @@ struct Orphan {
     approved_by: Option<ApprovedBy>,
     /// The wait that the run reported last, with the process group of its job.
     waiting: Option<Waiting>,
+    /// The cursor's row of the screen at the last change of the wait.
+    prompt: String,
+    /// How many answers were typed for the run.
+    answers: u64,
+    /// Why the command is being stopped, once efr or the user stopped it.
+    stopping: Option<ShellCommandEnd>,
     /// The caller left the run at its timeout: the command was left running, and the
     /// session tells of it. A run whose caller went away, or that is being stopped
     /// because nobody can answer its hidden wait, is not.
@@ -238,6 +256,7 @@ struct Orphan {
 impl Orphan {
     fn of(active: Active, left: bool) -> Self {
         Orphan {
+            id: active.id,
             contained: active.machine.contained(),
             machine: active.machine,
             call: active.call,
@@ -245,8 +264,19 @@ impl Orphan {
             started: active.since,
             approved_by: active.approved_by,
             waiting: active.waiting,
+            prompt: active.prompt,
+            answers: active.answers,
+            stopping: None,
             left,
         }
+    }
+
+    fn input(&self) -> InputWait {
+        self.waiting.map_or(InputWait::None, Waiting::input)
+    }
+
+    fn looks_secret(&self) -> bool {
+        self.waiting.is_some_and(|waiting| waiting.looks_secret)
     }
 
     /// The public view of a command left running.
@@ -259,9 +289,9 @@ impl Orphan {
             command: self.command.clone(),
             since: self.started,
             contained: self.contained,
-            input: self.waiting.map_or(InputWait::None, Waiting::input),
-            looks_secret: self.waiting.is_some_and(|waiting| waiting.looks_secret),
-            prompt: String::new(),
+            input: self.input(),
+            looks_secret: self.looks_secret(),
+            prompt: self.prompt.clone(),
             approved_by: self.approved_by,
         })
     }
@@ -311,6 +341,14 @@ impl Machine {
     fn sandboxed(&self) -> bool {
         matches!(self, Machine::Marks(run) if run.sandbox_dir().is_some())
     }
+
+    /// True when the shell must forget the cached credentials once the run ends.
+    fn forgets_credentials(&self) -> bool {
+        match self {
+            Machine::Marks(run) => run.forgets_credentials(),
+            Machine::Sentinel(run) => run.forgets_credentials(),
+        }
+    }
 }
 
 /// What a session's runs do, as its actor publishes it after each message.
@@ -324,11 +362,13 @@ pub(crate) struct Activity {
     pub(crate) starting: bool,
     /// A command line was typed into the shell.
     pub(crate) used: bool,
+    /// The id of the run whose command goes on without a caller, if any.
+    pub(crate) orphan: Option<u64>,
 }
 
 impl Default for Activity {
     fn default() -> Self {
-        Activity { free: true, sandboxed: false, starting: false, used: false }
+        Activity { free: true, sandboxed: false, starting: false, used: false, orphan: None }
     }
 }
 
@@ -419,6 +459,7 @@ impl SessionCore {
                 || self.orphan.as_ref().is_some_and(|orphan| orphan.machine.sandboxed()),
             starting: self.state.phase == Phase::Starting,
             used: self.used,
+            orphan: self.orphan.as_ref().map(|orphan| orphan.id),
         }
     }
 
@@ -540,10 +581,19 @@ impl SessionCore {
     }
 
     /// What a look at run `id` needs from the session, with `job`, the job in the
-    /// terminal's foreground that the actor read; `None` once the run ended or was left.
-    /// While the command runs, the job's group is kept as the one a manual answer may
-    /// reach.
+    /// terminal's foreground that the actor read; for a run left at its timeout, what a
+    /// look at its command needs. `None` once the command ended, or its run was left
+    /// another way. While the command runs, the job's group is kept as the one a manual
+    /// answer may reach.
     pub(crate) fn probe(&mut self, id: u64, job: Option<Job>) -> Option<Probe> {
+        if let Some(orphan) = self.orphan.as_ref().filter(|orphan| orphan.id == id && orphan.left) {
+            // NOTE: while a run is active, such as a sentinel run typed into a shell that
+            // the command started, the terminal is that run's: a wait there is its wait.
+            let job = job.filter(|_| self.active.is_none());
+            let running = orphan.machine.running();
+            let answers = orphan.answers;
+            return Some(Probe { running, last_output: self.last_output, job, answers });
+        }
         let active = self.active.as_mut().filter(|active| active.id == id)?;
         let running = active.machine.running();
         if running {
@@ -553,10 +603,38 @@ impl SessionCore {
     }
 
     /// Records the wait that run `id` reported with the process group of its job, or
-    /// that nothing waits.
-    pub(crate) fn waiting(&mut self, id: u64, waiting: Option<Waiting>) {
+    /// that nothing waits, and the cursor's row of the screen then. A change of a
+    /// command left running is a notice.
+    pub(crate) fn waiting(&mut self, id: u64, waiting: Option<Waiting>, prompt: String) {
         if let Some(active) = self.active.as_mut().filter(|active| active.id == id) {
             active.waiting = waiting;
+            active.prompt = prompt;
+            return;
+        }
+        let conversation = self.conversation;
+        let Some(orphan) = self.orphan.as_mut().filter(|orphan| orphan.id == id && orphan.left)
+        else {
+            return;
+        };
+        if orphan.waiting == waiting && orphan.prompt == prompt {
+            return;
+        }
+        orphan.waiting = waiting;
+        orphan.prompt = prompt;
+        self.observer.notice(ShellNotice::CommandInputChanged {
+            conversation,
+            call: orphan.call,
+            input: orphan.input(),
+            contained: orphan.contained,
+            looks_secret: orphan.looks_secret(),
+            prompt: orphan.prompt.clone(),
+        });
+    }
+
+    /// Records why the command of run `id`, left running, is being stopped.
+    pub(crate) fn stopping(&mut self, id: u64, how: Option<ShellCommandEnd>) {
+        if let Some(orphan) = self.orphan.as_mut().filter(|orphan| orphan.id == id) {
+            orphan.stopping = how;
         }
     }
 
@@ -612,7 +690,21 @@ impl SessionCore {
             Machine::Marks(run) => run.partial(),
             Machine::Sentinel(run) => run.partial(),
         };
-        self.orphan = Some(Orphan::of(active, left));
+        let orphan = Orphan::of(active, left);
+        if left {
+            self.observer.notice(ShellNotice::CommandDetached {
+                conversation: self.conversation,
+                call: orphan.call,
+                command: orphan.command.clone(),
+                since: orphan.started,
+                contained: orphan.contained,
+                input: orphan.input(),
+                looks_secret: orphan.looks_secret(),
+                prompt: orphan.prompt.clone(),
+                approved_by: orphan.approved_by,
+            });
+        }
+        self.orphan = Some(orphan);
         Detached::Running {
             kept,
             range,
@@ -632,7 +724,19 @@ impl SessionCore {
         if let Some(order) = self.queued.take() {
             let _ = order.reply.send(Err(error()));
         }
-        self.orphan = None;
+        if let Some(orphan) = self.orphan.take().filter(|orphan| orphan.left) {
+            // A close that efr or the user asked for ends the shell on purpose.
+            let how = match orphan.stopping {
+                Some(how @ (ShellCommandEnd::Closed | ShellCommandEnd::Limit)) => how,
+                _ => ShellCommandEnd::ShellExited,
+            };
+            self.observer.notice(ShellNotice::CommandEnded {
+                conversation,
+                call: orphan.call,
+                exit_code: None,
+                how,
+            });
+        }
         self.observer.notice(ShellNotice::Exited {
             conversation: self.conversation,
             pty_id: self.state.pty_id,
@@ -727,6 +831,7 @@ impl SessionCore {
                     waiting: None,
                     offer: Offer::of(order.mode, &order.command),
                     looked: None,
+                    prompt: String::new(),
                     typed: Stopwatch::start(),
                     ran: None,
                 });
@@ -756,13 +861,35 @@ impl SessionCore {
         self.next
     }
 
+    /// The command of the run left without a caller ended with `exit_code`; a command
+    /// left running at its timeout ends with a notice.
+    fn end_orphan(&mut self, exit_code: Option<i32>) {
+        let Some(orphan) = self.orphan.take() else {
+            return;
+        };
+        // A command left running at its timeout, such as sudo at its password prompt,
+        // may have authenticated by the time it ends.
+        self.forget_pending |= orphan.machine.forgets_credentials();
+        if orphan.left {
+            self.observer.notice(ShellNotice::CommandEnded {
+                conversation: self.conversation,
+                call: orphan.call,
+                exit_code,
+                how: orphan.stopping.unwrap_or(ShellCommandEnd::Ended),
+            });
+        }
+    }
+
     /// Bytes between marks: output for the active run, or for an orphaned sentinel run.
     fn bytes(&mut self, at: Seq, bytes: &[u8]) {
-        if let Some(Orphan { machine: Machine::Sentinel(orphan), .. }) = &mut self.orphan
-            && orphan.on_bytes(at, bytes).0.is_some()
-        {
-            self.forget_pending |= orphan.forgets_credentials();
-            self.orphan = None;
+        let ended = match &mut self.orphan {
+            Some(Orphan { machine: Machine::Sentinel(orphan), .. }) => {
+                orphan.on_bytes(at, bytes).0.map(|output| output.exit_code)
+            }
+            _ => None,
+        };
+        if let Some(exit_code) = ended {
+            self.end_orphan(exit_code);
         }
         let Some(active) = &mut self.active else {
             return;
@@ -818,21 +945,19 @@ impl SessionCore {
         if self.forget_pending && self.state.phase == Phase::Ready {
             self.forget_now(writes);
         }
-        if let Some(Orphan { machine: Machine::Marks(orphan), .. }) = &mut self.orphan {
-            match orphan.on_mark(mark) {
-                MarkStep::Continue => {}
-                MarkStep::Cancel => writes.push(Bytes::from_static(CANCEL_LINE)),
-                MarkStep::Ended(_) => {
-                    // A command left running at its timeout, such as sudo at its password
-                    // prompt, may have authenticated by the time it ends.
-                    self.forget_pending |= orphan.forgets_credentials();
-                    self.orphan = None;
-                }
-                MarkStep::Check(check) => {
-                    if let Some(dir) = orphan.sandbox_dir() {
-                        let dir = dir.to_path_buf();
-                        self.check = Some(CheckOrder { target: Target::Orphan, check, dir });
-                    }
+        let step = match &mut self.orphan {
+            Some(Orphan { machine: Machine::Marks(orphan), .. }) => {
+                Some((orphan.on_mark(mark), orphan.sandbox_dir().map(PathBuf::from)))
+            }
+            _ => None,
+        };
+        match step {
+            None | Some((MarkStep::Continue, _)) => {}
+            Some((MarkStep::Cancel, _)) => writes.push(Bytes::from_static(CANCEL_LINE)),
+            Some((MarkStep::Ended(output), _)) => self.end_orphan(output.exit_code),
+            Some((MarkStep::Check(check), dir)) => {
+                if let Some(dir) = dir {
+                    self.check = Some(CheckOrder { target: Target::Orphan, check, dir });
                 }
             }
         }
@@ -872,17 +997,18 @@ impl SessionCore {
     pub(crate) fn checked(&mut self, order: &CheckOrder, facts: &Facts) -> Vec<Bytes> {
         let early = matches!(order.check, Check::Early { .. });
         let output = match order.target {
-            Target::Orphan => match &mut self.orphan {
-                Some(Orphan { machine: Machine::Marks(orphan), .. }) => {
-                    let output = orphan.checked(order.check, facts);
-                    if output.is_some() {
-                        self.forget_pending |= orphan.forgets_credentials();
-                        self.orphan = None;
+            Target::Orphan => {
+                let output = match &mut self.orphan {
+                    Some(Orphan { machine: Machine::Marks(orphan), .. }) => {
+                        orphan.checked(order.check, facts)
                     }
-                    output.map(|output| (output, false))
+                    _ => None,
+                };
+                if let Some(output) = &output {
+                    self.end_orphan(output.exit_code);
                 }
-                _ => None,
-            },
+                output.map(|output| (output, false))
+            }
             Target::Active(id) => match self.active.as_mut().filter(|active| active.id == id) {
                 Some(Active { machine: Machine::Marks(run), .. }) => {
                     let forget = run.forgets_credentials();
@@ -1032,7 +1158,8 @@ impl SessionActor {
                     let job = self.terminal.job().ok().flatten();
                     let _ = reply.send(self.core.probe(id, job));
                 }
-                Msg::Waiting { id, waiting } => self.core.waiting(id, waiting),
+                Msg::Waiting { id, waiting, prompt } => self.core.waiting(id, waiting, prompt),
+                Msg::Stopping { id, how } => self.core.stopping(id, how),
                 Msg::Answer { call, text, hidden, manual, reply } => {
                     let typed = answer(&mut self.core, &self.terminal, call, &text, hidden, manual);
                     let _ = reply.send(typed);
@@ -1171,6 +1298,17 @@ pub(crate) async fn until(sleep: &mut Option<Sleep>) {
     }
 }
 
+/// What one [look](SessionHandle::look) found.
+#[derive(Debug)]
+pub(crate) enum Looked {
+    /// The command ended, or no run or command of that id goes on.
+    Gone,
+    /// The wait did not change.
+    Same,
+    /// The wait changed to `wait`; `told` says whether the actor heard of it.
+    Changed { wait: InputWait, told: Result<(), ShellError> },
+}
+
 /// The manager's side of one session.
 #[derive(Debug, Clone)]
 pub(crate) struct SessionHandle {
@@ -1240,6 +1378,96 @@ impl SessionHandle {
         ShellError::NotReady {
             conversation: self.conversation,
             fresh: !self.activity.borrow().used,
+        }
+    }
+
+    /// One look at whether run `id`, or its command left running, waits for input.
+    /// `watch` holds the wait reported last; a change goes to the actor first, with the
+    /// cursor's row of the screen while the command waits, so an answer sent for the
+    /// wait is checked against its job. The caller tells others of the change after.
+    pub(crate) async fn look(
+        &self,
+        id: u64,
+        offer: Offer,
+        quiet: Quiet,
+        clock: &dyn Clock,
+        watch: &mut InputWatch,
+    ) -> Result<Looked, ShellError> {
+        let (reply, probed) = oneshot::channel();
+        self.send(Msg::Probe { id, reply }).await?;
+        // A run that ended meanwhile is answered on its reply channel.
+        let Ok(Some(probe)) = probed.await else {
+            return Ok(Looked::Gone);
+        };
+        // A terminal that is not in line mode while a job waits is a relay's, such as
+        // `sudo`'s own pty, or a program's raw mode: only then can a password prompt be
+        // a visible wait.
+        let relayed = probe.job.is_some_and(|job| !job.modes.canonical);
+        let mut seen = None;
+        let (wait, secret) = match input::look(&probe, clock.now(), quiet, offer) {
+            Look::Settled(wait) => (wait, false),
+            // A screen that failed only loses the guess; the command goes on.
+            Look::ReadScreen { questions_only } => match self.screen.snapshot(0).await {
+                Ok(capture)
+                    if input::visible_prompt(&capture.snapshot)
+                        && (!questions_only || input::question_prompt(&capture.snapshot)) =>
+                {
+                    let secret = relayed && input::secret_prompt(&capture.snapshot);
+                    seen = Some(capture.snapshot);
+                    (InputWait::Visible, secret)
+                }
+                _ => (InputWait::None, false),
+            },
+        };
+        let group = probe.job.map(|job| job.group);
+        let Some(changed) = watch.settle(wait, secret, group, probe.answers) else {
+            return Ok(Looked::Same);
+        };
+        // NOTE: the row that asks is read once per change, not per look. It shows the
+        // user which host asks for a password, or a host key with its fingerprint.
+        let prompt = match (changed, seen) {
+            (InputWait::None, _) => String::new(),
+            (_, Some(snapshot)) => input::prompt_row(&snapshot),
+            (_, None) => match self.screen.snapshot(0).await {
+                Ok(capture) => input::prompt_row(&capture.snapshot),
+                Err(_) => String::new(),
+            },
+        };
+        // The actor learns which job waits before any client hears of the wait, so an
+        // answer sent for it is checked against that job. The caller tells the client
+        // of the change even when the actor is gone, so the `None` that the caller
+        // reports then follows a wait that the client heard.
+        let told = self.send(Msg::Waiting { id, waiting: watch.waiting(), prompt }).await;
+        Ok(Looked::Changed { wait: changed, told })
+    }
+
+    /// Ends the shell: `SIGHUP`, then `SIGKILL` when it has not ended within `grace`.
+    pub(crate) async fn close(
+        &self,
+        holder: &dyn PtyHolder,
+        clock: &dyn Clock,
+        grace: Duration,
+    ) -> Result<(), ShellError> {
+        let conversation = self.conversation;
+        match holder.signal(self.pty_id, Signal::Hangup, SignalTarget::Child).await {
+            Ok(()) | Err(HolderError::Exited { .. } | HolderError::NotFound { .. }) => {}
+            Err(source) => return Err(ShellError::Holder { conversation, source }),
+        }
+        if Clock::timeout(&clock, grace, self.ended()).await.is_err() {
+            // Too late to matter whether the kill or the shell's own end came first.
+            let _ = holder.signal(self.pty_id, Signal::Kill, SignalTarget::Child).await;
+            self.ended().await;
+        }
+        Ok(())
+    }
+
+    /// Waits until run `id` no longer goes on without a caller: its command ended, or
+    /// the shell did.
+    pub(crate) async fn orphan_gone(&self, id: u64) {
+        let mut activity = self.activity.clone();
+        tokio::select! {
+            _ = activity.wait_for(|activity| activity.orphan != Some(id)) => {}
+            _ = self.ended() => {}
         }
     }
 

@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use bytes::Bytes;
 use efr_holder::ChildStatus;
-use efr_protocol::{ConversationId, PtyId, Seq};
+use efr_protocol::{ApprovedBy, CallId, ConversationId, InputWait, PtyId, Seq, ShellCommandEnd};
+use jiff::Timestamp;
 
 /// Receives every byte read from every hidden shell, in order, before the screen and
 /// the run logic see it.
@@ -25,8 +26,10 @@ pub trait RecordingSink: Send + Sync + fmt::Debug {
     async fn record(&self, pty_id: PtyId, start: Seq, bytes: Bytes);
 }
 
-/// Hears when a hidden shell starts, reports a new directory and exits; the daemon
-/// turns these into `ShellStarted`, `CwdChanged` and `ShellExited` events.
+/// Hears when a hidden shell starts, reports a new directory and exits, and what a
+/// command left running in it does; the daemon turns these into `ShellStarted`,
+/// `CwdChanged`, `ShellExited`, `ShellCommandDetached`, `ShellCommandInputChanged` and
+/// `ShellCommandEnded` events.
 ///
 /// `notice` is called from the shell's own task and must not block or call back into
 /// `ShellSessions`: an implementation queues the notice and returns.
@@ -70,6 +73,56 @@ pub enum ShellNotice {
         pty_id: PtyId,
         /// How it ended; `None` when the holder could not tell.
         status: Option<ChildStatus>,
+    },
+    /// A run reached its timeout while its command goes on: the command was left
+    /// running in the shell, which takes no other marked line until it ends.
+    CommandDetached {
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The tool call whose command it is, when the run named one.
+        call: Option<CallId>,
+        /// The first 200 characters of the command line, as the model wrote it.
+        command: String,
+        /// When its run was asked for.
+        since: Timestamp,
+        /// True when the command runs in the auto mode's sandbox.
+        contained: bool,
+        /// What it waits for as its run is left.
+        input: InputWait,
+        /// True for a visible wait whose prompt reads like a password prompt while the
+        /// terminal is not in line mode.
+        looks_secret: bool,
+        /// The cursor's row of the screen while it waits, at most 200 characters; empty
+        /// while it does not wait.
+        prompt: String,
+        /// Who approved the call.
+        approved_by: Option<ApprovedBy>,
+    },
+    /// A command left running began or stopped waiting for input.
+    CommandInputChanged {
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The tool call whose command it is.
+        call: Option<CallId>,
+        /// What it waits for now.
+        input: InputWait,
+        /// True when the command runs in the auto mode's sandbox.
+        contained: bool,
+        /// True for a visible wait whose prompt reads like a password prompt.
+        looks_secret: bool,
+        /// The cursor's row of the screen while it waits, at most 200 characters.
+        prompt: String,
+    },
+    /// A command left running ended, or the shell that ran it exited.
+    CommandEnded {
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The tool call whose command it was.
+        call: Option<CallId>,
+        /// Its exit status, when its end mark carried one.
+        exit_code: Option<i32>,
+        /// How it ended.
+        how: ShellCommandEnd,
     },
 }
 

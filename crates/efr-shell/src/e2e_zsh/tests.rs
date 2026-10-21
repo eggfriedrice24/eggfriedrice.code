@@ -576,11 +576,13 @@ impl Zsh {
     }
 
     /// Moves the clock one quiet period, then waits until the run sleeps until its next
-    /// look, which it does only after it told the listener what it saw.
+    /// look, which it does only after it told the listener what it saw. A command left
+    /// running in the shell has a watch that looks once per quiet period too.
     async fn one_look(&self) {
+        let watches = usize::from(self.sessions.busy(self.conversation).is_some());
         self.clock.advance(Duration::from_secs(1));
         let after = self.clock.pending_sleeps();
-        self.clock.wait_for_sleeps(after + 1).await;
+        self.clock.wait_for_sleeps(after + 1 + watches).await;
     }
 
     /// Lets looks pass until the listener has heard `expected`; returns how many.

@@ -500,7 +500,7 @@ fn detached_run_keeps_its_call_and_command() {
     order.approved_by = Some(ApprovedBy::You);
     core.submit(order);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07u@h's password: ");
-    core.waiting(1, Some(Waiting { group: JOB, hidden: true, looks_secret: false }));
+    core.waiting(1, Some(Waiting { group: JOB, hidden: true, looks_secret: false }), String::new());
     assert_eq!(core.left_running(), None, "the run still has its caller");
     assert!(matches!(core.detach(1, true), Detached::Running { .. }));
     let left = core.left_running().unwrap();
@@ -681,11 +681,15 @@ fn an_answer_learns_the_job_whose_wait_its_run_reported_last() {
     let waiting = |core: &SessionCore| core.answerable(call_id(1)).unwrap().waiting;
     assert_eq!(waiting(&core), None, "no wait was reported yet");
     let hidden = Waiting { group: 4242, hidden: true, looks_secret: false };
-    core.waiting(1, Some(hidden));
+    core.waiting(1, Some(hidden), String::new());
     assert_eq!(waiting(&core), Some(hidden));
-    core.waiting(2, Some(Waiting { group: 4343, hidden: false, looks_secret: false }));
+    core.waiting(
+        2,
+        Some(Waiting { group: 4343, hidden: false, looks_secret: false }),
+        String::new(),
+    );
     assert_eq!(waiting(&core), Some(hidden), "another run's report");
-    core.waiting(1, None);
+    core.waiting(1, None, String::new());
     assert_eq!(waiting(&core), None, "the wait ended");
 }
 
@@ -793,7 +797,7 @@ fn contained_run(waiting: Option<Waiting>) -> SessionCore {
     core.submit(order);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07Password: ");
     core.probe(1, Some(Job { group: JOB, modes: InputModes::new(false, false) }));
-    core.waiting(1, waiting);
+    core.waiting(1, waiting, String::new());
     core
 }
 
@@ -815,7 +819,7 @@ async fn contained_looks_secret_answer_is_refused() {
     assert_eq!(typed_so_far(&mut theirs), b"");
 
     // A plain question of the same command still takes a visible answer.
-    core.waiting(1, Some(visible));
+    core.waiting(1, Some(visible), String::new());
     answer(&mut core, &terminal, call_id(1), &SecretText::new("y"), false, false).unwrap();
     assert_eq!(typed_so_far(&mut theirs), b"y\r");
 }
