@@ -611,6 +611,10 @@ impl Tool for ShellTool {
         let input: ShellInput = parse_input(Self::NAME, &input)?;
         let timeout = self.timeout(&input);
         let mode = mode(&input);
+        // NOTE: the hard or the soft flag: the hidden shell keeps a password wait of a
+        // command left running only for a flagged line that a person approved (DS52).
+        let line = words::split(&input.command);
+        let flagged = interactive(&input, &line) || prompts::may_prompt(&line, &input.command);
         let request = RunRequest::new(input.command, ctx.cwd.clone())
             .with_timeout(timeout)
             .with_mode(mode)
@@ -618,6 +622,8 @@ impl Tool for ShellTool {
             .with_forget_credentials(ctx.forget_credentials)
             .with_forget_before(ctx.forget_before)
             .with_interactive_limit(ctx.interactive_limit)
+            .with_input_limit(ctx.input_limit)
+            .with_approval(flagged, ctx.approved_by)
             .with_sandbox(ctx.sandbox.clone());
         let mut progress = Relay { out };
         let started = ctx.clock.now();

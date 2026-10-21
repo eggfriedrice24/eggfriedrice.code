@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use efr_protocol::{CallId, ConversationId, Origin, Scope, TurnId};
+use efr_protocol::{ApprovedBy, CallId, ConversationId, Origin, Scope, TurnId};
 use efr_scope::Home;
 use efr_shell::SandboxRun;
 use efr_stdx::time::Clock;
@@ -56,9 +56,20 @@ pub struct ToolContext {
     pub forget_before: bool,
     /// The longest a command of this call may run in all, past the model's timeout,
     /// while a person who can type answers follows the conversation
-    /// (`shell.interactive_timeout_minutes`): set for a call that the user approved
-    /// because it may wait for input at the terminal, `None` otherwise.
+    /// (`shell.interactive_timeout_minutes`): set for a call outside the sandbox whose
+    /// line may ask at the terminal, whoever approved it; `None` otherwise.
     pub interactive_limit: Option<Duration>,
+    /// The longest a command of this call may run in all, past the model's timeout,
+    /// while it waits for input and a person who can type answers follows the
+    /// conversation (`shell.interactive_timeout_minutes`); also the limit of a command
+    /// that this call leaves running in the hidden shell while it waits. `None` keeps
+    /// the timeout.
+    pub input_limit: Option<Duration>,
+    /// Who approved the call, which the hidden shell keeps for a command that the call
+    /// leaves running: only a flagged line that a person or the person's own rule
+    /// approved may keep waiting for a password while nobody follows. `None` for a call
+    /// that needed no approval.
+    pub approved_by: Option<ApprovedBy>,
     /// The launcher's call, for a shell call of the `auto` mode: the daemon prepared
     /// the sandbox (or the exit child) of this call, and the shell tool passes it on to
     /// the run. `None` types the command into the hidden shell, as in the other modes.
@@ -90,6 +101,8 @@ impl ToolContext {
             forget_credentials: false,
             forget_before: false,
             interactive_limit: None,
+            input_limit: None,
+            approved_by: None,
             sandbox: None,
         }
     }
@@ -129,6 +142,22 @@ impl ToolContext {
     #[must_use]
     pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
         self.interactive_limit = limit;
+        self
+    }
+
+    /// Sets how long a command of this call may run past the model's timeout while it
+    /// waits for input and a person who can answer follows the conversation; `None`
+    /// keeps the timeout.
+    #[must_use]
+    pub fn with_input_limit(mut self, limit: Option<Duration>) -> Self {
+        self.input_limit = limit;
+        self
+    }
+
+    /// Sets who approved the call.
+    #[must_use]
+    pub fn with_approved_by(mut self, approved_by: Option<ApprovedBy>) -> Self {
+        self.approved_by = approved_by;
         self
     }
 

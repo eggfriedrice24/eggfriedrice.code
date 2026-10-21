@@ -6,7 +6,7 @@ mod sandbox;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use efr_protocol::InputWait;
+use efr_protocol::{ApprovedBy, InputWait};
 use efr_shell::{CommandResult, Completion, OutputUpdate, RunMode, RunRequest, ShellError};
 use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
@@ -398,6 +398,36 @@ async fn an_approved_interactive_call_hands_its_limit_to_the_shell_and_says_how_
         .await
         .unwrap();
     assert_eq!(runner.last_request().interactive_limit, None);
+    assert_eq!(runner.last_request().input_limit, None);
+    assert!(!runner.last_request().may_prompt);
+    assert_eq!(runner.last_request().approved_by, None);
+}
+
+#[tokio::test]
+async fn a_call_hands_its_input_limit_its_flag_and_its_approver_to_the_shell() {
+    let fixture = Fixture::new();
+    let context = fixture
+        .context()
+        .with_input_limit(Some(Duration::from_secs(3600)))
+        .with_approved_by(Some(ApprovedBy::You));
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/")));
+    let line = "rsync -a src/ host:dst/";
+    ShellTool::new(runner.clone())
+        .invoke(context, json!({ "command": line }), &mut NoOutput)
+        .await
+        .unwrap();
+    let request = runner.last_request();
+    assert_eq!(request.input_limit, Some(Duration::from_secs(3600)));
+    assert!(request.may_prompt, "the soft flag goes with the run");
+    assert_eq!(request.approved_by, Some(ApprovedBy::You));
+
+    // The hard flag counts too.
+    let runner = FakeRunner::answering(Ok(CommandResult::finished(Some(0), "", "/")));
+    ShellTool::new(runner.clone())
+        .invoke(fixture.context(), json!({"command": "sudo true"}), &mut NoOutput)
+        .await
+        .unwrap();
+    assert!(runner.last_request().may_prompt);
 }
 
 #[test]
