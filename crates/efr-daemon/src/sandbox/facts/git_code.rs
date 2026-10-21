@@ -372,6 +372,26 @@ fn last<'e>(entries: &'e [Entry], key: &str) -> Option<&'e str> {
         .map(|(_, _, value)| value.as_str())
 }
 
+/// `item` with the user name and password of each URL in it left out: a config key can
+/// hold a URL as its subsection, such as `credential.https://user:token@host.helper`
+/// or `url.https://user:token@host/.insteadof`, and the item reaches the question, the
+/// event log and the phone.
+pub(crate) fn without_userinfo(item: &str) -> String {
+    let mut out = String::with_capacity(item.len());
+    let mut rest = item;
+    while let Some(at) = rest.find("://") {
+        let (before, after) = rest.split_at(at + 3);
+        out.push_str(before);
+        let authority = after.find(['/', '?', '#']).unwrap_or(after.len());
+        rest = match after[..authority].rfind('@') {
+            Some(user_end) => &after[user_end + 1..],
+            None => after,
+        };
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The file of an entry's origin, `file:<path>`; `None` for the command line or a blob.
 fn origin_file(origin: &str) -> Option<PathBuf> {
     origin.strip_prefix("file:").map(PathBuf::from).filter(|path| path.is_absolute())
@@ -389,7 +409,7 @@ struct Parts<'a> {
 impl Parts<'_> {
     fn fact(&self, repo: &Path, item: String, file: PathBuf) -> GitCodeFact {
         let writable = writable(self.places, self.pinned, &file);
-        GitCodeFact { repo: repo.to_path_buf(), item, file, writable }
+        GitCodeFact { repo: repo.to_path_buf(), item: without_userinfo(&item), file, writable }
     }
 
     /// The fact of the program that `command` starts, run from `dir`, for `item`.

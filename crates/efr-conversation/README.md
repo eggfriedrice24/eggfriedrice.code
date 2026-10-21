@@ -130,8 +130,8 @@ turns.
   copy is not covered (a masked file, a directory over the limits) and absent when no
   exit has a file to copy. The git code of a git or gh line that runs outside (v0.0.4,
   B4) reaches the record (`ExitFacts::git_code`) only when it made the exit one for
-  the user alone, so the reviewer never reads a clean check as a reason to allow; the
-  engine's `ExitNeed::notes` (the writable git code, what a publish runs) join the
+  the user alone, so the reviewer never reads a clean check as a reason to allow, and
+  with only the writable parts; the engine's `ExitNeed::notes` (the writable git code, what a publish runs) join the
   question's facts.
 - The classifier (`turn/review.rs`) judges first when the turn runs in `auto`,
   `ConversationDeps::judge` is set, `ConversationConfig::classifier_enabled` is on, the

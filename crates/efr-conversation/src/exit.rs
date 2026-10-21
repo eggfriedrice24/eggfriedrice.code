@@ -666,14 +666,20 @@ fn question_facts(decision: &Decision, requirements: &Requirements, home: &Path)
 /// The git code of an `outside` or `upload` exit of `decision` for the record, only
 /// when it made the exit one that only the user may approve: efrd could not check it,
 /// or a sandboxed command can write a part of it (v0.0.4, DV22). A clean check stays
-/// out of the record, so the reviewer never reads it as a reason to allow.
+/// out of the record, so the reviewer never reads it as a reason to allow. The record
+/// keeps only the parts that a sandboxed command can write: the others say nothing
+/// about the risk, and their names can hold what the user's own config holds.
 fn git_code(decision: &Decision, requirements: &Requirements) -> Option<GitCodeFacts> {
     let leaves =
         decision.exits().any(|need| matches!(need.kind, ExitKind::Outside | ExitKind::Upload));
     if !leaves {
         return None;
     }
-    requirements.facts.as_ref()?.git_code.clone().filter(|code| !code.clean())
+    let code = requirements.facts.as_ref()?.git_code.as_ref().filter(|code| !code.clean())?;
+    Some(GitCodeFacts {
+        checked: code.checked,
+        items: code.items.iter().filter(|item| item.writable).cloned().collect(),
+    })
 }
 
 /// A fact for a question where the model asked to run outside the sandbox, but every

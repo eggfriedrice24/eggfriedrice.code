@@ -648,8 +648,8 @@ into the GitHub release notes, and it stops when the section is missing.
   again right before the command runs. git options that choose the code that git runs
   (`-c`, `--exec-path`, `--receive-pack`, `--upload-pack` and others) also ask only
   you, and so does a git or gh line that sets a `GIT_*`, `SSH_*`, `HOME`,
-  `XDG_CONFIG_HOME` or `PATH` variable. `efr history --verbose` shows what the check
-  found.
+  `XDG_CONFIG_HOME` or `PATH` variable. `efr history --verbose` shows the parts that
+  a sandboxed command can write, with no user name or password of a URL.
 - `npm publish` (also with pnpm, yarn and bun), `cargo publish` (also with
   `--no-verify`), `cargo yank` and `cargo owner` ask only you. The question says what
   they run: the project's `prepublishOnly` and `prepack` scripts, the build of the

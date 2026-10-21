@@ -382,6 +382,44 @@ async fn git_code_reads_the_programs_of_send_email() {
     assert!(item(&facts, "hooks/sendemail-validate").is_some(), "{facts:?}");
 }
 
+#[test]
+fn git_code_items_leave_out_the_userinfo_of_a_url() {
+    use super::without_userinfo;
+    assert_eq!(
+        without_userinfo("credential.https://user:token@host.test.helper"),
+        "credential.https://host.test.helper"
+    );
+    assert_eq!(
+        without_userinfo("url.https://user:token@host.test/o/.insteadof"),
+        "url.https://host.test/o/.insteadof"
+    );
+    assert_eq!(
+        without_userinfo("git-credential-x (credential.https://u@a.test.helper)"),
+        "git-credential-x (credential.https://a.test.helper)"
+    );
+    // NOTE: an `@` after the host is part of the path.
+    assert_eq!(
+        without_userinfo("url.https://h.test/a@b.insteadof"),
+        "url.https://h.test/a@b.insteadof"
+    );
+    for plain in ["hooks/pre-push", "core.sshcommand", "ssh (PATH)"] {
+        assert_eq!(without_userinfo(plain), plain);
+    }
+}
+
+#[tokio::test]
+async fn git_code_reads_a_credential_url_key_without_its_userinfo() {
+    let machine = Machine::new();
+    let repo = machine.scratch.join("c1/r");
+    init(&repo).await;
+    git(&repo, &["config", "credential.https://user:token@host.test.helper", "store"]).await;
+
+    let facts = machine.check(&[ask(&repo, false)], None).await;
+
+    assert!(facts.items.iter().all(|fact| !fact.item.contains("token")), "{facts:?}");
+    assert!(item(&facts, "credential.https://host.test.helper").is_some(), "{facts:?}");
+}
+
 #[tokio::test]
 async fn git_code_of_no_repository_is_not_checked() {
     let machine = Machine::new();

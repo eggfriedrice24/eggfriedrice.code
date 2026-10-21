@@ -1024,6 +1024,28 @@ fn a_clean_git_code_check_stays_out_of_the_record() {
 }
 
 #[test]
+fn git_code_record_keeps_only_the_writable_parts() {
+    let part = |item: &str, file: &str, writable: bool| efr_protocol::GitCodeFact {
+        repo: format!("{SCRATCH}/r").into(),
+        item: item.to_owned(),
+        file: file.into(),
+        writable,
+    };
+    let hook = part("hooks/pre-push", &format!("{SCRATCH}/r/.git/hooks/pre-push"), true);
+    let code = efr_protocol::GitCodeFacts {
+        checked: true,
+        items: vec![
+            part("credential.https://host.test.helper", "/home/u/.gitconfig", false),
+            hook.clone(),
+            part("ssh (PATH)", "/usr/bin/ssh", false),
+        ],
+    };
+    let (record, _) = git_code_record("git push https://git.test/r.git main", Some(code));
+    let kept = efr_protocol::GitCodeFacts { checked: true, items: vec![hook] };
+    assert_eq!(record.facts.git_code, Some(kept));
+}
+
+#[test]
 fn a_publish_question_says_what_it_runs() {
     let (_, info) = git_code_record("npm publish", None);
     assert!(info.user_only);

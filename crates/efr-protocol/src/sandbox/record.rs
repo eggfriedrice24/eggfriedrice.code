@@ -140,7 +140,8 @@ pub struct ExitFacts {
     /// For an `outside` or `upload` exit of a git or gh line: the git code that the line
     /// runs outside the sandbox, when it made the exit one that only the user may
     /// approve: efr could not check it, or a sandboxed command can write a part of it.
-    /// Absent for any other exit, so a clean check is never a reason to allow.
+    /// Absent for any other exit, so a clean check is never a reason to allow. It holds
+    /// only the parts that a sandboxed command can write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_code: Option<GitCodeFacts>,
 }

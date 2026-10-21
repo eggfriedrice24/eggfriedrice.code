@@ -496,6 +496,8 @@ No protocol version has shipped yet.
   user may approve. It holds `checked` (false when efr could not check it) and `items`
   (absent when empty), each with `repo`, `item` (such as `hooks/pre-push` or
   `core.sshcommand`), `file` and `writable` (a contained call can write the file).
+  The record keeps only the writable items, and an `item` never holds the user name
+  or password of a URL in a config key.
   `events/exit_requested.json` now sets it.
 - Version 1, additive: new method `conversation.context` (scope `read`, no command id)
   with `conversation_id` and an optional `model`: what fills the model's context of a
