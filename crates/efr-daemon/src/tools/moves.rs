@@ -212,6 +212,7 @@ impl DaemonToolbox {
                 exits: check.exits.clone(),
                 launcher: running.call_dir.is_some(),
             }),
+            waits_input: false,
         };
         let job = AdoptedJob {
             info,

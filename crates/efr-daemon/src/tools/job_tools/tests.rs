@@ -105,6 +105,7 @@ async fn job_stop_of_ended_job_returns_state() {
         wakes: 0,
         forwards: Vec::new(),
         moved_from: None,
+        waits_input: false,
     };
     let batch = Batch::new()
         .event(

@@ -19,9 +19,9 @@ use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, ApprovalDecision, ApprovalRespond,
     ApprovalRespondResult, Base64Bytes, CallBackground, CallBackgroundResult, CallId,
     ConversationId, ConversationSubscribe, ConversationSubscribeItem, ErrorCode, Event,
-    EventEnvelope, JobId, JobState, JobStopBy, JobsStop, JobsStopResult, Launch, Method, Mode,
-    Origin, PromptSendResult, PtyWrite, PtyWriteResult, Seq, TurnSettings, TurnUndo,
-    TurnUndoResult, UndoAction,
+    EventEnvelope, JobId, JobState, JobStopBy, JobsList, JobsListResult, JobsStop, JobsStopResult,
+    Launch, Method, Mode, Origin, PromptSendResult, PtyWrite, PtyWriteResult, Seq, TurnSettings,
+    TurnUndo, TurnUndoResult, UndoAction,
 };
 use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
@@ -432,6 +432,75 @@ async fn moved_job_ends_with_exit_code_and_notice() {
     assert_eq!(job_id, JobId::nth(1));
     assert!(woke, "the end of a moved job wakes the model");
     assert!(text.contains("j1"), "{text}");
+}
+
+#[tokio::test]
+async fn moved_job_input_wait_shows_in_jobs_and_in_its_stop_notice() {
+    if !zsh_enabled("moved_job_input_wait_shows_in_jobs_and_in_its_stop_notice") {
+        return;
+    }
+    let place = Place::new();
+    let server = ResponsesServer::start().await;
+    // NOTE: in `sh`, since zsh runs its own `read` and then holds the terminal itself.
+    let line = place.line(r#"sh -c 'printf "Continue? [y/N] "; read answer'"#);
+    let mut answers = calls(&line);
+    answers.push(ResponsesAnswer::text("noted"));
+    for answer in answers {
+        server.push(answer);
+    }
+    let daemon = place
+        .builder()
+        .config(|settings| settings.jobs.max_wakes_per_hour = 6)
+        .responses(&server)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, call_id, mut stream) =
+        start(&daemon, &client, 1, Some(Mode::Cautious)).await;
+    let job_id = moved_after_yes(&client, conversation_id, call_id).await;
+    events_until(&mut stream, |event| matches!(event, Event::TurnCompleted { .. })).await.unwrap();
+
+    place.release().await;
+
+    // NOTE: a plain question stays in a job, and nobody can answer it there (DS27). The
+    // clock moves only while a sleep of the daemon ends within the next second.
+    let list = Method::JobsList(JobsList { conversation_id: Some(conversation_id) });
+    let started = Instant::now();
+    loop {
+        let listed: JobsListResult = client.call(list.clone()).await.unwrap();
+        if listed.jobs.iter().any(|job| job.id == job_id && job.waits_input) {
+            break;
+        }
+        assert!(started.elapsed() < REAL_TIME_LIMIT, "no wait in real time: {listed:#?}");
+        let clock = daemon.clock();
+        let soon = clock.now().checked_add(Duration::from_secs(1)).unwrap();
+        if clock.next_deadline().is_some_and(|deadline| deadline <= soon) {
+            clock.advance(Duration::from_secs(1));
+        }
+        efr_stdx::time::SystemClock.sleep(Duration::from_millis(50)).await;
+    }
+
+    let stop = Method::JobsStop(JobsStop {
+        command_id: command_id(30_000),
+        conversation_id: Some(conversation_id),
+        job_id: job_id.clone(),
+    });
+    let _: JobsStopResult = client.call(stop).await.unwrap();
+    let seen =
+        events_until(&mut stream, |event| matches!(event, Event::JobNotice { .. })).await.unwrap();
+    let ended = seen.iter().find_map(|envelope| match &envelope.event {
+        Event::JobEnded { stopped_by, .. } => Some(*stopped_by),
+        _ => None,
+    });
+    assert_eq!(ended, Some(Some(JobStopBy::User)), "{seen:#?}");
+    let Some(Event::JobNotice { text, .. }) = seen.last().map(|envelope| envelope.event.clone())
+    else {
+        unreachable!()
+    };
+    assert!(text.contains("the command waited for input when it stopped"), "{text}");
+    let listed: JobsListResult = client.call(list).await.unwrap();
+    assert!(listed.jobs.iter().all(|job| !job.waits_input), "{listed:#?}");
 }
 
 #[tokio::test]

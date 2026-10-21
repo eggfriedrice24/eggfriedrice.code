@@ -49,6 +49,10 @@ pub(crate) const MOVE_KEYS: &[(&str, &str)] = &[("y", "move"), ("n", "no")];
 /// The mark of a moved job in a row of `efr jobs list`.
 const MOVED_MARK: &str = "(moved by you)";
 
+/// The mark of a moved job whose command waits for input that nobody can type in a job,
+/// in a row of `efr jobs list` (DS27).
+const WAITS_MARK: &str = "(waits for input; efr jobs stop ends it)";
+
 /// How many columns of a job's command a question or a row of `efr jobs list` shows.
 const COMMAND_COLUMNS: usize = 60;
 
@@ -493,6 +497,9 @@ pub(crate) fn list(rows: &[ListRow<'_>], now: Timestamp) -> String {
             }
             if row.job.moved_from.is_some() {
                 let _ = write!(command, "  {MOVED_MARK}");
+            }
+            if row.job.state == JobState::Running && row.job.waits_input {
+                let _ = write!(command, "  {WAITS_MARK}");
             }
             if row.leftover {
                 command.push_str("  (its processes may still run)");

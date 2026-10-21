@@ -235,7 +235,8 @@ into the GitHub release notes, and it stops when the section is missing.
   sandbox. A call that runs outside the sandbox asks one `y/n` question first, because
   the command keeps running with your rights after the turn. The turn goes on at once,
   the model reads the output so far and the job's id, and a job notice follows when
-  the command ends. The next call gets a new hidden shell in the same directory. In
+  the command ends. The next call gets a new hidden shell in the same directory.
+  `efr jobs` shows when a moved command waits for input that nobody can type. In
   tmux, press Ctrl+B twice. A command that waits for input, that can ask at the
   terminal (such as `sudo`), or that efr does not allow as a job cannot move, and
   neither can a call that holds the sandbox's cache. `docs/sandbox.md`, "Moving a call
