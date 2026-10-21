@@ -6,9 +6,9 @@ use efr_permissions::{
     Requirements, Resource, Rule,
 };
 use efr_protocol::{
-    ApprovalDecision, EffectiveSettings, ErrorCode, Event, InputWait, Launch, Mode, ModelInfo,
-    ModelSource, Origin, OverriddenSettings, ProjectId, Scope, TurnInterrupt, TurnSettings,
-    TurnSteer, Usage,
+    ApprovalDecision, ApprovedBy, EffectiveSettings, ErrorCode, Event, InputWait, Launch, Mode,
+    ModelInfo, ModelSource, Origin, OverriddenSettings, ProjectId, Scope, TurnInterrupt,
+    TurnSettings, TurnSteer, Usage,
 };
 use efr_provider::{Message, ProviderEvent, StopReason, TokenUsage};
 use efr_scope::{Basis, Derivation, Repo};
@@ -38,6 +38,7 @@ mod drafts;
 mod ending;
 mod full;
 mod jobs;
+mod may_wait;
 mod review;
 mod sandbox;
 mod switch;
@@ -1748,8 +1749,9 @@ async fn input_waits_are_recorded_in_order_with_the_output_before_the_completion
             },
         ]
     );
-    // A rule allowed the call, so nobody approved it as one that waits for input.
-    assert!(!h.toolbox.ran()[0].approved_interactive);
+    // The line has no flag, so it keeps the model's timeout, and no person approved it.
+    assert!(!h.toolbox.ran()[0].may_wait);
+    assert_eq!(h.toolbox.ran()[0].approved_by, None);
     h.finish();
 }
 
@@ -1829,13 +1831,16 @@ async fn a_call_approved_as_one_that_waits_for_input_runs_as_one() {
     let sent = h.prompt("update").await;
     let call_id = h.wait_approval().await;
     // Judged before the approval came, the call is not approved yet.
-    assert!(!h.toolbox.judged()[0].approved_interactive);
+    assert!(!h.toolbox.judged()[0].may_wait);
+    assert_eq!(h.toolbox.judged()[0].approved_by, None);
     h.answer(call_id, ApprovalDecision::Allow).await;
     h.wait_end(sent.turn_id).await;
 
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
-    assert!(ran[0].approved_interactive, "the user approved a call that waits for input");
+    assert!(ran[0].may_wait, "the user approved a call that waits for input");
+    assert!(ran[0].may_prompt);
+    assert_eq!(ran[0].approved_by, Some(ApprovedBy::You));
     // The approval told the client so, which may then keep the keys typed for it.
     let events = h.events().await;
     assert!(

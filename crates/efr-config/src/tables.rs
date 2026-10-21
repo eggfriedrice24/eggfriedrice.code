@@ -382,10 +382,14 @@ pub struct ShellSettings {
     /// forget sudo's and doas's credentials after each call, before anything else runs
     /// there. Read at each call.
     pub sudo_cache: SudoCache,
-    /// The longest a command that you approved because it may wait for input at the
-    /// terminal (`sudo`, `ssh`) runs before its call answers the model, in minutes,
-    /// while a terminal that can type answers follows the conversation; the model's own
-    /// timeout holds without one. Read at each call.
+    /// The longest a command runs before its call answers the model, in minutes, while
+    /// a terminal that can type answers follows the conversation. It applies to a
+    /// command outside the sandbox that may ask at the terminal (`sudo`, `ssh`, `rsync`
+    /// or `git` over ssh), also when the reviewer, a rule or full mode allowed it, and to
+    /// any command that waits for input when its timeout passes. A command that still
+    /// runs in the hidden shell after its call answered, and waits for input, stops at
+    /// this limit. The model's own timeout holds when no such terminal follows. Read at
+    /// each call.
     pub interactive_timeout_minutes: u64,
 }
 

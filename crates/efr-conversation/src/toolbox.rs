@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use efr_permissions::{ExitNeed, Requirements};
 use efr_protocol::{
-    CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Mode, Origin, ReportedFile,
-    SandboxSummary, Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo, TurnUndoInfo,
-    TurnUndoResult, UndoId, UndoReason, UndoRefused,
+    ApprovedBy, CallId, ConversationId, FileChanges, InputWait, JobInfo, Launch, Mode, Origin,
+    ReportedFile, SandboxSummary, Scope, SnapshotPhase, SurfaceChange, TurnId, TurnUndo,
+    TurnUndoInfo, TurnUndoResult, UndoId, UndoReason, UndoRefused,
 };
 use efr_provider::{EditTool, ToolDefinition};
 use serde_json::Value;
@@ -237,11 +237,25 @@ pub struct CallContext {
     pub scope: Scope,
     /// The surface the turn came from.
     pub origin: Origin,
-    /// True when the user approved the call although, or because, it may wait for input
-    /// at the terminal, such as a `sudo` password: such a call may run past the model's
-    /// timeout while someone who can answer follows it. Set by the check point once the
-    /// approval came; false while the call is judged.
-    pub approved_interactive: bool,
+    /// True when the call may run past the model's timeout while someone who can answer
+    /// follows it, up to `shell.interactive_timeout_minutes`: it runs outside the sandbox
+    /// (typed into the hidden shell, or in the exit child) and its line may ask at the
+    /// terminal ([`may_prompt`](Self::may_prompt)), whoever approved it. A contained
+    /// call never may: efr types no secret into the sandbox. Set by the check point once
+    /// the call may run; false while the call is judged.
+    pub may_wait: bool,
+    /// True when the call's line may ask for a password or a question at the terminal:
+    /// the hard flag (`sudo`, `ssh`, an editor) or the soft one (`rsync` to another
+    /// host, `scp`, `git` over ssh). Set by the check point once the call may run; false
+    /// while the call is judged.
+    pub may_prompt: bool,
+    /// Who approved the call: [`ApprovedBy::You`] for an answer of the user,
+    /// [`ApprovedBy::YourRule`] for an always rule or an allow rule of the user's own
+    /// config, [`ApprovedBy::Reviewer`] for the reviewer, [`ApprovedBy::FullMode`] for a
+    /// call that full mode let run. `None` for a call that needed no approval, such as a
+    /// contained call, or that a built-in rule allowed. Set by the check point once the
+    /// call may run; `None` while the call is judged.
+    pub approved_by: Option<ApprovedBy>,
     /// How a `shell` call runs: [`Launch::Direct`] (typed into the hidden shell) in
     /// `manual` and `cautious` and for the other tools, [`Launch::Contained`] with its
     /// grants in the `auto` sandbox, [`Launch::Unsandboxed`] in the exit child. Set by
@@ -282,7 +296,9 @@ impl CallContext {
             scratch: scratch.into(),
             scope: Scope::Machine,
             origin: Origin::Shell,
-            approved_interactive: false,
+            may_wait: false,
+            may_prompt: false,
+            approved_by: None,
             launch: Launch::Direct,
             exits: Vec::new(),
             mode: Mode::Cautious,
@@ -322,11 +338,19 @@ impl CallContext {
         self.mode == Mode::Full
     }
 
-    /// Sets whether the user approved the call as one that may wait for input at the
-    /// terminal.
+    /// Sets whether the call may run past the model's timeout while someone who can
+    /// answer follows it.
     #[must_use]
-    pub fn with_approved_interactive(mut self, approved: bool) -> Self {
-        self.approved_interactive = approved;
+    pub fn with_may_wait(mut self, may_wait: bool) -> Self {
+        self.may_wait = may_wait;
+        self
+    }
+
+    /// Sets whether the call's line may ask at the terminal, and who approved the call.
+    #[must_use]
+    pub fn with_approval(mut self, may_prompt: bool, approved_by: Option<ApprovedBy>) -> Self {
+        self.may_prompt = may_prompt;
+        self.approved_by = approved_by;
         self
     }
 

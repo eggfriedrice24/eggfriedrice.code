@@ -159,7 +159,7 @@ turns.
   `CallFacts::refused_hosts`) is a fact, never a name. The host facts come from the
   exits' grants and `ExitNeed::hosts`, so the model's `needs.hosts` words reach the
   record in their normal form. An
-  allow runs the call with its launch, never as `approved_interactive`. A deny gives
+  allow runs the call with its launch and `ApprovedBy::Reviewer`. A deny gives
   the model the reviewer's text ("The auto reviewer refused this action ..."). Any
   other answer, and a judge that gave none (every step of its chain failed), asks the
   user with one `exit_requested` for the call, and the question shows the classifier's
@@ -483,13 +483,27 @@ by field:
   `ToolRequirements` into
   `efr_permissions::Requirements` (`paths` with `AccessMode::Read`, `ReadTree` or
   `Write` to `with_read`, `with_read_tree` or `with_write`, then `command`, `network`,
-  `interactive`); a `ToolError` becomes its `Display` text for the model. The turn
+  `interactive`, `may_prompt`); a `ToolError` becomes its `Display` text for the model. The turn
   asks the toolbox's `shell_cwd` before each call and puts it in
   `CallContext::shell_cwd`, so a command's relative paths are declared from where the
-  hidden shell is, which an earlier call may have moved. Once the user approved a call
-  whose requirements are `interactive`, the check point sets
-  `CallContext::approved_interactive`, from which the daemon lets the call run past the
-  model's timeout while someone who can answer follows it. `CallContext::mode` is the
+  hidden shell is, which an earlier call may have moved. Once a call may run, the
+  check point sets three fields. `CallContext::may_prompt` is true when the
+  requirements are `interactive` (the hard flag) or `may_prompt` (the soft flag:
+  `rsync` to another host, `scp`, `git` over ssh). `CallContext::may_wait` is true
+  when the call also runs outside the sandbox (any launch but `Launch::Contained`:
+  `manual`, `cautious`, full mode or the exit child), whoever approved it: the daemon
+  then lets the call run past the model's timeout while someone who can answer
+  follows it, up to `shell.interactive_timeout_minutes`. A contained call never may
+  wait. `CallContext::approved_by` says who approved the call: `ApprovedBy::You` for
+  an answer of the user, `YourRule` for an always rule or for an allow rule of the
+  user's config (every reason about the line has a rule after the mode's built-in
+  policy as its cause), `Reviewer` for the reviewer, `FullMode` for a call that full
+  mode let run, and `None` for a contained call, a built-in rule or a rule of the
+  conversation. The hidden shell keeps an unattended wait for a password only for a
+  flagged line that `You` or `YourRule` approved, so `None` is the safe side. The
+  question's `ApprovalRequested::interactive` is the hard flag, or the soft flag of a
+  call that runs outside the sandbox, so the question says that the user may need to
+  type a password only for a command that can get one. `CallContext::mode` is the
   turn's effective mode: `sandboxed()` (`auto`: the sandbox, the reviewer and
   always-allow), `predicts()` (`auto` or `full`: the engine predicts exits, so the
   toolbox collects facts and copies home files first) and `is_full()`;

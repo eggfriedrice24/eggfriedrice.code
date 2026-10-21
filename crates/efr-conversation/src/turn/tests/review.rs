@@ -181,7 +181,9 @@ async fn one_exit_requested_per_reviewed_call() {
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
     assert_eq!(ran[0].launch, Launch::Unsandboxed);
-    assert!(!ran[0].approved_interactive, "nobody follows a call that the classifier allowed");
+    // The line has no flag, so it keeps the model's timeout.
+    assert!(!ran[0].may_wait);
+    assert_eq!(ran[0].approved_by, Some(efr_protocol::ApprovedBy::Reviewer));
     assert_eq!(script.results(), vec![("done".to_owned(), false)]);
     // The judge read the record of the call, with the turn's model.
     let seen = &judge.seen()[0];
