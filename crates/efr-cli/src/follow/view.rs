@@ -224,8 +224,9 @@ const MANUAL_CANCELLED: &str = "the input was not sent";
 const HIDDEN_INPUT_ELSEWHERE: &str =
     "the command waits for hidden input, such as a password; efr cannot ask for it here";
 
-/// The note when a contained call waits for hidden input: efr stops it and never asks
-/// (efr's auto spec, sections 3.12 and 14.7).
+/// The note when a contained call waits for hidden input, or for a visible answer whose
+/// prompt looks like a password prompt: efr stops it and never asks (efr's auto spec,
+/// sections 3.12 and 14.7).
 const HIDDEN_INPUT_SANDBOXED: &str =
     "sandbox: the command asked for a password; efr does not type secrets into the sandbox";
 
@@ -1404,17 +1405,19 @@ impl TurnView {
                 if let Some(command) = format::command_of(input) {
                     self.commands.insert(*call_id, command.to_owned());
                 }
-                // A call that takes a manual input is followed from its start, so a
-                // command that never prints can still offer `Ctrl+\`.
-                let mut settled = false;
-                if *manual_input {
-                    let (running, replaced) = self.running(*call_id);
-                    running.takes_manual = true;
-                    settled = replaced;
-                }
                 if let Some(Launch::Contained { grants }) = launch {
                     let open = grants.contains(&Grant::OpenNetwork);
                     self.contained.insert(*call_id, (grants.contains(&Grant::NetView), open));
+                }
+                // A call that takes a manual input is followed from its start, so a
+                // command that never prints can still offer `Ctrl+\`. A call in the
+                // sandbox never does: a manual line may hold a password, and efr types
+                // no secret into the sandbox.
+                let mut settled = false;
+                if *manual_input && !self.contained.contains_key(call_id) {
+                    let (running, replaced) = self.running(*call_id);
+                    running.takes_manual = true;
+                    settled = replaced;
                 }
                 // The model writes a tool call after the text it belongs to, so the
                 // message before it is complete.
@@ -1746,10 +1749,16 @@ impl TurnView {
         match event {
             // The turn ahead is one that a job notice started, not the user.
             Event::JobNotice { turn_id, woke: true, .. } => self.wake_mark(*turn_id, size),
-            Event::ToolCallStarted { call_id, tool, input, .. } => {
+            Event::ToolCallStarted { call_id, tool, input, launch, .. } => {
                 self.tools.insert(*call_id, tool.clone());
                 if let Some(command) = format::command_of(input) {
                     self.commands.insert(*call_id, command.to_owned());
+                }
+                // NOTE: the waits of the turn ahead show here too, so a call of it in
+                // the sandbox must never get an answer that may be a secret either.
+                if let Some(Launch::Contained { grants }) = launch {
+                    let open = grants.contains(&Grant::OpenNetwork);
+                    self.contained.insert(*call_id, (grants.contains(&Grant::NetView), open));
                 }
                 Step::default()
             }
@@ -2275,7 +2284,8 @@ impl TurnView {
     /// The user pressed `Ctrl+\` while the line for call `call_id` was shown: asks for a
     /// line that is not shown as it is typed and goes as a manual answer.
     pub(crate) fn manual(&mut self, call_id: CallId, size: Size) -> Step {
-        if self.manual_offer() != Some(call_id) {
+        // NOTE: a manual line may hold a password, which never goes into the sandbox.
+        if self.manual_offer() != Some(call_id) || self.contained.contains_key(&call_id) {
             return Step::default();
         }
         if let Some(running) = &mut self.running {
@@ -2364,7 +2374,10 @@ impl TurnView {
             }
             _ => return Step { settled, ..self.commit(String::new()) },
         };
-        if kind.hidden() && self.contained.contains_key(&call_id) {
+        // NOTE: a prompt in the sandbox can be a fake, so efr asks for no answer that may
+        // be a secret there: not a hidden one, and not one whose prompt looks like a
+        // password prompt. efr-shell stops such a command at once.
+        if kind != AnswerKind::Visible && self.contained.contains_key(&call_id) {
             return Step { settled, ..self.note(HIDDEN_INPUT_SANDBOXED, size) };
         }
         if !can_ask {

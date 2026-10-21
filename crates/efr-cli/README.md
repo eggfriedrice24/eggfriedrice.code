@@ -788,6 +788,12 @@ command's prompt (its last output line) and how to answer:
   and the agent sees it only if that program shows it". The answer still goes as a
   visible one, and keys typed while the call asks nothing more are thrown away until it
   completes, as for a hidden answer.
+- A call in the sandbox (`launch` is `contained` in its `tool_call_started`) never gets
+  an answer that may be a secret, because a prompt there can be a fake: a `hidden` wait
+  and a `visible` wait that `looks_secret` show one note, `sandbox: the command asked
+  for a password; efr does not type secrets into the sandbox`, and no answer line.
+  efr-shell stops such a command at once. Only a plain `visible` wait asks. Such a call
+  never offers `Ctrl+\` for a manual line either.
 
 Printable text is added, Backspace removes one character, Ctrl+U clears the line, arrow
 keys and other escape sequences are ignored, and Enter sends the line with
