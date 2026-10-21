@@ -20,16 +20,16 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 const MAX_BYTES: usize = 1 << 20;
 
 /// A test CA and one leaf for the test names, as files below `dir`.
-pub(super) struct TestCa {
+pub(in crate::sandbox) struct TestCa {
     /// The CA's certificate in PEM, for curl, cargo and git.
-    pub(super) pem: PathBuf,
+    pub(in crate::sandbox) pem: PathBuf,
     cert: Vec<u8>,
     key: Vec<u8>,
 }
 
 impl TestCa {
     /// Makes a CA and a leaf for `names` with `openssl` in `dir`.
-    pub(super) async fn new(dir: &Path, names: &[&str]) -> TestCa {
+    pub(in crate::sandbox) async fn new(dir: &Path, names: &[&str]) -> TestCa {
         std::fs::create_dir_all(dir).unwrap();
         let san: Vec<String> = names.iter().map(|name| format!("DNS:{name}")).collect();
         std::fs::write(
@@ -121,40 +121,40 @@ impl TestCa {
 
 /// One request that the server read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Logged {
-    pub(super) method: String,
+pub(in crate::sandbox) struct Logged {
+    pub(in crate::sandbox) method: String,
     /// The target with its query.
-    pub(super) path: String,
+    pub(in crate::sandbox) path: String,
     /// The header names, in lower case.
-    pub(super) headers: Vec<String>,
+    pub(in crate::sandbox) headers: Vec<String>,
     /// The value of the `Host` header.
-    pub(super) host: String,
+    pub(in crate::sandbox) host: String,
     /// The body bytes that came.
-    pub(super) body: usize,
+    pub(in crate::sandbox) body: usize,
 }
 
 impl Logged {
     /// True when the request carried credentials.
-    pub(super) fn authorized(&self) -> bool {
+    pub(in crate::sandbox) fn authorized(&self) -> bool {
         self.headers.iter().any(|name| name == "authorization")
     }
 }
 
 /// The answer to one request.
-pub(super) struct Answer {
-    pub(super) status: u16,
-    pub(super) headers: Vec<(&'static str, String)>,
-    pub(super) body: Vec<u8>,
+pub(in crate::sandbox) struct Answer {
+    pub(in crate::sandbox) status: u16,
+    pub(in crate::sandbox) headers: Vec<(&'static str, String)>,
+    pub(in crate::sandbox) body: Vec<u8>,
 }
 
 impl Answer {
     /// `200 OK` with `body`.
-    pub(super) fn ok(body: impl Into<Vec<u8>>) -> Answer {
+    pub(in crate::sandbox) fn ok(body: impl Into<Vec<u8>>) -> Answer {
         Answer { status: 200, headers: Vec::new(), body: body.into() }
     }
 
     /// `404 Not Found`.
-    pub(super) fn not_found() -> Answer {
+    pub(in crate::sandbox) fn not_found() -> Answer {
         Answer { status: 404, headers: Vec::new(), body: b"not found\n".to_vec() }
     }
 }
@@ -163,14 +163,14 @@ type Route = dyn Fn(&Logged) -> Answer + Send + Sync;
 
 /// A running server. Its threads end when the test process ends; they hold no file
 /// of the test.
-pub(super) struct Server {
+pub(in crate::sandbox) struct Server {
     address: SocketAddr,
     log: Arc<Mutex<Vec<Logged>>>,
 }
 
 impl Server {
     /// Serves `route` on `ip:0` with the leaf of `ca`.
-    pub(super) fn start(
+    pub(in crate::sandbox) fn start(
         ip: &str,
         ca: &TestCa,
         route: impl Fn(&Logged) -> Answer + Send + Sync + 'static,
@@ -192,12 +192,12 @@ impl Server {
     }
 
     /// The address that the server listens on.
-    pub(super) fn address(&self) -> SocketAddr {
+    pub(in crate::sandbox) fn address(&self) -> SocketAddr {
         self.address
     }
 
     /// The requests so far, in the order they came.
-    pub(super) fn log(&self) -> Vec<Logged> {
+    pub(in crate::sandbox) fn log(&self) -> Vec<Logged> {
         self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 }
