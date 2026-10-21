@@ -25,15 +25,26 @@
 //! system bus is a path that cannot exist and there is no session bus, so a test daemon
 //! never reaches the machine's buses. A test names its fake `xdg-dbus-proxy` here too,
 //! because an in-process daemon finds no trusted program on a `PATH`.
+//!
+//! Job port forwards: efrd binds a host port for each forwarded port of a job through
+//! [`HostPorts`]. A test build binds through [`TestHostPorts`], which binds a free port
+//! of `127.0.0.1` for each port that a job asks for, so a test never takes a fixed port
+//! of the machine. Only a test that asks for the system seam
+//! (`Deps::with_system_host_ports`) and the `efrd` of the smoke bind the real ports.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io;
 #[cfg(feature = "test-sandbox-fake")]
 use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV6};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_protocol::SandboxStatus;
 use efr_proxy::Limits;
+use efr_sandbox::{TCP_LISTEN, TcpRow};
+
+use crate::jobs::forward::SystemHostPorts;
 
 #[cfg(feature = "test-sandbox-fake")]
 use crate::Deps;
@@ -77,6 +88,123 @@ pub(crate) struct Seams {
     /// Whether efrd runs as root, in place of its effective uid (full mode, DF27).
     #[cfg(feature = "test-sandbox-fake")]
     runs_as_root: Option<bool>,
+    /// The host ports of the job port forwards: a test's map, or the system's.
+    #[cfg(feature = "test-sandbox-fake")]
+    host_ports: Option<HostPortsSeam>,
+}
+
+/// The host ports of a test build.
+#[cfg(feature = "test-sandbox-fake")]
+#[derive(Debug, Clone)]
+enum HostPortsSeam {
+    /// A free port of `127.0.0.1` for each port that a job asks for.
+    Test(TestHostPorts),
+    /// The real ports of the machine.
+    System,
+}
+
+/// The host side of the job port forwards (DL8, DL9): the bind of `127.0.0.1:<port>`
+/// and the host's tcp tables.
+pub(crate) trait HostPorts: Send + Sync {
+    /// Binds `127.0.0.1:port` with no `SO_REUSEPORT`, ready for tokio. The test seam
+    /// binds `127.0.0.1:0` and remembers which port stands for `port`. It blocks.
+    fn bind(&self, port: u16) -> io::Result<std::net::TcpListener>;
+    /// The host's `tcp` and `tcp6` rows. It blocks; async code calls it on the blocking
+    /// pool.
+    fn rows(&self) -> io::Result<(Vec<TcpRow>, Vec<TcpRow>)>;
+    /// The uid that efrd runs as, as the rows show it.
+    fn own_uid(&self) -> u32;
+}
+
+/// The host ports of a test daemon: each bind of a port takes a free port of
+/// `127.0.0.1` in its place, so a test never binds a fixed port of the machine. The
+/// rows are the machine's own, so the peer check of a test connection reads the real
+/// table; a test can make a port count as in use, add a listener on `::1`, and show
+/// another uid in every row.
+#[derive(Debug, Clone, Default)]
+pub struct TestHostPorts(Arc<Mutex<TestPorts>>);
+
+#[derive(Debug, Default)]
+struct TestPorts {
+    /// The free port that stands for each port that a job asked for.
+    real: BTreeMap<u16, u16>,
+    /// The ports whose bind fails with `AddrInUse`.
+    in_use: BTreeSet<u16>,
+    /// The ports with a `LISTEN` row on `::1` in the `tcp6` rows.
+    v6: BTreeSet<u16>,
+    /// The uid of every row, in place of the real one.
+    uid: Option<u32>,
+}
+
+impl TestHostPorts {
+    /// A map with no port yet.
+    pub fn new() -> TestHostPorts {
+        TestHostPorts::default()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, TestPorts> {
+        // NOTE: each change is whole, so a poisoned lock still holds a usable map.
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The free port of `127.0.0.1` that stands for `port`, once efrd bound it.
+    pub fn real_port(&self, port: u16) -> Option<u16> {
+        self.lock().real.get(&port).copied()
+    }
+
+    /// Makes the bind of `port` fail as for a port that another program holds.
+    pub fn set_in_use(&self, port: u16) {
+        self.lock().in_use.insert(port);
+    }
+
+    /// Adds a `LISTEN` row on `[::1]:port` to the host's `tcp6` rows, as for a server
+    /// of the user that listens on IPv6 only.
+    pub fn set_v6_listen(&self, port: u16) {
+        self.lock().v6.insert(port);
+    }
+
+    /// Shows `uid` as the owner of every row of the host, as for a peer of another
+    /// user.
+    pub fn set_peer_uid(&self, uid: u32) {
+        self.lock().uid = Some(uid);
+    }
+}
+
+impl HostPorts for TestHostPorts {
+    fn bind(&self, port: u16) -> io::Result<std::net::TcpListener> {
+        if self.lock().in_use.contains(&port) {
+            return Err(io::Error::from(io::ErrorKind::AddrInUse));
+        }
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        listener.set_nonblocking(true)?;
+        let real = listener.local_addr()?.port();
+        self.lock().real.insert(port, real);
+        Ok(listener)
+    }
+
+    fn rows(&self) -> io::Result<(Vec<TcpRow>, Vec<TcpRow>)> {
+        let (mut v4, mut v6) = SystemHostPorts.rows()?;
+        let ports = self.lock();
+        if let Some(uid) = ports.uid {
+            for row in v4.iter_mut().chain(v6.iter_mut()) {
+                row.uid = uid;
+            }
+        }
+        let uid = ports.uid.unwrap_or_else(|| SystemHostPorts.own_uid());
+        for port in &ports.v6 {
+            v6.push(TcpRow {
+                state: TCP_LISTEN,
+                local: SocketAddrV6::new(Ipv6Addr::LOCALHOST, *port, 0, 0).into(),
+                remote: SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0).into(),
+                uid,
+            });
+        }
+        Ok((v4, v6))
+    }
+
+    fn own_uid(&self) -> u32 {
+        SystemHostPorts.own_uid()
+    }
 }
 
 /// The system bus of a test build without the seam: a path below `/proc`, where no
@@ -197,11 +325,27 @@ impl Seams {
         self.runs_as_root
     }
 
+    /// The host ports of the job port forwards in a test build: the test's map, the
+    /// system's when a test or the smoke's `efrd` asked for it, else a map of its own,
+    /// so a test daemon never binds a fixed port of the machine.
+    pub(crate) fn host_ports(&self) -> Arc<dyn HostPorts> {
+        match &self.host_ports {
+            Some(HostPortsSeam::Test(ports)) => Arc::new(ports.clone()),
+            Some(HostPortsSeam::System) => Arc::new(SystemHostPorts),
+            None => Arc::new(TestHostPorts::new()),
+        }
+    }
+
     /// These seams with the test names of `EFR_TEST_PROXY_HOSTS` and the test buses of
     /// `EFR_TEST_SYSTEM_BUS` and `EFR_TEST_SESSION_BUS`, for the `efrd` of the smoke. A
     /// value that does not parse names nothing and costs a warning.
     pub(crate) fn with_process_env(mut self) -> Self {
         use efr_stdx::env::Var;
+        // NOTE: the smoke's `efrd` forwards the real ports, so curl and a browser reach
+        // a job's server; only an in-process test daemon gets a map.
+        if self.host_ports.is_none() {
+            self.host_ports = Some(HostPortsSeam::System);
+        }
         match efr_stdx::env::var(Var::TestProxyHosts) {
             Ok(Some(value)) => match parse_proxy_hosts(&value) {
                 Some(hosts) => self.proxy_hosts = Some(hosts),
@@ -254,9 +398,7 @@ impl efr_proxy::Resolver for TableResolver {
     fn resolve<'a>(&'a self, host: &'a str) -> efr_proxy::Resolving<'a> {
         let found = self.0.get(host).map(|server| vec![server.ip()]);
         Box::pin(async move {
-            found.ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::NotFound, "no such test name")
-            })
+            found.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no such test name"))
         })
     }
 }
@@ -277,10 +419,7 @@ impl efr_proxy::Connector for TableConnector {
             .filter(|server| server.ip().is_loopback());
         Box::pin(async move {
             let Some(server) = server else {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    "no test server",
-                ));
+                return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "no test server"));
             };
             tokio::net::TcpStream::connect(server).await
         })
@@ -363,6 +502,11 @@ impl Seams {
     /// Without the feature efrd reads its effective uid.
     pub(crate) fn runs_as_root(&self) -> Option<bool> {
         None
+    }
+
+    /// Without the feature efrd binds the real ports of the machine.
+    pub(crate) fn host_ports(&self) -> Arc<dyn HostPorts> {
+        Arc::new(SystemHostPorts)
     }
 }
 
@@ -462,6 +606,24 @@ impl Deps {
     #[must_use]
     pub fn with_runs_as_root(mut self, root: bool) -> Self {
         self.seams.runs_as_root = Some(root);
+        self
+    }
+
+    /// Binds the host port of each job port forward through `ports`, a map of free
+    /// ports that the test reads. Without it a test daemon has a map of its own. Only
+    /// with the feature `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_test_host_ports(mut self, ports: TestHostPorts) -> Self {
+        self.seams.host_ports = Some(HostPortsSeam::Test(ports));
+        self
+    }
+
+    /// Binds the real port of the machine for each job port forward, as efrd does
+    /// without the test seams: for the one test of the real bind. Only with the feature
+    /// `test-sandbox-fake`.
+    #[must_use]
+    pub fn with_system_host_ports(mut self) -> Self {
+        self.seams.host_ports = Some(HostPortsSeam::System);
         self
     }
 }
