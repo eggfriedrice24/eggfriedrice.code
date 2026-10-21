@@ -443,6 +443,15 @@ pub enum DaemonError {
         /// Why not, never quoting the answer.
         reason: &'static str,
     },
+    /// The command that a call left running in the hidden shell cannot be stopped with
+    /// `SIGINT` now, so nothing was signalled.
+    #[error("the command of call {call_id} cannot be stopped now: {reason}")]
+    StopRefused {
+        /// The call whose command was to stop.
+        call_id: CallId,
+        /// Why not.
+        reason: &'static str,
+    },
     /// An answer is not one line that can be typed. The reason never quotes it.
     #[error("the answer cannot be typed: {reason}")]
     InvalidAnswer {
@@ -609,9 +618,9 @@ impl DaemonError {
             DaemonError::SandboxUnavailable { .. } => ErrorCode::Conflict,
             DaemonError::SandboxSpec { .. } => ErrorCode::Invalid,
             DaemonError::HelloRepeated | DaemonError::CommandReused { .. } => ErrorCode::Conflict,
-            DaemonError::NoRunningTurn { .. } | DaemonError::NotWaitingForInput { .. } => {
-                ErrorCode::Conflict
-            }
+            DaemonError::NoRunningTurn { .. }
+            | DaemonError::NotWaitingForInput { .. }
+            | DaemonError::StopRefused { .. } => ErrorCode::Conflict,
             DaemonError::InvalidParams { .. }
             | DaemonError::ForeignModel { .. }
             | DaemonError::NoSuchProvider { .. }
@@ -883,8 +892,9 @@ fn summary_code(error: &ProviderError) -> ErrorCode {
 fn shell_code(error: &ShellError) -> ErrorCode {
     match error {
         ShellError::NoShell { .. } => ErrorCode::NotFound,
-        // NOTE: the answer errors (`NoCall`, `NotWaiting`, `InvalidAnswer`) never reach
-        // here: `methods/input_respond.rs` turns them into daemon errors that name the call.
+        // NOTE: the answer and stop errors (`NoCall`, `NotWaiting`, `InvalidAnswer`) never
+        // reach here: `methods/input_respond.rs` and `methods/shell_interrupt.rs` turn them
+        // into daemon errors that name the call.
         _ => ErrorCode::Internal,
     }
 }
