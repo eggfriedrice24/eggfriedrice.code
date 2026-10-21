@@ -6,7 +6,9 @@
 //! for disconnected directories must be fixed, because the design binds many
 //! directories. A path rule whose path does not exist inside the sandbox is left out,
 //! which only takes rights away. A network view call (`deny_tcp`) also handles the TCP
-//! bind and connect rights, with no rule that grants them.
+//! bind and connect rights, with no rule that grants them. The forwarder of a job
+//! (`deny_tcp_bind`) handles the TCP bind right alone: it connects to the job's servers
+//! and never listens.
 
 use std::io;
 use std::os::fd::BorrowedFd;
@@ -99,12 +101,17 @@ pub(crate) fn restrict(
         .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(handled)
         .map_err(landlock_error)?;
+    // No rule ever grants these, so a TCP bind (and with `deny_tcp` a connect) fails
+    // with EACCES even if a socket got past seccomp.
+    let mut net = BitFlags::<AccessNet>::empty();
     if policy.deny_tcp {
-        // No rule ever grants these, so a TCP bind or connect fails with EACCES even if
-        // a socket got past seccomp.
-        ruleset = ruleset
-            .handle_access(AccessNet::BindTcp | AccessNet::ConnectTcp)
-            .map_err(landlock_error)?;
+        net |= AccessNet::BindTcp | AccessNet::ConnectTcp;
+    }
+    if policy.deny_tcp_bind {
+        net |= AccessNet::BindTcp;
+    }
+    if !net.is_empty() {
+        ruleset = ruleset.handle_access(net).map_err(landlock_error)?;
     }
     let mut ruleset =
         ruleset.scope(scope).map_err(landlock_error)?.create().map_err(landlock_error)?;

@@ -398,3 +398,67 @@ fn bridge_filter_runs_on_bpf_cases() {
         }
     }
 }
+
+#[test]
+fn forward_filter_runs_on_bpf_cases() {
+    let x86_64 = BridgeNumbers {
+        arch: SeccompArch::X86_64,
+        target: TargetArch::x86_64,
+        audit: ARCH_X86_64,
+        socket: 41,
+        socketpair: 53,
+        denied: [49, 50, 59, 322, 101, 438],
+        allowed: [42, 288, 0, 1, 39],
+        clone: 56,
+        clone3: 435,
+    };
+    let aarch64 = BridgeNumbers {
+        arch: SeccompArch::Aarch64,
+        target: TargetArch::aarch64,
+        audit: ARCH_AARCH64,
+        socket: 198,
+        socketpair: 199,
+        denied: [200, 201, 221, 281, 117, 438],
+        allowed: [203, 242, 63, 64, 172],
+        clone: 220,
+        clone3: 435,
+    };
+    let high = 1_u64 << 32;
+    let (stream, dgram, raw) = (1, 2, 3);
+    let thread_flags = 0x003d_0f00;
+    for numbers in [x86_64, aarch64] {
+        let programs =
+            compile_for(&SeccompProfile::forward(), numbers.target, numbers.arch).unwrap();
+        let call =
+            |nr: u32, args: [u64; 3]| verdict(&programs, &seccomp_data(nr, numbers.audit, args));
+        let what = format!("{:?}", numbers.arch);
+        // Unix, IPv4 and IPv6 sockets: the forward socket and the job's own servers.
+        // The kernel reads the family as an int, so the high word changes nothing.
+        for family in [AF_UNIX, AF_INET, AF_INET6, AF_INET | high] {
+            assert_eq!(call(numbers.socket, [family, stream, 0]), RET_ALLOW, "{what} {family}");
+        }
+        assert_eq!(call(numbers.socket, [AF_INET6, dgram, 0]), RET_ALLOW, "{what}");
+        assert_eq!(call(numbers.socketpair, [AF_UNIX, dgram, 0]), RET_ALLOW, "{what}");
+        for family in [AF_PACKET, AF_NETLINK, 40, 44, AF_PACKET | high] {
+            let refused = errno(EAFNOSUPPORT);
+            assert_eq!(call(numbers.socket, [family, raw, 0]), refused, "{what} {family}");
+            assert_eq!(call(numbers.socketpair, [family, stream, 0]), refused, "{what}");
+        }
+        // bind, listen, execve, execveat, ptrace and pidfd_getfd are refused; connect,
+        // accept4, read, write and getpid run.
+        for nr in numbers.denied {
+            assert_eq!(call(nr, [3, 0, 0]), errno(EPERM), "{what} {nr}");
+        }
+        for nr in numbers.allowed {
+            assert_eq!(call(nr, [3, 0, 0]), RET_ALLOW, "{what} {nr}");
+        }
+        // Threads start, for the poll and the copies; a new namespace does not.
+        assert_eq!(call(numbers.clone3, [0, 0, 0]), errno(ENOSYS), "{what}");
+        assert_eq!(call(numbers.clone, [thread_flags, 0, 0]), RET_ALLOW, "{what}");
+        assert_eq!(call(numbers.clone, [0x1000_0000, 0, 0]), errno(EPERM), "{what}");
+        if numbers.arch == SeccompArch::X86_64 {
+            let x32 = numbers.socket | X32_SYSCALL_BIT;
+            assert_eq!(call(x32, [AF_INET, stream, 0]), RET_KILL_PROCESS);
+        }
+    }
+}

@@ -1,5 +1,5 @@
 //! The start, the setup and the copy that the confined helpers inside a sandbox share:
-//! the bridge of a proxy call (`bridge.rs`).
+//! the bridge of a proxy call (`bridge.rs`) and the forwarder of a job (`forward.rs`).
 //!
 //! Two `std::process::Command` spawns start a helper, so it needs no code outside safe
 //! Rust (ADR 0007 keeps that code in `fds.rs`):
@@ -57,6 +57,8 @@ pub(crate) const SELF_EXE: &str = "/proc/self/exe";
 pub(crate) enum Helper {
     /// The bridge of a proxy call, `efr-sbx bridge`.
     Bridge,
+    /// The forwarder of a job with port forwards, `efr-sbx forward`.
+    Forwarder,
 }
 
 impl Helper {
@@ -64,6 +66,7 @@ impl Helper {
     pub(crate) fn name(self) -> &'static CStr {
         match self {
             Helper::Bridge => c"efr-bridge",
+            Helper::Forwarder => c"efr-forward",
         }
     }
 
@@ -71,6 +74,7 @@ impl Helper {
     fn copy_thread(self) -> &'static str {
         match self {
             Helper::Bridge => "efr-bridge-copy",
+            Helper::Forwarder => "efr-fwd-copy",
         }
     }
 }
@@ -79,6 +83,7 @@ impl fmt::Display for Helper {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Helper::Bridge => "network bridge",
+            Helper::Forwarder => "port forwarder",
         })
     }
 }
@@ -160,18 +165,20 @@ pub(crate) fn start(
     // The starter's copies of the listener and of the pipe's write end close here, so
     // the read below sees the end of the pipe when the server exits.
     drop(command);
-    // NOTE: the server is never waited for: the starter's exit leaves it to bwrap's
-    // init, which reaps it.
-    let _server = spawned.map_err(|source| SbxError::Spawn { program: SELF_EXE.into(), source })?;
-    match read_ready(ready_read, READY_WAIT) {
-        Some(READY) => Ok(()),
-        Some(_) => {
-            Err(SbxError::HelperStart { helper, problem: "the server sent a wrong ready byte" })
-        }
-        None => {
-            Err(SbxError::HelperStart { helper, problem: "the server did not report that it runs" })
-        }
-    }
+    // NOTE: a server that runs is never waited for: the starter's exit leaves it to
+    // bwrap's init, which reaps it.
+    let mut server =
+        spawned.map_err(|source| SbxError::Spawn { program: SELF_EXE.into(), source })?;
+    let problem = match read_ready(ready_read, READY_WAIT) {
+        Some(READY) => return Ok(()),
+        Some(_) => "the server sent a wrong ready byte",
+        None => "the server did not report that it runs",
+    };
+    // A server that is late or wrong ends here, so none runs on after its starter
+    // failed, also one that is still in its setup.
+    let _ = server.kill();
+    let _ = server.wait();
+    Err(SbxError::HelperStart { helper, problem })
 }
 
 /// One byte from `pipe`, or `None` at its end or after `wait`.

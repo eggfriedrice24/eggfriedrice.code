@@ -31,9 +31,10 @@ every child inherits. The job runs contained or in the exit child (with
 output pipe as stdout and stderr. A stop thread ends the job on SIGTERM or SIGHUP, at
 the end of the lifeline, or at efrd's limit plus the backstop: SIGTERM to every process
 of the job but bwrap's own, SIGKILL from 2 s, and it gives up at 4 s. The bridge of a
-proxy job (named `efr-bridge`, with the namespace's init as its parent) is spared like
-bwrap's own and is not named in `background_stopped`; it ends with the namespace. This
-is a rule of the list only: a process that renames itself so still ends with the job. `result.json`
+proxy job and the forwarder of a job with port forwards (named `efr-bridge` and
+`efr-forward`, with the namespace's init as their parent) are spared like bwrap's own
+and are not named in `background_stopped`; they end with the namespace. This is a rule
+of the list only: a process that renames itself so still ends with the job. `result.json`
 names the stop and the nice value. A job writes no apply and no state, lists no cache
 deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 `efr-sbx guard-check` reads it while the job runs.
@@ -43,11 +44,12 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `run --call-dir DIR` | one call, contained or in the exit child |
 | `run --call-dir DIR --job` | one background job that efrd started; the spec must have a job plan, and without `--job` it must not |
 | `guard-check --call-dir DIR --state-dir SBXJOB` | compares a contained job's git surface with the record of its start, moves what breaks a rule to its quarantine, writes `guard.json`; exit status 0 with no change, 3 with a change, 1 on an error |
-| `inner --policy-fd N` (hidden) | inside bwrap: starts the bridge of a proxy call, waits for the cache overlays while the bridge starts, then Landlock, seccomp and the child shell |
+| `inner --policy-fd N` (hidden) | inside bwrap: starts the bridge of a proxy call and the forwarder of a job with port forwards, waits for the cache overlays while they start, then Landlock, seccomp and the child shell; a forwarder that does not start leaves the job with no forwards and is no setup error |
 | `layers --pid N` (hidden) | enters the namespaces of the inner stage `N`, mounts the cache overlays of the plan on stdin, and sends the descriptors of their upper dirs back over its stdout, a Unix socket |
 | `probe --json --dir DIR` | the checks of the spec's section 12.1 and one real launch with the self-test; when it passes, a second launch with `Grant::NetView` runs the network view's self-test, whose result is the report's `netview` (a failure there is a warning, never a failed probe); a third launch with a proxy plan runs the proxy's self-test against a socket of the probe that answers `CONNECT` with `200` and echoes, whose result is the report's `proxy` (a warning too) |
-| `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make. With `--net-view` it runs the network view's checks: `tcp4` first, and when it does not get `EAFNOSUPPORT` no other check runs; then the other families, the netlink protocols, `listen`, `pidfd_getfd`, the host's live abstract names and a Unix socket, each with its exact errno. With `--bus-proxy --ready-fd 3` it stands for `xdg-dbus-proxy` behind `dbus-proxy`: it writes the ready byte `x` and then the checks of the bus proxy's domain on fd 3 (fd 1 is stderr, a socket in its dir, the upstream bus, `EACCES` for other sockets, writes and reads, no TCP, the descriptors 4 to 63 only). With `--proxy` it runs the checks of a proxy call: a tunnel through the bridge (`proxy_tcp`), the proxy socket (`EACCES`), another address (`ENETUNREACH`), a signal to the bridge (`EPERM`), the bridge's `/proc` files (root's, `EACCES`), its port (`EADDRINUSE`) and UDP (`ENETUNREACH`); the probe runs the first four |
+| `self-test` (hidden) | the probe's checks from inside a sandbox; the escape suite uses it for system calls a shell cannot make. With `--net-view` it runs the network view's checks: `tcp4` first, and when it does not get `EAFNOSUPPORT` no other check runs; then the other families, the netlink protocols, `listen`, `pidfd_getfd`, the host's live abstract names and a Unix socket, each with its exact errno. With `--bus-proxy --ready-fd 3` it stands for `xdg-dbus-proxy` behind `dbus-proxy`: it writes the ready byte `x` and then the checks of the bus proxy's domain on fd 3 (fd 1 is stderr, a socket in its dir, the upstream bus, `EACCES` for other sockets, writes and reads, no TCP, the descriptors 4 to 63 only). With `--proxy` it runs the checks of a proxy call: a tunnel through the bridge (`proxy_tcp`), the proxy socket (`EACCES`), another address (`ENETUNREACH`), a signal to the bridge (`EPERM`), the bridge's `/proc` files (root's, `EACCES`), its port (`EADDRINUSE`) and UDP (`ENETUNREACH`); the probe runs the first four. With `--forward` it runs the checks of a job with port forwards: a signal to the forwarder (`EPERM`) and its `/proc` files (root's, `EACCES`). With `--echo ADDR` it runs no check: it listens on `ADDR` (port 0 for any), prints `echo <address>` and sends back the bytes of each connection, for the forwarder's tests |
 | `bridge --listen-fd 0 --socket P` (hidden) | the bridge of a proxy call: the starter runs the server (`--serve --ready-fd 1`) and exits 0 on its ready byte, else 1; the server copies TCP from `127.0.0.1:3128` inside to the call's proxy socket. `--check-dumpable` runs the server's setup and checks it |
+| `forward --socket P` (hidden) | the forwarder of a contained job with port forwards (`JobPlan::forward`): the starter runs the server (`--serve --ready-fd 1`) and exits 0 on its ready byte, else 1. The server reads the job's `/proc/self/net/tcp` and `tcp6` every `--poll-ms`, reports each stable loopback listen (`efr_sandbox::Debounce`) to efrd as `Listen` and `Gone` frames on the job's forward socket, and for efrd's `Open` connects inside the job and copies the bytes on a new connection to the socket; it refuses a port below 1024 and the bridge's 3128 in a proxy job (`--proxy`). `--check` runs the server's setup and checks its domain |
 | `dbus-proxy --dir D [--upstream B]... -- PROGRAM ARGS` (hidden) | efrd's filtered bus of a call (phase E): closes every descriptor from 3 up, moves its stdout (efrd's sync pipe) to fd 3 and points fd 1 at its stderr (`xdg-dbus-proxy` 0.1.9 prints its `--log` on stdout), changes to `D` (the call's `$CALL/bus`), sets `RLIMIT_NOFILE` to 64, `no_new_privs`, the Landlock domain `LandlockPolicy::bus_proxy` and the seccomp profile `SeccompProfile::bus_proxy`, then runs `PROGRAM`, an absolute path; a failed step exits 125 with one line on stderr, before the program runs |
 | `landlock-abi` (hidden) | prints the kernel's Landlock ABI from a rule set that restricts nothing |
 | `statvfs` (hidden) | efrd's helper of the mount view, outside the sandbox: the paths on stdin (NUL-separated, at most 4096), one thread each, one JSON line per path as each answers (`{"path", "ok"}` or `{"path", "errno"}`, with the device of `stat`); efrd kills it at its deadline |
@@ -77,6 +79,8 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `src/dbus_proxy.rs` | `dbus-proxy`: the wrapper of `xdg-dbus-proxy`, with no code outside safe Rust but `fds.rs` |
 | `src/self_test/bus_proxy.rs` | `self-test --bus-proxy`: the checks of the bus proxy's domain, for the tests |
 | `src/bridge.rs` | the bridge of a proxy call: the starter, the server with its own session, name (`efr-bridge`), no dump, Landlock domain (`LandlockPolicy::bridge`) and seccomp profile (`SeccompProfile::bridge`), and the copies, two threads per connection, at most 64 connections |
+| `src/forward.rs` | the forwarder of a job: the tables and the ephemeral range opened before its domain, its own session, name (`efr-forward`), no dump, Landlock domain (`LandlockPolicy::forward`, the TCP bind right handled with no rule) and seccomp profile (`SeccompProfile::forward`), the control connection, the poll thread, and one thread for each `Open`, at most 64 connections |
+| `src/self_test/echo.rs` | `self-test --echo ADDR`: a small TCP server (and a UDP socket) in a job, for the forwarder's tests |
 | `src/helper.rs` | what the confined helpers share: the starter and its ready byte, the setup steps in order (close, session, name, open, not dumpable, Landlock, seccomp) with `--fail-setup`, the place limit of the connections and the copy, two threads per connection |
 | `src/statvfs.rs` | `statvfs`: the sizes of the host's mounts for efrd |
 | `src/mounts.rs` | `mounts`: the tables of the mount view; a variable that changes `df`'s units (`DF_BLOCK_SIZE` and the like) leaves them to the real `df` |
@@ -177,6 +181,13 @@ async runtime; it reads its own environment, which is the trusted shell's.
   the inner stage waits at most 2 s for the starter. Any other end is a setup failure,
   and the call does not run. The child's domain has no rule for the proxy socket, and
   its signal scope keeps it from the bridge.
+- The forwarder of a job serves only in its own sandbox, started the same way. The
+  child of the job starts only after the forwarder's starter ended, so it never runs
+  beside a forwarder that is not confined yet; a starter that gets no ready byte kills
+  its server. Unlike the bridge, a forwarder that does not start fails nothing: the job
+  runs with no forwards, and the inner stage writes nothing about it. The forwarder
+  never binds or listens (seccomp and Landlock), connects only inside the job's network
+  namespace, and the child's domain has no rule for the forward socket.
 
 ## Tests
 

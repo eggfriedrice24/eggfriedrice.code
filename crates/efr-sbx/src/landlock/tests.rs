@@ -81,6 +81,40 @@ fn netview_tcp_landlock_layer() {
 }
 
 #[test]
+fn forward_domain_refuses_bind_and_keeps_connect() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    // The forwarder's own domain, on a new thread: Landlock acts on the calling thread
+    // alone. The socket path does not exist, so its rule is left out.
+    let policy = LandlockPolicy::forward(Path::new("/nonexistent/efr-forward.sock"));
+    assert!(policy.deny_tcp_bind && !policy.deny_tcp);
+    let done = std::thread::spawn(move || {
+        restrict(&policy, &[])?;
+        let bind = std::net::TcpListener::bind("127.0.0.1:0").map(drop);
+        let connect = std::net::TcpStream::connect(address).map(drop);
+        let open = std::fs::File::open("/proc/self/status").map(drop);
+        Ok::<_, SbxError>((bind, connect, open))
+    })
+    .join()
+    .unwrap();
+    let (bind, connect, open) = match done {
+        Ok(done) => done,
+        Err(error) => {
+            let required = crate::os::var("EFR_TEST_SBX_REQUIRE").is_some_and(|value| value == "1");
+            assert!(!required, "Landlock ABI 9 is required here, but: {error:?}");
+            let _ = writeln!(io::stdout(), "skipped: no Landlock ABI 9 here: {error:?}");
+            return;
+        }
+    };
+    let access = Some(rustix::io::Errno::ACCESS.raw_os_error());
+    assert_eq!(bind.as_ref().map_err(io::Error::raw_os_error), Err(access), "{bind:?}");
+    assert!(connect.is_ok(), "the forwarder must reach the job's servers: {connect:?}");
+    assert!(listener.accept().is_ok());
+    // No file right: an open after the domain fails.
+    assert_eq!(open.as_ref().map_err(io::Error::raw_os_error), Err(access), "{open:?}");
+}
+
+#[test]
 fn a_missing_rule_path_is_left_out() {
     assert!(open_rule_path(Path::new("/nonexistent/efr-sbx-rule")).unwrap().is_none());
     assert!(open_rule_path(Path::new("/")).unwrap().is_some());

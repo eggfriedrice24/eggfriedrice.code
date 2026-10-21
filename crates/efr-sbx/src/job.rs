@@ -23,9 +23,10 @@
 //!
 //! A stop sends SIGTERM to every process of the job but bwrap's own (the namespace's
 //! init ignores it, and bwrap's end would kill the rest at once), SIGKILL from 2 s, and
-//! gives up at 4 s. The bridge of a proxy job, a process named `efr-bridge` whose parent
-//! is the namespace's init, is spared like bwrap's own and never named in
-//! `background_stopped`: it ends with the namespace. This is a rule of the list, not of
+//! gives up at 4 s. The helpers of a contained job, the bridge of a proxy job and the
+//! forwarder of a job with port forwards (processes named `efr-bridge` and
+//! `efr-forward` whose parent is the namespace's init), are spared like bwrap's own and
+//! never named in `background_stopped`: they end with the namespace. This is a rule of the list, not of
 //! safety: a process of the job that renames itself so and leaves its parent still ends
 //! with the job's child. Then the normal end writes `result.json` with the stop's reason.
 //! No `apply`, no `state.json` and no `state.zsh`: a job changes no state of the hidden
@@ -219,7 +220,7 @@ fn merge(into: &mut Vec<String>, names: Vec<String>) {
 fn stop_job<P: Processes>(procs: &mut JobProcesses<P>) -> Ending {
     let mut stopped = Vec::new();
     let first = procs.descendants();
-    procs.spare_bridges(&first);
+    procs.spare_helpers(&first);
     let found: Vec<String> = first
         .into_iter()
         .filter(|(pid, _)| !procs.spared.contains(&pid.as_raw_nonzero().get()))
@@ -354,7 +355,7 @@ fn watch_lifeline(events: Sender<Event>) -> Result<(), SbxError> {
 pub(crate) struct JobProcesses<P: Processes> {
     procs: P,
     spared: BTreeSet<i32>,
-    /// The namespace's init of a contained job, the parent of its bridge.
+    /// The namespace's init of a contained job, the parent of its helpers.
     inits: BTreeSet<i32>,
     /// The parent of a process, as the host's `/proc` names it.
     parent: fn(i32) -> Option<i32>,
@@ -386,22 +387,24 @@ impl<P: Processes> JobProcesses<P> {
 }
 
 impl<P: Processes> JobProcesses<P> {
-    /// Spares the bridge among `found`: like bwrap's own processes it gets no SIGTERM
-    /// and no line in `background_stopped`, and it ends with the namespace.
-    fn spare_bridges(&mut self, found: &[(Pid, String)]) {
+    /// Spares the helpers among `found`: like bwrap's own processes they get no SIGTERM
+    /// and no line in `background_stopped`, and they end with the namespace.
+    fn spare_helpers(&mut self, found: &[(Pid, String)]) {
         for (pid, name) in found {
             let pid = pid.as_raw_nonzero().get();
-            if is_bridge(name, (self.parent)(pid), &self.inits) {
+            if is_helper(name, (self.parent)(pid), &self.inits) {
                 self.spared.insert(pid);
             }
         }
     }
 }
 
-/// True for the bridge of a proxy job: the name `efr-bridge` and the namespace's init
-/// as its parent. A process of the job with that name and another parent is not.
-pub(crate) fn is_bridge(name: &str, parent: Option<i32>, inits: &BTreeSet<i32>) -> bool {
-    name == crate::bridge::BRIDGE_NAME && parent.is_some_and(|parent| inits.contains(&parent))
+/// True for a helper of a contained job, the bridge of a proxy job or the forwarder of a
+/// job with port forwards: the name `efr-bridge` or `efr-forward` and the namespace's
+/// init as its parent. A process of the job with that name and another parent is not.
+pub(crate) fn is_helper(name: &str, parent: Option<i32>, inits: &BTreeSet<i32>) -> bool {
+    let helper = name == crate::bridge::BRIDGE_NAME || name == crate::forward::FORWARD_NAME;
+    helper && parent.is_some_and(|parent| inits.contains(&parent))
 }
 
 impl<P: Processes> Processes for JobProcesses<P> {
