@@ -10,10 +10,11 @@
 //! command in the sandbox never gets an answer that may be a secret. Every text that
 //! holds the command or its prompt row goes through `format::one_line`.
 
-use efr_protocol::{ApprovedBy, CallId, InputWait, ShellCommandEnd};
+use efr_protocol::{ApprovedBy, CallId, InputWait};
 use efr_render::RenderOptions;
 
 use super::{AnswerKind, ECHO_PREFIX};
+use crate::format::hidden_shell::{self, ELSEWHERE};
 use crate::format::{self, Tone};
 
 /// What the label of the answer line starts with.
@@ -30,9 +31,6 @@ pub(super) const KEPT_HINT: &str = "enter answers \u{b7} ctrl+c stops it \u{b7} 
 /// password, which must never reach the input row.
 pub(super) const HOLD_HINT: &str =
     "it may ask for a password: your keys wait here until efr knows \u{b7} ctrl+c stops it";
-
-/// Where the user answers or stops the command after `efr` ends.
-pub(super) const ELSEWHERE: &str = ",shell answers or stops it";
 
 /// The note when the user leaves a command that waits, with Esc after the turn.
 pub(super) const LEFT_WAITING: &str = "efr leaves the command waiting; ,shell answers or stops it";
@@ -113,7 +111,7 @@ impl Left {
     /// True when its wait may be for a secret: a hidden one, or a visible one whose
     /// prompt looks like a password prompt.
     pub(super) fn secret_wait(&self) -> bool {
-        self.wait == InputWait::Hidden || (self.wait == InputWait::Visible && self.looks_secret)
+        hidden_shell::secret_wait(self.wait, self.looks_secret)
     }
 
     /// The answer line that its wait asks for; `None` without a wait, and for a wait in
@@ -141,13 +139,7 @@ impl Left {
 
     /// Who let it run, in words; `None` when its call needed no approval.
     fn approver(&self) -> Option<&'static str> {
-        match self.approved_by? {
-            ApprovedBy::You => Some("you approved it"),
-            ApprovedBy::YourRule => Some("your rule allowed it"),
-            ApprovedBy::Reviewer => Some("the reviewer allowed it"),
-            ApprovedBy::FullMode => Some("full mode let it run"),
-            _ => None,
-        }
+        hidden_shell::approver(self.approved_by?)
     }
 
     /// The label above its answer line, such as `the hidden shell: rsync -a ... (you
@@ -164,11 +156,7 @@ impl Left {
 
     /// What it waits for, in words: `a password` only outside the sandbox.
     fn waits_for(&self) -> Option<&'static str> {
-        match self.wait {
-            InputWait::None => None,
-            _ if !self.contained && self.secret_wait() => Some("a password"),
-            _ => Some("input"),
-        }
+        hidden_shell::waits_for(self.wait, self.looks_secret, self.contained)
     }
 
     /// The line at the end of the followed turn while it still runs. Without `kept`,
@@ -250,29 +238,6 @@ impl Left {
         out.push_str(self.hint());
         out.push('\n');
         out
-    }
-}
-
-/// The note when the command of a left-running call ended, as `how` says; `command` is
-/// on one line already.
-pub(super) fn ended_note(command: &str, exit_code: Option<i32>, how: ShellCommandEnd) -> String {
-    match how {
-        ShellCommandEnd::Ended => match exit_code {
-            Some(code) if code != 0 => {
-                format!("{command} ended in the hidden shell with exit {code}")
-            }
-            _ => format!("{command} ended in the hidden shell"),
-        },
-        ShellCommandEnd::Stopped => format!("{command} stopped in the hidden shell"),
-        ShellCommandEnd::Limit => {
-            format!("efr stopped {command} in the hidden shell: nobody answered its input in time")
-        }
-        ShellCommandEnd::Closed => format!(
-            "the hidden shell closed with {command} in it; the next call starts a new shell"
-        ),
-        ShellCommandEnd::ShellExited => format!("the hidden shell exited with {command} in it"),
-        ShellCommandEnd::Moved => format!("{command} moved to a background job"),
-        _ => format!("{command} no longer runs in the hidden shell"),
     }
 }
 
