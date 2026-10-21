@@ -120,6 +120,7 @@ impl Scene {
             contained: true,
             proxy: None,
             bus: None,
+            forward: None,
             full: false,
         }
     }

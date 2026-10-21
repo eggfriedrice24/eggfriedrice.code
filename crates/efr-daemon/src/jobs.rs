@@ -53,6 +53,7 @@ use crate::sandbox::bus::{BusCall, BusReport};
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::sandbox::proxy::ProxyCall;
 
+pub(crate) mod forward;
 pub(crate) mod guard;
 pub(crate) mod launch;
 pub(crate) mod output;
@@ -161,6 +162,9 @@ pub(crate) struct NewJob {
     /// The job's filtered bus proxies, for its whole life with the rules of its start
     /// (DE1, DE12); `None` without a bus view.
     pub(crate) bus: Option<BusCall>,
+    /// The job's forward socket, for its whole life (DL6); `None` for a job with no
+    /// port forwards.
+    pub(crate) forward: Option<forward::ForwardSocket>,
     /// True when a call of full mode started the job: it counts as full work until it
     /// ends, so a reload holds a loosening change of the config meanwhile.
     pub(crate) full: bool,
@@ -271,6 +275,8 @@ struct Entry {
     proxy: Option<ProxyCall>,
     /// The job's filtered bus proxies until the job ends; dropping them kills them.
     bus: Option<BusCall>,
+    /// The job's forward socket until the job ends; dropping it closes the socket.
+    forward: Option<forward::ForwardSocket>,
 }
 
 impl JobTable {
@@ -301,6 +307,11 @@ impl JobTable {
     /// The time now on efrd's clock.
     pub(crate) fn now(&self) -> Timestamp {
         self.inner.clock.now()
+    }
+
+    /// The call dir of the job that `call` of `conversation` starts.
+    pub(crate) fn call_dir(&self, conversation: ConversationId, call: CallId) -> PathBuf {
+        job_call_dir(&self.inner.dirs, conversation, call)
     }
 
     /// The `env` file `env` of a job, with efrd's own roots when it runs in the exit
@@ -450,6 +461,7 @@ impl JobTable {
         let Spawned { process, output, matches } = spawned;
         let proxy = job.proxy.take();
         let bus = job.bus.take();
+        let forward = job.forward.take();
         let mut info = job.info.clone();
         let now = self.inner.clock.now();
         info.started_at = now;
@@ -491,6 +503,7 @@ impl JobTable {
             guard: Vec::new(),
             proxy,
             bus,
+            forward,
         };
         // NOTE: counted before the job is in the table, so no reload between the two
         // finds the job running and not counted.
@@ -1010,7 +1023,7 @@ impl JobTask {
     async fn finish(mut self, stopped_by: Option<JobStopBy>) {
         let table = &self.table;
         let clock = Arc::clone(&table.inner.clock);
-        let (lifeline, kept, guarded, info, proxy, bus) = {
+        let (lifeline, kept, guarded, info, proxy, bus, forward) = {
             let mut guard = table.lock();
             match guard.running.get_mut(&self.key) {
                 Some(entry) => (
@@ -1020,11 +1033,15 @@ impl JobTask {
                     Some(entry.info.clone()),
                     entry.proxy.take(),
                     entry.bus.take(),
+                    entry.forward.take(),
                 ),
-                None => (None, None, Vec::new(), None, None, None),
+                None => (None, None, Vec::new(), None, None, None, None),
             }
         };
         drop(lifeline);
+        // NOTE: the forwards end with the job (DL11): the socket closes before the
+        // job's dirs go.
+        drop(forward);
         let Some(info) = info else { return };
         let session = self.pid;
         let swept = tokio::task::spawn_blocking(move || sweep::kill_session(session))
