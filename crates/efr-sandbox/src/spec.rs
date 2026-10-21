@@ -12,6 +12,7 @@ use efr_protocol::{BusKind, CacheMode, CallId, ConversationId, DesktopKind, Gran
 use serde::{Deserialize, Serialize};
 
 use crate::SandboxError;
+use crate::forward::MAX_JOB_FORWARDS;
 use crate::paths::is_normal;
 
 /// The version of the spec that this build writes and reads. Version 2 adds
@@ -39,6 +40,10 @@ pub const JOB_DIR: &str = "jobs";
 /// The name of a call's proxy socket in its call dir: efrd binds `$CALL/proxy.sock`,
 /// and [`NetworkPlan::Proxy`] must name exactly that file.
 pub const PROXY_SOCKET_FILE: &str = "proxy.sock";
+
+/// The name of a job's forward socket in its call dir: efrd binds `$CALL/forward.sock`,
+/// and [`ForwardPlan::socket`] must name exactly that file.
+pub const FORWARD_SOCKET_FILE: &str = "forward.sock";
 
 /// The dir of a call's filtered bus sockets in its call dir: `$CALL/bus/` (phase E). It
 /// holds nothing else, and the bus proxy may make and remove files only there.
@@ -146,6 +151,45 @@ impl JobPlan {
     /// The time after which the launcher ends the job itself.
     pub fn deadline(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.max_seconds.saturating_add(self.backstop_secs))
+    }
+}
+
+/// The port forwards of a contained job: the forwarder in the job reports each stable
+/// loopback listen over the job's forward socket, and efrd forwards the port to the
+/// same port of the host's `127.0.0.1`. The timings are fields, so tests set short
+/// ones.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForwardPlan {
+    /// The job's forward socket outside, `$CALL/forward.sock`
+    /// ([`RuntimePaths::forward_socket`]). The spec check refuses another path, a job
+    /// with the whole network and a job with `Grant::NetView`.
+    pub socket: PathBuf,
+    /// The time between two polls of the job's tcp tables: 500 ms.
+    pub poll_ms: u32,
+    /// How long a port must listen before it counts: 1000 ms.
+    pub stable_ms: u32,
+    /// How long a port of the namespace's ephemeral range must listen before it
+    /// counts: 10 s.
+    pub ephemeral_stable_ms: u32,
+    /// The most ports that efr forwards for the job: [`MAX_JOB_FORWARDS`].
+    pub max_ports: u8,
+    /// True in a proxy job: port 3128 is the bridge's.
+    pub proxy: bool,
+}
+
+impl ForwardPlan {
+    /// The plan of a job with its forward socket `socket`, with the default timings
+    /// and limit. `proxy` is true for a job with a proxy plan.
+    pub fn new(socket: PathBuf, proxy: bool) -> ForwardPlan {
+        ForwardPlan {
+            socket,
+            poll_ms: 500,
+            stable_ms: 1000,
+            ephemeral_stable_ms: 10_000,
+            max_ports: MAX_JOB_FORWARDS,
+            proxy,
+        }
     }
 }
 
@@ -464,6 +508,19 @@ impl RuntimePaths {
     /// plan binds it read-only, and the child gets no rule to connect to it.
     pub fn inside_proxy_socket(&self) -> PathBuf {
         self.user_runtime.join("efr-proxy.sock")
+    }
+
+    /// A job's forward socket outside, `$CALL/forward.sock`, which efrd binds and the
+    /// job's [`ForwardPlan`] names.
+    pub fn forward_socket(&self) -> PathBuf {
+        self.call_dir.join(FORWARD_SOCKET_FILE)
+    }
+
+    /// `$XRT/efr-forward.sock`: where the forwarder finds the job's forward socket
+    /// inside. The plan binds it read-only, and the child gets no rule to connect to
+    /// it.
+    pub fn inside_forward_socket(&self) -> PathBuf {
+        self.user_runtime.join("efr-forward.sock")
     }
 
     /// The dir of the call's filtered bus sockets, `$CALL/bus/` (0700, made by efrd):

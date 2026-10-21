@@ -1053,6 +1053,7 @@ version = "0.0.3"
 dependencies = [
  "efr-protocol",
  "pretty_assertions",
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
