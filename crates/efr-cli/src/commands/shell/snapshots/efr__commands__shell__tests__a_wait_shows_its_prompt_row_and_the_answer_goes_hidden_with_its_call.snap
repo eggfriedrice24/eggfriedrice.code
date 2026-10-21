@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/commands/shell/tests.rs
+expression: out
+---
+the hidden shell runs: rsync -a -e ssh u@h:src/ dst/ (for 0.0s; you approved it)
+  │ u@h's password: 
+type the answer and press Enter; it is not shown, and the agent sees it only if the program prints it
+enter answers · ctrl+c stops it · esc leaves it
+it waits for no input now · ctrl+c stops it · esc leaves it
+rsync -a -e ssh u@h:src/ dst/ ended in the hidden shell

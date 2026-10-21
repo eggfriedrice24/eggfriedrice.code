@@ -90,6 +90,15 @@ pub(crate) enum Command {
     /// A job is a command that the model started with background: true. It runs on
     /// after its turn, until it ends, its time limit passes or someone stops it.
     Jobs(JobsArgs),
+    /// Answer or stop a command that still runs in the hidden shell of this terminal's
+    /// conversation.
+    ///
+    /// A shell call that reached its timeout can leave its command running, such as an
+    /// rsync that waits for a password. The hidden shell then takes no other call.
+    /// efr shell shows the command and the line that it waits at: Enter answers it,
+    /// Ctrl+C stops it, a second Ctrl+C closes the hidden shell, and Esc leaves it. Type
+    /// a password for such a command only here, never at your shell's prompt.
+    Shell(ShellArgs),
     /// Show the mode, model and effort that a prompt would use, with where each comes
     /// from.
     Settings(TurnSettingsArgs),
@@ -443,6 +452,15 @@ pub(crate) struct JobsStopArgs {
     /// The conversation: its id, or the start of it. Without it, this terminal's
     /// conversation, else the newest of all.
     #[arg(long, value_name = "ID")]
+    pub(crate) conversation: Option<String>,
+}
+
+/// The arguments of `efr shell`.
+#[derive(Debug, Args)]
+pub(crate) struct ShellArgs {
+    /// The conversation: its id, or the start of it. Without it, this terminal's
+    /// conversation, else the newest of all.
+    #[arg(value_name = "CONVERSATION")]
     pub(crate) conversation: Option<String>,
 }
 
