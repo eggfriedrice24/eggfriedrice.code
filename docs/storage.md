@@ -133,7 +133,8 @@ conversations or the daemon's socket. The config root stays readable and read-on
   `shell_pid` only when it is unknown. `turn_started` gives a row without a route the
   key of its scope. efrd reads every slot at its start from these columns in one query.
   The index `conversations_tty` covers `(tty, route)`, and `conversations_route` finds
-  the newest conversation of a key.
+  the newest conversation of a key. Only a row with a `routed_seq`, which a terminal
+  held, can be picked up.
 
 ## Migrations
 

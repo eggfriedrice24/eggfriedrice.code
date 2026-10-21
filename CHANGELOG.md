@@ -357,8 +357,10 @@ into the GitHub release notes, and it stops when the section is missing.
   `conversation.tty_idle_hours`. The reply then starts with one dim line, such as
   `↪ picked up "fix the proxy test" in app (25 min ago); ,new starts fresh`. A
   conversation is never open in two terminals: a terminal whose shell still runs, or
-  that follows the conversation, holds it. A phone never holds one. `efr history`
-  shows `picked up in /dev/pts/7` where it happened.
+  that follows the conversation, holds it. A phone never holds one. A conversation
+  that no terminal held, such as one of `efr send` from a script or one that the phone
+  started, is never picked up. `efr history` shows `picked up in /dev/pts/7` where it
+  happened.
 - `efr history --verbose` shows the tokens of each turn on one muted line, such as
   `18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)`: the input, the output, the cache
   share and the cache writes, also for an interrupted or failed turn. It also shows

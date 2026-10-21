@@ -13,9 +13,10 @@
 //! another shell while the slot's shell has exited (checked first: Linux hands out
 //! `/dev/pts` numbers lowest first, so a new tab usually gets the number of a closed
 //! one), or its conversation was idle for `conversation.tty_idle_hours`. Then, for a
-//! project key only, the prompt picks up the project's single newest conversation when
-//! it is idle, was active within those hours and no open terminal holds it, and only
-//! when the connection is the shell's or `efr`'s and its process runs on the claimed
+//! project key only, the prompt picks up the project's single newest conversation of
+//! those that a terminal held (never one of a script or the phone, DV55) when it is
+//! idle, was active within those hours and no open terminal holds it, and only when
+//! the connection is the shell's or `efr`'s and its process runs on the claimed
 //! terminal (S-12). The pick-up records `terminal_attached` in the prompt's batch. Else
 //! a new conversation starts. With `conversation.follow_project = false` the prompt
 //! goes to the terminal's current slot whatever its key, with no pick-up. The result

@@ -545,6 +545,36 @@ async fn prompt_without_a_tty_starts_new_and_holds_nothing() {
 }
 
 #[tokio::test]
+async fn prompt_without_a_tty_is_never_picked_up() {
+    let place = Place::start().await;
+    // A script's `efr send` in the project, with no terminal.
+    let mut params = Place::prompt(1, &place.app, "unused", 100);
+    params.context.as_mut().unwrap().tty = None;
+    let script = place.send(params).await;
+    place.procs.peer_on_tty("pts-2");
+
+    let two = place.at(2, &place.app, "pts-2", 200).await;
+
+    assert_ne!(two.conversation_id, script.conversation_id);
+    assert!(!matches!(switch(&two), Some(Switch::PickedUp { .. })), "{:?}", two.route);
+    // A phone prompt with no conversation id and no terminal, after pts-2 closed.
+    let phone =
+        place.daemon.connect(place.daemon.connect_options_from(Origin::Phone)).await.unwrap();
+    let mut params = Place::prompt(3, &place.app, "unused", 900);
+    params.context.as_mut().unwrap().tty = None;
+    let from_phone: PromptSendResult = phone.call(Method::PromptSend(params)).await.unwrap();
+    place.wait(&from_phone).await;
+    place.procs.kill(200);
+    place.procs.peer_on_tty("pts-3");
+
+    let three = place.at(4, &place.app, "pts-3", 300).await;
+
+    assert_eq!(three.conversation_id, two.conversation_id, "the newest that a terminal held");
+    assert!(matches!(switch(&three), Some(Switch::PickedUp { .. })), "{:?}", three.route);
+    place.stop().await;
+}
+
+#[tokio::test]
 async fn follow_project_off_keeps_one_conversation_per_terminal() {
     let place = Place::start_with(|builder| {
         builder.config(|config| config.conversation.follow_project = false)

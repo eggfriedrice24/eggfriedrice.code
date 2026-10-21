@@ -362,9 +362,10 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   default) without activity; each slot has its own clock. Any event of the
   conversation counts as activity, so a background job that still writes keeps its
   slot alive. Then, for a project key only, the prompt picks up the project's single
-  newest conversation when it is idle, was active within those hours, and no open
-  terminal holds it (a slot whose shell runs or is not known, or an open subscription
-  from a connection with a tty; a phone never holds one). The pick-up needs the
+  newest conversation of those that a terminal held (a row with a `routed_seq`; one of
+  `efr send` with no tty or of the phone never is) when it is idle, was active within
+  those hours, and no open terminal holds it (a slot whose shell runs or is not known,
+  or an open subscription from a connection with a tty; a phone never holds one). The pick-up needs the
   shell's or `efr`'s connection, never a phone's or a proxy's, whose process runs on
   the claimed terminal: efrd compares field 7 (`tty_nr`) of `/proc/<peer pid>/stat`
   with the device number of the tty (`proc_view.rs`; a test daemon injects a fake).

@@ -228,8 +228,46 @@ async fn turn_started_fills_a_missing_route() {
     assert_eq!(route_of(old).await.unwrap(), Some(RouteScope::Outside));
     assert_eq!(route_of(project_old).await.unwrap(), Some(app()));
     assert_eq!(route_of(routed).await.unwrap(), Some(RouteScope::Outside), "the first key stays");
+    // NOTE: no terminal held `project_old`, so it is no candidate of a pick-up (DV55).
     let newest = on_writer(&writer, |conn| newest_of_route(conn, &app())).await.unwrap();
-    assert_eq!(newest.map(|summary| summary.id), Some(project_old));
+    assert_eq!(newest.map(|summary| summary.id), None);
+}
+
+#[tokio::test]
+async fn newest_of_route_skips_a_conversation_that_no_terminal_held() {
+    let clock = TestClock::new();
+    let (writer, _thread) = testing::memory_writer(Arc::clone(&clock));
+    let [held, script] = [1, 2].map(testing::conversation);
+    let in_project = |turn| Event::TurnStarted {
+        turn_id: testing::turn(turn),
+        cwd: "/srv/app".into(),
+        scope: Scope::Project(project(1)),
+        settings: None,
+    };
+    writer
+        .append(
+            Batch::new()
+                .event(held, created_in("pts-1", app()))
+                .event(held, queued_from(1, Some("pts-1"), Some(100)))
+                .event(held, in_project(1)),
+        )
+        .await
+        .unwrap();
+    clock.advance(Duration::from_secs(60));
+    writer
+        .append(
+            Batch::new()
+                .event(script, testing::created(None))
+                .event(script, testing::queued(2, "from cron"))
+                .event(script, in_project(2)),
+        )
+        .await
+        .unwrap();
+
+    let route_of = |id| on_writer(&writer, move |conn| route(conn, id));
+    assert_eq!(route_of(script).await.unwrap(), Some(app()), "it is listed with its project");
+    let newest = on_writer(&writer, |conn| newest_of_route(conn, &app())).await.unwrap();
+    assert_eq!(newest.map(|summary| summary.id), Some(held));
 }
 
 #[tokio::test]

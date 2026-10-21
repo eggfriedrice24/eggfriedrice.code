@@ -418,14 +418,17 @@ pub fn route(
 }
 
 /// The newest conversation (by its last activity) whose scope key is `route`, in any
-/// status: the only candidate of a pick-up (F4).
+/// status, of those that a terminal held: the only candidate of a pick-up (F4). A
+/// conversation that no terminal ever held, such as one of `efr send` from a script or
+/// one that the phone started, has no `routed_seq` and is never a candidate (DV55).
 pub fn newest_of_route(
     conn: &Connection,
     route: &RouteScope,
 ) -> Result<Option<ConversationSummary>, StoreError> {
     conn.query_row(
         "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty \
-         FROM conversations WHERE route = ?1 ORDER BY updated_at DESC, last_seq DESC LIMIT 1",
+         FROM conversations WHERE route = ?1 AND routed_seq IS NOT NULL \
+         ORDER BY updated_at DESC, last_seq DESC LIMIT 1",
         [sql::to_json(route, "route")?],
         RawSummary::from_row,
     )
