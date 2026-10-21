@@ -1433,7 +1433,14 @@ impl JobTask {
                 let looked = *run.looks().borrow();
                 let secret = is_secret(looked);
                 let refused = if secret {
-                    joined_notes(Some(SECRET_STOP.to_owned()), refused)
+                    // NOTE: the word password shows only outside the sandbox (DS50).
+                    let contained = table
+                        .lock()
+                        .running
+                        .get(&self.key)
+                        .is_some_and(|entry| entry.meta.contained);
+                    let note = if contained { SECRET_STOP_SANDBOXED } else { SECRET_STOP };
+                    joined_notes(Some(note.to_owned()), refused)
                 } else {
                     refused
                 };
@@ -1558,6 +1565,11 @@ impl JobTask {
 /// password that nobody could type (DS27).
 const SECRET_STOP: &str =
     "[efr stopped the command: it waited for a password, and nobody can type one in a job]";
+
+/// [`SECRET_STOP`] for a moved command in the sandbox, where efr types no secret
+/// (DS50).
+const SECRET_STOP_SANDBOXED: &str =
+    "[efr stopped the command: it asked for a secret in the sandbox, where efr types none]";
 
 /// Writes the notice line of each job end of `ended`, which [`JobTable::recover`]
 /// recorded at this start, to the notice file of its conversation's terminal under

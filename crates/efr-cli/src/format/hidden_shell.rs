@@ -40,8 +40,15 @@ pub(crate) fn waits_for(
     }
 }
 
-/// The note when the command ended, as `how` says.
-pub(crate) fn ended(command: &str, exit_code: Option<i32>, how: ShellCommandEnd) -> String {
+/// The note when the command ended, as `how` says. `secret_in_sandbox` is true when the
+/// command runs in the sandbox and its last wait may be for a secret: efr stops such a
+/// wait at once and types nothing (DS50), and its end is `limit` too.
+pub(crate) fn ended(
+    command: &str,
+    exit_code: Option<i32>,
+    how: ShellCommandEnd,
+    secret_in_sandbox: bool,
+) -> String {
     match how {
         ShellCommandEnd::Ended => match exit_code {
             Some(code) if code != 0 => {
@@ -50,6 +57,10 @@ pub(crate) fn ended(command: &str, exit_code: Option<i32>, how: ShellCommandEnd)
             _ => format!("{command} ended in the hidden shell"),
         },
         ShellCommandEnd::Stopped => format!("{command} stopped in the hidden shell"),
+        ShellCommandEnd::Limit if secret_in_sandbox => format!(
+            "efr stopped {command} in the hidden shell: it asked for a secret in the sandbox, \
+             where efr types none"
+        ),
         ShellCommandEnd::Limit => {
             format!("efr stopped {command} in the hidden shell: nobody answered its input in time")
         }

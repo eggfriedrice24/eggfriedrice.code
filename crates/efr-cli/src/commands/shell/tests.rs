@@ -326,5 +326,7 @@ async fn a_password_prompt_in_the_sandbox_takes_no_answer() {
     .await;
     result.unwrap();
     assert!(out.contains("(for 0.0s; in the sandbox; you approved it)"), "{out}");
-    assert!(out.ends_with("nobody answered its input in time\n"), "{out}");
+    // NOTE: efr stopped the wait at once; the word password shows only outside the
+    // sandbox (DS50).
+    assert!(out.ends_with("it asked for a secret in the sandbox, where efr types none\n"), "{out}");
 }

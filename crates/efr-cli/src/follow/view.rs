@@ -2757,7 +2757,8 @@ impl TurnView {
         let Some(left) = self.left.take_if(|left| left.call_id == call_id) else {
             return Step::default();
         };
-        let note = format::hidden_shell::ended(&left.command(), exit_code, how);
+        let secret_in_sandbox = left.contained && left.secret_wait();
+        let note = format::hidden_shell::ended(&left.command(), exit_code, how, secret_in_sandbox);
         let step = self.note(&note, size);
         Step { settled: left.reads_keys(), ..step }
     }

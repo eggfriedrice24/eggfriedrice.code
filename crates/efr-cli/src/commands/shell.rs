@@ -454,7 +454,16 @@ impl Session<'_> {
                 Event::ShellCommandEnded { call_id, exit_code, how } if call_id == busy.call_id => {
                     self.end_echo(out, keys)?;
                     let command = format::one_line(&busy.command);
-                    out.out(&format!("{}\n", hidden_shell::ended(&command, exit_code, how)))?;
+                    // NOTE: the last wait, also one of these events: efr stops a wait in
+                    // the sandbox that may be for a secret at once, and that end is
+                    // `limit` too (DS50).
+                    let (input, looks_secret) = match &wait {
+                        Some((input, looks_secret, _)) => (*input, *looks_secret),
+                        None => (busy.input, busy.looks_secret),
+                    };
+                    let secret = busy.contained && secret_wait(input, looks_secret);
+                    let note = hidden_shell::ended(&command, exit_code, how, secret);
+                    out.out(&format!("{note}\n"))?;
                     return Ok(None);
                 }
                 _ => {}

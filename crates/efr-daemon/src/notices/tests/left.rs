@@ -167,7 +167,7 @@ fn a_stop_by_efr_says_why() {
     let left = known.see(&ended(ShellCommandEnd::Limit));
     let line = text(&ended(ShellCommandEnd::Limit), left.as_ref(), hour).unwrap();
     assert!(
-        line.ends_with(": it asked for a password in the sandbox, where efr types none"),
+        line.ends_with(": it asked for a secret in the sandbox, where efr types none"),
         "{line}"
     );
 

@@ -5,8 +5,10 @@ use super::{approver, ended, waits_for};
 
 #[test]
 fn each_end_has_its_own_words() {
-    let notes: Vec<String> =
-        ShellCommandEnd::ALL.into_iter().map(|how| ended("rsync -a x y", Some(1), how)).collect();
+    let notes: Vec<String> = ShellCommandEnd::ALL
+        .into_iter()
+        .map(|how| ended("rsync -a x y", Some(1), how, false))
+        .collect();
     assert_eq!(
         notes,
         [
@@ -19,7 +21,23 @@ fn each_end_has_its_own_words() {
             "rsync -a x y no longer runs in the hidden shell",
         ]
     );
-    assert_eq!(ended("make", Some(0), ShellCommandEnd::Ended), "make ended in the hidden shell");
+    assert_eq!(
+        ended("make", Some(0), ShellCommandEnd::Ended, false),
+        "make ended in the hidden shell"
+    );
+}
+
+#[test]
+fn a_secret_stop_in_the_sandbox_is_no_limit_and_names_no_password() {
+    assert_eq!(
+        ended("ssh h", None, ShellCommandEnd::Limit, true),
+        "efr stopped ssh h in the hidden shell: it asked for a secret in the sandbox, where \
+         efr types none"
+    );
+    assert_eq!(
+        ended("ssh h", Some(0), ShellCommandEnd::Ended, true),
+        "ssh h ended in the hidden shell"
+    );
 }
 
 #[test]
