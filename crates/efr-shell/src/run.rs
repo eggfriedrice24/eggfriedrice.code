@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bytes::Bytes;
-use efr_protocol::{CallId, InputWait, ScreenSnapshot, Seq};
+use efr_protocol::{ApprovedBy, CallId, InputWait, ScreenSnapshot, Seq};
 use efr_sandbox::SandboxResult;
 use efr_screen::{PromptKind, SemanticPromptEvent, ShellMark, ShellMarkKind, row_text};
 
@@ -55,6 +55,13 @@ pub struct RunRequest {
     /// follows it: for a command that the user approved because it may wait for input.
     /// `None` keeps the timeout.
     pub interactive_limit: Option<Duration>,
+    /// True when the line has the hard or the soft flag of the shell tool: it may ask for
+    /// a password or a question at the terminal. With [`approved_by`](Self::approved_by)
+    /// it decides whether a hidden wait of the command, left running at its timeout, may
+    /// wait while nobody follows.
+    pub may_prompt: bool,
+    /// Who approved the call; `None` when it needed no approval.
+    pub approved_by: Option<ApprovedBy>,
     /// Runs the command through the auto mode's launcher instead of in the shell: the
     /// command goes to the call's `line` file, and the shell gets only a fixed wrapper
     /// line with the call's id. `None` runs it in the shell, as every other mode does.
@@ -79,6 +86,8 @@ impl RunRequest {
             forget_credentials: false,
             forget_before: false,
             interactive_limit: None,
+            may_prompt: false,
+            approved_by: None,
             sandbox: None,
         }
     }
@@ -140,6 +149,15 @@ impl RunRequest {
     #[must_use]
     pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
         self.interactive_limit = limit;
+        self
+    }
+
+    /// Sets the run's soft or hard flag (the line may ask at the terminal) and who
+    /// approved the call.
+    #[must_use]
+    pub fn with_approval(mut self, may_prompt: bool, approved_by: Option<ApprovedBy>) -> Self {
+        self.may_prompt = may_prompt;
+        self.approved_by = approved_by;
         self
     }
 }

@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
 use efr_holder::{ChildStatus, PtyHolder, Size};
-use efr_protocol::{CallId, ConversationId, PtyId, SecretText, Seq};
+use efr_protocol::{ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText, Seq};
 use efr_screen::{ScreenHandle, ShellMark, ShellMarkKind, ShellMarkScanner};
 use efr_stdx::time::{Clock, Sleep, Stopwatch};
 use jiff::Timestamp;
@@ -29,7 +29,9 @@ use crate::run::{
     SandboxWatch, marked_line, wrapped_line,
 };
 use crate::sentinel::{SentinelRun, sentinel_line};
-use crate::{Phase, SandboxRun, ShellError, ShellNotice, ShellObserver, ShellState, sandbox};
+use crate::{
+    LeftRunning, Phase, SandboxRun, ShellError, ShellNotice, ShellObserver, ShellState, sandbox,
+};
 
 /// The most marks of a sandboxed run that the state holds back between its `C` and its
 /// end mark. The trusted shell prints a handful there when the wrapper never ran, which
@@ -53,8 +55,9 @@ pub(crate) enum Msg {
     Exited(Option<ChildStatus>),
     /// Type a command and answer when it ends.
     Run(RunOrder),
-    /// Stop waiting for a run whose caller timed out.
-    Detach { id: u64, reply: oneshot::Sender<Detached> },
+    /// Stop waiting for a run whose caller timed out; `left` when its command was left
+    /// running at its timeout.
+    Detach { id: u64, left: bool, reply: oneshot::Sender<Detached> },
     /// Tell the shell's state.
     State { reply: oneshot::Sender<ShellState> },
     /// Tell what a look at run `id` needs; `None` once the run ended or was left.
@@ -92,6 +95,10 @@ pub(crate) struct RunOrder {
     pub(crate) token: String,
     /// The auto mode's call, whose command is in its `line` file already.
     pub(crate) sandbox: Option<SandboxRun>,
+    /// When the caller asked for the run.
+    pub(crate) since: Timestamp,
+    /// Who approved the call.
+    pub(crate) approved_by: Option<ApprovedBy>,
     pub(crate) reply: oneshot::Sender<Result<RunEnd, ShellError>>,
     pub(crate) progress: watch::Sender<Progress>,
 }
@@ -168,6 +175,11 @@ enum Placement {
 struct Active {
     id: u64,
     call: Option<CallId>,
+    /// The first [`LEFT_COMMAND_CHARS`] characters of the line.
+    command: String,
+    /// When the caller asked for the run.
+    since: Timestamp,
+    approved_by: Option<ApprovedBy>,
     machine: Machine,
     reply: oneshot::Sender<Result<RunEnd, ShellError>>,
     progress: watch::Sender<Progress>,
@@ -200,6 +212,68 @@ impl Active {
             self.ran = Some(Stopwatch::start());
         }
     }
+}
+
+/// A typed run whose caller stopped waiting, as when its timeout passed: its command
+/// goes on in the shell, which takes no other marked line until it ends. It keeps what
+/// is known of the run, so its call, its line and its start can be told.
+struct Orphan {
+    machine: Machine,
+    call: Option<CallId>,
+    /// The first [`LEFT_COMMAND_CHARS`] characters of the line.
+    command: String,
+    /// When the caller asked for the run.
+    started: Timestamp,
+    /// The command runs in the auto mode's sandbox.
+    contained: bool,
+    approved_by: Option<ApprovedBy>,
+    /// The wait that the run reported last, with the process group of its job.
+    waiting: Option<Waiting>,
+    /// The caller left the run at its timeout: the command was left running, and the
+    /// session tells of it. A run whose caller went away, or that is being stopped
+    /// because nobody can answer its hidden wait, is not.
+    left: bool,
+}
+
+impl Orphan {
+    fn of(active: Active, left: bool) -> Self {
+        Orphan {
+            contained: active.machine.contained(),
+            machine: active.machine,
+            call: active.call,
+            command: active.command,
+            started: active.since,
+            approved_by: active.approved_by,
+            waiting: active.waiting,
+            left,
+        }
+    }
+
+    /// The public view of a command left running.
+    fn view(&self) -> Option<LeftRunning> {
+        if !self.left {
+            return None;
+        }
+        Some(LeftRunning {
+            call: self.call,
+            command: self.command.clone(),
+            since: self.started,
+            contained: self.contained,
+            input: self.waiting.map_or(InputWait::None, Waiting::input),
+            looks_secret: self.waiting.is_some_and(|waiting| waiting.looks_secret),
+            prompt: String::new(),
+            approved_by: self.approved_by,
+        })
+    }
+}
+
+/// How many characters of its line a run keeps for the time that its command runs on
+/// without a caller, as a background job's command is cut.
+pub(crate) const LEFT_COMMAND_CHARS: usize = 200;
+
+/// The first [`LEFT_COMMAND_CHARS`] characters of `command`.
+fn head(command: &str) -> String {
+    command.chars().take(LEFT_COMMAND_CHARS).collect()
 }
 
 enum Machine {
@@ -274,7 +348,7 @@ pub(crate) struct SessionCore {
     /// when the shell is free again. Without it, a run detached before its `C` mark
     /// would leave the phase at `Ready` and the next line would be typed ahead into
     /// the running one.
-    orphan: Option<Machine>,
+    orphan: Option<Orphan>,
     /// A run that forgets credentials has ended: type [`FORGET_CREDENTIALS`] at the
     /// next ready prompt.
     forget_pending: bool,
@@ -332,12 +406,17 @@ impl SessionCore {
         self.active.is_none() && self.queued.is_none() && self.orphan.is_none()
     }
 
+    /// The command left running in the shell, if any.
+    pub(crate) fn left_running(&self) -> Option<LeftRunning> {
+        self.orphan.as_ref().and_then(Orphan::view)
+    }
+
     /// What the runs do now.
     pub(crate) fn activity(&self) -> Activity {
         Activity {
             free: self.is_free(),
             sandboxed: self.active.as_ref().is_some_and(|active| active.machine.sandboxed())
-                || self.orphan.as_ref().is_some_and(Machine::sandboxed),
+                || self.orphan.as_ref().is_some_and(|orphan| orphan.machine.sandboxed()),
             starting: self.state.phase == Phase::Starting,
             used: self.used,
         }
@@ -398,7 +477,7 @@ impl SessionCore {
         // An orphaned sentinel run owns the foreground until its end marker. An
         // orphaned marked run holds the next marked line until its `D`, but a sentinel
         // run is meant for whatever runs in the foreground, such as a nested shell.
-        match (&self.orphan, mode) {
+        match (self.orphan.as_ref().map(|orphan| &orphan.machine), mode) {
             (Some(Machine::Sentinel(_)), _) | (Some(Machine::Marks(_)), RunMode::Auto) => {
                 return Placement::Wait;
             }
@@ -518,8 +597,9 @@ impl SessionCore {
         self.start_queued()
     }
 
-    /// Lets go of a run whose caller stopped waiting.
-    pub(crate) fn detach(&mut self, id: u64) -> Detached {
+    /// Lets go of a run whose caller stopped waiting; `left` when the caller left it at
+    /// its timeout, so that its command was left running.
+    pub(crate) fn detach(&mut self, id: u64, left: bool) -> Detached {
         if self.queued.as_ref().is_some_and(|order| order.id == id) {
             self.queued = None;
             return Detached::Unstarted;
@@ -532,7 +612,7 @@ impl SessionCore {
             Machine::Marks(run) => run.partial(),
             Machine::Sentinel(run) => run.partial(),
         };
-        self.orphan = Some(active.machine);
+        self.orphan = Some(Orphan::of(active, left));
         Detached::Running {
             kept,
             range,
@@ -636,6 +716,9 @@ impl SessionCore {
                 self.active = Some(Active {
                     id: order.id,
                     call: order.call,
+                    command: head(&order.command),
+                    since: order.since,
+                    approved_by: order.approved_by,
                     machine,
                     reply: order.reply,
                     progress: order.progress,
@@ -675,7 +758,7 @@ impl SessionCore {
 
     /// Bytes between marks: output for the active run, or for an orphaned sentinel run.
     fn bytes(&mut self, at: Seq, bytes: &[u8]) {
-        if let Some(Machine::Sentinel(orphan)) = &mut self.orphan
+        if let Some(Orphan { machine: Machine::Sentinel(orphan), .. }) = &mut self.orphan
             && orphan.on_bytes(at, bytes).0.is_some()
         {
             self.forget_pending |= orphan.forgets_credentials();
@@ -712,7 +795,7 @@ impl SessionCore {
     /// mark, where any mark may be sandboxed code's.
     fn shielded(&self) -> bool {
         self.active.as_ref().is_some_and(|active| active.machine.shields())
-            || self.orphan.as_ref().is_some_and(Machine::shields)
+            || self.orphan.as_ref().is_some_and(|orphan| orphan.machine.shields())
     }
 
     fn mark(&mut self, mark: &ShellMark, writes: &mut Vec<Bytes>) {
@@ -735,7 +818,7 @@ impl SessionCore {
         if self.forget_pending && self.state.phase == Phase::Ready {
             self.forget_now(writes);
         }
-        if let Some(Machine::Marks(orphan)) = &mut self.orphan {
+        if let Some(Orphan { machine: Machine::Marks(orphan), .. }) = &mut self.orphan {
             match orphan.on_mark(mark) {
                 MarkStep::Continue => {}
                 MarkStep::Cancel => writes.push(Bytes::from_static(CANCEL_LINE)),
@@ -790,7 +873,7 @@ impl SessionCore {
         let early = matches!(order.check, Check::Early { .. });
         let output = match order.target {
             Target::Orphan => match &mut self.orphan {
-                Some(Machine::Marks(orphan)) => {
+                Some(Orphan { machine: Machine::Marks(orphan), .. }) => {
                     let output = orphan.checked(order.check, facts);
                     if output.is_some() {
                         self.forget_pending |= orphan.forgets_credentials();
@@ -894,6 +977,8 @@ pub(crate) struct SessionActor {
     pub(crate) life: watch::Sender<Life>,
     /// The core's [activity](SessionCore::activity), after each message.
     pub(crate) activity: watch::Sender<Activity>,
+    /// The command left running in the shell, after each message.
+    pub(crate) left: watch::Sender<Option<LeftRunning>>,
     /// The deadline for the first marked prompt; `None` once it passed or is moot.
     pub(crate) startup: Option<Sleep>,
 }
@@ -937,8 +1022,8 @@ impl SessionActor {
                     let writes = self.core.submit(order);
                     write_all(&self.writer, writes).await;
                 }
-                Msg::Detach { id, reply } => {
-                    let _ = reply.send(self.core.detach(id));
+                Msg::Detach { id, left, reply } => {
+                    let _ = reply.send(self.core.detach(id, left));
                 }
                 Msg::State { reply } => {
                     let _ = reply.send(self.core.state().clone());
@@ -971,6 +1056,16 @@ impl SessionActor {
 
 impl SessionActor {
     fn publish_activity(&self) {
+        // NOTE: the command left running goes first, so a reader that saw the activity
+        // change finds it.
+        let left = self.core.left_running();
+        self.left.send_if_modified(|published| {
+            if *published == left {
+                return false;
+            }
+            *published = left;
+            true
+        });
         let now = self.core.activity();
         self.activity.send_if_modified(|published| std::mem::replace(published, now) != now);
     }
@@ -1090,6 +1185,8 @@ pub(crate) struct SessionHandle {
     pub(crate) life: watch::Receiver<Life>,
     /// What the shell's runs do, as the actor last published it.
     pub(crate) activity: watch::Receiver<Activity>,
+    /// The command left running in the shell, as the actor last published it.
+    pub(crate) left: watch::Receiver<Option<LeftRunning>>,
     /// The terminal size the shell's programs see, shared by every clone; a finished
     /// command's output is replayed at this width.
     pub(crate) size: Arc<Mutex<Size>>,

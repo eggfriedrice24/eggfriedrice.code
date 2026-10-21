@@ -30,9 +30,9 @@ use crate::session::{
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
-    CommandResult, Completion, NoProgress, OutputUpdate, RunProgress, RunRequest, SandboxRun,
-    ShellConfig, ShellDeps, ShellError, ShellNotice, ShellState, env, integration, sandbox,
-    sentinel,
+    CommandResult, Completion, LeftRunning, NoProgress, OutputUpdate, RunProgress, RunRequest,
+    SandboxRun, ShellConfig, ShellDeps, ShellError, ShellNotice, ShellState, env, integration,
+    sandbox, sentinel,
 };
 
 /// The program looked for on the `PATH` when the config names none.
@@ -378,6 +378,14 @@ impl ShellSessions {
         self.inner.deps.clock.timeout(timeout, wait).await.map_err(|_| session.not_ready())
     }
 
+    /// The command left running in the conversation's shell, if any: a command whose
+    /// run reached its timeout and goes on there. The shell takes no other marked line
+    /// until it ends. `None` when the conversation has no shell or the shell is free.
+    pub fn busy(&self, conversation: ConversationId) -> Option<LeftRunning> {
+        let session = self.existing(conversation).ok()?;
+        session.left.borrow().clone()
+    }
+
     /// The screen of the conversation's shell, for attach snapshots.
     pub fn screen(&self, conversation: ConversationId) -> Option<ScreenHandle> {
         self.existing(conversation).ok().map(|session| session.screen)
@@ -581,6 +589,7 @@ impl ShellSessions {
         // A shell with the integration starts in `Phase::Starting`.
         let (activity, activities) =
             watch::channel(Activity { starting: integration, ..Activity::default() });
+        let (left, lefts) = watch::channel(None);
         let targets = ReaderTargets {
             pty_id,
             recording: Arc::clone(&deps.recording),
@@ -610,6 +619,7 @@ impl ShellSessions {
             tasks,
             life,
             activity,
+            left,
             startup: integration.then(|| deps.clock.sleep(inner.config.startup_timeout)),
         };
         tokio::spawn(actor.run(messages));
@@ -623,6 +633,7 @@ impl ShellSessions {
             terminal,
             life: lives,
             activity: activities,
+            left: lefts,
             size: Arc::new(Mutex::new(inner.config.size)),
             trusted,
         })
@@ -666,6 +677,8 @@ impl ShellSessions {
             forget_before: request.forget_before,
             token: sentinel::token(&*deps.rng),
             sandbox: request.sandbox,
+            since: started,
+            approved_by: request.approved_by,
             reply,
             progress: publish,
         };
@@ -757,7 +770,7 @@ impl ShellSessions {
             }
         }
 
-        let detached = self.detach(session, id, &mut guard).await;
+        let detached = self.detach(session, id, true, &mut guard).await;
         end_watch(&mut watch, progress);
         match detached? {
             Detached::Gone => self.finished(session, answer.await).await,
@@ -791,15 +804,17 @@ impl ShellSessions {
         }
     }
 
-    /// Lets the session's actor go of run `id`, which goes on without a caller.
+    /// Lets the session's actor go of run `id`, which goes on without a caller; `left`
+    /// when its command is left running at its timeout.
     async fn detach(
         &self,
         session: &SessionHandle,
         id: u64,
+        left: bool,
         guard: &mut DetachOnDrop,
     ) -> Result<Detached, ShellError> {
         let (reply, detached) = oneshot::channel();
-        session.send(Msg::Detach { id, reply }).await?;
+        session.send(Msg::Detach { id, left, reply }).await?;
         guard.disarm();
         detached.await.map_err(|_| session.exited())
     }
@@ -898,7 +913,7 @@ impl ShellSessions {
         let conversation = session.conversation;
         // Detached first, so the end that SIGINT brings belongs to the orphan, and this
         // result says why the command stopped.
-        let detached = self.detach(session, id, guard).await?;
+        let detached = self.detach(session, id, false, guard).await?;
         // NOTE: the command may have ended since the look. zsh then holds the terminal
         // again and runs its precmd hooks, and a SIGINT to the foreground group would
         // reach zsh and could cut short the hook that prints `D`, which the orphan waits
@@ -1063,7 +1078,7 @@ impl Drop for DetachOnDrop {
             let (reply, _) = oneshot::channel();
             // NOTE: a full inbox loses the detach; the actor then drops a waiting run
             // anyway, because its reply channel is closed.
-            let _ = inbox.try_send(Msg::Detach { id: self.id, reply });
+            let _ = inbox.try_send(Msg::Detach { id: self.id, left: false, reply });
         }
     }
 }

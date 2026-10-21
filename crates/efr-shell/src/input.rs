@@ -194,6 +194,11 @@ pub(crate) struct Waiting {
 }
 
 impl Waiting {
+    /// The wait as a client hears of it.
+    pub(crate) fn input(self) -> InputWait {
+        if self.hidden { InputWait::Hidden } else { InputWait::Visible }
+    }
+
     /// True when an answer to this wait may be a secret: a hidden wait, or a visible one
     /// that looks like a prompt for a secret.
     pub(crate) fn secret(self) -> bool {
