@@ -325,7 +325,6 @@ impl JobTable {
     /// Stops the port forwards of every running job, with a `stopped` event for each
     /// port, after a reload turned `jobs.forward_ports` off (DL11). A job that read the
     /// settings before and starts later forwards nothing either.
-    #[expect(dead_code, reason = "the reload turns forwards off in the next step")]
     pub(crate) fn forwards_off(&self) {
         self.inner.forwards.turn_off();
         let table = self.lock();
