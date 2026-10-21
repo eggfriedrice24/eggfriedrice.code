@@ -7,7 +7,8 @@
 //! lists the jobs of every conversation with its title. One row per job, newest first:
 //! its id, its state, when it ends or ended, the size of its output and its command,
 //! with the ports that efr forwards for a running job, such as `(ports 8765, 5173)`,
-//! and a mark when processes of the job may still run.
+//! `(moved by you)` for a job that the user moved from a running call with Ctrl+B, and
+//! a mark when processes of the job may still run.
 //!
 //! `efr jobs stop <id>` stops a job of the same conversation. efrd answers when the job
 //! ended, so the command then shows how it ended and the last lines of its output. The

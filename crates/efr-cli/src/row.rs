@@ -6,7 +6,8 @@
 //!
 //! - Printable text is added at the cursor, UTF-8 whole: the bytes of a character wait
 //!   until it is complete.
-//! - Backspace and Delete remove one grapheme cluster; Left and Right move over one.
+//! - Backspace and Delete remove one grapheme cluster; Left and Right (also Ctrl+F for
+//!   Right) move over one.
 //! - Home and End (also Ctrl+A and Ctrl+E) go to the start and the end of the line the
 //!   cursor is on; Ctrl+U removes the text from the start of that line to the cursor,
 //!   Ctrl+K from the cursor to its end, and Ctrl+W the word before the cursor (up to a
@@ -14,8 +15,10 @@
 //! - Ctrl+J and Alt+Enter add a newline. A bracketed paste (`CSI 200 ~` to
 //!   `CSI 201 ~`) is added whole, with its newlines: a newline in it never sends.
 //! - Enter steers, Tab queues, Esc interrupts, Alt+Up takes back the newest prompt
-//!   queued from here, and Ctrl+X asks to stop the newest running job of the
-//!   conversation. Those keys only say so ([`Action`]); the follow loop acts.
+//!   queued from here, Ctrl+X asks to stop the newest running job of the conversation,
+//!   and Ctrl+B moves the running shell call of the turn to the background, whatever
+//!   the line holds. Those keys only say so ([`Action`]); the follow loop acts. Ctrl+B
+//!   does not move the cursor: the Left arrow does.
 //!
 //! Other control characters and escape sequences change nothing. The line holds no
 //! secret: it is shown as it is typed, and it goes to the daemon as a steer or a
@@ -53,6 +56,8 @@ pub(crate) enum Action {
     Withdraw,
     /// Ctrl+X: ask to stop the newest running job of the conversation.
     StopJob,
+    /// Ctrl+B: move the running shell call of the turn to the background.
+    Background,
 }
 
 /// Where the decoder is in an escape sequence or a paste.
@@ -217,8 +222,10 @@ impl RowLine {
             // Ctrl+A, Ctrl+E.
             0x01 => self.move_to(self.line_start()),
             0x05 => self.move_to(self.line_end()),
-            // Ctrl+B, Ctrl+F.
-            0x02 => self.move_to(self.previous()),
+            // NOTE: Ctrl+B is the background key while a turn runs, also with text in the
+            // line, so the user can always move a long call; the Left arrow moves back.
+            0x02 => Action::Background,
+            // Ctrl+F.
             0x06 => self.move_to(self.next()),
             // Ctrl+D.
             0x04 => self.delete(),

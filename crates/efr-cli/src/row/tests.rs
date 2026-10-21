@@ -63,9 +63,30 @@ fn arrows_move_over_grapheme_clusters_and_text_goes_in_where_the_cursor_is() {
     assert_eq!(line.cursor(), 1);
     feed(&mut line, b"X\x1b[CY");
     assert_eq!(line.text(), "aXe\u{301}Yc");
-    // Ctrl+B and Ctrl+F do the same.
-    feed(&mut line, b"\x02\x02Z\x06");
+    // Ctrl+F moves forward too; Ctrl+B is the background key.
+    feed(&mut line, b"\x1b[D\x1b[DZ\x06");
     assert_eq!(line.text(), "aXZe\u{301}Yc");
+}
+
+#[test]
+fn ctrl_b_asks_to_move_the_call_whatever_the_line_holds() {
+    let mut line = RowLine::default();
+    assert_eq!(line.key(Key::Byte(0x02)), Action::Background, "an empty line");
+    let mut line = typed(b"fix it");
+    assert_eq!(line.key(Key::Byte(0x02)), Action::Background, "a line with text");
+    assert_eq!((line.text(), line.cursor()), ("fix it", "fix it".len()), "the cursor stays");
+    // After Alt or in a sequence that it cuts, it still means the background.
+    assert_eq!(feed(&mut line, b"\x1b\x02"), [Action::Background]);
+    assert_eq!(line.text(), "fix it");
+}
+
+#[test]
+fn left_still_moves_the_cursor_back_without_ctrl_b() {
+    let mut line = typed(b"ab");
+    feed(&mut line, b"\x1b[DX");
+    assert_eq!(line.text(), "aXb");
+    feed(&mut line, b"\x1bOD\x1bODY");
+    assert_eq!(line.text(), "YaXb");
 }
 
 #[test]

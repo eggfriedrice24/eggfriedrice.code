@@ -1630,3 +1630,34 @@ fn view_shows_job_start_and_end() {
         Sent(100, turn_completed()),
     ]));
 }
+
+#[test]
+fn a_moved_call_shows_its_job_in_place_of_a_result() {
+    let input = json!({ "command": "for i in $(seq 1 600); do echo tick $i; sleep 1; done" });
+    let mut job = job_of(1, 1, "for i in $(seq 1 600); do echo tick $i; sleep 1; done");
+    job.ends_by = job.started_at + jiff::SignedDuration::from_mins(60);
+    job.moved_from = Some(efr_protocol::MovedCall {
+        call_id: id(1),
+        turn_id: turn(),
+        after_secs: 42,
+        exits: Vec::new(),
+    });
+    insta::assert_snapshot!(every_way(&[
+        Sent(0, turn_started()),
+        Sent(10, started(1, "shell", input, Some(Launch::contained()))),
+        Sent(
+            40,
+            Event::JobStarted {
+                turn_id: turn(),
+                call_id: id(1),
+                job,
+                launcher_pid: 4242,
+                launcher_start: 99,
+            }
+        ),
+        Sent(50, ended(1, None, None)),
+        Shot("moved"),
+        Sent(70, message(0, "The loop runs on as job j1.")),
+        Sent(100, turn_completed()),
+    ]));
+}

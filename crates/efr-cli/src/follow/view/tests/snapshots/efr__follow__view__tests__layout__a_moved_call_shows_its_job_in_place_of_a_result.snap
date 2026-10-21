@@ -1,0 +1,109 @@
+---
+source: crates/efr-cli/src/follow/view/tests/layout.rs
+expression: "every_way(&[Sent(0, turn_started()),\nSent(10, started(1, \"shell\", input, Some(Launch::contained()))),\nSent(40, Event::JobStarted\n{\n    turn_id: turn(), call_id: id(1), job, launcher_pid: 4242, launcher_start:\n    99,\n}), Sent(50, ended(1, None, None)), Shot(\"moved\"),\nSent(70, message(0, \"The loop runs on as job j1.\")),\nSent(100, turn_completed()),])"
+---
+=== 40 columns, colour
+[moved]
+\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo \e[0m\e[2m\\e[0m
+        \e[36mtick $i; sleep 1; done\e[0m
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42\e[0m
+    \e[2mseconds; output\e[0m
+    \e[2m$SCRATCH/jobs/j1.out; ends in 60\e[0m
+    \e[2mminutes\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo \e[0m\e[2m\\e[0m
+        \e[36mtick $i; sleep 1; done\e[0m
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42\e[0m
+    \e[2mseconds; output\e[0m
+    \e[2m$SCRATCH/jobs/j1.out; ends in 60\e[0m
+    \e[2mminutes\e[0m
+
+The loop runs on as job j1.
+
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out…\e[0m
+
+=== 40 columns, NO_COLOR
+[moved]
+\e[1m·\e[0m $ for i in $(seq 1 600); do echo \e[2m\\e[0m
+        tick $i; sleep 1; done
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42\e[0m
+    \e[2mseconds; output\e[0m
+    \e[2m$SCRATCH/jobs/j1.out; ends in 60\e[0m
+    \e[2mminutes\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[1m·\e[0m $ for i in $(seq 1 600); do echo \e[2m\\e[0m
+        tick $i; sleep 1; done
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42\e[0m
+    \e[2mseconds; output\e[0m
+    \e[2m$SCRATCH/jobs/j1.out; ends in 60\e[0m
+    \e[2mminutes\e[0m
+
+The loop runs on as job j1.
+
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out…\e[0m
+
+=== 80 columns, colour
+[moved]
+\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo tick $i; sleep 1; done\e[0m
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in\e[0m
+    \e[2m60 minutes\e[0m
+\e[33m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[33m·\e[0m \e[36m$ for i in $(seq 1 600); do echo tick $i; sleep 1; done\e[0m
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in\e[0m
+    \e[2m60 minutes\e[0m
+
+The loop runs on as job j1.
+
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
+
+=== 80 columns, NO_COLOR
+[moved]
+\e[1m·\e[0m $ for i in $(seq 1 600); do echo tick $i; sleep 1; done
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in\e[0m
+    \e[2m60 minutes\e[0m
+\e[1m•\e[0m \e[2mwaiting for the model\e[0m
+
+[end]
+\e[1m·\e[0m $ for i in $(seq 1 600); do echo tick $i; sleep 1; done
+  \e[2m(moved to job j1)\e[0m
+  \e[2mmoved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in\e[0m
+    \e[2m60 minutes\e[0m
+
+The loop runs on as job j1.
+
+\e[2msandbox: writes in the project, $SCRATCH, private /tmp; no network\e[0m
+\e[2mdone in 0.1s, 18.2k tokens in, 1.1k out, cache 0%\e[0m
+
+=== not a terminal
+[moved]
+stdout:
+stderr:
+· $ for i in $(seq 1 600); do echo tick $i; sleep 1; done
+  (moved to job j1)
+  moved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in 60 minutes
+
+[end]
+stdout:
+The loop runs on as job j1.
+stderr:
+· $ for i in $(seq 1 600); do echo tick $i; sleep 1; done
+  (moved to job j1)
+  moved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in 60 minutes
+
+sandbox: writes in the project, $SCRATCH, private /tmp; no network

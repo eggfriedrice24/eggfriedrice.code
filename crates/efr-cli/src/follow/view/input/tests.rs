@@ -2,7 +2,7 @@ use efr_protocol::{Seq, TurnId};
 use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
-use super::{HINT, Input, MAX_ROWS, first_line, user_message};
+use super::{BACKGROUND_HINT, HINT, Input, MAX_ROWS, first_line, user_message};
 use crate::keys::Key;
 use crate::live::Cursor;
 use crate::testing::readable;
@@ -21,6 +21,20 @@ fn typed(text: &str) -> Input {
         input.line.key(Key::Byte(byte));
     }
     input
+}
+
+#[test]
+fn the_hint_names_ctrl_b_only_while_a_call_can_move_and_the_row_is_empty() {
+    let mut input = Input { background: true, ..Input::default() };
+    let tail = input.row(&plain(), 80);
+    assert_eq!(tail.text, format!("\u{203a}  {BACKGROUND_HINT}{HINT}\n"));
+    assert!(tail.text.starts_with("\u{203a}  ctrl+b background \u{b7} enter"), "{}", tail.text);
+    input.background = false;
+    assert_eq!(input.row(&plain(), 60).text, format!("\u{203a}  {HINT}\n"));
+    // With text in the row, no hint shows, but Ctrl+B still moves the call.
+    let mut typed = typed("a");
+    typed.background = true;
+    assert_eq!(typed.row(&plain(), 60).text, "\u{203a} a\n");
 }
 
 #[test]
@@ -61,10 +75,12 @@ fn at_most_five_rows_show_and_the_cursor_row_is_one_of_them() {
     assert_eq!(tail.text.lines().count(), MAX_ROWS);
     assert_eq!(tail.text.lines().next(), Some("  line 4"), "the rows up to the cursor show");
     assert_eq!(tail.cursor, Some(Cursor { line: 4, column: 8 }));
-    // To the start of the first line: Ctrl+A, then Ctrl+B over the newline before it.
+    // To the start of the first line: Ctrl+A, then Left over the newline before it.
     for _ in 0..7 {
         input.line.key(Key::Byte(0x01));
-        input.line.key(Key::Byte(0x02));
+        for byte in b"\x1b[D" {
+            input.line.key(Key::Byte(*byte));
+        }
     }
     input.line.key(Key::Byte(0x01));
     let tail = input.row(&plain(), 40);

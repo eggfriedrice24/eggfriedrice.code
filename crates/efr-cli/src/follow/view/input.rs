@@ -2,7 +2,9 @@
 //! steers that no model call read yet, and the prompts that this view queued.
 //!
 //! The row is the last part of the live zone, below the status row: `› ` and the text,
-//! or, while it is empty, a blank cell for the cursor and then a muted hint. A long
+//! or, while it is empty, a blank cell for the cursor and then a muted hint. While a
+//! shell call of the turn has run for a moment, the hint also names Ctrl+B
+//! ([`BACKGROUND_HINT`]). A long
 //! text goes on in the next row, at most [`MAX_ROWS`] rows show, and the rows around
 //! the cursor are the ones that show. Above the status row, each unread steer shows as
 //! `↳ steer: <first line>` and each queued prompt as `↳ queued: <first line>`, muted. A
@@ -24,6 +26,10 @@ const MARK: &str = "\u{203a}";
 
 /// The hint in an empty input row.
 pub(crate) const HINT: &str = "enter steer \u{b7} tab queue \u{b7} esc interrupt";
+
+/// What the hint starts with while a shell call of the turn runs that Ctrl+B can move:
+/// first, so a narrow screen still shows it.
+pub(crate) const BACKGROUND_HINT: &str = "ctrl+b background \u{b7} ";
 
 /// What starts the line of an unread steer.
 const STEER: &str = "\u{21b3} steer: ";
@@ -64,6 +70,8 @@ pub(crate) struct Input {
     pub(crate) shown: bool,
     /// Bracketed paste is on in the terminal.
     pub(crate) paste: bool,
+    /// A shell call of the turn runs that Ctrl+B can move: the hint says so.
+    pub(crate) background: bool,
 }
 
 impl Input {
@@ -174,7 +182,9 @@ impl Input {
             // NOTE: the hint starts one column after the cursor. A block cursor on the
             // first letter of the hint looks like it covers that letter, and the user
             // keeps the cursor shape that they chose.
-            let hint = format::cut(HINT, columns.saturating_sub(1).max(1), method);
+            let hint =
+                if self.background { format!("{BACKGROUND_HINT}{HINT}") } else { HINT.to_owned() };
+            let hint = format::cut(&hint, columns.saturating_sub(1).max(1), method);
             let text = format!("{mark} {}\n", format::paint(&hint, Tone::Dim, options));
             return Tail { text, cursor: Some(Cursor { line: 0, column: 2 }) };
         }

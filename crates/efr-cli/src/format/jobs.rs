@@ -2,8 +2,9 @@
 //! start and the end of a job, a line that matched its `watch` pattern, a notice that
 //! did not start a turn, a port that efr forwards or not (with the URL as an OSC 8
 //! link on a terminal), the mark of a turn that a job notice started, the question of
-//! the stop key, and the rows of `efr jobs list` (with the forwarded ports of a running
-//! job).
+//! the stop key, the question and the notes of the background key (Ctrl+B) and the
+//! start of a job that the user moved from a running call, and the rows of `efr jobs
+//! list` (with the forwarded ports of a running job and the mark of a moved one).
 //!
 //! A job's command, its output and its tail come from a program, not from efr: every
 //! piece of them goes through [`one_line`] or [`lines`], so a control character or a
@@ -14,7 +15,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    Blocked, Event, ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange,
+    Blocked, Event, ExitInfo, ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy,
+    SurfaceChange,
 };
 use efr_render::{RenderOptions, WidthMethod};
 use jiff::Timestamp;
@@ -31,6 +33,21 @@ pub(crate) const NO_JOB: &str = "no job runs";
 
 /// The keys of the stop key's question.
 pub(crate) const STOP_KEYS: &[(&str, &str)] = &[("y", "yes"), ("n", "no")];
+
+/// The note of the background key when no shell call of the followed turn runs: the
+/// key moves only a running shell call of the turn that this `efr` follows.
+pub(crate) const NO_CALL: &str =
+    "no shell call of this turn runs; ctrl+b moves only a running shell call";
+
+/// The title of the background key's question, for a call that runs outside the
+/// sandbox.
+pub(crate) const MOVE_TITLE: &str = "move this command to the background";
+
+/// The keys of the background key's question.
+pub(crate) const MOVE_KEYS: &[(&str, &str)] = &[("y", "move"), ("n", "no")];
+
+/// The mark of a moved job in a row of `efr jobs list`.
+const MOVED_MARK: &str = "(moved by you)";
 
 /// How many columns of a job's command a question or a row of `efr jobs list` shows.
 const COMMAND_COLUMNS: usize = 60;
@@ -74,14 +91,51 @@ pub(crate) fn command(command: &str, columns: usize) -> String {
 }
 
 /// The line of a job's start: `job j3 started; output $SCRATCH/jobs/j3.out; ends in 180
-/// minutes`.
+/// minutes`. For a job that the user moved from a running call (Ctrl+B): `moved to job
+/// j3 by you after 42 seconds; output ...; ends in 60 minutes`.
 pub(crate) fn started(job: &JobInfo) -> String {
+    let output = output_name(&job.output);
+    let ends = minutes(seconds_between(job.started_at, job.ends_by));
+    match &job.moved_from {
+        Some(moved) => format!(
+            "moved to job {} by you after {}; output {output}; ends in {ends}",
+            job.id,
+            minutes(moved.after_secs)
+        ),
+        None => format!("job {} started; output {output}; ends in {ends}", job.id),
+    }
+}
+
+/// The lines of the exits that the user's answer to the move of `job` covered, such as
+/// `your move covered: write; efr: a delete that undo does not cover as a job`. None for
+/// a job that the model started, or a move that covered no exit.
+pub(crate) fn moved_exits(job: &JobInfo, home: Option<&Path>) -> Vec<String> {
+    job.moved_from
+        .iter()
+        .flat_map(|moved| &moved.exits)
+        .map(|exit| format!("your move covered: {}", sandbox::exit_brief(exit, home)))
+        .collect()
+}
+
+/// The row of the background key's question that says what a move lets the command do:
+/// `it keeps running with your full rights after the turn, for up to 60 minutes`.
+pub(crate) fn move_risk(max_minutes: u32) -> String {
     format!(
-        "job {} started; output {}; ends in {}",
-        job.id,
-        output_name(&job.output),
-        minutes(seconds_between(job.started_at, job.ends_by))
+        "it keeps running with your full rights after the turn, for up to {}",
+        minutes(u64::from(max_minutes) * 60)
     )
+}
+
+/// The row of the background key's question for one exit of the job decision, such as
+/// `as a job: write; efr: a delete that undo does not cover as a job`.
+pub(crate) fn move_exit(exit: &ExitInfo, home: Option<&Path>) -> String {
+    format!("as a job: {}", sandbox::exit_brief(exit, home))
+}
+
+/// The note when efrd did not move the call: `the command was not moved: the command
+/// waits for input`. The reason comes from efrd and still goes through [`one_line`].
+pub(crate) fn not_moved(reason: &str) -> String {
+    format!("the command was not moved: {}", one_line(reason))
 }
 
 /// The facts of a job's end, from its `job_ended` or from its [`JobInfo`].
@@ -436,6 +490,9 @@ pub(crate) fn list(rows: &[ListRow<'_>], now: Timestamp) -> String {
             let mut command = command(&row.job.command, COMMAND_COLUMNS);
             if let Some(ports) = ports(row.job) {
                 let _ = write!(command, "  ({ports})");
+            }
+            if row.job.moved_from.is_some() {
+                let _ = write!(command, "  {MOVED_MARK}");
             }
             if row.leftover {
                 command.push_str("  (its processes may still run)");

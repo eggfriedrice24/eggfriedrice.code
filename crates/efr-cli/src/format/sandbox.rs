@@ -775,6 +775,29 @@ pub(crate) fn exit_summary(
     lines.join("; ")
 }
 
+/// One exit of a job decision in a few words, without a record: what it opens, each
+/// kind once, then efr's own facts after `efr:`, such as `write; efr: a delete that undo
+/// does not cover as a job`. For the question of a move to the background and for the
+/// line of a moved job.
+pub(crate) fn exit_brief(info: &ExitInfo, home: Option<&Path>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for kind in &info.kinds {
+        let part = kind_part(*kind, &info.grants, None, home);
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    if parts.is_empty() {
+        parts.push(launch_words(info, None, home));
+    }
+    let mut brief = parts.join("; ");
+    let facts: Vec<String> = info.facts.iter().map(|fact| one_line(fact)).collect();
+    if !facts.is_empty() {
+        let _ = write!(brief, "; efr: {}", facts.join("; "));
+    }
+    brief
+}
+
 /// An exit as its `exit_requested` event gives it: the view and the history keep one
 /// per call, for the lines of its question and of the reviewer.
 #[derive(Debug, Clone)]

@@ -1559,3 +1559,386 @@ async fn a_stop_asked_as_the_turn_ends_still_reaches_efrd() {
     .await;
     result.unwrap();
 }
+
+/// Ctrl+B in the input row.
+const CTRL_B: u8 = 0x02;
+
+/// The shell call of the followed turn, which runs `command` in the sandbox, or
+/// outside it with `contained` false.
+fn shell_call(command: &str, contained: bool) -> Event {
+    let Event::ToolCallStarted { turn_id, call_id, tool, input, manual_input, freeform, .. } =
+        shell_started(command)
+    else {
+        unreachable!("shell_started makes a tool call start");
+    };
+    let launch = if contained { Some(efr_protocol::Launch::contained()) } else { None };
+    Event::ToolCallStarted { turn_id, call_id, tool, input, manual_input, launch, freeform }
+}
+
+/// The next request, which must be `call.background` for the test's call; it sends
+/// `confirm`.
+async fn background_request(conn: &mut Conn, confirm: Option<u64>) -> RequestId {
+    let (id, method) = conn.request().await;
+    let Method::CallBackground(params) = method else {
+        panic!("expected call.background, got {}", method.name());
+    };
+    assert_eq!(
+        (params.conversation_id, params.call_id, params.confirm),
+        (conversation(), call(), confirm)
+    );
+    id
+}
+
+/// What efrd records when it moved the test's call to job `n` after 42 s.
+fn moved_job(n: u32, command: &str) -> Event {
+    let mut info = job(n, command);
+    info.ends_by = info.started_at + jiff::SignedDuration::from_mins(60);
+    info.moved_from = Some(efr_protocol::MovedCall {
+        call_id: call(),
+        turn_id: turn(),
+        after_secs: 42,
+        exits: Vec::new(),
+    });
+    Event::JobStarted {
+        turn_id: turn(),
+        call_id: call(),
+        job: info,
+        launcher_pid: 4242,
+        launcher_start: 99,
+    }
+}
+
+/// The end of the moved call: efrd answers the model with the moved text.
+fn moved_call_completed() -> Event {
+    Event::ToolCallCompleted {
+        turn_id: turn(),
+        call_id: call(),
+        output: "[the user moved this command to the background after 42s: job j1.]".to_owned(),
+        truncated: false,
+        is_error: false,
+        exit_code: None,
+        sandbox: None,
+        refusal: None,
+        changes: None,
+        diff: None,
+        left_running: false,
+    }
+}
+
+/// A preview of efrd for a move of `command` outside the sandbox.
+fn preview(token: u64, command: &str, max_minutes: u32) -> efr_protocol::CallBackgroundResult {
+    efr_protocol::CallBackgroundResult::Preview {
+        token,
+        command: command.to_owned(),
+        max_minutes,
+        exits: Vec::new(),
+    }
+}
+
+/// Counts the requests of `frames` that `pick` matches.
+fn count_requests(frames: &[ClientFrame], pick: impl Fn(&Method) -> bool) -> usize {
+    frames
+        .iter()
+        .filter(|frame| matches!(frame, ClientFrame::Request { method, .. } if pick(method)))
+        .count()
+}
+
+/// The number of `call.background` requests in `frames`.
+fn moves(frames: &[ClientFrame]) -> usize {
+    count_requests(frames, |method| matches!(method, Method::CallBackground(_)))
+}
+
+#[tokio::test]
+async fn ctrl_b_moves_a_contained_call_at_once_whatever_the_row_holds() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("cargo build", true))).await;
+        shows(&seen, "$ ").await;
+        keys.type_bytes(b"draft").await;
+        shows(&seen, "draft").await;
+        // NOTE: with text in the row, Ctrl+B still moves the call; the text stays.
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.item(sub, &item(12, moved_job(1, "cargo build"))).await;
+        conn.item(sub, &item(13, moved_call_completed())).await;
+        let moved = efr_protocol::CallBackgroundResult::Moved { job_id: JobId::nth(1) };
+        conn.reply(id, &moved).await;
+        shows(&seen, "(moved to job j1)").await;
+        keys.type_bytes(b"!").await;
+        shows(&seen, "\u{203a} draft!").await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        let interrupts =
+            count_requests(&frames, |method| matches!(method, Method::TurnInterrupt(_)));
+        assert_eq!(interrupts, 0, "the background key never interrupts the turn");
+    })
+    .await;
+    result.unwrap();
+    // The line of the job, under the call's result; the screen is 80 columns wide.
+    let line = "moved to job j1 by you after 42 seconds; output $SCRATCH/jobs/j1.out; ends in";
+    assert!(out.contains(line), "{}", readable(&out));
+    assert!(!out.contains("this command to the background"), "no question: {}", readable(&out));
+    assert!(!out.contains("\u{2713}"), "no check mark for a moved call: {}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("draft!"));
+}
+
+#[tokio::test]
+async fn ctrl_b_asks_before_it_moves_a_call_outside_the_sandbox() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("rsync -a src/ host:dst/", false))).await;
+        shows(&seen, "$ ").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.reply(id, &preview(77, "rsync -a src/ host:dst/", 60)).await;
+        shows(&seen, "move this command to the background").await;
+        shows(&seen, "it keeps running with your full rights after the turn, for up to 60 minutes")
+            .await;
+        // A key that answers nothing waits; `y` moves with the preview's token.
+        keys.press(b'x').await;
+        keys.press(b'y').await;
+        let id = background_request(&mut conn, Some(77)).await;
+        conn.item(sub, &item(12, moved_job(1, "rsync -a src/ host:dst/"))).await;
+        conn.item(sub, &item(13, moved_call_completed())).await;
+        let moved = efr_protocol::CallBackgroundResult::Moved { job_id: JobId::nth(1) };
+        conn.reply(id, &moved).await;
+        shows(&seen, "(moved to job j1)").await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("\u{2713} moving the command to the background"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn n_to_the_move_question_sends_nothing_and_the_call_runs_on() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("make deploy", false))).await;
+        shows(&seen, "$ ").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.reply(id, &preview(5, "make deploy", 60)).await;
+        shows(&seen, "move this command to the background").await;
+        keys.press(b'n').await;
+        shows(&seen, "the command runs on here").await;
+        conn.item(sub, &item(12, shell_completed(0))).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        assert_eq!(moves(&frames), 0, "n moves nothing");
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("\u{2717} the command runs on here"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn move_question_lists_the_job_exits() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let mut exit =
+        crate::testing::exit_info(&[efr_protocol::ExitKind::Write], efr_protocol::Launch::Direct);
+    exit.facts = vec!["a job asks in cautious".to_owned()];
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("./gen.sh > out.txt", false))).await;
+        shows(&seen, "$ ").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        let preview = efr_protocol::CallBackgroundResult::Preview {
+            token: 9,
+            command: "./gen.sh > out.txt".to_owned(),
+            max_minutes: 30,
+            exits: vec![exit],
+        };
+        conn.reply(id, &preview).await;
+        shows(&seen, "as a job: write; efr: a job asks in cautious").await;
+        keys.press(b'n').await;
+        shows(&seen, "the command runs on here").await;
+        conn.item(sub, &item(12, shell_completed(0))).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("for up to 30 minutes"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn a_refused_move_is_a_note_and_the_call_runs_on() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("read -r x", true))).await;
+        shows(&seen, "$ ").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.fail(id, ErrorBody::new(ErrorCode::Invalid, "the command waits for input")).await;
+        shows(&seen, "the command was not moved: the command waits for input").await;
+        conn.item(sub, &item(12, shell_completed(0))).await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("\u{2713}"), "the call ends as usual: {}", readable(&out));
+}
+
+#[tokio::test]
+async fn ctrl_b_with_no_running_shell_call_says_so_and_sends_nothing() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.press(CTRL_B).await;
+        shows(&seen, "no shell call of this turn runs").await;
+        conn.item(sub, &item(11, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        assert_eq!(moves(&frames), 0);
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains(crate::format::jobs::NO_CALL), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn a_call_that_ends_while_its_move_question_waits_closes_the_question() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("make deploy", false))).await;
+        shows(&seen, "$ ").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.reply(id, &preview(5, "make deploy", 60)).await;
+        shows(&seen, "move this command to the background").await;
+        conn.item(sub, &item(12, shell_completed(0))).await;
+        shows(&seen, "the command ended; nothing moved").await;
+        // The keys are the row's again: a `y` now is text, not an answer.
+        keys.press(b'y').await;
+        shows(&seen, "\u{203a} y").await;
+        conn.item(sub, &item(13, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        assert_eq!(moves(&frames), 0, "no confirm after the end");
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("\u{2717} the command ended; nothing moved"), "{}", readable(&out));
+}
+
+#[tokio::test]
+async fn ctrl_b_moves_a_call_that_keeps_its_keys_and_n_gives_them_back_to_it() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("rsync -a src/ host:dst/", false))).await;
+        shows(&seen, "$ ").await;
+        // The call may ask for a password: after the `y`, efr keeps the keys for it.
+        let request = Event::ApprovalRequested {
+            turn_id: turn(),
+            call_id: call(),
+            summary: "shell: rsync -a src/ host:dst/".to_owned(),
+            diff_preview: None,
+            interactive: true,
+            exit: None,
+            expires_in_secs: None,
+        };
+        conn.item(sub, &item(12, request)).await;
+        shows(&seen, "y allow").await;
+        keys.press(b'y').await;
+        approval_answer(&mut conn, ApprovalDecision::Allow).await;
+        let resolved = Event::ApprovalResolved {
+            turn_id: turn(),
+            call_id: call(),
+            decision: ApprovalDecision::Allow,
+            origin: Origin::Shell,
+        };
+        conn.item(sub, &item(13, resolved)).await;
+        // The answer's event came first once its output shows.
+        conn.item(sub, &item(14, shell_output("receiving file list"))).await;
+        shows(&seen, "receiving file list").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.reply(id, &preview(3, "rsync -a src/ host:dst/", 60)).await;
+        shows(&seen, "move this command to the background").await;
+        keys.press(b'n').await;
+        shows(&seen, "the command runs on here").await;
+        // The keys are the call's again: typed ahead, they start its visible answer and
+        // never reach the row.
+        keys.type_bytes(b"Y").await;
+        conn.item(sub, &item(15, shell_output("Continue? [Y/n] "))).await;
+        conn.item(sub, &item(16, input_changed(InputWait::Visible))).await;
+        shows(&seen, "> Y").await;
+        keys.type_bytes(b"es\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "Yes");
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        conn.item(sub, &item(17, input_changed(InputWait::None))).await;
+        conn.item(sub, &item(18, shell_completed(0))).await;
+        conn.item(sub, &item(19, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        let steers = count_requests(&frames, |method| matches!(method, Method::TurnSteer(_)));
+        assert_eq!(steers, 0, "nothing typed for the call went as a steer");
+        assert_eq!(moves(&frames), 0, "n moves nothing");
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("\u{203a} Y"), "the row never held the answer: {}", readable(&out));
+    assert_eq!(setup.handed_back(), None, "no text goes back to the shell");
+}
+
+#[tokio::test]
+async fn a_wait_while_the_move_question_shows_ends_the_question_and_asks_for_the_answer() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("./deploy.sh", false))).await;
+        shows(&seen, "$ ").await;
+        keys.press(CTRL_B).await;
+        let id = background_request(&mut conn, None).await;
+        conn.reply(id, &preview(4, "./deploy.sh", 60)).await;
+        shows(&seen, "move this command to the background").await;
+        conn.item(sub, &item(12, shell_output("Proceed? [y/N] "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Visible))).await;
+        shows(&seen, "the command waits for input; nothing moved").await;
+        // The `y` answers the command now, not the question.
+        keys.type_bytes(b"y\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "y");
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        conn.item(sub, &item(14, input_changed(InputWait::None))).await;
+        conn.item(sub, &item(15, shell_completed(0))).await;
+        conn.item(sub, &item(16, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        assert_eq!(moves(&frames), 0, "no confirm after the wait");
+    })
+    .await;
+    result.unwrap();
+    assert!(
+        out.contains("\u{2717} the command waits for input; nothing moved"),
+        "{}",
+        readable(&out)
+    );
+}

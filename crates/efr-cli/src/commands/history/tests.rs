@@ -1756,3 +1756,48 @@ fn history_verbose_shows_usage_per_turn() {
     let quiet = plain(&page, false);
     assert!(!quiet.contains(" in, "), "only --verbose shows the tokens: {quiet}");
 }
+
+#[test]
+fn history_says_who_moved_a_call_to_a_job_and_what_the_move_covered() {
+    let mut job = crate::testing::job(3, "make deploy");
+    job.ends_by = job.started_at + jiff::SignedDuration::from_mins(60);
+    let mut exit = exit_info(&[ExitKind::Write], Launch::Direct);
+    exit.facts = vec!["a job asks in cautious".to_owned()];
+    job.moved_from = Some(efr_protocol::MovedCall {
+        call_id: call(),
+        turn_id: turn(),
+        after_secs: 42,
+        exits: vec![exit],
+    });
+    let events = vec![
+        Event::ToolCallStarted {
+            turn_id: turn(),
+            call_id: call(),
+            tool: "shell".to_owned(),
+            input: json!({ "command": "make deploy" }),
+            manual_input: false,
+            launch: None,
+            freeform: false,
+        },
+        Event::JobStarted {
+            turn_id: turn(),
+            call_id: call(),
+            job,
+            launcher_pid: 4242,
+            launcher_start: 99,
+        },
+    ];
+    let page = ConversationHistoryResult {
+        events: events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect(),
+        next_cursor: None,
+    };
+    let plain = show(&page, &RenderOptions::new(100).with_terminal(false));
+    assert!(
+        plain.contains(
+            "moved to job j3 by you after 42 seconds; output $SCRATCH/jobs/j3.out; ends in 60 \
+             minutes\n"
+        ),
+        "{plain}"
+    );
+    assert!(plain.contains("your move covered: write; efr: a job asks in cautious\n"), "{plain}");
+}

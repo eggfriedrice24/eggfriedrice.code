@@ -306,3 +306,39 @@ fn esc_puts_the_prompts_it_took_back_into_the_row_after_the_draft() {
     let shown = screen(&mut view, &mut grid, 0);
     assert!(!shown.contains('\u{21b3}'), "nothing waits now: {shown}");
 }
+
+/// The start of the test's shell call, which runs `command`.
+fn shell_started(command: &str, background: bool) -> Event {
+    Event::ToolCallStarted {
+        turn_id: turn(),
+        call_id: call(),
+        tool: "shell".to_owned(),
+        input: serde_json::json!({ "command": command, "background": background }),
+        manual_input: false,
+        launch: None,
+        freeform: false,
+    }
+}
+
+#[test]
+fn the_row_names_ctrl_b_after_a_shell_call_ran_two_seconds_and_only_while_empty() {
+    let (mut view, mut grid) = row_view();
+    event(&mut view, 11, 0, shell_started("cargo build --release", false));
+    // The call's time counts from the first frame that shows it.
+    let early = screen(&mut view, &mut grid, 100);
+    assert!(!early.contains("ctrl+b"), "no flash for a short call: {early}");
+    let late = screen(&mut view, &mut grid, 2_100);
+    assert!(late.contains("ctrl+b background \u{b7} enter steer"), "{late}");
+    // With text in the row the hint goes, but the key still moves the call.
+    type_in(&mut view, "x");
+    let typed = screen(&mut view, &mut grid, 2_200);
+    assert!(!typed.contains("ctrl+b"), "{typed}");
+    assert_eq!(view.background_call(), Some(call()));
+
+    // A call that starts a job never names the key.
+    let (mut view, mut grid) = row_view();
+    event(&mut view, 11, 0, shell_started("npm run dev", true));
+    screen(&mut view, &mut grid, 100);
+    let late = screen(&mut view, &mut grid, 5_000);
+    assert!(!late.contains("ctrl+b"), "{late}");
+}
