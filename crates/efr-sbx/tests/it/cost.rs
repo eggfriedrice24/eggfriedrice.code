@@ -11,7 +11,9 @@
 //! `launch cost downloads` reports the cost of the `tmp` mode when the download caches
 //! keep their layer for the conversation (`sandbox.keep_downloads`, DP27 of the phase
 //! D2 plan). `bus proxy wrapper start` reports the time of `efr-sbx dbus-proxy` to the
-//! ready byte of the program behind it (phase E).
+//! ready byte of the program behind it (phase E). `launch cost reach` reports the cost
+//! that the reach helper of a call adds: two more spawns, its setup, the listens of the
+//! start and a ready byte per call.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -386,6 +388,45 @@ fn launch_cost_downloads() {
     ));
     let tmp_failures = failures.first().cloned().unwrap_or_default();
     assert!(tmp_failures.is_empty(), "the tmp cache mode failed to start: {tmp_failures:?}");
+}
+
+/// The cost of the reach helper at a call's start (DS48 of the shell items plan): its
+/// two spawns, its setup, the listens of one port on both addresses and its ready byte,
+/// which the inner stage waits for before the child runs. Two series of calls of
+/// `true`, without and with a reach plan of one port (a test listener stands for efrd),
+/// whose calls take turns, so the load of the machine weighs on each the same. A
+/// report, not a gate. With `EFR_TEST_SBX_GATE=1` 1000 calls each, else 100.
+#[test]
+fn launch_cost_reach() {
+    let ready = sandbox_or_skip!();
+    let gate = env_var("EFR_TEST_SBX_GATE").is_some_and(|value| value == "1");
+    let calls = if gate { 1000 } else { 100 };
+    let fixture = Fixture::new(&ready);
+    let mut series: [Vec<Duration>; 2] = [Vec::with_capacity(calls), Vec::with_capacity(calls)];
+    for _ in 0..calls {
+        for (reach, costs) in [false, true].into_iter().zip(&mut series) {
+            let (call_dir, listener) = if reach {
+                let answer = Some(crate::reach::Answer::Echo);
+                crate::reach::prepare(&fixture, "true", &[8765], answer)
+            } else {
+                (fixture.prepare("true"), None)
+            };
+            let command = fixture.command(&call_dir, &fixture.project);
+            let start = Instant::now();
+            let ended = run_with_timeout(command);
+            let spent = start.elapsed();
+            let run = fixture.collect(&call_dir, ended);
+            assert!(run.result().setup_error.is_none(), "{run:#?}");
+            run.expect_status(0);
+            costs.push(spent);
+            drop(listener);
+        }
+    }
+    let [plain, reach] = series;
+    let (plain_p50, _) = report("launch cost without reach", plain);
+    let (reach_p50, _) = report("launch cost reach", reach);
+    let added = reach_p50.as_secs_f64() - plain_p50.as_secs_f64();
+    say(&format!("the reach helper adds {:.2} ms to a call's start at p50", added * 1000.0));
 }
 
 /// The cost of a call with the network view: no network namespace of its own, the
