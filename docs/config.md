@@ -233,6 +233,7 @@ Background jobs: whether the model can start them, their limits, and how often t
 | `max_wakes_per_hour_daemon` | `12` | live | The most turns per hour that job notices start in all conversations, from 0 to 120. 0: a notice never starts a turn. |
 | `max_wakes_per_watch` | `3` | live | The most times that one `watch` pattern of a job can wake the model, from 0 to 10. A higher `max_wakes` of the model is cut to it. |
 | `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
+| `forward_ports` | `true` | live | Forward each loopback port that a contained background job listens on to the same port of 127.0.0.1. A job reads it when it starts. `false` at a reload also stops the forwards of the jobs that run; a later `true` does not start them again. |
 
 ## [diff]
 

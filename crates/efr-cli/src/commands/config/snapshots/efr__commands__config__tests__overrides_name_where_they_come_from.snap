@@ -99,6 +99,7 @@ jobs.max_wakes_per_hour = 6  # default
 jobs.max_wakes_per_hour_daemon = 12  # default
 jobs.max_wakes_per_watch = 3  # default
 jobs.nice = 19  # default
+jobs.forward_ports = true  # default
 diff.groups = {}  # default
 render.theme = "gruvbox-dark"  # file
 render.theme_dark = "catppuccin-mocha"  # default

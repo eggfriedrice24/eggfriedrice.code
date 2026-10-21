@@ -610,6 +610,11 @@
           "description": "`false`: a shell call with `background: true` fails with a reason, and the model\nruns the command in the foreground. Jobs that run go on.",
           "type": "boolean"
         },
+        "forward_ports": {
+          "default": true,
+          "description": "Forward each loopback port that a contained background job listens on to the\nsame port of 127.0.0.1. A job reads it when it starts. `false` at a reload also\nstops the forwards of the jobs that run; a later `true` does not start them\nagain.",
+          "type": "boolean"
+        },
         "max_minutes": {
           "default": 480,
           "description": "The longest time limit that the model can ask for, in minutes, from 1 to 1440.\nA longer one is cut to it.",
@@ -1776,6 +1781,7 @@
       "default": {
         "default_minutes": 60,
         "enabled": true,
+        "forward_ports": true,
         "max_minutes": 480,
         "max_running": 4,
         "max_running_daemon": 16,
