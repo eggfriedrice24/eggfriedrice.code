@@ -241,6 +241,13 @@ pub struct CallFacts {
     /// paths and the named sockets of the call, with its path after every link (phase
     /// E). An always-allow rule covers no path that has no entry here.
     pub real_paths: Vec<(PathBuf, PathBuf)>,
+    /// The forwarded ports of the conversation's running contained jobs, which a
+    /// contained call of the conversation reaches on `127.0.0.1` and `[::1]` through its
+    /// reach helper (v0.0.4 shell items, DS43). A URL on `localhost`, `127.0.0.1` or
+    /// `[::1]` with such a port is no network use, and a `needs.hosts` entry of one
+    /// makes no exit. Empty when efrd forwards nothing for the conversation; the fact
+    /// only predicts, the sandbox enforces.
+    pub reach_ports: Vec<u16>,
     /// The git code of the repositories of
     /// [`FactRequest::git_code`](crate::FactRequest), merged: checked only when efrd
     /// checked each one (v0.0.4, DV22). `None` for a line that asks for none; for a

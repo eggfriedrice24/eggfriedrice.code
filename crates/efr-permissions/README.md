@@ -363,7 +363,14 @@ Modules:
   engine the list (`Engine::hosts`; empty by default). `FactRequest::remotes` names
   the directories of git commands that reach a remote, and `CallFacts` gets their
   remotes (`RemoteFact`, each URL a `RemoteUrl`) and `refused_hosts`, the hosts that
-  the proxy refused.
+  the proxy refused. `CallFacts::reach_ports` holds the forwarded ports of the
+  conversation's running jobs (v0.0.4 shell items, DS43): a contained call reaches
+  them on `127.0.0.1` and `[::1]` through its reach helper, so a URL on `localhost`,
+  `127.0.0.1` or `[::1]` with such a port is no network use, with or without the
+  proxy. A command whose every URL is such a URL has no `host` exit, the shell tool's
+  network flag adds none for a line whose every URL is one, and a `needs.hosts` entry
+  of one makes no exit and gets a note. A missing fact is an empty set; the fact only
+  predicts, the sandbox enforces.
   Under `Egress::Proxy` the prediction reads the list (DP20, DP21): a program that
   fetches over HTTP (a package manager, `curl`, `wget`, `git clone`, `npx` and the
   other runners) has no exit when its URL hosts are on the list, or when its line names
