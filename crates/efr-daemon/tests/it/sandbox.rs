@@ -6,6 +6,7 @@
 //! section 16.1) or, under `just test-sandbox`, the real `efr-sbx`.
 
 mod always;
+mod busy;
 mod dbus;
 mod forward;
 mod full;
@@ -15,6 +16,7 @@ mod jobs_guard;
 mod mount_view;
 mod netview;
 mod proxy;
+mod reach;
 mod review;
 mod undo;
 
