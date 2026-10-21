@@ -148,16 +148,21 @@ pub(crate) enum SbxError {
         problem: &'static str,
     },
 
-    /// The bridge of a proxy call did not report that it runs in its own sandbox.
-    #[error("the network bridge did not start: {problem}")]
-    BridgeStart {
+    /// A confined helper (the bridge of a proxy call, the forwarder of a job) did not
+    /// report that it runs in its own sandbox.
+    #[error("the {helper} did not start: {problem}")]
+    HelperStart {
+        /// Which helper.
+        helper: crate::helper::Helper,
         /// What went wrong.
         problem: &'static str,
     },
 
-    /// `--fail-setup` ended the bridge's setup before this step (the tests only).
-    #[error("the bridge's setup stopped before the {step} step")]
-    BridgeSetupStopped {
+    /// `--fail-setup` ended a helper's setup before this step (the tests only).
+    #[error("the {helper}'s setup stopped before the {step} step")]
+    SetupStopped {
+        /// Which helper.
+        helper: crate::helper::Helper,
         /// The step.
         step: &'static str,
     },

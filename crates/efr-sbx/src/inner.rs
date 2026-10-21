@@ -37,6 +37,7 @@ use efr_sandbox::{
 };
 
 use crate::error::SbxError;
+use crate::helper::Helper;
 use crate::{fds, landlock, os, seccomp};
 
 /// The number the terminal copy waits on until Landlock and seccomp are in place.
@@ -193,14 +194,18 @@ fn wait_for_bridge(starter: Starter) -> Result<(), SbxError> {
         match starter.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
             Ok(Some(_)) => {
-                return Err(SbxError::BridgeStart {
+                return Err(SbxError::HelperStart {
+                    helper: Helper::Bridge,
                     problem: "it did not report its own sandbox in place",
                 });
             }
             Ok(None) if start.elapsed() >= BRIDGE_WAIT => {
                 let _ = starter.kill();
                 let _ = starter.wait();
-                return Err(SbxError::BridgeStart { problem: "its starter did not end in 2 s" });
+                return Err(SbxError::HelperStart {
+                    helper: Helper::Bridge,
+                    problem: "its starter did not end in 2 s",
+                });
             }
             Ok(None) => os::sleep(BRIDGE_POLL),
             Err(error) => return Err(SbxError::os("wait for the bridge's starter", error)),
