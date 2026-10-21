@@ -7,6 +7,7 @@
 
 mod always;
 mod dbus;
+mod forward;
 mod full;
 mod git_code;
 mod jobs;
