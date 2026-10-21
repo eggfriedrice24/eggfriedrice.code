@@ -46,8 +46,8 @@ shipped binary.
 | `efr-sandbox` | lib | 1 | the pure logic of the `auto` sandbox: `SandboxSpec`, `MountPlan` and the bwrap arguments, Landlock and seccomp as data, the environment and export filters, the records, the sandbox state, `result.json`, the surface guard, the worktree record, the probe's result types, the mount table parse and the `df` and `findmnt --df` renderer of the mount view, the rules of job port forwards (the parse of the TCP tables, the loopback listens, the ports that efr never forwards, the debounce, the peer check) and their 28-byte frames; file access only through `FsView`, no tokio, no unsafe | `efr-protocol` |
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
-| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command` | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
-| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter), `forward` (the forwarder of a contained job: it reads the job's TCP tables, reports each loopback listen to efrd over the job's forward socket and connects inside the job for each of efrd's connections, with its own Landlock domain and seccomp filter) and `dbus-proxy` (runs `xdg-dbus-proxy` for one filtered bus of a call, with its own Landlock domain, seccomp filter and fd limit); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
+| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command`, the input waits of a command and the watch of a command left running in the shell after its call answered | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
+| `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter), `forward` (the forwarder of a contained job: it reads the job's TCP tables, reports each loopback listen to efrd over the job's forward socket and connects inside the job for each of efrd's connections, with its own Landlock domain and seccomp filter), `reach` (the reach helper of a contained call: it listens on the forwarded ports of its conversation's jobs in the call's own network namespace and sends each connection to efrd over the call's reach socket, with its own Landlock domain and seccomp filter) and `dbus-proxy` (runs `xdg-dbus-proxy` for one filtered bus of a call, with its own Landlock domain, seccomp filter and fd limit); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions; `patch`: the patch engine of apply_patch and edit (the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio) | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-providers` | lib | 2 | `openai`: the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource`; `anthropic`: the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource`; the two modules share no code | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
 | `efr-oauth-openai` | lib | 2 | the subscription login: PKCE, loopback callback, refresh, `OpenAiTokenSource` | `efr-http`, `efr-credentials`, `efr-provider`, `efr-stdx` |
@@ -57,7 +57,7 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records (in full mode too, with the judge `full`, the timed question of a guarded delete and the gate before each call), the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait; `client`: the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line (with the git remotes), the turn-end report, the read-only scope of model-side socket peers, the gate of full mode (`full.rs`: whether efrd allows or refuses it, the count of running full work) and the config hold (`loosens.rs`, `reload.rs`), and the network proxy's socket for each call with its lifetime, its host list and the hosts that a token in a project file denies; the bus filter: an `xdg-dbus-proxy` for each filtered bus of a call or a job, with its self-test and the refusals of its log; the writer of always-allow rules, which checks a rule and appends it to `config.toml`; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops, the sweep of a job's session and the port forwards of a contained job on `127.0.0.1`), the home copies of the files that an approved exit, or an exit that full mode let through, writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches | every library crate above except the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `resume`, `diff`, `compact`, `context`, `jobs` (list, stop), `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `resume`, `diff`, `compact`, `context`, `jobs` (list, stop), `shell`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-transport`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -338,6 +338,49 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-test-daemon/src/fake_forwarder.rs` in
   `crates/efr-daemon/tests/it/jobs_forward.rs`, and of both on the real launcher in
   `crates/efr-daemon/tests/it/sandbox/forward.rs`.
+- The reach of a contained call (ADR 0017): a contained call reaches the forwarded
+  ports of its conversation's jobs. The frames `Reach`, `Unreach`, `Bound` and
+  `Connect` in `crates/efr-sandbox/src/forward.rs`; `ReachPlan`, `check_reach` and the
+  socket's paths in `crates/efr-sandbox/src/spec.rs`, its read-only bind in
+  `crates/efr-sandbox/src/plan/build.rs`, the helper's Landlock domain and seccomp
+  profile in `crates/efr-sandbox/src/landlock.rs` and `seccomp.rs`, and `InnerReach`
+  in `crates/efr-sandbox/src/inner.rs`. In the launcher: the helper in
+  `crates/efr-sbx/src/reach.rs`, its start in `crates/efr-sbx/src/inner.rs`, and the
+  test client `self-test --dial` in `crates/efr-sbx/src/self_test/dial.rs`. In efrd:
+  the plan of a call, the control connection, the routes and the fact of a line in
+  `crates/efr-daemon/src/jobs/forward/reach.rs`, the routes and the watch of the ports
+  in `jobs/forward.rs`, the copy into the job (`Ctx::reach`) in
+  `jobs/forward/serve.rs`. The fact `CallFacts::reach_ports` in
+  `crates/efr-permissions/src/request.rs`, and its use in `exits/programs.rs`,
+  `exits.rs` and `exits/needs.rs`. The tests of the helper alone are in
+  `crates/efr-sbx/tests/it/reach.rs`, of efrd alone with the fake helper of
+  `crates/efr-test-daemon/src/fake_reach.rs` in
+  `crates/efr-daemon/tests/it/reach.rs`, and of both on the real launcher in
+  `crates/efr-daemon/tests/it/sandbox/reach.rs`.
+- A busy hidden shell (ADR 0017): a command that still runs in the hidden shell after
+  its call answered. The soft flag of a line that may ask for a password through ssh
+  in `crates/efr-tools/src/shell_tool/prompts.rs`, `Requirements::may_prompt` in
+  `crates/efr-permissions/src/request.rs`, and `CallContext::may_wait` and
+  `approved_by` at the check point in `crates/efr-conversation/src/turn.rs`. In
+  efr-shell: the run past its timeout while a person can answer (`extension`) and the
+  stop of a wait for a secret (`look_for_input`) in
+  `crates/efr-shell/src/sessions.rs`, the command left running, its watch, its limit
+  and `Followers` in `crates/efr-shell/src/orphan.rs`, the answers and their refusals
+  in `crates/efr-shell/src/session.rs`, and `looks_secret` in
+  `crates/efr-shell/src/input.rs`. The events in `crates/efr-protocol/src/event.rs`,
+  and `shell.status` and `shell.interrupt` in `crates/efr-protocol/src/methods/`. In
+  efrd: the events from the shell's notices in `crates/efr-daemon/src/shells/observer.rs`,
+  `Followers` over the connections in `crates/efr-daemon/src/shells.rs`, the notices
+  in `crates/efr-daemon/src/notices.rs` (`shell_line`), the methods in
+  `methods/shell_status.rs` and `methods/shell_interrupt.rs`, and the limits, the
+  approver and the model's text of a held shell (`not_ready_text` of
+  `crates/efr-tools/src/shell_tool.rs`) in `crates/efr-daemon/src/tools.rs`. The line
+  of the preamble in `crates/efr-conversation/src/preamble.rs`. In efr-cli: the view's
+  lines and its answer line in `crates/efr-cli/src/follow/view/left.rs`, the words in
+  `crates/efr-cli/src/format/hidden_shell.rs`, and `efr shell` in
+  `crates/efr-cli/src/commands/shell.rs`; `,shell` in `shell/zsh/efr.plugin.zsh`. The
+  tests over a `TestDaemon` are in `crates/efr-daemon/tests/it/input_respond/left.rs`,
+  and on the real launcher in `crates/efr-daemon/tests/it/sandbox/busy.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in

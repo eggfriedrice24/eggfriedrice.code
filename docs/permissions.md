@@ -66,9 +66,14 @@ Some floors hold in every mode, whatever the rules say. In full mode most of the
 only for what the command line shows; see "Full mode":
 
 - a call that can wait for input at the terminal, such as `sudo`, asks, except in
-  full mode, where only the privileged programs of the next item ask; once you
-  approve it, it may run past the model's timeout while you follow the turn in a
-  terminal, up to `interactive_timeout_minutes` under `[shell]` (60 by default);
+  full mode, where only the privileged programs of the next item ask. A line that may
+  ask for a password through ssh (`rsync` to another host, `scp`, `sftp`, `sshfs`,
+  `git` over ssh and the others of "A command left running", below) asks nothing for
+  that alone. Once either runs outside the sandbox, it may run past the model's
+  timeout while a terminal that can type your answer follows the turn, up to
+  `interactive_timeout_minutes` under `[shell]` (60 by default), whoever approved it:
+  you, your rule, the reviewer or full mode. Any command that waits for input when its
+  timeout passes goes on the same way. A call in the sandbox never gets this limit;
 - a program that runs commands as another user (`sudo`, `doas`, `su`, `pkexec`,
   `run0`) asks, and only your own machine answers the question, never a phone;
 - a turn from the phone runs with at most `cautious` and asks outside `$SCRATCH`;
@@ -328,7 +333,7 @@ denied. Each exit has a kind:
 | Kind | Examples |
 |---|---|
 | `write` | a write outside the write roots: `echo x > ~/notes.txt`, `git worktree add ../wt`. A write to a node that the sandbox has, such as `2>/dev/null` or `>/dev/stderr`, is not an exit. A path below such a node, such as `/dev/fd/3/x`, goes through an open file to a place that efr cannot see, so it is a write that only you approve |
-| `host` | with `network.mode = "none"`: every network need, such as `curl`, `git fetch`, `npm ci` or `checkupdates`, with the whole network for the call. With the proxy (`network.mode = "proxy"`): a host that the line or a git remote shows and that is not on the allow list, with a grant of that one host and port (`curl https://example.com/x`); a raw network program (`nslookup`, `dig`, `host`, `ping`, `traceroute`, `nc`, `socat`, `telnet`, `ftp` and the like) and a `needs.hosts` entry of `localhost`, a private or link-local address, or a port other than 443 and 80, with the whole network. A network program whose hosts are all on the allow list, or that names no host (`cargo build`, `npm ci`), makes no exit: the proxy decides. A host that the deny list holds makes no exit either; the proxy refuses it |
+| `host` | with `network.mode = "none"`: every network need, such as `curl`, `git fetch`, `npm ci` or `checkupdates`, with the whole network for the call. With the proxy (`network.mode = "proxy"`): a host that the line or a git remote shows and that is not on the allow list, with a grant of that one host and port (`curl https://example.com/x`); a raw network program (`nslookup`, `dig`, `host`, `ping`, `traceroute`, `nc`, `socat`, `telnet`, `ftp` and the like) and a `needs.hosts` entry of `localhost`, a private or link-local address, or a port other than 443 and 80, with the whole network. A network program whose hosts are all on the allow list, or that names no host (`cargo build`, `npm ci`), makes no exit: the proxy decides. A host that the deny list holds makes no exit either; the proxy refuses it. In both modes, a URL on `localhost`, `127.0.0.1` or `[::1]` whose port efr forwards for a running job of the conversation, and such a `needs.hosts` entry, make no exit: a contained call reaches that port in the sandbox (docs/sandbox.md, "Ports of a job") |
 | `host_view` | `iw`, `ifconfig`, `netstat`; `ss` and `ip` in a line that also does other work (`ss -tln; make test`), in a form that changes something (`ss -K`, `ip link set`), or with the network view off. A view line has no exit ("Views", below) |
 | `outside` | `df`, `findmnt` only when efrd runs in a mount namespace of its own, such as a hardened unit; else they run in the sandbox with the mount view and no exit (docs/sandbox.md, "The host's mounts"); the model asks to run outside (the reviewer; only you when a program word of the line changed in this turn or lies in a write root, or when the line runs an interpreter on code that efr cannot read, such as `python3 -c`, `sh -c` or `node build.js`); `rustup toolchain install`, `rustup install`, `rustup update`, `rustup target add`, `rustup component add` and `rustup self update` (the reviewer for a release channel such as `stable`, `beta`, `nightly` or `1.90`, with a date and a target if you like, when a message of yours names `rustup`, the toolchain or the channel; only you for a line that sets `RUSTUP_*` or `CARGO_HOME`, names a toolchain path or a custom toolchain, or runs `rustup toolchain link`, because the install puts programs on your `PATH`); with the proxy, `ssh`, `mosh`, `autossh`, and `git fetch`, `git pull` or `git clone` from an ssh remote (the record names the host; the reviewer needs a message of yours that names the host, or a remote of your project; a destination that efr cannot read, such as `$HOST`, an ssh URL of `.gitmodules`, and a line that can send ssh to another host first or run a command on your machine, such as `ssh -J`, `ssh -F`, `ssh -o ProxyCommand=...`, `mosh --ssh`, `git -c core.sshCommand=...` or `GIT_SSH_COMMAND=...`, ask only you) |
 | `socket`, `bus` | a Unix socket; `busctl`, `resolvectl`, `gdbus`, `coredumpctl`, `notify-send --wait` and the `systemctl` forms that are not read forms, such as `systemctl get-default`; `hostnamectl`, `systemctl --failed`, the other read forms and `notify-send` only while the bus filter is off ("Views", below); `nmcli` and `iwctl` (the reviewer for a read form, such as `nmcli device status` or `iwctl station wlan0 show`; only you for every other form, such as `nmcli radio wifi off`, because the bus filter has no rules for NetworkManager and iwd). A `bus` exit of the session bus asks only you, never the reviewer, because the whole session bus can start programs outside the sandbox. A socket inside a secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor, and one in efr's own dirs a `config` floor. Only you approve the socket of a credential agent (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent or git's credential cache) and a socket under a mask. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket fails at the start of the call, also through a link |
@@ -628,7 +633,12 @@ what the command line shows: a script or a program that the line starts gets pas
   starts a process that outlives the turn.
 - No reviewer and no always rule reads a full call.
 - A call that waits for input at the terminal and needs no more rights, such as `ssh`
-  that asks for a password, runs with no question and the model's timeout.
+  that asks for a password, runs with no question. While a terminal that can type
+  your answer follows the turn, it runs past the model's timeout up to
+  `shell.interactive_timeout_minutes`, as in the other modes. Full mode is no
+  approval of the line by a person: when the command still runs in the hidden shell
+  after its call answered and waits for a password while nobody can answer, efr stops
+  it ("A command left running").
 - A background job starts with no question; see "Background jobs".
 
 ### The delete guard
@@ -802,6 +812,45 @@ ends. The engine decides a job as follows.
   gone: it cannot answer a question, stop a job or change the settings. A process of an
   exit child job that left the job's session (`setsid`) is the exception: see
   "Known limits" in `docs/sandbox.md`.
+
+## A command left running
+
+A shell call answers the model at its timeout. When its command still runs then, the
+command goes on in the conversation's hidden shell, and the shell takes no other call
+until the command ends. The README, "A busy hidden shell", shows what you see. The
+engine and the shell keep these rules:
+
+- A line that may ask for a password through ssh has a soft flag: `rsync` with a
+  remote operand (`host:path`, `rsync://`, `host::module`) or a remote shell (`-e`,
+  `--rsh`, `RSYNC_RSH`), `scp`, `sftp`, `sshfs`, `ssh-copy-id`, `mosh`, `autossh`,
+  `ssh-add`, `ssh-keygen` without `-N`, `git` over the network (also past `-C`, `-c`
+  and the other git options that take a value, and `remote update`, `archive
+  --remote` and `send-email`), and `git` with `GIT_SSH_COMMAND`, `GIT_SSH` or
+  `core.sshCommand`. The soft flag adds no question and no reason, and it does not
+  refuse a job. It gives the long limit of a call outside the sandbox, and the words
+  `you may need to type your password` in its question. The hard flag of `sudo`,
+  `ssh` and the other programs that read the terminal does not change.
+- efr records who approved each call: you, your rule (an always rule or a rule of
+  your config), the reviewer, or full mode.
+- While a terminal that can type your answer follows the conversation, a wait for a
+  password of a command outside the sandbox stays: you answer it in the turn view or
+  after `,shell`.
+- While nobody can answer, such a wait stays only for a line with the hard or the soft
+  flag that you or your rule approved. Every other such wait stops at once: a line
+  that the reviewer or full mode let run, and a line with no flag. So a line of the
+  model that fakes a `sudo` prompt never waits for you at a later prompt.
+- A command in the sandbox never gets an answer that may be a password
+  (docs/sandbox.md, "Input in the sandbox"). Its wait for one stops at once.
+- A command left running that waits for input stops `interactive_timeout_minutes`
+  after its start: efr sends SIGINT, and when the command is still there after a short
+  grace, efr closes the hidden shell. The next call starts a new shell. A command that
+  waits for no input, such as a slow build, has no limit.
+- An answer reaches the command only from a terminal of yours, never from the phone,
+  with the same checks as for a running call: the kind of the wait, the process group
+  that waits and the terminal's modes.
+- The next call of the conversation fails at once while the command waits for input,
+  and the model reads which command holds the shell and that you answer or stop it with
+  `,shell`. It never tells you to type at your own prompt.
 
 ## How the engine reads a command line
 

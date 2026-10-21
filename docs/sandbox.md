@@ -49,11 +49,11 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 |---|---|
 | Writes | only in the write roots (below). Everything else is read-only. |
 | Secrets | the paths of the read masks read as empty. Secret-like environment variables are removed. |
-| Network | with `network.mode = "proxy"`, only the hosts of your allow list, through efr's network proxy: the package registries and GitHub by default (see "The network proxy"). With `network.mode = "none"`, none. Loopback works in both modes, so a test can start a server and talk to it. A server in a background job is reachable on the same port of your `127.0.0.1` (see "Ports of a job"). A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
+| Network | with `network.mode = "proxy"`, only the hosts of your allow list, through efr's network proxy: the package registries and GitHub by default (see "The network proxy"). With `network.mode = "none"`, none. Loopback works in both modes, so a test can start a server and talk to it. A server in a background job is reachable on the same port of your `127.0.0.1`, and a later contained call of the same conversation reaches it on its own `127.0.0.1` and `::1` with no question (see "Ports of a job"). A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
 | Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. A read-only system query gets a filtered bus (see "The bus filter"). An approved exit opens one socket for one call (see "Desktop sockets"); a socket grant never opens a bus, a service manager's socket or a desktop socket, also through a link. |
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
-| Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. |
+| Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. efr never types an answer that may be a password into it (see "Input in the sandbox"). |
 | Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"): efr forwards its port to your machine. |
 | `/tmp` | private to the conversation; you do not see it. Share files through `$SCRATCH`. |
 
@@ -401,6 +401,34 @@ Functions, aliases and other exports stay in the sandbox's own state. The next
 contained call of the conversation sees them, so `source .venv/bin/activate` works
 across calls. An exit that runs outside the sandbox does not see them.
 
+## Input in the sandbox
+
+A contained command can wait for input at its terminal, as a command outside the
+sandbox can. efr never types an answer that may be a password into a contained
+command, also when you follow the turn and want to answer. A prompt in the sandbox can
+be a fake: the command can turn off echo or line mode itself and print any text, such
+as `Password:`.
+
+- A plain question, such as `[Y/n]`, shows the answer line as for any command, and your
+  answer is shown as you type it.
+- A wait with echo off, such as a `read -s`, stops the command at once. So does a
+  visible wait whose prompt looks like a password prompt (it names a password, a
+  passphrase, a PIN or a code) while the terminal is not in line mode. The view shows
+  `sandbox: the command asked for a password; efr does not type secrets into the
+  sandbox`, and no answer line. The model reads that the command asked for a secret
+  inside the sandbox, and that it can ask to run the command outside with
+  `needs.outside`.
+- A contained command never offers `Ctrl+\`, so you cannot type a manual answer into
+  it either.
+- The same rules hold for a contained command that still runs in the hidden shell
+  after its call answered (see "A busy hidden shell" in the README): efrd refuses a
+  hidden answer, an answer to a wait that looks like a password prompt and every
+  manual answer for it.
+
+A command outside the sandbox, such as an approved `sudo` or an `rsync` over ssh, gets
+your password as before. Its question says that you may need to type your password
+(see "Exits").
+
 ## Exits
 
 | Kind | Example | After a yes | Who can approve |
@@ -561,6 +589,20 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   sandbox`: the sandbox wrote it, so it can do anything with your rights. A word that
   runs no program shows `(not found)`.
 - Lines that start with `efr:` are facts that efr found itself.
+- `you may need to type your password` shows for a line that can wait for input at
+  the terminal, such as `sudo`, and for a line that may ask for a password through
+  ssh: `rsync` to another host or with a remote shell (`-e`, `--rsh`, `RSYNC_RSH`),
+  `scp`, `sftp`, `sshfs`, `ssh-copy-id`, `mosh`, `autossh`, `ssh-add`, `ssh-keygen`
+  without `-N`, and `git` over the network, also with `GIT_SSH_COMMAND`, `GIT_SSH` or
+  `core.sshCommand`. It shows only when the call runs outside the sandbox. A question
+  about a call that runs in the sandbox never names a password ("Input in the
+  sandbox").
+- Such a call outside the sandbox runs past the model's timeout while a terminal that
+  can type your answer follows the turn, up to `shell.interactive_timeout_minutes` (60),
+  whoever approved it: you, your rule, the reviewer or full mode. So the password
+  prompt of an `rsync` waits for you, not for the model's 30 seconds. With nobody to
+  answer, the call answers the model at its timeout, and the command goes on in the
+  hidden shell (see "A busy hidden shell" in the README).
 - `the model says:` is the model's reason from `needs`. It is the model's text; treat
   it as a claim, not as a fact.
 - When the model asks to run outside the sandbox, but each other exit that efr finds
@@ -1323,7 +1365,9 @@ decision.
   "none"` or the proxy. A job in the exit child (outside `auto`, in full mode, or an
   approved `outside` job) and a job with a grant of the whole network already listen
   on your loopback, so they get no forward. A job with the network view cannot listen.
-  A foreground call gets no forward: its servers stop when the call ends.
+  A foreground call gets no forward: its servers stop when the call ends. A
+  foreground call reaches the forwarded ports of the jobs of its conversation (see
+  "Other calls", below).
 - **How efr finds a port.** A small helper in the job, `efr-forward`, reads the job's
   own TCP tables every half second. It has its own Landlock domain and seccomp filter:
   it cannot read files, bind or listen, and it connects only inside the job. A port
@@ -1359,9 +1403,43 @@ decision.
 - **The model.** The start result of a job with forwards tells the model that efr
   forwards its ports, so it gives you the URL. The `jobs` tool shows the forwarded
   ports of each job.
-- **Other calls.** A later contained call cannot reach the job's server: each call
-  has its own network namespace. A call with a grant of the whole network, after a
-  `host` review, reaches it through the forward on your `127.0.0.1`.
+- **Other calls.** A later contained call of the same conversation reaches the job's
+  server on the same port of its own `127.0.0.1` and `::1`, so `curl
+  http://localhost:8765` in a call checks the dev server that the model started. Nobody
+  is asked, and no `needs.hosts` entry is needed: efr knows the forwarded ports of the
+  conversation, so a URL on `localhost`, `127.0.0.1` or `[::1]` with such a port is no
+  `host` exit. When a call names the port of a job that started to forward less than 3
+  seconds ago and does not forward that port yet, efr waits for the forward up to the
+  rest of the 3 seconds before it decides the call. Each call has its own network
+  namespace, so a small helper in the call, `efr-reach`, listens on those ports there
+  and sends each connection to efrd. efrd finds the job by the call's conversation and
+  the port on each connection, and opens the connection inside the job through its
+  forwarder. efrd never opens a connection on your machine for a call.
+  [`docs/adr/0017-busy-shell-and-call-reach.md`](adr/0017-busy-shell-and-call-reach.md)
+  records the decision. The rules:
+  - Only a contained foreground call in `auto` with a network namespace of its own,
+    with `network.mode = "none"` or the proxy, while `jobs.forward_ports` is on and a
+    job of the conversation forwards a port. A job, a call in the exit child, and a
+    call with the whole network or the network view get no reach. A call in the exit
+    child or with the whole network reaches the forward on your `127.0.0.1` anyway.
+  - Only the ports that efr forwards for a running job of the call's own conversation.
+    A port of another conversation's job and a port that efr did not forward stay
+    closed in the call (`connection refused`).
+  - The helper listens on the ports of the start before the command runs, so in the
+    call those ports are in use: a server of the call cannot bind them. A port that a
+    job forwards while the call runs comes too, unless the call listens on it first;
+    then it stays the call's.
+  - When the job's server stops or the job ends, a new connection to its port is reset
+    at once, as on your machine. A call has at most 32 connections at one time, so
+    the job keeps room for your browser.
+  - The helper has its own Landlock domain and seccomp filter: it reads no file, opens
+    no TCP connection and runs no program. When it cannot start, the call runs with no
+    reach, and nothing fails.
+  - A call can use a job's grants through a server of the job that relays requests,
+    such as a dev proxy. That is no new path: a call and a job of one conversation
+    share `$SCRATCH`. The job's proxy budget still counts each byte that leaves.
+  - A reload that sets `jobs.forward_ports = false` turns the reach off with the
+    forwards, also for a call that runs at that time.
 - **The record.** Each forward and each port that efr does not forward is one
   `job_port_forwarded` event of the conversation (see "What you see").
 
@@ -1897,5 +1975,5 @@ the config hold of full mode holds it.
 | a web site that you visit can read a forwarded server through DNS rebinding | the site can read the pages of the job's server | the same as for any dev server; efr does not check the `Host` header, and dev servers such as Vite check it themselves; the forward ends with the job |
 | a server of yours listens only on `::1` or `::` of a port | efr counts the port as in use and does not forward the job's port | the line says `in use on this machine`; a forward would send your browser to your own server, because the browser tries `::1` first for `localhost` |
 | a job's server listens on a port of the job's range of ephemeral ports (32768 to 60999 by default) | its forward comes after 10 seconds, not after 1 | none; a short test server on port 0 gets no forward |
-| a later contained call wants to reach a job's server | it cannot: each call has its own network namespace | a call with a grant of the whole network, after a `host` review, reaches it through the forward on your `127.0.0.1` |
+| a contained call reaches the forwarded server of a job of its conversation | a call can use a job's grants through a server of the job that relays, such as a dev proxy | the same as through `$SCRATCH`, which the call and the job share; the job's proxy budget counts each byte that leaves; only the ports that efr forwards, only for the same conversation, and efrd checks the conversation on each connection |
 | a job's output goes to a pipe | some programs keep their output in a buffer, so the output file and the notices come late | run the program with `stdbuf -oL` or its own flag for line output |
