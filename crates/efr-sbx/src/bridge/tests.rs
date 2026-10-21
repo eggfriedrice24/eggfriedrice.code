@@ -1,12 +1,10 @@
-//! The parts of the bridge that need no sandbox: its arguments, the ready byte and its
-//! limits. The real starts, the copies and the confinement are in `tests/it/proxy.rs`.
-
-use std::io::Write;
-use std::time::Duration;
+//! The parts of the bridge that need no sandbox: its arguments and its limits. The real
+//! starts, the copies and the confinement are in `tests/it/proxy.rs`.
 
 use clap::Parser;
 
-use super::{BRIDGE_CNAME, BRIDGE_NAME, BridgeArgs, MAX_CONNECTIONS, READY_WAIT, Step, read_ready};
+use super::{BRIDGE_NAME, BridgeArgs, MAX_CONNECTIONS};
+use crate::helper::{Helper, READY_WAIT, Step};
 use crate::{Cli, Command};
 
 fn parse(args: &[&str]) -> Result<BridgeArgs, clap::Error> {
@@ -41,9 +39,7 @@ fn bridge_arguments_of_the_starter_and_the_server() {
     assert_eq!((server.listen_fd, server.ready_fd), (Some(0), Some(1)));
     assert_eq!(server.fail_setup, Some(Step::Landlock));
     // Every step has the word that the starter passes on.
-    for step in
-        [Step::Close, Step::Session, Step::Name, Step::Dumpable, Step::Landlock, Step::Seccomp]
-    {
+    for step in Step::ALL {
         let args = parse(&["--socket", "/s", "--fail-setup", step.word()]).unwrap();
         assert_eq!(args.fail_setup, Some(step));
     }
@@ -55,25 +51,8 @@ fn bridge_arguments_of_the_starter_and_the_server() {
 }
 
 #[test]
-fn ready_byte_or_its_absence() {
-    let (read, write) = rustix::pipe::pipe().unwrap();
-    std::fs::File::from(write).write_all(b"R").unwrap();
-    assert_eq!(read_ready(read, Duration::from_secs(10)), Some(b'R'));
-    // The server ended before its byte: the end of the pipe.
-    let (read, write) = rustix::pipe::pipe().unwrap();
-    drop(write);
-    assert_eq!(read_ready(read, Duration::from_secs(10)), None);
-    // The server holds the pipe open and sends nothing: the wait ends it.
-    let (read, write) = rustix::pipe::pipe().unwrap();
-    assert_eq!(read_ready(read, Duration::from_millis(20)), None);
-    drop(write);
-}
-
-#[test]
 fn bridge_limits() {
-    assert_eq!(BRIDGE_CNAME.to_bytes(), BRIDGE_NAME.as_bytes());
-    // The kernel keeps 15 bytes of a process name.
-    assert!(BRIDGE_CNAME.to_bytes().len() <= 15);
+    assert_eq!(Helper::Bridge.name().to_bytes(), BRIDGE_NAME.as_bytes());
     assert_eq!(MAX_CONNECTIONS, 64);
     assert!(READY_WAIT < crate::inner::BRIDGE_WAIT);
 }

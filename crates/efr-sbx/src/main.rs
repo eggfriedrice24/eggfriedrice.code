@@ -33,6 +33,7 @@ mod fds;
 mod finish;
 mod guard;
 mod guard_check;
+mod helper;
 mod inner;
 mod job;
 mod landlock;

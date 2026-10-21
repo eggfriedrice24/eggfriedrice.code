@@ -77,6 +77,7 @@ deletes, and keeps the guard's record of its start in `$SBX/jobs/<call>`, where
 | `src/dbus_proxy.rs` | `dbus-proxy`: the wrapper of `xdg-dbus-proxy`, with no code outside safe Rust but `fds.rs` |
 | `src/self_test/bus_proxy.rs` | `self-test --bus-proxy`: the checks of the bus proxy's domain, for the tests |
 | `src/bridge.rs` | the bridge of a proxy call: the starter, the server with its own session, name (`efr-bridge`), no dump, Landlock domain (`LandlockPolicy::bridge`) and seccomp profile (`SeccompProfile::bridge`), and the copies, two threads per connection, at most 64 connections |
+| `src/helper.rs` | what the confined helpers share: the starter and its ready byte, the setup steps in order (close, session, name, open, not dumpable, Landlock, seccomp) with `--fail-setup`, the place limit of the connections and the copy, two threads per connection |
 | `src/statvfs.rs` | `statvfs`: the sizes of the host's mounts for efrd |
 | `src/mounts.rs` | `mounts`: the tables of the mount view; a variable that changes `df`'s units (`DF_BLOCK_SIZE` and the like) leaves them to the real `df` |
 
