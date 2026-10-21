@@ -314,11 +314,10 @@ fn serve(tables: Tables, plan: &ForwardPlan) -> Result<(), SbxError> {
     let open = Arc::new(AtomicUsize::new(0));
     let mut bytes = [0_u8; FRAME_LEN];
     loop {
-        match control.read_exact(&mut bytes) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            // efrd closed the control connection: the forwards of this job end.
-            Err(_) => return Ok(()),
+        // NOTE: `read_exact` retries an interrupted read itself, so an error here means
+        // that efrd closed the control connection: the forwards of this job end.
+        if control.read_exact(&mut bytes).is_err() {
+            return Ok(());
         }
         let frame = Frame::decode(&bytes)?;
         if frame.kind != FrameKind::Open {
