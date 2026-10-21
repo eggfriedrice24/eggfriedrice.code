@@ -42,7 +42,7 @@ mod bind;
 pub(crate) mod mirrors;
 pub(crate) mod tokens;
 
-pub(crate) use bind::bind_listener;
+pub(crate) use bind::{bind_listener, bind_socket};
 
 /// How long a call's open tunnels may run on after its command ended, before the proxy
 /// cuts them (DP14).

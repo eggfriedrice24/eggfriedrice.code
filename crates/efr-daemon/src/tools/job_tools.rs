@@ -35,7 +35,7 @@ use serde_json::{Value, json};
 
 use super::{DaemonToolbox, SANDBOX_NOT_STARTED, for_model};
 use crate::DaemonError;
-use crate::jobs::{JobKey, JobTable, Matcher, NewJob, Slot, job_line, output};
+use crate::jobs::{JobKey, JobTable, Matcher, NewJob, Slot, forward, job_line, output};
 use crate::sandbox::{JobInput, PrepareInput, Prepared};
 use crate::tools::CallSnapshots;
 
@@ -385,8 +385,18 @@ impl DaemonToolbox {
         let mount_view = efr_permissions::exits::mount_view_line(&command);
         let input = PrepareInput { settings: &settings, engine: &engine, named_paths, mount_view };
         let limit_secs = u64::from(minutes) * 60;
+        // NOTE: the launch of a job outside `auto` is the exit child, which gets no
+        // forwards; the plan names the socket that efrd binds below.
+        let socket = jobs
+            .call_dir(conversation, call.context.call_id)
+            .join(efr_sandbox::FORWARD_SOCKET_FILE);
+        let forward_plan =
+            forward::plan_of(&settings.jobs, &info.launch, engine.support().egress, socket);
         let job_input = JobInput {
-            plan: JobPlan::new(limit_secs, settings.jobs.nice),
+            plan: JobPlan {
+                forward: forward_plan.clone(),
+                ..JobPlan::new(limit_secs, settings.jobs.nice)
+            },
             line: &command,
             env: &env,
         };
@@ -394,6 +404,23 @@ impl DaemonToolbox {
             Ok(prepared) => prepared,
             Err(error) => return prepare_failed(sandbox, &settings, &error, &call),
         };
+        // NOTE: the socket exists before the launcher starts: the plan binds it into the
+        // job, and refuses a forward plan without it.
+        let forward = match forward_plan {
+            Some(plan) => match forward::bind(&prepared.run.dir, plan).await {
+                Ok(socket) => Some(socket),
+                Err(error) => {
+                    tracing::warn!(%error, call_id = %call.context.call_id, "a job's forward socket could not be bound");
+                    super::remove_call_dir(prepared.run.dir.clone()).await;
+                    let reason = efr_stdx::with_causes(&error);
+                    return ToolOutcome::error(format!(
+                        "[the job could not start: {reason}. The command did not run.]"
+                    ));
+                }
+            },
+            None => None,
+        };
+        let forwards = forward.is_some();
         let new = NewJob {
             info,
             limit: std::time::Duration::from_secs(limit_secs),
@@ -408,6 +435,7 @@ impl DaemonToolbox {
             contained: prepared.contained,
             proxy: None,
             bus: None,
+            forward,
             full: call.context.is_full(),
         };
         let new =
@@ -454,6 +482,9 @@ impl DaemonToolbox {
             minutes,
             clamped,
         );
+        if forwards {
+            text = format!("{text}\n{}", forward::START_NOTE);
+        }
         if !notes.is_empty() {
             text = format!("{text}\n{}", notes.join("\n"));
         }
