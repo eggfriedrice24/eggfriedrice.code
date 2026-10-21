@@ -23,11 +23,8 @@ use super::envelope::resolve;
 use super::programs::base_name;
 use super::scan::OPAQUE;
 use super::{Approver, ExitNeed};
+use crate::command::git;
 use crate::{CallFacts, GitCodeAsk, Locations};
-
-/// The options of git before its subcommand that take the next word as their value.
-const GIT_VALUES: &[&str] =
-    &["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"];
 
 /// The options of git before its subcommand that choose the code that git runs or the
 /// repository whose code it runs (DV50).
@@ -88,23 +85,15 @@ pub(super) fn trigger(
 }
 
 fn git_trigger(args: &[String], dir: Option<&Path>, locations: &Locations) -> Option<Trigger> {
-    let mut at = 0;
+    let parse = git::exact(args);
     let mut start: Option<PathBuf> = dir.map(Path::to_path_buf);
     let mut known = start.is_some();
     let mut git_dir: Option<String> = None;
     let mut work_tree: Option<String> = None;
-    while let Some(word) = args.get(at) {
-        let (option, inline) = match word.split_once('=') {
-            Some((option, value)) if option.starts_with("--") => (option, Some(value)),
-            _ => (word.as_str(), None),
-        };
-        if !option.starts_with('-') {
-            break;
-        }
-        let takes_value = GIT_VALUES.contains(&option) && inline.is_none();
-        let value = if takes_value { args.get(at + 1).map(String::as_str) } else { inline };
-        match option {
-            "-C" => match value {
+    for global in &parse.globals {
+        let value = global.value(args);
+        match global.option.map(|option| option.name) {
+            Some("-C") => match value {
                 // NOTE: each `-C` is taken relative to the one before it, as git does.
                 Some(value) => {
                     start = resolve(value, start.as_deref(), locations);
@@ -112,13 +101,13 @@ fn git_trigger(args: &[String], dir: Option<&Path>, locations: &Locations) -> Op
                 }
                 None => known = false,
             },
-            "--git-dir" => git_dir = value.map(str::to_owned),
-            "--work-tree" => work_tree = value.map(str::to_owned),
+            Some("--git-dir") => git_dir = value.map(str::to_owned),
+            Some("--work-tree") => work_tree = value.map(str::to_owned),
             _ => {}
         }
-        at += if takes_value { 2 } else { 1 };
     }
-    let sub = args.get(at)?.as_str();
+    let at = parse.sub?;
+    let sub = args[at].as_str();
     let rest = &args[at + 1..];
     let recurse = match sub {
         "push" | "send-pack" | "fetch" | "pull" => true,
@@ -198,18 +187,12 @@ pub(super) fn steers_code(words: &[String]) -> bool {
     let option = |word: &str| -> String {
         word.split_once('=').map_or(word, |(option, _)| option).to_owned()
     };
-    let mut at = 0;
-    while let Some(word) = args.get(at) {
-        if !word.starts_with('-') {
-            break;
-        }
-        let name = option(word);
-        if GLOBAL_STEERING.contains(&name.as_str()) {
-            return true;
-        }
-        at += if GIT_VALUES.contains(&word.as_str()) { 2 } else { 1 };
+    let parse = git::exact(args);
+    if parse.globals.iter().any(|global| GLOBAL_STEERING.contains(&global.name(args))) {
+        return true;
     }
-    let Some(sub) = args.get(at) else { return false };
+    let Some(at) = parse.sub else { return false };
+    let sub = &args[at];
     let rest = &args[at + 1..];
     rest.iter().enumerate().any(|(index, word)| {
         let name = option(word);

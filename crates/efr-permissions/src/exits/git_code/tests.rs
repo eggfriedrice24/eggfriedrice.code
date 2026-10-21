@@ -27,6 +27,10 @@ fn locations() -> Locations {
 #[case::ls_remote("git ls-remote origin", false)]
 #[case::remote_update("git remote -v update", false)]
 #[case::send_email("git send-email --to=x@y.test 0001.patch", false)]
+// git's options with a separate value, from the one table (DL28).
+#[case::shallow_file("git --shallow-file f push", true)]
+#[case::attr_source("git --attr-source HEAD fetch", true)]
+#[case::plain_options("git --no-pager --no-advice push", true)]
 fn git_commands_that_reach_a_remote_ask(#[case] line: &str, #[case] recurse: bool) {
     let found = trigger(&words(line), Some(APP.as_ref()), &locations());
     let ask = GitCodeAsk { dir: PathBuf::from(APP), git_dir: None, work_tree: None, recurse };

@@ -462,7 +462,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             let remote = remotes::remote_command(command)
                 .filter(|_| !remotes::steers_git(&segment.words))
                 .and_then(|remote| {
-                    let git_dir = remotes::remote_dir(command, dir, &at)?;
+                    let git_dir = remotes::remote_dir(command, dir, input.locations)?;
                     let chosen = remotes::selected(&remote, &git_dir, input.facts)?;
                     Some((remote.kind, chosen))
                 });
@@ -799,14 +799,21 @@ fn destructive(
     Some(need)
 }
 
-/// The repository that a `git` command of `words` works on: the directory of `-C`, or
-/// the directory the command runs in.
+/// The repository that a `git` command of `words` works on: the directory of its `-C`
+/// options before the subcommand, each relative to the one before as git takes them, or
+/// the directory the command runs in. `None` when a `-C` or `dir` is not known.
 fn git_dir(words: &[String], dir: Option<&Path>, locations: &Locations) -> Option<PathBuf> {
-    let at = words.iter().position(|word| word == "-C");
-    match at.and_then(|at| words.get(at + 1)) {
-        Some(other) => resolve(other, dir, locations),
-        None => dir.map(Path::to_path_buf),
+    let args = words.get(1..).unwrap_or_default();
+    let mut cwd = dir.map(Path::to_path_buf);
+    for global in command::git::exact(args).globals.iter().filter(|global| global.is("-C")) {
+        // NOTE: git ignores an empty `-C`.
+        match global.value(args) {
+            Some("") => {}
+            Some(value) => cwd = Some(resolve(value, cwd.as_deref(), locations)?),
+            None => return None,
+        }
     }
+    cwd
 }
 
 /// `needs` with the forms of each target in [`ExitNeed::names`], where nothing named
@@ -987,7 +994,7 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             }
             if remotes::remote_command(command).is_some()
                 && !remotes::steers_git(&segment.words)
-                && let Some(git_dir) = remotes::remote_dir(command, dir, &at)
+                && let Some(git_dir) = remotes::remote_dir(command, dir, locations)
             {
                 add(&mut request.remotes, git_dir);
             }

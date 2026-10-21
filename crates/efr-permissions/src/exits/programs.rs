@@ -8,7 +8,7 @@ use efr_protocol::{BusKind, DesktopKind, ExitKind, Grant};
 
 use super::scan::{OPAQUE, is_assignment};
 use super::{Approver, Ecosystem, PRIVILEGE_EXITS};
-use crate::command::PRIVILEGED;
+use crate::command::{PRIVILEGED, git};
 use crate::network::{HostList, HostVerdict, host_and_port, is_ip_literal};
 use crate::{AutoSupport, Egress};
 
@@ -1525,23 +1525,13 @@ fn unit_names(args: &[String], verb: &str) -> Vec<String> {
     super::names::dedup(names)
 }
 
-/// The options of `git` itself that take the next word as their value.
-const GIT_VALUES: &[&str] = &["-C", "-c", "--git-dir", "--work-tree", "--namespace"];
-
 fn git(args: &[String], network: &Network<'_>) -> Vec<Found> {
-    let mut at = 0;
-    while let Some(word) = args.get(at) {
-        if GIT_VALUES.contains(&word.as_str()) {
-            at += 2;
-        } else if word.starts_with('-') {
-            at += 1;
-        } else {
-            break;
-        }
-    }
-    let Some(sub) = args.get(at) else {
+    // NOTE: the positions come from the one table of git's global options, so
+    // `git --attr-source HEAD push` is a push (DL28).
+    let Some(at) = git::exact(args).sub else {
         return Vec::new();
     };
+    let sub = &args[at];
     let rest = &args[at + 1..];
     let destructive = || vec![Found::of(ExitKind::Destructive)];
     match sub.as_str() {
