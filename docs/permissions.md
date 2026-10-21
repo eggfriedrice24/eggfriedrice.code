@@ -608,7 +608,7 @@ what the command line shows: a script or a program that the line starts gets pas
 | A process that outlives the turn | text | asks: `systemd-run --user`, `at`, `batch`, `crontab`, `systemctl --user enable` and the other `persistence` forms, and a write of a file that runs code later, such as `~/.zshrc`. A phone can answer it, as in `auto` |
 | A delete that `efr undo` cannot revert | text for a shell line | asks, as in `cautious`, when the snapshot does not hold every file of the delete (over its limits, or a file that it leaves out). A job refuses it |
 | A change of efr's settings through the settings tool | hard | asks, as in every mode |
-| Your own `ask` and `deny` rules | text for a shell line | keep their effect. A rule `[[permissions.rules]]` with `action = "execute"`, `resource = { command = { program = "git", args = ["push"] } }` and `effect = "ask"` keeps a question for `git push` |
+| Your own `ask` and `deny` rules | text for a shell line | keep their effect. A rule `[[permissions.rules]]` with `action = "execute"`, `resource = { command = { program = "git", args = ["push"] } }` and `effect = "ask"` keeps a question for `git push`, also `git -C <dir> push` |
 | The answer to efr's questions | text | "only your own machine" means a local process, not a person: any process that runs as you on this machine can answer, also one that a full turn left behind |
 | The environment of the hidden shell | text | the same as in `cautious`: a command can read an API key from it and send it out, with no record. efr does not clean it in full mode |
 | Undo | hard for the project, `$SCRATCH` and the named projects; text outside them | efr takes its snapshot before each call that can write, and copies a file outside the roots first when the line names it. A file that a script writes outside the roots has no copy |
@@ -1050,7 +1050,8 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
     different program;
   - `args`: the words that must follow the program, in order. A word may list
     alternatives, as in `"status|diff"`, and may end in `*` to match every word that
-    starts with it, as `"-Q*"` matches `-Qi`;
+    starts with it, as `"-Q*"` matches `-Qi`. For `git`, efr first skips git's own
+    options before the subcommand (see "Rules for git" below);
   - `forbid`: words that must not appear after the program. `--name` also matches
     `--name=value` and every abbreviation down to `--n`. `-x`, one letter, matches
     every cluster of short options that holds the letter, such as `-uo` for `-o`.
@@ -1087,6 +1088,33 @@ A rule that does not have the shape of a rule, or that names a relative path, a
 program that is not one word, a check made for another program, or an action that its
 resource never matches, stops the daemon at start. The error names the rule as
 `permissions.rules[N]`, counted from 0. `efrd --print-config` shows your rules.
+
+### Rules for git
+
+Before efr compares the `args` of a rule for `git`, it skips git's own options that
+come before the subcommand, in the form with `=` and in the form with a separate
+word: `-C <dir>`, `-c <key>=<value>`, `--git-dir`, `--work-tree`, `--namespace`,
+`--config-env`, `--attr-source`, `--shallow-file`, `--exec-path=`, `--no-pager`,
+`-P`, `-p`, `--paginate`, `--bare`, `--no-replace-objects`, `--no-lazy-fetch`,
+`--literal-pathspecs`, `--glob-pathspecs`, `--noglob-pathspecs`,
+`--icase-pathspecs`, `--no-optional-locks` and `--no-advice`. So an `ask` or `deny`
+rule with `args = ["push"]` also matches `git -C ~/p/app push origin HEAD`. An
+option that efr does not know counts both ways, so the rule asks rather than misses.
+
+An `allow` rule skips only the options that change nothing: `--no-pager`, `-P`,
+`--no-optional-locks`, `--no-advice`, `--no-lazy-fetch` and the pathspec options.
+`-C`, `-c` and the others can point git at another repository or make it run other
+code, so `git -C ~/other status` still asks under an `allow` rule for
+`git status`. A rule that names such an option in its own `args`, such as
+`["-C", "/home/u/p/app", "push"]`, matches that exact form. The built-in read-only
+rows follow the same rule, so `git -P log` runs as `git log` does.
+
+For an `ask` or `deny` rule with `under`, the dir of `-C` and of `--work-tree`
+counts too. A `-c alias.<name>=<value>` on the line counts as the command of the
+alias. When efr cannot read the alias (a shell command with `!`, a quote, or a value
+from `--config-env`), an `ask` or `deny` rule for `git` matches. An alias in your git
+config is not on the line: write a rule for its name too, such as `args = ["p"]`. A
+rule for another program still compares the words right after the program.
 
 ### Example: allow `cargo test` in one project
 

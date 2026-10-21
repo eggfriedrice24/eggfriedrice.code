@@ -98,6 +98,19 @@ Modules:
   with any other pattern outside quotes is marked, and matches only a command pattern
   that counts no operands and forbids no word without a dash, because zsh may turn the
   pattern into several words, none, or a forbidden one.
+- `command/git.rs` (v0.0.4, DL21 to DL26): the one table of git's global options
+  (`OPTIONS`, as of git 2.56.0), each with its form (a value in the next word, a value
+  after `=`, or none) and its class (`plain`, `place`, `steer`, `print`). `exact` finds
+  the subcommand by the table and reads an option that it does not know as a flag.
+  `views` gives the readings of a git command for a rule that asks or denies: every
+  global option and its value removed; an unknown option read both as a flag and with
+  a value in the next word, and after four of them every later word that does not
+  start with `-` as a possible subcommand; a `-c alias.<name>=<value>` of the line read
+  as its command, or `unreadable` when efr cannot read it (`!`, a quote,
+  `--config-env`); and the dirs of `-C` (each relative to the one before) and
+  `--work-tree`. `plain_view` removes only the `plain` options (`--no-pager`, `-P`,
+  `--no-optional-locks`, `--no-advice`, `--no-lazy-fetch` and the pathspec options),
+  for a rule that allows.
 - `policy`: `Policy`, an ordered list of `Rule { action, resource, effect }` in which
   the last match wins. A `command` resource is a `CommandPattern`: the program, the
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the
@@ -109,7 +122,15 @@ Modules:
   `pushd` or `popd` in it, and `check` (`Check`, in `policy/check.rs`): a check of the
   words that a list of words cannot express, `sed_print_only` for a `sed` that only
   prints and `ref_names` for git operands that can only be refs. A command rule with
-  the action `network` matches the network access of that command.
+  the action `network` matches the network access of that command. For the program
+  `git`, `Rule::runs` reads the rule's effect (DL20): a rule that asks or denies
+  matches the raw words or any view of `command/git.rs`'s `views`, so `ask git push`
+  asks for `git -C ~/p/app push`, and its `under` also counts the dirs of `-C` and
+  `--work-tree`; a rule that allows, the built-in read-only rows included, matches the
+  raw words or the plain view only, so `allow git log` matches `git --no-pager log`
+  but not `git -C ~/other log`. Every check of the pattern reads the view's words, so a
+  global option never counts as an operand or a forbidden word. The last match still
+  wins, and a conversation's rules read the same views.
   `Policy::base(mode)` is the built-in policy of a mode: `manual` is `any any ask`
   and the secrets rule; `cautious` is `Policy::defaults()`, the table above as eight
   rules followed by the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`,
