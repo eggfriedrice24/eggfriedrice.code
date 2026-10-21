@@ -2,6 +2,7 @@
 //! `efr_shell::CommandRunner`.
 
 mod declare;
+mod prompts;
 mod reads;
 mod words;
 mod writes;
@@ -292,10 +293,12 @@ fn mode(input: &ShellInput) -> RunMode {
 /// person follows, up to [`ToolContext::interactive_limit`].
 ///
 /// It declares the command line, `interactive` for commands that may wait for input
-/// at the terminal (`sudo`, `ssh`, an editor, or any nested shell) and `network` for
-/// commands that usually reach the network (`curl`, `git pull`, package installs).
-/// Both come from the command's program names and are a heuristic: the engine judges
-/// the command line itself too.
+/// at the terminal (`sudo`, `ssh`, an editor, or any nested shell), `may_prompt` for
+/// commands that may ask for a password through ssh (`rsync` to another host, `scp`,
+/// `git` over the network, a remote shell in `-e` or `GIT_SSH_COMMAND`) and `network`
+/// for commands that usually reach the network (`curl`, `git pull`, package installs).
+/// They come from the command's words and are a heuristic: the engine judges the
+/// command line itself too.
 ///
 /// It also declares the paths the line names, resolved against the hidden shell's
 /// directory: every operand of every program as a read (so `cat ~/.ssh/id_ed25519`
@@ -549,6 +552,7 @@ impl Tool for ShellTool {
         let line = words::split(&input.command);
         let commands = programs_of(&line);
         let interactive = interactive(&input, &line);
+        let may_prompt = prompts::may_prompt(&line, &input.command);
         let mut network = commands.iter().any(|(program, args)| reaches_network(program, args))
             || networked_git(&input.command);
         if line.opaque {
@@ -567,6 +571,7 @@ impl Tool for ShellTool {
             .with_command(input.command)
             .with_command_dir(ctx.command_dir())
             .with_interactive(interactive)
+            .with_may_prompt(may_prompt)
             .with_network(network)
             .with_needs(input.needs)
             .with_nested(input.nested_shell)
@@ -1001,7 +1006,7 @@ fn reaches_network(program: &str, args: &[String]) -> bool {
 /// split could not read whole.
 fn programs(line: &str) -> Vec<&str> {
     let mut programs = Vec::new();
-    for segment in line.split([';', '|', '&', '\n', '(', ')', '`']) {
+    for segment in segments(line) {
         for word in segment.split_whitespace() {
             let word = word.trim_matches(['"', '\'', '$', '{', '}']);
             if word.is_empty() || words::is_assignment(word) || word.starts_with('-') {
@@ -1017,21 +1022,44 @@ fn programs(line: &str) -> Vec<&str> {
     programs
 }
 
+/// The segments of `line` at `;`, `|`, `&`, newlines, parentheses and backquotes, as
+/// the coarse scans read them, which do not parse quotes.
+fn segments(line: &str) -> impl Iterator<Item = &str> {
+    line.split([';', '|', '&', '\n', '(', ')', '`'])
+}
+
+/// The options of git itself that take the next word as their value.
+const GIT_VALUE_OPTIONS: &[&str] = &[
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--config-env",
+    "--attr-source",
+    "--shallow-file",
+    "--exec-path",
+];
+
+/// The subcommand of the first `git` of `segment`, past the options of git itself, with
+/// the words after it.
+fn git_subcommand(segment: &str) -> Option<(&str, std::str::SplitWhitespace<'_>)> {
+    let mut words = segment.split_whitespace();
+    words.by_ref().find(|word| *word == "git")?;
+    loop {
+        let word = words.next()?;
+        if GIT_VALUE_OPTIONS.contains(&word) {
+            words.next();
+        } else if !word.starts_with('-') {
+            return Some((word, words));
+        }
+    }
+}
+
 /// True when a `git` command in `line` uses a subcommand that reaches a remote.
 fn networked_git(line: &str) -> bool {
-    line.split([';', '|', '&', '\n', '(', ')', '`']).any(|segment| {
-        let mut words = segment.split_whitespace().skip_while(|word| *word != "git").skip(1);
-        while let Some(word) = words.next() {
-            match word {
-                // The options of git itself that take the next word as their value.
-                "-C" | "-c" => {
-                    words.next();
-                }
-                option if option.starts_with('-') => {}
-                subcommand => return GIT_NETWORK.contains(&subcommand),
-            }
-        }
-        false
+    segments(line).any(|segment| {
+        git_subcommand(segment).is_some_and(|(subcommand, _)| GIT_NETWORK.contains(&subcommand))
     })
 }
 

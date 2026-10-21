@@ -1850,6 +1850,9 @@ pub(crate) fn permission_requirements(declared: ToolRequirements) -> Requirement
     if declared.interactive {
         requirements = requirements.with_interactive();
     }
+    if declared.may_prompt {
+        requirements = requirements.with_may_prompt();
+    }
     if let Some(needs) = declared.needs {
         requirements = requirements.with_needs(needs);
     }

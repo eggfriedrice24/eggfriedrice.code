@@ -16,7 +16,9 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   its approval; none by default) and `invoke(ctx, input, out)`.
 - `ToolRequirements`: every path a call touches with its `AccessMode` (read, read with
   everything below, or write), the command line it runs, whether it talks to the
-  network or may wait for input at the terminal, whether it deletes or moves a file
+  network or may wait for input at the terminal (`interactive`, the hard flag),
+  whether it may ask for a password through a program that the hard flag does not
+  cover (`may_prompt`, the soft flag), whether it deletes or moves a file
   (`destructive`, which `apply_patch` sets), and, for the shell tool, the model's
   `needs` (`efr_protocol::Needs`) and whether the line goes to a nested shell
   (`nested`), which the engine reads in the `auto` mode. The daemon adds the facts
@@ -115,10 +117,18 @@ The tools:
   efr never reads the output for a denial, because the command wrote it. A new shell
   starts in the user's working directory. It declares the command line, `interactive`
   when a program of the line may wait for input (`sudo`, `ssh`, an editor, a pager) or
-  the call targets a nested shell, and `network` when a program usually reaches the
+  the call targets a nested shell, `may_prompt` when the line may ask for a password
+  through ssh (`shell_tool/prompts.rs`: `rsync` with a remote operand or a remote
+  shell in `-e`, `--rsh` or `RSYNC_RSH`; `scp`, `sftp`, `sshfs`, `ssh-copy-id`,
+  `mosh`, `autossh`, `ssh-add`, `ssh-keygen` without `-N`; `git` over the network,
+  past every git option that takes a value, also `remote update`, `archive --remote`
+  and `send-email`; `git` with `GIT_SSH_COMMAND`, `GIT_SSH` or `core.sshCommand`; a
+  remote shell counts when it runs `ssh` or a program of the hard flag, and never
+  gives the hard flag), and `network` when a program usually reaches the
   network (`curl`, package installs and syncs but not `pacman -Q` or `-Ss`, nor the
-  scripts of `npm run`, `npm test` and the like, `git pull`); both are a heuristic over the program names, and the engine judges the
-  command line itself too. It declares the directory the line starts in (the hidden
+  scripts of `npm run`, `npm test` and the like, `git pull`); all three are a
+  heuristic over the line's words, and the engine judges the command line itself
+  too. The soft flag refuses no job. It declares the directory the line starts in (the hidden
   shell's, or the user's for a new shell), so a rule may allow a command in one
   project only. It also declares the paths the line names, so the path
   rules judge what a freely allowed read-only command reads: `shell_tool/words.rs`

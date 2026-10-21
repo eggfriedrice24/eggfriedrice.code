@@ -80,6 +80,8 @@ struct Line {
     #[serde(default)]
     interactive: bool,
     #[serde(default)]
+    may_prompt: bool,
+    #[serde(default)]
     missing: Vec<PathBuf>,
     #[serde(default)]
     dirs: Vec<PathBuf>,
@@ -304,6 +306,9 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
     }
     if line.interactive {
         requirements = requirements.with_interactive();
+    }
+    if line.may_prompt {
+        requirements = requirements.with_may_prompt();
     }
     let kinds = [
         (&line.missing, None),
