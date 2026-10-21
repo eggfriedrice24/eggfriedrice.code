@@ -110,5 +110,10 @@ fn a_job_of_the_model_has_no_moved_from_and_a_moved_job_round_trips() {
     assert_eq!(from.after_secs, 42);
     assert_eq!(from.call_id, read.call_id, "the job names the call that it came from");
     assert!(from.exits.is_empty(), "no exits stay off the wire");
+    assert!(!from.launcher, "a record without the launcher names a line typed into the shell");
+    assert_eq!(serde_json::to_value(&read).unwrap(), moved);
+    moved["moved_from"]["launcher"] = json!(true);
+    let read: JobInfo = serde_json::from_value(moved.clone()).unwrap();
+    assert!(read.moved_from.as_ref().unwrap().launcher);
     assert_eq!(serde_json::to_value(&read).unwrap(), moved);
 }

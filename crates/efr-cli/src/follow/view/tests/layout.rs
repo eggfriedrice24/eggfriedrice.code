@@ -1641,6 +1641,7 @@ fn a_moved_call_shows_its_job_in_place_of_a_result() {
         turn_id: turn(),
         after_secs: 42,
         exits: Vec::new(),
+        launcher: false,
     });
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),

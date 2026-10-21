@@ -259,8 +259,13 @@ fn shell_with(input: serde_json::Value) -> Event {
 fn moved_job_started(exits: Vec<efr_protocol::ExitInfo>) -> Event {
     let mut job = job(3, "make deploy");
     job.ends_by = job.started_at + jiff::SignedDuration::from_mins(60);
-    job.moved_from =
-        Some(efr_protocol::MovedCall { call_id: call(), turn_id: turn(), after_secs: 42, exits });
+    job.moved_from = Some(efr_protocol::MovedCall {
+        call_id: call(),
+        turn_id: turn(),
+        after_secs: 42,
+        exits,
+        launcher: false,
+    });
     Event::JobStarted {
         turn_id: turn(),
         call_id: call(),

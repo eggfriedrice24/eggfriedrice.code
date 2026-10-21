@@ -1067,9 +1067,10 @@ impl JobTable {
             };
             let result = read_result(&call_dir).await;
             let contained = matches!(info.launch, Launch::Contained { .. });
-            // NOTE: a moved line that ran outside the sandbox may have been typed into
-            // the hidden shell, with no launcher to lose.
-            let launcher_lost = result.is_none() && (!moved || contained);
+            // NOTE: a moved line typed into the hidden shell had no launcher to lose; a
+            // moved call in the sandbox or in the exit child had one.
+            let launcher = info.moved_from.as_ref().is_none_or(|from| from.launcher || contained);
+            let launcher_lost = result.is_none() && launcher;
             // NOTE: a contained job that left no result had no end guard: its guard
             // check runs now, before its state dir goes.
             let lost_guard = if launcher_lost && contained && !moved {

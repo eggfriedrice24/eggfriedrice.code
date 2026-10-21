@@ -617,7 +617,8 @@ No protocol version has shipped yet.
   token in `confirm`. The result is `moved` (`job_id`) or `preview`; a kind that a
   reader does not know reads as `unknown`. A refusal is `invalid` with a short reason.
   `JobInfo` gains `moved_from` (absent for a job that the model started):
-  `call_id`, `turn_id`, `after_secs`, and `exits`, absent when empty. A daemon from
-  before refuses the method as a frame that is not valid. New fixtures
+  `call_id`, `turn_id`, `after_secs`, `exits` (absent when empty) and `launcher`
+  (true when the call ran through efr's sandbox launcher; absent when false). A daemon
+  from before refuses the method as a frame that is not valid. New fixtures
   `call_background_params.json`, `call_background_result.json`,
   `call_background_result_preview.json` and `events/job_started_moved.json`.
