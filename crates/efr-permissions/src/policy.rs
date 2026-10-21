@@ -622,17 +622,29 @@ impl Policy {
     }
 
     /// The position and effect of the last rule that matches `target`.
+    ///
+    /// NOTE: a rule that matches only through a wrapper, a path or a git view (OQL3,
+    /// DL22) may only keep the effect of the matches before it or make it stricter. So
+    /// `deny nice` then `ask git push` still denies `nice git push`, as it did before
+    /// rules read through wrappers. A rule that matches the words as they are decides
+    /// the way the last match does.
     pub(crate) fn last_match(
         &self,
         target: &Target<'_>,
         cx: &MatchContext<'_>,
     ) -> Option<(usize, Effect)> {
-        self.rules
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, rule)| rule.matches(target, cx))
-            .map(|(index, rule)| (index, rule.effect))
+        let mut decided: Option<(usize, Effect)> = None;
+        for (index, rule) in self.rules.iter().enumerate() {
+            let counts = match rule.fit(target, cx) {
+                Fit::No => false,
+                Fit::Raw => true,
+                Fit::Read => decided.is_none_or(|(_, effect)| rule.effect >= effect),
+            };
+            if counts {
+                decided = Some((index, rule.effect));
+            }
+        }
+        decided
     }
 }
 
@@ -713,40 +725,66 @@ impl MatchContext<'_> {
     }
 }
 
+/// How a rule matches a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fit {
+    /// It does not match.
+    No,
+    /// It matches the target as it is.
+    Raw,
+    /// It matches only a form that efr reads from a command: the command behind a
+    /// wrapper or by the base name of its program, or a git view.
+    Read,
+}
+
+impl From<bool> for Fit {
+    fn from(matched: bool) -> Self {
+        if matched { Fit::Raw } else { Fit::No }
+    }
+}
+
 impl Rule {
     fn matches(&self, target: &Target<'_>, cx: &MatchContext<'_>) -> bool {
+        self.fit(target, cx) != Fit::No
+    }
+
+    fn fit(&self, target: &Target<'_>, cx: &MatchContext<'_>) -> Fit {
         match *target {
             Target::Path { path, access, class } => {
                 let action = match access {
                     Access::Read | Access::ReadTree => Action::Read,
                     Access::Write => Action::Write,
                 };
-                self.action_is(action) && self.matches_path(path, access, class, cx)
+                (self.action_is(action) && self.matches_path(path, access, class, cx)).into()
             }
             Target::Command(part) => {
-                self.action_is(Action::Execute)
-                    && match &self.resource {
-                        Resource::Any => true,
-                        Resource::Command(pattern) => self.runs(pattern, &part, cx),
-                        Resource::Class(_)
-                        | Resource::Under(_)
-                        | Resource::Project
-                        | Resource::Envelope => false,
-                    }
+                if !self.action_is(Action::Execute) {
+                    return Fit::No;
+                }
+                match &self.resource {
+                    Resource::Any => Fit::Raw,
+                    Resource::Command(pattern) => self.runs(pattern, &part, cx),
+                    Resource::Class(_)
+                    | Resource::Under(_)
+                    | Resource::Project
+                    | Resource::Envelope => Fit::No,
+                }
             }
-            Target::Opaque => self.action_is(Action::Execute) && self.resource == Resource::Any,
+            Target::Opaque => {
+                (self.action_is(Action::Execute) && self.resource == Resource::Any).into()
+            }
             // NOTE: only a rule that says `network` matches the network access of a
             // command, so a rule written as `any` for a command never opens the network.
             Target::Network { part } => match &self.resource {
-                Resource::Any => self.action_is(Action::Network),
-                Resource::Command(pattern) => {
-                    self.action == Action::Network
-                        && part.is_some_and(|part| self.runs(pattern, &part, cx))
-                }
+                Resource::Any => self.action_is(Action::Network).into(),
+                Resource::Command(pattern) => match part {
+                    Some(part) if self.action == Action::Network => self.runs(pattern, &part, cx),
+                    _ => Fit::No,
+                },
                 Resource::Class(_)
                 | Resource::Under(_)
                 | Resource::Project
-                | Resource::Envelope => false,
+                | Resource::Envelope => Fit::No,
             },
         }
     }
@@ -765,10 +803,11 @@ impl Rule {
     /// only the view with the plain options skipped ([`git::plain_view`]), because
     /// skipping `-c`, `-C` or `--exec-path` would let a line run other code or work on
     /// another repository with no question. A rule that matches more only asks or
-    /// denies more.
-    fn runs(&self, pattern: &CommandPattern, part: &Part<'_>, cx: &MatchContext<'_>) -> bool {
+    /// denies more. Such a match is [`Fit::Read`], so it only makes the effect
+    /// stricter ([`Policy::last_match`]).
+    fn runs(&self, pattern: &CommandPattern, part: &Part<'_>, cx: &MatchContext<'_>) -> Fit {
         if part.privileged {
-            return false;
+            return Fit::No;
         }
         let is_git = |words: &[String]| {
             pattern.program == "git" && words.first().is_some_and(|word| word == "git")
@@ -780,11 +819,16 @@ impl Rule {
                     && git::plain_view(part.words)
                         .is_some_and(|view| pattern.matches_command(&view, part.pattern))
             };
-            return (raw || plain()) && self.placed(pattern, part.dir, &[], cx);
+            return ((raw || plain()) && self.placed(pattern, part.dir, &[], cx)).into();
         }
         // NOTE: a rule that asks or denies also reads the command behind a wrapper and
         // by the base name of its program (OQL3), so `env git push` and
         // `/usr/bin/git push` meet a rule for `git push`.
+        if pattern.matches_command(part.words, part.pattern)
+            && self.placed(pattern, part.dir, &[], cx)
+        {
+            return Fit::Raw;
+        }
         let mut matched = false;
         let mut dirs: Vec<PathBuf> = Vec::new();
         for words in command::run_forms(part.words) {
@@ -796,7 +840,7 @@ impl Rule {
                 dirs.extend(views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)));
             }
         }
-        matched && self.placed(pattern, part.dir, &dirs, cx)
+        if matched && self.placed(pattern, part.dir, &dirs, cx) { Fit::Read } else { Fit::No }
     }
 
     /// True when `pattern` has no `under`, or when the dir `dir` where the command

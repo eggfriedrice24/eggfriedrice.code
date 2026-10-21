@@ -1083,6 +1083,10 @@ In `auto`, no rule lifts the sandbox: an allowed command still runs in it, and i
 network need is a `host` exit that asks.
 
 Your rules come after the built-in rules, so the last one of yours that matches wins.
+A rule that matches only through a wrapper, the base name of a path or git's own
+options is different: it can keep the effect of the rules before it or make it
+stricter, but never less strict. So `deny` for `nice`, then `ask` for `git push`,
+still denies `nice git push`.
 Your rules are the only rules that can open a secret, and only a rule that names it
 opens it: `{ class = "secrets" }`, or `under` a path at or below a secret location,
 such as `{ under = "~/.ssh/config" }`. A rule for a wider resource, such as `"any"`,

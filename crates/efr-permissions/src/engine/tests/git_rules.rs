@@ -96,6 +96,11 @@ fn user_rule(engine: &Engine, mode: Mode) -> Cause {
     Cause::Rule { layer: Layer::Machine, index: engine.policy(mode).rules().len() - 1 }
 }
 
+/// The cause of the rule before the last one of the machine policy of `mode`.
+fn user_rule_before_last(engine: &Engine, mode: Mode) -> Cause {
+    Cause::Rule { layer: Layer::Machine, index: engine.policy(mode).rules().len() - 2 }
+}
+
 #[rstest]
 fn a_tightening_rule_matches_after_gits_own_options(
     #[values(Effect::Ask, Effect::Deny)] effect: Effect,
@@ -175,6 +180,47 @@ fn last_match_still_wins() {
         Requirements::none().with_command("git push origin main"),
     );
     assert_eq!(decision.effect(), Effect::Allow);
+}
+
+#[test]
+fn a_rule_that_reads_through_a_wrapper_or_a_view_only_makes_it_stricter() {
+    // `deny nice`, then `ask git push`: the ask rule matches `nice git push` only
+    // through the wrapper, so the deny stays.
+    let engine = with_rules(vec![
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("nice")), Effect::Deny),
+        rule(pattern(&["push"]), Effect::Ask),
+    ]);
+    for mode in [Mode::Manual, Mode::Cautious] {
+        let decision = decide_in(&engine, mode, Requirements::none().with_command("nice git push"));
+        assert_eq!(command_reason(&decision), (Effect::Deny, user_rule_before_last(&engine, mode)));
+    }
+    // `deny git -C`, then `ask git push`: the ask rule matches `git -C x push` only
+    // through the git view, so the deny stays.
+    let engine = with_rules(vec![
+        rule(pattern(&["-C"]), Effect::Deny),
+        rule(pattern(&["push"]), Effect::Ask),
+    ]);
+    for mode in [Mode::Manual, Mode::Cautious] {
+        let decision = decide_in(&engine, mode, Requirements::none().with_command("git -C x push"));
+        assert_eq!(command_reason(&decision), (Effect::Deny, user_rule_before_last(&engine, mode)));
+    }
+    // `allow nice`, then `ask git push`: the ask rule is stricter, so it decides.
+    let engine = with_rules(vec![
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("nice")), Effect::Allow),
+        rule(pattern(&["push"]), Effect::Ask),
+    ]);
+    let decision =
+        decide_in(&engine, Mode::Cautious, Requirements::none().with_command("nice git push"));
+    assert_eq!(command_reason(&decision), (Effect::Ask, user_rule(&engine, Mode::Cautious)));
+    // `deny git push`, then `ask nice`: the ask rule matches the words as they are, so
+    // the last match wins, as before.
+    let engine = with_rules(vec![
+        rule(pattern(&["push"]), Effect::Deny),
+        Rule::new(Action::Execute, Resource::Command(CommandPattern::new("nice")), Effect::Ask),
+    ]);
+    let decision =
+        decide_in(&engine, Mode::Cautious, Requirements::none().with_command("nice git push"));
+    assert_eq!(command_reason(&decision), (Effect::Ask, user_rule(&engine, Mode::Cautious)));
 }
 
 #[rstest]
