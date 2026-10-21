@@ -213,6 +213,16 @@ fn views_of_unknown_options() {
     }
     let many = "--u1 v1 --u2 v2 --u3 v3 --u4 v4 --u5 v5 --u6 v6 push";
     assert!(view_lines(many).contains(&"git push".to_owned()), "{:?}", view_lines(many));
+    assert!(!views(&words(&format!("git {many}"))).unreadable);
+}
+
+#[test]
+fn a_line_with_too_many_readings_fails_closed() {
+    let operands: Vec<String> = (0..100).map(|n| format!("w{n}")).collect();
+    let line = format!("git --u1 --u2 --u3 --u4 --u5 {}", operands.join(" "));
+    let found = views(&words(&line));
+    assert_eq!(found.words.len(), super::MAX_READINGS);
+    assert!(found.unreadable);
 }
 
 #[rstest]

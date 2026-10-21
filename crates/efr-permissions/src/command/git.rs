@@ -264,18 +264,36 @@ pub(crate) struct Views {
     /// Each reading as `git <subcommand> <rest>`, program first, with the global options
     /// before the subcommand removed.
     pub(crate) words: Vec<Vec<String>>,
-    /// True when the line sets an alias for its subcommand that efr cannot read: a
-    /// shell command (`!`), a value with a quote, a value from `--config-env`, or an
-    /// alias of an alias too deep. A rule that asks or denies for `git` then matches.
+    /// True when the line sets an alias for its subcommand that efr cannot read (a
+    /// shell command with `!`, a value with a quote, a value from `--config-env`, or an
+    /// alias of an alias too deep), or when it has more than [`MAX_READINGS`] readings.
+    /// A rule that asks or denies for `git` then matches.
     pub(crate) unreadable: bool,
     /// The dirs of each reading's `-C` and `--work-tree`.
     pub(crate) dirs: Vec<GitDirs>,
 }
 
+/// The most readings that [`views`] keeps; a line with more fails closed, so a long
+/// line of unknown options costs no more than this.
+const MAX_READINGS: usize = 64;
+
 impl Views {
+    /// Adds the reading of `program` with `rest`, once.
+    fn add_reading(&mut self, program: &str, rest: &[String]) {
+        let known = self.words.iter().any(|words| words[0] == program && words[1..] == *rest);
+        if known {
+            return;
+        }
+        if self.words.len() == MAX_READINGS {
+            self.unreadable = true;
+            return;
+        }
+        self.words.push(std::iter::once(program.to_owned()).chain(rest.iter().cloned()).collect());
+    }
+
     fn add_words(&mut self, words: Vec<String>) {
-        if !self.words.contains(&words) {
-            self.words.push(words);
+        if let Some((program, rest)) = words.split_first() {
+            self.add_reading(program, rest);
         }
     }
 
@@ -394,9 +412,7 @@ fn reading(
     depth: usize,
     out: &mut Views,
 ) {
-    let view: Vec<String> =
-        std::iter::once(program.to_owned()).chain(args[sub..].iter().cloned()).collect();
-    out.add_words(view);
+    out.add_reading(program, &args[sub..]);
     out.add_dirs(branch.dirs.clone());
     let name = args[sub].to_ascii_lowercase();
     let Some(alias) = branch.aliases.iter().rev().find(|alias| alias.name == name) else {
