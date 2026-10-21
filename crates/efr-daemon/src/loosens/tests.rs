@@ -46,3 +46,13 @@ fn a_new_ask_rule_or_a_removed_allow_rule_does_not_loosen() {
     assert_eq!(loosening(&allow, &Settings::default()), Vec::<&str>::new());
     assert_eq!(loosening(&ask, &Settings::default()), ["permissions.rules"], "a removed ask");
 }
+
+#[test]
+fn forward_ports_on_loosens_and_off_does_not() {
+    let mut off = Settings::default();
+    off.jobs.forward_ports = false;
+    let on = Settings::default();
+    assert_eq!(loosening(&off, &on), ["jobs.forward_ports"], "a host port opens to a job");
+    assert_eq!(loosening(&on, &off), Vec::<&str>::new(), "off closes them");
+    assert!(super::jobs_loosens(&off.jobs, &on.jobs));
+}

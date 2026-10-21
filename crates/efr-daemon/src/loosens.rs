@@ -17,10 +17,10 @@ use efr_protocol::NetworkMode;
 /// mode turned on, `per_call` to `keep`, a secret path less, a `[sandbox]` key that
 /// opens the sandbox, the classifier turned on, so a model can allow exits that asked
 /// the user, undo turned on or covering more, so more destructive lines run without a
-/// question, a `[jobs]` key that lets jobs run longer, more often or at a higher
-/// priority, a `[network]` key that opens the network view or efr's proxy, or a `[dbus]`
-/// key that opens the filtered bus (efr's auto spec, section 13.1). Empty when the
-/// change loosens nothing.
+/// question, a `[jobs]` key that lets jobs run longer, more often, at a higher
+/// priority or with port forwards, a `[network]` key that opens the network view or
+/// efr's proxy, or a `[dbus]` key that opens the filtered bus (efr's auto spec, section
+/// 13.1). Empty when the change loosens nothing.
 pub(crate) fn loosening(before: &Settings, next: &Settings) -> Vec<&'static str> {
     let mut keys = Vec::new();
     let old = before.permissions.rules.rules();
@@ -113,7 +113,9 @@ fn network_loosening(before: &NetworkSettings, next: &NetworkSettings) -> Vec<&'
 
 /// The `[jobs]` keys that let the model's background jobs do more: jobs turned on, a
 /// longer default or longest time limit, more jobs at one time, more turns that notices
-/// start, more wakes of a watch pattern, or a higher CPU priority (a lower nice value).
+/// start, more wakes of a watch pattern, a higher CPU priority (a lower nice value), or
+/// the port forwards of contained jobs turned on, which open a host port to a server of
+/// the model (DL12).
 fn jobs_loosening(before: &JobsSettings, next: &JobsSettings) -> Vec<&'static str> {
     keys([
         ("jobs.enabled", next.enabled && !before.enabled),
@@ -128,6 +130,7 @@ fn jobs_loosening(before: &JobsSettings, next: &JobsSettings) -> Vec<&'static st
         ),
         ("jobs.max_wakes_per_watch", next.max_wakes_per_watch > before.max_wakes_per_watch),
         ("jobs.nice", next.nice < before.nice),
+        ("jobs.forward_ports", next.forward_ports && !before.forward_ports),
     ])
 }
 

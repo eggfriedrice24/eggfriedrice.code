@@ -52,6 +52,12 @@
 //! starts while the stop runs stops at once (`jobs.rs`, `JobTable::begin`). Such a stop
 //! starts no job notice turn; its notice waits for the next prompt.
 //!
+//! When a reload turns `jobs.forward_ports` from true to false, `install` stops the port
+//! forwards of every running job after it sent the settings, with a `stopped` event for
+//! each port (`JobTable::forwards_off`, DL11). A job that read the old settings and
+//! starts after the stop forwards nothing, and a later `true` does not open the
+//! forwards of a running job again.
+//!
 //! Reloads run one at a time in one task ([`serve`]), so two triggers at once never
 //! interleave their sends; a trigger asks it through [`reload`] and waits for the
 //! outcome.
@@ -675,8 +681,15 @@ async fn install(
     if running.permissions.mode != Mode::Full {
         crate::full::warn_default(&settings, state.runs_as_root);
     }
+    let forwards_off = running.jobs.forward_ports && !settings.jobs.forward_ports;
     if settings != *running {
         state.settings.send_replace(Arc::new(settings));
+    }
+    // NOTE: after the settings went out: a job that read the old ones finds the count
+    // of turn offs changed and forwards nothing (DL11).
+    if forwards_off {
+        state.jobs.forwards_off();
+        tracing::info!("jobs.forward_ports is off; efrd stops the port forwards of every job");
     }
     if probe_again {
         state.sandbox.reprobe(Arc::clone(&state.settings.borrow()));
