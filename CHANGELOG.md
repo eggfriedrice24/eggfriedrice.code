@@ -225,6 +225,9 @@ into the GitHub release notes, and it stops when the section is missing.
   not forwarded. Before, the browser could reach such a server only after a review
   that gave the job the whole network. `docs/sandbox.md`, "Ports of a job", has the
   details and the limits.
+- In `auto`, a contained command reaches the forwarded ports of its conversation's
+  background jobs at `127.0.0.1` and `localhost` with no question, so the agent can
+  check the dev server that it started.
 - In `auto`, `df` and `findmnt` now run with no review and show your machine's
   mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
   reads the mounts outside the sandbox. A mount that does not answer in one second

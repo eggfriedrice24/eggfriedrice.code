@@ -62,7 +62,7 @@ pub(crate) fn serve(table: JobTable, key: JobKey, socket: ForwardSocket) -> JobF
         connections: Arc::new(Semaphore::new(MAX_FORWARD_CONNECTIONS)),
         warned: Mutex::new(BTreeSet::new()),
     });
-    forwards.serving(key, Arc::downgrade(&ctx));
+    forwards.serving(key, Arc::downgrade(&ctx), ctx.clock.now());
     let control = Control {
         ctx,
         listener,

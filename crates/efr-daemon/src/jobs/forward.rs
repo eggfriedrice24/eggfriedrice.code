@@ -34,8 +34,8 @@
 //!   [`Forwards`] counts each turn off, and a job that read the old settings forwards
 //!   nothing.
 //! - The reach of a contained call (`forward/reach.rs`, v0.0.4 shell items DS34-DS48):
-//!   [`Forwards`] also knows which job serves each forwarded port, and a `watch` changes
-//!   at each forward and each release. A contained
+//!   [`Forwards`] also knows which job serves each forwarded port and since when each
+//!   job forwards, and a `watch` changes at each forward and each release. A contained
 //!   foreground call of a conversation with such a job gets a reach plan, and efrd
 //!   routes each connection of the call's reach helper to the job's forwarder.
 
@@ -48,6 +48,7 @@ use efr_config::JobsSettings;
 use efr_permissions::Egress;
 use efr_protocol::{ConversationId, ForwardOutcome, Grant, JobId, Launch, PortForward};
 use efr_sandbox::{BRIDGE_PORT, FORWARD_SOCKET_FILE, ForwardPlan, MAX_DAEMON_FORWARDS, MIN_PORT};
+use jiff::Timestamp;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -72,11 +73,12 @@ pub(crate) const OPEN_WAIT: Duration = Duration::from_secs(5);
 /// The reason of a `stopped` event at a reload that turned forwards off.
 pub(crate) const OFF_REASON: &str = "jobs.forward_ports is off";
 
-/// The sentence of a job's start result when efr forwards its ports (DL16).
+/// The sentences of a job's start result when efr forwards its ports (DL16, DS45).
 pub(crate) const START_NOTE: &str = "efr forwards each loopback port from 1024 up that this \
     job listens on to the same port of 127.0.0.1 on the user's machine; give the user the \
     URL, such as http://localhost:8765. A port in use there and well-known service ports \
-    are not forwarded.";
+    are not forwarded. Later contained calls of this conversation reach the forwarded \
+    ports at http://127.0.0.1:<port> or localhost, with no needs.hosts entry.";
 
 /// The forward plan of a job that starts with `launch` in an efrd whose engine has
 /// `egress`, with its forward socket at `socket` (`$CALL/forward.sock`); `None` when
@@ -121,7 +123,7 @@ struct Shared {
     ports: Arc<dyn HostPorts>,
     held: Mutex<Held>,
     /// Counts each change of the forwarded ports or of the jobs that forward; a call's
-    /// reach waits on it (DS39).
+    /// reach and the fact of a line wait on it (DS39, DS44).
     changes: watch::Sender<u64>,
 }
 
@@ -140,6 +142,8 @@ struct Held {
 /// The forwards of one job as a call's reach finds them.
 struct Route {
     ctx: Weak<serve::Ctx>,
+    /// When efrd began to serve the job's forwards, on efrd's clock (DS44).
+    since: Timestamp,
 }
 
 /// Why a job cannot hold a host port in efrd's table.
@@ -250,9 +254,9 @@ impl Forwards {
         }
     }
 
-    /// Records that efrd serves the forwards of the job `key` with `ctx`.
-    fn serving(&self, key: JobKey, ctx: Weak<serve::Ctx>) {
-        self.lock().jobs.insert(key, Route { ctx });
+    /// Records that efrd serves the forwards of the job `key` with `ctx` since `since`.
+    fn serving(&self, key: JobKey, ctx: Weak<serve::Ctx>, since: Timestamp) {
+        self.lock().jobs.insert(key, Route { ctx, since });
         self.changed();
     }
 
@@ -274,6 +278,16 @@ impl Forwards {
         self.lock().jobs.keys().any(|key| key.conversation == conversation)
     }
 
+    /// When the newest job of `conversation` with forwards began, on efrd's clock.
+    pub(crate) fn newest_start(&self, conversation: ConversationId) -> Option<Timestamp> {
+        let held = self.lock();
+        held.jobs
+            .iter()
+            .filter(|(key, _)| key.conversation == conversation)
+            .map(|(_, route)| route.since)
+            .max()
+    }
+
     /// The forwards of the job of `conversation` that forwards `port`, while it runs;
     /// `None` for a port of another conversation or one that efrd does not forward
     /// (DS41).
@@ -290,6 +304,21 @@ impl Forwards {
     /// jobs.
     pub(crate) fn changes(&self) -> watch::Receiver<u64> {
         self.inner.changes.subscribe()
+    }
+
+    /// Waits until efrd forwards each port of `ports` for a job of `conversation`.
+    pub(crate) async fn wait_for(&self, conversation: ConversationId, ports: &[u16]) {
+        let mut changes = self.changes();
+        loop {
+            changes.borrow_and_update();
+            let forwarded = self.ports_of(conversation);
+            if ports.iter().all(|port| forwarded.contains(port)) {
+                return;
+            }
+            if changes.changed().await.is_err() {
+                return;
+            }
+        }
     }
 }
 
