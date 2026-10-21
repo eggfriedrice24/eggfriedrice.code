@@ -305,31 +305,47 @@ fn peer_uid_takes_the_peer_row() {
         row(0x01, addr("127.0.0.1:50954"), addr("127.0.0.1:8765"), 1001),
         row(0x01, addr("127.0.0.1:8765"), addr("127.0.0.1:50954"), 1000),
     ];
-    assert_eq!(peer_uid(&rows, 8765, 50954), Some(1001));
-    assert_eq!(peer_uid(&rows, 8765, 50955), None);
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.1:50954")), Some(1001));
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.1:50955")), None);
 }
 
 #[test]
 fn peer_uid_never_takes_efrds_own_row() {
     // Only efrd's own accepted socket is in the table: no peer row, no uid.
     let own = [row(0x01, addr("127.0.0.1:8765"), addr("127.0.0.1:50954"), 1000)];
-    assert_eq!(peer_uid(&own, 8765, 50954), None);
+    assert_eq!(peer_uid(&own, 8765, addr("127.0.0.1:50954")), None);
     // Both rows of one connection: the peer's uid, never efrd's.
     let rows = [own[0], row(0x01, addr("127.0.0.1:50954"), addr("127.0.0.1:8765"), 0)];
-    assert_eq!(peer_uid(&rows, 8765, 50954), Some(0));
-    assert_eq!(peer_uid(&rows, 8765, 8765), None);
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.1:50954")), Some(0));
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.1:8765")), None);
 }
 
 #[test]
 fn peer_uid_skips_listeners_and_time_wait_and_refuses_two_uids() {
     let time_wait = row(0x06, addr("127.0.0.1:50954"), addr("127.0.0.1:8765"), 0);
     let peer = row(0x01, addr("127.0.0.1:50954"), addr("127.0.0.1:8765"), 1000);
-    assert_eq!(peer_uid(&[time_wait, peer], 8765, 50954), Some(1000));
+    assert_eq!(peer_uid(&[time_wait, peer], 8765, addr("127.0.0.1:50954")), Some(1000));
     let other = TcpRow { uid: 1001, ..peer };
-    assert_eq!(peer_uid(&[peer, other], 8765, 50954), None);
+    assert_eq!(peer_uid(&[peer, other], 8765, addr("127.0.0.1:50954")), None);
     // A row to another host address than 127.0.0.1 is not the peer of efrd's listener.
     let elsewhere = row(0x01, addr("127.0.0.1:50954"), addr("127.0.0.2:8765"), 1001);
-    assert_eq!(peer_uid(&[elsewhere], 8765, 50954), None);
+    assert_eq!(peer_uid(&[elsewhere], 8765, addr("127.0.0.1:50954")), None);
+}
+
+#[test]
+fn peer_uid_takes_only_the_row_of_the_peer_address() {
+    // Two connections from the same port of two loopback addresses: each peer gets the
+    // uid of its own row.
+    let rows = [
+        row(0x01, addr("127.0.0.5:50954"), addr("127.0.0.1:8765"), 1001),
+        row(0x01, addr("127.0.0.1:50954"), addr("127.0.0.1:8765"), 1000),
+    ];
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.1:50954")), Some(1000));
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.5:50954")), Some(1001));
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.6:50954")), None);
+    // A peer that is no IPv4 loopback address has no row.
+    assert_eq!(peer_uid(&rows, 8765, addr("10.0.0.1:50954")), None);
+    assert_eq!(peer_uid(&rows, 8765, addr("[::1]:50954")), None);
 }
 
 #[test]
@@ -339,7 +355,7 @@ fn peer_uid_reads_a_v4_mapped_row() {
          00000000:00000000 00:00000000 00000000  1002        0 1 1 0 20 0 0 10 -1",
         true,
     );
-    assert_eq!(peer_uid(&rows, 8765, 50954), Some(1002));
+    assert_eq!(peer_uid(&rows, 8765, addr("127.0.0.1:50954")), Some(1002));
 }
 
 #[test]

@@ -146,7 +146,7 @@ fn peer_row_is_in_the_table_at_once() {
     let (mut accepted, peer) = listener.accept().unwrap();
     let (mut rows, v6) = SystemHostPorts.rows().unwrap();
     rows.extend(v6);
-    assert_eq!(peer_uid(&rows, port, peer.port()), Some(SystemHostPorts.own_uid()));
+    assert_eq!(peer_uid(&rows, port, peer), Some(SystemHostPorts.own_uid()));
     client.write_all(b"x").unwrap();
     let mut byte = [0u8; 1];
     accepted.read_exact(&mut byte).unwrap();
