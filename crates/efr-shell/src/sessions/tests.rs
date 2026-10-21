@@ -155,6 +155,38 @@ async fn until_free_waits_for_a_run_left_running_and_times_out() {
 }
 
 #[tokio::test]
+async fn busy_tells_the_command_left_running_until_it_ends() {
+    let harness = Harness::new(ZSH);
+    assert_eq!(harness.sessions.busy(conversation(1)), None, "no shell yet");
+    let run = spawn_run(
+        &harness.sessions,
+        request("cargo build").with_call(call()).with_timeout(Duration::from_secs(5)),
+    );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    assert_eq!(harness.sessions.busy(conversation(1)), None, "the run has its caller");
+    terminal.print(b"\r\n\x1b]133;C\x07Compiling\r\n").await;
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_secs(5));
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::StillRunning);
+
+    let left = harness.sessions.busy(conversation(1)).unwrap();
+    assert_eq!(left.call, Some(call()));
+    assert_eq!(left.command, "cargo build");
+    assert_eq!(left.since, efr_test_support::TestClock::START);
+    assert!(!left.contained);
+    assert_eq!(left.input, InputWait::None);
+
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    let sessions = harness.sessions.clone();
+    Wait::new("the end of the command left running")
+        .until(|| sessions.busy(conversation(1)).is_none())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn a_failing_command_reports_its_status() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run) = typed(&harness, "false").await;
@@ -1247,6 +1279,7 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         terminal: Terminal::new(master, modes, 1000),
         life,
         activity: watch::channel(crate::session::Activity::default()).1,
+        left: watch::channel(None).1,
         size: Arc::new(Mutex::new(SIZE)),
         trusted: None,
     };

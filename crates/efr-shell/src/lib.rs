@@ -45,6 +45,7 @@ mod integration;
 mod live_tail;
 mod modes;
 mod nested_shell;
+mod orphan;
 mod reader;
 mod recording_sink;
 mod replay;
@@ -64,6 +65,7 @@ pub use error::ShellError;
 pub use input::takes_manual_answers;
 pub use integration::supports as gets_integration;
 pub use modes::{InputModes, TerminalModes, Termios};
+pub use orphan::LeftRunning;
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use run::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,

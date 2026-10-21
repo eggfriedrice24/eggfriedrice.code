@@ -1,27 +1,24 @@
 //! The session's logic without IO: byte strings in, typed bytes and replies out.
 
+use std::io::Read as _;
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use efr_protocol::{CallId, Seq};
+use efr_protocol::{ApprovedBy, CallId, InputWait, SecretText, Seq};
+use efr_sandbox::SpecLaunch;
 use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 use tokio::sync::{oneshot, watch};
-
-use std::io::Read as _;
-use std::os::fd::OwnedFd;
-use std::os::unix::net::UnixStream;
-
-use efr_protocol::SecretText;
-use efr_sandbox::SpecLaunch;
 
 use super::{Detached, RunEnd, RunOrder, SessionCore, answer};
 use crate::input::{Offer, SANDBOXED_SECRET, Waiting};
 use crate::modes::{InputModes, Job, Terminal};
 use crate::run::{Completion, Progress, RunMode};
 use crate::testing::{FakeModes, JOB, Notices, conversation};
-use crate::{Phase, SandboxRun, ShellError, ShellNotice, ShellState};
+use crate::{LeftRunning, Phase, SandboxRun, ShellError, ShellNotice, ShellState};
 
 type Answer = oneshot::Receiver<Result<RunEnd, ShellError>>;
 
@@ -45,6 +42,8 @@ fn order(id: u64, command: &str, mode: RunMode) -> (RunOrder, Answer, watch::Rec
         forget_before: false,
         token: "0123456789abcdef".to_owned(),
         sandbox: None,
+        since: TestClock::START,
+        approved_by: None,
         reply,
         progress,
     };
@@ -122,7 +121,7 @@ fn a_run_left_running_still_forgets_credentials_when_it_ends() {
     first.forget_credentials = true;
     core.submit(first);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07[sudo] password: ");
-    assert!(matches!(core.detach(1), Detached::Running { .. }));
+    assert!(matches!(core.detach(1, false), Detached::Running { .. }));
 
     let writes = feed(&mut core, &mut at, b"\r\n\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07");
 
@@ -159,7 +158,7 @@ fn a_sentinel_run_left_running_still_forgets_credentials_when_it_ends() {
     first.forget_credentials = true;
     core.submit(first);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07__efr_0123456789abcdef_b\r\n[sudo] password: ");
-    assert!(matches!(core.detach(1), Detached::Running { .. }));
+    assert!(matches!(core.detach(1, false), Detached::Running { .. }));
 
     feed(&mut core, &mut at, b"\r\n__efr_0123456789abcdef_e:0:/home/u\r\n");
     let writes = feed(&mut core, &mut at, b"\x1b]133;D;0\x07\x1b]133;A\x07% \x1b]133;B\x07");
@@ -425,7 +424,7 @@ fn detaching_a_queued_run_drops_it() {
     let (mut core, _) = core(true);
     let (order, _answer, _) = order(9, "id", RunMode::Auto);
     core.submit(order);
-    assert!(matches!(core.detach(9), Detached::Unstarted));
+    assert!(matches!(core.detach(9, false), Detached::Unstarted));
     let mut at = 0;
     assert!(feed(&mut core, &mut at, b"\x1b]133;A\x07\x1b]133;B\x07").is_empty());
 }
@@ -440,12 +439,12 @@ fn detaching_a_typed_run_returns_the_output_so_far() {
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07cc -c a.c\r\n");
     assert!(updates.has_changed().unwrap());
     assert_eq!(updates.borrow_and_update().bytes, 11);
-    let Detached::Running { kept, last_output, .. } = core.detach(3) else {
+    let Detached::Running { kept, last_output, .. } = core.detach(3, false) else {
         panic!("the run was typed");
     };
     assert_eq!(kept.clean().text, "cc -c a.c\n");
     assert_eq!(last_output, Some(TestClock::START));
-    assert!(matches!(core.detach(3), Detached::Gone));
+    assert!(matches!(core.detach(3, false), Detached::Gone));
 }
 
 #[test]
@@ -481,7 +480,7 @@ fn a_run_detached_before_its_output_holds_the_next_until_it_ends() {
     ready(&mut core, &mut at);
     let (first, _first_answer, _) = order(1, "sleep 9", RunMode::Auto);
     assert_eq!(core.submit(first).len(), 1);
-    assert!(matches!(core.detach(1), Detached::Running { .. }));
+    assert!(matches!(core.detach(1, false), Detached::Running { .. }));
     // The line is typed but its `C` has not come: the phase still says Ready.
     assert_eq!(core.state().phase, Phase::Ready);
     let (second, _second_answer, _) = order(2, "ls", RunMode::Auto);
@@ -489,6 +488,91 @@ fn a_run_detached_before_its_output_holds_the_next_until_it_ends() {
     assert!(feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07\x1b]133;D;0\x07").is_empty());
     let writes = feed(&mut core, &mut at, b"\x1b]133;A\x07% \x1b]133;B\x07");
     assert_eq!(writes, [b"\x1b[efr-clear~\x1b[200~ls\x1b[201~\r".to_vec()]);
+}
+
+#[test]
+fn detached_run_keeps_its_call_and_command() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let command = format!("rsync -a src/ u@h:dst/ {}", "x".repeat(300));
+    let (mut order, _answer, _) = order(1, &command, RunMode::Auto);
+    order.approved_by = Some(ApprovedBy::You);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07u@h's password: ");
+    core.waiting(1, Some(Waiting { group: JOB, hidden: true, looks_secret: false }));
+    assert_eq!(core.left_running(), None, "the run still has its caller");
+    assert!(matches!(core.detach(1, true), Detached::Running { .. }));
+    let left = core.left_running().unwrap();
+    assert_eq!(
+        left,
+        LeftRunning {
+            call: Some(call_id(1)),
+            command: command.chars().take(200).collect(),
+            since: TestClock::START,
+            contained: false,
+            input: InputWait::Hidden,
+            looks_secret: false,
+            prompt: String::new(),
+            approved_by: Some(ApprovedBy::You),
+        }
+    );
+    assert!(!core.is_free());
+}
+
+#[test]
+fn a_run_whose_caller_went_away_is_not_left_running() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = order(1, "sleep 100", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+    assert!(matches!(core.detach(1, false), Detached::Running { .. }));
+    assert_eq!(core.left_running(), None);
+    assert!(!core.is_free(), "its command still holds the shell");
+}
+
+#[test]
+fn orphan_end_still_frees_the_shell() {
+    // A marked run ends at its `D`.
+    let (mut marked, _) = core(true);
+    let mut at = 0;
+    ready(&mut marked, &mut at);
+    let (first, _answer, _) = order(1, "make", RunMode::Auto);
+    marked.submit(first);
+    feed(&mut marked, &mut at, b"\r\n\x1b]133;C\x07cc -c a.c\r\n");
+    assert!(matches!(marked.detach(1, true), Detached::Running { .. }));
+    assert!(marked.left_running().is_some());
+    feed(&mut marked, &mut at, b"\x1b]133;D;0\x07");
+    assert_eq!(marked.left_running(), None);
+    assert!(marked.is_free());
+
+    // A sentinel run ends at its end marker.
+    let (mut core, _) = core(false);
+    let mut at = 0;
+    let (order, _answer, _) = order(1, "make", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, b"__efr_0123456789abcdef_b\r\ncc -c a.c\r\n");
+    assert!(matches!(core.detach(1, true), Detached::Running { .. }));
+    assert!(core.left_running().is_some());
+    feed(&mut core, &mut at, b"\r\n__efr_0123456789abcdef_e:0:/home/u\r\n");
+    assert_eq!(core.left_running(), None);
+    assert!(core.is_free());
+}
+
+#[test]
+fn exited_shell_drops_the_orphan() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = order(1, "make", RunMode::Auto);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07");
+    assert!(matches!(core.detach(1, true), Detached::Running { .. }));
+    core.exited(None);
+    assert_eq!(core.left_running(), None);
+    assert!(core.is_free());
 }
 
 #[test]
@@ -650,7 +734,7 @@ fn a_detached_run_takes_no_answer() {
     let (order, _answer, _) = order(1, "sudo true", RunMode::Auto);
     core.submit(order);
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
-    assert!(matches!(core.detach(1), Detached::Running { .. }));
+    assert!(matches!(core.detach(1, false), Detached::Running { .. }));
     assert!(matches!(core.answerable(call_id(1)), Err(ShellError::NoCall { .. })));
 }
 

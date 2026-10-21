@@ -70,6 +70,13 @@ The `cd` waits at most `MOVE_TIMEOUT` (5 s).
   exists), `Completion::Interactive` when it waits for input (it has been quiet for
   `quiet_period` and the cursor sits after some text), and `Completion::StillRunning`
   otherwise.
+- Such a command is left running. The session keeps what it knows of its run: the
+  call, the first 200 characters of the line, the start, whether it runs in the
+  sandbox, who approved the call (`RunRequest::with_approval`) and the wait that the
+  run reported last. `ShellSessions::busy(conversation)` tells it as a `LeftRunning`
+  until the command ends or the shell exits. A run whose caller went away (a turn that
+  the user interrupted) and a run that is stopped because nobody can answer its hidden
+  wait also go on until their end, but they are not left running in this sense.
 - A run with `RunRequest::interactive_limit` (the daemon sets it for a call that the
   user approved because it may wait for input) whose command runs keeps waiting past
   its timeout while `RunProgress::can_answer` says that a person who can type answers
