@@ -35,6 +35,13 @@
 #   ,away          tell efr that you are away from this terminal's conversation: a
 #                  question then waits only a short time (presence.away_wait_secs),
 #                  and its call does not run; your next input there ends it
+#   ,shell [id]    answer or stop a command that still runs in the hidden shell of
+#                  this terminal's conversation, such as an rsync that waits for a
+#                  password after its call timed out: it shows the command and the
+#                  line that it waits at; Enter answers, Ctrl+C stops it, a second
+#                  Ctrl+C closes the hidden shell, Esc leaves it. Type such a
+#                  password only here, never at the prompt. It also runs in sticky
+#                  mode
 #   ,mode [m]      this terminal's permission mode for its prompts: manual, cautious,
 #                  auto or full; without a value, show it with its source and the
 #                  choices; `default` lets the config decide again. `,mode full`
@@ -54,7 +61,7 @@
 #                  sends `run make`; a `,word` command of the user's own still runs,
 #                  as does a line that defines one (`,mine() { ... }`),
 #                  `,!word` steers with `word`, and a typo of a plugin command such
-#                  as `,moed`, `,compcat`, `,contxet`, `,resmue` or `,aawy` stays on
+#                  as `,moed`, `,compcat`, `,contxet`, `,resmue`, `,aawy` or `,shlel` stays on
 #                  the line with a hint instead of running
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
@@ -695,6 +702,17 @@ function ,away {
   efr away
 }
 
+# Answers or stops the command that a shell call left running in the hidden shell of
+# this terminal's conversation, through `efr shell`. It is the one place to type a
+# password for such a command: a line typed at the prompt goes to the shell, or in
+# sticky mode to the agent. It hands nothing over: no prompt, no context and no turn
+# settings. The words are arguments of `efr shell`, such as a conversation id.
+function ,shell {
+  emulate -L zsh
+  _efr_available || { _efr_missing; return 127 }
+  efr shell "$@"
+}
+
 # --- turn settings ----------------------------------------------------------------
 
 function ,mode {
@@ -932,9 +950,10 @@ _efr_one_edit() {
 
 # Sets REPLY to a hint when the first word of the line $1 is a typo of a plugin
 # command's `,` word, such as `,moed` for `,mode`: one edit away from `,mode`,
-# `,model`, `,effort`, `,compact`, `,context` or `,resume`, or the letters of `,new` or
-# `,away` in another order. Only the order counts for the short `,new` and `,away`,
-# because one edit from them is also the start of a prompt such as `,now` or `,sway`.
+# `,model`, `,effort`, `,compact`, `,context` or `,resume`, or the letters of `,new`,
+# `,away` or `,shell` in another order. Only the order counts for the short `,new` and
+# `,away`, because one edit from them is also the start of a prompt such as `,now` or
+# `,sway`, and for `,shell`, which is one edit from `,spell`.
 # A word that zsh could run is no typo. Returns 1 for any other line.
 _efr_mistyped_command() {
   emulate -L zsh -o extended_glob
@@ -951,6 +970,7 @@ _efr_mistyped_command() {
   done
   [[ -z $meant && ${(j::)${(os::)word}} == enw ]] && meant=new
   [[ -z $meant && ${(j::)${(os::)word}} == aawy && $word != away ]] && meant=away
+  [[ -z $meant && ${(j::)${(os::)word}} == ehlls && $word != shell ]] && meant=shell
   [[ -n $meant ]] || return 1
   REPLY="efr: ,$word is no command; did you mean ,$meant? \`, $word\` sends a prompt"
 }

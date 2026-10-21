@@ -1557,6 +1557,55 @@ fn e2e_comma_resume_in_sticky_mode_runs_as_a_command() {
 }
 
 #[test]
+fn e2e_comma_shell_runs_efr_shell_with_its_words_and_hands_nothing_over() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let (_, status) = run_with(
+        &home,
+        &[],
+        "_efr_turn_mode=auto\n_efr_preexec 'make test'\nfalse; _efr_precmd\n,shell\n,shell 019a9b1c",
+    );
+    assert_eq!(status, Some(0));
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["shell"], vec!["shell", "019a9b1c"]]);
+    for call in &calls {
+        assert_eq!((call.prompt.as_deref(), call.context.as_deref()), (None, None));
+        assert_eq!(call.last_command(), None);
+        assert_eq!(call.settings(), [None, None, None], "it hands over no turn settings");
+    }
+}
+
+#[test]
+fn e2e_comma_shell_in_sticky_mode_runs_as_a_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    // The one place to type a password for the hidden shell must not become a prompt in
+    // sticky mode, where every other line goes to the agent.
+    let home = Home::new();
+    type_lines_with(&home, UTF8, &["<C-Space>", ",shell", "what now", "<C-Space>"]);
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["shell"], vec!["send"]]);
+    assert_eq!(calls[0].prompt, None);
+    assert_eq!(calls[1].prompt.as_deref(), Some("what now"));
+}
+
+#[test]
+fn e2e_comma_shell_typo_stays_on_the_line() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let screen = type_lines(&home, &[",shlel", "\x15", ",spell check the readme"]);
+    assert!(screen.contains("efr: ,shlel is no command; did you mean ,shell?"), "{screen}");
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"]], "one edit from ,shell is a prompt");
+    assert_eq!(calls[0].prompt.as_deref(), Some("spell check the readme"));
+}
+
+#[test]
 fn e2e_a_setting_takes_one_value() {
     if !zsh_tests_enabled() {
         return;
