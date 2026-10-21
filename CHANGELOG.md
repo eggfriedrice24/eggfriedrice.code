@@ -645,6 +645,10 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Security
 
+- The delete guard of full mode and the exits of `auto` now read git's
+  `--config-env`, `--attr-source` and `--shallow-file` with their value as a separate
+  word. Before, `git --config-env a.b=HOME -C ~ clean -fdx` passed the delete guard, and
+  `git --attr-source HEAD push` was no upload exit.
 - Before an approved outside `git push`, `git fetch`, `git pull`, `git send-email`, or a
   `gh` command that runs git, efr checks the repository's git code and that of its
   submodules: hooks, `core.sshCommand`, transport URLs and the other settings that run

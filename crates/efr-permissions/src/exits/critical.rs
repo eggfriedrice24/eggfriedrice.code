@@ -24,6 +24,7 @@ use super::ExitInput;
 use super::envelope::{Envelope, resolve};
 use super::programs::{base_name, placed_commands};
 use super::scan::{self, CdTarget, OPAQUE, Segment, is_assignment};
+use crate::command::git;
 use crate::path_class::normalize;
 use crate::tables::is_system_dir;
 use crate::{CriticalDelete, CriticalTarget, CriticalWhy, Locations};
@@ -772,33 +773,27 @@ struct GitClean<'w> {
     pathspecs: Vec<Word<'w>>,
 }
 
-/// The global options of `git` that take the next word as their value.
-const GIT_VALUES: &[&str] = &["-C", "-c", "--git-dir", "--work-tree", "--namespace"];
-
 /// `git` with `args` when it is a `git clean` that deletes untracked dirs: `-f` and
-/// `-d`, and no `-n`.
+/// `-d`, and no `-n`. The positions of git's own options come from the one table
+/// ([`git::exact`]), so `git --config-env a.b=HOME -C ~ clean -fdx` is a clean in `~`
+/// (DL28).
 fn git_clean_args<'w>(args: &[Word<'w>]) -> Option<GitClean<'w>> {
+    let texts: Vec<&str> = args.iter().map(|word| word.text).collect();
+    let parse = git::exact(&texts);
     let mut dirs = Vec::new();
-    let mut at = 0;
-    while let Some(word) = args.get(at) {
-        let text = word.text;
-        if GIT_VALUES.contains(&text) {
-            if matches!(text, "-C" | "--work-tree")
-                && let Some(value) = args.get(at + 1)
-            {
-                dirs.push(*value);
+    for global in parse.globals.iter().filter(|g| g.is("-C") || g.is("--work-tree")) {
+        match global.option.map(|option| option.form) {
+            Some(git::Form::Next) => dirs.extend(args.get(global.at + 1).copied()),
+            Some(git::Form::Joined) => {
+                if let Some((_, value)) = args[global.at].text.split_once('=') {
+                    dirs.push(Word { text: value, raw: value });
+                }
             }
-            at += 2;
-        } else if let Some(value) = text.strip_prefix("--work-tree=") {
-            dirs.push(Word { text: value, raw: value });
-            at += 1;
-        } else if text.starts_with('-') {
-            at += 1;
-        } else {
-            break;
+            Some(git::Form::Flag) | None => {}
         }
     }
-    if args.get(at).map(|word| word.text) != Some("clean") {
+    let at = parse.sub?;
+    if args[at].text != "clean" {
         return None;
     }
     let (mut force, mut directories, mut dry) = (false, false, false);

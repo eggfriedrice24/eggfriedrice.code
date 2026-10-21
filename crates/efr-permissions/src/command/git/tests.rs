@@ -144,6 +144,13 @@ fn exact_parse_names_each_global_and_its_value() {
         ]
     );
     assert_eq!(parse.sub, Some(7));
+    let names: Vec<&str> = parse.globals.iter().map(|global| global.name(&args)).collect();
+    assert_eq!(names, ["-C", "--work-tree", "-c", "--no-pager", "--zz"]);
+    assert!(parse.globals[1].is("--work-tree"));
+    assert!(!parse.globals[0].is("--work-tree"));
+    // An unknown option's name stops at `=`, as the exits read it.
+    let args = words("--zz=1 push");
+    assert_eq!(exact(&args).globals[0].name(&args), "--zz");
 }
 
 #[test]

@@ -316,6 +316,14 @@ fn critical_git_clean_in_home() {
         [path(LIB, CriticalWhy::ProjectRoot)]
     );
     assert_eq!(targets("GIT_WORK_TREE=/x git clean -fd"), [unreadable("GIT_WORK_TREE=/x")]);
+    // git's options with a separate value, from the one table (DL28).
+    let home = [path(HOME, CriticalWhy::Home)];
+    assert_eq!(targets("git --config-env a.b=HOME -C ~ clean -fdx"), home);
+    assert_eq!(targets("git --attr-source HEAD -C ~ clean -fdx"), home);
+    assert_eq!(targets("git --shallow-file f -C ~ clean -fdx"), home);
+    assert_eq!(targets("false && git --config-env a.b=HOME -C ~ clean -fdx"), home);
+    assert_eq!(targets("git --work-tree /etc clean -fd"), [path("/etc", CriticalWhy::SystemDir)]);
+    assert_eq!(targets_in("git --attr-source HEAD clean -fdx", Some(HOME)), home);
 }
 
 #[test]

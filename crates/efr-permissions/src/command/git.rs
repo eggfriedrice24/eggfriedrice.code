@@ -129,6 +129,21 @@ pub(crate) struct Global {
 }
 
 impl Global {
+    /// The option's name: the word without `=value`, also for an option that the table
+    /// does not know.
+    pub(crate) fn name<'a, S: AsRef<str>>(&self, args: &'a [S]) -> &'a str {
+        let word = args[self.at].as_ref();
+        match word.split_once('=') {
+            Some((name, _)) if self.option.is_none_or(|option| option.form == Form::Joined) => name,
+            _ => word,
+        }
+    }
+
+    /// True for the option `name` of the table, in either form.
+    pub(crate) fn is(&self, name: &str) -> bool {
+        self.option.is_some_and(|option| option.name == name)
+    }
+
     /// The option's value: the next word, the text after `=`, or `None` for a flag and
     /// for a next form at the end of the line.
     pub(crate) fn value<'a, S: AsRef<str>>(&self, args: &'a [S]) -> Option<&'a str> {

@@ -11,6 +11,7 @@ use efr_protocol::ExitKind;
 
 use super::programs::{self, base_name, is_sandbox_device};
 use super::{Envelope, ExitNeed, WriteBind, existing_kind, git_dir};
+use crate::command::git;
 use crate::{AutoSupport, CallFacts, CoverAsk, Locations, TargetKind};
 
 /// The asks of a destructive part whose paths are `targets`: one [`CoverAsk::Path`]
@@ -73,26 +74,22 @@ const GIT_PLAIN_OPTIONS: &[&str] = &["--no-pager", "-P", "--no-optional-locks"];
 /// another repository or work tree (`-c`, `--git-dir`, `--work-tree`).
 fn git_asks(words: &[String], dir: Option<&Path>, locations: &Locations) -> Vec<CoverAsk> {
     let args = &words[1..];
-    let mut at = 0;
+    let parse = git::exact(args);
     let mut dirs = 0;
-    while let Some(word) = args.get(at) {
-        if word == "-C" {
+    for global in &parse.globals {
+        if global.is("-C") {
             dirs += 1;
-            at += 2;
-        } else if GIT_PLAIN_OPTIONS.contains(&word.as_str()) {
-            at += 1;
-        } else if word.starts_with('-') {
+        } else if !GIT_PLAIN_OPTIONS.contains(&args[global.at].as_str()) {
             return Vec::new();
-        } else {
-            break;
         }
     }
     if dirs > 1 {
         return Vec::new();
     }
-    let (Some(sub), Some(root)) = (args.get(at), git_dir(words, dir, locations)) else {
+    let (Some(at), Some(root)) = (parse.sub, git_dir(words, dir, locations)) else {
         return Vec::new();
     };
+    let sub = &args[at];
     let rest = &args[at + 1..];
     match sub.as_str() {
         "reset" | "checkout" | "switch" => {

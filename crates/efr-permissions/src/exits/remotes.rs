@@ -13,7 +13,8 @@ use efr_protocol::{ExitKind, ExitSource, Grant};
 use super::programs::{ProxyRoute, base_name, proxy_route};
 use super::scan::is_assignment;
 use super::{Approver, ExitNeed};
-use crate::{CallFacts, HostList, RemoteFact, RemoteUrl};
+use crate::command::git;
+use crate::{CallFacts, HostList, Locations, RemoteFact, RemoteUrl};
 
 /// What a git command does with its remote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,9 +26,6 @@ pub(super) enum RemoteUse {
     /// It fetches the submodules of `.gitmodules`: `submodule update`.
     Submodules,
 }
-
-/// The options of git before its subcommand that take the next word as their value.
-const GIT_VALUES: &[&str] = &["-C", "-c", "--git-dir", "--work-tree", "--namespace"];
 
 /// The options of git before its subcommand that make the remote facts of the
 /// directory wrong: another repository, or a config value of the line, such as
@@ -80,21 +78,12 @@ pub(super) fn remote_command(words: &[String]) -> Option<RemoteCommand<'_>> {
     if base_name(first) != "git" {
         return None;
     }
-    let mut at = 0;
-    while let Some(word) = args.get(at) {
-        let option = word.split_once('=').map_or(word.as_str(), |(option, _)| option);
-        if STEERING.contains(&option) {
-            return None;
-        }
-        if GIT_VALUES.contains(&word.as_str()) {
-            at += 2;
-        } else if word.starts_with('-') {
-            at += 1;
-        } else {
-            break;
-        }
+    let parse = git::exact(args);
+    if parse.globals.iter().any(|global| STEERING.contains(&global.name(args))) {
+        return None;
     }
-    let sub = args.get(at)?.as_str();
+    let at = parse.sub?;
+    let sub = args[at].as_str();
     let rest = &args[at + 1..];
     let operands = operands(rest);
     let (kind, operands) = match sub {
@@ -126,17 +115,8 @@ pub(super) fn git_push(words: &[String]) -> Option<&[String]> {
     if base_name(first) != "git" {
         return None;
     }
-    let mut at = 0;
-    while let Some(word) = args.get(at) {
-        if GIT_VALUES.contains(&word.as_str()) {
-            at += 2;
-        } else if word.starts_with('-') {
-            at += 1;
-        } else {
-            return matches!(word.as_str(), "push" | "send-pack").then(|| &args[at + 1..]);
-        }
-    }
-    None
+    let at = git::exact(args).sub?;
+    matches!(args[at].as_str(), "push" | "send-pack").then(|| &args[at + 1..])
 }
 
 /// The words of `rest` that are no option and no option's value.
@@ -165,19 +145,15 @@ fn is_remote_name(word: &str) -> bool {
         && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
-/// The directory whose remotes the git command `words` uses: the directory of `-C`,
-/// else `dir`, the directory the command runs in. `None` when it is not known, such as
-/// after a `cd`.
+/// The directory whose remotes the git command `words` uses: the directory of its
+/// `-C` options, each relative to the one before, else `dir`, the directory the command
+/// runs in. `None` when it is not known, such as after a `cd`.
 pub(super) fn remote_dir(
     words: &[String],
     dir: Option<&Path>,
-    resolve: &dyn Fn(&str) -> Option<PathBuf>,
+    locations: &Locations,
 ) -> Option<PathBuf> {
-    let at = words.iter().position(|word| word == "-C");
-    match at.and_then(|at| words.get(at + 1)) {
-        Some(other) => resolve(other),
-        None => dir.map(Path::to_path_buf),
-    }
+    super::git_dir(words, dir, locations)
 }
 
 /// True when the segment `words` sets a `GIT_*` variable for its commands, such as

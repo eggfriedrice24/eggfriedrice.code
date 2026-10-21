@@ -6,7 +6,7 @@ use pretty_assertions::assert_eq;
 use rstest::rstest;
 
 use super::{RemoteCommand, RemoteUse, remote_command, remote_dir, selected, steers_git};
-use crate::{CallFacts, RemoteFact, RemoteUrl};
+use crate::{CallFacts, Locations, RemoteFact, RemoteUrl};
 
 fn words(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_owned).collect()
@@ -50,16 +50,46 @@ fn remote_commands_that_name_no_remote_or_steer_the_config(#[case] line: &str) {
     assert_eq!(remote_command(&words(line)), None, "{line:?}");
 }
 
-#[test]
-fn remote_dir_reads_dash_c() {
-    let resolve = |word: &str| Some(Path::new("/p").join(word));
-    let dir = Path::new("/p/app");
-    assert_eq!(remote_dir(&words("git fetch"), Some(dir), &resolve), Some(dir.to_path_buf()));
+#[rstest]
+#[case::no_dir("git fetch", Some("/p/app"), Some("/p/app"))]
+#[case::relative("git -C ../lib fetch", Some("/p/app"), Some("/p/lib"))]
+#[case::chained("git -C /p -C lib fetch", Some("/srv"), Some("/p/lib"))]
+#[case::after_a_valued_option("git --shallow-file f -C /p/lib fetch", None, Some("/p/lib"))]
+#[case::after_attr_source("git --attr-source HEAD -C ~/p/app fetch", None, Some("/home/u/p/app"))]
+#[case::empty_dir("git -C '' fetch", Some("/p/app"), Some("/p/app"))]
+#[case::not_a_global("git fetch -C x", Some("/p/app"), Some("/p/app"))]
+#[case::unknown_start("git fetch", None, None)]
+#[case::relative_unknown_start("git -C lib fetch", None, None)]
+fn remote_dir_reads_dash_c(
+    #[case] line: &str,
+    #[case] dir: Option<&str>,
+    #[case] expected: Option<&str>,
+) {
+    let locations = Locations::new("/home/u").unwrap();
+    let mut words = words(line);
+    for word in &mut words {
+        if word == "''" {
+            word.clear();
+        }
+    }
     assert_eq!(
-        remote_dir(&words("git -C lib fetch"), Some(dir), &resolve),
-        Some(PathBuf::from("/p/lib"))
+        remote_dir(&words, dir.map(Path::new), &locations),
+        expected.map(PathBuf::from),
+        "{line:?}"
     );
-    assert_eq!(remote_dir(&words("git fetch"), None, &resolve), None);
+}
+
+#[rstest]
+#[case::attr_source("git --attr-source HEAD fetch", RemoteUse::Fetch)]
+#[case::attr_source_joined("git --attr-source=HEAD -C ~/p/app fetch", RemoteUse::Fetch)]
+#[case::shallow_file("git --shallow-file f -C x fetch", RemoteUse::Fetch)]
+#[case::attr_source_push("git --attr-source HEAD push", RemoteUse::Push)]
+fn remote_commands_after_options_with_a_separate_value(
+    #[case] line: &str,
+    #[case] kind: RemoteUse,
+) {
+    let found = remote_command(&words(line)).map(|command| command.kind);
+    assert_eq!(found, Some(kind), "{line:?}");
 }
 
 #[test]

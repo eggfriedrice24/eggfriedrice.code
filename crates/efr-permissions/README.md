@@ -110,7 +110,13 @@ Modules:
   `--config-env`); and the dirs of `-C` (each relative to the one before) and
   `--work-tree`. `plain_view` removes only the `plain` options (`--no-pager`, `-P`,
   `--no-optional-locks`, `--no-advice`, `--no-lazy-fetch` and the pathspec options),
-  for a rule that allows.
+  for a rule that allows. The exits take the positions of git's options from `exact`
+  too (DL28): the upload and destructive forms of `exits/programs.rs`, the remote
+  facts of `exits/remotes.rs` (the dir of the `-C` options, each relative to the one
+  before), the delete guard of `exits/critical.rs`, the cover asks of
+  `exits/cover.rs` and the git code check of `exits/git_code.rs`. Each keeps its own
+  idea of which options it accepts, so `cover.rs` still accepts only `--no-pager`,
+  `-P`, `--no-optional-locks` and one `-C`.
 - `policy`: `Policy`, an ordered list of `Rule { action, resource, effect }` in which
   the last match wins. A `command` resource is a `CommandPattern`: the program, the
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the

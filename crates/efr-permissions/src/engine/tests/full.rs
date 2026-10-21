@@ -465,6 +465,11 @@ fn guarded(decision: &Decision) -> Vec<String> {
 #[case::chmod("chmod -R 777 ~", "~ (your home directory)")]
 #[case::move_away("mv ~ /tmp/x", "~ (your home directory)")]
 #[case::git_clean("git -C ~ clean -fdx", "~ (your home directory)")]
+#[case::git_clean_config_env(
+    "false && git --config-env a.b=HOME -C ~ clean -fdx",
+    "~ (your home directory)"
+)]
+#[case::git_clean_attr_source("git --attr-source HEAD -C ~ clean -fdx", "~ (your home directory)")]
 #[case::bash_c("bash -c 'rm -rf ~'", "~ (your home directory)")]
 #[case::wrapper("nice rm -rf ~", "~ (your home directory)")]
 fn full_asks_critical_deletes(#[case] line: &str, #[case] shown: &str) {
