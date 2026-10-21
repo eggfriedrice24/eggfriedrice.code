@@ -194,8 +194,9 @@ pub enum Completion {
     /// sent `SIGINT` to the terminal's foreground process group and returned at once.
     /// When the command had ended by then and the shell held the terminal again, no
     /// signal was sent. The command may still be ending; the next run waits for its
-    /// prompt. A sandboxed call that waits for hidden input always ends this way: efr
-    /// never types a secret into a sandboxed command.
+    /// prompt. A sandboxed call that waits for hidden input, or for visible input whose
+    /// prompt looks like a password prompt, always ends this way: efr never types a
+    /// secret into a sandboxed command.
     Unanswered,
     /// A sandboxed run whose sandbox did not start or did not report: the wrapper check
     /// failed or the integration is missing (nothing ran), the sandbox's setup failed

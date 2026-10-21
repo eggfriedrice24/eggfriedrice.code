@@ -1025,11 +1025,12 @@ fn answer(
     let conversation = core.conversation;
     let refused = |reason| ShellError::NotWaiting { conversation, reason };
     // NOTE: sandboxed code can fake a password prompt to collect a password that the
-    // user would type for a later approved exit, so no hidden input reaches it (efr's
-    // auto spec, 3.12). The exit child of an approved exit is not sandboxed and takes
-    // it.
-    if hidden && run.contained {
-        return Err(refused("efr types no secret into a sandboxed command"));
+    // user would type for a later approved exit, so no answer that may be a secret
+    // reaches it (efr's auto spec, 3.12): no hidden one, none to a wait that looks
+    // secret, and no manual one. The exit child of an approved exit is not sandboxed and
+    // takes them.
+    if run.contained {
+        input::check_contained(run.waiting, hidden, manual).map_err(refused)?;
     }
     if manual {
         input::check_manual(run.offer).map_err(refused)?;

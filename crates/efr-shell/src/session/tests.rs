@@ -9,12 +9,19 @@ use efr_test_support::TestClock;
 use pretty_assertions::assert_eq;
 use tokio::sync::{oneshot, watch};
 
-use super::{Detached, RunEnd, RunOrder, SessionCore};
-use crate::input::{Offer, Waiting};
-use crate::modes::{InputModes, Job};
+use std::io::Read as _;
+use std::os::fd::OwnedFd;
+use std::os::unix::net::UnixStream;
+
+use efr_protocol::SecretText;
+use efr_sandbox::SpecLaunch;
+
+use super::{Detached, RunEnd, RunOrder, SessionCore, answer};
+use crate::input::{Offer, SANDBOXED_SECRET, Waiting};
+use crate::modes::{InputModes, Job, Terminal};
 use crate::run::{Completion, Progress, RunMode};
-use crate::testing::{Notices, conversation};
-use crate::{Phase, ShellError, ShellNotice, ShellState};
+use crate::testing::{FakeModes, JOB, Notices, conversation};
+use crate::{Phase, SandboxRun, ShellError, ShellNotice, ShellState};
 
 type Answer = oneshot::Receiver<Result<RunEnd, ShellError>>;
 
@@ -589,10 +596,10 @@ fn an_answer_learns_the_job_whose_wait_its_run_reported_last() {
     feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07pw: ");
     let waiting = |core: &SessionCore| core.answerable(call_id(1)).unwrap().waiting;
     assert_eq!(waiting(&core), None, "no wait was reported yet");
-    let hidden = Waiting { group: 4242, hidden: true };
+    let hidden = Waiting { group: 4242, hidden: true, looks_secret: false };
     core.waiting(1, Some(hidden));
     assert_eq!(waiting(&core), Some(hidden));
-    core.waiting(2, Some(Waiting { group: 4343, hidden: false }));
+    core.waiting(2, Some(Waiting { group: 4343, hidden: false, looks_secret: false }));
     assert_eq!(waiting(&core), Some(hidden), "another run's report");
     core.waiting(1, None);
     assert_eq!(waiting(&core), None, "the wait ended");
@@ -657,4 +664,100 @@ fn a_sentinel_run_takes_an_answer_between_its_markers() {
     feed(&mut core, &mut at, b"__efr_0123456789abcdef_b\r\npw: ");
     core.answerable(call_id(1)).unwrap();
     assert!(updates.borrow_and_update().started);
+}
+
+/// A run of call `id` through the sandbox's launcher, contained or the exit child.
+fn sandboxed_order(id: u64, launch: SpecLaunch) -> (RunOrder, Answer, watch::Receiver<Progress>) {
+    let (mut order, answer, updates) = order(id, "./fake-sudo", RunMode::Auto);
+    let dir = PathBuf::from(format!("/run/user/1000/efr/sbx/{}/{}", conversation(1), call_id(id)));
+    order.sandbox = Some(SandboxRun::new(dir, call_id(id), [7; 16], launch));
+    (order, answer, updates)
+}
+
+/// A terminal over one end of a socketpair, whose modes and foreground the test sets
+/// (a job of group [`JOB`] holds it, cooked), and the other end, which reads what an
+/// answer typed.
+fn terminal() -> (Terminal, Arc<FakeModes>, UnixStream) {
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    theirs.set_nonblocking(true).unwrap();
+    let modes = Arc::new(FakeModes::default());
+    let master = crate::reader::master(OwnedFd::from(ours)).unwrap();
+    (Terminal::new(master, Arc::clone(&modes) as _, 7), modes, theirs)
+}
+
+/// What the answers typed so far, without waiting for more.
+fn typed_so_far(theirs: &mut UnixStream) -> Vec<u8> {
+    let mut typed = Vec::new();
+    let mut buf = [0; 256];
+    loop {
+        match theirs.read(&mut buf) {
+            Ok(0) => return typed,
+            Ok(n) => typed.extend_from_slice(&buf[..n]),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return typed,
+            Err(error) => panic!("{error}"),
+        }
+    }
+}
+
+/// A command in the sandbox that runs at a password prompt that the last look
+/// reported as `waiting`, behind a terminal in raw mode.
+fn contained_run(waiting: Option<Waiting>) -> SessionCore {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = sandboxed_order(1, SpecLaunch::Contained);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07Password: ");
+    core.probe(1, Some(Job { group: JOB, modes: InputModes::new(false, false) }));
+    core.waiting(1, waiting);
+    core
+}
+
+fn refused_as_secret(result: &Result<(), ShellError>) -> bool {
+    matches!(result, Err(ShellError::NotWaiting { reason, .. }) if *reason == SANDBOXED_SECRET)
+}
+
+#[tokio::test]
+async fn contained_looks_secret_answer_is_refused() {
+    let visible = Waiting { group: JOB, hidden: false, looks_secret: false };
+    let mut core = contained_run(Some(Waiting { looks_secret: true, ..visible }));
+    let (terminal, modes, mut theirs) = terminal();
+    modes.set(Some(InputModes::new(false, false)));
+    let text = SecretText::new("hunter2");
+    let refused = answer(&mut core, &terminal, call_id(1), &text, false, false);
+    assert!(refused_as_secret(&refused), "{refused:?}");
+    let hidden = answer(&mut core, &terminal, call_id(1), &text, true, false);
+    assert!(refused_as_secret(&hidden), "{hidden:?}");
+    assert_eq!(typed_so_far(&mut theirs), b"");
+
+    // A plain question of the same command still takes a visible answer.
+    core.waiting(1, Some(visible));
+    answer(&mut core, &terminal, call_id(1), &SecretText::new("y"), false, false).unwrap();
+    assert_eq!(typed_so_far(&mut theirs), b"y\r");
+}
+
+#[tokio::test]
+async fn contained_manual_answer_is_refused() {
+    let mut core = contained_run(None);
+    let (terminal, _modes, mut theirs) = terminal();
+    for hidden in [false, true] {
+        let text = SecretText::new("hunter2");
+        let refused = answer(&mut core, &terminal, call_id(1), &text, hidden, true);
+        assert!(refused_as_secret(&refused), "{hidden} {refused:?}");
+    }
+    assert_eq!(typed_so_far(&mut theirs), b"");
+}
+
+#[tokio::test]
+async fn an_exit_child_takes_a_manual_answer() {
+    let (mut core, _) = core(true);
+    let mut at = 0;
+    ready(&mut core, &mut at);
+    let (order, _answer, _) = sandboxed_order(1, SpecLaunch::Unsandboxed);
+    core.submit(order);
+    feed(&mut core, &mut at, b"\r\n\x1b]133;C\x07working\r\n");
+    core.probe(1, Some(Job { group: JOB, modes: InputModes::new(true, true) }));
+    let (terminal, _modes, mut theirs) = terminal();
+    answer(&mut core, &terminal, call_id(1), &SecretText::new("go"), false, true).unwrap();
+    assert_eq!(typed_so_far(&mut theirs), b"go\r");
 }

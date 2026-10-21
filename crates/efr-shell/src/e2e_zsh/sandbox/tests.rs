@@ -239,6 +239,64 @@ async fn a_launcher_that_sigint_ends_before_it_starts_reports_an_interrupt() {
 }
 
 #[tokio::test]
+async fn contained_raw_mode_password_prompt_is_refused() {
+    let Some(zsh) = Zsh::start_sandboxed("contained_raw_mode_password_prompt_is_refused") else {
+        return;
+    };
+    // Sandboxed code turns line mode and echo off itself and prints a password prompt:
+    // a visible wait that looks secret, which efr never answers in the sandbox.
+    let run = zsh.prepare(1);
+    let line = "stty -icanon -echo; print -n 'password: '; read -k 8";
+    let request = crate::RunRequest::new(line, zsh.start_dir())
+        .with_call(run.call)
+        .with_sandbox(Some(run.clone()))
+        .with_timeout(std::time::Duration::from_secs(600));
+    // A client that could answer follows the turn.
+    let (mut listener, heard) = crate::testing::listener(true);
+    let sessions = zsh.sessions.clone();
+    let conversation = zsh.conversation;
+    let handle =
+        tokio::spawn(
+            async move { sessions.run_command(conversation, request, &mut listener).await },
+        );
+    let shown = Wait::new("the password prompt on the screen")
+        .until_some_async(async || {
+            let screen = zsh.sessions.screen(zsh.conversation)?;
+            let capture = screen.snapshot(0).await.ok()?;
+            let rows = capture.snapshot.rows.iter().map(efr_screen::row_text);
+            rows.into_iter().any(|row| row.contains("password:")).then_some(())
+        })
+        .await;
+    if let Err(error) = shown {
+        let pty_id = zsh.sessions.state(zsh.conversation).await.unwrap().pty_id;
+        panic!("{error:?}: {}", String::from_utf8_lossy(&zsh.recorded.stream(pty_id)));
+    }
+    for _ in 0..10 {
+        if handle.is_finished() {
+            break;
+        }
+        let before = zsh.clock.pending_sleeps();
+        zsh.clock.advance(std::time::Duration::from_secs(1));
+        let clock = zsh.clock.clone();
+        Wait::new("the next look or the end of the run")
+            .until(|| handle.is_finished() || clock.pending_sleeps() >= before)
+            .await
+            .unwrap();
+    }
+    let result = handle.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Unanswered, "{result:?}");
+    assert_eq!(
+        *heard.inputs.borrow(),
+        [efr_protocol::InputWait::Visible, efr_protocol::InputWait::None]
+    );
+    assert_eq!(*heard.secrets.borrow(), [true, false]);
+
+    // The interrupted call frees the shell, and its modes come back.
+    let next = zsh.prepare(2);
+    assert_eq!(zsh.run_sandboxed(&next, "true").await.completion, Completion::Finished);
+}
+
+#[tokio::test]
 async fn apply_rejects_bad_names() {
     let Some(zsh) = Zsh::start_sandboxed("apply_rejects_bad_names") else {
         return;

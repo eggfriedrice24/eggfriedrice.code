@@ -603,6 +603,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
+- efr no longer sends an answer that may be a password into a sandboxed command. A
+  sandboxed command could show a prompt that looked like a password prompt, and efr took
+  your answer for it. Now efr stops such a command at once.
 - An `ask` or `deny` rule for `git` in `[[permissions.rules]]` now matches when git's own
   options come before the subcommand, such as `git -C ~/p/app push origin HEAD` or
   `git -c push.default=current push`, in both forms (`--git-dir=x` and `--git-dir x`).

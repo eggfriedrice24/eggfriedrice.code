@@ -113,7 +113,10 @@ and `D`, or the two sentinels):
   and the cursor's row names a password, a passphrase, a passcode, a PIN (as a word of
   its own), a verification code or a one-time code, in any case (`efr_protocol::looks_secret`),
   so a client hides what the user types; the answer still goes as a visible one, so the
-  kind check below holds. A change of the flag alone is a change too.
+  kind check below holds. A change of the flag alone is a change too. A command in the
+  sandbox can turn line mode off itself and print such a prompt, so for a contained
+  call a visible wait that looks secret counts as a hidden one: it stops the command at
+  once (below).
 - A prompt that reads command lines (a shell's `$ `, a REPL's `>>> `) looks like a
   visible question, and an answer there would run as a command line. So two kinds of
   run report hidden waits only (`input::Offer`):
@@ -504,9 +507,12 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   run ends because the launcher never started. `cwd_after` is the cwd of
   `result.json`; when that lies in the sandbox's private tmp, `ShellState::sandbox_cwd`
   keeps it until the shell's own directory changes.
-- A contained call never takes hidden input: a hidden wait stops it at once as
-  `Completion::Unanswered`, and a hidden answer is refused. The exit child takes hidden
-  input as any command does.
+- A contained call never takes an answer that may be a secret: a hidden wait, and a
+  visible wait that looks secret, stop it at once as `Completion::Unanswered`, and a
+  hidden answer, an answer to a wait that looks secret and a manual answer are refused
+  with `efr types no secret into a sandboxed command`. A plain visible wait (`[Y/n]`)
+  of a contained call takes a visible answer. The exit child takes every answer as any
+  command does.
 - Every hidden shell is a child subreaper (`SpawnSpec::child_subreaper`), so a process
   that a command leaves behind stays in the shell's process tree.
 - `_EFR_HS_SBX_DIR` (`<ShellConfig::sandbox_dir>/<conversation>`) and `_EFR_HS_SBX_BIN`
@@ -557,7 +563,8 @@ clock and the seeded generator.
   reported wait and no kind, but a run that reports visible waits and, in the
   foreground, the job that the last look saw while the command ran. A sentinel run and
   a run whose command line starts a shell or a REPL report no visible wait and take no
-  manual answer. The stop of an
+  manual answer. A command in the sandbox takes no hidden answer, no answer to a wait
+  that looks secret and no manual answer. The stop of an
   unanswered hidden wait signals only while that job holds the terminal, as read right
   before the signal.
 - A sandboxed run never types the model's line into the shell, never ends on a mark
