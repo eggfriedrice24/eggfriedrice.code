@@ -4,15 +4,13 @@
 //! still its `result.json`. It reads the file at the end of the call, because efrd makes
 //! it while the call runs.
 //!
-//! A test never sleeps for a call: the call writes a marker file and then waits for a
-//! marker that the test writes.
+//! A test never sleeps for a call: the call writes a line to a FIFO and then waits on
+//! a FIFO that the test writes.
 
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead as _, BufReader, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use efr_sandbox::{CONFIG_LISTINGS_FILE, MOVED_FILE, SpecLaunch};
 
@@ -97,34 +95,37 @@ fn moved_file_written_after_start_is_seen_at_the_end() {
         fixture.spec.launch = launch;
         let up = fixture.project.join("up");
         let go = fixture.project.join("go");
-        let _ = fs::remove_file(&up);
-        let _ = fs::remove_file(&go);
-        // The call writes `up` once it runs, then waits for `go`; the test marks the
-        // call moved in that gap, as efrd does when the user presses Ctrl+B.
+        // The call writes a line to the FIFO `up` once it runs, then reads the FIFO
+        // `go`; the test marks the call moved in that gap, as efrd does when the user
+        // presses Ctrl+B. The test holds both FIFOs open for reading and writing, so no
+        // open blocks and a line ends the wait of the mover if the call never runs.
+        let up_end = fifo(&up);
+        let _go_end = fifo(&go);
         let rest = format!(
-            ": > {up}; until [[ -e {go} ]]; do sleep 0.01; done; print -r -- ran",
+            "print -r -- up > {up}; read -r _ < {go}; print -r -- ran",
             up = q(&up),
             go = q(&go),
         );
         let line = line(&fixture, &rest);
         let call_dir = fixture.prepare(&line);
-        let ended = AtomicBool::new(false);
         let (run, marked) = std::thread::scope(|scope| {
             let mover = scope.spawn(|| {
-                while !up.exists() {
-                    if ended.load(Ordering::SeqCst) {
-                        return false;
-                    }
-                    std::thread::sleep(Duration::from_millis(10));
+                let mut said = String::new();
+                let reader = fs::File::open(&up).unwrap();
+                BufReader::new(reader).read_line(&mut said).unwrap();
+                if said != "up\n" {
+                    return false;
                 }
                 assert!(!call_dir.join(MOVED_FILE).exists());
                 mark_moved(&call_dir);
-                fs::write(&go, "").unwrap();
+                fs::OpenOptions::new().write(true).open(&go).unwrap().write_all(b"go\n").unwrap();
                 true
             });
             let command = fixture.command(&call_dir, &fixture.project);
             let run = fixture.collect(&call_dir, run_with_timeout(command));
-            ended.store(true, Ordering::SeqCst);
+            // NOTE: a call that never wrote `up` leaves the mover waiting; this line ends
+            // its wait. After a move it stays unread in the FIFO.
+            (&up_end).write_all(b"ended\n").unwrap();
             (run, mover.join().unwrap())
         });
         assert!(marked, "{launch:?}: the call never ran: {run:#?}");
@@ -134,4 +135,13 @@ fn moved_file_written_after_start_is_seen_at_the_end() {
         assert_eq!(run.apply, None, "{launch:?}: {run:#?}");
         assert_eq!(state_files(&fixture), [false; 3], "{launch:?}: {run:#?}");
     }
+}
+
+/// Makes the FIFO `path` anew, mode 0600, and opens it for reading and writing: an open
+/// of either end never blocks while the handle lives.
+fn fifo(path: &Path) -> fs::File {
+    let _ = fs::remove_file(path);
+    let mode = rustix::fs::Mode::from_raw_mode(0o600);
+    rustix::fs::mknodat(rustix::fs::CWD, path, rustix::fs::FileType::Fifo, mode, 0).unwrap();
+    fs::OpenOptions::new().read(true).write(true).open(path).unwrap()
 }
