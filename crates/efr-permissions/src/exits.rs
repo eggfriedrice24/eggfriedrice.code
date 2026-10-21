@@ -675,7 +675,15 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     // NOTE: after the rules above, so that nothing lowers the approver again.
     git_code::apply(&mut found, &git_triggers, input.facts, input.locations.home());
     if git_steered {
-        git_code::apply_steering(&mut found);
+        git_code::apply_steering(&mut found, git_code::STEERING_NOTE);
+    }
+    // NOTE: a variable of the line, such as `GIT_CONFIG_COUNT` or `HOME`, chooses the
+    // config and the programs that git runs, also the git of a gh line; the git code
+    // facts come from the hidden shell's environment, not the line's.
+    if !git_triggers.is_empty()
+        && segments.iter().any(|segment| git_code::sets_git_env(&segment.words))
+    {
+        git_code::apply_steering(&mut found, git_code::ENV_STEERING_NOTE);
     }
     named_targets(found, input.locations.home())
 }

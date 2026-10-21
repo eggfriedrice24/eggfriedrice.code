@@ -362,6 +362,10 @@ when it gets an `outside` or `upload` exit.
   `--exec-path`, `--git-dir`, `--work-tree`, `--namespace`, `--receive-pack`, `--exec`,
   `--upload-pack`, `--template`, and `clone -u` or `clone -c`) makes every git line
   that runs outside a question for you alone.
+- So does a variable of a git or gh line that chooses that code: a `GIT_*` name, such
+  as `GIT_CONFIG_COUNT` or `GIT_EXEC_PATH`, an `SSH_*` name, `HOME`,
+  `XDG_CONFIG_HOME` or `PATH`. efrd checks the code with the hidden shell's variables,
+  not with the line's.
 
 ## Code that runs later
 

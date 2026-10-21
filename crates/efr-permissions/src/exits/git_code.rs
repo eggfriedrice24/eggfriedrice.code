@@ -11,7 +11,9 @@
 //!
 //! Git options that choose the code that git runs (`-c`, `--exec-path`,
 //! `--upload-pack` and others, [`steers_code`]) ask only the user too, on every git
-//! line that runs outside.
+//! line that runs outside. So does a variable of a git or gh line that chooses it, such
+//! as `GIT_CONFIG_COUNT`, `GIT_EXEC_PATH` or `HOME` ([`sets_git_env`]): the facts come
+//! from the hidden shell's environment, not the line's.
 
 use std::path::{Path, PathBuf};
 
@@ -268,21 +270,42 @@ pub(super) fn apply(
 }
 
 /// Makes each `outside` and `upload` exit of `needs` one that only the user may
-/// approve, with a note, when a git command of the line chooses the code that git runs
-/// ([`steers_code`]).
-pub(super) fn apply_steering(needs: &mut [ExitNeed]) {
+/// approve, with `note`, when a git command of the line chooses the code that git runs
+/// ([`steers_code`]), or a variable of a git or gh line does ([`sets_git_env`]).
+pub(super) fn apply_steering(needs: &mut [ExitNeed], note: &str) {
     for need in needs.iter_mut().filter(|need| runs_git_code(need.kind)) {
         need.approver = Approver::User;
-        let note = STEERING_NOTE.to_owned();
-        if !need.notes.contains(&note) {
-            need.notes.push(note);
+        if !need.notes.iter().any(|known| known == note) {
+            need.notes.push(note.to_owned());
         }
     }
 }
 
-/// The note of [`apply_steering`].
+/// The note of [`apply_steering`] for an option of the git command.
 pub(super) const STEERING_NOTE: &str =
     "an option of the git command chooses the code that git runs";
+
+/// The note of [`apply_steering`] for a variable of the line.
+pub(super) const ENV_STEERING_NOTE: &str = "a variable of the line chooses the code that git runs";
+
+/// The variables besides the `GIT_*`, `SSH_*` and `AUTOSSH_*` names
+/// ([`sets_ssh_env`](super::programs::sets_ssh_env)) that choose the config files that
+/// git reads or the programs that it finds.
+const GIT_ENV_NAMES: &[&str] = &["HOME", "XDG_CONFIG_HOME", "PATH"];
+
+/// True when the segment `words` sets a variable that chooses the code that git runs:
+/// a `GIT_*` name, such as `GIT_CONFIG_COUNT` or `GIT_EXEC_PATH`, an `SSH_*` or
+/// `AUTOSSH_*` name, or `HOME`, `XDG_CONFIG_HOME` or `PATH`. It reads assignment words
+/// and the words of `export` and `env` alike.
+pub(super) fn sets_git_env(words: &[String]) -> bool {
+    super::programs::sets_ssh_env(words)
+        || words.iter().any(|word| {
+            let word = word.trim_start_matches(['\'', '"']);
+            word.split_once('=').is_some_and(|(name, _)| {
+                GIT_ENV_NAMES.contains(&name.strip_suffix('+').unwrap_or(name))
+            })
+        })
+}
 
 /// True for an exit kind that runs the line outside the sandbox with the user's rights.
 fn runs_git_code(kind: ExitKind) -> bool {

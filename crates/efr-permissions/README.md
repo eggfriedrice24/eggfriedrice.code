@@ -372,7 +372,10 @@ Modules:
   chooses the code (`-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree`,
   `--namespace`, `--receive-pack`, `--exec`, `--upload-pack`, `--template`, `clone -u`
   and `clone -c`) makes every `outside` and `upload` exit of the line `Approver::User`
-  (DV50). With no facts at all (no sandbox in efrd), the route stays.
+  (DV50). So does a variable of a git or gh line that chooses the code
+  (`git_code::sets_git_env`: a `GIT_*`, `SSH_*` or `AUTOSSH_*` name, `HOME`,
+  `XDG_CONFIG_HOME` or `PATH`), because efrd checks with the hidden shell's variables.
+  With no facts at all (no sandbox in efrd), the route stays.
 - `exits/programs.rs` (v0.0.4, DV25): `npm`, `pnpm`, `yarn` and `bun publish` and
   every cargo upload verb (`publish` with or without `--no-verify`, `yank`, `owner`)
   are `upload` exits that only the user approves, with notes that say what they run.

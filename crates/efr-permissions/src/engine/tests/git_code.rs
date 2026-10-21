@@ -250,6 +250,37 @@ fn gh_pr_create_with_a_writable_hook_is_user_only() {
 }
 
 #[rstest]
+#[case::config_count(
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=.hooks gh pr create --fill"
+)]
+#[case::exec_path("GIT_EXEC_PATH=./x gh repo sync")]
+#[case::exported("export GIT_CONFIG_GLOBAL=./cfg; gh pr create --fill")]
+#[case::env_wrapper("env GIT_CONFIG_PARAMETERS=x gh pr merge 12")]
+#[case::home("HOME=. gh pr create --fill")]
+#[case::xdg("XDG_CONFIG_HOME=./c gh repo sync")]
+#[case::path("PATH=./bin:$PATH gh pr create --fill")]
+#[case::git_push("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath git push origin main")]
+fn git_variable_on_a_git_or_gh_line_is_user_only(#[case] line: &str) {
+    for need in leaving(line, facts(Some(checked(APP, &[])))) {
+        assert_eq!(need.approver, Approver::User, "{line:?}");
+        assert!(
+            need.notes
+                .iter()
+                .any(|note| note == "a variable of the line chooses the code that git runs"),
+            "{line:?}: {:?}",
+            need.notes
+        );
+    }
+}
+
+#[test]
+fn gh_line_without_a_git_variable_keeps_the_reviewer() {
+    let need = one("RUST_LOG=debug gh pr create --fill", facts(Some(checked(APP, &[]))));
+    assert_eq!(need.approver, Approver::ClassifierWhenNamed);
+    assert_eq!(need.notes, Vec::<String>::new());
+}
+
+#[rstest]
 #[case::npm("npm publish")]
 #[case::pnpm("pnpm publish --access public")]
 #[case::yarn("yarn npm publish")]
