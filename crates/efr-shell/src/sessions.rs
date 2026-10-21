@@ -978,7 +978,7 @@ impl ShellSessions {
         if let Leave::Moved(moved) = leave {
             guard.disarm();
             end_watch(&mut watch, progress);
-            return Ok(self.hand_over(session, id, offer, *moved, answer).await);
+            return Ok(self.hand_over(session, id, offer, contained, *moved, answer).await);
         }
 
         let detached = self.detach(session, id, true, &mut guard).await;
@@ -1083,6 +1083,7 @@ impl ShellSessions {
         session: &SessionHandle,
         id: u64,
         offer: Offer,
+        contained: bool,
         moved: Moved,
         answer: oneshot::Receiver<Result<RunEnd, ShellError>>,
     ) -> CommandResult {
@@ -1102,6 +1103,7 @@ impl ShellSessions {
             holder: Arc::clone(&deps.holder),
             quiet: self.quiet(),
             quiet_period: config.quiet_period,
+            contained,
             looks,
         };
         tokio::spawn(watch.run());
@@ -1195,7 +1197,7 @@ impl ShellSessions {
         progress: &mut dyn RunProgress,
     ) -> Result<bool, ShellError> {
         let clock = &*self.inner.deps.clock;
-        match session.look(id, offer, self.quiet(), clock, watch).await? {
+        match session.look(id, offer, self.quiet(), clock, watch, contained).await? {
             Looked::Gone => return Ok(false),
             Looked::Same => {}
             Looked::Changed { wait, told } => {

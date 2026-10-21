@@ -1642,6 +1642,8 @@ impl SessionHandle {
     /// `watch` holds the wait reported last; a change goes to the actor first, with the
     /// cursor's row of the screen while the command waits, so an answer sent for the
     /// wait is checked against its job. The caller tells others of the change after.
+    /// `contained` is true for a command in the sandbox, whose visible wait looks secret
+    /// by its prompt alone, in any modes (DS50).
     pub(crate) async fn look(
         &self,
         id: u64,
@@ -1649,6 +1651,7 @@ impl SessionHandle {
         quiet: Quiet,
         clock: &dyn Clock,
         watch: &mut InputWatch,
+        contained: bool,
     ) -> Result<Looked, ShellError> {
         let (reply, probed) = oneshot::channel();
         self.send(Msg::Probe { id, reply }).await?;
@@ -1658,8 +1661,9 @@ impl SessionHandle {
         };
         // A terminal that is not in line mode while a job waits is a relay's, such as
         // `sudo`'s own pty, or a program's raw mode: only then can a password prompt be
-        // a visible wait.
-        let relayed = probe.job.is_some_and(|job| !job.modes.canonical);
+        // a visible wait. A contained command can fake any prompt, so its prompt alone
+        // counts: efr never types an answer that may be a secret into it (DS50).
+        let prompt_counts = probe.job.is_some_and(|job| !job.modes.canonical) || contained;
         let mut seen = None;
         let (wait, secret) = match input::look(&probe, clock.now(), quiet, offer) {
             Look::Settled(wait) => (wait, false),
@@ -1669,7 +1673,7 @@ impl SessionHandle {
                     if input::visible_prompt(&capture.snapshot)
                         && (!questions_only || input::question_prompt(&capture.snapshot)) =>
                 {
-                    let secret = relayed && input::secret_prompt(&capture.snapshot);
+                    let secret = prompt_counts && input::secret_prompt(&capture.snapshot);
                     seen = Some(capture.snapshot);
                     (InputWait::Visible, secret)
                 }

@@ -189,7 +189,8 @@ pub(crate) struct Waiting {
     /// True for [`InputWait::Hidden`].
     pub(crate) hidden: bool,
     /// True for a visible wait whose prompt reads like a prompt for a secret while the
-    /// terminal is not in line mode ([`secret_prompt`]).
+    /// terminal is not in line mode, or in any modes for a contained command
+    /// ([`secret_prompt`]).
     pub(crate) looks_secret: bool,
 }
 
