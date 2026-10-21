@@ -186,6 +186,10 @@ pub struct Locations {
     /// The sockets of the user's credential agents that the daemon knows from the
     /// environment, such as `$SSH_AUTH_SOCK`.
     credential_sockets: Vec<PathBuf>,
+    /// The sockets of the user's session bus that the daemon knows from the
+    /// environment, such as the `unix:path=` of `$DBUS_SESSION_BUS_ADDRESS`, besides
+    /// `/run/user/<uid>/bus`.
+    session_buses: Vec<PathBuf>,
     /// efr's own programs: efrd, efr and the launcher with its copy.
     efr_binaries: Vec<PathBuf>,
     /// efr's runtime, data and state roots, each with the places below it that a tool
@@ -220,6 +224,7 @@ impl Locations {
             floor_roots: Vec::new(),
             mask_roots: Vec::new(),
             credential_sockets: Vec::new(),
+            session_buses: Vec::new(),
             efr_binaries: Vec::new(),
             efr_roots: Vec::new(),
         })
@@ -264,6 +269,7 @@ impl Locations {
             floor_roots,
             mask_roots,
             credential_sockets,
+            session_buses,
             efr_binaries,
             efr_roots,
         } = &mut self;
@@ -287,6 +293,7 @@ impl Locations {
             )
             .chain(mask_roots)
             .chain(credential_sockets)
+            .chain(session_buses)
             .chain(efr_binaries)
             .chain(efr_roots);
         for root in roots.chain(projects.values_mut()) {
@@ -528,6 +535,28 @@ impl Locations {
             self.credential_sockets.push(socket);
         }
         Ok(self)
+    }
+
+    /// Adds a socket of the user's session bus, such as the `unix:path=` of
+    /// `$DBUS_SESSION_BUS_ADDRESS` and its form with links resolved: a socket that the
+    /// model names there is the whole session bus, which only the user approves (DV18),
+    /// as `/run/user/<uid>/bus` is without this.
+    pub fn with_session_bus(
+        mut self,
+        socket: impl Into<PathBuf>,
+    ) -> Result<Self, PermissionsError> {
+        let socket = self.absolute_root(socket.into())?;
+        if !self.session_buses.contains(&socket) {
+            self.session_buses.push(socket);
+        }
+        Ok(self)
+    }
+
+    /// True when `path` is a socket of the user's session bus that the daemon added
+    /// ([`Locations::with_session_bus`]).
+    pub(crate) fn is_session_bus(&self, path: &Path) -> bool {
+        let path = self.rehome(path);
+        self.session_buses.iter().any(|bus| *bus == *path)
     }
 
     /// The home directory.

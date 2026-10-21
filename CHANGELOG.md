@@ -571,8 +571,9 @@ into the GitHub release notes, and it stops when the section is missing.
   blocks only that site.
 - A command that needs the whole session bus asks you, not the reviewer, because the
   whole session bus can start programs outside the sandbox and read an unlocked
-  keyring. The question says so. `notify-send` runs through the bus filter with no
-  question while the filter is on. The whole system bus keeps its approver.
+  keyring. The question says so. A socket need of a session bus at another path, such
+  as one of `dbus-launch` below `/tmp`, counts too. `notify-send` runs through the bus
+  filter with no question while the filter is on. The whole system bus keeps its approver.
 - In `auto`, a host, a path or an upload that a message of yours names lets the
   reviewer decide only when the message is in the current turn or in your turn before
   it. An older message does not count, and then you decide: a "now do it" three turns

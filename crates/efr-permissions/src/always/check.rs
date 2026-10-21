@@ -101,7 +101,7 @@ fn socket(path: &Path, locations: &Locations) -> Result<(), AllowFloor> {
     {
         return Err(AllowFloor::ServiceSocket);
     }
-    if is_bus_socket(path, name) {
+    if is_bus_socket(path, name) || locations.is_session_bus(path) {
         return Err(AllowFloor::BusSocket);
     }
     if is_credential_agent(path, locations) {

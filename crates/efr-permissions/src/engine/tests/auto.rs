@@ -2511,6 +2511,27 @@ fn auto_credential_agent_sockets_are_floors_or_user(
     }
 }
 
+/// A session bus at another path than `/run/user/<uid>/bus`, such as one of
+/// `dbus-launch` below `/tmp`, is the whole session bus too: only the user approves it
+/// (DV18, "in every case").
+#[test]
+fn session_bus_at_a_custom_path_is_the_whole_session_bus() {
+    let locations = auto_locations().with_session_bus("/tmp/dbus-AbCd1234").unwrap();
+    let needs = Needs { sockets: vec!["/tmp/dbus-AbCd1234".to_owned()], ..Needs::default() };
+    let decision =
+        Engine::with_defaults(locations).decide(&in_auto(shell("./x.sh").with_needs(needs)));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!((need.kind, need.approver), (ExitKind::Bus, Approver::User));
+    assert_eq!(need.grants, [Grant::Bus { bus: BusKind::Session }]);
+    // Another socket below `/tmp` stays a plain socket.
+    let locations = auto_locations().with_session_bus("/tmp/dbus-AbCd1234").unwrap();
+    let needs = Needs { sockets: vec!["/tmp/app.sock".to_owned()], ..Needs::default() };
+    let decision =
+        Engine::with_defaults(locations).decide(&in_auto(shell("./x.sh").with_needs(needs)));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!(need.kind, ExitKind::Socket);
+}
+
 /// git's credential cache hands out the tokens that it holds to any process that
 /// reaches its socket, so only the user opens it (v0.0.4, DV15).
 #[test]

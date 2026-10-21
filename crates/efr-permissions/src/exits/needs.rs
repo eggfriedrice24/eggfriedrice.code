@@ -151,7 +151,7 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNee
         need.grants = vec![Grant::Bus { bus: BusKind::System }];
         need.target = Some(path);
         return need;
-    } else if name == "bus" && text.starts_with("/run/user/") {
+    } else if (name == "bus" && text.starts_with("/run/user/")) || locations.is_session_bus(&path) {
         let mut need = ExitNeed::new(ExitKind::Bus, part, source);
         need.grants = vec![Grant::Bus { bus: BusKind::Session }];
         need.target = Some(path);

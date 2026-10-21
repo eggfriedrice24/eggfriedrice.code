@@ -36,7 +36,7 @@ fn app() -> ProjectId {
 /// The machine: efr's config and dirs, a sealed secret root, the turn's project and a
 /// second project that lines may name (an envelope root), the private tmp, a cache
 /// overlay, a synced folder, a dotfile link floor and a `sandbox.protect` floor that
-/// does not exist yet, and a credential agent from the environment.
+/// does not exist yet, a credential agent and a session bus from the environment.
 fn machine() -> Locations {
     Locations::new(HOME)
         .unwrap()
@@ -70,6 +70,8 @@ fn machine() -> Locations {
         .with_floor_root("/home/u/work/hooks")
         .unwrap()
         .with_credential_socket("/run/user/1000/vault.sock")
+        .unwrap()
+        .with_session_bus("/tmp/dbus-AbCd1234")
         .unwrap()
 }
 
@@ -320,6 +322,7 @@ fn always_allow_rejects_desktop_ipc() {
 #[case::system_bus("/run/dbus/system_bus_socket", AllowFloor::BusSocket)]
 #[case::var_system_bus("/var/run/dbus/system_bus_socket", AllowFloor::BusSocket)]
 #[case::session_bus("/run/user/1000/bus", AllowFloor::BusSocket)]
+#[case::custom_session_bus("/tmp/dbus-AbCd1234", AllowFloor::BusSocket)]
 #[case::gpg("/run/user/1000/gnupg/S.gpg-agent", AllowFloor::CredentialAgent)]
 #[case::ssh_agent("/run/user/1000/ssh-agent.socket", AllowFloor::CredentialAgent)]
 #[case::vault("/run/user/1000/vault.sock", AllowFloor::CredentialAgent)]

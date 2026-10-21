@@ -981,8 +981,10 @@ The whole session bus is always your own question, never the reviewer's. On that
 the user manager (`systemd --user`) starts any program outside the sandbox
 (`StartTransientUnit`), and an unlocked keyring (the Secret Service,
 `org.freedesktop.secrets`) gives every secret with no prompt. The question says
-`the whole session bus can start programs outside the sandbox`. efr does not first
-look for a keyring on the bus, because a keyring that starts on demand has no owner
+`the whole session bus can start programs outside the sandbox`. A socket need of the
+bus counts too: `/run/user/<uid>/bus`, and the socket of `DBUS_SESSION_BUS_ADDRESS`
+in efrd's environment, such as one of `dbus-launch` below `/tmp`, also through a
+link. efr does not first look for a keyring on the bus, because a keyring that starts on demand has no owner
 until a program calls it. The whole system bus keeps its approver.
 [`docs/adr/0013-bus-proxy-and-always-allow.md`](adr/0013-bus-proxy-and-always-allow.md)
 records the decision.

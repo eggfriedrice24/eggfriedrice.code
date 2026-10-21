@@ -426,6 +426,11 @@ fn with_sandbox(
         locations =
             add(locations, socket.clone(), "credential socket", |l, p| l.with_credential_socket(p));
     }
+    // NOTE: a session bus at another path than `/run/user/<uid>/bus`, such as one of
+    // `dbus-launch` below `/tmp`, is still the whole session bus (DV18).
+    for socket in facts.host.session_bus.iter().chain(&facts.host.session_bus_real) {
+        locations = add(locations, socket.clone(), "session bus", |l, p| l.with_session_bus(p));
+    }
     if let Some(zdotdir) = &facts.host.zdotdir {
         for file in ZSH_STARTUP_FILES.iter().map(|name| zdotdir.join(name)) {
             locations =

@@ -277,7 +277,8 @@ Modules:
   like, `resolvectl`, `coredumpctl`, `busctl`, `gdbus`, `notify-send --wait`, `nmcli`
   and `iwctl`, and the model's `needs.bus`. A `bus` exit for the whole session bus
   (`Grant::Bus { bus: Session }`, from a program, `needs.bus` or a socket need of the
-  bus) is `Approver::User` in every case, with the note `WHOLE_SESSION_BUS_NOTE` (`the
+  bus: `/run/user/*/bus` or a socket that `Locations::with_session_bus` added, which
+  efrd does for the `unix:path=` of `DBUS_SESSION_BUS_ADDRESS` and its real path) is `Approver::User` in every case, with the note `WHOLE_SESSION_BUS_NOTE` (`the
   whole session bus can start programs outside the sandbox`): the user manager starts
   programs outside the sandbox, and an unlocked keyring gives its secrets. The engine
   does not look for a keyring owner first. The whole system bus keeps its approver. The rule is a fit, not a security layer: `systemctl --failed; ./x.sh`

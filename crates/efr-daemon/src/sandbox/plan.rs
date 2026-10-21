@@ -52,6 +52,8 @@ pub(crate) struct HostFacts {
     pub(crate) user_runtime: PathBuf,
     /// The session bus socket.
     pub(crate) session_bus: Option<PathBuf>,
+    /// The session bus socket with links resolved, when that differs.
+    pub(crate) session_bus_real: Option<PathBuf>,
     /// The system bus socket; `None` is the machine's, `/run/dbus/system_bus_socket`.
     /// A test build sets the seam's (DE14).
     pub(crate) system_bus: Option<PathBuf>,
@@ -85,11 +87,15 @@ impl HostFacts {
             .map(|path| PathBuf::from(path.split(',').next().unwrap_or(path)))
             .filter(|path| path.is_absolute())
             .or_else(|| Some(user_runtime.join("bus")).filter(|bus| bus.exists()));
+        let session_bus_real = session_bus
+            .as_ref()
+            .and_then(|bus| fs::canonicalize(bus).ok().filter(|real| real != bus));
         HostFacts {
             path: env.get("PATH").cloned().unwrap_or_default(),
             zsh,
             user_runtime,
             session_bus,
+            session_bus_real,
             system_bus: None,
             xauthority: absolute("XAUTHORITY"),
             histfile: absolute("HISTFILE"),
