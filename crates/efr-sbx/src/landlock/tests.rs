@@ -115,6 +115,38 @@ fn forward_domain_refuses_bind_and_keeps_connect() {
 }
 
 #[test]
+fn reach_domain_refuses_connect_and_keeps_bind() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    // The reach helper's own domain, on a new thread: Landlock acts on the calling
+    // thread alone. The socket path does not exist, so its rule is left out.
+    let policy = LandlockPolicy::reach(Path::new("/nonexistent/efr-reach.sock"));
+    assert!(policy.deny_tcp_connect && !policy.deny_tcp && !policy.deny_tcp_bind);
+    let done = std::thread::spawn(move || {
+        restrict(&policy, &[])?;
+        let listen = std::net::TcpListener::bind("127.0.0.1:0").map(drop);
+        let connect = std::net::TcpStream::connect(address).map(drop);
+        Ok::<_, SbxError>((listen, connect))
+    })
+    .join()
+    .unwrap();
+    let (listen, connect) = match done {
+        Ok(done) => done,
+        Err(error) => {
+            let required = crate::os::var("EFR_TEST_SBX_REQUIRE").is_some_and(|value| value == "1");
+            assert!(!required, "Landlock ABI 9 is required here, but: {error:?}");
+            let _ = writeln!(io::stdout(), "skipped: no Landlock ABI 9 here: {error:?}");
+            return;
+        }
+    };
+    assert!(listen.is_ok(), "the reach helper must listen: {listen:?}");
+    let access = Some(rustix::io::Errno::ACCESS.raw_os_error());
+    assert_eq!(connect.as_ref().map_err(io::Error::raw_os_error), Err(access), "{connect:?}");
+    assert!(listener.accept().is_err(), "the refused connect reached the listener");
+}
+
+#[test]
 fn a_missing_rule_path_is_left_out() {
     assert!(open_rule_path(Path::new("/nonexistent/efr-sbx-rule")).unwrap().is_none());
     assert!(open_rule_path(Path::new("/")).unwrap().is_some());
