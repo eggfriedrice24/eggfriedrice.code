@@ -21,6 +21,7 @@ mod desktop;
 mod env_filter;
 mod error;
 mod export_filter;
+mod forward;
 mod fs_view;
 mod git_config;
 mod inner;
@@ -48,6 +49,12 @@ pub use env_filter::{EnvFilter, HIDDEN_SHELL_SCRUB, MOVED_CACHES, OFFLINE_HINTS}
 pub use error::SandboxError;
 pub use export_filter::{
     ExportFilter, ExportVerdict, KeepReason, NEVER_PROMOTE, OVERLAY_DENY, overlay_denied,
+};
+pub use forward::{
+    BRIDGE_PORT, Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen,
+    MAX_DAEMON_FORWARDS, MAX_FORWARD_CONNECTIONS, MAX_JOB_FORWARDS, MIN_PORT, PortRefusal,
+    SERVICE_PORTS, TCP_LISTEN, TCP_TIME_WAIT, TcpRow, loopback_listens, parse_tcp_table, peer_uid,
+    refusal, v6_holds,
 };
 pub use fs_view::{FileKind, FsView, MAX_LINKS, Resolved, resolve};
 pub use git_config::{cargo_code_keys, code_keys, is_code_key, parse_config};
@@ -92,10 +99,10 @@ pub use seccomp::{
     SyscallRule, TIOCLINUX, TIOCSTI,
 };
 pub use spec::{
-    BUS_FILTER_DIR, CacheOverlay, DesktopSocket, EnvPlan, Floor, FloorKind, JOB_BACKSTOP_SECS,
-    JOB_DIR, JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan, MAX_SPEC_BYTES, Mask, MaskKind,
-    NetworkPlan, PROXY_SOCKET_FILE, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec,
-    SpecLaunch, WriteRoot, WriteRootKind, bus_filter_file, layer_name,
+    BUS_FILTER_DIR, CacheOverlay, DesktopSocket, EnvPlan, FORWARD_SOCKET_FILE, Floor, FloorKind,
+    ForwardPlan, JOB_BACKSTOP_SECS, JOB_DIR, JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan,
+    MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan, PROXY_SOCKET_FILE, RecordLimits, RuntimePaths,
+    SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, bus_filter_file, layer_name,
 };
 pub use state::{MAX_STATE_BYTES, STATE_NAME_VAR, STOP_TRAPS, SandboxCwd, SandboxState, quote};
 pub use surface::{

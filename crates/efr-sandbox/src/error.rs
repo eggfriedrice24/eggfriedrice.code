@@ -200,6 +200,13 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// A frame between the forwarder of a job and efrd breaks the frame rules.
+    #[error("a forward frame has {problem}")]
+    Frame {
+        /// What is wrong, such as `an unknown kind`.
+        problem: &'static str,
+    },
+
     /// In the `overlay` cache mode, a cache's upper and work dirs do not share a layer
     /// dir of their own: they lie in two dirs, or another cache uses the same one.
     #[error("the layer dir of the cache {cache:?} is not its own")]
