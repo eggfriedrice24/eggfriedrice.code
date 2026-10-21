@@ -10,7 +10,9 @@
 //! The inner stage of a proxy call starts `bridge`, which copies the call's TCP to its
 //! proxy socket, and the inner stage of a job with port forwards starts `forward`, which
 //! reports the job's loopback listens to efrd and connects efrd's host connections to
-//! them. efrd runs `statvfs` to measure the host's mounts outside the sandbox,
+//! them. The inner stage of a call that reaches the forwarded ports of its
+//! conversation's jobs starts `reach`, which listens on those ports in the call and
+//! sends each connection to efrd. efrd runs `statvfs` to measure the host's mounts outside the sandbox,
 //! and the `df` and `findmnt` of a call print them with `mounts`. efrd runs
 //! `xdg-dbus-proxy` through `dbus-proxy`, which confines it first.
 //!
@@ -46,6 +48,7 @@ mod layers;
 mod mounts;
 mod os;
 mod probe;
+mod reach;
 mod real_fs;
 mod run;
 mod seccomp;
@@ -105,6 +108,10 @@ pub(crate) enum Command {
     /// the job's forward socket and connects efrd's host connections to them.
     #[command(hide = true)]
     Forward(forward::ForwardArgs),
+    /// The reach helper of a call: listens on the forwarded ports of the conversation's
+    /// jobs in the call and sends each connection to the call's reach socket.
+    #[command(hide = true)]
+    Reach(reach::ReachArgs),
     /// Confines `xdg-dbus-proxy` (Landlock, seccomp, a descriptor limit) and runs it:
     /// efrd's filtered bus of a call. The sync pipe on stdout moves to fd 3.
     #[command(hide = true)]

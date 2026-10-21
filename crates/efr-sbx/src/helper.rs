@@ -1,5 +1,6 @@
 //! The start, the setup and the copy that the confined helpers inside a sandbox share:
-//! the bridge of a proxy call (`bridge.rs`) and the forwarder of a job (`forward.rs`).
+//! the bridge of a proxy call (`bridge.rs`), the forwarder of a job (`forward.rs`) and
+//! the reach helper of a call (`reach.rs`).
 //!
 //! Two `std::process::Command` spawns start a helper, so it needs no code outside safe
 //! Rust (ADR 0007 keeps that code in `fds.rs`):
@@ -59,14 +60,19 @@ pub(crate) enum Helper {
     Bridge,
     /// The forwarder of a job with port forwards, `efr-sbx forward`.
     Forwarder,
+    /// The reach helper of a call that reaches the forwarded ports of its
+    /// conversation's jobs, `efr-sbx reach`.
+    Reach,
 }
 
 impl Helper {
-    /// The name of the server's process, which a job's stop spares (`job.rs`).
+    /// The name of the server's process. A job's stop spares the bridge and the
+    /// forwarder (`job.rs`); a job never has a reach helper.
     pub(crate) fn name(self) -> &'static CStr {
         match self {
             Helper::Bridge => c"efr-bridge",
             Helper::Forwarder => c"efr-forward",
+            Helper::Reach => c"efr-reach",
         }
     }
 
@@ -75,6 +81,7 @@ impl Helper {
         match self {
             Helper::Bridge => "efr-bridge-copy",
             Helper::Forwarder => "efr-fwd-copy",
+            Helper::Reach => "efr-reach-copy",
         }
     }
 }
@@ -84,6 +91,7 @@ impl fmt::Display for Helper {
         f.write_str(match self {
             Helper::Bridge => "network bridge",
             Helper::Forwarder => "port forwarder",
+            Helper::Reach => "reach helper",
         })
     }
 }

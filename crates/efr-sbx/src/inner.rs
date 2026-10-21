@@ -7,18 +7,19 @@
 //!    bind `127.0.0.1:3128` and start the bridge's starter (`bridge.rs`) with the
 //!    listener, whose own copy here closes at once; the bridge applies a Landlock domain
 //!    and a seccomp profile of its own. For a job with port forwards, start the
-//!    forwarder's starter (`forward.rs`) the same way, with no listener. When the call
-//!    has cache overlays, tell the launcher that bwrap's setup is done, wait while its
+//!    forwarder's starter (`forward.rs`) the same way, with no listener, and for a call
+//!    with a reach the reach helper's starter (`reach.rs`). When the call has cache
+//!    overlays, tell the launcher that bwrap's setup is done, wait while its
 //!    layer helper mounts them (the helpers start meanwhile), and enter the start dir
 //!    (bwrap started in `/`).
 //! 2. Move the records pipe to fd 3 and the terminal copy to fd 4; close every
 //!    descriptor from 5 up, so nothing opened outside keeps its rights inside.
 //! 3. Compile the seccomp profile. Then wait at most [`BRIDGE_WAIT`] from its start for
 //!    the bridge's starter, whose exit 0 says that the bridge runs confined; anything
-//!    else is a setup error. Then wait as long for the forwarder's starter; its failure
-//!    is no setup error: the job runs with no forwards, and this stage writes nothing
-//!    about it, since any line on fd 2 reads as a setup error. efrd sees that no
-//!    `Hello` came.
+//!    else is a setup error. Then wait as long for the forwarder's starter and the reach
+//!    helper's starter; their failure is no setup error: the job runs with no forwards,
+//!    the call with no reach, and this stage writes nothing about it, since any line on
+//!    fd 2 reads as a setup error. efrd sees that no `Hello` came.
 //! 4. Apply Landlock, then seccomp.
 //! 5. Put the terminal copy on fd 2, so the child's stderr is the terminal again, and
 //!    run the child shell.
@@ -43,7 +44,7 @@ use efr_sandbox::{
 
 use crate::error::SbxError;
 use crate::helper::{Helper, SELF_EXE};
-use crate::{fds, forward, landlock, os, seccomp};
+use crate::{fds, forward, landlock, os, reach, seccomp};
 
 /// The number the terminal copy waits on until Landlock and seccomp are in place.
 const TERMINAL_PARKED_FD: RawFd = 4;
@@ -52,7 +53,7 @@ const TERMINAL_PARKED_FD: RawFd = 4;
 const SCRATCH_FD_MIN: RawFd = 10;
 
 /// How long the inner stage waits for a helper's starter (the bridge's, the
-/// forwarder's), which waits at most `helper::READY_WAIT` for the server.
+/// forwarder's, the reach helper's), which waits at most `helper::READY_WAIT` for the server.
 pub(crate) const BRIDGE_WAIT: Duration = Duration::from_secs(2);
 
 /// How often the inner stage looks whether the starter ended. The stage has one
@@ -96,7 +97,9 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
     // NOTE: the forwarder starts beside the bridge, before this stage's own domain, for
     // the same reasons. A forwarder that does not start leaves the job with no forwards
     // and fails nothing, so a failed spawn is no error.
-    let forwarder = policy.forward.as_ref().and_then(spawn_forwarder);
+    let forwarder = policy.forward.as_ref().and_then(|plan| spawn_starter(forward::argv(plan)));
+    // NOTE: the reach helper of a call too: its failure leaves the call with no reach.
+    let reach = policy.reach.as_ref().and_then(|plan| spawn_starter(reach::argv(plan)));
     if let Some(sync) = policy.layers_sync {
         wait_for_layers(sync, policy.cwd.as_deref())?;
     }
@@ -121,6 +124,11 @@ fn prepare(policy_fd: RawFd) -> Result<Child, SbxError> {
         // NOTE: the child starts only after the forwarder's starter ended, so the child
         // never runs beside a forwarder that is not confined yet.
         let _ = wait_for_starter(forwarder);
+    }
+    if let Some(reach) = reach {
+        // NOTE: the same for the reach helper. Its starter ends only after the server
+        // listens on the ports of the start, so the child's bind of such a port fails.
+        let _ = wait_for_starter(reach);
     }
     let (stdin, stdout) = (std::io::stdin(), std::io::stdout());
     let terminals: Vec<BorrowedFd<'_>> = policy
@@ -198,16 +206,11 @@ fn spawn_bridge(socket: &Path) -> Result<Starter, SbxError> {
     Ok(Starter { child, start: os::now() })
 }
 
-/// Runs the forwarder's starter for `forward`, with no listener; `None` when it does not
-/// spawn.
-fn spawn_forwarder(forward: &efr_sandbox::InnerForward) -> Option<Starter> {
+/// Runs the starter of a helper that may fail, the forwarder or the reach helper, with
+/// `argv` and no listener; `None` when it does not spawn.
+fn spawn_starter(argv: Vec<OsString>) -> Option<Starter> {
     let mut command = os::command(SELF_EXE);
-    command
-        .args(forward::argv(forward))
-        .env_clear()
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.args(argv).env_clear().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let child = command.spawn().ok()?;
     Some(Starter { child, start: os::now() })
 }
