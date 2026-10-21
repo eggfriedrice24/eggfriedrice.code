@@ -55,6 +55,14 @@ pub struct RunRequest {
     /// follows it: for a command that the user approved because it may wait for input.
     /// `None` keeps the timeout.
     pub interactive_limit: Option<Duration>,
+    /// The longest the run waits for its command in all, past [`timeout`](Self::timeout),
+    /// while the command waits for input and [`RunProgress::can_answer`] says that a
+    /// person who can type answers follows it: for any command, since no list knows
+    /// every program that asks (a script that asks, a `[Y/n]`). A run whose wait ends
+    /// goes on until the next quiet period and then ends as at its timeout. `None` keeps
+    /// the timeout. A command in the sandbox never waits for an answer that may be a
+    /// secret: such a wait stops it at once.
+    pub input_limit: Option<Duration>,
     /// True when the line has the hard or the soft flag of the shell tool: it may ask for
     /// a password or a question at the terminal. With [`approved_by`](Self::approved_by)
     /// it decides whether a hidden wait of the command, left running at its timeout, may
@@ -86,6 +94,7 @@ impl RunRequest {
             forget_credentials: false,
             forget_before: false,
             interactive_limit: None,
+            input_limit: None,
             may_prompt: false,
             approved_by: None,
             sandbox: None,
@@ -149,6 +158,14 @@ impl RunRequest {
     #[must_use]
     pub fn with_interactive_limit(mut self, limit: Option<Duration>) -> Self {
         self.interactive_limit = limit;
+        self
+    }
+
+    /// Sets the longest the run waits for its command while it waits for input and a
+    /// person who can answer follows it; `None` keeps the timeout.
+    #[must_use]
+    pub fn with_input_limit(mut self, limit: Option<Duration>) -> Self {
+        self.input_limit = limit;
         self
     }
 
@@ -367,8 +384,10 @@ pub trait RunProgress: Send {
 
     /// Whether a person who can type answers follows the run now. Asked at the timeout,
     /// and then once per quiet period, of a run with an
-    /// [`interactive_limit`](RunRequest::interactive_limit): `true` keeps it waiting for
-    /// its command up to that limit. False by default, which keeps the timeout.
+    /// [`interactive_limit`](RunRequest::interactive_limit), or with an
+    /// [`input_limit`](RunRequest::input_limit) whose command waits for input: `true`
+    /// keeps it waiting for its command up to that limit. False by default, which keeps
+    /// the timeout.
     fn can_answer(&mut self) -> bool {
         false
     }

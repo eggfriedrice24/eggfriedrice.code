@@ -348,6 +348,33 @@ async fn a_contained_call_never_takes_hidden_input() {
 }
 
 #[tokio::test]
+async fn contained_hidden_wait_still_stops_at_once() {
+    let harness = Harness::sandboxed();
+    let run = prepare(&harness, SpecLaunch::Contained);
+    // A person follows and the run may wait for input past its timeout.
+    let (mut listener, heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = sandboxed(&run, "./fake-sudo")
+        .with_timeout(Duration::from_secs(5))
+        .with_input_limit(Some(Duration::from_secs(3600)));
+    let handle =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    started(&run);
+    terminal.print(b"\r\n\x1b]133;C\x07[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_secs(1));
+    let ended = handle.await.unwrap().unwrap();
+    assert_eq!(ended.completion, Completion::Unanswered);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Hidden, InputWait::None]);
+}
+
+#[tokio::test]
 async fn the_exit_child_of_an_approved_exit_takes_hidden_input() {
     let harness = Harness::sandboxed();
     let run = prepare(&harness, SpecLaunch::Unsandboxed);
