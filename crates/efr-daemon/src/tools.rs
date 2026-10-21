@@ -925,6 +925,9 @@ impl DaemonToolbox {
             let mut outcome = self.finish_move(adopted, parts).await;
             let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
             outcome.changes = self.snapshot_after(snapshot).await;
+            // NOTE: what the command writes from now on joins the call's turn at the
+            // job's end (DS28).
+            self.keep_for_job(&call.context, &prepared.projects, outcome.job.as_ref()).await;
             if !notes.is_empty() {
                 outcome.output = format!("{}\n{}", outcome.output, notes.join("\n"));
             }
@@ -1084,9 +1087,14 @@ impl DaemonToolbox {
         let invoked = self.registry.invoke(&call.name, context, call.input, &mut sink).await;
         if let Some(adopted) = self.moved_run(registration).await {
             let mut outcome = self.finish_move(adopted, moves::MoveParts::default()).await;
-            // NOTE: the moved command writes on; the job's files join the call's turn.
+            // NOTE: the moved command writes on; the job's files join the call's turn
+            // at its end (DS28).
+            let kept = snapshot.is_some();
             let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
             outcome.changes = self.snapshot_after(snapshot).await;
+            if kept {
+                self.keep_for_job(&call_context, &full_projects, outcome.job.as_ref()).await;
+            }
             return outcome;
         }
         let mut outcome = match invoked {
