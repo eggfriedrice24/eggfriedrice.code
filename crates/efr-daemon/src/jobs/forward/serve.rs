@@ -252,22 +252,33 @@ impl Control {
         let hello = tokio::select! {
             () = ctx.token.cancelled() => None,
             () = self.off.cancelled() => None,
-            hello = ctx.clock.timeout(HELLO_WAIT, first_hello(&self.listener)) => match hello {
-                Ok(Ok(stream)) => Some(stream),
-                Ok(Err(problem)) => {
-                    tracing::warn!(conversation = %ctx.key.conversation, job = %ctx.job, problem, "a job's forwarder did not say hello; the job has no port forwards");
-                    None
-                }
-                Err(_) => {
-                    tracing::warn!(conversation = %ctx.key.conversation, job = %ctx.job, "no forwarder of a job said hello in 5 s; the job has no port forwards");
-                    None
-                }
-            },
+            hello = self.hello() => hello,
         };
         if let Some(stream) = hello {
             self.serve(stream).await;
         }
         self.close();
+    }
+
+    /// The control connection, once the forwarder said `Hello`. A forwarder that is
+    /// late gets one warning at [`HELLO_WAIT`], and efrd waits on until the job's
+    /// forwards end (DL7); `None` for a first frame that is no `Hello`.
+    async fn hello(&self) -> Option<UnixStream> {
+        let ctx = &self.ctx;
+        let first = first_hello(&self.listener);
+        tokio::pin!(first);
+        let hello = match ctx.clock.timeout(HELLO_WAIT, &mut first).await {
+            Ok(hello) => hello,
+            Err(_) => {
+                tracing::warn!(conversation = %ctx.key.conversation, job = %ctx.job, "no forwarder of a job said hello in 5 s; efrd waits on");
+                first.await
+            }
+        };
+        hello
+            .inspect_err(|problem| {
+                tracing::warn!(conversation = %ctx.key.conversation, job = %ctx.job, problem, "a job's forwarder did not say hello; the job has no port forwards");
+            })
+            .ok()
     }
 
     /// Reads the frames of the control connection `stream` and accepts the data

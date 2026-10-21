@@ -8,8 +8,9 @@
 //!   job's forward socket `$CALL/forward.sock` (mode 0600) before the launcher starts
 //!   ([`bind`]); the launcher binds it read-only into the job for the forwarder.
 //! - The control connection ([`serve`], `forward/serve.rs`): the first connection to the
-//!   socket must send `Hello` within [`HELLO_WAIT`]; else efrd logs a warning and the
-//!   job has no forwards. Only that one connection reports `Listen` and `Gone`. efrd
+//!   socket must send `Hello`. When none came within [`HELLO_WAIT`], efrd logs one
+//!   warning and waits on until the job's forwards end. A first frame that is no
+//!   `Hello` leaves the job with no forwards. Only that one connection reports `Listen` and `Gone`. efrd
 //!   decodes each frame with `efr_sandbox::Frame::decode`, which trusts no byte; a bad
 //!   frame or another kind closes the forwarder's connection, and the job runs on with no
 //!   forwards.

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_protocol::{
     AdminConfigReload, AdminConfigReloadResult, ApprovalDecision, CallId, ConversationId, Event,
@@ -291,6 +292,29 @@ async fn start_note_names_forwarding() {
     let (daemon, _, fifo, output) = one_job(&setup, |builder| builder).await;
     assert!(output.contains("give the user the URL, such as http://localhost:8765"), "{output}");
     assert!(output.contains("well-known service ports are not forwarded"), "{output}");
+    release(&fifo).await;
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn late_hello_still_forwards() {
+    let setup = Setup::new();
+    let (daemon, conversation, fifo, _) = one_job(&setup, |builder| builder).await;
+    // NOTE: efrd warns once when no hello came in 5 s and waits on (DL7). The clock
+    // moves only once that wait exists.
+    let hello_wait = Duration::from_secs(5);
+    Wait::new("efrd waits for the forwarder's hello")
+        .until(|| daemon.clock().requested_sleeps().contains(&hello_wait))
+        .await
+        .unwrap();
+    daemon.clock().advance(hello_wait);
+    let mut forwarder = setup.forwarder().await;
+    let echo = echo_server().await.unwrap();
+    forwarder.listen(LOCALHOST, 8765, Some(echo)).await.unwrap();
+    let seen = forwarded(&daemon, conversation, 1).await;
+    assert_eq!(seen, [Forwarded::new("j1", "127.0.0.1", 8765, ForwardOutcome::Forwarded)]);
+    let real = daemon.host_ports().real_port(8765).unwrap();
+    assert_eq!(through(real, b"late").await.unwrap(), b"late");
     release(&fifo).await;
     daemon.stop().await.unwrap();
 }

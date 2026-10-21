@@ -945,8 +945,10 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   starts (`forward::plan_of`), and efrd binds `$CALL/forward.sock` (0600, through
   `/proc/self/fd` as the proxy socket, `sandbox/proxy/bind.rs`) before the launcher
   starts; the start result gets one sentence for the model. The job's entry keeps a
-  `JobForward` until the job ends. Its first connection must send `Hello` within 5 s
-  on efrd's clock (else a warning and no forwards); only that connection reports
+  `JobForward` until the job ends. Its first connection must send `Hello`; when none
+  came in 5 s on efrd's clock, efrd logs one warning and waits on until the job's
+  forwards end, and a first frame that is no `Hello` leaves the job with no forwards
+  (`late_hello_still_forwards`); only that connection reports
   `Listen` and `Gone`, every later one is a data connection whose first frame must be
   the `Data` of a waiting `Open`. efrd decodes each frame with
   `efr_sandbox::Frame::decode`; a bad frame or another kind closes the forwarder, and
