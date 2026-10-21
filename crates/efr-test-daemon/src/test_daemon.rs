@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use efr_daemon::{
     DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice, Settings,
-    Source,
+    Source, TestHostPorts,
 };
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
@@ -168,6 +168,8 @@ struct Launch {
     config_watch: bool,
     /// The process facts of routing; `None` reads `/proc`.
     procs: Option<FakeProcView>,
+    /// Bind the real host port of each job port forward, in place of a free port.
+    system_host_ports: bool,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -226,6 +228,7 @@ impl Default for TestDaemonBuilder {
                 as_root: None,
                 config_watch: false,
                 procs: None,
+                system_host_ports: false,
             }),
         }
     }
@@ -448,6 +451,15 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Binds the real port of the machine for each job port forward, as efrd does
+    /// outside the tests, in place of a free port that stands for it
+    /// ([`TestDaemon::host_ports`]): only for the one test of the real bind.
+    #[must_use]
+    pub fn system_host_ports(mut self) -> Self {
+        self.settings.system_host_ports = true;
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -475,6 +487,7 @@ pub struct TestDaemon {
     shutdown: CancellationToken,
     served: Option<JoinHandle<Result<(), DaemonError>>>,
     peers: PeerProbe,
+    host_ports: TestHostPorts,
 }
 
 impl TestDaemon {
@@ -560,6 +573,13 @@ impl TestDaemon {
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());
+        // NOTE: a map of free ports for each start, so a restarted daemon binds again.
+        let host_ports = TestHostPorts::new();
+        deps = if settings.system_host_ports {
+            deps.with_system_host_ports()
+        } else {
+            deps.with_test_host_ports(host_ports.clone())
+        };
         match &settings.holder {
             HolderChoice::Fake(holder) => {
                 if config.shell.program.is_none() {
@@ -621,6 +641,7 @@ impl TestDaemon {
             shutdown,
             served: Some(served),
             peers,
+            host_ports,
         })
     }
 
@@ -633,6 +654,13 @@ impl TestDaemon {
             Some("model_side") => PeerSide::ModelSide,
             _ => PeerSide::Unknown,
         }
+    }
+
+    /// The host ports of the job port forwards: the free port of `127.0.0.1` that
+    /// stands for each forwarded port, and the test's changes to the host's ports and
+    /// tables. Unused with [`TestDaemonBuilder::system_host_ports`].
+    pub fn host_ports(&self) -> &TestHostPorts {
+        &self.host_ports
     }
 
     /// The daemon's socket.

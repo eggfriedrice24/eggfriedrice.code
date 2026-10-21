@@ -11,6 +11,9 @@
 //! - [`FakeLauncher`]: a `/bin/sh` script in place of `efr-sbx`, which runs calls and
 //!   background jobs with no sandbox; [`TestDaemonBuilder::job_env`] gives every job an
 //!   environment, and [`TestDaemon::peer_side`] says where a process stands on the socket.
+//! - [`FakeForwarder`]: the forwarder of a job's port forwards, which a test plays on the
+//!   job's forward socket, with an [`echo_server`] behind each port;
+//!   [`TestDaemon::host_ports`] says which free port stands for a forwarded port.
 //! - [`FakeProcView`]: the process facts that routing reads (which shell runs, which
 //!   terminal a peer runs on), set by the test; [`TestDaemonBuilder::proc_view`].
 //! - [`FakePtyHolder`]: a `PtyHolder` over socketpairs, whose shell the test plays
@@ -29,6 +32,7 @@
 //! `efr-test-support`).
 
 mod error;
+mod fake_forwarder;
 mod fake_launcher;
 mod fake_procs;
 mod pty_script;
@@ -39,6 +43,7 @@ mod test_daemon;
 // clients), so its users need no efr-transport edge of their own.
 pub use efr_transport::client::{Client, ClientError, ConnectOptions, ItemStream};
 pub use error::TestDaemonError;
+pub use fake_forwarder::{FakeForwarder, connect_socket, echo_server};
 pub use fake_launcher::FakeLauncher;
 pub use fake_procs::FakeProcView;
 pub use pty_script::{
