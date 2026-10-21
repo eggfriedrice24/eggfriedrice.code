@@ -190,8 +190,9 @@ impl fmt::Display for Under {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommandPattern {
-    /// The first word of the simple command, such as `git`. A path such as `/bin/ls`
-    /// names a different program.
+    /// The first word of the simple command, such as `git`. For an `allow` rule, a path
+    /// such as `/bin/ls` names a different program. An `ask` or `deny` rule also matches
+    /// the base name of a path and the program behind a wrapper such as `env` or `nice`.
     pub program: String,
     /// The words that must follow the program, in order, such as `["status"]`. A word
     /// may list alternatives separated by `|`, as in `"status|diff|log"`, and an
