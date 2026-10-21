@@ -137,7 +137,10 @@ The tools:
   rules judge what a freely allowed read-only command reads: `shell_tool/words.rs`
   splits the line (quotes read as zsh reads them, the commands inside `$(...)` and
   groups included) and never fails, `shell_tool/reads.rs` says which words of each
-  program are paths (every operand and every path-like option value; nothing for
+  program are paths (every operand and every path-like option value, also the value
+  of a separate `-o Name=value` of `ssh`, `scp`, `sftp`, `autossh`, `sshfs` and `mosh`
+  when it starts with `~/`, `/` or `.`, so `-o ControlPath=~/.ssh/cm` declares
+  `~/.ssh/cm` as `-oControlPath=` does; nothing for
   `echo`, `printf`, `basename` and the like; everything below the paths of `rg`, `grep
   -r`, `find`, `du`, `tree`, `ls -R` and `diff`, and the working directory when such a
   search names no path, with an unknown option failing closed),

@@ -842,3 +842,39 @@ async fn home_file_changed_says_whether_the_home_store_covers_it() {
         .collect();
     assert_eq!(changed, [(zshrc, true, None), (aws, false, None)]);
 }
+
+#[tokio::test]
+async fn an_ssh_control_socket_in_scratch_keeps_todays_decision() {
+    // DS13 of the v0.0.4 shell items: the shell tool tells the model not to use an ssh
+    // control socket. This records what a call of such a line gets today, on a machine
+    // with no proxy: a `host` exit with the whole network for one contained call, and a
+    // question that the user may need to type (ssh is the hard flag). The socket in
+    // $SCRATCH needs no grant; a rule that makes it "only you" is OQS17.
+    let setup = reviewed(None);
+    let line = "ssh -S $SCRATCH/cm host true";
+    let declared = Requirements::none()
+        .with_command(line)
+        .with_read(setup.cwd.join("host"))
+        .with_read(setup.cwd.join("true"))
+        .with_network()
+        .with_interactive();
+    let script = Script::new(vec![shell(line)]);
+    let mut h = setup.start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.declared.lock().unwrap().insert(line.to_owned(), declared);
+    let sent = h.prompt("log in to host").await;
+    let asked = h.wait_for(|e| matches!(e, Event::ApprovalRequested { .. })).await;
+    let Event::ApprovalRequested { call_id, interactive, exit: Some(exit), .. } = asked else {
+        panic!("the question shows the exit: {asked:?}");
+    };
+    assert_eq!(
+        (exit.kinds.clone(), exit.launch.clone(), interactive),
+        (
+            vec![ExitKind::Host],
+            Launch::Contained { grants: vec![efr_protocol::Grant::OpenNetwork] },
+            true
+        )
+    );
+    h.answer(call_id, ApprovalDecision::Deny).await;
+    h.wait_end(sent.turn_id).await;
+    assert!(h.toolbox.ran().is_empty());
+}

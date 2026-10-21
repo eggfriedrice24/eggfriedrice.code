@@ -438,6 +438,11 @@ pub(super) fn reads(words: &[Word]) -> Reads {
         }
         return reads;
     }
+    if SSH_PROGRAMS.contains(&name) {
+        let mut reads = generic(args);
+        reads.named.extend(ssh_option_values(args));
+        return reads;
+    }
     match READERS.iter().find(|reader| reader.programs.contains(&name)) {
         Some(reader) => reader.read(args),
         None => generic(args),
@@ -486,6 +491,36 @@ pub(super) fn generic(args: &[Word]) -> Reads {
         }
     }
     Reads { named, ..Reads::default() }
+}
+
+/// The programs of the ssh family that take `-o Name=value`.
+const SSH_PROGRAMS: &[&str] = &["ssh", "scp", "sftp", "autossh", "sshfs", "mosh"];
+
+/// The paths in the values of the separate `-o Name=value` words of an ssh program,
+/// such as `-o ControlPath=~/.ssh/cm`: a value that starts with `~/`, `/` or `.`. The
+/// joined form `-oControlPath=~/.ssh/cm` is an option value of [`generic`] already, so
+/// both forms declare the same read.
+fn ssh_option_values(args: &[Word]) -> Vec<Named> {
+    let mut named = Vec::new();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word.text == "--" {
+            break;
+        }
+        if word.text != "-o" {
+            continue;
+        }
+        let Some(option) = words.next() else {
+            break;
+        };
+        if let Some((_, value)) = option.text.split_once(['=', ' '])
+            && (value.starts_with("~/") || value.starts_with('/') || value.starts_with('.'))
+            && !option.expansion
+        {
+            named.push(named_value(value));
+        }
+    }
+    named
 }
 
 /// A wrapper such as `sudo` or `timeout`: every word as a path, and the program it

@@ -65,6 +65,27 @@ fn a_secret_named_by_a_read_only_command_is_declared() {
     );
 }
 
+#[test]
+fn ssh_o_controlpath_in_dot_ssh_is_a_read_of_dot_ssh() {
+    let fixture = Fixture::new();
+    let context = fixture.context();
+    let socket = read(fixture.home().join(".ssh/cm"));
+    for line in [
+        "ssh -o ControlPath=~/.ssh/cm host true",
+        "ssh -oControlPath=~/.ssh/cm host true",
+        "rsync -e 'ssh' -a src/ host:dst/; ssh -o ControlMaster=yes -o ControlPath=~/.ssh/cm h",
+    ] {
+        assert!(paths_in(&context, line).contains(&socket), "{line}");
+    }
+}
+
+#[test]
+fn ssh_capital_s_in_dot_ssh_is_a_read_of_dot_ssh() {
+    let fixture = Fixture::new();
+    let paths = paths_in(&fixture.context(), "ssh -S ~/.ssh/cm host true");
+    assert!(paths.contains(&read(fixture.home().join(".ssh/cm"))), "{paths:?}");
+}
+
 fn written(path: impl Into<std::path::PathBuf>) -> PathAccess {
     PathAccess { path: path.into(), mode: AccessMode::Write }
 }
