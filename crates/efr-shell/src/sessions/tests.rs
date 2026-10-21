@@ -1637,6 +1637,117 @@ async fn a_run_keeps_its_timeout_without_a_limit_or_without_someone_to_answer() 
     }
 }
 
+/// Starts a run of `command` for [`call`] with a timeout of five seconds and an input
+/// `limit`, whose listener says `can_answer`, and starts the command with `output`.
+async fn with_input_limit(
+    harness: &Harness,
+    command: &str,
+    limit: Option<Duration>,
+    can_answer: bool,
+    output: &[u8],
+) -> (FakeTerminal, JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+    let (mut listener, heard) = listener(can_answer);
+    let sessions = harness.sessions.clone();
+    let request = request(command)
+        .with_call(call())
+        .with_timeout(Duration::from_secs(5))
+        .with_input_limit(limit);
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    let mut started = b"\r\n\x1b]133;C\x07".to_vec();
+    started.extend_from_slice(output);
+    terminal.print(&started).await;
+    (terminal, run, heard)
+}
+
+const QUESTION: &[u8] = b"Overwrite config.toml? [y/N] ";
+
+#[tokio::test]
+async fn waiting_run_goes_on_past_timeout_while_followed() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        with_input_limit(&harness, "./setup", Some(Duration::from_secs(60)), true, QUESTION).await;
+    screen_shows(&harness.sessions, conversation(1), "[y/N]").await;
+    seconds(&harness, 12).await;
+    harness.clock.wait_for_sleeps(2).await;
+    assert!(!run.is_finished(), "the timeout of five seconds passed");
+    heard.inputs(&[InputWait::Visible]).await;
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"y\r");
+    terminal.print(b"y\r\n\x1b]133;D;0\x07").await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Finished);
+}
+
+#[tokio::test]
+async fn waiting_run_detaches_when_nobody_follows() {
+    let harness = Harness::new(ZSH);
+    let (_terminal, run, mut heard) =
+        with_input_limit(&harness, "./setup", Some(Duration::from_secs(60)), false, QUESTION).await;
+    screen_shows(&harness.sessions, conversation(1), "[y/N]").await;
+    seconds(&harness, 1).await;
+    heard.inputs(&[InputWait::Visible]).await;
+    seconds(&harness, 4).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Interactive);
+    assert_eq!(harness.clock.now().duration_since(START_OF_TEST).as_secs(), 5);
+}
+
+#[tokio::test]
+async fn run_that_stops_waiting_detaches_at_next_quiet_period() {
+    let harness = Harness::new(ZSH);
+    let (mut terminal, run, mut heard) =
+        with_input_limit(&harness, "./setup", Some(Duration::from_secs(60)), true, QUESTION).await;
+    screen_shows(&harness.sessions, conversation(1), "[y/N]").await;
+    seconds(&harness, 5).await;
+    heard.inputs(&[InputWait::Visible]).await;
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(!run.is_finished(), "the wait keeps the run past its timeout");
+    // The command goes on by itself, as when another program answered it.
+    terminal.print(b"\r\nworking\r\n").await;
+    screen_shows(&harness.sessions, conversation(1), "working").await;
+    seconds(&harness, 2).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::StillRunning);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+    assert_eq!(harness.clock.now().duration_since(START_OF_TEST).as_secs(), 7);
+}
+
+#[tokio::test]
+async fn input_limit_ends_the_extension() {
+    let harness = Harness::new(ZSH);
+    let (_terminal, run, _heard) =
+        with_input_limit(&harness, "./setup", Some(Duration::from_secs(8)), true, QUESTION).await;
+    screen_shows(&harness.sessions, conversation(1), "[y/N]").await;
+    seconds(&harness, 7).await;
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(!run.is_finished());
+    seconds(&harness, 1).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::Interactive);
+}
+
+#[tokio::test]
+async fn an_input_limit_keeps_the_timeout_of_a_command_that_does_not_wait() {
+    let harness = Harness::new(ZSH);
+    let (_terminal, run, _heard) = with_input_limit(
+        &harness,
+        "cargo build",
+        Some(Duration::from_secs(60)),
+        true,
+        b"Compiling\r\n",
+    )
+    .await;
+    seconds(&harness, 5).await;
+    let result = run.await.unwrap().unwrap();
+    assert_eq!(result.completion, Completion::StillRunning);
+}
+
 #[tokio::test]
 async fn a_run_that_waits_for_the_prompt_is_not_kept_past_its_timeout() {
     let harness = Harness::new(ZSH);

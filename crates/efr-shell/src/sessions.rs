@@ -194,8 +194,9 @@ impl ShellSessions {
     /// [`Completion::FullScreen`] for a program on the alternate screen,
     /// [`Completion::Interactive`] when it waits for input at the terminal and
     /// [`Completion::StillRunning`] otherwise, with the screen's last lines. A run with
-    /// an [`interactive_limit`](RunRequest::interactive_limit) whose command runs keeps
-    /// waiting past the timeout while
+    /// an [`interactive_limit`](RunRequest::interactive_limit) whose command runs, or
+    /// with an [`input_limit`](RunRequest::input_limit) whose command waits for input,
+    /// keeps waiting past the timeout while
     /// [`RunProgress::can_answer`](crate::RunProgress::can_answer) says yes, asked once
     /// per quiet period, up to that limit in all; then the same results apply.
     ///
@@ -666,7 +667,7 @@ impl ShellSessions {
         let (publish, mut updates) = watch::channel(Progress::default());
         let offer = Offer::of(request.mode, &request.command);
         let started = deps.clock.now();
-        let interactive_limit = request.interactive_limit;
+        let limits = Limits { interactive: request.interactive_limit, input: request.input_limit };
         let order = RunOrder {
             id,
             command: request.command,
@@ -739,7 +740,8 @@ impl ShellSessions {
                 () = &mut deadline => {
                     // NOTE: the looks start with the command, so a run still waiting for
                     // the prompt is never kept past its timeout.
-                    match self.extension(interactive_limit, started, look.is_some(), progress) {
+                    let waits = watch.current() != InputWait::None;
+                    match self.extension(limits, waits, started, look.is_some(), progress) {
                         Some(wait) => deadline = deps.clock.sleep(wait),
                         None => break,
                     }
@@ -879,19 +881,24 @@ impl ShellSessions {
             && (contained || !progress.can_answer_hidden()))
     }
 
-    /// How much longer a run that reached its deadline waits for its command, when it
-    /// has an interactive `limit`, its command runs, the limit since `started` has not
-    /// passed and a person who can answer follows it: at most one quiet period, so a
-    /// person who stops following ends the wait soon. `None` ends the run as at its
-    /// timeout.
+    /// How much longer a run that reached its deadline waits for its command, when its
+    /// command runs, it has an interactive limit or an input limit and its command
+    /// `waits` for input, that limit since `started` has not passed, and a person who
+    /// can answer follows it: at most one quiet period, so a person who stops following,
+    /// or a wait that ends, ends the run soon. `None` ends the run as at its timeout.
+    ///
+    /// NOTE: a command in the sandbox never gets here with a wait for an answer that may
+    /// be a secret: the look that saw it stopped the command.
     fn extension(
         &self,
-        limit: Option<Duration>,
+        limits: Limits,
+        waits: bool,
         started: jiff::Timestamp,
         running: bool,
         progress: &mut dyn RunProgress,
     ) -> Option<Duration> {
-        let limit = limit.filter(|_| running)?;
+        let input = limits.input.filter(|_| waits);
+        let limit = limits.interactive.max(input).filter(|_| running)?;
         // A clock that went back counts as no time passed.
         let elapsed = Duration::try_from(self.inner.deps.clock.now().duration_since(started))
             .unwrap_or_default();
@@ -1054,6 +1061,14 @@ impl CommandRunner for ShellSessions {
     ) -> Result<CommandResult, ShellError> {
         ShellSessions::run_command(self, conversation, request, progress).await
     }
+}
+
+/// The limits past a run's timeout ([`RunRequest::interactive_limit`] and
+/// [`RunRequest::input_limit`]).
+#[derive(Debug, Clone, Copy)]
+struct Limits {
+    interactive: Option<Duration>,
+    input: Option<Duration>,
 }
 
 /// Lets the session's actor go of a run whose caller dropped the future before an

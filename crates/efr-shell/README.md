@@ -84,6 +84,14 @@ The `cd` waits at most `MOVE_TIMEOUT` (5 s).
   counted from the run's start. Once nobody follows, or the limit passes, the result
   is the one above. A run still waiting for its prompt is never kept past its timeout,
   and the stop of an unanswered hidden wait is the same with or without a limit.
+- A run with `RunRequest::input_limit` (the daemon sets it for every shell call) does
+  the same while its command waits for input, as the last look reported it: past its
+  timeout it goes on while `RunProgress::can_answer` says yes, asked once per
+  `quiet_period`, up to the limit counted from the run's start. This covers what no list
+  of programs sees, such as a script that asks or a `[Y/n]`. A run whose wait ends goes
+  on until the next quiet period and then ends as at its timeout. A command in the
+  sandbox never waits for an answer that may be a secret (below), so only its plain
+  visible waits are kept.
 - Without the integration (a shell that is not a zsh, or a zsh whose first marked
   prompt did not come within `startup_timeout`), and for `RunMode::Sentinel` (a shell
   started inside the hidden one: `sudo -i`, `bash`, `ssh`), the command is delimited
