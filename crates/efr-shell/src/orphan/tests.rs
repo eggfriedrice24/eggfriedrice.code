@@ -512,3 +512,61 @@ async fn interrupt_left_after_end_is_no_call() {
     assert!(matches!(late, Err(ShellError::NoCall { .. })), "{late:?}");
     assert!(harness.holder.signals().is_empty(), "{:?}", harness.holder.signals());
 }
+
+#[tokio::test]
+async fn until_free_fails_at_once_when_orphan_waits() {
+    let harness = Harness::new(ZSH);
+    left_at_a_password_prompt(&harness).await;
+    let held = harness.sessions.until_free(conversation(1), Duration::from_secs(30)).await;
+    let Err(ShellError::HeldBy { command, waiting, .. }) = held else {
+        panic!("{held:?}");
+    };
+    assert_eq!(command, "sudo pacman -Syu");
+    assert_eq!(waiting, InputWait::Hidden);
+    let message = ShellError::HeldBy { conversation: conversation(1), command, waiting };
+    assert!(!message.to_string().contains("pacman"), "the message names no command");
+}
+
+#[tokio::test]
+async fn until_free_still_waits_for_a_running_orphan() {
+    let harness = Harness::new(ZSH);
+    let mut terminal = left(&harness, request("cargo build"), b"Compiling\r\n").await;
+    let sessions = harness.sessions.clone();
+    let wait =
+        tokio::spawn(
+            async move { sessions.until_free(conversation(1), Duration::from_secs(30)).await },
+        );
+    // The watch and the wait sleep, beside the shell's startup timer.
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(!wait.is_finished());
+    terminal.print(b"\x1b]133;D;0\x07").await;
+    wait.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn queued_run_gets_held_by() {
+    let harness = Harness::new(ZSH);
+    harness.followers.set(1);
+    let mut terminal = left(&harness, request("rsync -a src/ u@h:dst/"), b"sending\r\n").await;
+    // A run that comes while the command runs waits for its end.
+    let sessions = harness.sessions.clone();
+    let queued = tokio::spawn(async move {
+        sessions.run_command(conversation(1), request("ls"), &mut NoProgress).await
+    });
+    // The watch, the queued run's deadline and the shell's startup timer.
+    harness.clock.wait_for_sleeps(3).await;
+    assert!(!queued.is_finished());
+    // The command asks for a password: the queued run would wait for the user.
+    asks(&harness, &mut terminal, b"u@h's password: ", HIDDEN).await;
+    harness.clock.advance(Duration::from_secs(1));
+    let held = queued.await.unwrap();
+    assert!(
+        matches!(&held, Err(ShellError::HeldBy { waiting: InputWait::Hidden, .. })),
+        "{held:?}"
+    );
+    // A run that comes now fails at once, and nothing was typed into the prompt.
+    let now = harness.sessions.run_command(conversation(1), request("ls"), &mut NoProgress).await;
+    assert!(matches!(&now, Err(ShellError::HeldBy { .. })), "{now:?}");
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("pw"), true).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"pw\r");
+}

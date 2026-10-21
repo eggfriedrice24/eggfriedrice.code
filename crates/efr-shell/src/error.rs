@@ -4,7 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 use efr_holder::{ChildStatus, HolderError};
-use efr_protocol::ConversationId;
+use efr_protocol::{ConversationId, InputWait};
 use efr_screen::ScreenError;
 use efr_stdx::StdxError;
 
@@ -94,6 +94,21 @@ pub enum ShellError {
         /// True when no command was typed into this shell yet, so no earlier command
         /// held it: its prompt never became ready.
         fresh: bool,
+    },
+
+    /// A command left running in the shell at an earlier run's timeout waits for input,
+    /// so the shell takes no command until the user answers or stops it. Nothing was
+    /// typed. The message names no command; `command` is for the user and the model.
+    #[error(
+        "the hidden shell of conversation {conversation} is held by a command that waits for input"
+    )]
+    HeldBy {
+        /// The conversation.
+        conversation: ConversationId,
+        /// The first 200 characters of the command line that holds the shell.
+        command: String,
+        /// What it waits for.
+        waiting: InputWait,
     },
 
     /// The conversation has no hidden shell.

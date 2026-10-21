@@ -317,6 +317,12 @@ went on:
   only when that is not the shell itself (else `NotWaiting`, and nothing is signalled).
   With `close` it closes the shell, for a command that ignores `SIGINT`. The end is then
   `stopped` or `closed`. `NoCall` when the call's command no longer runs.
+- While it waits for input, the shell takes no run: a run fails at once with
+  `ShellError::HeldBy` (the first 200 characters of its line and what it waits for),
+  also one that waited for the shell when the wait began, and `until_free` fails at
+  once the same way. Only the user frees the shell then, and a line typed into the
+  terminal could answer the prompt. A command left running that does not wait holds
+  the next run until its end, as before.
 
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:
@@ -616,7 +622,7 @@ clock and the seeded generator.
 - No log and no error message carries a command line or an environment value, or the
   text of an answer. No notice or `Debug` output carries an environment value or the
   text of an answer. The one place for a command line is a command left running: its
-  notices and `LeftRunning` carry the first 200 characters of
+  notices, `LeftRunning` and `ShellError::HeldBy` carry the first 200 characters of
   its line and the row that asks, which the user and the model read; efr-shell never
   logs them.
 - An answer reaches a terminal only while the same call's command runs, as far as the
