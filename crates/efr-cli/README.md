@@ -876,6 +876,42 @@ terminal follows (`shell.interactive_timeout_minutes`); an answer after the call
 completed is refused as `not_found`, which the CLI shows as the note that the command
 no longer waits.
 
+A command can go on in the hidden shell after its call answered the model, such as
+after its timeout (`left_running` on `tool_call_completed`). The shell then takes no
+other call until the command ends. The view shows it so:
+
+- The call's block ends with `still runs in the hidden shell` in the warning role, in
+  place of the check mark, under the last lines of its output.
+- `shell_command_detached` and `shell_command_input_changed` belong to the conversation,
+  so they show while the view follows any turn of it. They and the call's completion
+  come in either order; the view links them by the call id. While the command waits for
+  input and keys can be read, an answer line asks for it as for a running call: the
+  label `the hidden shell: <command>` with who approved the call (`you approved it`,
+  `your rule allowed it`), the prompt row that the daemon read from the screen, how the
+  answer goes, and `enter answers · ctrl+c stops the command, not the turn`. The answer
+  goes with `input.respond` and the call's id. Ctrl+C there sends `shell.interrupt` for
+  that call; a refusal, such as `the shell itself holds the terminal`, is a note. A
+  command in the sandbox never gets a hidden answer, an answer to a wait that looks
+  secret or a manual one: that wait is a note.
+- The answer line takes the place of the input row at once, and an approval or another
+  question takes the keys from it until it is answered. A call outside the sandbox that
+  may ask for a password (its approval said `interactive`), or that asked for input here,
+  holds the keys from its completion until its first wait is known, and a command that
+  asked for a password holds them while it runs: what is typed then is thrown away. So a
+  password typed for it never goes as a steer and never lands in the row. The text of an
+  answer line never goes back to the shell; only the row's text does.
+- `shell_command_ended` is one dim note, such as `rsync -a ... ended in the hidden
+  shell` or `efr stopped rsync -a ... in the hidden shell: nobody answered its input in
+  time`, and the line goes.
+- At the end of the last followed turn, when the command still runs, one line says so:
+  `the hidden shell still runs: rsync -a ... (it waits for a password)`. The word
+  `password` shows only for a command outside the sandbox whose wait is hidden or looks
+  secret; any other wait is `(it waits for input)`. When the wait can be answered here,
+  `efr` does not end yet: the answer line stays, with `enter answers · ctrl+c stops it ·
+  esc leaves it`, until the wait ends, the command ends, or Esc, which leaves the command
+  waiting. Otherwise the line adds `· ,shell answers or stops it` and `efr` ends.
+- Every text that holds the command or its prompt row goes through `format::one_line`.
+
 Ctrl+C sends `turn.interrupt` for the followed turn and then ends the command (exit
 130); the daemon stops the model and any running command. With the input row, it
 first clears the row's text, and it takes back the prompts that the row queued and a

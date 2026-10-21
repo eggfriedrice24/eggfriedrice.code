@@ -116,6 +116,13 @@
 //! quarantine question ([`Ask::Surface`]) asks whether to keep them, with its own
 //! question id: it is not an approval of a call.
 //!
+//! A command that a shell call left running in the hidden shell (`left`) belongs to the
+//! conversation too: the call's block says that it still runs, its waits ask for an
+//! answer line that takes the place of the input row at once and whose Ctrl+C stops the
+//! command (`shell.interrupt`), and its end is a note. At the end of the last followed
+//! turn one line names it; while it waits for an answer here, `efr` stays open with that
+//! line ([`TurnView::lingers`]) until the wait ends or Esc leaves it.
+//!
 //! A background job belongs to the conversation, not to a turn: the end of a job, a
 //! line that matched its `watch` pattern and a notice that did not start a turn show
 //! while the view follows any turn of the conversation (`format::jobs`). A call that
@@ -125,6 +132,7 @@
 
 mod call;
 mod input;
+mod left;
 mod message;
 mod status;
 
@@ -134,10 +142,10 @@ use std::time::Duration;
 
 use efr_config::DiffGroups;
 use efr_protocol::{
-    ApprovalDecision, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event, EventEnvelope,
-    ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch, Mode, Origin,
-    Presence, QuestionId, Risk, Scope, Seq, SurfaceChange, TurnId, TurnInterruptResult,
-    TurnUndoInfo, Verdict, looks_secret,
+    ApprovalDecision, ApprovedBy, CallId, ContextUse, Draft, DraftPart, ErrorBody, Event,
+    EventEnvelope, ExitInfo, FileChanges, Grant, InputWait, JobId, JobInfo, JudgeKind, Launch,
+    Mode, Origin, Presence, QuestionId, Risk, Scope, Seq, ShellCommandEnd, SurfaceChange, TurnId,
+    TurnInterruptResult, TurnUndoInfo, Verdict, looks_secret,
 };
 use efr_render::{RenderOptions, render_trace};
 use jiff::Timestamp;
@@ -154,6 +162,7 @@ use crate::row::Action;
 use crate::terminal::{Size, at_width};
 use call::{Call, Outcome};
 use input::{Input, Queued, user_message};
+use left::Left;
 use message::Message;
 use status::{State, Status};
 
@@ -464,6 +473,13 @@ struct Changed<'a> {
     diff: Option<&'a str>,
 }
 
+/// The wait of a command left running in the hidden shell, from its event.
+struct Wait<'a> {
+    input: InputWait,
+    looks_secret: bool,
+    prompt: &'a str,
+}
+
 /// What a view keeps of background jobs.
 #[derive(Debug, Default)]
 struct Jobs {
@@ -527,6 +543,14 @@ pub(crate) struct TurnView {
     /// The call that the user allowed here as one that may wait for input, while it
     /// runs: its keys are kept for it whenever nothing else reads them.
     retained: Option<CallId>,
+    /// Calls whose approval said that they may wait for input at the terminal, such as
+    /// for a password: when one is left running in the hidden shell, the keys wait for
+    /// its first wait.
+    flagged: HashSet<CallId>,
+    /// The command that a shell call left running in the conversation's hidden shell,
+    /// until it ends.
+    // NOTE: boxed, so a view that follows a turn keeps the future of `efr send` small.
+    left: Option<Box<Left>>,
     /// The home directory, which the sandbox's lines print as `~`.
     home: Option<PathBuf>,
     /// The scope of the prompt, such as `app` or `○ ~/notes`, at the end of the status
@@ -637,6 +661,8 @@ impl TurnView {
             echo_line: false,
             interactive: HashSet::new(),
             retained: None,
+            flagged: HashSet::new(),
+            left: None,
             home: None,
             scope: None,
             in_project: false,
@@ -1139,6 +1165,7 @@ impl TurnView {
     fn waits_for_user(&self) -> bool {
         self.question_pending()
             || self.running.as_ref().is_some_and(|running| running.asking.is_some())
+            || self.left.as_ref().is_some_and(|left| left.asking.is_some())
     }
 
     /// True when a turn ends with a line of its time and tokens: on a terminal, where
@@ -1282,6 +1309,11 @@ impl TurnView {
                 |options| jobs::linked(&rows(&line, Tone::Dim, options), url.as_deref(), options),
                 size,
             );
+        }
+        // NOTE: a command left running in the hidden shell belongs to the conversation
+        // too, and the shell takes no other call until it ends.
+        if let Some(step) = self.left_event(event, size, can_ask) {
+            return step;
         }
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);
@@ -1447,6 +1479,7 @@ impl TurnView {
                 refusal,
                 changes,
                 diff,
+                left_running,
                 ..
             } => {
                 self.state(State::Model);
@@ -1481,6 +1514,18 @@ impl TurnView {
                 if ran {
                     self.traced_network = self.traced_network.max(network);
                 }
+                // NOTE: the call answered, but its command goes on in the hidden shell,
+                // and its `shell_command_detached` may come later. Until it does, the
+                // keys of a call outside the sandbox that asked for input here, or that
+                // may ask for a password, are held: they may be a password.
+                if *left_running && !self.left.as_ref().is_some_and(|left| left.call_id == *call_id)
+                {
+                    let command = self.commands.get(call_id).map_or("", String::as_str);
+                    let mut left = Left::new(*call_id, command, contained, None);
+                    left.can_ask = can_ask;
+                    left.holding = !contained && (settled || self.flagged.contains(call_id));
+                    self.left = Some(Box::new(left));
+                }
                 // The job that the call started, first: it runs on after the call.
                 let mut notes: Vec<String> = self.jobs.lines.remove(call_id).into_iter().collect();
                 if let Some(summary) = summary {
@@ -1500,6 +1545,7 @@ impl TurnView {
                         let outcome = match (refusal, setup, *exit_code) {
                             (Some(reason), _, _) => Outcome::Refused(reason),
                             (None, Some(reason), _) => Outcome::NotStarted(reason),
+                            (None, None, _) if *left_running => Outcome::LeftRunning,
                             (None, None, Some(code)) if code != 0 => Outcome::Exited(code),
                             (None, None, None) if *is_error => Outcome::Failed,
                             _ => Outcome::Ran,
@@ -1513,10 +1559,13 @@ impl TurnView {
                         let line = match refusal {
                             Some(reason) => Some(format::refused(tool, reason)),
                             None => format::tool_result(tool, *is_error, *exit_code)
-                                .filter(|_| !denied && setup.is_none()),
+                                .filter(|_| !denied && setup.is_none() && !*left_running),
                         };
                         let mut all: Vec<String> =
                             line.into_iter().map(|line| format!("{NO}{line}")).collect();
+                        if *left_running && refusal.is_none() {
+                            all.push(format!("{}: {}", format::one_line(tool), call::LEFT_RUNNING));
+                        }
                         all.extend(sandbox::setup_failed(setup));
                         all.extend(changes.as_ref().and_then(changes_note));
                         all.extend(notes);
@@ -1595,6 +1644,7 @@ impl TurnView {
             } => {
                 if *interactive {
                     self.interactive.insert(*call_id);
+                    self.flagged.insert(*call_id);
                 }
                 if let Some(call) = self.call.as_mut().filter(|call| call.call_id == *call_id) {
                     call.awaiting = true;
@@ -1779,6 +1829,7 @@ impl TurnView {
                 self.blocking.insert(*call_id);
                 if *interactive {
                     self.interactive.insert(*call_id);
+                    self.flagged.insert(*call_id);
                 }
                 let request = Request {
                     blocking: true,
@@ -2252,7 +2303,10 @@ impl TurnView {
     /// no approval waits, and whose line that offers `Ctrl+\` is not shown yet.
     pub(crate) fn silence(&self) -> Option<(CallId, u64)> {
         let running = self.running.as_ref()?;
-        let quiet = running.quiet() && !running.hinted && !self.question_pending();
+        let quiet = running.quiet()
+            && !running.hinted
+            && !self.question_pending()
+            && !self.left_reads_keys();
         quiet.then_some((running.call_id, running.activity))
     }
 
@@ -2260,7 +2314,10 @@ impl TurnView {
     /// the key exactly while there is one.
     pub(crate) fn manual_offer(&self) -> Option<CallId> {
         let running = self.running.as_ref()?;
-        let offered = running.quiet() && running.hinted && !self.question_pending();
+        let offered = running.quiet()
+            && running.hinted
+            && !self.question_pending()
+            && !self.left_reads_keys();
         offered.then_some(running.call_id)
     }
 
@@ -2386,10 +2443,300 @@ impl TurnView {
         }
         // One question at a time, so an approval and an input never overlap. Tool calls
         // run one after another, so an approval does not come while a command runs.
-        if approval_pending {
+        // The line of a command left running in the hidden shell keeps the keys too.
+        if approval_pending || self.left_reads_keys() {
             return Step { settled, ..Step::default() };
         }
         self.ask_for(call_id, kind, size)
+    }
+
+    /// An event of a command that a shell call left running in the hidden shell;
+    /// `None` for any other event.
+    fn left_event(&mut self, event: &Event, size: Size, can_ask: bool) -> Option<Step> {
+        let step = match event {
+            Event::ShellCommandDetached {
+                call_id,
+                command,
+                contained,
+                input,
+                looks_secret,
+                prompt,
+                approved_by,
+                ..
+            } => {
+                let wait = Wait { input: *input, looks_secret: *looks_secret, prompt };
+                self.left_detached(
+                    *call_id,
+                    command,
+                    *contained,
+                    *approved_by,
+                    &wait,
+                    can_ask,
+                    size,
+                )
+            }
+            Event::ShellCommandInputChanged { call_id, input, contained, looks_secret, prompt } => {
+                let wait = Wait { input: *input, looks_secret: *looks_secret, prompt };
+                self.left_input(*call_id, *contained, &wait, can_ask, size)
+            }
+            Event::ShellCommandEnded { call_id, exit_code, how } => {
+                self.left_ended(*call_id, *exit_code, *how, size)
+            }
+            _ => return None,
+        };
+        Some(step)
+    }
+
+    /// The command of call `call_id` still runs in the hidden shell after its call
+    /// answered the model. A call of this view whose approval said it may wait for input
+    /// and that runs outside the sandbox holds the keys until its first wait is known,
+    /// so a password typed for it never reaches the input row.
+    #[expect(clippy::too_many_arguments, reason = "the fields of one event")]
+    fn left_detached(
+        &mut self,
+        call_id: CallId,
+        command: &str,
+        contained: bool,
+        approved_by: Option<ApprovedBy>,
+        wait: &Wait<'_>,
+        can_ask: bool,
+        size: Size,
+    ) -> Step {
+        let mut settled = self.left_gone();
+        // NOTE: the detach and the call's completion come in either order. The line of
+        // the running call goes, and the command's own line takes its place.
+        if self.running.as_ref().is_some_and(|running| running.call_id == call_id) {
+            settled |= self.running.take().is_some_and(|running| running.reads_keys());
+        }
+        if self.retained == Some(call_id) {
+            self.retained = None;
+            settled = true;
+        }
+        let mut left = Left::new(call_id, command, contained, approved_by);
+        left.waits(wait.input, wait.looks_secret, wait.prompt);
+        left.can_ask = can_ask;
+        left.holding =
+            !contained && wait.input == InputWait::None && self.flagged.contains(&call_id);
+        self.left = Some(Box::new(left));
+        let step = self.left_wait(size);
+        Step { settled: settled || step.settled, ..step }
+    }
+
+    /// The command left running by call `call_id` began or stopped waiting for input.
+    fn left_input(
+        &mut self,
+        call_id: CallId,
+        contained: bool,
+        wait: &Wait<'_>,
+        can_ask: bool,
+        size: Size,
+    ) -> Step {
+        let mut settled = false;
+        if !self.left.as_ref().is_some_and(|left| left.call_id == call_id) {
+            // The view did not see it start: it knows the call, not the command.
+            settled = self.left_gone();
+            self.left = Some(Box::new(Left::new(call_id, "", contained, None)));
+        }
+        let Some(left) = self.left.as_deref_mut() else {
+            return Step::default();
+        };
+        if left.asking.is_some_and(AnswerKind::guards) {
+            left.guarding = true;
+        }
+        settled |= left.reads_keys();
+        left.asking = None;
+        left.held = false;
+        left.holding = false;
+        left.typed.clear();
+        left.contained = contained;
+        left.can_ask = can_ask;
+        left.waits(wait.input, wait.looks_secret, wait.prompt);
+        let step = self.left_wait(size);
+        Step { settled: settled || step.settled, ..step }
+    }
+
+    /// The command left running by call `call_id` ended: a note says how, and its line
+    /// goes.
+    fn left_ended(
+        &mut self,
+        call_id: CallId,
+        exit_code: Option<i32>,
+        how: ShellCommandEnd,
+        size: Size,
+    ) -> Step {
+        let Some(left) = self.left.take_if(|left| left.call_id == call_id) else {
+            return Step::default();
+        };
+        let note = left::ended_note(&left.command(), exit_code, how);
+        let step = self.note(&note, size);
+        Step { settled: left.reads_keys(), ..step }
+    }
+
+    /// The command left running drops out of the view; true when keys were read for it.
+    fn left_gone(&mut self) -> bool {
+        self.left.take().is_some_and(|left| left.reads_keys())
+    }
+
+    /// What the wait of the command left running asks for now: a note in the sandbox
+    /// or without keys, else its answer line when nothing else asks.
+    fn left_wait(&mut self, size: Size) -> Step {
+        let Some(left) = self.left.as_deref() else {
+            return Step::default();
+        };
+        if left.wait != InputWait::None {
+            if left.contained && left.secret_wait() {
+                return self.note(HIDDEN_INPUT_SANDBOXED, size);
+            }
+            if !left.can_ask {
+                let note = left.elsewhere_note();
+                return self.note(&note, size);
+            }
+        }
+        match self.left_offer() {
+            Some(step) => step,
+            None => self.commit(String::new()),
+        }
+    }
+
+    /// True while keys are read for the command left running in the hidden shell.
+    fn left_reads_keys(&self) -> bool {
+        self.left.as_ref().is_some_and(|left| left.reads_keys())
+    }
+
+    /// The command left running in the hidden shell whose line reads the keys now, to
+    /// answer or to hold: Ctrl+C stops that command (`shell.interrupt`), not the turn.
+    pub(crate) fn left_keys(&self) -> Option<CallId> {
+        self.left.as_ref().filter(|left| left.reads_keys()).map(|left| left.call_id)
+    }
+
+    /// True when `ask` is the line of the command left running in the hidden shell.
+    pub(crate) fn left_asks(&self, ask: &Ask) -> bool {
+        let call = match ask {
+            Ask::Input { call_id, .. } | Ask::Discard(call_id) => *call_id,
+            _ => return false,
+        };
+        self.left.as_ref().is_some_and(|left| left.call_id == call && left.reads_keys())
+    }
+
+    /// Another question took the keys from the line of the command left running: the
+    /// line closes, and [`left_offer`](Self::left_offer) opens it again afterwards.
+    pub(crate) fn left_yield(&mut self) {
+        if let Some(left) = self.left.as_deref_mut().filter(|left| left.reads_keys()) {
+            left.asking = None;
+            left.held = false;
+            left.typed.clear();
+            self.dirty = true;
+        }
+    }
+
+    /// The answer line of the command left running, or the hold of the keys for it,
+    /// when it needs the keys, they can be read, and nothing else asks; `None`
+    /// otherwise. The line takes the place of the input row at once.
+    pub(crate) fn left_offer(&mut self) -> Option<Step> {
+        if self.question_pending() || self.running.as_ref().is_some_and(Running::reads_keys) {
+            return None;
+        }
+        let left = self.left.as_deref_mut()?;
+        if left.reads_keys() || !left.can_ask {
+            return None;
+        }
+        let ask = match left.kind() {
+            Some(kind) => {
+                left.asking = Some(kind);
+                left.holding = false;
+                Ask::Input { call_id: left.call_id, kind }
+            }
+            // NOTE: before its first wait is known, or after it asked for a password,
+            // what is typed may be a password: it never goes to the row.
+            None if left.wait == InputWait::None && (left.holding || left.guarding) => {
+                left.held = true;
+                Ask::Discard(left.call_id)
+            }
+            None => return None,
+        };
+        Some(self.left_shown(ask))
+    }
+
+    /// `ask` for the line of the command left running, with what shows it: the live zone
+    /// on a terminal, otherwise its rows on stderr.
+    fn left_shown(&mut self, ask: Ask) -> Step {
+        let Some(left) = self.left.as_deref() else {
+            return Step::default();
+        };
+        let shown = left.asking.is_some_and(AnswerKind::shown);
+        let raw = left.raw();
+        let mut step = if self.terminal() {
+            self.commit(String::new())
+        } else {
+            let spacing = self.err_spacing.before(Block::Note);
+            let mut err = self.raw_err(format!("{spacing}{raw}"));
+            if shown {
+                err.push_str(ECHO_PREFIX);
+                self.echo_line = true;
+            }
+            Step { err, ..Step::default() }
+        };
+        step.ask = Some(ask);
+        step
+    }
+
+    /// The line under the end of the last followed turn while a command still runs in
+    /// the hidden shell. When it waits for input that can be answered here, `efr` stays
+    /// open with its answer line ([`lingers`](Self::lingers)); otherwise the line says
+    /// where to answer or stop it.
+    fn left_at_end(&mut self, size: Size) -> Step {
+        let Some(left) = self.left.as_deref_mut() else {
+            return Step::default();
+        };
+        let kind = left.kind().filter(|_| left.can_ask);
+        let line = left.end_line(kind.is_some());
+        left.held = false;
+        left.holding = false;
+        left.guarding = false;
+        let ask = match kind {
+            Some(kind) => {
+                left.lingering = true;
+                left.asking = Some(kind);
+                Some(Ask::Input { call_id: left.call_id, kind })
+            }
+            None => {
+                left.asking = None;
+                None
+            }
+        };
+        let mut step = self.whole_note(&line, size);
+        if let Some(ask) = ask {
+            let shown = self.left_shown(ask);
+            step.err.push_str(&shown.err);
+            step.ask = shown.ask;
+        }
+        step
+    }
+
+    /// True while the followed turns ended but `efr` stays open for the answer line of a
+    /// command that waits in the hidden shell.
+    pub(crate) fn lingers(&self) -> bool {
+        self.left.as_ref().is_some_and(|left| left.lingering && left.asking.is_some())
+    }
+
+    /// Esc at the answer line of `call_id` after the turn: `efr` leaves the command
+    /// waiting and ends. `None` when that line does not stay open after the turn.
+    pub(crate) fn left_leave(&mut self, call_id: CallId, size: Size) -> Option<Step> {
+        let left = self.left.as_deref_mut().filter(|left| left.call_id == call_id)?;
+        if !left.lingering {
+            return None;
+        }
+        left.lingering = false;
+        left.asking = None;
+        left.typed.clear();
+        let step = self.note(left::LEFT_WAITING, size);
+        Some(Step { settled: true, ..step })
+    }
+
+    /// The daemon did not stop the command left running, for the reason `message`.
+    pub(crate) fn left_not_stopped(&mut self, message: &str, size: Size) -> Step {
+        let line = format!("the command was not stopped: {}", format::one_line(message));
+        self.note(&line, size)
     }
 
     /// Asks for an answer line of `kind` for the running call `call_id`, below its last
@@ -2462,24 +2809,25 @@ impl TurnView {
     pub(crate) fn typed(&mut self, text: &str) -> Step {
         let terminal = self.terminal();
         let echo_line = self.echo_line;
-        let Some(running) = &mut self.running else {
-            return Step::default();
+        // NOTE: the line of a command left running in the hidden shell and the line of
+        // the running call never ask at the same time.
+        let (asking, typed) = match (self.left.as_deref_mut(), self.running.as_mut()) {
+            (Some(left), _) if left.asking.is_some() => (left.asking, &mut left.typed),
+            (_, Some(running)) => (running.asking, &mut running.typed),
+            _ => return Step::default(),
         };
-        if !running.asking.is_some_and(AnswerKind::shown) {
+        if !asking.is_some_and(AnswerKind::shown) {
             return Step::default();
         }
         if terminal {
-            text.clone_into(&mut running.typed);
+            text.clone_into(typed);
             return self.commit(String::new());
         }
         // A note since the last key ended the echo line; a new one starts empty.
-        let (mut err, shown) = if echo_line {
-            (String::new(), running.typed.as_str())
-        } else {
-            (ECHO_PREFIX.to_owned(), "")
-        };
+        let (mut err, shown) =
+            if echo_line { (String::new(), typed.as_str()) } else { (ECHO_PREFIX.to_owned(), "") };
         err.push_str(&echo_edit(shown, text));
-        text.clone_into(&mut running.typed);
+        text.clone_into(typed);
         self.echo_line = true;
         Step { err, ..Step::default() }
     }
@@ -2516,6 +2864,9 @@ impl TurnView {
     /// A manual answer asks once: after it, the keys stop and the call's silence starts
     /// again.
     fn answer_note(&mut self, text: Option<&str>, size: Size) -> Step {
+        if let Some(left) = &mut self.left {
+            left.typed.clear();
+        }
         let mut freed = None;
         if let Some(running) = &mut self.running {
             running.typed.clear();
@@ -2916,7 +3267,8 @@ impl TurnView {
         let settled = self.asking.take().is_some()
             || self.surface.take().is_some()
             || input
-            || self.retained.is_some();
+            || self.retained.is_some()
+            || self.left_reads_keys();
         // A prompt that this view queued runs next: the view follows it.
         let next = self.input.as_mut().and_then(Input::next);
         let mut step = if next.is_some() {
@@ -2967,7 +3319,12 @@ impl TurnView {
                 self.advance(next);
                 Step { settled, ..step }
             }
-            None => Step { settled, end: Some(end), ..step },
+            None => {
+                let still = self.left_at_end(size);
+                step.out.push_str(&still.out);
+                step.err.push_str(&still.err);
+                Step { settled, end: Some(end), ask: still.ask, ..step }
+            }
         }
     }
 
@@ -3053,7 +3410,7 @@ impl TurnView {
     ) -> Step {
         let options = self.options_at(size);
         let mut block = String::new();
-        if outcome.failed() {
+        if outcome.keeps_tail() {
             block.push_str(&call::tail(lines, false, &options));
         }
         let limit = self.look.diff_lines;
@@ -3138,6 +3495,10 @@ impl TurnView {
                 live.push_str(&format::paint(SILENCE_HINT, Tone::Dim, &options));
                 live.push('\n');
             }
+        }
+        // NOTE: also after the end of the turn, while `efr` stays open for it.
+        if let Some(left) = &self.left {
+            live.push_str(&left.live(&options));
         }
         if let Some(shown) = &self.question {
             if shown.committed {

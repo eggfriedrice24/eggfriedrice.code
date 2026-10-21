@@ -1034,6 +1034,71 @@ async fn keys_held_for_a_password_prompt_start_its_secret_looking_answer() {
     assert_eq!(setup.handed_back(), None);
 }
 
+/// The safety finding of the busy shell: a password typed for a command left running
+/// in the hidden shell must never go to the model. Its answer line takes the place of
+/// the row at once, so Enter there answers the command and sends no steer.
+#[tokio::test]
+async fn no_steer_while_an_answer_line_shows() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        super::left::leave_waiting(&mut conn, sub, 11).await;
+        shows(&seen, "the hidden shell: rsync").await;
+        keys.type_bytes(b"hunter2\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "hunter2");
+        assert!(params.hidden);
+        conn.reply(id, &InputRespondResult {}).await;
+        conn.item(sub, &item(15, super::left::wait_changed(InputWait::None))).await;
+        let end = Event::ShellCommandEnded {
+            call_id: call(),
+            exit_code: Some(0),
+            how: efr_protocol::ShellCommandEnd::Ended,
+        };
+        conn.item(sub, &item(16, end)).await;
+        // The row comes back once the command no longer waits.
+        shows_where(&seen, |out| after(out, "ended in the hidden shell").contains("enter steer"))
+            .await;
+        conn.item(sub, &item(17, turn_completed())).await;
+        let rest = conn.until_closed().await;
+        assert!(
+            rest.iter().all(|frame| matches!(frame, ClientFrame::Cancel { .. })),
+            "no steer went out: {rest:?}"
+        );
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("hunter"), "{}", readable(&out));
+    assert_eq!(setup.handed_back(), None);
+}
+
+/// What is typed in the answer line of a command left running never goes back to the
+/// shell: only the row's own text does.
+#[tokio::test]
+async fn answer_line_text_is_not_handed_back() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        keys.type_bytes(b"draft").await;
+        shows(&seen, "\u{203a} draft").await;
+        super::left::leave_waiting(&mut conn, sub, 11).await;
+        shows(&seen, "the hidden shell: rsync").await;
+        keys.type_bytes(b"hunter2").await;
+        conn.item(sub, &item(15, turn_completed())).await;
+        shows(&seen, "esc leaves it").await;
+        keys.press_esc().await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(!out.contains("hunter"), "{}", readable(&out));
+    assert_eq!(setup.handed_back().as_deref(), Some("draft"));
+}
+
 #[tokio::test]
 async fn the_cursor_shows_in_the_row_and_paste_mode_is_off_on_the_way_out() {
     let setup = Setup::new();
