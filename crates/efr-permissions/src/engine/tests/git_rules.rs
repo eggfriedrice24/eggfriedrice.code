@@ -259,6 +259,76 @@ fn a_network_rule_reads_the_same_views() {
     }
 }
 
+/// Lines that run `git push` behind a wrapper or by a path (OQL3).
+const WRAPPED_PUSH_LINES: &[&str] = &[
+    "env git -C /home/u/p/app push origin HEAD",
+    "env GIT_TRACE=1 git push",
+    "nice git push",
+    "nice -n 5 git push",
+    "timeout 60 git push",
+    "command git push",
+    "nohup git push",
+    "stdbuf -oL git push",
+    "ionice -c 3 git push",
+    "setsid git push",
+    "xargs git push",
+    "/usr/bin/git push",
+    "/usr/bin/git -C /home/u/p/app push",
+    "env nice /usr/bin/git --no-pager push",
+    "/usr/bin/env git push",
+];
+
+#[rstest]
+fn a_tightening_rule_matches_behind_wrappers_and_paths(
+    #[values(Effect::Ask, Effect::Deny)] effect: Effect,
+) {
+    let engine = with_rules(vec![rule(pattern(&["push"]), effect)]);
+    for mode in MODES {
+        for line in WRAPPED_PUSH_LINES {
+            let decision = decide_in(&engine, mode, shell_in(line, APP));
+            assert_eq!(decision.effect(), effect, "{line:?} in {mode:?}");
+            assert_eq!(
+                command_reason(&decision),
+                (effect, user_rule(&engine, mode)),
+                "{line:?} in {mode:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_tightening_rule_for_another_program_matches_behind_wrappers_and_paths() {
+    let rm = Resource::Command(CommandPattern::new("rm"));
+    let engine = with_rules(vec![Rule::new(Action::Execute, rm, Effect::Deny)]);
+    for line in ["/bin/rm x", "xargs rm", "nice -n 5 rm -f x", "env rm x"] {
+        let decision = decide_in(&engine, Mode::Cautious, shell_in(line, APP));
+        assert_eq!(decision.effect(), Effect::Deny, "{line:?}");
+    }
+    let decision = decide_in(&engine, Mode::Cautious, shell_in("nice cargo build", APP));
+    assert_ne!(decision.effect(), Effect::Deny);
+}
+
+#[rstest]
+#[case::path("/usr/bin/git status")]
+#[case::wrapper("env git status")]
+#[case::wrapper_value("nice -n 5 git status")]
+fn an_allow_rule_still_reads_only_the_program_itself(#[case] line: &str) {
+    // DL27: a path is another program, and a wrapper is the program that runs.
+    let engine = with_rules(vec![rule(pattern(&["status"]), Effect::Allow)]);
+    let decision = decide_in(&engine, Mode::Manual, Requirements::none().with_command(line));
+    assert_eq!(decision.effect(), Effect::Ask, "{line:?}");
+}
+
+#[test]
+fn under_reads_the_dir_of_a_wrapped_git() {
+    let deny = pattern(&["push"]).with_under("~/work");
+    let engine = with_rules(vec![rule(deny, Effect::Deny)]);
+    let decision = decide_in(&engine, Mode::Cautious, shell_in("env git -C ~/work/a push", "/srv"));
+    assert_eq!(decision.effect(), Effect::Deny);
+    let decision = decide_in(&engine, Mode::Cautious, shell_in("env git -C /tmp push", "/srv"));
+    assert_ne!(decision.effect(), Effect::Deny);
+}
+
 /// One global option of the table with a value where it takes one.
 fn any_global() -> impl Strategy<Value = (String, bool)> {
     let values = prop::sample::select(vec!["x", "/tmp/x", "k=v", "HEAD"]);

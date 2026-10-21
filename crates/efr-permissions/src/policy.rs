@@ -769,24 +769,32 @@ impl Rule {
         if part.privileged {
             return false;
         }
-        let raw = pattern.matches_command(part.words, part.pattern);
-        let git = pattern.program == "git" && part.words.first().is_some_and(|word| word == "git");
-        if !git {
-            return raw && self.placed(pattern, part.dir, &[], cx);
-        }
+        let is_git = |words: &[String]| {
+            pattern.program == "git" && words.first().is_some_and(|word| word == "git")
+        };
         if self.effect < Effect::Ask {
+            let raw = pattern.matches_command(part.words, part.pattern);
             let plain = || {
-                git::plain_view(part.words)
-                    .is_some_and(|view| pattern.matches_command(&view, part.pattern))
+                is_git(part.words)
+                    && git::plain_view(part.words)
+                        .is_some_and(|view| pattern.matches_command(&view, part.pattern))
             };
             return (raw || plain()) && self.placed(pattern, part.dir, &[], cx);
         }
-        let views = git::views(part.words);
-        let matched = raw
-            || views.unreadable
-            || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
-        let dirs: Vec<PathBuf> =
-            views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)).collect();
+        // NOTE: a rule that asks or denies also reads the command behind a wrapper and
+        // by the base name of its program (OQL3), so `env git push` and
+        // `/usr/bin/git push` meet a rule for `git push`.
+        let mut matched = false;
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for words in command::run_forms(part.words) {
+            matched |= pattern.matches_command(&words, part.pattern);
+            if is_git(&words) {
+                let views = git::views(&words);
+                matched |= views.unreadable
+                    || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
+                dirs.extend(views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)));
+            }
+        }
         matched && self.placed(pattern, part.dir, &dirs, cx)
     }
 

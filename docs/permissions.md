@@ -1046,8 +1046,14 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
 - `"project"`: every path inside the root of the turn's registered project; for a
   write, every path below the root;
 - `{ command = { ... } }`: a simple command, with these keys:
-  - `program`: the first word, such as `cargo`. A path such as `/usr/bin/cargo` is a
-    different program;
+  - `program`: the first word, such as `cargo`. For an `allow` rule, a path such as
+    `/usr/bin/cargo` is a different program. An `ask` or `deny` rule also matches the
+    base name of a path, so `/usr/bin/cargo publish` meets a rule for `cargo`, and the
+    command behind a wrapper (`env`, `nice`, `nohup`, `time`, `timeout`, `command`,
+    `stdbuf`, `ionice`, `chrt`, `taskset`, `setsid`, `flock`, `xargs`, `watch`,
+    `unbuffer`), so `env git push` and `timeout 60 git push` meet a rule for
+    `git push`. efr does not know which words a wrapper takes as values, so such a
+    rule may also ask for a line where the program is only a word after the wrapper;
   - `args`: the words that must follow the program, in order. A word may list
     alternatives, as in `"status|diff"`, and may end in `*` to match every word that
     starts with it, as `"-Q*"` matches `-Qi`. For `git`, efr first skips git's own
@@ -1113,8 +1119,10 @@ For an `ask` or `deny` rule with `under`, the dir of `-C` and of `--work-tree`
 counts too. A `-c alias.<name>=<value>` on the line counts as the command of the
 alias. When efr cannot read the alias (a shell command with `!`, a quote, or a value
 from `--config-env`), an `ask` or `deny` rule for `git` matches. An alias in your git
-config is not on the line: write a rule for its name too, such as `args = ["p"]`. A
-rule for another program still compares the words right after the program.
+config is not on the line: write a rule for its name too, such as `args = ["p"]`. An
+`ask` or `deny` rule also reads git behind a wrapper or by its path, such as
+`env git -C ~/p/app push` or `/usr/bin/git push`. A rule for another program still
+compares the words right after the program.
 
 ### Example: allow `cargo test` in one project
 

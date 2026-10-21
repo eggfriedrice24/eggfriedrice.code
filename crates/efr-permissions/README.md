@@ -136,7 +136,13 @@ Modules:
   raw words or the plain view only, so `allow git log` matches `git --no-pager log`
   but not `git -C ~/other log`. Every check of the pattern reads the view's words, so a
   global option never counts as an operand or a forbidden word. The last match still
-  wins, and a conversation's rules read the same views.
+  wins, and a conversation's rules read the same views. A rule that asks or denies, for
+  any program, also reads the forms of `command::run_forms` (OQL3): the program by its
+  base name (`/usr/bin/git push`) and, behind a wrapper of `WRAPPERS` (`env`, `nice`,
+  `timeout`, `xargs` and the rest), each later word that does not start with `-` as the
+  program, so `env git -C ~/p/app push` meets `deny git push`. efr does not know which
+  words a wrapper takes as values, so the rule may match more than runs, which only
+  asks or denies more. A rule that allows reads neither form.
   `Policy::base(mode)` is the built-in policy of a mode: `manual` is `any any ask`
   and the secrets rule; `cautious` is `Policy::defaults()`, the table above as eight
   rules followed by the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`,

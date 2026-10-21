@@ -292,6 +292,37 @@ fn base_name(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
+/// The forms of the simple command `words` (program first) that a rule which asks or
+/// denies reads (efr's v0.0.4 live items plan, OQL3): the words as they are; the words
+/// with the program's base name, so `/usr/bin/git push` reads as `git push`; and when
+/// the program is a wrapper of [`WRAPPERS`], each later word that does not start with
+/// `-` as the program, by its base name, so `env X=1 nice -n 5 git push` reads as
+/// `git push`. efr does not know which words a wrapper takes as values, so a form may
+/// name a program that does not run, which only asks or denies more.
+pub(crate) fn run_forms(words: &[String]) -> Vec<Vec<String>> {
+    let mut forms = vec![words.to_vec()];
+    let Some(program) = words.first() else { return forms };
+    let named = |rest: &[String]| -> Vec<String> {
+        let mut form = rest.to_vec();
+        if let Some(first) = form.first_mut() {
+            *first = base_name(first).to_owned();
+        }
+        form
+    };
+    let mut add = |form: Vec<String>| {
+        if !forms.contains(&form) {
+            forms.push(form);
+        }
+    };
+    add(named(words));
+    if WRAPPERS.contains(&base_name(program)) {
+        for at in (1..words.len()).filter(|at| !words[*at].starts_with('-')) {
+            add(named(&words[at..]));
+        }
+    }
+    forms
+}
+
 /// One simple command from its words: assignments first, then the program.
 fn simple_command(words: Vec<Word>) -> Result<SimpleCommand, Construct> {
     let mut words = words.into_iter().peekable();

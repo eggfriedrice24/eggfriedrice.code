@@ -5,7 +5,8 @@ use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{
-    Construct, SimpleCommand, analyze, privileged, privileged_anywhere, runs_as_another_user,
+    Construct, SimpleCommand, analyze, privileged, privileged_anywhere, run_forms,
+    runs_as_another_user,
 };
 
 fn words(line: &str) -> Vec<Vec<String>> {
@@ -276,4 +277,33 @@ proptest! {
 #[case::a_word_only("echo pseudo", false)]
 fn a_line_that_runs_as_another_user(#[case] line: &str, #[case] expected: bool) {
     assert_eq!(runs_as_another_user(line), expected, "{line}");
+}
+
+#[rstest]
+#[case::plain("git push", &["git push"])]
+#[case::path("/usr/bin/git push", &["/usr/bin/git push", "git push"])]
+#[case::wrapper("env git push", &["env git push", "git push", "push"])]
+#[case::wrapper_value(
+    "nice -n 5 git push",
+    &["nice -n 5 git push", "5 git push", "git push", "push"]
+)]
+#[case::nested("env X=1 nice /usr/bin/git push", &[
+    "env X=1 nice /usr/bin/git push",
+    "X=1 nice /usr/bin/git push",
+    "nice /usr/bin/git push",
+    "git push",
+    "push",
+])]
+#[case::wrapper_by_path("/usr/bin/timeout 60 git push", &[
+    "/usr/bin/timeout 60 git push",
+    "timeout 60 git push",
+    "60 git push",
+    "git push",
+    "push",
+])]
+#[case::no_wrapper("cat git push", &["cat git push"])]
+fn run_forms_read_behind_wrappers_and_paths(#[case] line: &str, #[case] expected: &[&str]) {
+    let words: Vec<String> = line.split(' ').map(str::to_owned).collect();
+    let forms: Vec<String> = run_forms(&words).iter().map(|form| form.join(" ")).collect();
+    assert_eq!(forms, expected, "{line}");
 }
