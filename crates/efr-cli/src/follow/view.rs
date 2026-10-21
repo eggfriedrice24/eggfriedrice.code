@@ -1271,11 +1271,16 @@ impl TurnView {
             }
             return Step::default();
         }
-        // NOTE: a job outlives its turn, so its end, a matched line and a notice that
-        // did not start a turn belong to the conversation; they show while the view
-        // follows any turn of it.
+        // NOTE: a job outlives its turn, so its end, a matched line, a notice that did
+        // not start a turn and a port of it belong to the conversation; they show while
+        // the view follows any turn of it.
         if let Some(line) = jobs::conversation_line(event) {
-            return self.whole_note(&line, size);
+            let url = jobs::link_of(event);
+            return self.rendered_after(
+                String::new(),
+                |options| jobs::linked(&rows(&line, Tone::Dim, options), url.as_deref(), options),
+                size,
+            );
         }
         if event.turn_id() != Some(self.turn) {
             return self.other_turn(event, size, can_ask);

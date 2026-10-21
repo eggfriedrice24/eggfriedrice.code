@@ -1,9 +1,9 @@
 //! Background jobs in the view: the lines of a job's end, a matched line and a held
-//! notice, which belong to the conversation and show while any turn of it is
-//! followed; the mark of a turn that a job notice started; the question of the stop
+//! notice and a port of a job, which belong to the conversation and show while any turn
+//! of it is followed; the mark of a turn that a job notice started; the question of the stop
 //! key.
 
-use efr_protocol::{Event, HeldReason, JobId, JobState, JobStopBy, Seq, TurnId};
+use efr_protocol::{Event, ForwardOutcome, HeldReason, JobId, JobState, JobStopBy, Seq, TurnId};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
@@ -113,6 +113,54 @@ fn watch_line_shows_on_one_line() {
     };
     let (_, err, _) = feed(&mut view, &[matched], true);
     assert_eq!(err, "job j3 matched: error\u{241b}[31m in \u{fffd}main.rs\n");
+}
+
+/// The `job_port_forwarded` of job 1 for `127.0.0.1:<port>` with `outcome`.
+fn port_event(port: u16, outcome: ForwardOutcome) -> Event {
+    Event::JobPortForwarded {
+        job_id: JobId::nth(1),
+        listen: "127.0.0.1".to_owned(),
+        port,
+        outcome,
+        by_job: None,
+        reason: (outcome == ForwardOutcome::Refused).then(|| "a service port".to_owned()),
+    }
+}
+
+#[test]
+fn forward_line_outside_turn() {
+    // Off a terminal the line goes to stderr, plain, with no link.
+    let mut view = raw_view();
+    let events =
+        [port_event(8765, ForwardOutcome::Forwarded), port_event(6379, ForwardOutcome::Refused)];
+    let (out, err, end) = feed(&mut view, &events, true);
+    assert_eq!(end, None, "a forward ends no turn");
+    assert_eq!(out, "");
+    assert_eq!(
+        err,
+        "job j1 listens on 127.0.0.1:8765 -> http://localhost:8765\n\
+         job j1 listens on 127.0.0.1:6379; not forwarded: efr does not forward port 6379 (a \
+         service port)\n"
+    );
+
+    // On a terminal the URL is an OSC 8 link, also when the line goes on in the next
+    // row; a refusal links nothing.
+    let mut view = terminal_view();
+    let (out, _, _) = feed(&mut view, &[port_event(8765, ForwardOutcome::Forwarded)], true);
+    assert!(
+        out.contains(
+            "\u{1b}]8;;http://localhost:8765\u{1b}\\http://localhost:8765\u{1b}]8;;\u{1b}\\"
+        ),
+        "{out:?}"
+    );
+    assert!(
+        bare(&out).contains("job j1 listens on 127.0.0.1:8765 ->\n  http://localhost:8765\n"),
+        "{out:?}"
+    );
+    let mut view = terminal_view();
+    let (out, _, _) = feed(&mut view, &[port_event(6379, ForwardOutcome::Refused)], true);
+    assert!(!out.contains("\u{1b}]8;;"), "{out:?}");
+    assert!(bare(&out).contains("6379"), "{out:?}");
 }
 
 #[test]

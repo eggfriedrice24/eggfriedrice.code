@@ -1533,6 +1533,43 @@ fn wake_turn_marked_in_history() {
 }
 
 #[test]
+fn history_shows_job_port_forwards() {
+    let port = |port: u16, outcome: efr_protocol::ForwardOutcome| Event::JobPortForwarded {
+        job_id: efr_protocol::JobId::nth(1),
+        listen: "::1".to_owned(),
+        port,
+        outcome,
+        by_job: None,
+        reason: None,
+    };
+    let page = ConversationHistoryResult {
+        events: vec![
+            envelope(1, port(5173, efr_protocol::ForwardOutcome::Forwarded)),
+            envelope(2, port(5174, efr_protocol::ForwardOutcome::InUse)),
+        ],
+        next_cursor: None,
+    };
+    let plain = show(&page, &RenderOptions::new(80).with_terminal(false));
+    assert!(plain.contains("job j1 listens on [::1]:5173 -> http://localhost:5173\n"), "{plain}");
+    assert!(
+        plain.contains(
+            "job j1 listens on [::1]:5174; not forwarded: 127.0.0.1:5174 is in use on this \
+             machine\n"
+        ),
+        "{plain}"
+    );
+    assert!(!plain.contains('\u{1b}'), "{plain:?}");
+
+    let terminal = show(&page, &RenderOptions::new(80));
+    assert_eq!(
+        terminal.matches("\u{1b}]8;;http://localhost:5173\u{1b}\\").count(),
+        1,
+        "{terminal:?}"
+    );
+    assert!(!terminal.contains("\u{1b}]8;;http://localhost:5174"), "{terminal:?}");
+}
+
+#[test]
 fn a_turn_that_undo_cannot_take_back_shows_the_line_of_its_files() {
     let file = |path: &str, added: u32, removed: u32| efr_protocol::FileChange {
         path: path.to_owned(),

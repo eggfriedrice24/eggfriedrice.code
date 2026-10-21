@@ -1,7 +1,9 @@
 //! The CLI's lines about background jobs (efr's auto spec, sections 3.18 and 14.8): the
 //! start and the end of a job, a line that matched its `watch` pattern, a notice that
-//! did not start a turn, the mark of a turn that a job notice started, the question of
-//! the stop key, and the rows of `efr jobs list`.
+//! did not start a turn, a port that efr forwards or not (with the URL as an OSC 8
+//! link on a terminal), the mark of a turn that a job notice started, the question of
+//! the stop key, and the rows of `efr jobs list` (with the forwarded ports of a running
+//! job).
 //!
 //! A job's command, its output and its tail come from a program, not from efr: every
 //! piece of them goes through [`one_line`] or [`lines`], so a control character or a
@@ -12,9 +14,9 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    Blocked, Event, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange,
+    Blocked, Event, ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, SurfaceChange,
 };
-use efr_render::WidthMethod;
+use efr_render::{RenderOptions, WidthMethod};
 use jiff::Timestamp;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -229,6 +231,98 @@ pub(crate) fn matched(job_id: &JobId, line: &str) -> String {
     format!("job {job_id} matched: {}", one_line(line))
 }
 
+/// The URL of a port that efr forwards for a job: `http://localhost:8765`.
+pub(crate) fn forward_url(port: u16) -> String {
+    format!("http://localhost:{port}")
+}
+
+/// The line of a `job_port_forwarded` event (DL15 of the v0.0.4 live items plan):
+/// `job j1 listens on 127.0.0.1:8765 -> http://localhost:8765`, `job j1 listens on
+/// [::1]:5173 -> ...`, `...; not forwarded: <why>`, or `job j1: port 8765 is no longer
+/// forwarded (jobs.forward_ports is off)`. An outcome that this efr does not know shows
+/// the plain listen, without a reason. The address and the reason come from efrd, and
+/// still go through [`one_line`].
+pub(crate) fn forward(
+    job_id: &JobId,
+    listen: &str,
+    port: u16,
+    outcome: ForwardOutcome,
+    by_job: Option<&JobId>,
+    reason: Option<&str>,
+) -> String {
+    let listen = one_line(listen);
+    let address = if listen.contains(':') {
+        format!("[{listen}]:{port}")
+    } else {
+        format!("{listen}:{port}")
+    };
+    let reason = reason.map(one_line);
+    let head = format!("job {job_id} listens on {address}");
+    let why = match outcome {
+        ForwardOutcome::Forwarded => return format!("{head} -> {}", forward_url(port)),
+        ForwardOutcome::InUse => match by_job {
+            Some(other) => format!("127.0.0.1:{port} is in use by job {other}"),
+            None => format!("127.0.0.1:{port} is in use on this machine"),
+        },
+        ForwardOutcome::Refused => match reason {
+            Some(reason) => format!("efr does not forward port {port} ({reason})"),
+            None => format!("efr does not forward port {port}"),
+        },
+        ForwardOutcome::Limit => {
+            reason.unwrap_or_else(|| "efr forwards as many ports as it may".to_owned())
+        }
+        ForwardOutcome::Stopped => {
+            return match reason {
+                Some(reason) => {
+                    format!("job {job_id}: port {port} is no longer forwarded ({reason})")
+                }
+                None => format!("job {job_id}: port {port} is no longer forwarded"),
+            };
+        }
+        _ => return head,
+    };
+    format!("{head}; not forwarded: {why}")
+}
+
+/// The URL that the line of `event` links to: that of a forwarded port; `None` for any
+/// other event.
+pub(crate) fn link_of(event: &Event) -> Option<String> {
+    match event {
+        Event::JobPortForwarded { port, outcome: ForwardOutcome::Forwarded, .. } => {
+            Some(forward_url(*port))
+        }
+        _ => None,
+    }
+}
+
+/// `painted`, a line that the CLI rendered, with the last copy of `url` in it as an
+/// OSC 8 hyperlink, when the output is a terminal and links are on; else unchanged.
+/// `url` must be one that efr made ([`forward_url`]): it goes into the escape sequence
+/// as it is. A line that wrapped `url` over two rows keeps it as plain text.
+pub(crate) fn linked(painted: &str, url: Option<&str>, options: &RenderOptions) -> String {
+    let Some(url) = url.filter(|_| options.is_terminal() && options.hyperlinks()) else {
+        return painted.to_owned();
+    };
+    match painted.rfind(url) {
+        Some(at) => {
+            let (before, rest) = painted.split_at(at);
+            let after = &rest[url.len()..];
+            format!("{before}\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\{after}")
+        }
+        None => painted.to_owned(),
+    }
+}
+
+/// `ports 8765, 5173`: the ports that efr forwards for a running job; `None` for a job
+/// that does not run or forwards none.
+pub(crate) fn ports(job: &JobInfo) -> Option<String> {
+    if job.state != JobState::Running || job.forwards.is_empty() {
+        return None;
+    }
+    let ports: Vec<String> = job.forwards.iter().map(|forward| forward.port.to_string()).collect();
+    Some(format!("ports {}", ports.join(", ")))
+}
+
 /// Why a job notice did not start a turn, in the words of the view.
 pub(crate) fn held_reason(reason: HeldReason) -> &'static str {
     match reason {
@@ -256,12 +350,16 @@ pub(crate) fn notice_rides(job_id: &JobId) -> String {
 }
 
 /// The line of a job event of the conversation, which belongs to no turn: the end of a
-/// job, a matched line, a notice that did not start a turn. `None` for any other event.
+/// job, a matched line, a notice that did not start a turn, a port that efr forwards or
+/// not. `None` for any other event.
 pub(crate) fn conversation_line(event: &Event) -> Option<String> {
     match event {
         Event::JobEnded { .. } => Ended::of(event).map(|(job_id, end)| ended(job_id, &end)),
         Event::JobWatchMatched { job_id, line, .. } => Some(matched(job_id, line)),
         Event::JobNoticeHeld { job_id, reason, .. } => Some(held(job_id, *reason)),
+        Event::JobPortForwarded { job_id, listen, port, outcome, by_job, reason } => {
+            Some(forward(job_id, listen, *port, *outcome, by_job.as_ref(), reason.as_deref()))
+        }
         _ => None,
     }
 }
@@ -336,6 +434,9 @@ pub(crate) fn list(rows: &[ListRow<'_>], now: Timestamp) -> String {
             cells.push(when(row.job, now));
             cells.push(size(row.job.output_bytes));
             let mut command = command(&row.job.command, COMMAND_COLUMNS);
+            if let Some(ports) = ports(row.job) {
+                let _ = write!(command, "  ({ports})");
+            }
             if row.leftover {
                 command.push_str("  (its processes may still run)");
             }

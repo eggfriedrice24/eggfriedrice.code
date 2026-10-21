@@ -1,13 +1,15 @@
 use std::path::Path;
 
 use efr_protocol::{
-    BlockReason, Blocked, Event, HeldReason, JobId, JobState, JobStopBy, Seq, SurfaceChange,
+    BlockReason, Blocked, Event, ForwardOutcome, HeldReason, JobId, JobState, JobStopBy,
+    PortForward, Seq, SurfaceChange,
 };
+use efr_render::RenderOptions;
 use pretty_assertions::assert_eq;
 
 use super::{
-    Ended, ListRow, conversation_line, ended, held, list, matched, minutes, output_name, started,
-    tail_lines,
+    Ended, ListRow, conversation_line, ended, held, link_of, linked, list, matched, minutes,
+    output_name, ports, started, tail_lines,
 };
 use crate::testing::{job, now};
 
@@ -230,4 +232,134 @@ fn the_list_has_a_row_per_job_in_columns() {
         leftover: false,
     }];
     assert!(list(&rows, now()).starts_with("fix the build  j2  running"));
+}
+
+/// The `job_port_forwarded` of job 1 for `listen`:`port`.
+fn port_event(
+    listen: &str,
+    port: u16,
+    outcome: ForwardOutcome,
+    by_job: Option<u32>,
+    reason: Option<&str>,
+) -> Event {
+    Event::JobPortForwarded {
+        job_id: JobId::nth(1),
+        listen: listen.to_owned(),
+        port,
+        outcome,
+        by_job: by_job.map(JobId::nth),
+        reason: reason.map(str::to_owned),
+    }
+}
+
+#[test]
+fn each_forward_outcome_has_its_line() {
+    let events = [
+        port_event("127.0.0.1", 8765, ForwardOutcome::Forwarded, None, None),
+        port_event("::1", 5173, ForwardOutcome::Forwarded, None, None),
+        port_event("127.0.0.1", 8765, ForwardOutcome::InUse, None, None),
+        port_event("127.0.0.1", 8765, ForwardOutcome::InUse, Some(2), None),
+        port_event("127.0.0.1", 6379, ForwardOutcome::Refused, None, Some("a service port")),
+        port_event("127.0.0.1", 6379, ForwardOutcome::Refused, None, None),
+        port_event(
+            "127.0.0.1",
+            9000,
+            ForwardOutcome::Limit,
+            None,
+            Some("the job forwards 8 ports already"),
+        ),
+        port_event(
+            "::1",
+            9001,
+            ForwardOutcome::Limit,
+            None,
+            Some("efrd forwards 32 ports already"),
+        ),
+        port_event("127.0.0.1", 9002, ForwardOutcome::Limit, None, None),
+        port_event(
+            "127.0.0.1",
+            8765,
+            ForwardOutcome::Stopped,
+            None,
+            Some("jobs.forward_ports is off"),
+        ),
+        port_event("::1", 5173, ForwardOutcome::Stopped, None, None),
+        // An outcome that this efr does not know shows the plain listen, without its
+        // reason.
+        port_event("127.0.0.1", 8766, ForwardOutcome::Unknown, None, Some("a new reason")),
+    ];
+    let lines: Vec<String> = events.iter().map(|event| conversation_line(event).unwrap()).collect();
+    insta::assert_snapshot!(lines.join("\n"));
+}
+
+#[test]
+fn a_forward_line_is_safe_to_print() {
+    let event = port_event(
+        "127.0.0.1\u{1b}[2J",
+        6379,
+        ForwardOutcome::Refused,
+        None,
+        Some("a service\nport \u{202e}x"),
+    );
+    let line = conversation_line(&event).unwrap();
+    assert_eq!(
+        line,
+        "job j1 listens on 127.0.0.1\u{241b}[2J:6379; not forwarded: efr does not forward port \
+         6379 (a service port \u{fffd}x)"
+    );
+}
+
+#[test]
+fn only_a_forwarded_port_links_its_url() {
+    let forwarded = port_event("::1", 5173, ForwardOutcome::Forwarded, None, None);
+    assert_eq!(link_of(&forwarded).as_deref(), Some("http://localhost:5173"));
+    for outcome in [ForwardOutcome::InUse, ForwardOutcome::Refused, ForwardOutcome::Stopped] {
+        assert_eq!(link_of(&port_event("::1", 5173, outcome, None, None)), None, "{outcome:?}");
+    }
+    assert_eq!(link_of(&job_ended(JobState::Exited, Some(0), None)), None);
+}
+
+#[test]
+fn the_url_is_an_osc8_link_on_a_terminal_only() {
+    let line = "job j1 listens on 127.0.0.1:8765 -> http://localhost:8765";
+    let url = Some("http://localhost:8765");
+    let terminal = RenderOptions::new(80);
+    assert_eq!(
+        linked(line, url, &terminal),
+        "job j1 listens on 127.0.0.1:8765 -> \u{1b}]8;;http://localhost:8765\u{1b}\\\
+         http://localhost:8765\u{1b}]8;;\u{1b}\\"
+    );
+    // Not a terminal, links off, no URL, or a URL that the line does not hold whole:
+    // the line stays as it is.
+    assert_eq!(linked(line, url, &RenderOptions::new(80).with_terminal(false)), line);
+    assert_eq!(linked(line, url, &RenderOptions::new(80).with_hyperlinks(false)), line);
+    assert_eq!(linked(line, None, &terminal), line);
+    let cut = "job j1 listens on 127.0.0.1:8765 -> http://local";
+    assert_eq!(linked(cut, url, &terminal), cut);
+}
+
+#[test]
+fn a_running_job_lists_its_forwarded_ports() {
+    let mut running = job(2, "python3 -m http.server 8765");
+    assert_eq!(ports(&running), None, "no forward, no ports");
+    running.forwards = vec![
+        PortForward { listen: "127.0.0.1".to_owned(), port: 8765 },
+        PortForward { listen: "::1".to_owned(), port: 5173 },
+    ];
+    assert_eq!(ports(&running).as_deref(), Some("ports 8765, 5173"));
+    let mut ended = running.clone();
+    ended.id = JobId::nth(1);
+    ended.state = JobState::Stopped;
+    ended.stopped_by = Some(JobStopBy::User);
+    ended.ended_at = Some(now() - jiff::SignedDuration::from_mins(5));
+    assert_eq!(ports(&ended), None, "an ended job forwards nothing");
+    let rows = [
+        ListRow { job: &running, conversation: None, leftover: false },
+        ListRow { job: &ended, conversation: None, leftover: false },
+    ];
+    assert_eq!(
+        list(&rows, now()),
+        "j2  running         ends in 3h 0m    0 B  python3 -m http.server 8765  (ports 8765, 5173)\n\
+         j1  stopped by you  ended 5m 0s ago  0 B  python3 -m http.server 8765\n"
+    );
 }
