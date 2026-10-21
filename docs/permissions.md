@@ -800,6 +800,18 @@ ends. The engine decides a job as follows.
   and can still do these things.
 - A job's question is local only: a phone never answers it. While you are away, it
   expires, and no job starts. A `n` starts no job.
+- You can move the agent's running `shell` call into a job with Ctrl+B in the turn
+  view ([`docs/sandbox.md`](sandbox.md), "Moving a call to the background"). The
+  engine decides the line again as a job, with the mode and the settings of the key
+  press. A `Deny` refuses the move, so the kinds above never become a job this way
+  either, and neither does a line with the hard `interactive` flag. A call in the
+  sandbox moves with no question: it keeps its sandbox, so the move allows nothing
+  new, and the key press is your answer, also in `cautious` and `manual`. A call
+  outside the sandbox (an approved exit, a call in `cautious` or `manual`, or full
+  mode) moves only after one `y/n` question that names the exits of the job decision.
+  In `cautious` and `manual`, that `y` is your answer to the job question of the mode.
+  The record of the job keeps the exits that your `y` covered. Only a terminal of
+  yours can move a call, never a phone.
 - A job in the exit child cannot gain rights through a setuid program
   (`no_new_privs`).
 - The tools `jobs` and `job_stop` need no question in any mode for a turn of this

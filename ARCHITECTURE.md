@@ -46,7 +46,7 @@ shipped binary.
 | `efr-sandbox` | lib | 1 | the pure logic of the `auto` sandbox: `SandboxSpec`, `MountPlan` and the bwrap arguments, Landlock and seccomp as data, the environment and export filters, the records, the sandbox state, `result.json`, the surface guard, the worktree record, the probe's result types, the mount table parse and the `df` and `findmnt --df` renderer of the mount view, the rules of job port forwards (the parse of the TCP tables, the loopback listens, the ports that efr never forwards, the debounce, the peer check) and their 28-byte frames; file access only through `FsView`, no tokio, no unsafe | `efr-protocol` |
 | `efr-screen-ghostty` | lib | 2 | `Screen` over libghostty-vt; the only crate that needs Zig | `efr-screen` |
 | `efr-pty` | lib | 2 | `LocalPtyHolder`: openpty, `setsid` and `TIOCSCTTY` in `pre_exec`; the only unsafe code at milestone 1 | `efr-holder`, `efr-stdx` |
-| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command`, the input waits of a command and the watch of a command left running in the shell after its call answered | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
+| `efr-shell` | lib | 2 | one hidden zsh per conversation, shell state from marks, `run_command`, the input waits of a command, the watch of a command left running in the shell after its call answered, and the adopted run: the hand-over of a running call and its old shell to a background job when the user moves it with Ctrl+B | `efr-holder`, `efr-screen`, `efr-protocol`, `efr-sandbox`, `efr-stdx` |
 | `efr-sbx` | bin `efr-sbx` | 2 | the launcher of the `auto` sandbox: `run` (one call in bwrap with Landlock and seccomp, or the exit child as a subreaper; with `--job` a background job with a lifeline, low priority and a stop), `inner`, `probe`, `guard-check` (the surface guard of a running job), `statvfs` (efrd's helper that measures the mounts, which efrd can kill), `mounts` (the mount view's `df` and `findmnt --df` tables inside a call) `bridge` (the network proxy's bridge inside a call, from `127.0.0.1:3128` to the call's proxy socket, with its own Landlock domain and seccomp filter), `forward` (the forwarder of a contained job: it reads the job's TCP tables, reports each loopback listen to efrd over the job's forward socket and connects inside the job for each of efrd's connections, with its own Landlock domain and seccomp filter), `reach` (the reach helper of a contained call: it listens on the forwarded ports of its conversation's jobs in the call's own network namespace and sends each connection to efrd over the call's reach socket, with its own Landlock domain and seccomp filter) and `dbus-proxy` (runs `xdg-dbus-proxy` for one filtered bus of a call, with its own Landlock domain, seccomp filter and fd limit); checks what comes back and writes `result.json` last; no async runtime; its one `unsafe` module is `fds.rs` (ADR 0007) | `efr-sandbox`, `efr-protocol` |
 | `efr-tools` | lib | 2 | the `Tool` trait, the registry, the shell, read_file, write_file, apply_patch and edit tools, the freeform tool spec; knows nothing about permissions; `patch`: the patch engine of apply_patch and edit (the patch text to file operations, its Lark grammar, hunks matched with tolerant passes, every new content computed before anything is written, one exact replacement; no IO, no tokio) | `efr-shell`, `efr-scope`, `efr-protocol`, `efr-stdx` |
 | `efr-providers` | lib | 2 | `openai`: the Responses API client over HTTP or a WebSocket for each conversation; the model catalog (the fetch from the backend, its cache file and the built-in table, which the API key backend cuts down to the ids that its key lists), which also says which models take freeform (`custom`) tools and prefer WebSockets; the check of an API key; takes tokens only through `TokenSource`; `anthropic`: the Messages API client with an API key (provider id `anthropic-api`): the request body with its prompt cache markers (a pure function), the stream mapping, the usage sums, the error and retry classifier, the model catalog from `GET /models` with its cache file and no built-in table, the key check; takes the key only through `TokenSource`; the two modules share no code | `efr-provider`, `efr-http`, `efr-protocol`, `efr-stdx` |
@@ -381,6 +381,34 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-cli/src/commands/shell.rs`; `,shell` in `shell/zsh/efr.plugin.zsh`. The
   tests over a `TestDaemon` are in `crates/efr-daemon/tests/it/input_respond/left.rs`,
   and on the real launcher in `crates/efr-daemon/tests/it/sandbox/busy.rs`.
+- Moving a call to the background (ADR 0018): Ctrl+B moves the agent's running
+  `shell` call into a background job. The method `call.background` in
+  `crates/efr-protocol/src/methods/call_background.rs`, and `JobInfo::moved_from`
+  (`MovedCall`) in `crates/efr-protocol/src/jobs.rs`; `MOVED_FILE` and
+  `RuntimePaths::moved_file` in `crates/efr-sandbox/src/spec.rs`, and the launcher's
+  end of a moved call (`call::moved`) in `crates/efr-sbx/src/call.rs` and
+  `crates/efr-sbx/src/exit_child.rs`. In efr-shell: `request_move` and the checks of
+  the hand-over in `crates/efr-shell/src/sessions.rs` and `session.rs`, the adopted run
+  (`AdoptedRun`, its tee and its looks) in `crates/efr-shell/src/adopt.rs`, and the
+  streaming cleaner of its output in `crates/efr-shell/src/capture/stream.rs`. The
+  model's text `job_moved_text` in `crates/efr-tools/src/shell_tool.rs`. In efrd: the
+  registrations, the checks, the previews and the confirm in
+  `crates/efr-daemon/src/jobs/moves.rs`, the tool path's side in
+  `crates/efr-daemon/src/tools/moves.rs`, the handler in
+  `crates/efr-daemon/src/methods/call_background.rs`, the job of a moved call
+  (`JobTable::adopt`, `JobProcess::Adopted`) in `crates/efr-daemon/src/jobs.rs`, the
+  kill of every process below the old shell (`kill_descendants`) in
+  `crates/efr-daemon/src/jobs/sweep.rs`, and the adopted PTY (`Ptys::adopt`) in
+  `crates/efr-daemon/src/ptys.rs`. In efr-cli: the key in `crates/efr-cli/src/row.rs`,
+  the request and the question (`background_key`) in `crates/efr-cli/src/follow.rs`,
+  the card and the block of a moved call in `crates/efr-cli/src/follow/view.rs` and
+  `follow/view/call.rs`, and the lines of a moved job in
+  `crates/efr-cli/src/format/jobs.rs`. The tests of the hand-over are in
+  `crates/efr-shell/src/adopt/tests.rs`, of the launcher's end in
+  `crates/efr-sbx/tests/it/moved.rs`, of efrd over a real zsh in
+  `crates/efr-daemon/tests/it/jobs_moved.rs`, of the key against a fake daemon in
+  `crates/efr-cli/src/follow/tests/row.rs`, and on the real launcher in
+  `crates/efr-daemon/tests/it/sandbox/moved.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in
