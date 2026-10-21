@@ -244,7 +244,7 @@ const HIDDEN_INPUT_ELSEWHERE: &str =
 /// prompt looks like a password prompt: efr stops it and never asks (efr's auto spec,
 /// sections 3.12 and 14.7).
 const HIDDEN_INPUT_SANDBOXED: &str =
-    "sandbox: the command asked for a password; efr does not type secrets into the sandbox";
+    "sandbox: the command asked for a secret; efr does not type secrets into the sandbox";
 
 /// The note when a command waits for visible input and no key can be read here.
 const VISIBLE_INPUT_ELSEWHERE: &str = "the command waits for input; efr cannot ask for it here";

@@ -413,8 +413,8 @@ as `Password:`.
   answer is shown as you type it.
 - A wait with echo off, such as a `read -s`, stops the command at once. So does a
   visible wait whose prompt looks like a password prompt (it names a password, a
-  passphrase, a PIN or a code) while the terminal is not in line mode. The view shows
-  `sandbox: the command asked for a password; efr does not type secrets into the
+  passphrase, a PIN or a code), in any terminal mode. The view shows
+  `sandbox: the command asked for a secret; efr does not type secrets into the
   sandbox`, and no answer line. The model reads that the command asked for a secret
   inside the sandbox, and that it can ask to run the command outside with
   `needs.outside`.

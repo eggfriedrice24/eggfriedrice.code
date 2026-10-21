@@ -63,7 +63,7 @@ const VISIBLE: &str = "type the answer and press Enter; the agent sees it if the
 
 /// The line under a wait in the sandbox that may be for a secret.
 const SANDBOXED: &str =
-    "sandbox: the command asked for a password; efr does not type secrets into the sandbox";
+    "sandbox: the command asked for a secret; efr does not type secrets into the sandbox";
 
 /// The keys while the command waits for an answer.
 const ANSWER_KEYS: &str = "enter answers \u{b7} ctrl+c stops it \u{b7} esc leaves it";
