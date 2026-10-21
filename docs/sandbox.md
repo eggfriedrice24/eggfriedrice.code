@@ -1270,7 +1270,9 @@ A background job is a command that runs on after its call and after its turn, su
 a dev server, a watcher or a slow build. The model starts one with `shell` and
 `background: true`. The call answers at once with the job's id (`j1`, `j2` and so on
 in each conversation) and its output file. `&`, `nohup` and `setsid` in a normal
-command still stop when that command ends; only a job runs on.
+command still stop when that command ends; only a job runs on. You can also move the
+agent's running shell call into a job with Ctrl+B (see "Moving a call to the
+background").
 
 ### What the model asks for
 
@@ -1281,7 +1283,9 @@ command still stop when that command ends; only a job runs on.
   `max_wakes`. Each output line that matches tells the model, at most `max_wakes`
   times, cut to `jobs.max_wakes_per_watch` (3).
 - A job takes no `timeout_seconds` and no `nested_shell`, and a line that waits for
-  input at the terminal cannot run as a job: its stdin is `/dev/null`.
+  input at the terminal cannot run as a job: its stdin is `/dev/null`. The same holds
+  for a call that you move to the background: a line with `sudo`, `ssh` or another
+  program that reads the terminal cannot move.
 
 ### Modes
 
@@ -1420,7 +1424,8 @@ decision.
   - Only a contained foreground call in `auto` with a network namespace of its own,
     with `network.mode = "none"` or the proxy, while `jobs.forward_ports` is on and a
     job of the conversation forwards a port. A job, a call in the exit child, and a
-    call with the whole network or the network view get no reach. A call in the exit
+    call with the whole network or the network view get no reach. A call that you move
+    to the background loses its reach at the move. A call in the exit
     child or with the whole network reaches the forward on your `127.0.0.1` anyway.
   - Only the ports that efr forwards for a running job of the call's own conversation.
     A port of another conversation's job and a port that efr did not forward stay
@@ -1519,6 +1524,87 @@ format characters. A notice never enters a running turn. It waits until the turn
   `efr jobs stop j3` stops one and shows its last lines.
 - `efr history` shows each start and end, and marks a wake turn; `--verbose` adds the
   last lines of the output and the text of each notice.
+
+### Moving a call to the background
+
+When a shell call of the agent takes long, such as a slow build or a test run, you can
+move it into a background job with Ctrl+B in the turn view. The turn goes on at once,
+and the command runs on as a job. A job notice tells the model when it ends.
+[`docs/adr/0018-moving-a-call-to-the-background.md`](adr/0018-moving-a-call-to-the-background.md)
+records the decision.
+
+- **The key.** Ctrl+B acts while a `shell` call of the turn that you follow runs,
+  whatever the input row holds: the row keeps its text. In the input row, Ctrl+B does
+  not move the cursor back; the Left arrow does. While the row is empty and the call
+  has run for 2 seconds, the hint of the row starts with `ctrl+b background`. In tmux,
+  press Ctrl+B twice, because tmux takes the first one. The key acts only on a call
+  that does not start a job and does not wait for your answer to a question. It does
+  not act on a call of a turn that your prompt waits behind, such as a wake turn: the
+  view may not have seen that call start. With no such call, a note says `no shell
+  call of this turn runs; ctrl+b moves only a running shell call`. A phone cannot move
+  a call.
+- **The question.** A call in the sandbox moves at once, with no question. It keeps
+  its sandbox, so the move allows nothing new, and your key press is the answer, also
+  in `cautious` and `manual`. A call outside the sandbox (an approved exit, a call in
+  `cautious` or `manual`, or full mode) asks first: `? move this command to the
+  background`, the command, `it keeps running with your full rights after the turn,
+  for up to 60 minutes`, and one row `as a job: ...` for each exit of the job
+  decision. `y` moves it, and `n` or Esc leaves it in the turn. When the command ends
+  or starts to wait for input while the question shows, nothing moves. The question
+  is good for 60 seconds; after that, efr says `the question expired; press ctrl+b
+  again`.
+- **The checks.** efr decides the line again as a job, with the mode and the settings
+  of the moment of the key press. It refuses the move in these cases, and the view
+  shows `the command was not moved: <reason>`:
+  - jobs are off (`jobs.enabled = false`), or the most jobs that efr allows run now;
+  - the line has `sudo`, `ssh` or another program that reads the terminal (`the
+    command can ask at the terminal; a job has no terminal`);
+  - the line types into a nested shell, starts a shell or a REPL, or a full-screen
+    program holds the screen;
+  - the command waits for input now (`the command waits for input; answer it first`),
+    has not started, or ended;
+  - efr refuses the line as a job (`this cannot run as a job`), as for a job that the
+    model starts (see "Modes");
+  - a call in the sandbox holds the sandbox's cache: with `sandbox.cache_mode =
+    "overlay"`, or `sandbox.keep_downloads = true`, and a cache dir that exists (`the
+    call holds the sandbox's cache; it cannot move`);
+  - the job decision changed between the question and your `y` (`the decision
+    changed; press ctrl+b again`).
+- **What the model reads.** The call answers at once with the output so far and a
+  note: `the user moved this command to the background after 42s: job j3`, the output
+  file, the time limit, that a notice comes when it ends, and that the hidden shell is
+  new. For a call in the sandbox, the note also says that efr does not forward its
+  ports and that it no longer reaches the forwarded ports of other jobs.
+- **How the job runs.** The command keeps its terminal, its processes, its sandbox
+  and its grants. The job owns the call's old hidden shell until the command ends;
+  then efr closes that shell. The next call of the conversation gets a new hidden
+  shell in the same directory. The new shell has none of the variables, functions or
+  aliases of the old one. The sandbox state of the conversation stays.
+  - The time limit is `jobs.default_minutes` (60), cut to `jobs.max_minutes`, from the
+    move. The time before the move does not count.
+  - A call in the sandbox keeps the network proxy and the bus filter of its call. It
+    gets no port forwards, and it no longer reaches the forwarded ports of other jobs.
+    To open a server in your browser, the model starts it with `background: true`.
+  - A call in the sandbox keeps its writable git dirs. Only the surface guard at its
+    end checks them, not every 5 minutes as for a contained job of its own.
+  - The end of a moved call does not write the sandbox state back: the exports,
+    functions and aliases that the moved command makes do not reach later calls.
+  - The output file starts with the output so far. The rest comes as plain text, with
+    no escape sequences. When the job cannot read the output fast enough, efr drops
+    a part and writes `[efr: N bytes of output dropped]` in its place.
+  - Nobody follows a job. When the moved command asks for a password, efr stops it at
+    once, and the notice says so. A plain question waits, and nobody can answer it:
+    stop the job with `efr jobs stop`.
+- **How it ends.** As every job: when its command ends, when you or the model stop
+  it, at its time limit, or when efrd stops. A stop sends SIGINT to the command, and
+  efr closes its shell when the command did not end after 6 seconds. At the end, efr
+  ends every process below the old shell, also a process that left its session with
+  `setsid`, and then closes the shell. After a crash of efrd, its next start records
+  a moved job as `stopped because efrd restarted`.
+- **What you see.** The view shows `(moved to job j3)` in place of a result, and
+  `moved to job j3 by you after 42 seconds; output $SCRATCH/jobs/j3.out; ends in 60
+  minutes`. `efr jobs` marks the job `(moved by you)`. `efr history` shows the move,
+  with one line `your move covered: ...` for each exit that your `y` covered.
 
 ### Undo and jobs
 
@@ -1977,3 +2063,6 @@ the config hold of full mode holds it.
 | a job's server listens on a port of the job's range of ephemeral ports (32768 to 60999 by default) | its forward comes after 10 seconds, not after 1 | none; a short test server on port 0 gets no forward |
 | a contained call reaches the forwarded server of a job of its conversation | a call can use a job's grants through a server of the job that relays, such as a dev proxy | the same as through `$SCRATCH`, which the call and the job share; the job's proxy budget counts each byte that leaves; only the ports that efr forwards, only for the same conversation, and efrd checks the conversation on each connection |
 | a job's output goes to a pipe | some programs keep their output in a buffer, so the output file and the notices come late | run the program with `stdbuf -oL` or its own flag for line output |
+| a call that you move to the background has no launcher time limit and no lifeline of its own | when efrd hangs but does not end, nothing ends the command | efrd's clock ends it at its time limit; when efrd ends, the terminal of the old hidden shell closes and the command ends with it; `efr jobs stop` |
+| a call in the sandbox that you move to the background keeps its writable git dirs | the command can change git settings or hooks until it ends, and only the surface guard at its end sees it | the outside git check before each git line outside the sandbox; the guard at the end moves such changes to quarantine |
+| a moved command that asks a plain question | it waits with nobody to answer until its time limit | the notice of its end; `efr jobs stop` ends it |
