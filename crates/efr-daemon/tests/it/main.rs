@@ -33,6 +33,7 @@ mod presence;
 mod prompt_send;
 mod proxy;
 mod pty_attach;
+mod reach;
 mod receipts;
 mod reconcile;
 mod resume;
