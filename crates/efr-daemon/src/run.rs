@@ -463,6 +463,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             host_facts.binaries.push(efr);
         }
     }
+    let connections = Arc::new(Connections::default());
     let shells = shells::sessions(ShellParts {
         settings: settings.shell.clone(),
         integration_dir: shells::integration_dir(dirs.runtime()),
@@ -477,6 +478,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         screens,
         recording: Arc::clone(&recording),
         notices: shell_notices,
+        followers: Arc::clone(&connections),
         clock: Arc::clone(&clock),
         rng: Arc::clone(&rng),
     })?;
@@ -526,7 +528,6 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // above. Turns read the settings when they start; tool calls read the engine. A
     // change of the mode alone needs no new engine: a turn passes its own.
     let (settings_sender, settings_receiver) = watch::channel(Arc::clone(&settings));
-    let connections = Arc::new(Connections::default());
     let (reloads, reload_requests) = Reloads::new();
     reloads.held_at_start(held);
     let settings_tool = SettingsTool::new(

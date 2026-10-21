@@ -1,5 +1,10 @@
 //! The shells' lifecycle notices, recorded as `shell_started`, `cwd_changed` and
-//! `shell_exited` events.
+//! `shell_exited` events, and what a command left running in a hidden shell does,
+//! recorded as `shell_command_detached`, `shell_command_input_changed` and
+//! `shell_command_ended` events of its conversation.
+//!
+//! A command left running belongs to a call, and its events name the call. A notice
+//! without a call (a run that no tool call asked for) has no event.
 //!
 //! `ShellObserver::notice` runs on a shell's own task and must not block, so it only
 //! updates the PTY table and queues the notice; [`follow_notices`] writes the events.
@@ -26,7 +31,8 @@ impl ShellNotices {
     /// The observer, and the queue that [`follow_notices`] reads.
     pub(crate) fn new(ptys: Arc<Ptys>) -> (Arc<Self>, mpsc::UnboundedReceiver<ShellNotice>) {
         // NOTE: unbounded because `notice` must never wait, and notices are rare: one per
-        // shell start, exit and directory change.
+        // shell start, exit and directory change, and one per wait change of a command
+        // left running, which the shell looks at once per quiet period.
         let (queue, notices) = mpsc::unbounded_channel();
         (Arc::new(ShellNotices { ptys, queue }), notices)
     }
@@ -75,6 +81,49 @@ fn event_of(notice: ShellNotice, recording: &StoreRecording) -> Option<(Conversa
             recording.close(pty_id);
             let exit_code = status.and_then(ChildStatus::exit_code);
             Some((conversation, Event::ShellExited { pty_id, exit_code }))
+        }
+        ShellNotice::CommandDetached {
+            conversation,
+            call,
+            command,
+            since,
+            contained,
+            input,
+            looks_secret,
+            prompt,
+            approved_by,
+        } => Some((
+            conversation,
+            Event::ShellCommandDetached {
+                call_id: call?,
+                command,
+                since,
+                contained,
+                input,
+                looks_secret,
+                prompt,
+                approved_by,
+            },
+        )),
+        ShellNotice::CommandInputChanged {
+            conversation,
+            call,
+            input,
+            contained,
+            looks_secret,
+            prompt,
+        } => Some((
+            conversation,
+            Event::ShellCommandInputChanged {
+                call_id: call?,
+                input,
+                contained,
+                looks_secret,
+                prompt,
+            },
+        )),
+        ShellNotice::CommandEnded { conversation, call, exit_code, how } => {
+            Some((conversation, Event::ShellCommandEnded { call_id: call?, exit_code, how }))
         }
         _ => None,
     }

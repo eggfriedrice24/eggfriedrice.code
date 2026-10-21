@@ -1,5 +1,6 @@
 //! The hidden shells: `ShellSessions` over the PTY holder, with every byte recorded in
-//! the store and every lifecycle notice recorded as an event.
+//! the store and every lifecycle notice recorded as an event. The live subscriptions
+//! (`Connections`) tell the shells who can answer a command left running in them.
 //!
 //! This is the only file with a `local-pty` cfg. With the feature, shells run on PTYs
 //! that `efr_pty::LocalPtyHolder` opens in this process; without it, and unless the
@@ -13,11 +14,13 @@ use std::sync::Arc;
 use efr_config::ShellSettings;
 use efr_holder::PtyHolder;
 use efr_permissions::{Policy, Resource};
-use efr_shell::{ScreenFactory, ShellConfig, ShellDeps, ShellError, ShellSessions};
+use efr_protocol::ConversationId;
+use efr_shell::{Followers, ScreenFactory, ShellConfig, ShellDeps, ShellError, ShellSessions};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
 use crate::DaemonError;
+use crate::connections::Connections;
 
 #[cfg(not(feature = "local-pty"))]
 mod no_holder;
@@ -58,6 +61,8 @@ pub(crate) struct ShellParts {
     pub(crate) screens: Arc<dyn ScreenFactory>,
     pub(crate) recording: Arc<StoreRecording>,
     pub(crate) notices: Arc<ShellNotices>,
+    /// The live subscriptions, which say who can answer a command left running.
+    pub(crate) followers: Arc<Connections>,
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) rng: Arc<dyn Rng>,
 }
@@ -76,6 +81,7 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
         screens,
         recording,
         notices,
+        followers,
         clock,
         rng,
     } = parts;
@@ -87,7 +93,8 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
     config.sandbox_launcher = Some(sandbox_launcher);
     let deps = ShellDeps::new(holder, screens, clock, rng)
         .with_recording(recording)
-        .with_observer(notices);
+        .with_observer(notices)
+        .with_followers(followers);
     match ShellSessions::new(config.clone(), deps.clone()) {
         Ok(sessions) => Ok(sessions),
         Err(error @ ShellError::ProgramNotFound { .. }) => {
@@ -96,6 +103,15 @@ pub(crate) fn sessions(parts: ShellParts) -> Result<ShellSessions, DaemonError> 
             ShellSessions::new(config, deps).map_err(DaemonError::from)
         }
         Err(error) => Err(DaemonError::from(error)),
+    }
+}
+
+// NOTE: a command left running keeps a wait for a password only while a person can
+// answer it: the same count of subscriptions with `answers_input` that a running call
+// asks (`tools::CallSink`). The count is read under a short std lock and never awaits.
+impl Followers for Connections {
+    fn answerers(&self, conversation: ConversationId) -> usize {
+        Connections::answerers(self, conversation)
     }
 }
 
