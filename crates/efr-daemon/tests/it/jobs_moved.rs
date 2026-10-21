@@ -16,10 +16,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use efr_protocol::{
-    ApprovalDecision, ApprovalRespond, ApprovalRespondResult, Base64Bytes, CallBackground,
-    CallBackgroundResult, CallId, ConversationId, ConversationSubscribe, ConversationSubscribeItem,
-    ErrorCode, Event, EventEnvelope, JobId, JobState, JobStopBy, JobsStop, JobsStopResult, Launch,
-    Method, Mode, Origin, PromptSendResult, PtyWrite, PtyWriteResult, Seq, TurnSettings,
+    AdminProjectAdd, AdminProjectAddResult, ApprovalDecision, ApprovalRespond,
+    ApprovalRespondResult, Base64Bytes, CallBackground, CallBackgroundResult, CallId,
+    ConversationId, ConversationSubscribe, ConversationSubscribeItem, ErrorCode, Event,
+    EventEnvelope, JobId, JobState, JobStopBy, JobsStop, JobsStopResult, Launch, Method, Mode,
+    Origin, PromptSendResult, PtyWrite, PtyWriteResult, Seq, TurnSettings, TurnUndo,
+    TurnUndoResult, UndoAction,
 };
 use efr_stdx::time::Clock as _;
 use efr_test_daemon::{
@@ -781,6 +783,59 @@ async fn moved_job_stop_kills_a_setsid_child_before_it_closes_the_shell() {
         );
     }
     assert!(gone.is_ok(), "the setsid child was killed before the shell closed (DS55)");
+}
+
+#[tokio::test]
+async fn moved_job_files_join_the_turn_of_the_call() {
+    if !zsh_enabled("moved_job_files_join_the_turn_of_the_call") {
+        return;
+    }
+    let place = Place::new();
+    let server = ResponsesServer::start().await;
+    let daemon = place.daemon(&server, calls(&place.line("echo hi > job.txt"))).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let add = Method::AdminProjectAdd(AdminProjectAdd {
+        path: daemon.cwd().to_path_buf(),
+        name: None,
+        git_root: false,
+    });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    let (conversation_id, call_id, mut stream) =
+        start(&daemon, &client, 1, Some(Mode::Cautious)).await;
+    moved_after_yes(&client, conversation_id, call_id).await;
+    events_until(&mut stream, |event| matches!(event, Event::TurnCompleted { .. })).await.unwrap();
+
+    // NOTE: the command writes only after the move and the snapshot after the call.
+    place.release().await;
+    until_job_ended(&mut stream).await;
+    assert_eq!(std::fs::read_to_string(daemon.cwd().join("job.txt")).unwrap(), "hi\n");
+
+    // NOTE: the job's file joined the turn that started the call (DS28) before the job
+    // left efrd's table; until then the undo is busy.
+    let mut tries = 0;
+    let undone: TurnUndoResult = efr_test_support::Wait::new("an undo that no job keeps waiting")
+        .until_some_async(async || {
+            tries += 1;
+            let undo = Method::TurnUndo(TurnUndo {
+                command_id: command_id(40_000 + tries),
+                conversation_id: Some(conversation_id),
+                turn_id: None,
+                dry_run: false,
+                force: true,
+                redo: false,
+                list: false,
+            });
+            match client.call::<TurnUndoResult>(undo).await {
+                Ok(result) => Some(result),
+                Err(ClientError::Server { body }) if body.code == ErrorCode::Busy => None,
+                Err(other) => panic!("{other:?}"),
+            }
+        })
+        .await
+        .unwrap();
+    let row = undone.entries.iter().find(|entry| entry.path.ends_with("job.txt"));
+    assert!(row.is_some_and(|row| row.action == UndoAction::Trash), "{undone:#?}");
+    assert!(!daemon.cwd().join("job.txt").exists(), "the undo took the job's file back");
 }
 
 #[tokio::test]

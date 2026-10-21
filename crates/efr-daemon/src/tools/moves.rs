@@ -133,6 +133,21 @@ impl DaemonToolbox {
         }
     }
 
+    /// After the snapshot after a moved call: a new snapshot of the call's roots (the
+    /// turn's project and `named`), which the job of `job` keeps to its end. Then what
+    /// the command writes after the move joins the turn that started the call (DS28),
+    /// as for a job that `background: true` started.
+    pub(super) async fn keep_for_job(
+        &self,
+        context: &CallContext,
+        named: &[PathBuf],
+        job: Option<&JobInfo>,
+    ) {
+        let (Some(jobs), Some(job)) = (&self.jobs, job) else { return };
+        let Some(kept) = self.snapshot_before(context, named).await else { return };
+        jobs.keep_snapshot(job, kept).await;
+    }
+
     /// Makes the adopted run of `adopted` a background job with `parts` (DS22, DS25), and
     /// answers the call: the output so far and the moved text. A job that could not be
     /// recorded stops the command.

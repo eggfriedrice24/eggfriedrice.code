@@ -310,8 +310,12 @@ struct Entry {
     ended: watch::Receiver<Option<JobInfo>>,
     /// The lifeline's write end; it closes when the job ends or efrd goes.
     lifeline: Option<std::io::PipeWriter>,
-    /// The snapshot of the job's write roots right after its start.
+    /// The snapshot of the job's write roots right after its start. A moved call's
+    /// job gets it after the move ([`JobTable::keep_snapshot`]).
     kept: Option<KeptSnapshot>,
+    /// True once the job's end took [`kept`](Self::kept): a snapshot that comes later
+    /// joins the turn on its own.
+    kept_taken: bool,
     /// True when a call of full mode started the job.
     full: bool,
     /// The changes that a guard check found while the job ran (`jobs/guard.rs`).
@@ -572,6 +576,7 @@ impl JobTable {
             ended,
             lifeline: Some(lifeline),
             kept,
+            kept_taken: false,
             full: job.full,
             guard: Vec::new(),
             proxy,
@@ -716,6 +721,7 @@ impl JobTable {
             ended,
             lifeline: None,
             kept: None,
+            kept_taken: false,
             full: job.full,
             guard: Vec::new(),
             proxy: job.proxy,
@@ -754,6 +760,28 @@ impl JobTable {
                 let _ = self.stop(key, JobStopBy::DaemonStop).await;
                 Err(DaemonError::from(source))
             }
+        }
+    }
+
+    /// Hands the job `job` of a moved call the snapshot of its roots right after the
+    /// move (DS28): at the job's end, what its command wrote since joins the turn that
+    /// started the call. When the job's end came first, the snapshot joins the turn
+    /// now.
+    pub(crate) async fn keep_snapshot(&self, job: &JobInfo, kept: KeptSnapshot) {
+        let key =
+            JobKey { conversation: job.conversation_id, number: job.id.number().unwrap_or(0) };
+        let late = {
+            let mut guard = self.lock();
+            match guard.running.get_mut(&key) {
+                Some(entry) if !entry.kept_taken => {
+                    entry.kept = Some(kept);
+                    None
+                }
+                _ => Some(kept),
+            }
+        };
+        if let Some((snapshot, limits)) = late {
+            join_start_turn(snapshot, limits, job.started_at).await;
         }
     }
 
@@ -1338,19 +1366,18 @@ impl JobTask {
     async fn finish(mut self, stopped_by: Option<JobStopBy>) {
         let table = &self.table;
         let clock = Arc::clone(&table.inner.clock);
-        let (lifeline, kept, guarded, info, proxy, bus, forward) = {
+        let (lifeline, guarded, info, proxy, bus, forward) = {
             let mut guard = table.lock();
             match guard.running.get_mut(&self.key) {
                 Some(entry) => (
                     entry.lifeline.take(),
-                    entry.kept.take(),
                     std::mem::take(&mut entry.guard),
                     Some(entry.info.clone()),
                     entry.proxy.take(),
                     entry.bus.take(),
                     entry.forward.take(),
                 ),
-                None => (None, None, Vec::new(), None, None, None, None),
+                None => (None, Vec::new(), None, None, None, None),
             }
         };
         drop(lifeline);
@@ -1484,7 +1511,12 @@ impl JobTask {
         let committed =
             table.inner.writer.append(Batch::new().event(self.key.conversation, event)).await;
         // NOTE: before the job leaves the table, so an undo waits until the job's files
-        // joined the turn that started it.
+        // joined the turn that started it. Taken this late, so the snapshot of a moved
+        // call's job, which comes after the move, is here unless the job ended first.
+        let kept = table.lock().running.get_mut(&self.key).and_then(|entry| {
+            entry.kept_taken = true;
+            entry.kept.take()
+        });
         if let Some((snapshot, limits)) = kept {
             join_start_turn(snapshot, limits, info.started_at).await;
         }
