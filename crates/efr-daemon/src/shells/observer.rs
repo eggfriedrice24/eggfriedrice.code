@@ -6,6 +6,11 @@
 //! A command left running belongs to a call, and its events name the call. A notice
 //! without a call (a run that no tool call asked for) has no event.
 //!
+//! A shell that a background job adopted with its running command (Ctrl+B) is no
+//! longer its conversation's shell: its end closes its recording and lets go of its
+//! PTY, but records no `shell_exited`, so no client reads that the conversation's
+//! hidden shell exited.
+//!
 //! `ShellObserver::notice` runs on a shell's own task and must not block, so it only
 //! updates the PTY table and queues the notice; [`follow_notices`] writes the events.
 
@@ -44,7 +49,9 @@ impl ShellObserver for ShellNotices {
             ShellNotice::Started { conversation, pty_id, pid, .. } => {
                 self.ptys.started(*pty_id, *conversation, Some(*pid));
             }
-            ShellNotice::Exited { pty_id, .. } => self.ptys.exited(*pty_id),
+            ShellNotice::Exited { pty_id, .. } | ShellNotice::AdoptedExited { pty_id, .. } => {
+                self.ptys.exited(*pty_id);
+            }
             _ => {}
         }
         // The queue closes only at shutdown, when nothing records events any more.
@@ -81,6 +88,10 @@ fn event_of(notice: ShellNotice, recording: &StoreRecording) -> Option<(Conversa
             recording.close(pty_id);
             let exit_code = status.and_then(ChildStatus::exit_code);
             Some((conversation, Event::ShellExited { pty_id, exit_code }))
+        }
+        ShellNotice::AdoptedExited { pty_id, .. } => {
+            recording.close(pty_id);
+            None
         }
         ShellNotice::CommandDetached {
             conversation,

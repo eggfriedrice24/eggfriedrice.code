@@ -9,6 +9,13 @@
 //! to it: what comes after, the client gets live, so nothing comes twice. Each attached
 //! client has its own bounded queue; a full queue closes that client's stream with
 //! `overflow` and never slows the shell.
+//!
+//! A PTY whose shell a background job adopted with its running command (Ctrl+B) is
+//! marked [`adopted`](Ptys::adopt): it is no longer its conversation's shell, so
+//! [`conversation`](Ptys::conversation) answers `None` for it (`pty.write` and
+//! `pty.resize` with its id never reach the conversation's new shell), and the idle
+//! collector does not see it ([`activity`](Ptys::activity)); the job owns it until it
+//! exits. Its shell stays in [`shell_pids`](Ptys::shell_pids) for the peer check.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -107,6 +114,8 @@ struct Entry {
     /// Bytes typed into the PTY through `pty.write`.
     input: u64,
     attached: Vec<AttachSender>,
+    /// True once a background job adopted the shell (DS56).
+    adopted: bool,
 }
 
 impl Entry {
@@ -147,6 +156,7 @@ impl Ptys {
             sizes_at_end: 0,
             input: 0,
             attached: Vec::new(),
+            adopted: false,
         });
         entry.conversation = conversation;
         entry.pid = pid.or(entry.pid);
@@ -163,9 +173,20 @@ impl Ptys {
         self.lock().remove(&pty_id);
     }
 
-    /// The conversation whose shell runs on `pty_id`.
+    /// The conversation whose shell runs on `pty_id`; `None` for a PTY that a
+    /// background job adopted, which is no longer the conversation's shell.
     pub(crate) fn conversation(&self, pty_id: PtyId) -> Option<ConversationId> {
-        self.lock().get(&pty_id).map(|entry| entry.conversation)
+        self.lock().get(&pty_id).filter(|entry| !entry.adopted).map(|entry| entry.conversation)
+    }
+
+    /// A background job adopted the shell on `pty_id` with its running command: the PTY
+    /// belongs to no conversation from now on, and the idle collector leaves it to the
+    /// job. Its shell stays a model-side peer until it exits.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the move of a call marks its PTY next"))]
+    pub(crate) fn adopt(&self, pty_id: PtyId) {
+        if let Some(entry) = self.lock().get_mut(&pty_id) {
+            entry.adopted = true;
+        }
     }
 
     /// The running shells' PTYs.
@@ -218,11 +239,14 @@ impl Ptys {
         Some(AttachReceiver { rx, overflowed, mark })
     }
 
-    /// The activity of every running PTY, for the idle collector.
+    /// The activity of every running PTY of a conversation, for the idle collector. A
+    /// PTY that a background job adopted is the job's, and never in the list: the idle
+    /// rule would judge it by the state of the conversation's new shell.
     pub(crate) fn activity(&self) -> Vec<PtyActivity> {
         let mut entries = self.lock();
         entries
             .iter_mut()
+            .filter(|(_, entry)| !entry.adopted)
             .map(|(pty_id, entry)| {
                 entry.attached.retain(|client| !client.tx.is_closed());
                 PtyActivity {

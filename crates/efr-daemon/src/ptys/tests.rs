@@ -107,3 +107,33 @@ fn activity_marks_count_output_and_input_and_see_attached_clients() {
     drop(client);
     assert!(!ptys.activity()[0].attached, "a dropped client no longer counts");
 }
+
+#[test]
+fn pty_write_to_adopted_pty_is_not_found() {
+    let ptys = Ptys::default();
+    ptys.started(pty(1), conversation(7), Some(41));
+
+    ptys.adopt(pty(1));
+
+    // NOTE: `pty.write` and `pty.resize` map the PTY to its conversation first; `None`
+    // is `PtyNotFound`, so the old id never reaches the conversation's new shell.
+    assert_eq!(ptys.conversation(pty(1)), None);
+    assert_eq!(ptys.shell_pids(), [41], "the adopted shell stays a model-side peer");
+    assert!(ptys.attach(pty(1)).is_some(), "its output can still be read");
+}
+
+#[test]
+fn gc_skips_an_adopted_pty_of_a_conversation_with_a_new_shell() {
+    let ptys = Ptys::default();
+    ptys.started(pty(1), conversation(7), Some(41));
+    ptys.adopt(pty(1));
+    ptys.started(pty(2), conversation(7), Some(42));
+
+    assert_eq!(
+        ptys.activity(),
+        [PtyActivity { pty_id: pty(2), conversation: conversation(7), mark: 0, attached: false }]
+    );
+    assert_eq!(ptys.conversation(pty(2)), Some(conversation(7)));
+    ptys.exited(pty(1));
+    assert_eq!(ptys.shell_pids(), [42]);
+}
