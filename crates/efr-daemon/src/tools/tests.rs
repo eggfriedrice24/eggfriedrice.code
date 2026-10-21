@@ -430,6 +430,7 @@ async fn job_table(home: &Path) -> (crate::jobs::JobTable, efr_test_support::Tes
         launcher: home.join("efr-sbx"),
         spawn_env: crate::jobs::SpawnEnv::default(),
         full: crate::full::FullTurns::default(),
+        host_ports: Arc::new(crate::sandbox::seams::TestHostPorts::new()),
     });
     (table, store)
 }

@@ -82,6 +82,6 @@ pub use proc_view::ProcView;
 pub use providers::{ANTHROPIC, API, ProviderFactory, SUBSCRIPTION};
 pub use run::{Daemon, Deps, run, start};
 pub use runtime::build_runtime;
-pub use sandbox::seams::{PeerProbe, TEST_SEAMS};
+pub use sandbox::seams::{PeerProbe, TEST_SEAMS, TestHostPorts};
 pub use signals::shutdown_on_signals;
 pub use telemetry::{LogFilter, LogTarget, init as init_telemetry};

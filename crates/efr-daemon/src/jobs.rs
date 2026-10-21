@@ -52,6 +52,7 @@ use crate::full::FullTurns;
 use crate::sandbox::bus::{BusCall, BusReport};
 use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::sandbox::proxy::ProxyCall;
+use crate::sandbox::seams::HostPorts;
 
 pub(crate) mod forward;
 pub(crate) mod guard;
@@ -135,6 +136,8 @@ pub(crate) struct JobParts {
     pub(crate) spawn_env: SpawnEnv,
     /// The full work that runs, which counts each job that a full call started.
     pub(crate) full: FullTurns,
+    /// The host ports of the job port forwards: the system's, or a test's.
+    pub(crate) host_ports: Arc<dyn HostPorts>,
 }
 
 /// A job that the toolbox prepared: the launcher may start it.
@@ -209,6 +212,8 @@ struct Inner {
     launcher: PathBuf,
     spawn_env: SpawnEnv,
     full: FullTurns,
+    /// The port forwards of every job.
+    forwards: forward::Forwards,
     table: Mutex<Table>,
     notices: mpsc::UnboundedSender<Notice>,
     /// Cancelled once efrd recorded the end of every job at its stop.
@@ -275,14 +280,16 @@ struct Entry {
     proxy: Option<ProxyCall>,
     /// The job's filtered bus proxies until the job ends; dropping them kills them.
     bus: Option<BusCall>,
-    /// The job's forward socket until the job ends; dropping it closes the socket.
-    forward: Option<forward::ForwardSocket>,
+    /// The job's port forwards until the job ends; dropping them closes the socket,
+    /// the listeners and the connections.
+    forward: Option<forward::JobForward>,
 }
 
 impl JobTable {
     /// The table, and the queue of notices that `run.rs` hands to the actors.
     pub(crate) fn new(parts: JobParts) -> (JobTable, mpsc::UnboundedReceiver<Notice>) {
-        let JobParts { clock, writer, readers, dirs, launcher, spawn_env, full } = parts;
+        let JobParts { clock, writer, readers, dirs, launcher, spawn_env, full, host_ports } =
+            parts;
         let (notices, queue) = mpsc::unbounded_channel();
         let inner = Inner {
             clock,
@@ -292,6 +299,7 @@ impl JobTable {
             launcher,
             spawn_env,
             full,
+            forwards: forward::Forwards::new(host_ports),
             table: Mutex::new(Table::default()),
             notices,
             cancel: CancellationToken::new(),
@@ -307,6 +315,25 @@ impl JobTable {
     /// The time now on efrd's clock.
     pub(crate) fn now(&self) -> Timestamp {
         self.inner.clock.now()
+    }
+
+    /// The port forwards of every job.
+    pub(crate) fn forwards(&self) -> &forward::Forwards {
+        &self.inner.forwards
+    }
+
+    /// Stops the port forwards of every running job, with a `stopped` event for each
+    /// port, after a reload turned `jobs.forward_ports` off (DL11). A job that read the
+    /// settings before and starts later forwards nothing either.
+    #[expect(dead_code, reason = "the reload turns forwards off in the next step")]
+    pub(crate) fn forwards_off(&self) {
+        self.inner.forwards.turn_off();
+        let table = self.lock();
+        for entry in table.running.values() {
+            if let Some(forward) = &entry.forward {
+                forward.turn_off();
+            }
+        }
     }
 
     /// The call dir of the job that `call` of `conversation` starts.
@@ -461,7 +488,7 @@ impl JobTable {
         let Spawned { process, output, matches } = spawned;
         let proxy = job.proxy.take();
         let bus = job.bus.take();
-        let forward = job.forward.take();
+        let socket = job.forward.take();
         let mut info = job.info.clone();
         let now = self.inner.clock.now();
         info.started_at = now;
@@ -503,7 +530,7 @@ impl JobTable {
             guard: Vec::new(),
             proxy,
             bus,
-            forward,
+            forward: None,
         };
         // NOTE: counted before the job is in the table, so no reload between the two
         // finds the job running and not counted.
@@ -511,6 +538,14 @@ impl JobTable {
             self.inner.full.begin_job(key);
         }
         self.lock().running.insert(key, entry);
+        // NOTE: the forwards start once the job is in the table, so each forward of the
+        // job reaches its entry; a job that ended meanwhile drops them at once.
+        if let Some(socket) = socket {
+            let forward = forward::serve(self.clone(), key, socket);
+            if let Some(entry) = self.lock().running.get_mut(&key) {
+                entry.forward = Some(forward);
+            }
+        }
         // NOTE: a reload that turned full mode off before the job was in the table did
         // not find it there; it marked full mode off first, so the job stops here.
         if job.full && self.inner.full.is_off() {
@@ -1094,6 +1129,8 @@ impl JobTask {
         final_info.stopped_by = ended.stopped_by;
         final_info.output_bytes = self.output.bytes();
         final_info.ended_at = Some(now);
+        // NOTE: the forwards ended with the job.
+        final_info.forwards.clear();
         let tail = self.output.tail();
         // NOTE: the changes that a guard check moved while the job ran are gone from
         // the surface, so the launcher's end guard no longer sees them.
@@ -1339,8 +1376,13 @@ pub(crate) fn job_line(job: &JobInfo, now: Timestamp) -> String {
             text
         }
     };
+    let ports = match job.state {
+        JobState::Running => forward::ports_text(&job.forwards),
+        _ => None,
+    };
+    let ports = ports.map(|ports| format!(", {ports}")).unwrap_or_default();
     format!(
-        "{} {}: {command} ({when}, {} bytes of output)",
+        "{} {}: {command} ({when}, {} bytes of output{ports})",
         job.id,
         job.state.as_str(),
         job.output_bytes

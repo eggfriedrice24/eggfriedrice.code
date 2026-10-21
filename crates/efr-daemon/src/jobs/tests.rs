@@ -64,6 +64,7 @@ impl Scene {
                 roots: Vec::new(),
             },
             full: full.clone(),
+            host_ports: Arc::new(crate::sandbox::seams::TestHostPorts::new()),
         });
         let conversation = ConversationId::from_uuid(id(1));
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };

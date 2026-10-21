@@ -599,6 +599,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             roots: efr_roots,
         },
         full: full.clone(),
+        host_ports: job_seams.host_ports(),
     });
     let ended = jobs.recover().await?;
     // NOTE: a job that the last efrd left running ends now, before the notices task

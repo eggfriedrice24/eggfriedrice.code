@@ -306,6 +306,9 @@ impl DaemonToolbox {
             Ok(None) => return ToolOutcome::error("this call does not start a background job"),
             Err(error) => return ToolOutcome::error(for_model(&error)),
         };
+        // NOTE: before the settings: a reload that turns forwards off after this sends
+        // its settings first, so a job that read the old ones still forwards nothing.
+        let generation = jobs.forwards().generation();
         let settings = Arc::clone(&self.settings.borrow());
         if !settings.jobs.enabled {
             return ToolOutcome::error(JOBS_OFF);
@@ -407,7 +410,7 @@ impl DaemonToolbox {
         // NOTE: the socket exists before the launcher starts: the plan binds it into the
         // job, and refuses a forward plan without it.
         let forward = match forward_plan {
-            Some(plan) => match forward::bind(&prepared.run.dir, plan).await {
+            Some(plan) => match forward::bind(&prepared.run.dir, plan, generation).await {
                 Ok(socket) => Some(socket),
                 Err(error) => {
                     tracing::warn!(%error, call_id = %call.context.call_id, "a job's forward socket could not be bound");
