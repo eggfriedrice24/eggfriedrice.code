@@ -239,6 +239,24 @@ async fn until_waits(
     seen.last().unwrap().event.clone()
 }
 
+/// Lets time pass until the command left running reports a wait with the row that asks;
+/// returns the event. A getpass-style read turns echo off before its prompt reaches the
+/// screen, so the row can come with a later look than the wait.
+async fn until_waits_with_row(
+    daemon: &TestDaemon,
+    stream: &mut ItemStream<ConversationSubscribeItem>,
+) -> Event {
+    let seen = events_while_time_passes(daemon, stream, 10, |event| {
+        matches!(
+            event,
+            Event::ShellCommandInputChanged { input, prompt, .. }
+                if *input != InputWait::None && !prompt.is_empty()
+        ) || matches!(event, Event::ShellCommandEnded { .. })
+    })
+    .await;
+    seen.last().unwrap().event.clone()
+}
+
 /// Lets time pass until the command left running ends; returns how, with its exit code.
 async fn until_ended(
     daemon: &TestDaemon,
@@ -354,7 +372,7 @@ async fn shell_orphan_wait_reaches_a_follower_with_its_prompt_and_its_answer_typ
     let (call_id, _, _) = until_left(&daemon, &mut stream).await;
 
     place.release().await;
-    let wait = until_waits(&daemon, &mut stream).await;
+    let wait = until_waits_with_row(&daemon, &mut stream).await;
 
     let Event::ShellCommandInputChanged { call_id: waiting, input, contained, prompt, .. } = wait
     else {
@@ -414,7 +432,7 @@ async fn shell_orphan_wait_makes_a_notice_without_follower() {
     place.notice("the hidden shell still runs true || less; echo efr-ready").await;
 
     place.release().await;
-    let wait = until_waits(&daemon, &mut stream).await;
+    let wait = until_waits_with_row(&daemon, &mut stream).await;
 
     // The user approved a line that may ask at the terminal, so the wait stays while
     // nobody follows, and the next prompt says where to answer it.
