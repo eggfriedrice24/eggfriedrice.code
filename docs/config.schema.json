@@ -349,7 +349,7 @@
           ]
         },
         "program": {
-          "description": "The first word of the simple command, such as `git`. A path such as `/bin/ls`\nnames a different program.",
+          "description": "The first word of the simple command, such as `git`. For an `allow` rule, a path\nsuch as `/bin/ls` names a different program. An `ask` or `deny` rule also matches\nthe base name of a path and the program behind a wrapper such as `env` or `nice`.",
           "type": "string"
         },
         "under": {
