@@ -17,7 +17,7 @@ use tokio::task::JoinHandle;
 
 use super::SandboxRun;
 use crate::run::{FORGET_CREDENTIALS, WRAPPER_CHECK};
-use crate::testing::{FakeTerminal, Harness, Vt100Screens, conversation, listener};
+use crate::testing::{FakeTerminal, Harness, Heard, Vt100Screens, conversation, listener};
 use crate::{
     CommandResult, Completion, InputModes, NoProgress, Phase, RunMode, RunRequest, ShellError,
 };
@@ -370,6 +370,117 @@ async fn the_exit_child_of_an_approved_exit_takes_hidden_input() {
 
     let secret = SecretText::new("hunter2");
     harness.sessions.answer(conversation(1), call(), &secret, true).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"hunter2\r");
+    result(&run, &finished(0, "/home/u"));
+    trusted_end(&mut terminal, "/home/u", 0).await;
+    assert_eq!(handle.await.unwrap().unwrap().completion, Completion::Finished);
+}
+
+/// The modes that a program leaves when it turns line mode and echo off itself, as a
+/// relay or a fake password prompt in raw mode does.
+const RAW: InputModes = InputModes::new(false, false);
+
+/// Starts the sandboxed call `run` of `command` with a listener that can answer, and
+/// lets its command print `prompt` with the terminal in raw mode, up to the first look.
+async fn raw_prompt(
+    harness: &Harness,
+    run: &SandboxRun,
+    command: &str,
+    prompt: &[u8],
+) -> (FakeTerminal, JoinHandle<Result<CommandResult, ShellError>>, Heard) {
+    let (mut listener, heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = sandboxed(run, command);
+    let handle =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    started(run);
+    let mut output = b"\r\n\x1b]133;C\x07".to_vec();
+    output.extend_from_slice(prompt);
+    terminal.print(&output).await;
+    harness.modes.set(Some(RAW));
+    screen_shows(harness, "assword:").await;
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_secs(1));
+    (terminal, handle, heard)
+}
+
+/// Waits until the conversation's screen shows `text`.
+async fn screen_shows(harness: &Harness, text: &str) {
+    let screen = harness.sessions.screen(conversation(1)).unwrap();
+    Wait::new(&format!("{text:?} on the screen"))
+        .until_some_async(async || {
+            let capture = screen.snapshot(0).await.unwrap();
+            capture
+                .snapshot
+                .rows
+                .iter()
+                .any(|row| efr_screen::row_text(row).contains(text))
+                .then_some(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn contained_looks_secret_wait_stops_at_once() {
+    let harness = Harness::sandboxed();
+    let run = prepare(&harness, SpecLaunch::Contained);
+    // A client that could answer follows the turn.
+    let (terminal, handle, heard) = raw_prompt(&harness, &run, "./fake-login", b"Password: ").await;
+    let ended = handle.await.unwrap().unwrap();
+    assert_eq!(ended.completion, Completion::Unanswered);
+    assert_eq!(*heard.inputs.borrow(), [InputWait::Visible, InputWait::None]);
+    assert_eq!(*heard.secrets.borrow(), [true, false]);
+    assert_eq!(
+        harness.holder.signals(),
+        [(terminal.pty_id, Signal::Interrupt, SignalTarget::ForegroundGroup)]
+    );
+}
+
+#[tokio::test]
+async fn a_contained_plain_question_in_raw_mode_takes_a_visible_answer() {
+    let harness = Harness::sandboxed();
+    let run = prepare(&harness, SpecLaunch::Contained);
+    let (mut listener, mut heard) = listener(true);
+    let sessions = harness.sessions.clone();
+    let request = sandboxed(&run, "./setup");
+    let handle =
+        tokio::spawn(
+            async move { sessions.run_command(conversation(1), request, &mut listener).await },
+        );
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    started(&run);
+    terminal.print(b"\r\n\x1b]133;C\x07Continue? [Y/n] ").await;
+    harness.modes.set(Some(RAW));
+    screen_shows(&harness, "[Y/n]").await;
+    harness.clock.wait_for_sleeps(3).await;
+    harness.clock.advance(Duration::from_secs(1));
+    heard.inputs(&[InputWait::Visible]).await;
+    harness.sessions.answer(conversation(1), call(), &SecretText::new("y"), false).await.unwrap();
+    assert_eq!(terminal.typed_line().await, b"y\r");
+    result(&run, &finished(0, "/home/u"));
+    trusted_end(&mut terminal, "/home/u", 0).await;
+    assert_eq!(handle.await.unwrap().unwrap().completion, Completion::Finished);
+    assert_eq!(*heard.secrets.borrow(), [false, false]);
+}
+
+#[tokio::test]
+async fn exit_child_looks_secret_answer_still_types() {
+    let harness = Harness::sandboxed();
+    let run = prepare(&harness, SpecLaunch::Unsandboxed);
+    let (mut terminal, handle, mut heard) =
+        raw_prompt(&harness, &run, "ssh -t host sudo true", b"Password: ").await;
+    heard.inputs(&[InputWait::Visible]).await;
+    assert_eq!(*heard.secrets.borrow(), [true]);
+    let secret = SecretText::new("hunter2");
+    harness.sessions.answer(conversation(1), call(), &secret, false).await.unwrap();
     assert_eq!(terminal.typed_line().await, b"hunter2\r");
     result(&run, &finished(0, "/home/u"));
     trusted_end(&mut terminal, "/home/u", 0).await;

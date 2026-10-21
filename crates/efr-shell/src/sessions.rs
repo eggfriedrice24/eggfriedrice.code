@@ -806,8 +806,8 @@ impl ShellSessions {
 
     /// One look at whether run `id` waits for input; each change goes to `progress`.
     /// Returns true when the command waits for hidden input that nobody can answer,
-    /// which is always so for a `contained` sandboxed command: efr never types a secret
-    /// into one (efr's auto spec, 3.12).
+    /// which is always so for a `contained` sandboxed command, also for a visible wait
+    /// that looks secret: efr never types a secret into one (efr's auto spec, 3.12).
     async fn look_for_input(
         &self,
         session: &SessionHandle,
@@ -856,7 +856,12 @@ impl ShellSessions {
             progress.input_changed(changed, watch.looks_secret());
             told?;
         }
-        Ok(watch.current() == InputWait::Hidden && (contained || !progress.can_answer_hidden()))
+        // NOTE: a visible wait that looks secret is a hidden one for a command in the
+        // sandbox: sandboxed code can put the terminal in raw mode and print a password
+        // prompt, and no answer that may be a secret reaches it (efr's auto spec, 3.12).
+        let secret = watch.current() == InputWait::Visible && watch.looks_secret();
+        Ok((watch.current() == InputWait::Hidden || (contained && secret))
+            && (contained || !progress.can_answer_hidden()))
     }
 
     /// How much longer a run that reached its deadline waits for its command, when it

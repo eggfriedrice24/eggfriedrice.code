@@ -22,7 +22,9 @@
 //! (`sudo`'s own pty, `ssh`, `docker exec`), and the cursor's row reads like a password
 //! prompt ([`looks_secret`]). The program on the inner terminal decides whether the
 //! answer is shown, so a client hides what the user types; the answer still goes as a
-//! visible one, so the kind check holds.
+//! visible one, so the kind check holds. A command in the sandbox gets no answer that
+//! may be a secret ([`check_contained`]): such a wait stops it at once, as a hidden wait
+//! does.
 //!
 //! What a run may report depends on the run ([`Offer`]). A prompt that reads command
 //! lines (a shell's `$ `, a REPL's `>>> `) looks like a visible question, and an answer
@@ -157,6 +159,28 @@ pub(crate) fn check_kind(waiting: Waiting, hidden: bool) -> Result<(), &'static 
     }
 }
 
+/// Refuses, for a command in the sandbox, every answer that may be a secret: a hidden
+/// answer, an answer to a wait that looks like a prompt for a secret, and a manual
+/// answer, which no reported wait tells apart from a password.
+///
+/// NOTE: sandboxed code can fake a password prompt, also a visible one behind a terminal
+/// that it put in raw mode, to collect a password that the user would type for a later
+/// approved exit (efr's auto spec, 3.12). The exit child of an approved exit is not
+/// sandboxed and takes all of them.
+pub(crate) fn check_contained(
+    waiting: Option<Waiting>,
+    hidden: bool,
+    manual: bool,
+) -> Result<(), &'static str> {
+    if hidden || manual || waiting.is_some_and(Waiting::secret) {
+        return Err(SANDBOXED_SECRET);
+    }
+    Ok(())
+}
+
+/// Why an answer that may be a secret does not reach a command in the sandbox.
+pub(crate) const SANDBOXED_SECRET: &str = "efr types no secret into a sandboxed command";
+
 /// A wait that a run reported, as an answer is checked against it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Waiting {
@@ -164,6 +188,17 @@ pub(crate) struct Waiting {
     pub(crate) group: u32,
     /// True for [`InputWait::Hidden`].
     pub(crate) hidden: bool,
+    /// True for a visible wait whose prompt reads like a prompt for a secret while the
+    /// terminal is not in line mode ([`secret_prompt`]).
+    pub(crate) looks_secret: bool,
+}
+
+impl Waiting {
+    /// True when an answer to this wait may be a secret: a hidden wait, or a visible one
+    /// that looks like a prompt for a secret.
+    pub(crate) fn secret(self) -> bool {
+        self.hidden || self.looks_secret
+    }
 }
 
 /// What the session knows about a run when it is asked to look.
@@ -334,7 +369,7 @@ impl InputWatch {
             InputWait::Visible => false,
             _ => return None,
         };
-        self.group.map(|group| Waiting { group, hidden })
+        self.group.map(|group| Waiting { group, hidden, looks_secret: self.secret })
     }
 
     /// Takes the wait of a look that saw `answers` answers and the job of process group

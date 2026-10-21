@@ -5,8 +5,9 @@ use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
 
 use super::{
-    InputWatch, Look, Offer, Probe, Quiet, Waiting, check_answer, check_job, check_kind,
-    check_modes, look, question_prompt, secret_prompt, visible_prompt,
+    InputWatch, Look, Offer, Probe, Quiet, SANDBOXED_SECRET, Waiting, check_answer,
+    check_contained, check_job, check_kind, check_modes, look, question_prompt, secret_prompt,
+    visible_prompt,
 };
 use crate::modes::{InputModes, Job};
 use crate::{RunMode, ShellError};
@@ -191,9 +192,9 @@ fn each_change_is_reported_once() {
     assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 0), Some(InputWait::Hidden));
     assert_eq!(watch.settle(InputWait::Hidden, false, Some(JOB), 0), None);
     assert_eq!(watch.current(), InputWait::Hidden);
-    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: true }));
+    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: true, looks_secret: false }));
     assert_eq!(watch.settle(InputWait::Visible, false, Some(JOB), 0), Some(InputWait::Visible));
-    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false }));
+    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false, looks_secret: false }));
     assert_eq!(watch.end(), Some(InputWait::None));
     assert_eq!(watch.waiting(), None);
     assert_eq!(watch.end(), None);
@@ -213,7 +214,7 @@ fn an_answer_makes_the_next_look_none_so_a_prompt_asked_again_is_new() {
 fn another_job_in_the_foreground_ends_a_wait_and_its_own_wait_is_new() {
     let mut watch = InputWatch::default();
     assert_eq!(watch.settle(InputWait::Visible, false, Some(JOB), 0), Some(InputWait::Visible));
-    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false }));
+    assert_eq!(watch.waiting(), Some(Waiting { group: JOB, hidden: false, looks_secret: false }));
     // The job ended and a command that a later precmd hook started holds the terminal,
     // cooked, with the old prompt still on the screen.
     assert_eq!(watch.settle(InputWait::Visible, false, Some(OTHER_JOB), 0), Some(InputWait::None));
@@ -222,15 +223,18 @@ fn another_job_in_the_foreground_ends_a_wait_and_its_own_wait_is_new() {
         watch.settle(InputWait::Visible, false, Some(OTHER_JOB), 0),
         Some(InputWait::Visible)
     );
-    assert_eq!(watch.waiting(), Some(Waiting { group: OTHER_JOB, hidden: false }));
+    assert_eq!(
+        watch.waiting(),
+        Some(Waiting { group: OTHER_JOB, hidden: false, looks_secret: false })
+    );
     // A wait without a job to answer is none.
     assert_eq!(watch.settle(InputWait::Hidden, false, None, 0), Some(InputWait::None));
     assert_eq!(watch.settle(InputWait::Hidden, false, None, 0), None);
     assert_eq!(watch.waiting(), None);
 }
 
-const HIDDEN_WAIT: Waiting = Waiting { group: JOB, hidden: true };
-const VISIBLE_WAIT: Waiting = Waiting { group: JOB, hidden: false };
+const HIDDEN_WAIT: Waiting = Waiting { group: JOB, hidden: true, looks_secret: false };
+const VISIBLE_WAIT: Waiting = Waiting { group: JOB, hidden: false, looks_secret: false };
 
 #[test]
 fn an_answer_reaches_only_the_job_whose_wait_was_reported() {
@@ -296,4 +300,23 @@ fn a_visible_wait_that_starts_to_look_secret_is_a_change_and_a_hidden_one_never_
     assert!(!watch.looks_secret());
     assert_eq!(watch.end(), Some(InputWait::None));
     assert!(!watch.looks_secret());
+}
+
+#[test]
+fn a_contained_command_takes_no_answer_that_may_be_a_secret() {
+    let secret = Waiting { looks_secret: true, ..VISIBLE_WAIT };
+    check_contained(Some(VISIBLE_WAIT), false, false).unwrap();
+    check_contained(None, false, false).unwrap();
+    assert_eq!(check_contained(Some(HIDDEN_WAIT), true, false), Err(SANDBOXED_SECRET));
+    assert_eq!(check_contained(Some(secret), false, false), Err(SANDBOXED_SECRET));
+    assert_eq!(check_contained(None, false, true), Err(SANDBOXED_SECRET), "a manual answer");
+    assert_eq!(check_contained(Some(VISIBLE_WAIT), true, false), Err(SANDBOXED_SECRET));
+    assert!(secret.secret() && HIDDEN_WAIT.secret() && !VISIBLE_WAIT.secret());
+}
+
+#[test]
+fn the_wait_keeps_whether_it_looks_secret() {
+    let mut watch = InputWatch::default();
+    watch.settle(InputWait::Visible, true, Some(JOB), 0);
+    assert_eq!(watch.waiting(), Some(Waiting { looks_secret: true, ..VISIBLE_WAIT }));
 }
