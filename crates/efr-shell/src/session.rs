@@ -391,11 +391,20 @@ pub(crate) struct Activity {
     pub(crate) used: bool,
     /// The id of the run whose command goes on without a caller, if any.
     pub(crate) orphan: Option<u64>,
+    /// A command left running waits for input: the shell takes no run until it ends.
+    pub(crate) held_waiting: bool,
 }
 
 impl Default for Activity {
     fn default() -> Self {
-        Activity { free: true, sandboxed: false, starting: false, used: false, orphan: None }
+        Activity {
+            free: true,
+            sandboxed: false,
+            starting: false,
+            used: false,
+            orphan: None,
+            held_waiting: false,
+        }
     }
 }
 
@@ -487,7 +496,21 @@ impl SessionCore {
             starting: self.state.phase == Phase::Starting,
             used: self.used,
             orphan: self.orphan.as_ref().map(|orphan| orphan.id),
+            held_waiting: self.held_by().is_some(),
         }
+    }
+
+    /// [`ShellError::HeldBy`] while a command left running waits for input. A run then
+    /// would wait for the user, who answers or stops the command, and a line typed into
+    /// whatever holds the terminal could answer its prompt.
+    fn held_by(&self) -> Option<ShellError> {
+        let orphan = self.orphan.as_ref().filter(|orphan| orphan.left)?;
+        orphan.waiting?;
+        Some(ShellError::HeldBy {
+            conversation: self.conversation,
+            command: orphan.command.clone(),
+            waiting: orphan.input(),
+        })
     }
 
     /// Takes a run: types it now, keeps it until the shell is free, or refuses it when
@@ -510,6 +533,10 @@ impl SessionCore {
         }
         if self.active.is_some() || self.queued.is_some() {
             self.refuse(order);
+            return Vec::new();
+        }
+        if let Some(error) = self.held_by() {
+            let _ = order.reply.send(Err(error));
             return Vec::new();
         }
         // A sandboxed call needs the integration's wrapper and its marks: a shell
@@ -660,6 +687,12 @@ impl SessionCore {
             looks_secret: orphan.looks_secret(),
             prompt: orphan.prompt.clone(),
         });
+        // A run that waits for the shell would wait for the user now.
+        if let Some(error) = self.held_by()
+            && let Some(order) = self.queued.take()
+        {
+            let _ = order.reply.send(Err(error));
+        }
     }
 
     /// Records why the command of run `id`, left running, is being stopped.
@@ -1452,6 +1485,17 @@ impl SessionHandle {
         tokio::select! {
             _ = activity.wait_for(|activity| !activity.starting) => {}
             _ = self.ended() => {}
+        }
+    }
+
+    /// A [`ShellError::HeldBy`] for the command left running in this shell, as the
+    /// actor last published it.
+    pub(crate) fn held_by(&self) -> ShellError {
+        let left = self.left.borrow();
+        ShellError::HeldBy {
+            conversation: self.conversation,
+            command: left.as_ref().map(|left| left.command.clone()).unwrap_or_default(),
+            waiting: left.as_ref().map_or(InputWait::None, |left| left.input),
         }
     }
 

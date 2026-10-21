@@ -188,7 +188,9 @@ impl ShellSessions {
     ///
     /// A run waits for the shell's prompt: while a new shell starts, while an earlier
     /// command still runs, and until the user answers what it asks. It fails with
-    /// [`ShellError::NotReady`] when the prompt does not come before the timeout, and
+    /// [`ShellError::NotReady`] when the prompt does not come before the timeout, at once
+    /// with [`ShellError::HeldBy`] while a command left running at an earlier run's
+    /// timeout waits for input (only the user frees the shell then), and
     /// with [`ShellError::Busy`] when another run is under way or an unfinished line
     /// waits at a continuation prompt. The timeout starts once a new shell has shown its
     /// first prompt; that wait has its own limit, the config's `startup_timeout`.
@@ -246,7 +248,8 @@ impl ShellSessions {
     }
 
     /// Types `text` and a carriage return for the running command of `call`, the tool
-    /// call that [`RunRequest::call`](crate::RunRequest::call) named.
+    /// call that [`RunRequest::call`](crate::RunRequest::call) named, also when its run
+    /// was left at its timeout and its command goes on.
     ///
     /// The answer is written only while that call's command runs (between its `C` and
     /// `D`, or its sentinels), the run has reported a wait of the answer's kind (hidden
@@ -419,7 +422,9 @@ impl ShellSessions {
 
     /// Waits until the conversation's shell has no run: none active, none waiting to be
     /// typed and none left running past its timeout. A conversation without a shell is
-    /// free. Fails with [`ShellError::NotReady`] when `timeout` passes first.
+    /// free. Fails with [`ShellError::NotReady`] when `timeout` passes first, and at once
+    /// with [`ShellError::HeldBy`] while a command left running waits for input: only
+    /// the user can free the shell then.
     ///
     /// The auto mode plans a sandboxed call under a lock of its projects, which it holds
     /// until the launcher starts; it waits here first, so a call queued behind a
@@ -435,9 +440,18 @@ impl ShellSessions {
         let mut activity = session.activity.clone();
         // A shell that ends while this waits is free: the next run starts a new one.
         let wait = async move {
-            let _ = activity.wait_for(|activity| activity.free).await;
+            activity
+                .wait_for(|activity| activity.free || activity.held_waiting)
+                .await
+                .map(|activity| activity.held_waiting && !activity.free)
+                .unwrap_or(false)
         };
-        self.inner.deps.clock.timeout(timeout, wait).await.map_err(|_| session.not_ready())
+        let held = self.inner.deps.clock.timeout(timeout, wait).await;
+        match held {
+            Err(_) => Err(session.not_ready()),
+            Ok(false) => Ok(()),
+            Ok(true) => Err(session.held_by()),
+        }
     }
 
     /// The command left running in the conversation's shell, if any: a command whose
