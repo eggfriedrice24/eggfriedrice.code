@@ -93,6 +93,7 @@ impl Scene {
             watch: None,
             wakes: 0,
             forwards: Vec::new(),
+            moved_from: None,
         }
     }
 

@@ -1,7 +1,10 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{ForwardOutcome, HeldReason, JobId, JobState, JobStopBy, NoticeKind, PortForward};
+use super::{
+    ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, MovedCall, NoticeKind,
+    PortForward,
+};
 
 #[test]
 fn forward_outcome_reads_unknown_value() {
@@ -74,4 +77,38 @@ fn notice_kind_reads_unknown_value() {
         let text = serde_json::to_value(kind).unwrap();
         assert_eq!(serde_json::from_value::<NoticeKind>(text).unwrap(), kind);
     }
+}
+
+#[test]
+fn a_job_of_the_model_has_no_moved_from_and_a_moved_job_round_trips() {
+    let job = json!({
+        "id": "j4",
+        "conversation_id": "019a9b1c-3d00-7a10-8b20-000000000001",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+        "command": "make",
+        "launch": { "kind": "unsandboxed" },
+        "state": "running",
+        "started_at": "2026-10-21T10:00:42Z",
+        "ends_by": "2026-10-21T11:00:42Z",
+        "output": "/s/jobs/j4.out",
+        "output_bytes": 0,
+        "wakes": 0,
+    });
+    // A record from before the move existed reads with no moved call, and writes none.
+    let read: JobInfo = serde_json::from_value(job.clone()).unwrap();
+    assert_eq!(read.moved_from, None);
+    assert_eq!(serde_json::to_value(&read).unwrap(), job);
+    let mut moved = job;
+    moved["moved_from"] = json!({
+        "call_id": "019a9b1c-3d00-7a10-8b20-000000000004",
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "after_secs": 42,
+    });
+    let read: JobInfo = serde_json::from_value(moved.clone()).unwrap();
+    let from: MovedCall = read.moved_from.clone().unwrap();
+    assert_eq!(from.after_secs, 42);
+    assert_eq!(from.call_id, read.call_id, "the job names the call that it came from");
+    assert!(from.exits.is_empty(), "no exits stay off the wire");
+    assert_eq!(serde_json::to_value(&read).unwrap(), moved);
 }

@@ -1,0 +1,19 @@
+{
+  "kind": "preview",
+  "token": 7310442918005,
+  "command": "cargo test --workspace",
+  "max_minutes": 60,
+  "exits": [
+    {
+      "kinds": [
+        "destructive"
+      ],
+      "launch": {
+        "kind": "unsandboxed"
+      },
+      "facts": [
+        "a delete that undo does not cover as a job"
+      ]
+    }
+  ]
+}

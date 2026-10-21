@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
-    AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CommandId,
+    AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
     ConversationCompact, ConversationContext, ConversationDiff, ConversationHistory,
     ConversationResume, ConversationSubscribe, ConversationsList, ConversationsRecent, Hello,
     InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList,
@@ -140,6 +140,10 @@ pub enum Method {
     /// `shell.status`: the command that holds the hidden shell, if any.
     #[serde(rename = "shell.status")]
     ShellStatus(ShellStatus),
+    /// `call.background`: move the running `shell` call of a turn into a background
+    /// job.
+    #[serde(rename = "call.background")]
+    CallBackground(CallBackground),
 }
 
 impl Method {
@@ -184,6 +188,7 @@ impl Method {
             Method::ConversationResume(_) => "conversation.resume",
             Method::ShellInterrupt(_) => "shell.interrupt",
             Method::ShellStatus(_) => "shell.status",
+            Method::CallBackground(_) => "call.background",
         }
     }
 
@@ -204,6 +209,7 @@ impl Method {
             Method::JobsStop(params) => Some(params.command_id),
             Method::ConversationResume(params) => Some(params.command_id),
             Method::ShellInterrupt(params) => Some(params.command_id),
+            Method::CallBackground(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -272,7 +278,8 @@ impl Method {
             | Method::ConversationsRecent(_)
             | Method::ConversationResume(_)
             | Method::ShellInterrupt(_)
-            | Method::ShellStatus(_) => false,
+            | Method::ShellStatus(_)
+            | Method::CallBackground(_) => false,
         }
     }
 }
@@ -313,12 +320,15 @@ impl ScopeName {
             Method::ApprovalRespond(_) | Method::SandboxSurfaceRespond(_) => ScopeName::Approve,
             // An answer is typed into a PTY, so it needs the scope that `pty.write` needs.
             // A stop of a command left in the hidden shell signals what runs on that
-            // PTY, so it needs the same scope, which a phone never holds.
+            // PTY, so it needs the same scope, which a phone never holds. A move of a
+            // running call to the background is a person's act at their own terminal,
+            // so it needs that scope too.
             Method::PtyAttach(_)
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
             | Method::InputRespond(_)
-            | Method::ShellInterrupt(_) => ScopeName::Terminal,
+            | Method::ShellInterrupt(_)
+            | Method::CallBackground(_) => ScopeName::Terminal,
             Method::AdminProjectAdd(_)
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)

@@ -34,6 +34,7 @@ fn job(c: u128, number: u32, ended: Option<i64>) -> JobInfo {
         watch: None,
         wakes: 0,
         forwards: Vec::new(),
+        moved_from: None,
     }
 }
 

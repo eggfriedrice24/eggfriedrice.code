@@ -184,6 +184,7 @@ pub(crate) fn job_info(
         watch: None,
         wakes: 0,
         forwards: Vec::new(),
+        moved_from: None,
     }
 }
 

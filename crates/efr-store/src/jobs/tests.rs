@@ -33,6 +33,7 @@ fn job(conversation: ConversationId, n: u32) -> JobInfo {
         watch: None,
         wakes: 0,
         forwards: Vec::new(),
+        moved_from: None,
     }
 }
 

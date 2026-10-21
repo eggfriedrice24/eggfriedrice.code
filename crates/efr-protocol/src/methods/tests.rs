@@ -3,13 +3,14 @@ use serde_json::json;
 
 use crate::{
     AdminConfigReloadResult, AdminLogoutResult, AdminProjectAdd, AdminProjectRemove,
-    AdminStatusResult, ApprovedBy, Base64Bytes, BusyShell, CatalogOrigin, CatalogStatus,
-    ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
+    AdminStatusResult, ApprovedBy, Base64Bytes, BusyShell, CallBackgroundResult, CatalogOrigin,
+    CatalogStatus, ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
     ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, FullModeStatus, HeldConfig,
-    InputRespond, InputWait, LateSteer, LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult,
-    OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw,
-    ProviderStatus, RecentCommand, RootSource, Seq, ShellContext, ShellStatusResult, TurnInterrupt,
-    TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
+    InputRespond, InputWait, JobId, LateSteer, LoginKind, Mode, ModelInfo, ModelSource,
+    ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult,
+    PromptWithdraw, ProviderStatus, RecentCommand, RootSource, Seq, ShellContext,
+    ShellStatusResult, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
+    TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -645,4 +646,28 @@ fn a_free_hidden_shell_is_an_empty_status_and_a_busy_one_round_trips() {
     assert_eq!(shell.approved_by, Some(ApprovedBy::Reviewer));
     assert_eq!(shell.input, InputWait::Visible);
     assert_eq!(serde_json::to_value(&read).unwrap(), with);
+}
+
+#[test]
+fn a_move_answers_moved_or_a_preview_and_reads_a_newer_kind_as_unknown() {
+    let moved = json!({ "kind": "moved", "job_id": "j3" });
+    let read: CallBackgroundResult = serde_json::from_value(moved.clone()).unwrap();
+    assert_eq!(read, CallBackgroundResult::Moved { job_id: JobId::nth(3) });
+    assert_eq!(serde_json::to_value(&read).unwrap(), moved);
+    let preview = json!({
+        "kind": "preview",
+        "token": 7,
+        "command": "rsync -a src/ host:dst/",
+        "max_minutes": 60,
+    });
+    let read: CallBackgroundResult = serde_json::from_value(preview.clone()).unwrap();
+    let CallBackgroundResult::Preview { token, max_minutes, exits, .. } = &read else {
+        panic!("a preview: {read:?}");
+    };
+    assert_eq!((*token, *max_minutes), (7, 60));
+    assert!(exits.is_empty());
+    assert_eq!(serde_json::to_value(&read).unwrap(), preview, "no exits stay off the wire");
+    let later: CallBackgroundResult =
+        serde_json::from_value(json!({ "kind": "queued", "after": 3 })).unwrap();
+    assert_eq!(later, CallBackgroundResult::Unknown);
 }

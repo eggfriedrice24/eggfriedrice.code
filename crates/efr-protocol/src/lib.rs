@@ -63,8 +63,8 @@ pub use ids::{
     RequestId, Seq, TurnId, UndoId,
 };
 pub use jobs::{
-    ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, NoticeKind, PortForward,
-    WAKE_QUESTION, Watch,
+    ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, MovedCall, NoticeKind,
+    PortForward, WAKE_QUESTION, Watch,
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};
@@ -79,6 +79,7 @@ pub use methods::admin_status::{
     LoginKind, ProviderStatus, RootDir, RootSource,
 };
 pub use methods::approval_respond::{ApprovalRespond, ApprovalRespondResult};
+pub use methods::call_background::{CallBackground, CallBackgroundResult};
 pub use methods::conversation_compact::{ConversationCompact, ConversationCompactResult};
 pub use methods::conversation_context::{
     CacheSummary, CompactionBrief, CompactionSummary, ContextItem, ContextPart, ContextPartKind,

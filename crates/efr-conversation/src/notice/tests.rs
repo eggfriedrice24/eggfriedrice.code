@@ -33,6 +33,7 @@ fn job(command: &str) -> JobInfo {
         watch: None,
         wakes: 0,
         forwards: Vec::new(),
+        moved_from: None,
     }
 }
 
