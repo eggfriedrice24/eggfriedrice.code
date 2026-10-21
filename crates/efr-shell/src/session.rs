@@ -1547,10 +1547,25 @@ impl SessionHandle {
         };
         let group = probe.job.map(|job| job.group);
         let Some(changed) = watch.settle(wait, secret, group, probe.answers) else {
+            // The same wait, whose row that asks may have reached the screen since.
+            if watch.needs_prompt() {
+                let prompt = match seen {
+                    Some(snapshot) => input::prompt_row(&snapshot),
+                    None => match self.screen.snapshot(0).await {
+                        Ok(capture) => input::prompt_row(&capture.snapshot),
+                        Err(_) => String::new(),
+                    },
+                };
+                if !prompt.is_empty() {
+                    watch.prompt_read(&prompt);
+                    self.send(Msg::Waiting { id, waiting: watch.waiting(), prompt }).await?;
+                }
+            }
             return Ok(Looked::Same);
         };
-        // NOTE: the row that asks is read once per change, not per look. It shows the
-        // user which host asks for a password, or a host key with its fingerprint.
+        // NOTE: the row that asks is read at each change, and at a later look only while
+        // it is empty. It shows the user which host asks for a password, or a host key
+        // with its fingerprint.
         let prompt = match (changed, seen) {
             (InputWait::None, _) => String::new(),
             (_, Some(snapshot)) => input::prompt_row(&snapshot),
@@ -1559,6 +1574,7 @@ impl SessionHandle {
                 Err(_) => String::new(),
             },
         };
+        watch.prompt_read(&prompt);
         // The actor learns which job waits before any client hears of the wait, so an
         // answer sent for it is checked against that job. The caller tells the client
         // of the change even when the actor is gone, so the `None` that the caller
