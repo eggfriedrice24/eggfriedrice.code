@@ -1942,3 +1942,35 @@ async fn a_wait_while_the_move_question_shows_ends_the_question_and_asks_for_the
         readable(&out)
     );
 }
+
+#[tokio::test]
+async fn ctrl_b_at_the_answer_line_says_the_call_waits_and_sends_nothing() {
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let keys = Arc::clone(&setup.keys);
+    let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &item(11, shell_call("printf 'name: '; read -r x", true))).await;
+        conn.item(sub, &item(12, shell_output("name: "))).await;
+        conn.item(sub, &item(13, input_changed(InputWait::Visible))).await;
+        shows(&seen, "> ").await;
+        keys.type_bytes(b"a").await;
+        shows(&seen, "> a").await;
+        keys.press(CTRL_B).await;
+        shows(&seen, "the command was not moved: the command waits for input").await;
+        // The key went into no answer: the line holds only what was typed.
+        keys.type_bytes(b"b\r").await;
+        let (id, params) = input_respond(&mut conn).await;
+        assert_eq!(params.text.expose_secret(), "ab");
+        conn.reply(id, &InputRespondResult {}).await;
+        shows(&seen, "answer sent").await;
+        conn.item(sub, &item(14, input_changed(InputWait::None))).await;
+        conn.item(sub, &item(15, shell_completed(0))).await;
+        conn.item(sub, &item(16, turn_completed())).await;
+        let frames = conn.until_closed().await;
+        assert_eq!(moves(&frames), 0, "a call that waits for input never moves");
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("the command waits for input; answer it first"), "{}", readable(&out));
+}
