@@ -15,8 +15,9 @@
 //! - A task looks for input once per quiet period, as the watch of a command left
 //!   running does, and tells each change on [`AdoptedRun::looks`]. Nobody follows a
 //!   job, so a hidden wait or a visible wait that looks secret stops the command at
-//!   once: `SIGINT` to the job that waits, while it holds the terminal, and when the
-//!   command is still there after the close grace, the shell is closed.
+//!   once: `SIGINT` to the job that waits, while it holds the terminal. The job reads
+//!   the wait on `looks` and closes the shell when the command did not end: it kills
+//!   what is below the shell first, which efr-shell cannot do.
 //!
 //! The old shell is out of the conversation's slot, so no state, write, answer,
 //! interrupt or close of the conversation reaches it. Its end is a
@@ -178,8 +179,9 @@ impl AdoptedRun {
 
     /// The command's input waits after the move, one value per change: the wait and
     /// whether a visible wait looks like a prompt for a secret. A hidden wait or a
-    /// visible wait that looks secret stops the command at once, because nobody
-    /// follows a job; a plain visible wait stays.
+    /// visible wait that looks secret gets `SIGINT` at once, because nobody follows a
+    /// job; the job closes the shell when the command does not end. A plain visible
+    /// wait stays.
     pub fn looks(&self) -> watch::Receiver<(InputWait, bool)> {
         self.looks.clone()
     }
@@ -357,7 +359,6 @@ pub(crate) struct AdoptedWatch {
     pub(crate) holder: Arc<dyn PtyHolder>,
     pub(crate) quiet: Quiet,
     pub(crate) quiet_period: Duration,
-    pub(crate) close_grace: Duration,
     pub(crate) looks: watch::Sender<(InputWait, bool)>,
 }
 
@@ -385,16 +386,17 @@ impl AdoptedWatch {
             let secret =
                 wait == InputWait::Hidden || (wait == InputWait::Visible && watch.looks_secret());
             if secret {
-                self.stop(watch.waiting().map(|waiting| waiting.group)).await;
+                self.interrupt(watch.waiting().map(|waiting| waiting.group)).await;
                 return;
             }
         }
     }
 
     /// Stops the command, which waits for a secret that nobody can answer: `SIGINT` to
-    /// the job that waits, while it holds the terminal; then, when the command is still
-    /// there after the close grace, the shell is closed.
-    async fn stop(&self, group: Option<u32>) {
+    /// the job that waits, while it holds the terminal. The shell stays: the job closes
+    /// it when the command does not end, after it killed every process below the shell,
+    /// also one that left the shell's session.
+    async fn interrupt(&self, group: Option<u32>) {
         let session = &self.session;
         let conversation = session.conversation;
         // NOTE: the group is read right before the signal, as for a command left
@@ -417,13 +419,6 @@ impl AdoptedWatch {
             Some(Err(error)) => {
                 tracing::warn!(%conversation, %error, "could not read who holds the terminal of an adopted shell");
             }
-        }
-        if self.clock.timeout(self.close_grace, session.adopted_gone(self.id)).await.is_ok() {
-            return;
-        }
-        tracing::info!(%conversation, "a command that a job adopted did not end; closing its shell");
-        if let Err(error) = session.close(&*self.holder, &*self.clock, self.close_grace).await {
-            tracing::warn!(%conversation, %error, "could not close an adopted shell");
         }
     }
 }

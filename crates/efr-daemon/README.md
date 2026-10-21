@@ -1068,10 +1068,12 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   guard while it runs (only the launcher's end guard). Its output file starts with the
   output so far, then the rest as plain text from the shell's tee. A stop sends
   `SIGINT` to the shell's foreground job and closes the shell when the command did not
-  end within 6 s. At the end efrd kills every process below the shell
-  (`sweep::kill_descendants`, by the parent of each in `/proc`, through a pidfd; the
-  shell is a child subreaper, so a `setsid` child stays below it), closes the shell and
-  sweeps its session. A call through the launcher takes its `result.json` from the
+  end within 6 s. A wait for a secret that efr-shell interrupted (`AdoptedRun::looks`)
+  gets the same 6 s before the close. Before each close of the shell, and at the end,
+  efrd kills every process below the shell (`sweep::kill_descendants`, by the parent of
+  each in `/proc`, through a pidfd; the shell is a child subreaper, so a `setsid` child
+  stays below it only while the shell lives). Then the end closes the shell and sweeps
+  its session. A call through the launcher takes its `result.json` from the
   call's dir and removes only that dir; a line typed into the shell takes the exit
   status of its `D` mark and is never `launcher_lost`. A wait for a password that
   efr-shell stopped in the job adds a note to the notice. The shell's end closes its

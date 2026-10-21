@@ -21,9 +21,11 @@
 //! A running `shell` call that the user moved into a job with Ctrl+B
 //! ([`JobTable::adopt`], `jobs/moves.rs`) has no launcher of its own: the job owns the
 //! call's old hidden shell and its PTY ([`JobProcess::Adopted`]). Its stop sends
-//! `SIGINT` to the shell's foreground job and closes the shell after [`STOP_GRACE`]; its
-//! end kills every process below the shell (DS55), closes the shell and sweeps its
-//! session. A call through the launcher keeps it: its `result.json` in the call's dir is
+//! `SIGINT` to the shell's foreground job and closes the shell after [`STOP_GRACE`]. A
+//! wait for a secret that efr-shell interrupted gets the same grace before the close.
+//! Each close first kills every process below the shell (DS55): a process that left
+//! the shell's session is below the shell only while the shell lives. The end then
+//! sweeps the shell's session. A call through the launcher keeps it: its `result.json` in the call's dir is
 //! the result, as for a job. A call typed into the shell has none; its exit status is.
 //!
 //! At start, a job that the last efrd left running gets `job_ended` with
@@ -610,6 +612,7 @@ impl JobTable {
             dirs: vec![job.call_dir, job.state_dir],
             output_path: info.output.clone(),
             watching,
+            left: Vec::new(),
         };
         tokio::spawn(task.run());
         match recorded {
@@ -740,6 +743,7 @@ impl JobTable {
             dirs: job.call_dir.into_iter().collect(),
             output_path: info.output.clone(),
             watching: None,
+            left: Vec::new(),
         };
         tokio::spawn(task.run());
         tracing::info!(conversation = %key.conversation, job = %info.id, "a running call moved into a background job");
@@ -1192,6 +1196,9 @@ struct JobTask {
     output_path: PathBuf,
     /// The task that records the job's watch matches.
     watching: Option<tokio::task::JoinHandle<()>>,
+    /// The processes below a moved command's shell that a close before the end could
+    /// not kill.
+    left: Vec<String>,
 }
 
 /// What runs a job, and the rules of its end (DS22).
@@ -1233,30 +1240,45 @@ impl JobTask {
         let left = self.ends_by.duration_since(clock.now());
         let left = Duration::try_from(left).unwrap_or(Duration::ZERO);
         let key = self.key;
+        let looks = match &self.process {
+            JobProcess::Adopted { run, .. } => Some(run.looks()),
+            JobProcess::Launcher { .. } => None,
+        };
         let requested = tokio::select! {
-            () = self.process.wait(key) => None,
-            stop = stop_rx.wait_for(Option::is_some) => stop.ok().and_then(|stop| *stop),
-            () = clock.sleep(left) => Some(JobStopBy::TimeLimit),
+            () = self.process.wait(key) => Wakeup::Ended,
+            stop = stop_rx.wait_for(Option::is_some) => {
+                stop.ok().and_then(|stop| *stop).map_or(Wakeup::Ended, Wakeup::Stop)
+            }
+            () = clock.sleep(left) => Wakeup::Stop(JobStopBy::TimeLimit),
+            () = secret_wait(looks) => Wakeup::Secret,
         };
         let stopped_by = match requested {
-            Some(by) => {
+            Wakeup::Stop(by) => {
                 // NOTE: the first stop wins: a stop and the limit at once keep the stop.
                 if let Some(entry) = self.table.lock().running.get(&self.key) {
                     ask_stop(entry, by);
                 }
                 let by = (*self.stop.borrow()).unwrap_or(by);
-                self.escalate(&clock).await;
+                self.escalate(&clock, true).await;
                 Some(by)
             }
-            None => None,
+            // NOTE: efr-shell interrupted the command, which waits for a secret that
+            // nobody can type in a job; the job closes the shell when the command did
+            // not end, after it killed what is below the shell (DS55).
+            Wakeup::Secret => {
+                self.escalate(&clock, false).await;
+                None
+            }
+            Wakeup::Ended => None,
         };
         self.finish(stopped_by).await;
     }
 
     /// A launcher: SIGCONT and SIGTERM, SIGKILL after [`STOP_GRACE`]. A moved command:
-    /// SIGINT to the job in the shell's foreground (a launcher then writes its result),
-    /// and the shell closes when the command did not end within [`STOP_GRACE`].
-    async fn escalate(&mut self, clock: &Arc<dyn Clock>) {
+    /// SIGINT to the job in the shell's foreground when `interrupt` (a launcher then
+    /// writes its result), and the shell closes when the command did not end within
+    /// [`STOP_GRACE`], after every process below it was killed (DS55).
+    async fn escalate(&mut self, clock: &Arc<dyn Clock>, interrupt: bool) {
         let (key, pid) = (self.key, self.pid);
         match &mut self.process {
             JobProcess::Launcher { child, pidfd } => {
@@ -1272,7 +1294,7 @@ impl JobTask {
                 }
             }
             JobProcess::Adopted { run, end } => {
-                if let Err(error) = run.interrupt().await {
+                if interrupt && let Err(error) = run.interrupt().await {
                     tracing::warn!(%error, job = key.number, "could not interrupt a moved command");
                 }
                 match clock.timeout(STOP_GRACE, run.ended()).await {
@@ -1283,9 +1305,7 @@ impl JobTask {
                             job = key.number,
                             "a moved command did not end after SIGINT; closing its shell"
                         );
-                        if let Err(error) = run.close().await {
-                            tracing::warn!(%error, job = key.number, "could not close the shell of a moved command");
-                        }
+                        self.left = close_adopted(run).await;
                     }
                 }
             }
@@ -1302,16 +1322,12 @@ impl JobTask {
                 .await
                 .unwrap_or_default();
         };
-        let below = tokio::task::spawn_blocking(move || sweep::kill_descendants(session))
-            .await
-            .unwrap_or_default();
-        if let Err(error) = run.close().await {
-            tracing::warn!(%error, job = self.key.number, "could not close the shell of a moved command");
-        }
+        let below = close_adopted(run).await;
         let mut left = tokio::task::spawn_blocking(move || sweep::kill_session(session))
             .await
             .unwrap_or_default();
         left.extend(below);
+        left.extend(self.left.iter().cloned());
         left.sort();
         left.dedup();
         left
@@ -1388,7 +1404,7 @@ impl JobTask {
                 // NOTE: nobody follows a job, so efr-shell stopped a wait for a secret at
                 // once (DS27); the notice says why the command ended.
                 let looked = *run.looks().borrow();
-                let secret = matches!(looked, (InputWait::Hidden, _) | (InputWait::Visible, true));
+                let secret = is_secret(looked);
                 let refused = if secret {
                     joined_notes(Some(SECRET_STOP.to_owned()), refused)
                 } else {
@@ -1712,14 +1728,55 @@ pub(crate) fn moved_call_dir(dirs: &Dirs, conversation: ConversationId, call: Ca
 }
 
 /// Stops the command of a moved call whose job did not start: `SIGINT` to the job in
-/// its shell's foreground, then the shell closes.
-async fn stop_adopted(run: &efr_shell::AdoptedRun) {
+/// its shell's foreground, then the shell closes as [`close_adopted`] closes it.
+pub(crate) async fn stop_adopted(run: &efr_shell::AdoptedRun) {
     if let Err(error) = run.interrupt().await {
         tracing::warn!(%error, "could not interrupt a moved command");
     }
+    close_adopted(run).await;
+}
+
+/// Closes the shell of a moved command, and first kills every process below it (DS55):
+/// the shell is a child subreaper, so a process that left its session with `setsid` is
+/// below it only while the shell lives. Returns the names of the processes below the
+/// shell that are still there.
+async fn close_adopted(run: &efr_shell::AdoptedRun) -> Vec<String> {
+    let shell = run.shell_pid();
+    let left = tokio::task::spawn_blocking(move || sweep::kill_descendants(shell))
+        .await
+        .unwrap_or_default();
     if let Err(error) = run.close().await {
         tracing::warn!(%error, "could not close the shell of a moved command");
     }
+    left
+}
+
+/// Why a job's task woke before its end.
+enum Wakeup {
+    /// The command ended.
+    Ended,
+    /// A stop or the time limit.
+    Stop(JobStopBy),
+    /// efr-shell interrupted a moved command that waits for a secret.
+    Secret,
+}
+
+/// Waits until a moved command waits for a secret, as `looks` tells it: a hidden wait or
+/// a visible wait that looks secret. It never ends for a launcher (`None`), nor once the
+/// watch of the moved command ended.
+async fn secret_wait(looks: Option<watch::Receiver<(InputWait, bool)>>) {
+    if let Some(mut looks) = looks
+        && looks.wait_for(|looked| is_secret(*looked)).await.is_ok()
+    {
+        return;
+    }
+    std::future::pending::<()>().await;
+}
+
+/// True for a wait that efr-shell stops in a job: a hidden wait, or a visible wait that
+/// looks secret.
+fn is_secret(looked: (InputWait, bool)) -> bool {
+    matches!(looked, (InputWait::Hidden, _) | (InputWait::Visible, true))
 }
 
 /// The job state dir of `call` of `conversation`, `$S/sandbox/<conversation>/jobs/<call>`.
