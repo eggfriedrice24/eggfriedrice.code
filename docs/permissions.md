@@ -1050,8 +1050,8 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
     `/usr/bin/cargo` is a different program. An `ask` or `deny` rule also matches the
     base name of a path, so `/usr/bin/cargo publish` meets a rule for `cargo`, and the
     command behind a wrapper (`env`, `nice`, `nohup`, `time`, `timeout`, `command`,
-    `stdbuf`, `ionice`, `chrt`, `taskset`, `setsid`, `flock`, `xargs`, `watch`,
-    `unbuffer`), so `env git push` and `timeout 60 git push` meet a rule for
+    `builtin`, `exec`, `stdbuf`, `ionice`, `chrt`, `taskset`, `setsid`, `flock`,
+    `xargs`, `watch`, `unbuffer`, `noglob`, `nocorrect` and zsh's `-`), so `env git push` and `timeout 60 git push` meet a rule for
     `git push`. efr does not know which words a wrapper takes as values, so such a
     rule may also ask for a line where the program is only a word after the wrapper;
   - `args`: the words that must follow the program, in order. A word may list
