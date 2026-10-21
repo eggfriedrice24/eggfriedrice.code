@@ -63,7 +63,7 @@ pub use read_file::ReadFileTool;
 pub use registry::ToolRegistry;
 pub use shell_tool::{
     JobRequest, NotReady, ShellTool, WatchInput, blocked_note, bus_note, job_request,
-    job_started_text, not_ready_message, not_ready_text,
+    job_started_text, not_ready_text,
 };
 pub use tool::{
     AccessMode, FREEFORM_INPUT, NoOutput, PathAccess, Tool, ToolGrammar, ToolOutputSink,

@@ -724,7 +724,11 @@ pub enum NotReady {
 pub fn not_ready_text(held: NotReady, timeout: Duration) -> String {
     let seconds = timeout.as_secs();
     match held {
-        NotReady::Fresh => not_ready_message(true, timeout),
+        NotReady::Fresh => format!(
+            "The shell did not show a ready prompt within {seconds}s, so the command was not \
+             run. No command ran in this shell yet: the user's startup files (.zshrc) may \
+             wait for input or draw a prompt that efr cannot read. Tell the user."
+        ),
         NotReady::Held => format!(
             "The shell did not reach its prompt within {seconds}s, so the command was not \
              run: an earlier command still runs in it. Wait for it, or tell the user that \
@@ -776,28 +780,6 @@ fn rough(duration: Duration) -> String {
         60..3_600 => format!("{} min", secs / 60),
         3_600..86_400 => format!("{} h", secs / 3_600),
         _ => format!("{} d", secs / 86_400),
-    }
-}
-
-/// The model's answer for a call whose shell did not reach a ready prompt within
-/// `timeout`, so the command was not run. `fresh` is true when no command ran in the
-/// shell yet: then no earlier command can hold it.
-// NOTE: efrd still uses it; P6 of the v0.0.4 shell items moves efrd to
-// `not_ready_text` and removes it.
-pub fn not_ready_message(fresh: bool, timeout: Duration) -> String {
-    let seconds = timeout.as_secs();
-    if fresh {
-        format!(
-            "The shell did not show a ready prompt within {seconds}s, so the command was not \
-             run. No command ran in this shell yet: the user's startup files (.zshrc) may \
-             wait for input or draw a prompt that efr cannot read. Tell the user."
-        )
-    } else {
-        format!(
-            "The shell did not reach its prompt within {seconds}s, so the command was not \
-             run: an earlier command is still running. If it is a shell you started inside \
-             this one (sudo -i, bash, ssh), call again with nested_shell set."
-        )
     }
 }
 

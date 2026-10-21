@@ -14,7 +14,9 @@ use efr_permissions::{
     Action, CommandPattern, ConversationPolicy, DecisionInput, Effect, Engine, Locations,
     Requirements, Resource, Rule,
 };
-use efr_protocol::{CallId, ConversationId, Launch, Mode, Origin, Scope, TurnId};
+use efr_protocol::{
+    ApprovedBy, BusyShell, CallId, ConversationId, InputWait, Launch, Mode, Origin, Scope, TurnId,
+};
 use efr_provider::EditTool;
 use efr_scope::Home;
 use efr_shell::{ShellConfig, ShellDeps, ShellSessions};
@@ -27,7 +29,8 @@ use crate::connections::Connections;
 use crate::reload::Reloads;
 use crate::screens::ScreenBackend;
 use crate::tools::{
-    DaemonToolbox, SettingsTool, definition, for_model, outcome, permission_requirements, registry,
+    DaemonToolbox, SettingsTool, busy_shell, definition, for_model, outcome,
+    permission_requirements, registry,
 };
 
 /// A holder that never starts a shell; these tests never run a command.
@@ -162,6 +165,66 @@ fn only_a_call_that_may_wait_gets_the_interactive_limit_of_the_latest_settings()
         Some(Duration::from_secs(300)),
         "a change reaches the next call"
     );
+}
+
+#[test]
+fn every_call_gets_the_input_limit_of_the_latest_settings_and_its_approver() {
+    let home = tempfile::tempdir().unwrap();
+    let (toolbox, settings) = toolbox_with(home.path(), Settings::default());
+    let call = call("shell", json!({"command": "rsync -a src/ h:dst/"}), home.path());
+    let approved = call.context.clone().with_approval(true, Some(ApprovedBy::You));
+
+    let plain = toolbox.context(&call.context);
+    assert_eq!(
+        plain.input_limit,
+        Some(Duration::from_secs(3600)),
+        "also for a call that may not wait"
+    );
+    assert_eq!(plain.approved_by, None);
+    assert_eq!(toolbox.context(&approved).approved_by, Some(ApprovedBy::You));
+    let mut shorter = Settings::default();
+    shorter.shell.interactive_timeout_minutes = 5;
+    settings.send_replace(Arc::new(shorter));
+    assert_eq!(
+        toolbox.context(&approved).input_limit,
+        Some(Duration::from_secs(300)),
+        "a change reaches the next call"
+    );
+}
+
+#[test]
+fn a_result_whose_command_goes_on_says_so_and_a_command_left_running_has_a_wire_form() {
+    let left = ToolResult::error("timed out").with_left_running(true);
+    assert!(outcome(left).left_running);
+    assert!(!outcome(ToolResult::ok("done")).left_running);
+
+    let call = CallId::from_uuid(uuid::Uuid::from_u128(9));
+    let since = jiff::Timestamp::from_second(1_800_000_000).unwrap();
+    let running = efr_shell::LeftRunning {
+        call: Some(call),
+        command: "rsync -a h:src/ dst/".to_owned(),
+        since,
+        contained: false,
+        input: InputWait::Hidden,
+        looks_secret: false,
+        prompt: "u@h's password: ".to_owned(),
+        approved_by: Some(ApprovedBy::You),
+    };
+    assert_eq!(
+        busy_shell(running.clone()),
+        Some(BusyShell {
+            call_id: call,
+            command: "rsync -a h:src/ dst/".to_owned(),
+            since,
+            contained: false,
+            input: InputWait::Hidden,
+            looks_secret: false,
+            prompt: "u@h's password: ".to_owned(),
+            approved_by: Some(ApprovedBy::You),
+        })
+    );
+    // No client can answer or stop a command that no call left.
+    assert_eq!(busy_shell(efr_shell::LeftRunning { call: None, ..running }), None);
 }
 
 pub(super) fn call(name: &str, input: serde_json::Value, cwd: &Path) -> ToolCall {

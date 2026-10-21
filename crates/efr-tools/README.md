@@ -195,7 +195,7 @@ The tools:
   `ShellError::HeldBy`): the call fails at once, the model learns that the user answers
   or stops it with `,shell`, and it must not call again or ask the user to type at
   their prompt. Only outside `auto` and only for a held shell or REPL does the text
-  name `nested_shell`. `not_ready_message` stays until efrd moves to it.
+  name `nested_shell`.
 - `ReadFileTool` (`read_file`) reads a text file, whole or a range of lines (`offset`
   from 1, `limit`). It declares the path for reading and refuses a file over 16 MiB, a
   binary file (a NUL byte in the first 8 KiB) and anything that is not a regular file.
