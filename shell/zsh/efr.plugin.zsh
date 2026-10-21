@@ -785,11 +785,8 @@ _efr_show_indicator() {
     [[ -n $tag ]] && mine+=("P0 ${#tag} $EFR_TAG_STYLE memo=efr")
     if [[ $1 != tag ]]; then
       # The robot without its trailing blanks, then the full mark, then the blanks.
-      local word=$EFR_STICKY_INDICATOR gap= start
-      while [[ $word == *[[:space:]] ]]; do
-        gap=${word[-1]}$gap
-        word=${word[1,-2]}
-      done
+      local gap=${EFR_STICKY_INDICATOR##*[^[:space:]]} word start
+      word=${EFR_STICKY_INDICATOR%"$gap"}
       start=${#PREDISPLAY}
       if [[ -n $EFR_FULL_MARK ]] && _efr_full_mode; then
         PREDISPLAY+=$word
