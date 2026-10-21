@@ -49,12 +49,12 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 |---|---|
 | Writes | only in the write roots (below). Everything else is read-only. |
 | Secrets | the paths of the read masks read as empty. Secret-like environment variables are removed. |
-| Network | with `network.mode = "proxy"`, only the hosts of your allow list, through efr's network proxy: the package registries and GitHub by default (see "The network proxy"). With `network.mode = "none"`, none. Loopback works in both modes, so a test can start a server and talk to it. A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
+| Network | with `network.mode = "proxy"`, only the hosts of your allow list, through efr's network proxy: the package registries and GitHub by default (see "The network proxy"). With `network.mode = "none"`, none. Loopback works in both modes, so a test can start a server and talk to it. A server in a background job is reachable on the same port of your `127.0.0.1` (see "Ports of a job"). A line that only reads your network, such as `ss -tln`, runs with the host's network view instead, with no network socket (see "The host's network view"). |
 | Sockets and D-Bus | no connection to a socket that the call did not make: no `docker.sock`, no session bus, no system bus, no `ssh-agent`, no desktop sockets. A read-only system query gets a filtered bus (see "The bus filter"). An approved exit opens one socket for one call (see "Desktop sockets"); a socket grant never opens a bus, a service manager's socket or a desktop socket, also through a link. |
 | More rights | none. `sudo` fails with `The "no new privileges" flag is set`. No new user namespaces. |
 | Other processes | no signals to your processes; no `/proc/<pid>/environ`, `fd` or `root` of them. `ps` still shows them. |
 | Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. |
-| Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"). |
+| Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"): efr forwards its port to your machine. |
 | `/tmp` | private to the conversation; you do not see it. Share files through `$SCRATCH`. |
 
 Some tools show the sandbox's view: `tty` prints `/dev/console`, and `$$` differs from
@@ -406,7 +406,7 @@ across calls. An exit that runs outside the sandbox does not see them.
 | Kind | Example | After a yes | Who can approve |
 |---|---|---|---|
 | `write` | `cp report.pdf ~/Documents/`, `write_file ~/notes.md`, a delete in a real cache | the sandbox, with that one path writable | the reviewer, else you |
-| `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5173`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer, else you |
+| `host` | with the proxy: `curl -LO https://example.com/x.tar.gz` for a host that is not on the allow list; `nslookup`, `dig`, `ping`, `nc`; `needs.hosts` of `localhost:5432`. Without the proxy: every network need, such as `npm ci` | the sandbox, with that one host and port through the proxy; or with the whole network for a raw network program, `localhost`, a private host, another port, and every network need without the proxy | the reviewer, else you |
 | `host_view` | `iw dev`, `ifconfig`, `ip link set lo mtu 1400`, `ss -tln; make test`, and `ss` or `ip` while the network view is off | the sandbox, with the host's network | the reviewer, else you |
 | `socket` | a tool's own Unix socket | the sandbox, with that one socket | the reviewer, else you; only you for a credential agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring, a password manager's agent, git's credential cache); refused inside a secret or efr's own dirs. A service manager's socket, such as `$XDG_RUNTIME_DIR/systemd/private`, is a `privilege` exit. A socket grant to a bus, a service manager's socket or a desktop socket, also through a link, makes the call fail to start |
 | `desktop_ipc` | `hyprctl clients`, `hyprctl reload`, `swaymsg -t get_tree`, `i3-msg -t get_tree`; `hyprctl dispatch exec`, `xdotool type` | the sandbox, with the one control socket of that desktop and its variable | the reviewer for a read or reload form; only you for the rest, and for a desktop socket that the model names |
@@ -858,10 +858,11 @@ it.
   `dig`, `host`, `drill`, `ping`, `traceroute`, `tracepath`, `mtr`, `nc`, `ncat`,
   `netcat`, `socat`, `telnet` and `ftp`. So does a `needs.hosts` entry of
   `localhost`, a private or link-local address, or a port other than 443 and 80. This
-  is the route for a dev server that your browser must reach, a service on your
-  machine or your LAN, and a client that does not read the proxy variables, such as
-  `psql`, `redis-cli` or Java. Such a host never counts as on the allow list, so the
-  reviewer needs a message of yours that names it.
+  is the route for a service on your machine or your LAN, and for a client that does
+  not read the proxy variables, such as `psql`, `redis-cli` or Java. Such a host never
+  counts as on the allow list, so the reviewer needs a message of yours that names it.
+  A dev server that your browser must reach does not need this route: the model
+  starts it as a background job, and efr forwards its port (see "Ports of a job").
 - `ssh`, `mosh`, `autossh` and git over ssh (a fetch or clone from an ssh remote) run
   outside the sandbox with your ssh keys. The record names the host, and the reviewer
   may allow it only when a message of yours names the host, or when the remote belongs
@@ -1307,6 +1308,63 @@ A job can start in every mode.
   gets the list of running jobs. `jobs.enabled = false` refuses every new job; running
   jobs run on.
 
+### Ports of a job
+
+A dev server that the model starts as a background job is reachable from your
+machine. When a contained job listens on a TCP port of its loopback, efr listens on
+the same port of your `127.0.0.1` and sends each connection to the job's server. So
+`http://localhost:8765` in your browser opens the job's server on port 8765. Nobody is
+asked: a forward only lets your programs connect to the job. The job gets no new right
+on your machine and no new route out.
+[`docs/adr/0016-job-port-forwarding.md`](adr/0016-job-port-forwarding.md) records the
+decision.
+
+- **Which jobs.** A job that runs in the sandbox in `auto`, with `network.mode =
+  "none"` or the proxy. A job in the exit child (outside `auto`, in full mode, or an
+  approved `outside` job) and a job with a grant of the whole network already listen
+  on your loopback, so they get no forward. A job with the network view cannot listen.
+  A foreground call gets no forward: its servers stop when the call ends.
+- **How efr finds a port.** A small helper in the job, `efr-forward`, reads the job's
+  own TCP tables every half second. It has its own Landlock domain and seccomp filter:
+  it cannot read files, bind or listen, and it connects only inside the job. A port
+  counts when it listens for 1 second. A port in the job's range of ephemeral ports
+  (32768 to 60999 by default) counts after 10 seconds, so a test server on port 0
+  that lives a short time gets no forward. efr reads a listen on `127.0.0.1` and the
+  rest of `127.0.0.0/8` (also in the IPv6 form `::ffff:127.0.0.1`), `0.0.0.0`, `::1`
+  and `::`. When the same
+  port listens on IPv4 and IPv6, efr makes one forward and connects over IPv4.
+- **Ports that efr never forwards.** A port below 1024. Port 3128 of a proxy job,
+  where the bridge listens: a forward would give your programs the job's proxy
+  grants. The ports of these services, where a client can send a password or a token
+  first: 1080, 1433, 1455 (`efr login openai`), 1521, 2181, 2375, 2376, 2379, 3128,
+  3306, 4222, 5432, 5672, 5984, 6379, 6443, 7474, 7687, 8086, 8118, 8200, 8384, 9042,
+  9050, 9092, 9150, 9200, 10250, 11211, 11434 and 27017. More than 8 ports of one job,
+  and more than 32 ports of all jobs. efrd checks each port again, because it does not
+  trust the helper in the job.
+- **A port in use.** efr listens only on `127.0.0.1`, never on `0.0.0.0` or `::1`,
+  and only on the same port. When another program of your machine uses the port, efr
+  does not forward it. A server of yours that listens on `::1` or `::` with that port
+  counts as in use too: a browser tries `::1` first for `localhost`, so the URL would
+  open your server, not the job's. A port that another job holds is in use as well.
+- **Who can connect.** Only the programs of your own user. efrd reads the owner of
+  each connection in the machine's `/proc/net/tcp`, and closes a connection of another
+  user at once.
+- **How long.** The port stays the job's until the job ends, also while its server
+  restarts, such as under a watcher. A connection in that time closes at once. The
+  forwards end when the job ends, when efrd stops, and at a reload that sets
+  `jobs.forward_ports = false`. A later `true` does not open them again for a running
+  job. A restart of efrd keeps no forward. At most 64 connections of one job are open
+  at one time. efr copies the bytes and reads none of them.
+- **UDP.** efr forwards TCP only.
+- **The model.** The start result of a job with forwards tells the model that efr
+  forwards its ports, so it gives you the URL. The `jobs` tool shows the forwarded
+  ports of each job.
+- **Other calls.** A later contained call cannot reach the job's server: each call
+  has its own network namespace. A call with a grant of the whole network, after a
+  `host` review, reaches it through the forward on your `127.0.0.1`.
+- **The record.** Each forward and each port that efr does not forward is one
+  `job_port_forwarded` event of the conversation (see "What you see").
+
 ### How a job ends
 
 A job ends when its command ends, when the model stops it (`job_stop`), when you stop
@@ -1361,6 +1419,17 @@ format characters. A notice never enters a running turn. It waits until the turn
   It shows each end of a job of the conversation, such as `job j3 stopped by you after
   92 minutes; 1.2 MB output`, a matched line (`job j3 matched: <line>`) and a notice
   that did not start a turn (`job j3: no wake turn (wake limit reached)`).
+- When efr forwards a port of a job, the view shows `job j1 listens on
+  127.0.0.1:8765 -> http://localhost:8765`, with the URL as a link where your terminal
+  shows links (`job j1 listens on [::1]:5173 -> http://localhost:5173` for IPv6). A
+  port that efr does not forward shows why: `job j1 listens on 127.0.0.1:8765; not
+  forwarded: 127.0.0.1:8765 is in use on this machine` (or `in use by job j2`),
+  `...; not forwarded: efr does not forward port 6379 (a service port)`, `...; not
+  forwarded: the job forwards 8 ports already` and `efrd forwards 32 ports already`.
+  A reload that turns forwards off shows `job j1: port 8765 is no longer forwarded
+  (jobs.forward_ports is off)`. A terminal that does not follow the conversation
+  shows the line at its next prompt: `efr: <title>: job j1 listens on 127.0.0.1:8765
+  -> http://localhost:8765`. `efr history` shows it too.
 - Between turns, your next prompt shows `efr: job j3 ended (exit 0): <title>`. After a
   wake turn, it shows the jobs and the first line of the model's answer: `efr: job
   notice turn finished (job j3): <title>: The tests pass.; efr history shows all`.
@@ -1368,6 +1437,7 @@ format characters. A notice never enters a running turn. It waits until the turn
   terminal with the same name, such as one before a reboot. The rule works per file, so
   one new line in it also shows the older lines of that file.
 - `efr jobs` lists the jobs of this terminal's conversation; `--all` lists them all.
+  A running job with forwards shows its ports, such as `(ports 8765, 5173)`.
   `efr jobs stop j3` stops one and shows its last lines.
 - `efr history` shows each start and end, and marks a wake turn; `--verbose` adds the
   last lines of the output and the text of each notice.
@@ -1745,6 +1815,12 @@ settings tool marks `dbus.proxy` from `false` to `true` as "loosens permissions"
 it cannot write `dbus.allow` or `sandbox.allow`: only an editor, the `a` answer and
 `efr sandbox allow remove` change those.
 
+`[jobs]` holds `forward_ports` (default `true`), which forwards the ports of contained
+jobs (see "Ports of a job"). A job reads it when it starts. `false` at a reload also
+stops the forwards of the jobs that run, and a later `true` does not open them again.
+The change from `false` to `true` loosens permissions: the settings tool marks it, and
+the config hold of full mode holds it.
+
 ## Known limits
 
 | Limit | What can happen | What efr does |
@@ -1815,5 +1891,11 @@ it cannot write `dbus.allow` or `sandbox.allow`: only an editor, the `a` answer 
 | a job in the exit child that starts a process in a new session (`setsid`) and ends its own launcher, in any order | that process can escape the stop, the time limit and the sweep; the end does not name it, and efrd's socket counts it as your process, not the model's | the sweep by the job's session ends every other process; the end names a lost launcher; a cgroup per job comes later |
 | a job keeps the sandbox plan of its start | a new mask, secret or floor of a settings change does not reach a running job | stop the job and let the model start it again |
 | a job writes a path that a later call also changes | that change stays with the later call's turn, not with the job's | undo refuses while a job writes in its roots |
-| a dev server in a contained job listens on the sandbox's own loopback | your browser cannot reach it | the model names `localhost` with the port in `needs.hosts`, and after a review the job gets the whole network, so it listens on your loopback; the reviewer allows this only when a message of yours names the host; a grant to listen comes later |
+| a dev server listens on the sandbox's own loopback | in a foreground call, your browser cannot reach it, and it stops when the call ends | the model starts a server as a background job, and efr forwards its port to the same port of your `127.0.0.1` (see "Ports of a job") |
+| a job can listen on the port of a service that does not run at that time, such as a database, and a client of yours then sends it a password or a token first | the secret reaches the job's output, which the model reads | efr never forwards the service ports of "Ports of a job"; a port in use stays the service's, so a running service is safe; the line names each port; the job's time limit |
+| a page that a forwarded server serves runs in your browser, outside the sandbox | the page uses your browser's network, and the proxy, its allow list and its upload budget do not see it; your browser sends the cookies of other local web apps on `localhost` (cookies ignore the port) to the job | the same as for any dev server; to keep those cookies apart, open `http://127.0.0.1:<port>` instead |
+| a web site that you visit can read a forwarded server through DNS rebinding | the site can read the pages of the job's server | the same as for any dev server; efr does not check the `Host` header, and dev servers such as Vite check it themselves; the forward ends with the job |
+| a server of yours listens only on `::1` or `::` of a port | efr counts the port as in use and does not forward the job's port | the line says `in use on this machine`; a forward would send your browser to your own server, because the browser tries `::1` first for `localhost` |
+| a job's server listens on a port of the job's range of ephemeral ports (32768 to 60999 by default) | its forward comes after 10 seconds, not after 1 | none; a short test server on port 0 gets no forward |
+| a later contained call wants to reach a job's server | it cannot: each call has its own network namespace | a call with a grant of the whole network, after a `host` review, reaches it through the forward on your `127.0.0.1` |
 | a job's output goes to a pipe | some programs keep their output in a buffer, so the output file and the notices come late | run the program with `stdbuf -oL` or its own flag for line output |
