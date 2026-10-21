@@ -12,13 +12,18 @@ use efr_protocol::{BusKind, CacheMode, CallId, ConversationId, DesktopKind, Gran
 use serde::{Deserialize, Serialize};
 
 use crate::SandboxError;
-use crate::forward::MAX_JOB_FORWARDS;
+use crate::forward::{BRIDGE_PORT, MAX_DAEMON_FORWARDS, MAX_JOB_FORWARDS, MIN_PORT};
 use crate::paths::is_normal;
 
 /// The version of the spec that this build writes and reads. Version 2 adds
-/// [`SandboxSpec::job`], version 3 [`JobPlan::forward`]: efrd and its launcher copy
-/// come from one build, and a stale copy refuses the spec.
-pub const SPEC_VERSION: u32 = 3;
+/// [`SandboxSpec::job`], version 3 [`JobPlan::forward`], version 4
+/// [`SandboxSpec::reach`]: efrd and its launcher copy come from one build, and a stale
+/// copy refuses the spec.
+pub const SPEC_VERSION: u32 = 4;
+
+/// The most ports of a call's reach plan: as many as efrd forwards for all its jobs
+/// ([`MAX_DAEMON_FORWARDS`]).
+pub const MAX_REACH_PORTS: usize = MAX_DAEMON_FORWARDS;
 
 /// The hard file size limit of a job (`RLIMIT_FSIZE`, soft and hard): 4 GiB.
 pub const JOB_FSIZE_BYTES: u64 = 4 << 30;
@@ -44,6 +49,10 @@ pub const PROXY_SOCKET_FILE: &str = "proxy.sock";
 /// The name of a job's forward socket in its call dir: efrd binds `$CALL/forward.sock`,
 /// and [`ForwardPlan::socket`] must name exactly that file.
 pub const FORWARD_SOCKET_FILE: &str = "forward.sock";
+
+/// The name of a call's reach socket in its call dir: efrd binds `$CALL/reach.sock`,
+/// and [`ReachPlan::socket`] must name exactly that file.
+pub const REACH_SOCKET_FILE: &str = "reach.sock";
 
 /// The dir of a call's filtered bus sockets in its call dir: `$CALL/bus/` (phase E). It
 /// holds nothing else, and the bus proxy may make and remove files only there.
@@ -117,6 +126,37 @@ pub struct SandboxSpec {
     /// call of the hidden shell's wrapper.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job: Option<JobPlan>,
+    /// The forwarded ports of the conversation's jobs that this call reaches on its own
+    /// loopback (version 4): `Some` starts the reach helper in a contained foreground
+    /// call with a network namespace of its own. `None` for every other call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reach: Option<ReachPlan>,
+}
+
+/// The reach of a contained foreground call: the reach helper in the call listens on
+/// `127.0.0.1` and `::1` of the call's own network namespace for each forwarded port of
+/// a job of the same conversation, and sends each connection over the call's reach
+/// socket to efrd, which opens it in the job. efrd sends the ports that come or go
+/// during the call over the same socket.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReachPlan {
+    /// The call's reach socket outside, `$CALL/reach.sock`
+    /// ([`RuntimePaths::reach_socket`]). The spec check refuses another path.
+    pub socket: PathBuf,
+    /// The forwarded ports at the prepare: at most [`MAX_REACH_PORTS`], each from
+    /// [`MIN_PORT`] and never [`BRIDGE_PORT`], each once.
+    pub ports: Vec<u16>,
+    /// True in a proxy call: port 3128 is the bridge's.
+    pub proxy: bool,
+}
+
+impl ReachPlan {
+    /// The plan of a call with its reach socket `socket` and the forwarded ports
+    /// `ports`. `proxy` is true for a call with a proxy plan.
+    pub fn new(socket: PathBuf, ports: Vec<u16>, proxy: bool) -> ReachPlan {
+        ReachPlan { socket, ports, proxy }
+    }
 }
 
 /// The limits of a job (efr's auto spec, section 3.18), and its port forwards.
@@ -528,6 +568,19 @@ impl RuntimePaths {
         self.user_runtime.join("efr-forward.sock")
     }
 
+    /// A call's reach socket outside, `$CALL/reach.sock`, which efrd binds and the
+    /// call's [`ReachPlan`] names.
+    pub fn reach_socket(&self) -> PathBuf {
+        self.call_dir.join(REACH_SOCKET_FILE)
+    }
+
+    /// `$XRT/efr-reach.sock`: where the reach helper finds the call's reach socket
+    /// inside. The plan binds it read-only, and the child gets no rule to connect to
+    /// it.
+    pub fn inside_reach_socket(&self) -> PathBuf {
+        self.user_runtime.join("efr-reach.sock")
+    }
+
     /// The dir of the call's filtered bus sockets, `$CALL/bus/` (0700, made by efrd):
     /// the bus proxy's working dir and the only dir where it may make or remove a file.
     pub fn bus_filter_dir(&self) -> PathBuf {
@@ -600,7 +653,8 @@ impl SandboxSpec {
     /// the shell dir (in its `jobs` dir for a job) and nowhere else, the limits of a
     /// job, that a proxy plan names the call's own socket and comes with no grant of
     /// the whole network, that a filtered bus comes with no grant of the same whole
-    /// bus, and that a job's port forwards fit the job.
+    /// bus, that a job's port forwards fit the job, and that a reach fits the call
+    /// ([`check_reach`]).
     pub fn check(&self) -> Result<(), SandboxError> {
         if self.version != SPEC_VERSION {
             return Err(SandboxError::SpecVersion { found: self.version, expected: SPEC_VERSION });
@@ -651,6 +705,9 @@ impl SandboxSpec {
         }
         if let Some(forward) = self.job.as_ref().and_then(|job| job.forward.as_ref()) {
             paths.push(("job.forward.socket", &forward.socket));
+        }
+        if let Some(reach) = &self.reach {
+            paths.push(("reach.socket", &reach.socket));
         }
         for (field, path) in paths {
             if !is_normal(path) {
@@ -709,6 +766,7 @@ impl SandboxSpec {
         if let Some(forward) = self.job.as_ref().and_then(|job| job.forward.as_ref()) {
             self.check_forward(forward)?;
         }
+        check_reach(self)?;
         Ok(())
     }
 
@@ -737,6 +795,50 @@ impl SandboxSpec {
         }
         Ok(())
     }
+}
+
+/// The checks of a call's reach: only a contained foreground call with a network
+/// namespace of its own, the call's own socket, the proxy flag of its network, and the
+/// ports that efr may forward. Refuses a reach plan of a job, of the exit child, of
+/// `NetworkPlan::Open`, with `Grant::OpenNetwork` or `Grant::NetView`, with another
+/// socket path, with more than [`MAX_REACH_PORTS`] ports, or with a port below
+/// [`MIN_PORT`], [`BRIDGE_PORT`] or a port twice. A spec with no reach passes.
+pub fn check_reach(spec: &SandboxSpec) -> Result<(), SandboxError> {
+    let Some(reach) = &spec.reach else { return Ok(()) };
+    // NOTE: a call that keeps the host's network namespace reaches efrd's host
+    // listeners already; a helper there would bind the host's own loopback.
+    let host_network = matches!(spec.network, NetworkPlan::Open)
+        || spec.grants.iter().any(|grant| matches!(grant, Grant::OpenNetwork | Grant::NetView));
+    if host_network {
+        return Err(SandboxError::ReachWithHostNetwork);
+    }
+    if reach.socket != spec.runtime.reach_socket() {
+        return Err(SandboxError::ReachSocket { path: reach.socket.clone() });
+    }
+    if spec.job.is_some() {
+        return Err(SandboxError::ReachPlan { problem: "a reach of a job" });
+    }
+    if spec.launch != SpecLaunch::Contained {
+        return Err(SandboxError::ReachPlan { problem: "a reach of the exit child" });
+    }
+    if reach.proxy != matches!(spec.network, NetworkPlan::Proxy { .. }) {
+        return Err(SandboxError::ReachPlan { problem: "a proxy flag of another network" });
+    }
+    if reach.ports.len() > MAX_REACH_PORTS {
+        return Err(SandboxError::ReachPlan { problem: "more than 32 ports" });
+    }
+    for (index, port) in reach.ports.iter().enumerate() {
+        if *port < MIN_PORT {
+            return Err(SandboxError::ReachPlan { problem: "a port below 1024" });
+        }
+        if *port == BRIDGE_PORT {
+            return Err(SandboxError::ReachPlan { problem: "the port of the proxy bridge" });
+        }
+        if reach.ports[..index].contains(port) {
+            return Err(SandboxError::ReachPlan { problem: "a port twice" });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

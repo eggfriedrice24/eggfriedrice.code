@@ -257,3 +257,35 @@ fn bridge_profile_refuses_bind_listen_exec() {
         assert!(!denied, "{syscall}");
     }
 }
+
+#[test]
+fn reach_profile_allows_unix_and_inet_and_refuses_exec_only() {
+    let profile = SeccompProfile::reach();
+    assert_eq!(
+        families(&profile),
+        [&SyscallRule::AllowSocketFamilies {
+            allowed: vec![AF_UNIX, AF_INET, AF_INET6],
+            errno: EAFNOSUPPORT
+        }]
+    );
+    let phase1 = SeccompProfile::phase1();
+    let phase1_families = families(&phase1);
+    for rule in phase1.rules.iter().filter(|rule| !phase1_families.contains(rule)) {
+        assert!(profile.rules.contains(rule), "{rule:?}");
+    }
+    for syscall in ["execve", "execveat", "ptrace", "pidfd_getfd"] {
+        let rule = SyscallRule::Deny { syscall: syscall.to_owned(), errno: EPERM };
+        assert_eq!(profile.rules.iter().filter(|known| **known == rule).count(), 1, "{syscall}");
+    }
+    // It binds and listens on the call's loopback, connects to the reach socket and
+    // starts its threads.
+    for syscall in ["bind", "listen", "connect", "accept4", "clone", "socket"] {
+        let denied = profile.rules.iter().any(
+            |rule| matches!(rule, SyscallRule::Deny { syscall: named, .. } if named == syscall),
+        );
+        assert!(!denied, "{syscall}");
+    }
+    assert_eq!(profile.other_arch_action, SeccompAction::KillProcess);
+    let text = serde_json::to_string(&profile).unwrap();
+    assert_eq!(serde_json::from_str::<SeccompProfile>(&text).unwrap(), profile);
+}

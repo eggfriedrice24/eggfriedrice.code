@@ -6,9 +6,10 @@ use proptest::strategy::{Just, Strategy};
 
 use crate::SandboxError;
 use crate::forward::{
-    Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen, MAX_REPORTED_PORTS,
-    MIN_PORT, PortRefusal, SERVICE_PORTS, TCP_LISTEN, TcpRow, loopback_listens, parse_tcp_table,
-    peer_uid, refusal, v6_holds,
+    BRIDGE_PORT, Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen,
+    MAX_FORWARD_CONNECTIONS, MAX_REACH_CONNECTIONS, MAX_REPORTED_PORTS, MIN_PORT, PortRefusal,
+    REACH_VERSION, SERVICE_PORTS, TCP_LISTEN, TcpRow, loopback_listens, parse_tcp_table, peer_uid,
+    refusal, v6_holds,
 };
 use crate::spec::ForwardPlan;
 
@@ -420,7 +421,8 @@ fn decode_refuses_each_broken_rule() {
         bytes
     };
     assert_eq!(refused(&with(0, 0)), "an unknown kind");
-    assert_eq!(refused(&with(0, 6)), "an unknown kind");
+    assert_eq!(refused(&with(0, 10)), "an unknown kind");
+    assert_eq!(refused(&with(0, 255)), "an unknown kind");
     assert_eq!(refused(&with(3, 1)), "a reserved byte that is not 0");
     assert_eq!(refused(&with(7, 1)), "a reserved byte that is not 0");
     assert_eq!(refused(&with(20, 1)), "a reserved byte that is not 0");
@@ -444,6 +446,89 @@ fn decode_refuses_each_broken_rule() {
     assert_eq!(refused(&hello_id), "an id where the kind has none");
 }
 
+#[test]
+fn each_reach_frame_has_its_layout() {
+    let target = listen(v4(127, 0, 0, 1), 8765);
+    let reach = Frame::reach(target).encode();
+    let mut expected = [0u8; FRAME_LEN];
+    expected[..12].copy_from_slice(&[6, 4, 0, 0, 0x22, 0x3D, 0, 0, 0, 0, 0, 0]);
+    expected[12..16].copy_from_slice(&[127, 0, 0, 1]);
+    assert_eq!(reach, expected);
+    assert_eq!(Frame::unreach(target).encode()[0], 7);
+    let bound = Frame::bound(listen(local6(), 5173), 98).encode();
+    assert_eq!(bound[..4], [8, 6, 98, 0]);
+    assert_eq!(bound[27], 1);
+    assert_eq!(Frame::connect(target).encode()[0], 9);
+    let hello = Frame::reach_hello().encode();
+    assert_eq!(hello[..4], [1, 4, REACH_VERSION, 0]);
+    assert!(hello[4..].iter().all(|byte| *byte == 0));
+    for frame in [Frame::reach(target), Frame::unreach(target), Frame::connect(target)] {
+        assert_eq!(Frame::decode(&frame.encode()).unwrap(), frame);
+        assert_eq!(frame.target(), target);
+    }
+    // A reach takes at most half of a job's places.
+    assert_eq!(MAX_REACH_CONNECTIONS * 2, MAX_FORWARD_CONNECTIONS);
+}
+
+#[test]
+fn each_kind_belongs_to_one_connection() {
+    let kinds = [
+        FrameKind::Hello,
+        FrameKind::Listen,
+        FrameKind::Gone,
+        FrameKind::Open,
+        FrameKind::Data,
+        FrameKind::Reach,
+        FrameKind::Unreach,
+        FrameKind::Bound,
+        FrameKind::Connect,
+    ];
+    for kind in kinds {
+        let byte = kind as u8;
+        assert_eq!(kind.is_reach(), (6..=9).contains(&byte), "{kind:?}");
+        assert_eq!(kind.has_listen(), (2..=4).contains(&byte), "{kind:?}");
+        assert!(!(kind.is_reach() && kind.has_listen()), "{kind:?}");
+        assert_eq!(kind.names_port(), kind.is_reach() || kind.has_listen(), "{kind:?}");
+    }
+}
+
+#[test]
+fn decode_refuses_each_broken_rule_of_a_reach_frame() {
+    let target = listen(v4(127, 0, 0, 1), 8765);
+    for good in [
+        Frame::reach(target),
+        Frame::unreach(target),
+        Frame::bound(target, 0),
+        Frame::connect(target),
+    ] {
+        let with = |index: usize, byte: u8| {
+            let mut bytes = good.encode();
+            bytes[index] = byte;
+            bytes
+        };
+        let kind = good.kind;
+        // Port 1023, the bridge's port and an address that is not loopback.
+        let low = Frame { port: MIN_PORT - 1, ..good }.encode();
+        assert_eq!(refused(&low), "a port below 1024", "{kind:?}");
+        let bridge = Frame { port: BRIDGE_PORT, ..good }.encode();
+        assert_eq!(refused(&bridge), "the port of the proxy bridge", "{kind:?}");
+        assert_eq!(refused(&with(12, 10)), "an address that is not loopback", "{kind:?}");
+        let mapped = Frame { addr: "::ffff:127.0.0.1".parse().unwrap(), ..good }.encode();
+        assert_eq!(refused(&mapped), "an address that is not loopback", "{kind:?}");
+        assert_eq!(refused(&with(11, 1)), "an id where the kind has none", "{kind:?}");
+        if kind != FrameKind::Bound {
+            assert_eq!(refused(&with(2, 1)), "a status where the kind has none", "{kind:?}");
+        }
+    }
+    // A bound carries its errno; port 1024 and `::1` pass.
+    let bound = Frame::bound(listen(local6(), MIN_PORT), 98);
+    assert_eq!(Frame::decode(&bound.encode()).unwrap(), bound);
+}
+
+fn any_reach_listen() -> impl Strategy<Value = Listen> {
+    any_listen().prop_filter("the bridge's port", |listen| listen.port != BRIDGE_PORT)
+}
+
 fn any_listen() -> impl Strategy<Value = Listen> {
     let addr =
         prop_oneof![any::<[u8; 3]>().prop_map(|[b, c, d]| v4(127, b, c, d)), Just(local6()),];
@@ -458,6 +543,11 @@ fn any_frame() -> impl Strategy<Value = Frame> {
         any_listen().prop_map(Frame::gone),
         (any::<u32>(), any_listen()).prop_map(|(id, target)| Frame::open(id, target)),
         (any::<u32>(), any::<u8>()).prop_map(|(id, status)| Frame::data(id, status)),
+        any::<u8>().prop_map(|status| Frame { status, ..Frame::reach_hello() }),
+        any_reach_listen().prop_map(Frame::reach),
+        any_reach_listen().prop_map(Frame::unreach),
+        (any_reach_listen(), any::<u8>()).prop_map(|(target, status)| Frame::bound(target, status)),
+        any_reach_listen().prop_map(Frame::connect),
     ]
 }
 
@@ -479,6 +569,24 @@ proptest! {
     }
 
     #[test]
+    fn a_reach_frame_below_1024_or_off_loopback_is_refused(
+        kind in prop_oneof![
+            Just(FrameKind::Reach),
+            Just(FrameKind::Unreach),
+            Just(FrameKind::Bound),
+            Just(FrameKind::Connect),
+        ],
+        port in 0..MIN_PORT,
+        far in any::<[u8; 4]>().prop_filter("not loopback", |octets| octets[0] != 127),
+        good in any_reach_listen(),
+    ) {
+        let low = Frame { kind, status: 0, id: 0, addr: good.addr, port };
+        prop_assert!(Frame::decode(&low.encode()).is_err());
+        let off = Frame { kind, status: 0, id: 0, addr: IpAddr::V4(Ipv4Addr::from(far)), port: good.port };
+        prop_assert!(Frame::decode(&off.encode()).is_err());
+    }
+
+    #[test]
     fn a_frame_decodes_to_what_was_encoded(frame in any_frame()) {
         prop_assert_eq!(Frame::decode(&frame.encode()).unwrap(), frame);
     }
@@ -489,9 +597,15 @@ proptest! {
             prop_assert_eq!(frame.encode(), bytes);
             prop_assert!(bytes[3] == 0 && bytes[6] == 0 && bytes[7] == 0);
             prop_assert!(bytes[1] == 4 || bytes[1] == 6);
-            if frame.kind.has_listen() {
+            if frame.kind.names_port() {
                 prop_assert!(frame.addr.is_loopback());
                 prop_assert!(frame.port >= MIN_PORT);
+                if frame.kind.is_reach() {
+                    prop_assert!(frame.port != BRIDGE_PORT);
+                }
+                if frame.kind != FrameKind::Bound {
+                    prop_assert_eq!(frame.status, 0);
+                }
             } else {
                 prop_assert!(matches!(frame.kind, FrameKind::Hello | FrameKind::Data));
                 prop_assert_eq!(frame.port, 0);

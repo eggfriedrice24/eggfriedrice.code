@@ -191,6 +191,10 @@ const BRIDGE_DENIED: &[&str] = &["bind", "listen", "execve", "execveat", "pidfd_
 /// [`DENIED`] already. A `connect` picks its own port with no `bind` call.
 const FORWARD_DENIED: &[&str] = &["bind", "listen", "execve", "execveat", "pidfd_getfd"];
 
+/// The calls that the reach helper of a call never makes. It binds and listens in the
+/// call's namespace, so `bind` and `listen` stay.
+const REACH_DENIED: &[&str] = &["execve", "execveat", "pidfd_getfd"];
+
 /// The calls that also fail with `EPERM` in the bus proxy; `ptrace` is in [`DENIED`]
 /// already.
 const BUS_PROXY_DENIED: &[&str] = &["pidfd_getfd"];
@@ -282,6 +286,26 @@ impl SeccompProfile {
         }
         profile.rules.extend(
             FORWARD_DENIED
+                .iter()
+                .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
+        );
+        profile
+    }
+
+    /// The profile of a call's reach helper (`efr-sbx reach`): phase 1 with only
+    /// `AF_UNIX`, `AF_INET` and `AF_INET6` sockets, and `execve`, `execveat` and
+    /// `pidfd_getfd` refused. It keeps `bind` and `listen`, because it listens on the
+    /// call's loopback for the ports that come during the call; its Landlock domain
+    /// takes away every TCP connect.
+    pub fn reach() -> SeccompProfile {
+        let mut profile = SeccompProfile::phase1();
+        for rule in &mut profile.rules {
+            if let SyscallRule::AllowSocketFamilies { allowed, .. } = rule {
+                *allowed = vec![AF_UNIX, AF_INET, AF_INET6];
+            }
+        }
+        profile.rules.extend(
+            REACH_DENIED
                 .iter()
                 .map(|syscall| SyscallRule::Deny { syscall: (*syscall).to_owned(), errno: EPERM }),
         );

@@ -220,6 +220,27 @@ pub enum SandboxError {
     #[error("the sandbox spec's port forwards do not fit the job")]
     ForwardPlan,
 
+    /// The spec holds a reach for a call that keeps the host's network namespace: a
+    /// call with the whole network or the network view. It reaches the host's loopback
+    /// already.
+    #[error("the sandbox spec has a reach for a call on the host's network")]
+    ReachWithHostNetwork,
+
+    /// The reach socket of the spec is not the call dir's `reach.sock`, or it is not a
+    /// socket.
+    #[error("the reach socket {path:?} is not the socket of this call")]
+    ReachSocket {
+        /// The path.
+        path: PathBuf,
+    },
+
+    /// The reach of the spec does not fit the call.
+    #[error("the sandbox spec's reach has {problem}")]
+    ReachPlan {
+        /// What is wrong, such as `a reach of a job`.
+        problem: &'static str,
+    },
+
     /// A frame between the forwarder of a job and efrd breaks the frame rules.
     #[error("a forward frame has {problem}")]
     Frame {

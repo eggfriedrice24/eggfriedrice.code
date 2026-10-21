@@ -324,6 +324,7 @@ impl Fixture {
                 desktops: Vec::new(),
             },
             job: None,
+            reach: None,
         };
         let mut env = BTreeMap::new();
         for (name, value) in [

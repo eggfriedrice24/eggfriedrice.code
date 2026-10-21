@@ -215,6 +215,7 @@ impl Fixture {
             limits: RecordLimits::default(),
             runtime,
             job: None,
+            reach: None,
         };
         Ok(Fixture {
             outside: root.join("outside-file"),
