@@ -18,6 +18,11 @@
 //!   call's `line` file, the shell gets a fixed wrapper line, and the run ends only on
 //!   facts that sandboxed code cannot make; [`CommandResult::sandbox`] holds the
 //!   launcher's result.
+//! - A command still running at its run's timeout is left running: a task watches its
+//!   waits, [`ShellSessions::busy`] tells it as a [`LeftRunning`],
+//!   [`ShellSessions::answer`] and [`ShellSessions::interrupt_left`] reach it, and
+//!   [`ShellNotice`]s tell its detach, its waits and its end. [`Followers`] says who can
+//!   answer a wait of it.
 //! - [`ShellConfig`] and [`ShellDeps`]: what the daemon passes in. [`RecordingSink`]
 //!   receives every byte for the PTY recording; [`ShellObserver`] hears
 //!   [`ShellNotice`]s.
