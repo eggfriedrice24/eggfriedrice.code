@@ -59,12 +59,14 @@ the user the answer to a job question.
    for every port and drops it. The time limit is `jobs.default_minutes`, cut to
    `jobs.max_minutes`, from the move.
 
-4. **The end of a moved launcher call.** Before the hand-over, efrd makes the empty file
-   `$CALL/moved` in the call's dir (`O_CREAT | O_EXCL`, 0600), which the sandbox cannot
-   reach. A launcher that finds it at its end acts as a job's end: no `apply`, no
-   `state.json`, no `state.zsh` and no config listings, but still `result.json`. Else
-   a call that ends an hour later writes the shell state that it read at its start
-   over the state of every later call.
+4. **The end of a moved launcher call.** After the hand-over, before the job is
+   recorded, efrd makes the empty file `$CALL/moved` in the call's dir
+   (`O_CREAT | O_EXCL`, 0600), which the sandbox cannot reach. A launcher that finds it
+   at its end acts as a job's end: no `apply`, no `state.json`, no `state.zsh` and no
+   config listings, but still `result.json`. Else a call that ends an hour later writes
+   the shell state that it read at its start over the state of every later call. A
+   launcher that ends before the hand-over keeps the state of a call that did not
+   move.
 
 5. **The key press is the answer, except outside the sandbox.** Ctrl+B sends
    `call.background` (scope `terminal`, so never the phone or a model-side peer), and
@@ -81,14 +83,20 @@ the user the answer to a job question.
    after the turn. Only a confirm with that token within 60 s and the same job
    decision moves it. The record keeps the exits that the `y` covered.
 
-6. **Every descendant dies at the end.** Before efrd closes the old zsh, it kills every
-   process below it: it walks `/proc` by parent from the zsh, which is a child
-   subreaper, and kills each process through a pidfd that it checks again. So a
-   process that left its session with `setsid` dies too. This matters most for a line
-   typed into the hidden shell and for full mode, which have no launcher of their own.
+6. **Every descendant dies at the end.** Before each close of the old zsh, at a stop,
+   at the end and after a wait for a secret, efrd kills every process below it: it
+   walks `/proc` by parent from the zsh, which is a child subreaper, and kills each
+   process through a pidfd that it checks again. So a process that left its session
+   with `setsid` dies too. It must come before the close: once the zsh is gone, such a
+   process is no longer below it. This matters most for a line typed into the hidden
+   shell and for full mode, which have no launcher of their own.
 
 7. **Nobody follows a job.** A moved command that asks for a password stops at once,
-   and the notice says why. A plain question waits, and nobody can answer it.
+   and the notice says why. A plain question waits, and nobody can answer it: `efr
+   jobs` shows that the job waits for input, and the notice of its stop says so.
+
+8. **Undo.** The file changes that a moved command makes after the move join the turn
+   of the call at the job's end, as for a job that the model started.
 
 Rejected:
 
