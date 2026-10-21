@@ -63,6 +63,20 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   efrd's sync pipe from stdout to fd 3, and runs the program. Marker files there make it fail,
   ignore SIGTERM, stop itself, write no result or name a survivor. A test passes its
   path to `sandbox_launcher`; there is no second launcher seam.
+- `fake_forwarder`: `FakeForwarder`, the forwarder of a job's port forwards
+  (`efr-sbx forward`) as a test plays it, because the fake launcher starts none. It
+  connects to the job's forward socket (from the spec that the fake launcher kept;
+  `connect_socket` goes through `/proc/self/fd`, as the path is longer than a socket
+  address holds), sends `Hello`, then `listen`, `gone` or any 28 bytes (`send_raw`). On
+  each `Open` of efrd it opens a data connection, sends `Data` and copies bytes to the
+  test's server that stands for the port, such as an `echo_server` on a free loopback
+  port; for a port with no server it answers status 111. `closed` waits until efrd
+  closed the control connection, and `opens` counts the `Open` frames. It encodes the
+  frames by hand, as the layout of `efr_sandbox::Frame` says. The daemon binds each
+  forwarded port through `TestHostPorts`: a free port of `127.0.0.1` in place of the
+  job's port, which `TestDaemon::host_ports` names (`real_port`), and the machine's own
+  tcp tables, where a test can make a port count as in use, add a listener on `::1` or
+  show another uid. Only `TestDaemonBuilder::system_host_ports` binds the real ports.
 - `test_daemon/responses`: `ResponsesServer`, a wiremock server that answers
   `POST /v1/responses` from a queue of `ResponsesAnswer`s (a status and a body;
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
@@ -147,6 +161,9 @@ Third-party crates: `tokio`, `tokio-util` (the daemon's shutdown token), `future
 - A test daemon never touches the network, the real home, config or runtime directory,
   or the machine's git configuration, and never waits on real time: every deadline runs
   on its `TestClock`.
+- A job port forward of a test daemon binds a free port of `127.0.0.1`
+  (`TestHostPorts`), never a fixed port of the machine, unless the test asks for
+  `system_host_ports`.
 - A fixture is the contract of its scenario: every outbound record is compared exactly
   after the placeholders, and bless changes outbound records only.
 
