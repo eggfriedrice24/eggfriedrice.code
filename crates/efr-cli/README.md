@@ -523,9 +523,12 @@ Replies:
   `(untrusted: written in the sandbox; in a write root, changed this turn)` in the
   `warning` role; a word that resolves to nothing gets `(not found)`. `why:` names what
   leaves (`write ~/.zshrc`, `network (example.com)`, `sudo (you may need to type your
-  password)`). Every part passes through `format::one_line`, and each line of a command
-  through `format::command_line`, so a control or format character shows as a
-  stand-in.
+  password)`). A call outside the sandbox that may wait for a password at the
+  terminal (an approval with `interactive`, such as `rsync` over ssh) also gets the
+  dim row `you may need to type your password`, unless its `why:` says so already; a
+  call in the sandbox never gets it. Every part passes through `format::one_line`, and
+  each line of a command through `format::command_line`, so a control or format
+  character shows as a stand-in.
 - The reviewer of `auto` (an `exit_judged` with the judge `classifier`). An allow is
   one muted line, `reviewer allowed: write ~/.local/share/app for this call (low risk;
   you asked to run the generator)`, and a refusal one muted line, `reviewer refused:
