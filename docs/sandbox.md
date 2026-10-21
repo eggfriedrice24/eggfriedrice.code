@@ -1331,8 +1331,8 @@ decision.
   (32768 to 60999 by default) counts after 10 seconds, so a test server on port 0
   that lives a short time gets no forward. efr reads a listen on `127.0.0.1` and the
   rest of `127.0.0.0/8` (also in the IPv6 form `::ffff:127.0.0.1`), `0.0.0.0`, `::1`
-  and `::`. When the same
-  port listens on IPv4 and IPv6, efr makes one forward and connects over IPv4.
+  and `::`. When the same port listens on IPv4 and IPv6, efr makes one forward and
+  connects over IPv4.
 - **Ports that efr never forwards.** A port below 1024. Port 3128 of a proxy job,
   where the bridge listens: a forward would give your programs the job's proxy
   grants. The ports of these services, where a client can send a password or a token
