@@ -177,3 +177,29 @@ fn bridge_landlock_policy_shape() {
     let text = serde_json::to_string(&policy).unwrap();
     assert_eq!(serde_json::from_str::<LandlockPolicy>(&text).unwrap(), policy);
 }
+
+#[test]
+fn forward_landlock_policy_handles_tcp_bind_only() {
+    let socket = Path::new("/run/user/1000/efr-forward.sock");
+    let policy = LandlockPolicy::forward(socket);
+    // One rule: RESOLVE_UNIX on the socket; no file right anywhere, no terminal.
+    let rules = policy.rules();
+    assert_eq!(rules.len(), 1, "{rules:?}");
+    assert_eq!(rules[0].path, socket);
+    assert_eq!(rules[0].access, [FsAccess::ResolveUnix]);
+    assert!(policy.read_exec.is_empty() && policy.tty_fds.is_empty());
+    // The bind right is handled with no rule; connect stays, for the job's servers.
+    assert!(policy.deny_tcp_bind);
+    assert!(!policy.deny_tcp);
+    assert_eq!(policy.scopes, [LandlockScope::AbstractUnixSocket, LandlockScope::Signal]);
+    let call = MountPlan::build(&spec(), &world()).unwrap().landlock();
+    assert_eq!((policy.min_abi, policy.required_errata), (call.min_abi, call.required_errata));
+    let text = serde_json::to_string(&policy).unwrap();
+    assert_eq!(serde_json::from_str::<LandlockPolicy>(&text).unwrap(), policy);
+    // No other domain handles the bind right alone, and a policy of an older build
+    // reads with it off.
+    assert!(!call.deny_tcp_bind && !LandlockPolicy::bridge(socket).deny_tcp_bind);
+    let mut old: serde_json::Value = serde_json::to_value(&call).unwrap();
+    old.as_object_mut().unwrap().remove("deny_tcp_bind");
+    assert!(!serde_json::from_value::<LandlockPolicy>(old).unwrap().deny_tcp_bind);
+}

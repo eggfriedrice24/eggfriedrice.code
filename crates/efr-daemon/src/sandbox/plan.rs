@@ -289,7 +289,7 @@ pub(crate) fn build(input: &PlanInput<'_>) -> Planned {
         shell_path: input.host.path.clone(),
         limits: RecordLimits::default(),
         runtime,
-        job: input.job,
+        job: input.job.clone(),
     };
     Planned { spec, notes }
 }

@@ -16,9 +16,9 @@ use crate::forward::MAX_JOB_FORWARDS;
 use crate::paths::is_normal;
 
 /// The version of the spec that this build writes and reads. Version 2 adds
-/// [`SandboxSpec::job`]: efrd and its launcher copy come from one build, and a stale
-/// copy refuses the spec.
-pub const SPEC_VERSION: u32 = 2;
+/// [`SandboxSpec::job`], version 3 [`JobPlan::forward`]: efrd and its launcher copy
+/// come from one build, and a stale copy refuses the spec.
+pub const SPEC_VERSION: u32 = 3;
 
 /// The hard file size limit of a job (`RLIMIT_FSIZE`, soft and hard): 4 GiB.
 pub const JOB_FSIZE_BYTES: u64 = 4 << 30;
@@ -119,8 +119,8 @@ pub struct SandboxSpec {
     pub job: Option<JobPlan>,
 }
 
-/// The limits of a job (efr's auto spec, section 3.18).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The limits of a job (efr's auto spec, section 3.18), and its port forwards.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JobPlan {
     /// efrd's time limit of the job, after its clamp. The launcher ends the job itself
@@ -134,17 +134,22 @@ pub struct JobPlan {
     pub nice: u8,
     /// The hard file size limit: [`JOB_FSIZE_BYTES`].
     pub fsize_bytes: u64,
+    /// The job's port forwards: `Some` starts the forwarder in a contained job with a
+    /// network namespace of its own. `None` for a job with no forwards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forward: Option<ForwardPlan>,
 }
 
 impl JobPlan {
     /// The plan of a job with efrd's limit `max_seconds` and the nice value `nice`, with
-    /// the fixed backstop and file size limit.
+    /// the fixed backstop and file size limit, and no port forwards.
     pub fn new(max_seconds: u64, nice: u8) -> JobPlan {
         JobPlan {
             max_seconds,
             backstop_secs: JOB_BACKSTOP_SECS,
             nice: nice.min(MAX_NICE),
             fsize_bytes: JOB_FSIZE_BYTES,
+            forward: None,
         }
     }
 
@@ -594,8 +599,8 @@ impl SandboxSpec {
     /// call and shell dirs name this call and conversation, that the call dir lies in
     /// the shell dir (in its `jobs` dir for a job) and nowhere else, the limits of a
     /// job, that a proxy plan names the call's own socket and comes with no grant of
-    /// the whole network, and that a filtered bus comes with no grant of the same whole
-    /// bus.
+    /// the whole network, that a filtered bus comes with no grant of the same whole
+    /// bus, and that a job's port forwards fit the job.
     pub fn check(&self) -> Result<(), SandboxError> {
         if self.version != SPEC_VERSION {
             return Err(SandboxError::SpecVersion { found: self.version, expected: SPEC_VERSION });
@@ -643,6 +648,9 @@ impl SandboxSpec {
         );
         if let NetworkPlan::Proxy { socket } = &self.network {
             paths.push(("network.socket", socket));
+        }
+        if let Some(forward) = self.job.as_ref().and_then(|job| job.forward.as_ref()) {
+            paths.push(("job.forward.socket", &forward.socket));
         }
         for (field, path) in paths {
             if !is_normal(path) {
@@ -697,6 +705,35 @@ impl SandboxSpec {
             if *socket != runtime.proxy_socket() {
                 return Err(SandboxError::ProxySocket { path: socket.clone() });
             }
+        }
+        if let Some(forward) = self.job.as_ref().and_then(|job| job.forward.as_ref()) {
+            self.check_forward(forward)?;
+        }
+        Ok(())
+    }
+
+    /// The checks of a job's port forwards: only a contained job with a network
+    /// namespace of its own, the job's own socket, the proxy flag of its network, and
+    /// timings and a limit that a forwarder can keep.
+    fn check_forward(&self, forward: &ForwardPlan) -> Result<(), SandboxError> {
+        // NOTE: a job that keeps the host's network namespace listens on the host's
+        // loopback already; a forwarder there would serve the host's own ports.
+        let host_network = matches!(self.network, NetworkPlan::Open)
+            || self.grants.iter().any(|grant| matches!(grant, Grant::OpenNetwork | Grant::NetView));
+        if host_network {
+            return Err(SandboxError::ForwardWithHostNetwork);
+        }
+        if forward.socket != self.runtime.forward_socket() {
+            return Err(SandboxError::ForwardSocket { path: forward.socket.clone() });
+        }
+        let proxy = matches!(self.network, NetworkPlan::Proxy { .. });
+        if self.launch != SpecLaunch::Contained
+            || forward.proxy != proxy
+            || forward.poll_ms == 0
+            || forward.max_ports == 0
+            || forward.max_ports > MAX_JOB_FORWARDS
+        {
+            return Err(SandboxError::ForwardPlan);
         }
         Ok(())
     }

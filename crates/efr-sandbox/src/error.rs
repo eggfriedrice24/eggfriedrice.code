@@ -200,6 +200,26 @@ pub enum SandboxError {
         path: PathBuf,
     },
 
+    /// The spec holds port forwards for a job that keeps the host's network namespace:
+    /// a job with the whole network or the network view. It listens on the host's
+    /// loopback already.
+    #[error("the sandbox spec has port forwards for a job on the host's network")]
+    ForwardWithHostNetwork,
+
+    /// The forward socket of the spec is not the call dir's `forward.sock`, or it is not
+    /// a socket.
+    #[error("the forward socket {path:?} is not the socket of this job")]
+    ForwardSocket {
+        /// The path.
+        path: PathBuf,
+    },
+
+    /// The port forwards of the spec do not fit the job: the job does not run
+    /// contained, the proxy flag is not that of the job's network, the poll time is 0,
+    /// or the limit of ports is 0 or above `MAX_JOB_FORWARDS`.
+    #[error("the sandbox spec's port forwards do not fit the job")]
+    ForwardPlan,
+
     /// A frame between the forwarder of a job and efrd breaks the frame rules.
     #[error("a forward frame has {problem}")]
     Frame {

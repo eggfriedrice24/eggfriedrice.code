@@ -9,6 +9,7 @@ use efr_protocol::{BusKind, CacheMode, DesktopKind, Grant};
 use crate::SandboxError;
 use crate::desktop::{desktop_socket_path, is_desktop_socket};
 use crate::fs_view::{FileKind, FsView, Memo, Resolved, resolve};
+use crate::inner::InnerForward;
 use crate::layers::{CacheLayer, CacheLayers, STAGING_DIR, moved_mounts};
 use crate::modules::{self, ConfigPath, config_paths, module_work_tree};
 use crate::mounts::{MOUNTS_FILE, SIZES_FILE};
@@ -50,6 +51,7 @@ struct Builder<'a> {
     devices: Vec<PathBuf>,
     env: Vec<(String, String)>,
     proxy_socket: Option<PathBuf>,
+    forward: Option<InnerForward>,
 }
 
 impl MountPlan {
@@ -92,6 +94,7 @@ impl MountPlan {
             devices: Vec::new(),
             env: Vec::new(),
             proxy_socket: None,
+            forward: None,
         };
         builder.masks()?;
         builder.roots()?;
@@ -109,6 +112,7 @@ impl MountPlan {
         builder.assets()?;
         builder.sockets_and_devices()?;
         builder.proxy()?;
+        builder.forward()?;
         builder.bus_filter()?;
         Ok(builder.finish())
     }
@@ -677,6 +681,31 @@ impl Builder<'_> {
         Ok(())
     }
 
+    /// The forwarder's view of a job with port forwards: the job's socket bound
+    /// read-only at `$XRT/efr-forward.sock`, as the proxy socket.
+    ///
+    /// The child gets no `RESOLVE_UNIX` rule for the socket: only the forwarder, in a
+    /// Landlock domain of its own, connects to it. The spec check refused forwards for a
+    /// job that keeps the host's network namespace; the plan checks the socket again.
+    fn forward(&mut self) -> Result<(), SandboxError> {
+        let spec = self.spec;
+        let Some(plan) = spec.job.as_ref().and_then(|job| job.forward.as_ref()) else {
+            return Ok(());
+        };
+        if plan.socket != spec.runtime.forward_socket() {
+            return Err(SandboxError::ForwardSocket { path: plan.socket.clone() });
+        }
+        let resolved = self.resolve(&plan.socket)?;
+        if resolved.kind != Some(FileKind::Other) {
+            return Err(SandboxError::ForwardSocket { path: plan.socket.clone() });
+        }
+        let target = spec.runtime.inside_forward_socket();
+        let op = MountOp::Bind { source: resolved.path, target: target.clone(), writable: false };
+        self.push(op, OpKind::Floor, MountOrigin::Asset);
+        self.forward = Some(InnerForward::new(plan, target));
+        Ok(())
+    }
+
     /// The call's filtered buses (phase E): for each `Grant::BusFilter`, the call's own
     /// socket `$CALL/bus/<bus>.sock`, which efrd's bus proxy serves, bound read-only
     /// where a D-Bus client finds the bus with no variable
@@ -889,6 +918,7 @@ impl Builder<'_> {
             devices,
             env,
             proxy_socket,
+            forward,
             ..
         } = self;
         mounts.sort_by_key(|mount| (depth(mount.op.target()), mount.kind));
@@ -942,6 +972,9 @@ impl Builder<'_> {
         // NOTE: the bridge starts only in the call's own network namespace; `proxy()`
         // refused the one plan that keeps the host's.
         let proxy_socket = proxy_socket.filter(|_| unshare_net);
+        // NOTE: the same for the forwarder: in the host's namespace it would serve the
+        // host's own ports; the spec check refused that plan.
+        let forward = forward.filter(|_| unshare_net);
         let runtime = &spec.runtime;
         let child_argv: Vec<OsString> = vec![
             runtime.zsh.clone().into_os_string(),
@@ -964,6 +997,7 @@ impl Builder<'_> {
             layers,
             layer_sources,
             proxy_socket,
+            forward,
         }
     }
 }

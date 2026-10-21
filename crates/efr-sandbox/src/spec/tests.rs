@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use efr_protocol::DesktopKind;
+use efr_protocol::{DesktopKind, Grant};
 use pretty_assertions::assert_eq;
 
 use crate::SandboxError;
+use crate::forward::MAX_JOB_FORWARDS;
 use crate::spec::{
-    CacheOverlay, DesktopSocket, JOB_BACKSTOP_SECS, JOB_DIR, JOB_FSIZE_BYTES, JobPlan, SandboxSpec,
-    WriteRoot, WriteRootKind, layer_name,
+    CacheOverlay, DesktopSocket, FORWARD_SOCKET_FILE, ForwardPlan, JOB_BACKSTOP_SECS, JOB_DIR,
+    JOB_FSIZE_BYTES, JobPlan, NetworkPlan, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind,
+    layer_name,
 };
 use crate::testing::spec;
 
@@ -105,12 +107,125 @@ fn a_job_has_limits_and_a_spec_without_one_leaves_it_out() {
     job.runtime.call_dir =
         job.runtime.shell_dir.join(JOB_DIR).join(job.runtime.call_dir.file_name().unwrap());
     for bad in [
-        JobPlan { max_seconds: 0, ..plan },
-        JobPlan { nice: 20, ..plan },
+        JobPlan { max_seconds: 0, ..plan.clone() },
+        JobPlan { nice: 20, ..plan.clone() },
         JobPlan { fsize_bytes: 0, ..plan },
     ] {
-        job.job = Some(bad);
+        job.job = Some(bad.clone());
         assert!(matches!(job.check(), Err(SandboxError::SpecJob)), "{bad:?}");
+    }
+}
+
+/// [`spec`] as a job in the `none` network, with the default forward plan.
+fn forward_job() -> SandboxSpec {
+    let mut job = spec();
+    let call = job.call.to_string();
+    job.runtime.call_dir = job.runtime.shell_dir.join(JOB_DIR).join(call);
+    job.job = Some(JobPlan {
+        forward: Some(ForwardPlan::new(job.runtime.forward_socket(), false)),
+        ..JobPlan::new(60, 19)
+    });
+    job
+}
+
+fn set_forward(spec: &mut SandboxSpec, change: impl FnOnce(&mut ForwardPlan)) {
+    let forward = spec.job.as_mut().and_then(|job| job.forward.as_mut()).unwrap();
+    change(forward);
+}
+
+#[test]
+fn a_job_with_forwards_reads_back_and_names_its_own_socket() {
+    let job = forward_job();
+    assert!(job.check().is_ok());
+    assert_eq!(job.runtime.forward_socket(), job.runtime.call_dir.join(FORWARD_SOCKET_FILE));
+    assert_eq!(
+        job.runtime.inside_forward_socket(),
+        PathBuf::from("/run/user/1000/efr-forward.sock")
+    );
+    let back = SandboxSpec::from_json(&job.to_json().unwrap()).unwrap();
+    assert_eq!(back, job);
+    let plan = back.job.unwrap().forward.unwrap();
+    assert_eq!(
+        (plan.poll_ms, plan.stable_ms, plan.ephemeral_stable_ms, plan.max_ports),
+        (500, 1000, 10_000, 8)
+    );
+    // A job without forwards writes no `forward` member, and a spec of version 2 is
+    // refused.
+    let mut plain = forward_job();
+    plain.job = Some(JobPlan::new(60, 19));
+    let text = String::from_utf8(plain.to_json().unwrap()).unwrap();
+    assert!(!text.contains("forward"), "{text}");
+    let old = text.replace("\"version\": 3", "\"version\": 2");
+    assert!(matches!(
+        SandboxSpec::from_json(old.as_bytes()),
+        Err(SandboxError::SpecVersion { found: 2, expected: 3 })
+    ));
+}
+
+#[test]
+fn spec_check_refuses_a_foreign_forward_socket() {
+    let base = forward_job();
+    let call_dir = base.runtime.call_dir.clone();
+    let foreign = [
+        call_dir.join("proxy.sock"),
+        call_dir.parent().unwrap().join(FORWARD_SOCKET_FILE),
+        base.runtime.inside_forward_socket(),
+    ];
+    for socket in foreign {
+        let mut spec = base.clone();
+        set_forward(&mut spec, |plan| plan.socket = socket.clone());
+        assert!(
+            matches!(spec.check(), Err(SandboxError::ForwardSocket { path }) if path == socket),
+            "{socket:?}"
+        );
+    }
+    let mut relative = base;
+    set_forward(&mut relative, |plan| plan.socket = "forward.sock".into());
+    assert!(matches!(
+        relative.check(),
+        Err(SandboxError::SpecPath { field: "job.forward.socket", .. })
+    ));
+}
+
+#[test]
+fn spec_check_refuses_forwards_on_the_host_network() {
+    let mut open = forward_job();
+    open.network = NetworkPlan::Open;
+    assert!(matches!(open.check(), Err(SandboxError::ForwardWithHostNetwork)));
+    for grant in [Grant::OpenNetwork, Grant::NetView] {
+        let mut spec = forward_job();
+        spec.grants.push(grant.clone());
+        assert!(matches!(spec.check(), Err(SandboxError::ForwardWithHostNetwork)), "{grant:?}");
+    }
+    // A host grant narrows the network: the job keeps its own namespace.
+    let mut host = forward_job();
+    host.grants.push(Grant::Host { host: "extra.test".to_owned(), port: 443 });
+    assert!(host.check().is_ok());
+}
+
+#[test]
+fn spec_check_refuses_forwards_that_do_not_fit_the_job() {
+    let mut unsandboxed = forward_job();
+    unsandboxed.launch = SpecLaunch::Unsandboxed;
+    assert!(matches!(unsandboxed.check(), Err(SandboxError::ForwardPlan)));
+    // The proxy flag is the job's network.
+    let mut proxy = forward_job();
+    proxy.network = NetworkPlan::Proxy { socket: proxy.runtime.proxy_socket() };
+    assert!(matches!(proxy.check(), Err(SandboxError::ForwardPlan)));
+    set_forward(&mut proxy, |plan| plan.proxy = true);
+    assert!(proxy.check().is_ok());
+    let mut flag = forward_job();
+    set_forward(&mut flag, |plan| plan.proxy = true);
+    assert!(matches!(flag.check(), Err(SandboxError::ForwardPlan)));
+    let changes: [fn(&mut ForwardPlan); 3] = [
+        |plan| plan.poll_ms = 0,
+        |plan| plan.max_ports = 0,
+        |plan| plan.max_ports = MAX_JOB_FORWARDS + 1,
+    ];
+    for change in changes {
+        let mut spec = forward_job();
+        set_forward(&mut spec, change);
+        assert!(matches!(spec.check(), Err(SandboxError::ForwardPlan)));
     }
 }
 
@@ -139,9 +254,9 @@ fn the_inside_paths_live_below_the_masked_runtime_dir() {
 #[test]
 fn spec_check_refuses_proxy_with_open_network() {
     let mut spec = spec();
-    spec.network = crate::NetworkPlan::Proxy { socket: spec.runtime.proxy_socket() };
+    spec.network = NetworkPlan::Proxy { socket: spec.runtime.proxy_socket() };
     assert!(spec.check().is_ok());
-    spec.grants.push(efr_protocol::Grant::OpenNetwork);
+    spec.grants.push(Grant::OpenNetwork);
     assert!(matches!(spec.check(), Err(SandboxError::ProxyWithOpenNetwork)));
     // The launcher reads the spec from its file and refuses it there.
     assert!(matches!(
@@ -149,7 +264,7 @@ fn spec_check_refuses_proxy_with_open_network() {
         Err(SandboxError::ProxyWithOpenNetwork)
     ));
     // A host grant narrows the network and stays.
-    spec.grants = vec![efr_protocol::Grant::Host { host: "extra.test".to_owned(), port: 443 }];
+    spec.grants = vec![Grant::Host { host: "extra.test".to_owned(), port: 443 }];
     assert!(spec.check().is_ok());
 }
 
@@ -166,7 +281,7 @@ fn spec_check_refuses_foreign_proxy_socket() {
     ];
     for socket in foreign {
         let mut spec = base.clone();
-        spec.network = crate::NetworkPlan::Proxy { socket: socket.clone() };
+        spec.network = NetworkPlan::Proxy { socket: socket.clone() };
         assert!(
             matches!(spec.check(), Err(SandboxError::ProxySocket { path }) if path == socket),
             "{socket:?}"
@@ -177,6 +292,6 @@ fn spec_check_refuses_foreign_proxy_socket() {
     let call = job.call.to_string();
     job.runtime.call_dir = job.runtime.shell_dir.join(JOB_DIR).join(call);
     job.job = Some(JobPlan::new(60, 19));
-    job.network = crate::NetworkPlan::Proxy { socket: job.runtime.proxy_socket() };
+    job.network = NetworkPlan::Proxy { socket: job.runtime.proxy_socket() };
     assert!(job.check().is_ok());
 }
