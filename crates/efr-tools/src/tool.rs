@@ -429,6 +429,9 @@ pub struct ToolResult {
     /// launcher lost after it started the command, or a survivor of an approved exit.
     /// The daemon closes that shell, and the next call starts a new one.
     pub shell_tainted: bool,
+    /// True when the call answered while its command goes on in the hidden shell (its
+    /// timeout passed): the shell takes no other call until that command ends.
+    pub left_running: bool,
     /// The files that a file tool changed and what it changed in each, in the order
     /// it changed them; empty for other tools and for a call that changed nothing.
     pub written: Vec<WrittenFile>,
@@ -477,6 +480,7 @@ impl ToolResult {
             sandbox: None,
             sandbox_failed: false,
             shell_tainted: false,
+            left_running: false,
             written: Vec::new(),
         }
     }
@@ -525,6 +529,14 @@ impl ToolResult {
     #[must_use]
     pub fn with_shell_tainted(mut self, tainted: bool) -> Self {
         self.shell_tainted = tainted;
+        self
+    }
+
+    /// Marks the call as one that answered while its command goes on in the hidden
+    /// shell.
+    #[must_use]
+    pub fn with_left_running(mut self, left: bool) -> Self {
+        self.left_running = left;
         self
     }
 

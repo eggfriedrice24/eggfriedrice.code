@@ -419,6 +419,9 @@ pub struct ToolOutcome {
     /// `background: true`). The toolbox recorded its `job_started` before it answered;
     /// the actor keeps the turn's origin and settings for the job's notices.
     pub job: Option<JobInfo>,
+    /// True when the call answered while its command goes on in the hidden shell (its
+    /// timeout passed), for `tool_call_completed`.
+    pub left_running: bool,
 }
 
 impl ToolOutcome {
@@ -434,6 +437,7 @@ impl ToolOutcome {
             diff: None,
             backups: Vec::new(),
             job: None,
+            left_running: false,
         }
     }
 
@@ -481,6 +485,14 @@ impl ToolOutcome {
     #[must_use]
     pub fn with_backups(mut self, backups: Vec<FileBackup>) -> Self {
         self.backups = backups;
+        self
+    }
+
+    /// Marks the call as one that answered while its command goes on in the hidden
+    /// shell.
+    #[must_use]
+    pub fn with_left_running(mut self, left: bool) -> Self {
+        self.left_running = left;
         self
     }
 
