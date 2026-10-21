@@ -360,7 +360,7 @@ Modules:
   the naming rule would have nothing to check.
 - `exits/git_code.rs` (v0.0.4, B4): the git code of a line that runs git outside the
   sandbox. `fact_requests` names a `GitCodeAsk` in `FactRequest::git_code` for each git
-  command that reaches a remote and each gh command that runs git in the repository
+  command that reaches a remote (also `send-email`, with no submodules) and each gh command that runs git in the repository
   (`pr create`, `pr merge`, `pr checkout`, `repo sync`, `repo create --push`, `repo fork
   --clone`), with the line's `-C` (each one from the one before), `--git-dir` and
   `--work-tree`, and whether the line can reach the submodules. efrd answers in
@@ -371,7 +371,8 @@ Modules:
   (at most three, then a count) or says that efr could not check it. A git option that
   chooses the code (`-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree`,
   `--namespace`, `--receive-pack`, `--exec`, `--upload-pack`, `--template`, `clone -u`
-  and `clone -c`) makes every `outside` and `upload` exit of the line `Approver::User`
+  and `clone -c`, and `send-email`'s `--to-cmd`, `--cc-cmd`, `--header-cmd`,
+  `--sendmail-cmd` and an `--smtp-server` with a `/`) makes every `outside` and `upload` exit of the line `Approver::User`
   (DV50). So does a variable of a git or gh line that chooses the code
   (`git_code::sets_git_env`: a `GIT_*`, `SSH_*` or `AUTOSSH_*` name, `HOME`,
   `XDG_CONFIG_HOME` or `PATH`), because efrd checks with the hidden shell's variables.

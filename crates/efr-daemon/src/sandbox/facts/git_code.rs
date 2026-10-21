@@ -460,6 +460,10 @@ fn is_code(key: &str, value: &str) -> bool {
         ("submodule", "update") => value.trim_start().starts_with('!'),
         ("gpg", "defaultkeycommand") => key == "gpg.ssh.defaultkeycommand",
         ("hook", "command") => true,
+        // NOTE: `git send-email` runs these; a server with a `/` is a sendmail-like
+        // program (v0.0.4, DV22).
+        ("sendemail", "tocmd" | "cccmd" | "headercmd" | "sendmailcmd") => true,
+        ("sendemail", "smtpserver") => value.contains('/'),
         _ => false,
     }
 }
@@ -493,6 +497,8 @@ fn command_of(key: &str, value: &str) -> Option<String> {
             }
         }
         ("core", "fsmonitor") if value.contains('/') => Some(value.to_owned()),
+        ("sendemail", "tocmd" | "cccmd" | "headercmd" | "sendmailcmd") => Some(value.to_owned()),
+        ("sendemail", "smtpserver") if value.contains('/') => Some(value.to_owned()),
         (
             "core" | "sequence" | "diff" | "gpg" | "uploadpack" | "filter" | "merge" | "hook",
             "sshcommand"

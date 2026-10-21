@@ -745,7 +745,8 @@ spec; `docs/sandbox.md` for the user's view):
   variables of the hidden shell's `env` file, else efrd's start environment) for the
   git dir, the common dir, the work tree and the config with its include files (an
   include file that git did not read, such as an `includeIf` whose condition it did not
-  take, gets a run of its own), lists the hooks, the code keys and the programs that
+  take, gets a run of its own), lists the hooks, the code keys (also the program keys
+  of `sendemail`) and the programs that
   they start (resolved with the hidden shell's `PATH`), and walks the module git dirs
   for a line that can reach the submodules. A part is writable below a `$SCRATCH`, a
   write rule, a config write root, a running contained job's or a timed-out call's

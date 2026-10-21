@@ -357,6 +357,32 @@ async fn git_code_names_the_program_of_a_key_and_of_a_hook() {
 }
 
 #[tokio::test]
+async fn git_code_reads_the_programs_of_send_email() {
+    let machine = Machine::new();
+    let repo = machine.scratch.join("c1/r");
+    init(&repo).await;
+    let tool = machine.project.join("bin/to-cmd");
+    std::fs::create_dir_all(tool.parent().unwrap()).unwrap();
+    std::fs::write(&tool, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(&repo, &["config", "sendemail.toCmd", &tool.display().to_string()]).await;
+    git(&repo, &["config", "sendemail.smtpServer", &tool.display().to_string()]).await;
+    // NOTE: a host name is no program.
+    git(&repo, &["config", "sendemail.work.smtpServer", "smtp.example.org"]).await;
+    hook(&repo.join(".git/hooks"), "sendemail-validate");
+
+    let facts = machine.check(&[ask(&repo, false)], None).await;
+
+    for key in ["sendemail.tocmd", "sendemail.smtpserver"] {
+        assert!(item(&facts, key).is_some_and(|fact| fact.writable), "{key}: {facts:?}");
+        let program = item(&facts, &format!("to-cmd ({key})"));
+        assert!(program.is_some_and(|fact| fact.file == tool && fact.writable), "{facts:?}");
+    }
+    assert!(item(&facts, "sendemail.work.smtpserver").is_none(), "{facts:?}");
+    assert!(item(&facts, "hooks/sendemail-validate").is_some(), "{facts:?}");
+}
+
+#[tokio::test]
 async fn git_code_of_no_repository_is_not_checked() {
     let machine = Machine::new();
     let lone = machine.home.join("lone");

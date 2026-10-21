@@ -35,8 +35,18 @@ const GLOBAL_STEERING: &[&str] =
     &["-c", "--config-env", "--exec-path", "--git-dir", "--work-tree", "--namespace"];
 
 /// The options of a git subcommand that name a program that git runs (DV50): the pack
-/// programs of `push`, `fetch`, `ls-remote` and `clone`, and a template dir with hooks.
-const SUBCOMMAND_STEERING: &[&str] = &["--receive-pack", "--upload-pack", "--exec", "--template"];
+/// programs of `push`, `fetch`, `ls-remote` and `clone`, a template dir with hooks, and
+/// the programs of `send-email`.
+const SUBCOMMAND_STEERING: &[&str] = &[
+    "--receive-pack",
+    "--upload-pack",
+    "--exec",
+    "--template",
+    "--to-cmd",
+    "--cc-cmd",
+    "--header-cmd",
+    "--sendmail-cmd",
+];
 
 /// The most notes about writable parts on one question; the rest is a count.
 const MAX_NOTES: usize = 3;
@@ -53,7 +63,7 @@ pub(super) enum Trigger {
 
 /// The git code check of the simple command `words` (its program first) that starts in
 /// `dir`: a git command that reaches a remote (`push`, `send-pack`, `fetch`, `pull`,
-/// `ls-remote`, `remote update`, `submodule update`), or a gh command that runs git in
+/// `ls-remote`, `remote update`, `submodule update`, `send-email`), or a gh command that runs git in
 /// the repository (`pr create`, `pr merge`, `pr checkout`, `repo sync`,
 /// `repo create --push`, `repo fork --clone`). `None` for any other command.
 pub(super) fn trigger(
@@ -113,6 +123,9 @@ fn git_trigger(args: &[String], dir: Option<&Path>, locations: &Locations) -> Op
     let recurse = match sub {
         "push" | "send-pack" | "fetch" | "pull" => true,
         "ls-remote" => false,
+        // NOTE: `send-email` runs its `sendemail-validate` hook and the programs of its
+        // `sendemail.*` keys; it never reaches the submodules.
+        "send-email" => false,
         "remote"
             if rest.iter().find(|word| !word.starts_with('-')).is_some_and(|w| w == "update") =>
         {
@@ -197,10 +210,19 @@ pub(super) fn steers_code(words: &[String]) -> bool {
         at += if GIT_VALUES.contains(&word.as_str()) { 2 } else { 1 };
     }
     let Some(sub) = args.get(at) else { return false };
-    args[at + 1..].iter().any(|word| {
+    let rest = &args[at + 1..];
+    rest.iter().enumerate().any(|(index, word)| {
         let name = option(word);
         SUBCOMMAND_STEERING.contains(&name.as_str())
             || (sub == "clone" && (name == "-c" || name == "--config" || word.starts_with("-u")))
+            || (sub == "send-email" && name == "--smtp-server" && {
+                // NOTE: a value with a `/` is a sendmail-like program, not a host.
+                let value = match word.split_once('=') {
+                    Some((_, value)) => Some(value),
+                    None => rest.get(index + 1).map(String::as_str),
+                };
+                value.is_none_or(|value| value.contains('/'))
+            })
     })
 }
 

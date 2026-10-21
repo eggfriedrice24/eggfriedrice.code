@@ -321,7 +321,7 @@ An approved `git push` runs outside the sandbox with your full rights, and git r
 the code that the repository names. So before a git or gh line can run outside the
 sandbox, efrd checks the git code that it runs. The check applies to a git command
 that reaches a remote (`push`, `fetch`, `pull`, `ls-remote`, `remote update`,
-`submodule update`) and to a gh command that runs git in the repository (`pr create`,
+`submodule update`, `send-email`) and to a gh command that runs git in the repository (`pr create`,
 `pr merge`, `pr checkout`, `repo sync`, `repo create --push`, `repo fork --clone`),
 when it gets an `outside` or `upload` exit.
 
@@ -331,7 +331,9 @@ when it gets an `outside` or `upload` exit.
   shell. It reads the hooks that are not samples (in `core.hooksPath` or the `hooks`
   dir), the config keys that run programs (the ones of the surface guard, a remote URL
   through a `<transport>::` helper or `ext::`, `protocol.allow`, `remote.*.vcs`,
-  `submodule.*.update` with `!`, `gpg.ssh.defaultKeyCommand`, `hook.*.command`), and
+  `submodule.*.update` with `!`, `gpg.ssh.defaultKeyCommand`, `hook.*.command`, the
+  `toCmd`, `ccCmd`, `headerCmd` and `sendmailCmd` of `sendemail`, and a
+  `sendemail.smtpServer` that is a program path), and
   the program that each one starts, also `ssh` from your `PATH`. A line that can reach
   the submodules (`push`, `fetch`, `pull`, `submodule update`) checks each module git
   dir too.
@@ -360,7 +362,9 @@ when it gets an `outside` or `upload` exit.
   why; its next call gets a new question.
 - A git option that chooses the code that git runs (`-c`, `--config-env`,
   `--exec-path`, `--git-dir`, `--work-tree`, `--namespace`, `--receive-pack`, `--exec`,
-  `--upload-pack`, `--template`, and `clone -u` or `clone -c`) makes every git line
+  `--upload-pack`, `--template`, `clone -u` or `clone -c`, and the `--to-cmd`,
+  `--cc-cmd`, `--header-cmd`, `--sendmail-cmd` or a program path in `--smtp-server`
+  of `send-email`) makes every git line
   that runs outside a question for you alone.
 - So does a variable of a git or gh line that chooses that code: a `GIT_*` name, such
   as `GIT_CONFIG_COUNT` or `GIT_EXEC_PATH`, an `SSH_*` name, `HOME`,

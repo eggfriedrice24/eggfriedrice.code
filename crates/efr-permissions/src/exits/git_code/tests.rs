@@ -26,6 +26,7 @@ fn locations() -> Locations {
 #[case::submodule_update("git submodule update --init", true)]
 #[case::ls_remote("git ls-remote origin", false)]
 #[case::remote_update("git remote -v update", false)]
+#[case::send_email("git send-email --to=x@y.test 0001.patch", false)]
 fn git_commands_that_reach_a_remote_ask(#[case] line: &str, #[case] recurse: bool) {
     let found = trigger(&words(line), Some(APP.as_ref()), &locations());
     let ask = GitCodeAsk { dir: PathBuf::from(APP), git_dir: None, work_tree: None, recurse };
@@ -66,6 +67,14 @@ fn a_repository_that_efr_cannot_tell_is_unknown(#[case] line: &str, #[case] dir:
 #[case::template("git clone --template=t https://x.test/r", true)]
 #[case::clone_u("git clone -u x https://x.test/r", true)]
 #[case::clone_config("git clone --config a=b https://x.test/r", true)]
+#[case::to_cmd("git send-email --to-cmd=./x 0001.patch", true)]
+#[case::cc_cmd("git send-email --cc-cmd ./x 0001.patch", true)]
+#[case::header_cmd("git send-email --header-cmd=./x 0001.patch", true)]
+#[case::sendmail_cmd("git send-email --sendmail-cmd=./x 0001.patch", true)]
+#[case::smtp_program("git send-email --smtp-server=./msmtp 0001.patch", true)]
+#[case::smtp_program_separate("git send-email --smtp-server ./msmtp 0001.patch", true)]
+#[case::smtp_host("git send-email --smtp-server=smtp.example.org 0001.patch", false)]
+#[case::smtp_host_separate("git send-email --smtp-server smtp.example.org x.patch", false)]
 #[case::commit_c("git commit -c HEAD", false)]
 #[case::plain("git push origin main", false)]
 #[case::dir("git -C x push", false)]
