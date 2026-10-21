@@ -12,8 +12,11 @@
 //! addresses and the bridge itself are out of reach, each with its exact result.
 //! With `--bus-proxy` it runs the checks of the bus proxy's domain (`bus_proxy.rs`).
 //! With `--forward` it runs the checks of a job with port forwards ([`FORWARD_CHECKS`]):
-//! the forwarder is out of reach of the job's child. With `--echo ADDR` it is no check
-//! but a small TCP server for the forwarder's tests (`echo.rs`).
+//! the forwarder is out of reach of the job's child. With `--reach` it runs the checks
+//! of a call with a reach ([`REACH_CHECKS`]): the reach helper is out of reach of the
+//! call's child. With `--echo ADDR` it is no check but a small TCP server for the
+//! forwarder's tests (`echo.rs`), and with `--dial ADDR` a small TCP client for the
+//! reach helper's tests (`dial.rs`).
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -139,6 +142,16 @@ pub(crate) struct SelfTestArgs {
     /// With `--echo`: end after the first connection ends.
     #[arg(long, requires = "echo")]
     pub(crate) echo_once: bool,
+    /// Run the checks of a call with a reach ([`REACH_CHECKS`]) instead of [`CHECKS`].
+    #[arg(long)]
+    pub(crate) reach: bool,
+    /// Run no check: connect to this TCP address, send `--dial-bytes` bytes, end the
+    /// way there, read the answer to its end, and print one `dial` line.
+    #[arg(long)]
+    pub(crate) dial: Option<SocketAddr>,
+    /// With `--dial`: how many bytes to send.
+    #[arg(long, requires = "dial", default_value_t = 5)]
+    pub(crate) dial_bytes: usize,
 }
 
 /// One check's outcome, as the self-test prints it.
@@ -209,6 +222,10 @@ pub(crate) const PROXY_CHECKS: &[&str] = &[
 /// forwarder (`EPERM`) and its `/proc` files (root's, `EACCES`).
 pub(crate) const FORWARD_CHECKS: &[&str] = &["forward_signal", "forward_environ"];
 
+/// The checks of a call with a reach, in the order they run: a signal to the reach
+/// helper (`EPERM`) and its `/proc` files (root's, `EACCES`).
+pub(crate) const REACH_CHECKS: &[&str] = &["reach_signal", "reach_environ"];
+
 /// The checks of the probe's proxy launch: the tunnel, the socket, another address and
 /// the signal scope.
 pub(crate) const PROBE_PROXY_CHECKS: &[&str] =
@@ -236,6 +253,9 @@ pub(crate) fn main(args: &SelfTestArgs) -> std::process::ExitCode {
     if args.echo.is_some() {
         return echo::main(args);
     }
+    if args.dial.is_some() {
+        return dial::main(args);
+    }
     let mut all = true;
     let mut out = io::stdout().lock();
     if args.proxy {
@@ -251,12 +271,17 @@ pub(crate) fn main(args: &SelfTestArgs) -> std::process::ExitCode {
         }
         return if all { std::process::ExitCode::SUCCESS } else { std::process::ExitCode::FAILURE };
     }
-    if args.forward {
-        for name in FORWARD_CHECKS {
+    if args.forward || args.reach {
+        let (checks, helper) = if args.forward {
+            (FORWARD_CHECKS, crate::forward::FORWARD_NAME)
+        } else {
+            (REACH_CHECKS, crate::reach::REACH_NAME)
+        };
+        for name in checks {
             if !args.checks.is_empty() && !args.checks.iter().any(|check| check == name) {
                 continue;
             }
-            let (ok, detail) = forward_check(name);
+            let (ok, detail) = helper_check(name, helper);
             all &= ok;
             let line = CheckLine { name: (*name).to_owned(), ok, detail };
             let text = serde_json::to_string(&line).unwrap_or_default();
@@ -644,12 +669,14 @@ fn tunnel() -> Result<String, String> {
     }
 }
 
-/// `(ok, detail)` for one check of [`FORWARD_CHECKS`].
-fn forward_check(name: &str) -> (bool, String) {
-    match (name, helper_pid(crate::forward::FORWARD_NAME)) {
-        (_, None) => (false, "no forwarder of this job".to_owned()),
-        ("forward_signal", Some(pid)) => helper_signal(pid),
-        (_, Some(pid)) => helper_environ(pid),
+/// `(ok, detail)` for one check of [`FORWARD_CHECKS`] or [`REACH_CHECKS`] against the
+/// helper `helper`: a `_signal` check sends it a signal, the other reads its `/proc`
+/// files.
+fn helper_check(name: &str, helper: &str) -> (bool, String) {
+    match helper_pid(helper) {
+        None => (false, format!("no {helper} of this sandbox")),
+        Some(pid) if name.ends_with("_signal") => helper_signal(pid),
+        Some(pid) => helper_environ(pid),
     }
 }
 
@@ -745,6 +772,7 @@ fn outcome(ok: bool, detail: String) -> (bool, String) {
 }
 
 mod bus_proxy;
+mod dial;
 mod echo;
 
 #[cfg(test)]
