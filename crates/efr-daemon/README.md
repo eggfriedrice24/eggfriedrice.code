@@ -1003,6 +1003,35 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   connections close when the job ends (its `JobInfo` ends with no forwards), at efrd's
   stop, and at a reload that turns forwards off. `jobs.list` and the `jobs` tool show
   the forwarded ports of a running job from the table (`forwarded ports 8765, 5173`).
+- The reach of a contained call (`jobs/forward/reach.rs`, v0.0.4 shell items
+  DS34-DS48): a contained foreground call with a network namespace of its own reaches
+  the forwarded ports of its own conversation's running jobs at `127.0.0.1:<port>` and
+  `[::1]:<port>` in its namespace, with no question. `forward::Forwards` knows which
+  job serves each forwarded port (after the host bind), since when each job forwards,
+  and a `watch` that changes at each forward and each release. While
+  `jobs.forward_ports` is true and a job of the conversation forwards, the prepare
+  (`SandboxService::prepare`, `PrepareInput::reach`) puts a `ReachPlan` with the
+  conversation's forwarded ports in the spec (`reach::plan_of`) and binds
+  `$CALL/reach.sock` (0600) before the launch; a conversation with no such job makes no
+  socket. The reach helper's first connection must send `Hello` with `REACH_VERSION`;
+  when none came in 5 s on efrd's clock, efrd logs one warning and the call runs with no
+  reach. On that control connection efrd sends `Reach` for each new forwarded port and
+  `Unreach` for each port that no job forwards any more (the job ended, a release, a
+  reload that turns forwards off), each on both addresses, and only logs the helper's
+  `Bound` frames at `debug`; any other frame closes it. Every other connection must
+  begin with `Connect`: efrd finds the job by the call's conversation and the port on
+  every connection (`Forwards::route`), takes one place of the job's 64, sends `Open`
+  on the job's control connection and copies the bytes (`Ctx::reach`); it never opens a
+  TCP connection on the host for a call. A port of another conversation, a port that no
+  job forwards, a gone server and a server that does not answer close the connection
+  with no byte. A call has at most 32 connections at one time, so the host keeps room
+  in the job's limit. The `ReachCall` lives beside the call's proxy socket: a call that
+  ended drops it, and a call past its timeout keeps it until its `result.json`
+  (`SandboxService::keep_reach`; the gc pass and the next prepare of a call with a reach
+  end it). The fact `CallFacts::reach_ports` of a shell line holds the conversation's
+  forwarded ports (`reach::fact`); when the line names a loopback port that is not
+  forwarded yet and a job of the conversation began to forward less than 3 s ago, efrd
+  first waits for that port up to the rest of the 3 s on its clock.
 
 ### The reviewer, presence and the home store
 
@@ -1520,6 +1549,22 @@ when a program took it. The unit tests of `jobs/forward/` cover the plan of each
 the socket in a deep call dir, the table of held ports, the lines, and the two checks
 of the plan: a listener of std and tokio has no `SO_REUSEPORT`, and the peer's row of
 an accepted connection is in `/proc/net/tcp` at once.
+
+The `reach` module tests the reach of a contained call on efrd's side with the
+`FakeLauncher`, which starts no reach helper, a `FakeForwarder` with an echo server
+behind each port, and `efr-test-daemon`'s `FakeReach`, which the test plays on the
+call's reach socket with no TCP port. A foreground call runs through a real hidden zsh,
+so most of its tests need `EFR_TEST_ZSH=1`, and a line that names a port runs a fake
+`curl`. It covers the route to the conversation's own job (64 KiB both ways), the
+refusal of another conversation's port, the close after a gone server and the
+`Unreach` at the job's end, a forward that comes during the call, a reload that turns
+forwards off, a call past its timeout that keeps its reach until its result, no reach
+without a forwarding job, for a job and for the exit child, the limit of 32
+connections that leaves room for the host, and the fact of a line: a forwarded port
+needs no exit, the wait for the forward of a new job, the end of the wait at 3 s, and
+no wait for an older job. The unit tests of `jobs/forward/reach/` cover the ports and
+routes of `Forwards`, which call gets a plan, the ports that a line names and the wait
+of the fact on the test clock.
 
 The `login` module also runs `admin.login_api_key` and `admin.logout` against the
 local server's `/v1/models`: a key that is checked with its organization and project
