@@ -6,9 +6,9 @@ use proptest::strategy::{Just, Strategy};
 
 use crate::SandboxError;
 use crate::forward::{
-    Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen, MIN_PORT, PortRefusal,
-    SERVICE_PORTS, TCP_LISTEN, TcpRow, loopback_listens, parse_tcp_table, peer_uid, refusal,
-    v6_holds,
+    Change, Debounce, FORWARD_VERSION, FRAME_LEN, Frame, FrameKind, Listen, MAX_REPORTED_PORTS,
+    MIN_PORT, PortRefusal, SERVICE_PORTS, TCP_LISTEN, TcpRow, loopback_listens, parse_tcp_table,
+    peer_uid, refusal, v6_holds,
 };
 use crate::spec::ForwardPlan;
 
@@ -265,29 +265,47 @@ fn low_and_bridge_ports_are_never_reported_and_service_ports_are() {
     );
 }
 
-#[test]
-fn the_debounce_reports_one_port_past_the_limit_and_service_ports_do_not_count() {
-    let mut debounce = debounce();
-    let mut listens: Vec<Listen> =
-        (0..12).map(|index| listen(v4(127, 0, 0, 1), 20_000 + index)).collect();
-    listens.push(listen(v4(127, 0, 0, 1), 5432));
-    debounce.observe(0, &listens);
-    let changes = debounce.observe(40, &listens);
-    let ports: Vec<u16> = changes
+/// The ports of `changes`, in order.
+fn ports_of(changes: &[Change]) -> Vec<u16> {
+    changes
         .iter()
         .map(|change| match change {
             Change::Listen(listen) | Change::Gone(listen) => listen.port,
         })
-        .collect();
-    assert_eq!(
-        ports,
-        [5432, 20_000, 20_001, 20_002, 20_003, 20_004, 20_005, 20_006, 20_007, 20_008]
-    );
+        .collect()
+}
+
+#[test]
+fn the_debounce_reports_at_most_the_flood_guard_and_service_ports_do_not_count() {
+    let mut debounce = debounce();
+    let count = u16::try_from(MAX_REPORTED_PORTS).unwrap() + 4;
+    let mut listens: Vec<Listen> =
+        (0..count).map(|index| listen(v4(127, 0, 0, 1), 20_000 + index)).collect();
+    listens.push(listen(v4(127, 0, 0, 1), 5432));
+    debounce.observe(0, &listens);
+    let ports = ports_of(&debounce.observe(40, &listens));
+    let counted = (0..u16::try_from(MAX_REPORTED_PORTS).unwrap()).map(|index| 20_000 + index);
+    assert_eq!(ports, std::iter::once(5432).chain(counted).collect::<Vec<_>>());
     // A counted port that comes back is reported again; a new one is not.
-    let back = [listen(v4(127, 0, 0, 1), 20_000), listen(v4(127, 0, 0, 1), 20_011)];
+    let back = [listen(v4(127, 0, 0, 1), 20_000), listen(v4(127, 0, 0, 1), 20_000 + count - 1)];
     debounce.observe(60, &[]);
     debounce.observe(80, &back);
     assert_eq!(debounce.observe(120, &back), [Change::Listen(back[0])]);
+}
+
+#[test]
+fn ports_past_the_jobs_limit_still_report() {
+    // efrd may refuse each of the first nine ports, such as for a port in use on the
+    // host; the forwarder does not know it, so a tenth port that comes later still
+    // reports, and efrd decides.
+    let mut debounce = debounce();
+    let first: Vec<Listen> = (0..9).map(|index| listen(v4(127, 0, 0, 1), 3000 + index)).collect();
+    debounce.observe(0, &first);
+    assert_eq!(ports_of(&debounce.observe(40, &first)), (3000..3009).collect::<Vec<_>>());
+    let mut all = first.clone();
+    all.push(listen(v4(127, 0, 0, 1), 5173));
+    debounce.observe(60, &all);
+    assert_eq!(debounce.observe(100, &all), [Change::Listen(all[9])]);
 }
 
 #[test]
