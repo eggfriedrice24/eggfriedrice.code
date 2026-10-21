@@ -18,5 +18,6 @@ pub(crate) mod resume;
 pub(crate) mod sandbox;
 pub(crate) mod send;
 pub(crate) mod settings;
+pub(crate) mod shell;
 pub(crate) mod status;
 pub(crate) mod undo;

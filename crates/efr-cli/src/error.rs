@@ -184,6 +184,11 @@ pub(crate) enum CliError {
     )]
     ResumeNeedsTerminal,
 
+    /// `efr shell` found a command that waits for a password, and stdin is not a
+    /// terminal: efr reads a password only where nothing shows it.
+    #[error("efr shell reads a password only on a terminal, and stdin is not one")]
+    ShellNeedsTerminal,
+
     /// Another open terminal holds the conversation, and there is no terminal to ask
     /// on. Nothing moved.
     #[error("{} is open in {tty}; efr resume --take {target} moves it", .title.as_deref().map_or_else(|| "the conversation".to_owned(), |title| format!("{title:?}")))]
@@ -385,7 +390,8 @@ impl CliError {
             | CliError::AmbiguousConversation { .. }
             | CliError::NoResumeRow { .. }
             | CliError::ResumeAmbiguous { .. }
-            | CliError::ResumeNeedsTerminal => Exit::Usage,
+            | CliError::ResumeNeedsTerminal
+            | CliError::ShellNeedsTerminal => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
             CliError::ConfigInvalid
