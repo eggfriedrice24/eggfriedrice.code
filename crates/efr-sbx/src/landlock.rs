@@ -8,7 +8,8 @@
 //! which only takes rights away. A network view call (`deny_tcp`) also handles the TCP
 //! bind and connect rights, with no rule that grants them. The forwarder of a job
 //! (`deny_tcp_bind`) handles the TCP bind right alone: it connects to the job's servers
-//! and never listens.
+//! and never listens. The reach helper of a call (`deny_tcp_connect`) handles the TCP
+//! connect right alone: it listens in the call's namespace and never connects.
 
 use std::io;
 use std::os::fd::BorrowedFd;
@@ -102,13 +103,17 @@ pub(crate) fn restrict(
         .handle_access(handled)
         .map_err(landlock_error)?;
     // No rule ever grants these, so a TCP bind (and with `deny_tcp` a connect) fails
-    // with EACCES even if a socket got past seccomp.
+    // with EACCES even if a socket got past seccomp; with `deny_tcp_connect` only the
+    // connect does.
     let mut net = BitFlags::<AccessNet>::empty();
     if policy.deny_tcp {
         net |= AccessNet::BindTcp | AccessNet::ConnectTcp;
     }
     if policy.deny_tcp_bind {
         net |= AccessNet::BindTcp;
+    }
+    if policy.deny_tcp_connect {
+        net |= AccessNet::ConnectTcp;
     }
     if !net.is_empty() {
         ruleset = ruleset.handle_access(net).map_err(landlock_error)?;
