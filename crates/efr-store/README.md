@@ -53,7 +53,10 @@ across a restart:
   job from its `job_started`, `job_ended` and `job_watch_matched` events, with the
   launcher's process id and start time from `job_started` (never from a file that a
   job can write), and one row per end or watch match with the turn whose `job_notice`
-  took it. `next_number` seeds the ids of new jobs, `running` finds the jobs that ran
+  took it. The forwarded ports of a job (`JobInfo::forwards`) come from its
+  `job_port_forwarded` events: `forwarded` adds a port, `stopped` removes it, and the
+  job's end removes all of them; the other outcomes change nothing, and no such event
+  is a notice. `next_number` seeds the ids of new jobs, `running` finds the jobs that ran
   when efrd stopped, `of_conversation` and `all` list them newest first, and
   `undelivered_notices` reads the notices that no turn took. The first
   `job_notice` with `woke` of a turn makes that turn's row in `turns`, with
