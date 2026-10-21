@@ -1,5 +1,6 @@
 mod bus;
 mod corpus;
+mod held;
 mod proxy;
 mod sandbox;
 
@@ -266,8 +267,12 @@ async fn a_command_waiting_for_input_shows_the_screen() {
         "{}",
         result.output
     );
-    assert!(result.output.contains("only while they follow the turn"), "{}", result.output);
-    assert!(result.output.contains("the next call waits for it"), "{}", result.output);
+    assert!(result.output.contains("after ,shell"), "{}", result.output);
+    assert!(
+        result.output.contains("the next call fails at once while it waits"),
+        "{}",
+        result.output
+    );
     assert!(!result.output.contains("shell's screen"), "{}", result.output);
     assert!(result.output.ends_with("[sudo] password for u:"), "{}", result.output);
 }
@@ -293,7 +298,7 @@ async fn a_full_screen_program_is_not_called_a_question_the_user_missed() {
         "{}",
         result.output
     );
-    assert!(result.output.contains("cannot reach it from their terminal yet"), "{}", result.output);
+    assert!(result.output.contains("Nobody can use it"), "{}", result.output);
     assert!(result.output.contains("the next call waits"), "{}", result.output);
     assert!(!result.output.contains("follow the turn"), "{}", result.output);
     assert!(!result.output.contains("nobody did in time"), "{}", result.output);
@@ -540,7 +545,7 @@ async fn shell_conditions_the_model_can_act_on_are_error_results() {
         (ShellError::Busy { conversation }, "nobody can clear it from here now"),
         (
             ShellError::NotReady { conversation, fresh: false },
-            "an earlier command is still running",
+            "an earlier command still runs in it",
         ),
         // No command ran in a new shell yet, so none can hold it.
         (ShellError::NotReady { conversation, fresh: true }, "No command ran in this shell yet"),

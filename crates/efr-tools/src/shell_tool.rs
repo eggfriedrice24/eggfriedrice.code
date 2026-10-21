@@ -130,16 +130,7 @@ pub fn job_started_text(
     minutes: u32,
     clamped: bool,
 ) -> String {
-    let command: String = {
-        let flat = command.split_whitespace().collect::<Vec<_>>().join(" ");
-        if flat.chars().count() <= JOB_COMMAND_CHARS {
-            flat
-        } else {
-            let mut cut: String = flat.chars().take(JOB_COMMAND_CHARS).collect();
-            cut.push_str("...");
-            cut
-        }
-    };
+    let command = flat(command);
     let unit = if minutes == 1 { "minute" } else { "minutes" };
     let limit = if clamped {
         format!("time limit: {minutes} {unit} (the most that efr allows)")
@@ -414,6 +405,12 @@ impl ShellTool {
         }
         let cwd = result.cwd_after.display();
         let seconds = waited.as_secs();
+        // NOTE: the call answers while its command goes on in the hidden shell, which
+        // takes no other call until it ends; the conversation records that.
+        let left_running = matches!(
+            result.completion,
+            Completion::Interactive | Completion::FullScreen | Completion::StillRunning
+        );
         let is_error = match result.completion {
             Completion::Finished => {
                 let status =
@@ -430,10 +427,11 @@ impl ShellTool {
             }
             Completion::Interactive => {
                 text.push_str(&format!(
-                    "[still running after {seconds}s and waiting for input. The user can \
-                     answer it in their terminal only while they follow the turn, and nobody \
-                     did in time. The command keeps running, and the next call waits for it \
-                     to end. cwd {cwd}. The screen ends with:]\n"
+                    "[still running after {seconds}s and waiting for input. efr shows the \
+                     wait to the user, who answers it in efr's view or after ,shell; never \
+                     ask the user to type it at their prompt. Nobody answered in time. The \
+                     command keeps running and holds the hidden shell: the next call fails \
+                     at once while it waits. cwd {cwd}. The screen ends with:]\n"
                 ));
                 text.push_str(result.screen_tail.as_deref().unwrap_or_default());
                 false
@@ -443,8 +441,8 @@ impl ShellTool {
             Completion::FullScreen => {
                 text.push_str(&format!(
                     "[still running after {seconds}s: a full-screen program (an editor, a \
-                     pager, top) waits at the terminal. The user cannot reach it from their \
-                     terminal yet, so it runs until it ends by itself, and the next call \
+                     pager, top) waits at the terminal. Nobody can use it, so it runs until \
+                     it ends by itself or the user stops it with ,shell, and the next call \
                      waits for that. Tell the user. Prefer commands that do not take over the \
                      screen. cwd {cwd}. The screen ends with:]\n"
                 ));
@@ -485,8 +483,8 @@ impl ShellTool {
             }
             _ => {
                 text.push_str(&format!(
-                    "[still running after {seconds}s; the next call waits for it to end. cwd \
-                     {cwd}. The screen ends with:]\n"
+                    "[still running after {seconds}s; the next call waits for it to end. The \
+                     user can stop it with ,shell. cwd {cwd}. The screen ends with:]\n"
                 ));
                 text.push_str(result.screen_tail.as_deref().unwrap_or_default());
                 false
@@ -496,6 +494,7 @@ impl ShellTool {
             .with_truncated(cut.truncated || result.truncated)
             .with_exit_code(result.exit_code)
             .with_error(is_error)
+            .with_left_running(left_running)
     }
 }
 
@@ -528,18 +527,24 @@ impl Tool for ShellTool {
              an output line that matches a pattern. Processes that a normal call starts with \
              &, nohup or setsid stop when the call ends. The \
              answer has the output, the exit code and the directory after the command. A \
-             command still running at the timeout keeps running, and the next call waits \
+             command still running at the timeout holds the shell; efr tells the user, and \
+             the next call fails at once while that command waits for input, else waits \
              for it to end. When a command waits for input (a sudo password, a [Y/n] \
-             question), the user can answer it in their terminal while they follow the \
-             turn. On a plain terminal an answer to a question shows in the output and a \
-             password never does; behind a program that runs another one on a terminal of \
-             its own (sudo, ssh, docker exec), the program on that inner terminal decides \
-             whether an answer is shown. A call that the user approved because it may \
-             wait for input keeps running past timeout_seconds while the user follows the \
-             turn, up to their interactive limit (60 minutes unless they changed it). A \
-             command that waits for a password while nobody follows the turn is stopped \
-             at once. Set nested_shell when the command must go to a shell you started \
-             inside this one, such as sudo -i or ssh.",
+             question), efr shows the wait to the user, who can answer it while they follow \
+             the turn. rsync, scp and git over ssh may ask for a password: efr shows the \
+             prompt to the user while they follow the turn. Never ask the user to type an \
+             answer at their own prompt. On a plain terminal an answer to a question shows \
+             in the output and a password never does; behind a program that runs another \
+             one on a terminal of its own (sudo, ssh, docker exec), the program on that \
+             inner terminal decides whether an answer is shown. A command that runs outside \
+             the sandbox and may ask for a password, and any command that waits for input, \
+             keeps running past timeout_seconds while the user follows the turn, up to \
+             their interactive limit (60 minutes unless they changed it). A command that \
+             waits for a password while nobody follows the turn is stopped at once. Do not \
+             start an ssh ControlMaster or use an ssh control socket (-S, -o ControlPath): \
+             efr shows each password prompt to the user, and ~/.ssh is a secret path that \
+             efr never opens for a command. Set nested_shell when the command must go to a \
+             shell you started inside this one, such as sudo -i or ssh.",
         )
     }
 
@@ -643,8 +648,21 @@ impl Tool for ShellTool {
                  nobody can clear it from here now. The command was not run. Tell the user; \
                  a new conversation (,new in their terminal) gets a fresh shell.",
             )),
-            Err(ShellError::NotReady { fresh, .. }) => {
-                Ok(ToolResult::error(not_ready_message(fresh, timeout)))
+            Err(ShellError::NotReady { fresh: true, .. }) => {
+                Ok(ToolResult::error(not_ready_text(NotReady::Fresh, timeout)))
+            }
+            // NOTE: the run cannot tell which command holds the shell; efrd waits for a
+            // shell before a sandboxed call and names it (`NotReady::Running`).
+            Err(ShellError::NotReady { .. }) => {
+                Ok(ToolResult::error(not_ready_text(NotReady::Held, timeout)))
+            }
+            Err(ShellError::HeldBy { command, waiting, .. }) => {
+                // NOTE: only outside `auto` can the model type into a nested shell.
+                let nested = ctx.sandbox.is_none()
+                    && !efr_shell::takes_manual_answers(RunMode::Auto, &command);
+                let secret = waiting == InputWait::Hidden;
+                let held = NotReady::Waiting { command, input: waiting, secret, nested };
+                Ok(ToolResult::error(not_ready_text(held, timeout)))
             }
             Err(ShellError::Exited { .. }) => Ok(ToolResult::error(
                 "The shell exited while the command ran. The next call starts a new shell in \
@@ -666,9 +684,105 @@ const NO_INTEGRATION: &str = "full mode needs efr's zsh integration in the hidde
      so it can clear sudo's cached password; this shell started without it. The command \
      was not run. Tell the user.";
 
+/// What holds the hidden shell when a call cannot run in it, for
+/// [`not_ready_text`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NotReady {
+    /// No command ran in the shell yet, and it did not show a ready prompt: the user's
+    /// startup files may wait for input or draw a prompt that efr cannot read.
+    Fresh,
+    /// An earlier command still runs in the shell, and the call cannot tell which.
+    Held,
+    /// A command that an earlier call left running holds the shell and does not wait
+    /// for input.
+    Running {
+        /// The first 200 characters of its line.
+        command: String,
+        /// How long it has run.
+        ran: Duration,
+    },
+    /// A command that an earlier call left running holds the shell and waits for input.
+    Waiting {
+        /// The first 200 characters of its line.
+        command: String,
+        /// What it waits for.
+        input: InputWait,
+        /// True when it may wait for a password: a hidden wait, or a visible one whose
+        /// prompt looks like a password prompt, of a command outside the sandbox.
+        secret: bool,
+        /// True when the model can type into it with `nested_shell`: outside `auto`, and
+        /// the command is a shell or a REPL (`efr_shell::takes_manual_answers` is false
+        /// for it).
+        nested: bool,
+    },
+}
+
+/// The model's answer for a call that did not run because the hidden shell was not
+/// ready within `timeout`: what holds it, and what the model can do.
+pub fn not_ready_text(held: NotReady, timeout: Duration) -> String {
+    let seconds = timeout.as_secs();
+    match held {
+        NotReady::Fresh => not_ready_message(true, timeout),
+        NotReady::Held => format!(
+            "The shell did not reach its prompt within {seconds}s, so the command was not \
+             run: an earlier command still runs in it. Wait for it, or tell the user that \
+             ,shell shows it and stops it."
+        ),
+        NotReady::Running { command, ran } => format!(
+            "The hidden shell is busy: `{}` still runs (for {}). The command was not run. \
+             Wait for it, or tell the user that ,shell stops it.",
+            flat(&command),
+            rough(ran)
+        ),
+        NotReady::Waiting { command, nested: true, .. } => format!(
+            "The hidden shell is busy: `{}` still runs and waits for input. The command was \
+             not run. If it is a shell or a REPL that you started inside this one, call \
+             again with nested_shell set to type into it. Else tell the user, who answers or \
+             stops it with ,shell.",
+            flat(&command)
+        ),
+        NotReady::Waiting { command, secret, .. } => {
+            let what = if secret { "a password" } else { "input" };
+            format!(
+                "The hidden shell is busy: `{}` still runs and waits for {what}. efr told the \
+                 user, who answers or stops it with ,shell. The command was not run. Do not \
+                 call shell again until the user acts, and do not ask the user to type \
+                 anything at their prompt; a background job cannot reach that command.",
+                flat(&command)
+            )
+        }
+    }
+}
+
+/// `command` on one line, at most [`JOB_COMMAND_CHARS`] characters.
+fn flat(command: &str) -> String {
+    let flat = command.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= JOB_COMMAND_CHARS {
+        flat
+    } else {
+        let mut cut: String = flat.chars().take(JOB_COMMAND_CHARS).collect();
+        cut.push_str("...");
+        cut
+    }
+}
+
+/// `duration` in rough words: `40 s`, `3 min`, `2 h` or `5 d`.
+fn rough(duration: Duration) -> String {
+    let secs = duration.as_secs();
+    match secs {
+        0..60 => format!("{secs} s"),
+        60..3_600 => format!("{} min", secs / 60),
+        3_600..86_400 => format!("{} h", secs / 3_600),
+        _ => format!("{} d", secs / 86_400),
+    }
+}
+
 /// The model's answer for a call whose shell did not reach a ready prompt within
 /// `timeout`, so the command was not run. `fresh` is true when no command ran in the
 /// shell yet: then no earlier command can hold it.
+// NOTE: efrd still uses it; P6 of the v0.0.4 shell items moves efrd to
+// `not_ready_text` and removes it.
 pub fn not_ready_message(fresh: bool, timeout: Duration) -> String {
     let seconds = timeout.as_secs();
     if fresh {

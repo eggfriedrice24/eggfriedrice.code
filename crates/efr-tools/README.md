@@ -159,26 +159,39 @@ The tools:
   What the text cannot show, such as the files a script opens, it cannot declare. The
   answer
   ends with `[exit code N, cwd DIR]`; a command still running at the timeout gets the
-  screen's last lines and a note that the next call waits for it. The run names the
-  call (`RunRequest::call`), so only answers for this call reach its command, and the
-  tool passes the run's input waits and the questions who can answer to its
+  screen's last lines and a note that it holds the shell, and the result has
+  `ToolResult::left_running` (`Completion::Interactive`, `FullScreen` and
+  `StillRunning`), which the conversation records on `tool_call_completed`. The run
+  names the call (`RunRequest::call`), so only answers for this call reach its command,
+  and the tool passes the run's input waits and the questions who can answer to its
   `ToolOutputSink`. The texts the model reads never promise a screen: the user does
-  not see the hidden shell, and can answer a waiting command in their terminal only
-  while they follow the turn; behind a relay (`sudo`, `ssh`, `docker exec`) the program
-  on the inner terminal decides whether an answer is shown; an approved interactive
-  call may run up to the user's interactive limit, and the timeout text names how long
-  the call really ran; no editor works in the hidden shell. A full-screen program at the timeout
-  (`Completion::FullScreen`) has its own text: the user is never asked about one and
-  cannot reach it yet, so the model reads that, not that the user missed a question.
-  A command that waited for hidden input that nobody could
-  answer (`Completion::Unanswered`) is an error result that says efr interrupted it and
-  that the user should run it in their own terminal or follow the turn while the model
-  tries again. A busy shell, a
-  shell that did not reach its prompt, a shell that exited and a command that cannot
-  be typed are error results with advice for the model; other shell failures are
-  `ToolError::Shell`. The advice is only what is true: nothing clears a busy shell from
-  a turn (an interrupt reaches the shell only for a call in flight), so the model is
-  told to tell the user, and that a new conversation gets a fresh shell.
+  not see the hidden shell, and answers a waiting command in efr's view while they
+  follow the turn, or after `,shell`; a text never tells the model to have the user
+  type at their own prompt; behind a relay (`sudo`, `ssh`, `docker exec`) the program
+  on the inner terminal decides whether an answer is shown; a call outside the sandbox
+  whose line may ask, and any command that waits for input, may run up to the user's
+  interactive limit, and the timeout text names how long the call really ran; no
+  editor works in the hidden shell. The description also tells the model that `rsync`,
+  `scp` and `git` over ssh may ask for a password, that a command left running holds
+  the shell, and not to start an ssh control socket, because `~/.ssh` is a secret path.
+  A full-screen program at the timeout (`Completion::FullScreen`) has its own text:
+  the user is never asked about one and can only stop it with `,shell`, so the model
+  reads that, not that the user missed a question. A command that waited for hidden
+  input that nobody could answer (`Completion::Unanswered`) is an error result that
+  says efr interrupted it and that the user should run it in their own terminal or
+  follow the turn while the model tries again. A busy shell, a shell that did not
+  reach its prompt, a shell that exited and a command that cannot be typed are error
+  results with advice for the model; other shell failures are `ToolError::Shell`. The
+  advice is only what is true: nothing clears a busy shell from a turn (an interrupt
+  reaches the shell only for a call in flight), so the model is told to tell the user,
+  and that a new conversation gets a fresh shell. `not_ready_text` (with `NotReady`)
+  says what holds the hidden shell: no prompt yet in a new shell (`Fresh`), an earlier
+  command that the call cannot name (`Held`), a command left running (`Running`, with
+  how long it ran), or one that waits for input (`Waiting`, from
+  `ShellError::HeldBy`): the call fails at once, the model learns that the user answers
+  or stops it with `,shell`, and it must not call again or ask the user to type at
+  their prompt. Only outside `auto` and only for a held shell or REPL does the text
+  name `nested_shell`. `not_ready_message` stays until efrd moves to it.
 - `ReadFileTool` (`read_file`) reads a text file, whole or a range of lines (`offset`
   from 1, `limit`). It declares the path for reading and refuses a file over 16 MiB, a
   binary file (a NUL byte in the first 8 KiB) and anything that is not a regular file.
