@@ -1592,7 +1592,11 @@ masked credential files, while the same push outside the sandbox sends one; a to
 the project's git config or `.npmrc` makes efrd deny that host for the call; a script
 that reaches a host that is not listed gets the proxy's note in its output; and a
 background dev server with the `localhost` route answers the test on the host's
-loopback. The unit tests of `sandbox/` cover the plan, the probe with a fake launcher, the lock, the worktree record, the facts, the report, the
+loopback. Its child module `sandbox::forward` runs the job port forwards on the real
+launcher with a real zsh: a job's `self-test --echo` server on 127.0.0.1 or on `::1`
+only is reachable from the host through the test seam, in `proxy` and in `none` mode;
+the stop of the job and a restart of efrd leave no listener; and a foreground call
+gets no forwarder. The unit tests of `sandbox/` cover the plan, the probe with a fake launcher, the lock, the worktree record, the facts, the report, the
 quarantine and the peer check on real process trees.
 
 The `full` module runs full mode end to end: the gate key, the config default with
