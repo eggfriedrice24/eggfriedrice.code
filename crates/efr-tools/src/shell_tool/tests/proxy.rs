@@ -102,6 +102,14 @@ fn hosts_member_text_holds_in_both_modes() {
     // with the proxy and without it: it names no allow list and promises no proxy.
     assert!(text.contains("localhost"), "{text}");
     assert!(text.contains("HTTPS_PROXY"), "{text}");
+    // A dev server for the browser runs as a job, whose port efr forwards (DL16 of the
+    // v0.0.4 live items plan); `localhost` stays for a client of a service of the host.
+    assert_eq!(
+        *text,
+        "Hosts that the command needs, such as gitlab.com. A server that the user's browser \
+         must reach runs as a background job: efr forwards its port. For a tool that does \
+         not use HTTPS_PROXY, such as psql, name localhost or the host with its port."
+    );
     for word in ["allow list", "efr's proxy", "phase"] {
         assert!(!text.contains(word), "{word:?} in {text}");
     }
