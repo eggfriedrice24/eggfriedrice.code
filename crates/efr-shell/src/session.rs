@@ -24,6 +24,7 @@ use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
+use crate::adopt::{Adoption, Tee};
 use crate::capture::Kept;
 use crate::input::{self, InputWatch, Look, Offer, Probe, Quiet, Waiting};
 use crate::modes::{Job, Terminal};
@@ -80,6 +81,10 @@ pub(crate) enum Msg {
         how: ShellCommandEnd,
         reply: oneshot::Sender<Result<StopTarget, ShellError>>,
     },
+    /// Hand run `id`, whose command runs, to a background job: the session keeps it as
+    /// its adopted run, sends its output to `tee` from now on, and answers its end on
+    /// the run's reply channel. The reason says why it cannot move.
+    Adopt { id: u64, tee: Tee, reply: oneshot::Sender<Result<Adoption, &'static str>> },
     /// Type `text` for the running command of `call`, if it waits for such input, or,
     /// with `manual`, if the job that the last look saw holds the terminal. `Debug` shows no text:
     /// `SecretText` hides it.
@@ -182,6 +187,7 @@ pub(crate) struct StopTarget {
 enum Target {
     Active(u64),
     Orphan,
+    Adopted,
 }
 
 /// A check of a sandboxed run's end that the actor runs after the chunk.
@@ -324,6 +330,23 @@ impl Orphan {
     }
 }
 
+/// A run that a background job adopted: its command goes on, its output goes to the
+/// job, and its end answers the run's reply channel, which the job holds now.
+struct Adopted {
+    /// The run's id, which a look names.
+    id: u64,
+    /// Only a marked run moves: a sentinel run types into whatever holds the terminal.
+    run: MarkRun,
+    reply: oneshot::Sender<Result<RunEnd, ShellError>>,
+    tee: Tee,
+}
+
+/// Why a run cannot move: its command has not started yet.
+pub(crate) const NOT_STARTED: &str = "the call has not started";
+
+/// Why a run cannot move: it ended, or it is no run of this shell.
+pub(crate) const ENDED: &str = "the call ended";
+
 /// How many characters of its line a run keeps for the time that its command runs on
 /// without a caller, as a background job's command is cut.
 pub(crate) const LEFT_COMMAND_CHARS: usize = 200;
@@ -393,6 +416,8 @@ pub(crate) struct Activity {
     pub(crate) orphan: Option<u64>,
     /// A command left running waits for input: the shell takes no run until it ends.
     pub(crate) held_waiting: bool,
+    /// The id of the run that a background job adopted, while its command goes on.
+    pub(crate) adopted: Option<u64>,
 }
 
 impl Default for Activity {
@@ -404,6 +429,7 @@ impl Default for Activity {
             used: false,
             orphan: None,
             held_waiting: false,
+            adopted: None,
         }
     }
 }
@@ -420,6 +446,11 @@ pub(crate) struct SessionCore {
     last_output: Option<Timestamp>,
     active: Option<Active>,
     queued: Option<RunOrder>,
+    /// The run that a background job adopted, while its command goes on.
+    adopted: Option<Adopted>,
+    /// A background job adopted a run of this shell: the shell is no longer its
+    /// conversation's, and its end is no `Exited` notice.
+    adopted_shell: bool,
     /// A typed run whose caller stopped waiting, still read so that the next run knows
     /// when the shell is free again. Without it, a run detached before its `C` mark
     /// would leave the phase at `Ready` and the next line would be typed ahead into
@@ -457,6 +488,8 @@ impl SessionCore {
             last_output: None,
             active: None,
             queued: None,
+            adopted: None,
+            adopted_shell: false,
             orphan: None,
             forget_pending: false,
             forget_warned: false,
@@ -479,7 +512,10 @@ impl SessionCore {
     /// True when no run is active, waits or was left running: a run submitted now
     /// waits for nothing but the prompt.
     pub(crate) fn is_free(&self) -> bool {
-        self.active.is_none() && self.queued.is_none() && self.orphan.is_none()
+        self.active.is_none()
+            && self.queued.is_none()
+            && self.orphan.is_none()
+            && self.adopted.is_none()
     }
 
     /// The command left running in the shell, if any.
@@ -492,11 +528,13 @@ impl SessionCore {
         Activity {
             free: self.is_free(),
             sandboxed: self.active.as_ref().is_some_and(|active| active.machine.sandboxed())
-                || self.orphan.as_ref().is_some_and(|orphan| orphan.machine.sandboxed()),
+                || self.orphan.as_ref().is_some_and(|orphan| orphan.machine.sandboxed())
+                || self.adopted.as_ref().is_some_and(|adopted| adopted.run.sandbox_dir().is_some()),
             starting: self.state.phase == Phase::Starting,
             used: self.used,
             orphan: self.orphan.as_ref().map(|orphan| orphan.id),
             held_waiting: self.held_by().is_some(),
+            adopted: self.adopted.as_ref().map(|adopted| adopted.id),
         }
     }
 
@@ -569,6 +607,11 @@ impl SessionCore {
     /// Whether a run in `mode` can be typed now; `forget_before` for a run that needs
     /// the forget key at a ready prompt before its line.
     fn placement(&self, mode: RunMode, forget_before: bool) -> Placement {
+        // NOTE: an adopted command owns the terminal until its end; no run reaches this
+        // shell then anyway, because it is out of its conversation's slot.
+        if self.adopted.is_some() {
+            return Placement::Wait;
+        }
         // An orphaned sentinel run owns the foreground until its end marker. An
         // orphaned marked run holds the next marked line until its `D`, but a sentinel
         // run is meant for whatever runs in the foreground, such as a nested shell.
@@ -635,11 +678,15 @@ impl SessionCore {
     }
 
     /// What a look at run `id` needs from the session, with `job`, the job in the
-    /// terminal's foreground that the actor read; for a run left at its timeout, what a
-    /// look at its command needs. `None` once the command ended, or its run was left
+    /// terminal's foreground that the actor read; for a run left at its timeout or
+    /// adopted by a background job, what a look at its command needs. `None` once the command ended, or its run was left
     /// another way. While the command runs, the job's group is kept as the one a manual
     /// answer may reach.
     pub(crate) fn probe(&mut self, id: u64, job: Option<Job>) -> Option<Probe> {
+        if let Some(adopted) = self.adopted.as_ref().filter(|adopted| adopted.id == id) {
+            let running = adopted.run.running();
+            return Some(Probe { running, last_output: self.last_output, job, answers: 0 });
+        }
         let busy = self.active.is_some();
         if let Some(orphan) = self.orphan.as_mut().filter(|orphan| orphan.id == id && orphan.left) {
             // NOTE: while a run is active, such as a sentinel run typed into a shell that
@@ -778,6 +825,50 @@ impl SessionCore {
         Ok(StopTarget { id: orphan.id, group })
     }
 
+    /// Hands run `id` to a background job: from now on its output goes to `tee` and its
+    /// end to the run's reply channel. Only a marked run whose command runs, reports
+    /// visible waits and waits for nothing moves; else the reason says why not.
+    pub(crate) fn adopt(&mut self, id: u64, tee: Tee) -> Result<Adoption, &'static str> {
+        if self.queued.as_ref().is_some_and(|order| order.id == id) {
+            return Err(NOT_STARTED);
+        }
+        let active = self.active.as_ref().filter(|active| active.id == id).ok_or(ENDED)?;
+        if !active.machine.running() {
+            return Err(NOT_STARTED);
+        }
+        // NOTE: a sentinel run types into whatever holds the terminal, such as a nested
+        // shell, and its end is a line that the command can print too; a shell or a
+        // REPL reads command lines. Neither is one command that a job can own.
+        if !matches!(active.machine, Machine::Marks(_)) {
+            return Err("the shell gives no marks for this command, so it cannot move");
+        }
+        if active.offer != Offer::All {
+            return Err("a shell or a REPL cannot move");
+        }
+        if active.waiting.is_some() {
+            return Err("the command waits for input; answer it first");
+        }
+        let Some(Active { machine: Machine::Marks(run), reply, .. }) = self.active.take() else {
+            unreachable!("the active run was checked above as a marked run");
+        };
+        let (kept, range) = run.partial();
+        let call_dir = run.sandbox_dir().map(PathBuf::from);
+        self.adopted = Some(Adopted { id, run, reply, tee });
+        self.adopted_shell = true;
+        Ok(Adoption { kept, range, cwd: self.state.cwd.clone(), call_dir })
+    }
+
+    /// The adopted run's command ended with `output`.
+    fn end_adopted(&mut self, output: RunOutput) {
+        let Some(adopted) = self.adopted.take() else {
+            return;
+        };
+        // A command that sudo ran may have authenticated by the time it ends.
+        self.forget_pending |= adopted.run.forgets_credentials();
+        let cwd = output.cwd.clone().unwrap_or_else(|| self.state.cwd.clone());
+        let _ = adopted.reply.send(Ok(RunEnd { output, cwd, delimiter: Delimiter::Marks }));
+    }
+
     /// The first marked prompt did not come in time.
     pub(crate) fn startup_expired(&mut self) -> Vec<Bytes> {
         self.state.startup_expired();
@@ -833,6 +924,9 @@ impl SessionCore {
         if let Some(order) = self.queued.take() {
             let _ = order.reply.send(Err(error()));
         }
+        if let Some(adopted) = self.adopted.take() {
+            let _ = adopted.reply.send(Err(error()));
+        }
         if let Some(orphan) = self.orphan.take().filter(|orphan| orphan.left) {
             // A close that efr or the user asked for ends the shell on purpose.
             let how = match orphan.stopping {
@@ -846,10 +940,13 @@ impl SessionCore {
                 how,
             });
         }
-        self.observer.notice(ShellNotice::Exited {
-            conversation: self.conversation,
-            pty_id: self.state.pty_id,
-            status,
+        // NOTE: a shell that a job adopted is no longer its conversation's, so no
+        // client may read that the conversation's hidden shell exited.
+        let pty_id = self.state.pty_id;
+        self.observer.notice(if self.adopted_shell {
+            ShellNotice::AdoptedExited { conversation, pty_id, status }
+        } else {
+            ShellNotice::Exited { conversation, pty_id, status }
         });
     }
 
@@ -1000,6 +1097,11 @@ impl SessionCore {
         if let Some(exit_code) = ended {
             self.end_orphan(exit_code);
         }
+        if let Some(adopted) = &mut self.adopted
+            && adopted.run.on_bytes(at, bytes)
+        {
+            adopted.tee.send(Bytes::copy_from_slice(bytes));
+        }
         let Some(active) = &mut self.active else {
             return;
         };
@@ -1032,6 +1134,7 @@ impl SessionCore {
     fn shielded(&self) -> bool {
         self.active.as_ref().is_some_and(|active| active.machine.shields())
             || self.orphan.as_ref().is_some_and(|orphan| orphan.machine.shields())
+            || self.adopted.as_ref().is_some_and(|adopted| adopted.run.shields())
     }
 
     fn mark(&mut self, mark: &ShellMark, writes: &mut Vec<Bytes>) {
@@ -1067,6 +1170,22 @@ impl SessionCore {
             Some((MarkStep::Check(check), dir)) => {
                 if let Some(dir) = dir {
                     self.check = Some(CheckOrder { target: Target::Orphan, check, dir });
+                }
+            }
+        }
+        let step = self.adopted.as_mut().map(|adopted| {
+            // The start of the mark may have reached the job already, read before the
+            // scanner could tell it was a mark.
+            adopted.tee.mark();
+            (adopted.run.on_mark(mark), adopted.run.sandbox_dir().map(PathBuf::from))
+        });
+        match step {
+            None | Some((MarkStep::Continue, _)) => {}
+            Some((MarkStep::Cancel, _)) => writes.push(Bytes::from_static(CANCEL_LINE)),
+            Some((MarkStep::Ended(output), _)) => self.end_adopted(output),
+            Some((MarkStep::Check(check), dir)) => {
+                if let Some(dir) = dir {
+                    self.check = Some(CheckOrder { target: Target::Adopted, check, dir });
                 }
             }
         }
@@ -1118,6 +1237,11 @@ impl SessionCore {
                 }
                 output.map(|output| (output, false))
             }
+            Target::Adopted => self
+                .adopted
+                .as_mut()
+                .and_then(|adopted| adopted.run.checked(order.check, facts))
+                .map(|output| (output, false)),
             Target::Active(id) => match self.active.as_mut().filter(|active| active.id == id) {
                 Some(Active { machine: Machine::Marks(run), .. }) => {
                     let forget = run.forgets_credentials();
@@ -1139,9 +1263,13 @@ impl SessionCore {
                 }
             }
         }
-        if matches!(order.target, Target::Active(_)) {
-            self.forget_pending |= forget;
-            self.finish(output);
+        match order.target {
+            Target::Active(_) => {
+                self.forget_pending |= forget;
+                self.finish(output);
+            }
+            Target::Adopted => self.end_adopted(output),
+            Target::Orphan => {}
         }
         let mut writes = Vec::new();
         // The prompt may be ready already: no later mark would send the key.
@@ -1271,6 +1399,9 @@ impl SessionActor {
                 Msg::Stopping { id, how } => self.core.stopping(id, how),
                 Msg::Stop { call, how, reply } => {
                     let _ = reply.send(self.core.stop(call, how));
+                }
+                Msg::Adopt { id, tee, reply } => {
+                    let _ = reply.send(self.core.adopt(id, tee));
                 }
                 Msg::Answer { call, text, hidden, manual, reply } => {
                     let typed = answer(&mut self.core, &self.terminal, call, &text, hidden, manual);
@@ -1609,6 +1740,16 @@ impl SessionHandle {
         let mut activity = self.activity.clone();
         tokio::select! {
             _ = activity.wait_for(|activity| activity.orphan != Some(id)) => {}
+            _ = self.ended() => {}
+        }
+    }
+
+    /// Waits until the command of run `id`, adopted by a background job, ended, or the
+    /// shell did.
+    pub(crate) async fn adopted_gone(&self, id: u64) {
+        let mut activity = self.activity.clone();
+        tokio::select! {
+            _ = activity.wait_for(|activity| activity.adopted != Some(id)) => {}
             _ = self.ended() => {}
         }
     }

@@ -6,8 +6,9 @@ use std::collections::VecDeque;
 
 use bytes::Bytes;
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the adopted run of a job reads it next"))]
 mod stream;
+
+pub(crate) use stream::StreamClean;
 
 /// The raw output of one run, kept within `limit` bytes: the first half of the limit
 /// from the start of the output and the second half from its end. The full output

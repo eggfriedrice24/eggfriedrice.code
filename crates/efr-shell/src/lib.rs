@@ -23,6 +23,9 @@
 //!   [`ShellSessions::answer`] and [`ShellSessions::interrupt_left`] reach it, and
 //!   [`ShellNotice`]s tell its detach, its waits and its end. [`Followers`] says who can
 //!   answer a wait of it.
+//! - [`ShellSessions::request_move`]: a background job adopts a running call, its
+//!   command and its shell, as an [`AdoptedRun`]; the call answers with
+//!   [`Completion::Moved`], and the conversation's next run starts a new shell.
 //! - [`ShellConfig`] and [`ShellDeps`]: what the daemon passes in. [`RecordingSink`]
 //!   receives every byte for the PTY recording; [`ShellObserver`] hears
 //!   [`ShellNotice`]s.
@@ -39,6 +42,7 @@
 //! turning notices into events (`efr-daemon`), and anything about tools or permissions
 //! (`efr-tools`, `efr-conversation`).
 
+mod adopt;
 mod capture;
 mod config;
 #[cfg(test)]
@@ -65,6 +69,7 @@ mod state;
 mod testing;
 mod writer;
 
+pub use adopt::{AdoptedEnd, AdoptedRun, TeeReader};
 pub use config::{ShellConfig, ShellDeps};
 pub use error::ShellError;
 pub use input::takes_manual_answers;

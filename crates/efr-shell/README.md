@@ -12,7 +12,9 @@ prompts such as `sudo` stay visible.
 - It spawns a conversation's shell on first use through `Arc<dyn PtyHolder>`, in the
   directory the caller names, and gives it a screen from the injected
   `ScreenFactory`, so the daemon chooses vt100 or ghostty. The screen thread is
-  named `screen-<last eight hex digits of the conversation id>`.
+  named `screen-<last four hex digits of the conversation id><last four of the PTY
+  id>`, so the two shells of a conversation whose call moved to the background have
+  two names.
 - It reads and writes the PTY master through tokio's `AsyncFd`. The holder hands the
   master over in blocking mode; the session sets `O_NONBLOCK` itself. Every chunk read
   goes to the `RecordingSink` first (the daemon appends it to the PTY recording), then
@@ -324,6 +326,48 @@ went on:
   terminal could answer the prompt. A command left running that does not wait holds
   the next run until its end, as before.
 
+A running call that moves to the background (`adopt.rs`), when the user presses
+Ctrl+B in the turn view:
+
+- `ShellSessions::request_move(conversation, call, to)` hands the call's running
+  command to a background job. The command keeps its PTY, its process tree and its
+  sandbox. The job gets them as an `AdoptedRun` on `to`. The call's run answers its
+  caller with `Completion::Moved` and the output so far. The job then owns the old
+  shell until the command ends, and it closes that shell.
+- A run that a tool call names takes move requests from its start until it stops to
+  wait for its command. A request fails with `ShellError::NotMovable`, `to` is dropped
+  and nothing moves when the run did not type its line or the command did not start,
+  the run answered already (it ended, or it was left at its timeout), the shell gives
+  no marks for the command (a sentinel run), the line starts a shell or a REPL, the
+  command waits for input, or a full-screen program holds the screen. The reason is a
+  short text for the user.
+- The conversation's slot lets go of the old shell at the move. `state`, `write`,
+  `answer`, `interrupt`, `close`, `close_all`, `busy` and `screen` of the conversation
+  no longer reach it. The next run of the conversation starts a new shell in the old
+  shell's directory, while that is still a directory; else in the run's start
+  directory. The new shell has none of the old shell's variables, functions or aliases.
+- The old shell's actor keeps the command as its adopted run. Its end answers
+  `AdoptedRun::ended` with the exit status of its `D` mark, or with the launcher's
+  `result.json` for a sandboxed call, as a run's end does. When the shell ends first,
+  `ended` fails with `ShellError::Exited`.
+- The actor sends each chunk of the command's output to a bounded queue (256 chunks)
+  with `try_send`, so a slow job never holds up the shell. A full queue drops the
+  chunk. `AdoptedRun::take_output` gives the job a `TeeReader`, a blocking
+  `io::Read` that cleans the text with the streaming cleaner (below) and writes
+  `[efr: N bytes of output dropped]` where the queue dropped bytes. It ends when the
+  command ends.
+- A task looks for input of the command once per `quiet_period`, as the watch of a
+  command left running does, and tells each change on `AdoptedRun::looks`. Nobody
+  follows a job, so a hidden wait and a visible wait that looks secret stop the
+  command at once: `SIGINT` to the job that waits, only while it holds the terminal,
+  and when the command is still there after `close_grace`, the shell closes. A plain
+  visible wait stays.
+- `AdoptedRun::interrupt` sends `SIGINT` to the job in the terminal's foreground, and
+  nothing while the shell itself holds it. `AdoptedRun::close` closes the old shell
+  (`SIGHUP`, then `SIGKILL` after `close_grace`).
+- The old shell's end is `ShellNotice::AdoptedExited`, never `Exited`: it is no
+  longer the conversation's shell, so no client reads that the hidden shell exited.
+
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:
 
@@ -363,6 +407,13 @@ so far of a run left running at its timeout:
 - A line that ran no command (`NotStarted`) is read by the cleaner: its text is the
   shell's complaint around the echo of the line, which the line editor drew relative
   to a prompt that a capture screen does not have.
+
+The streaming cleaner (`capture/stream.rs`) reads output that comes in chunks, such as
+the output of a moved command after the move. It gives the text of the byte cleaner
+over the whole output. An escape sequence or a UTF-8 character that a chunk cuts is
+read whole. It gives out a line only at its end, so a bare `\r` can still rewrite the
+line. A line longer than 64 KiB with no end goes out as it is. A shell mark that the
+session takes out of the stream drops the start of an escape sequence before it.
 
 The live tail (`live_tail.rs`), the `tail` of each `OutputUpdate` while a command runs
 (a client shows its last line, and the daemon records it as
@@ -637,6 +688,8 @@ clock and the seeded generator.
   that looks secret and no manual answer. The stop of an
   unanswered hidden wait signals only while that job holds the terminal, as read right
   before the signal.
+- A shell that a background job adopted is out of its conversation's slot: only the
+  job's `AdoptedRun` reaches it, and no answer reaches its command.
 - A sandboxed run never types the model's line into the shell, never ends on a mark
   that sandboxed code can print, and never lets such a mark change the shell's state.
 
