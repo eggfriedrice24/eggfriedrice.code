@@ -202,9 +202,12 @@ BPF interpreter for both architectures, and the Landlock TCP test restricts one 
 of its own. The integration tests (`tests/it/`: the escape suite, the network view's
 escape tests in `netview.rs`, the proxy plan's tests in `proxy.rs`, the bus tests in
 `dbus.rs` (socket grants that reach a bus, and the filtered bus sockets of a call, each
-served by a listener of the test that stands for efrd's bus proxy, `TestBuses`), the behaviour
-tests, the jobs, the probe, the launch cost with the cost of a job's start, of a
-network view call and of a proxy call, and the corpus run) drive the real launcher
+served by a listener of the test that stands for efrd's bus proxy, `TestBuses`), the
+forwarder of a job in `forward.rs` (each job's `$CALL/forward.sock` served by a listener
+of the test that stands for efrd, `TestForward`, with polls of 20 ms; the job's servers
+are `self-test --echo` on port 0 of the job's own loopback), the behaviour
+tests, the jobs, the probe, the launch cost with the cost of a job's start (also with
+the forwarder), of a network view call and of a proxy call, and the corpus run) drive the real launcher
 with real bwrap, Landlock and seccomp. A network view test passes a refusal only on its
 exact errno, and targets only the test's own listeners and abstract names; its write
 checks change nothing even if they work. A proxy test gives each call a socket at
