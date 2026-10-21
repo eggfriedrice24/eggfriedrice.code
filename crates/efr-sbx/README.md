@@ -102,6 +102,16 @@ What the launcher writes, in order:
 | `$SBX/jobs/<call>/surface-before.json` | a contained job only, before its child starts: the guard's record of the job's start, on disk, for `guard-check` |
 | `$SBX/jobs/<call>/guard.json` | `guard-check` only: `{ "changes", "quarantined" }` |
 
+A call that efrd moved into a job (Ctrl+B in `efr`) ends as a job does. efrd makes
+the empty file `$CALL/moved` (`efr_sandbox::MOVED_FILE`) while the call runs, so the
+launcher looks for it only after the command ended, before the first of these writes.
+With the file, a contained call and an exit child write no `apply`, no `state.json`,
+no `state.zsh` and no `config-listings.json`, and `state_kept` is false; `result.json`
+comes as for any call. Else a call that ends an hour after its start would write the
+shell state of its start over the state of every call since. The launcher reads only
+that the file is there; a file that it cannot check (a link, another owner, an open
+mode, a byte in it) counts as there.
+
 A job writes `started`, its quarantine and `result.json` as above, and never `apply`,
 `state.json`, `state.zsh` or `config-listings.json`. It writes no `launcher.pid`:
 efrd keeps the launcher's pid and start time itself. Its call dir is
@@ -222,7 +232,9 @@ are `self-test --echo` on port 0 of the job's own loopback), the reach helper of
 in `reach.rs` (each call's `$CALL/reach.sock` served by a listener of the test that
 stands for efrd, `TestReach`, which answers each `Connect` with an echo or a close;
 the call's clients are `self-test --dial` and its servers `self-test --echo`, on fixed
-ports of the call's own namespace), the behaviour
+ports of the call's own namespace), the end of a call that efrd moved into a job in
+`moved.rs` (the test makes `$CALL/moved` before the start, or while the call waits for
+a marker file of the test), the behaviour
 tests, the jobs, the probe, the launch cost with the cost of a job's start (also with
 the forwarder), of a network view call, of a proxy call and of a call with a reach
 helper, and the corpus run) drive the real launcher

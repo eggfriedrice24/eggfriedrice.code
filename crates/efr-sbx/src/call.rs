@@ -8,7 +8,8 @@
 //! last, by an atomic rename, after every process of the call is gone. It exits with
 //! the call's status. It prints nothing to the terminal except when the call dir itself
 //! is not to be trusted, because then it cannot write a result. A job writes no apply
-//! and no state, and its spec must have a job plan; a call's spec must not.
+//! and no state, and its spec must have a job plan; a call's spec must not. A call that
+//! efrd moved into a job (`$CALL/moved`) ends as a job: no apply and no state.
 
 use std::fs::File;
 use std::io::Write;
@@ -19,9 +20,9 @@ use std::process::ExitCode;
 use std::sync::mpsc::{Receiver, Sender};
 
 use efr_sandbox::{
-    APPLY_FILE, EnvFilter, ExportFilter, FsView, JobPlan, MAX_STATE_BYTES, MountPlan, RESULT_FILE,
-    Records, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE, SandboxResult, SandboxState,
-    SpecLaunch, StartDir, encode_apply, parse_records,
+    APPLY_FILE, EnvFilter, ExportFilter, FsView, JobPlan, MAX_STATE_BYTES, MOVED_FILE, MountPlan,
+    RESULT_FILE, Records, STARTED_FILE, STATE_JSON_FILE, STATE_ZSH_FILE, SandboxResult,
+    SandboxState, SpecLaunch, StartDir, encode_apply, parse_records,
 };
 
 use crate::call_dir::{CallDir, PrivateDir};
@@ -313,6 +314,9 @@ fn contained(call: &CallDir, job: Option<&Job>) -> Result<SandboxResult, SbxErro
     if records.is_none() && code > 128 {
         result.signal = Some(code - 128);
     }
+    // NOTE: read after the command ended, never at the start: efrd makes the file while
+    // the call runs, when the user moves it.
+    let moved = moved(call);
     let mut final_host = start_host;
     if let Some(records) = &records {
         let cwd = match &records.cwd {
@@ -334,8 +338,9 @@ fn contained(call: &CallDir, job: Option<&Job>) -> Result<SandboxResult, SbxErro
             FinalCwd::Stay => None,
         };
         // A job changes no state of the hidden shell: no apply and no state files. Its
-        // final dir only widens the guard's scan.
-        if job.is_none() {
+        // final dir only widens the guard's scan. A call that efrd moved into a job ends
+        // as a job does.
+        if job.is_none() && !moved {
             result.summary.cwd_changed = cd.is_some();
             let filter = ExportFilter::from_spec(&spec, &plan, &final_host);
             let promotion = finish::promote(records, cd, &filter, &fs, &mut result.summary);
@@ -357,7 +362,7 @@ fn contained(call: &CallDir, job: Option<&Job>) -> Result<SandboxResult, SbxErro
         None => None,
     };
     let mut changes = guard.after(&final_host);
-    if job.is_none() {
+    if job.is_none() && !moved {
         guard.keep_listings(&shell_dir);
     }
     if guard::quarantine(&mut changes, &spec.runtime.quarantine(spec.call)).is_err() {
@@ -390,6 +395,16 @@ fn prepare_sandbox_dir(spec: &efr_sandbox::SandboxSpec) -> Result<(), SbxError> 
             .map_err(|error| SbxError::io("create", &dir, error))?;
     }
     Ok(())
+}
+
+/// True when efrd moved this call into a job: `$CALL/moved` exists. The end of such a
+/// call writes no apply, no shell state and no config listings, as the end of a job, so
+/// a call that ends long after its start never writes the shell state of its start over
+/// the state of the calls since. The launcher reads only that the file is there. A file
+/// that it cannot check (a link, another owner, an open mode, any byte in it) counts as
+/// there: the loss of one call's shell state is the smaller harm.
+pub(crate) fn moved(call: &CallDir) -> bool {
+    !matches!(call.dir.read(MOVED_FILE, 0), Ok(None))
 }
 
 /// Writes `$CALL/apply` for the trusted shell's `_efr_hs_sbx_apply`.

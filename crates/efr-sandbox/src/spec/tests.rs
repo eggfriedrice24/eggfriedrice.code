@@ -7,8 +7,9 @@ use crate::SandboxError;
 use crate::forward::MAX_JOB_FORWARDS;
 use crate::spec::{
     CacheOverlay, DesktopSocket, FORWARD_SOCKET_FILE, ForwardPlan, JOB_BACKSTOP_SECS, JOB_DIR,
-    JOB_FSIZE_BYTES, JobPlan, MAX_REACH_PORTS, NetworkPlan, REACH_SOCKET_FILE, ReachPlan,
-    SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, check_reach, layer_name,
+    JOB_FSIZE_BYTES, JobPlan, MAX_REACH_PORTS, MOVED_FILE, NetworkPlan, REACH_SOCKET_FILE,
+    ReachPlan, SPEC_VERSION, SandboxSpec, SpecLaunch, WriteRoot, WriteRootKind, check_reach,
+    layer_name,
 };
 use crate::testing::spec;
 
@@ -246,6 +247,29 @@ fn reach_problem(spec: &SandboxSpec) -> &'static str {
         Err(SandboxError::ReachPlan { problem }) => problem,
         other => panic!("not a reach plan refusal: {other:?}"),
     }
+}
+
+#[test]
+fn moved_file_lies_in_the_call_dir_masked_for_the_sandbox() {
+    let spec = spec();
+    let moved = spec.runtime.moved_file();
+    assert_eq!(moved, spec.runtime.call_dir.join(MOVED_FILE));
+    assert_eq!(MOVED_FILE, "moved");
+    let mut fs = crate::testing::world();
+    fs.file(&moved.to_string_lossy(), "");
+    let plan = crate::MountPlan::build(&spec, &fs).unwrap();
+    // NOTE: the launcher trusts the file because no process of the call can make it:
+    // the call dir lies in efr's runtime root, which the plan masks whole.
+    let seen = plan.explain(&moved);
+    assert_eq!(seen.role, efr_protocol::SandboxPathRole::Masked);
+    assert!(!seen.read && !seen.write, "{seen:?}");
+    assert!(
+        !plan.mounts().iter().any(|mount| match &mount.op {
+            crate::plan::MountOp::Bind { source, .. } => source == &moved,
+            _ => false,
+        }),
+        "the plan binds no moved file into the sandbox"
+    );
 }
 
 #[test]

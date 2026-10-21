@@ -54,6 +54,13 @@ pub const FORWARD_SOCKET_FILE: &str = "forward.sock";
 /// and [`ReachPlan::socket`] must name exactly that file.
 pub const REACH_SOCKET_FILE: &str = "reach.sock";
 
+/// The name of the file that marks a call that efrd moved into a job (Ctrl+B in `efr`):
+/// efrd makes `$CALL/moved` empty, with mode 0600, before the move. A launcher that
+/// finds it at the end of the call acts as at the end of a job: it writes no `apply`, no
+/// `state.json`, no `state.zsh` and no config listings, so a call that ends long after
+/// its start never writes back the old shell state over the state of later calls.
+pub const MOVED_FILE: &str = "moved";
+
 /// The dir of a call's filtered bus sockets in its call dir: `$CALL/bus/` (phase E). It
 /// holds nothing else, and the bus proxy may make and remove files only there.
 pub const BUS_FILTER_DIR: &str = "bus";
@@ -579,6 +586,12 @@ impl RuntimePaths {
     /// it.
     pub fn inside_reach_socket(&self) -> PathBuf {
         self.user_runtime.join("efr-reach.sock")
+    }
+
+    /// `$CALL/moved` ([`MOVED_FILE`]): efrd moved this call into a job. It lies in the
+    /// call dir, which the sandbox masks with the rest of efr's runtime root.
+    pub fn moved_file(&self) -> PathBuf {
+        self.call_dir.join(MOVED_FILE)
     }
 
     /// The dir of the call's filtered bus sockets, `$CALL/bus/` (0700, made by efrd):

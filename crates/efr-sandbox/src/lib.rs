@@ -101,7 +101,7 @@ pub use seccomp::{
 pub use spec::{
     BUS_FILTER_DIR, CacheOverlay, DesktopSocket, EnvPlan, FORWARD_SOCKET_FILE, Floor, FloorKind,
     ForwardPlan, JOB_BACKSTOP_SECS, JOB_DIR, JOB_FSIZE_BYTES, JOB_OOM_SCORE_ADJ, JobPlan,
-    MAX_REACH_PORTS, MAX_SPEC_BYTES, Mask, MaskKind, NetworkPlan, PROXY_SOCKET_FILE,
+    MAX_REACH_PORTS, MAX_SPEC_BYTES, MOVED_FILE, Mask, MaskKind, NetworkPlan, PROXY_SOCKET_FILE,
     REACH_SOCKET_FILE, ReachPlan, RecordLimits, RuntimePaths, SPEC_VERSION, SandboxSpec,
     SpecLaunch, WriteRoot, WriteRootKind, bus_filter_file, check_reach, layer_name,
 };
