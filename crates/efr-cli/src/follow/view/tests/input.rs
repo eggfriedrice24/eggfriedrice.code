@@ -206,6 +206,7 @@ fn the_note_of_a_resend_comes_after_the_call_that_esc_stopped() {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     };
     event(&mut view, 15, 300, stopped);
     let envelope = EventEnvelope {

@@ -79,6 +79,7 @@ fn ended(n: u8, exit_code: Option<i32>, refusal: Option<&str>) -> Event {
         refusal: refusal.map(str::to_owned),
         changes: None,
         diff: None,
+        left_running: false,
     }
 }
 
@@ -653,6 +654,7 @@ fn changed(n: u8, changes: FileChanges, diff: Option<&str>) -> Event {
         refusal: None,
         changes: Some(changes),
         diff: diff.map(str::to_owned),
+        left_running: false,
     }
 }
 

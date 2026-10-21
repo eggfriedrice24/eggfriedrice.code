@@ -97,6 +97,7 @@ async fn scene() -> Scene {
                 refusal: None,
                 changes: None,
                 diff: None,
+                left_running: false,
             },
         )
         .event(busy, call_started(t1, call))
@@ -178,6 +179,7 @@ async fn a_restart_settles_every_kind_of_work_in_flight() {
                     refusal: None,
                     changes: None,
                     diff: None,
+                    left_running: false,
                 }
             ),
             (Some(busy), Event::TurnCancelled { turn_id: t1 }),

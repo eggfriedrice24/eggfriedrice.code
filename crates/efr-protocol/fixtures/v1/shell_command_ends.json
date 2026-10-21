@@ -1,0 +1,9 @@
+[
+  "ended",
+  "stopped",
+  "limit",
+  "closed",
+  "shell_exited",
+  "moved",
+  "unknown"
+]

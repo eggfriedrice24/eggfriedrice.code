@@ -1134,6 +1134,7 @@ impl Turn {
                 refusal: refused,
                 changes: outcome.changes.take(),
                 diff: outcome.diff.take(),
+                left_running: false,
             }];
             // NOTE: names only: the copy stays in efr's store, and the line at the end of
             // the turn names the file.

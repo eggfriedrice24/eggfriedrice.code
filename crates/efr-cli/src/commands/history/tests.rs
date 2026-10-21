@@ -427,6 +427,7 @@ fn sandbox_events() -> Vec<EventEnvelope> {
             refusal: None,
             changes: None,
             diff: None,
+            left_running: false,
         },
         Event::ExitRequested {
             turn_id: turn(),
@@ -607,6 +608,7 @@ fn each_turn_shows_together_in_the_order_the_turns_started() {
             refusal: None,
             changes: None,
             diff: None,
+            left_running: false,
         },
         Event::TurnInterrupted {
             turn_id: first,
@@ -797,6 +799,7 @@ fn a_patch_shows_its_files_and_never_its_text() {
         refusal: None,
         changes: None,
         diff: None,
+        left_running: false,
     };
     let events = vec![
         // The freeform form: the input is the text.

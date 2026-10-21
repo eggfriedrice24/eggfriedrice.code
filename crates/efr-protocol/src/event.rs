@@ -277,6 +277,13 @@ pub enum Event {
         /// content changed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         diff: Option<String>,
+        /// True when a `shell` call answered the model while its command still runs in
+        /// the conversation's hidden shell, such as after its timeout. The shell takes
+        /// no other call until that command ends; `shell_command_detached` and
+        /// `shell_command_ended` of the same `call_id` tell more. A client shows that
+        /// the command still runs, not that it ended. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        left_running: bool,
     },
 
     /// A tool call needs the user's approval before it runs.
@@ -914,6 +921,76 @@ pub enum Event {
         reason: HeldReason,
     },
 
+    /// A command of a `shell` call still runs in the conversation's hidden shell after
+    /// its call answered the model, because the call's timeout passed. The shell takes
+    /// no other call until the command ends. The event belongs to the conversation, not
+    /// to a turn. It and the call's `tool_call_completed` (with `left_running`) can come
+    /// in either order: a client links them by `call_id`.
+    ShellCommandDetached {
+        /// The call whose command still runs.
+        call_id: CallId,
+        /// The first 200 characters of the command line. The model wrote it, so a client
+        /// shows it as text that a program wrote, on one line.
+        command: String,
+        /// When the command started.
+        since: Timestamp,
+        /// True when the command runs in the sandbox. A client never asks the user for a
+        /// hidden answer, an answer to a wait that looks secret, or a manual answer to a
+        /// command in the sandbox.
+        contained: bool,
+        /// What the command waits for when its call answered.
+        input: InputWait,
+        /// True for a `visible` wait whose prompt line looks like a password prompt, as
+        /// in [`Event::ToolCallInputChanged`]. False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        looks_secret: bool,
+        /// The row of the screen that holds the cursor while the command waits, at most
+        /// 200 characters, such as `u@h's password:`. The program wrote it, so a client
+        /// shows it as text that a program wrote, on one line. Absent when the command
+        /// does not wait.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        prompt: String,
+        /// Who approved the call. Absent when the call needed no approval.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approved_by: Option<ApprovedBy>,
+    },
+
+    /// A command that a `shell` call left running in the hidden shell began or stopped
+    /// waiting for input. The daemon reports each change once. It belongs to the
+    /// conversation, not to a turn. A client that can read keys asks the user while the
+    /// latest `input` is not `none`, and sends the answer with `input.respond` and this
+    /// `call_id`.
+    ShellCommandInputChanged {
+        /// The call whose command still runs.
+        call_id: CallId,
+        /// What the command waits for now.
+        input: InputWait,
+        /// True when the command runs in the sandbox.
+        contained: bool,
+        /// True for a `visible` wait whose prompt line looks like a password prompt.
+        /// False when absent.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        looks_secret: bool,
+        /// The row of the screen that holds the cursor, at most 200 characters. Absent
+        /// when the command does not wait.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        prompt: String,
+    },
+
+    /// A command that a `shell` call left running in the hidden shell ended, or left the
+    /// shell. The hidden shell is free again, unless `how` is `closed` or
+    /// `shell_exited`: then the next call starts a new shell. It belongs to the
+    /// conversation, not to a turn.
+    ShellCommandEnded {
+        /// The call whose command ended.
+        call_id: CallId,
+        /// The exit status of the command, when the shell reported it. Absent otherwise.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        /// How it ended.
+        how: ShellCommandEnd,
+    },
+
     /// An event of a kind that this build does not know. It encodes back to the same JSON
     /// object it was decoded from. The schema leaves it out: it describes the known
     /// kinds, and says that readers must accept others.
@@ -1000,6 +1077,11 @@ impl Event {
             | Event::JobPortForwarded { .. }
             | Event::JobEnded { .. }
             | Event::JobNoticeHeld { .. }
+            // NOTE: a command left running in the hidden shell outlives its call and its
+            // turn, as a job does.
+            | Event::ShellCommandDetached { .. }
+            | Event::ShellCommandInputChanged { .. }
+            | Event::ShellCommandEnded { .. }
             | Event::Unknown { .. } => None,
         }
     }
@@ -1142,6 +1224,106 @@ pub enum InputWait {
     /// `ssh`. The user's answer is not shown and the terminal does not put it in the
     /// output; the model sees it only if the program that reads it prints it.
     Hidden,
+}
+
+/// How a command that a `shell` call left running in the hidden shell ended
+/// ([`Event::ShellCommandEnded`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ShellCommandEnd {
+    /// The command ended by itself.
+    Ended,
+    /// The user stopped it with `shell.interrupt`.
+    Stopped,
+    /// efr stopped it by a rule: it waited for input longer than
+    /// `shell.interactive_timeout_minutes` after its start, or it asked for a secret
+    /// that nobody could answer.
+    Limit,
+    /// The user closed the hidden shell with `shell.interrupt` and `close`. The next
+    /// call starts a new shell.
+    Closed,
+    /// The hidden shell exited, such as at an idle close or a stop of efrd.
+    ShellExited,
+    /// The command left the hidden shell: the user moved it to a background job. No
+    /// build sends it yet.
+    Moved,
+    /// A way that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl ShellCommandEnd {
+    /// Every way, in the order of the enum.
+    pub const ALL: [ShellCommandEnd; 7] = [
+        ShellCommandEnd::Ended,
+        ShellCommandEnd::Stopped,
+        ShellCommandEnd::Limit,
+        ShellCommandEnd::Closed,
+        ShellCommandEnd::ShellExited,
+        ShellCommandEnd::Moved,
+        ShellCommandEnd::Unknown,
+    ];
+
+    /// The wire form, such as `shell_exited`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ShellCommandEnd::Ended => "ended",
+            ShellCommandEnd::Stopped => "stopped",
+            ShellCommandEnd::Limit => "limit",
+            ShellCommandEnd::Closed => "closed",
+            ShellCommandEnd::ShellExited => "shell_exited",
+            ShellCommandEnd::Moved => "moved",
+            ShellCommandEnd::Unknown => "unknown",
+        }
+    }
+}
+
+/// Who approved a `shell` call whose command still runs in the hidden shell. A client
+/// names it beside the command, so the user knows who let it run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ApprovedBy {
+    /// The user answered the question of the call.
+    You,
+    /// A rule of the user allowed the call: an allow rule of the config, or a rule that
+    /// an "always" answer saved.
+    YourRule,
+    /// The reviewer or the classifier of `auto` allowed the call.
+    Reviewer,
+    /// Full mode let the call run. Full mode is no approval of the line by a person.
+    FullMode,
+    /// A source that this build does not know.
+    #[serde(other)]
+    Unknown,
+}
+
+impl ApprovedBy {
+    /// Every source, in the order of the enum.
+    pub const ALL: [ApprovedBy; 5] = [
+        ApprovedBy::You,
+        ApprovedBy::YourRule,
+        ApprovedBy::Reviewer,
+        ApprovedBy::FullMode,
+        ApprovedBy::Unknown,
+    ];
+
+    /// The wire form, such as `your_rule`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ApprovedBy::You => "you",
+            ApprovedBy::YourRule => "your_rule",
+            ApprovedBy::Reviewer => "reviewer",
+            ApprovedBy::FullMode => "full_mode",
+            ApprovedBy::Unknown => "unknown",
+        }
+    }
+
+    /// True when a person approved the call: the user, or the user's own rule.
+    pub const fn by_person(self) -> bool {
+        matches!(self, ApprovedBy::You | ApprovedBy::YourRule)
+    }
 }
 
 /// Tokens that a turn used, as the provider reported them.
