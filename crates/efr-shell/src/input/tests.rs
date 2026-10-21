@@ -320,3 +320,20 @@ fn the_wait_keeps_whether_it_looks_secret() {
     watch.settle(InputWait::Visible, true, Some(JOB), 0);
     assert_eq!(watch.waiting(), Some(Waiting { looks_secret: true, ..VISIBLE_WAIT }));
 }
+
+#[test]
+fn a_wait_seen_before_its_row_reads_the_row_until_it_shows() {
+    let mut watch = InputWatch::default();
+    assert!(!watch.needs_prompt(), "no wait needs no row");
+    watch.settle(InputWait::Hidden, false, Some(JOB), 0);
+    // The look saw echo off before the prompt reached the screen.
+    watch.prompt_read("");
+    assert!(watch.needs_prompt());
+    watch.prompt_read("u@h's password:");
+    assert!(!watch.needs_prompt());
+    // A new wait reads its own row.
+    watch.settle(InputWait::Visible, false, Some(JOB), 0);
+    assert!(watch.needs_prompt());
+    watch.end();
+    assert!(!watch.needs_prompt());
+}

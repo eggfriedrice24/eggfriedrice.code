@@ -365,6 +365,8 @@ pub(crate) struct InputWatch {
     /// The process group in the terminal's foreground at the last look.
     group: Option<u32>,
     answers: u64,
+    /// The row that asks was read for the wait reported last and was not empty.
+    prompted: bool,
 }
 
 impl InputWatch {
@@ -415,6 +417,18 @@ impl InputWatch {
         self.change(wait, secret && wait == InputWait::Visible)
     }
 
+    /// True when the wait reported last has no row that asks yet. A getpass-style read
+    /// turns echo off before its prompt reaches the screen, so a look can see the wait
+    /// before the row; such a wait reads its row again at each look until it shows.
+    pub(crate) fn needs_prompt(&self) -> bool {
+        self.current != InputWait::None && !self.prompted
+    }
+
+    /// Takes the row that asks, as read for the wait reported last.
+    pub(crate) fn prompt_read(&mut self, prompt: &str) {
+        self.prompted = !prompt.is_empty();
+    }
+
     /// The run ended or was left: `None`, when that is a change.
     pub(crate) fn end(&mut self) -> Option<InputWait> {
         self.change(InputWait::None, false)
@@ -426,6 +440,7 @@ impl InputWatch {
         }
         self.current = wait;
         self.secret = secret;
+        self.prompted = false;
         Some(wait)
     }
 }
