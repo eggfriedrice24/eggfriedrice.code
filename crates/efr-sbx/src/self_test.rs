@@ -129,8 +129,8 @@ pub(crate) struct SelfTestArgs {
     /// `echo <address>`, and send back the bytes of each connection, until killed.
     #[arg(long)]
     pub(crate) echo: Option<SocketAddr>,
-    /// With `--echo`: first bind a UDP socket on this address and print `udp
-    /// <address>`.
+    /// With `--echo`: first bind a UDP socket on this address and print
+    /// `udp <address>`.
     #[arg(long, requires = "echo")]
     pub(crate) echo_udp: Option<SocketAddr>,
     /// With `--echo`: end after this many milliseconds.
