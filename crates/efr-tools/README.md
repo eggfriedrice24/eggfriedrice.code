@@ -54,9 +54,12 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   `RunRequest::forget_before` so the shell forgets them before the line too (full
   mode; a shell without efr's zsh integration fails the call with a text that says
   that full mode needs it, and the command does not run), and
-  `interactive_limit`, set for a call that the user approved because it may wait for
-  input (`shell.interactive_timeout_minutes`), which the shell tool passes on as
-  `RunRequest::interactive_limit`, and `sandbox` (`efr_shell::SandboxRun`), set for
+  `interactive_limit`, set for a call outside the sandbox whose line may ask at the
+  terminal, whoever approved it (`shell.interactive_timeout_minutes`), which the shell
+  tool passes on as `RunRequest::interactive_limit`, `input_limit`, the same limit for
+  any command while it waits for input, which it passes on as
+  `RunRequest::input_limit`, `approved_by`, who approved the call, which it passes on
+  with the line's hard or soft flag as `RunRequest::with_approval`, and `sandbox` (`efr_shell::SandboxRun`), set for
   a shell call of the `auto` mode that the daemon prepared for the sandbox's launcher,
   which the shell tool passes on as `RunRequest::sandbox`.
 - `ToolResult`: the output the model sees, the truncation flag, the error flag, the
