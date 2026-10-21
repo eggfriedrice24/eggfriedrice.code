@@ -402,6 +402,12 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a password,
+  also with a remote shell in `-e`, `RSYNC_RSH`, `GIT_SSH_COMMAND` or `core.sshCommand`.
+  Such a call outside the sandbox runs past the model's timeout while you follow the
+  turn, up to `shell.interactive_timeout_minutes`, also after the reviewer, a rule or
+  full mode allowed it. Its question says that you may need to type your password; a
+  question about a sandboxed command never says so.
 - A terminal keeps one conversation for each registered project that you worked in,
   and one for everything outside registered projects. The conversation changes when
   you send a prompt, not when you `cd`: a prompt in `~/p/app` (or below) continues the

@@ -385,13 +385,13 @@ impl DaemonToolbox {
         .with_interactive_limit(self.interactive_limit(call))
     }
 
-    /// How long a call that the user approved because it may wait for input may run
+    /// How long a call outside the sandbox whose line may ask at the terminal may run
     /// while someone who can answer follows it, from the latest settings, so a change
     /// reaches the next call; `None` for any other call, which keeps the model's
     /// timeout.
     fn interactive_limit(&self, call: &CallContext) -> Option<Duration> {
         let minutes = self.settings.borrow().shell.interactive_timeout_minutes;
-        call.approved_interactive.then(|| Duration::from_secs(minutes.saturating_mul(60)))
+        call.may_wait.then(|| Duration::from_secs(minutes.saturating_mul(60)))
     }
 
     /// True when the latest settings make the hidden shell forget sudo's credentials

@@ -162,7 +162,8 @@ async fn always_allow_beats_classifier() {
     let ran = h.toolbox.ran();
     assert_eq!(ran.len(), 1);
     assert_eq!(ran[0].launch, Launch::Contained { grants: vec![Grant::Write { path: notes }] });
-    assert!(!ran[0].approved_interactive);
+    assert!(!ran[0].may_wait, "a contained call never may wait");
+    assert_eq!(ran[0].approved_by, Some(efr_protocol::ApprovedBy::YourRule));
     assert_eq!(ran[0].exits.len(), 1);
 }
 

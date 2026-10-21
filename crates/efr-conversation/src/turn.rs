@@ -56,11 +56,11 @@ use std::time::Duration;
 
 use efr_permissions::{
     AllowRule, AlwaysVerdict, Approver, Cause, ConversationPolicy, Decision, DecisionInput, Effect,
-    Engine, Requirements, runs_as_another_user,
+    Engine, Layer, Policy, Requirements, Subject, runs_as_another_user,
 };
 use efr_protocol::{
-    ApprovalDecision, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode, Event,
-    ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId,
+    ApprovalDecision, ApprovedBy, CallId, ConversationId, EffectiveSettings, ErrorBody, ErrorCode,
+    Event, ExitKind, InputWait, JobInfo, JudgeKind, Launch, Mode, Origin, Presence, QuestionId,
     RecentCommand, Scope, ShellContext, StopReason as WireStop, SurfaceChange, TurnId,
     TurnSettings, TurnStop, Verdict,
 };
@@ -324,10 +324,10 @@ impl Ending {
 /// The answer of the check point about one tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Authorization {
-    /// The engine allowed or contained the call, or the user approved it;
-    /// `approved_interactive` when the user approved a call that may wait for input at
-    /// the terminal, and `launch` how it runs.
-    Allowed { approved_interactive: bool, launch: Launch },
+    /// The engine allowed or contained the call, or someone approved it: `approved_by`
+    /// says who (`None` when no person, rule, reviewer or full mode had to), and
+    /// `launch` how it runs.
+    Allowed { approved_by: Option<ApprovedBy>, launch: Launch },
     /// The engine refused the call, or the user denied it; the model reads `message`,
     /// and the user `refusal` when the engine refused it.
     Denied { message: String, refusal: Option<String> },
@@ -340,6 +340,35 @@ enum Authorization {
     /// The approval request expired unanswered; `away` when nobody answered while the
     /// user was away, so the model goes on without the call.
     Expired { away: bool },
+}
+
+/// True when a call with `launch` runs outside the sandbox: typed into the hidden shell
+/// (`manual`, `cautious`, full mode) or in the exit child. Only a contained launch runs
+/// inside it. The toolbox starts the call with this launch, so it is efrd's choice too.
+fn runs_outside(launch: &Launch) -> bool {
+    !matches!(launch, Launch::Contained { .. })
+}
+
+/// [`ApprovedBy::YourRule`] when a rule of the user's own config allowed the line of
+/// `decision` in `mode`: every reason about the command line has a rule after the
+/// built-in policy of the mode as its cause. `None` for a line that a built-in rule
+/// allowed, for a call with no line, and for any cause that this check cannot place;
+/// a waiting command treats `None` as no person's approval, the safe side.
+fn rule_approver(decision: &Decision, mode: Mode) -> Option<ApprovedBy> {
+    let built_in = Policy::base(mode).rules().len();
+    let mut lines = decision
+        .reasons()
+        .iter()
+        .filter(|reason| matches!(reason.subject, Subject::Command { .. }))
+        .peekable();
+    lines.peek()?;
+    let mut by_user = lines.map(|reason| match &reason.cause {
+        Cause::Rule { layer, index }
+        | Cause::Part { layer, index, .. }
+        | Cause::Opaque { layer, index, .. } => *layer == Layer::Machine && *index >= built_in,
+        _ => false,
+    });
+    by_user.all(|user| user).then_some(ApprovedBy::YourRule)
 }
 
 /// One running turn.
@@ -1030,7 +1059,9 @@ impl Turn {
                 scratch: self.scratch.clone(),
                 scope: self.scope.clone(),
                 origin: self.spec.origin,
-                approved_interactive: false,
+                may_wait: false,
+                may_prompt: false,
+                approved_by: None,
                 launch: Launch::Direct,
                 exits: Vec::new(),
                 mode: efr_permissions::effective_mode(self.mode(), self.spec.origin),
@@ -1056,6 +1087,14 @@ impl Turn {
             let launch = match &judged {
                 Some(Judged::Ruled(ruling)) => ruling.planned_launch(),
                 _ => None,
+            };
+            // NOTE: the hard or the soft flag: the line may ask for a password or a
+            // question at the terminal.
+            let may_prompt = match &judged {
+                Some(Judged::Ruled(ruling)) => {
+                    ruling.requirements.interactive || ruling.requirements.may_prompt
+                }
+                _ => false,
             };
             // NOTE: what the engine dropped from the call's `needs`, such as a host that
             // the proxy's allow list holds (efr's auto spec, 7.3); the model reads it with
@@ -1088,8 +1127,13 @@ impl Turn {
                     None => (ToolOutcome::error(NOT_RUN), true),
                 },
                 Some(judged) => match self.authorize_tool_call(&tool_call, judged).await? {
-                    (Authorization::Allowed { approved_interactive, launch }, exits) => {
-                        tool_call.context.approved_interactive = approved_interactive;
+                    (Authorization::Allowed { approved_by, launch }, exits) => {
+                        // NOTE: whoever approved it (DS3): the limit holds only while a
+                        // person who can answer follows the call, and a contained call
+                        // never gets it, since efr types no secret into the sandbox.
+                        tool_call.context.may_wait = may_prompt && runs_outside(&launch);
+                        tool_call.context.may_prompt = may_prompt;
+                        tool_call.context.approved_by = approved_by;
                         tool_call.context.launch = launch;
                         tool_call.context.exits = exits;
                         let watch = Stopwatch::start();
@@ -1277,18 +1321,19 @@ impl Turn {
                 if call.context.is_full() && !approved.is_empty() {
                     self.let_through(call, &ruling).await?;
                 }
-                Authorization::Allowed {
-                    approved_interactive: false,
-                    launch: ruling.launch.clone(),
-                }
+                let approved_by = if call.context.is_full() {
+                    Some(ApprovedBy::FullMode)
+                } else {
+                    rule_approver(&ruling.decision, call.context.mode)
+                };
+                Authorization::Allowed { approved_by, launch: ruling.launch.clone() }
             }
             // NOTE: a contained call runs only through the launcher; anything else that
             // the engine contains asks, so nothing runs outside the sandbox without a
             // person.
-            Effect::Contain if ruling.launch.uses_launcher() => Authorization::Allowed {
-                approved_interactive: false,
-                launch: ruling.launch.clone(),
-            },
+            Effect::Contain if ruling.launch.uses_launcher() => {
+                Authorization::Allowed { approved_by: None, launch: ruling.launch.clone() }
+            }
             Effect::Deny => {
                 self.refuse_floor(call, &ruling).await?;
                 Authorization::Denied {
@@ -1403,7 +1448,10 @@ impl Turn {
         let watch = Stopwatch::start();
         let turn_id = self.turn_id();
         let call_id = call.context.call_id;
-        let interactive = ruling.requirements.interactive;
+        // NOTE: the soft flag says "you may need to type your password" only for a call
+        // that runs outside the sandbox: efr types no secret into a contained command.
+        let interactive = ruling.requirements.interactive
+            || (ruling.requirements.may_prompt && runs_outside(&ruling.launch));
         let decision = &ruling.decision;
         let kinds = exit::kinds(decision);
         let mut events = Vec::with_capacity(2);
@@ -1577,12 +1625,12 @@ impl Turn {
         };
         let authorization = match waited {
             Waited::Answer(Some(ApprovalDecision::Allow)) => Authorization::Allowed {
-                approved_interactive: interactive,
+                approved_by: Some(ApprovedBy::You),
                 launch: ruling.launch.clone(),
             },
             Waited::Answer(Some(ApprovalDecision::AllowAlways)) if saved.is_some() => {
                 Authorization::Allowed {
-                    approved_interactive: interactive,
+                    approved_by: Some(ApprovedBy::You),
                     launch: ruling.launch.clone(),
                 }
             }

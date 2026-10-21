@@ -146,11 +146,11 @@ fn full_forces_sudo_per_call() {
 }
 
 #[test]
-fn only_an_approved_interactive_call_gets_the_interactive_limit_of_the_latest_settings() {
+fn only_a_call_that_may_wait_gets_the_interactive_limit_of_the_latest_settings() {
     let home = tempfile::tempdir().unwrap();
     let (toolbox, settings) = toolbox_with(home.path(), Settings::default());
     let call = call("shell", json!({"command": "sudo pacman -Syu"}), home.path());
-    let approved = call.context.clone().with_approved_interactive(true);
+    let approved = call.context.clone().with_may_wait(true);
 
     assert_eq!(toolbox.context(&call.context).interactive_limit, None);
     assert_eq!(toolbox.context(&approved).interactive_limit, Some(Duration::from_secs(3600)));

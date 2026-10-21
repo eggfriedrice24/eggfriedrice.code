@@ -22,7 +22,9 @@
 use std::task::Poll;
 
 use efr_permissions::{Approver, Cause, Effect};
-use efr_protocol::{ErrorBody, ErrorCode, Event, ExitRecord, JudgeKind, Judgement, Verdict};
+use efr_protocol::{
+    ApprovedBy, ErrorBody, ErrorCode, Event, ExitRecord, JudgeKind, Judgement, Verdict,
+};
 
 use super::{Authorization, Ruling, Turn};
 use crate::exit;
@@ -169,10 +171,10 @@ impl Turn {
             (Verdict::Allow, _) => {
                 self.exits.allowed();
                 self.exits.judged(&kinds, Verdict::Allow);
-                // NOTE: never `approved_interactive`: nobody follows the call, so it
-                // keeps the model's timeout.
+                // NOTE: a call that may ask still gets the long limit (DS3): it holds
+                // only while a person who can answer follows the call.
                 Reviewed::Decided(Authorization::Allowed {
-                    approved_interactive: false,
+                    approved_by: Some(ApprovedBy::Reviewer),
                     launch: ruling.launch.clone(),
                 })
             }

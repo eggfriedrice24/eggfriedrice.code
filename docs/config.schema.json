@@ -1548,7 +1548,7 @@
         },
         "interactive_timeout_minutes": {
           "default": 60,
-          "description": "The longest a command that you approved because it may wait for input at the\nterminal (`sudo`, `ssh`) runs before its call answers the model, in minutes,\nwhile a terminal that can type answers follows the conversation; the model's own\ntimeout holds without one. Read at each call.",
+          "description": "The longest a command runs before its call answers the model, in minutes, while\na terminal that can type answers follows the conversation. It applies to a\ncommand outside the sandbox that may ask at the terminal (`sudo`, `ssh`, `rsync`\nor `git` over ssh), also when the reviewer, a rule or full mode allowed it, and to\nany command that waits for input when its timeout passes. A command that still\nruns in the hidden shell after its call answered, and waits for input, stops at\nthis limit. The model's own timeout holds when no such terminal follows. Read at\neach call.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"

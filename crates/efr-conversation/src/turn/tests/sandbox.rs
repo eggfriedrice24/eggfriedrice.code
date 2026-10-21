@@ -97,7 +97,8 @@ async fn contain_runs_without_approval_and_sets_launch() {
     assert_eq!(ran.len(), 1);
     assert_eq!(ran[0].launch, Launch::contained());
     assert!(ran[0].exits.is_empty());
-    assert!(!ran[0].approved_interactive);
+    assert!(!ran[0].may_wait);
+    assert_eq!(ran[0].approved_by, None, "a contained call needs no approval");
     // The toolbox collects the facts that only auto reads.
     assert!(h.toolbox.judged()[0].sandboxed());
     h.finish();
@@ -220,7 +221,8 @@ async fn privilege_exit_runs_unsandboxed() {
 
     let ran = h.toolbox.ran();
     assert_eq!(ran[0].launch, Launch::Unsandboxed);
-    assert!(ran[0].approved_interactive, "the exit child keeps the input relay");
+    assert!(ran[0].may_wait, "the exit child keeps the input relay");
+    assert_eq!(ran[0].approved_by, Some(efr_protocol::ApprovedBy::You));
     assert_eq!(started_launch(&h).await, Some(Launch::Unsandboxed));
     h.finish();
 }

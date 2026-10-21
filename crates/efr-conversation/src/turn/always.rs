@@ -16,7 +16,7 @@
 //! the writer and records `always_rule_saved` with what came of it.
 
 use efr_permissions::{AllowRule, AlwaysVerdict};
-use efr_protocol::{AlwaysSaved, Event, ExitRecord, JudgeKind, Scope, Verdict};
+use efr_protocol::{AlwaysSaved, ApprovedBy, Event, ExitRecord, JudgeKind, Scope, Verdict};
 
 use super::{Authorization, Ruling, Turn};
 use crate::exit;
@@ -81,7 +81,10 @@ impl Turn {
         // NOTE: a judged allow for the record of the next exits, but no reset of the
         // classifier's denials in a row: nobody looked at this call.
         self.exits.judged(&kinds, Verdict::Allow);
-        Ok(Authorization::Allowed { approved_interactive: false, launch: ruling.launch.clone() })
+        Ok(Authorization::Allowed {
+            approved_by: Some(ApprovedBy::YourRule),
+            launch: ruling.launch.clone(),
+        })
     }
 
     /// Hands `rule`, which the user saved with an `a` answer to the question of `call`,

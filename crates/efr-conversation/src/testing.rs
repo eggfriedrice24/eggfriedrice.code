@@ -348,6 +348,9 @@ impl Toolbox for FakeToolbox {
                 if interactive {
                     requirements = requirements.with_interactive();
                 }
+                if call.input["may_prompt"] == true {
+                    requirements = requirements.with_may_prompt();
+                }
                 if call.input["network"] == true {
                     requirements = requirements.with_network();
                 }
