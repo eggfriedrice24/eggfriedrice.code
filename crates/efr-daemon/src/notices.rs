@@ -330,7 +330,9 @@ pub(crate) fn shell_line(
             // NOTE: both stops end as `limit`. A wait for a secret that nobody may answer
             // stops at the look that sees it, long before the limit.
             let why = if left.secret && left.contained {
-                "it asked for a password in the sandbox, where efr types none".to_owned()
+                // NOTE: the word password shows only for a command outside the sandbox
+                // (DS50).
+                "it asked for a secret in the sandbox, where efr types none".to_owned()
             } else if left.secret && waited < limit {
                 "it asked for a password while nobody followed".to_owned()
             } else {
