@@ -15,9 +15,9 @@ use crate::{CallId, CommandId, ConversationId, ExitInfo, JobId};
 ///
 /// Without `confirm`, a call that runs in the sandbox moves at once: it keeps its
 /// sandbox, so the move opens nothing new, and the key press is the user's answer. The
-/// answer is then `moved`. A call that runs outside the sandbox (in the exit child or
-/// in full mode) does not move yet: the answer is a `preview`, and the client asks the
-/// user one short question. Only a yes sends `call.background` again with the token of
+/// answer is then `moved`. A call that runs outside the sandbox (in the exit child, in
+/// full mode, or a line typed into the hidden shell in `cautious` and `manual`) does not
+/// move yet: the answer is a `preview`, and the client asks the user one short question. Only a yes sends `call.background` again with the token of
 /// the preview in `confirm`. The daemon checks the call again then, and refuses when the
 /// job decision changed since the preview.
 ///
