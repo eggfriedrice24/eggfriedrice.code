@@ -109,9 +109,12 @@ async fn read_all(mut reader: TeeReader) -> String {
 #[tokio::test]
 async fn move_answers_the_call_with_moved_and_output_so_far() {
     let harness = Harness::new(ZSH);
-    let (_terminal, run) =
+    let (terminal, run) =
         running(&harness, "make all", b"cc -c a.c\r\ncc -c b.c\r\n", "cc -c b.c").await;
     let adopted = move_call(&harness).await;
+    // The daemon learns at the hand-over that the PTY is the job's (DS56).
+    let handed = ShellNotice::Adopted { conversation: conversation(), pty_id: terminal.pty_id };
+    assert!(harness.notices.all().contains(&handed), "{:?}", harness.notices.all());
 
     let result = run.await.unwrap().unwrap();
     assert_eq!(result.completion, Completion::Moved);
@@ -152,7 +155,10 @@ async fn moved_command_keeps_running_and_its_end_reaches_the_adopter() {
     assert!(matches!(adopted.ended().await, Err(ShellError::Exited { .. })));
     // No notice says that the conversation's command or shell changed.
     assert!(
-        harness.notices.all().iter().all(|notice| matches!(notice, ShellNotice::Started { .. }))
+        harness.notices.all().iter().all(|notice| matches!(
+            notice,
+            ShellNotice::Started { .. } | ShellNotice::Adopted { .. }
+        ))
     );
 }
 

@@ -74,6 +74,17 @@ pub enum ShellNotice {
         /// How it ended; `None` when the holder could not tell.
         status: Option<ChildStatus>,
     },
+    /// A background job adopted the shell with its running command
+    /// ([`ShellSessions::request_move`](crate::ShellSessions::request_move)): from now
+    /// on it is the job's, and no longer the conversation's shell. It comes at the
+    /// hand-over, before the conversation's slot lets go of the shell, so the daemon
+    /// never routes the old PTY to the conversation's next shell.
+    Adopted {
+        /// Its conversation.
+        conversation: ConversationId,
+        /// Its PTY.
+        pty_id: PtyId,
+    },
     /// A shell that a background job adopted with its running command
     /// ([`ShellSessions::request_move`](crate::ShellSessions::request_move)) ended. It
     /// was no longer the conversation's shell, so this is no [`Exited`](Self::Exited):
