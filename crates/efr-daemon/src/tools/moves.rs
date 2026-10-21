@@ -210,6 +210,7 @@ impl DaemonToolbox {
                 turn_id: context.turn_id,
                 after_secs: after.as_secs(),
                 exits: check.exits.clone(),
+                launcher: running.call_dir.is_some(),
             }),
         };
         let job = AdoptedJob {

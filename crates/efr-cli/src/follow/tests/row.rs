@@ -1598,6 +1598,7 @@ fn moved_job(n: u32, command: &str) -> Event {
         turn_id: turn(),
         after_secs: 42,
         exits: Vec::new(),
+        launcher: false,
     });
     Event::JobStarted {
         turn_id: turn(),

@@ -373,6 +373,7 @@ fn moved(after_secs: u64, exits: Vec<efr_protocol::ExitInfo>) -> efr_protocol::J
         turn_id: crate::testing::turn(),
         after_secs,
         exits,
+        launcher: false,
     });
     job
 }

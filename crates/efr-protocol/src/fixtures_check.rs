@@ -271,6 +271,7 @@ fn moved_job_info() -> JobInfo {
                 user_only: false,
                 always: None,
             }],
+            launcher: true,
         }),
         ..job_info()
     }

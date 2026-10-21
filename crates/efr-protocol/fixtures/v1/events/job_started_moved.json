@@ -33,7 +33,8 @@
             "a delete that undo does not cover as a job"
           ]
         }
-      ]
+      ],
+      "launcher": true
     }
   },
   "launcher_pid": 48190,

@@ -721,14 +721,15 @@ async fn full_job_that_starts_after_the_gate_went_off_stops_at_once() {
 }
 
 /// The job `number` as a call that the user moved into it after 7 s, running with
-/// `launch`.
-fn moved(scene: &Scene, number: u32, launch: Launch) -> JobInfo {
+/// `launch`, through the launcher when `launcher`.
+fn moved(scene: &Scene, number: u32, launch: Launch, launcher: bool) -> JobInfo {
     let info = scene.info(number);
     let moved_from = efr_protocol::MovedCall {
         call_id: info.call_id,
         turn_id: info.turn_id,
         after_secs: 7,
         exits: Vec::new(),
+        launcher,
     };
     JobInfo { launch, moved_from: Some(moved_from), ..info }
 }
@@ -738,14 +739,16 @@ async fn restart_recovers_a_moved_job_as_daemon_restart() {
     let scene = Scene::new().await;
     // NOTE: a moved call keeps the dir of its call (DS32), where its launcher left its
     // result; a job's own dir below `jobs/` has none.
-    let contained = record_start(&scene, moved(&scene, 1, Launch::contained()), 0, 0).await;
+    let contained = record_start(&scene, moved(&scene, 1, Launch::contained(), true), 0, 0).await;
     let dir = super::moved_call_dir(scene.dirs.dirs(), scene.conversation, contained.call_id);
     std::fs::create_dir_all(&dir).unwrap();
     let result =
         r#"{"started":true,"exit_code":0,"summary":{"confined":true,"survivors":["make"]}}"#;
     std::fs::write(dir.join(efr_sandbox::RESULT_FILE), result).unwrap();
     // NOTE: a line typed into the hidden shell had no launcher to lose.
-    record_start(&scene, moved(&scene, 2, Launch::Unsandboxed), 0, 0).await;
+    record_start(&scene, moved(&scene, 2, Launch::Unsandboxed, false), 0, 0).await;
+    // NOTE: a call in the exit child had a launcher, which left no result.
+    record_start(&scene, moved(&scene, 3, Launch::Unsandboxed, true), 0, 0).await;
 
     scene.table.recover_by(|_, _, _| Vec::new()).await.unwrap();
 
@@ -761,6 +764,8 @@ async fn restart_recovers_a_moved_job_as_daemon_restart() {
     };
     assert_eq!(stopped_by, Some(JobStopBy::DaemonRestart));
     assert!(!launcher_lost, "a moved line outside the sandbox has no launcher of its own");
+    let Event::JobEnded { launcher_lost, .. } = scene.ended(3).await else { unreachable!() };
+    assert!(launcher_lost, "the launcher of a moved call in the exit child was lost");
     let rows = scene.store.readers().with(efr_store::jobs::running).await.unwrap();
     assert!(rows.is_empty());
 }

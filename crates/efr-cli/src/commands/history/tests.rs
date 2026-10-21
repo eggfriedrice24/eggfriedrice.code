@@ -1768,6 +1768,7 @@ fn history_says_who_moved_a_call_to_a_job_and_what_the_move_covered() {
         turn_id: turn(),
         after_secs: 42,
         exits: vec![exit],
+        launcher: false,
     });
     let events = vec![
         Event::ToolCallStarted {

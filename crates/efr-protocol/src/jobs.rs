@@ -411,6 +411,11 @@ pub struct MovedCall {
     /// when none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exits: Vec<ExitInfo>,
+    /// True when the call ran through efr's sandbox launcher, in the sandbox or in the
+    /// exit child; false for a line typed into the hidden shell, which has no launcher
+    /// to lose. Absent when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub launcher: bool,
 }
 
 /// What the summary of a question in a job notice turn starts with. efrd puts it in
