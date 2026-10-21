@@ -5,7 +5,8 @@
 //! With `EFR_TEST_SBX_GATE=1` it runs 1000 calls per mode, reports the gate of each mode
 //! (p95 at most 10 ms, no setup failure; the default becomes `tmp` when `overlay` fails
 //! it), and fails when the `tmp` mode cannot start every call. A second test reports
-//! the cost of a job's start. `launch cost proxy` reports the cost of a call with a
+//! the cost of a job's start, and a third the cost that the forwarder of port forwards
+//! adds to it. `launch cost proxy` reports the cost of a call with a
 //! proxy plan, whose bridge takes two more spawns and a ready byte per call.
 //! `launch cost downloads` reports the cost of the `tmp` mode when the download caches
 //! keep their layer for the conversation (`sandbox.keep_downloads`, DP27 of the phase
@@ -113,6 +114,43 @@ fn job_start_cost() {
         run.wait(&fixture).expect_status(0);
     }
     report("job start cost (spawn to first output byte)", costs);
+}
+
+/// The cost of the forwarder at a job's start (DL18 of the live items plan): its two
+/// spawns, its setup and its ready byte, which the inner stage waits for before the
+/// job's child runs. Two series of jobs that print one line, without and with a forward
+/// plan (a test listener stands for efrd), whose jobs take turns, so the load of the
+/// machine weighs on each the same. A report, not a gate: the plan's check is at most
+/// 2 ms more at the median. With `EFR_TEST_SBX_GATE=1` 1000 jobs each, else 100.
+#[test]
+fn job_start_cost_forward() {
+    let ready = sandbox_or_skip!();
+    let gate = env_var("EFR_TEST_SBX_GATE").is_some_and(|value| value == "1");
+    let starts = if gate { 1000 } else { 100 };
+    let fixture = Fixture::new(&ready);
+    let mut series: [Vec<Duration>; 2] = [Vec::with_capacity(starts), Vec::with_capacity(starts)];
+    for _ in 0..starts {
+        for (forward, costs) in [false, true].into_iter().zip(&mut series) {
+            let (call_dir, listener) = if forward {
+                crate::forward::prepare(&fixture, "print started", true)
+            } else {
+                (fixture.prepare_job("print started", JobPlan::new(600, 19)), None)
+            };
+            let spawned = Instant::now();
+            let mut run = fixture.spawn_job(&call_dir);
+            run.start();
+            wait_until("the job's first output", || run.first_output().is_some());
+            let first = run.first_output().unwrap_or(spawned);
+            costs.push(first.saturating_duration_since(spawned));
+            run.wait(&fixture).expect_status(0);
+            drop(listener);
+        }
+    }
+    let [plain, forward] = series;
+    let (plain_p50, _) = report("job start cost without forwarder", plain);
+    let (forward_p50, _) = report("job start cost with forwarder", forward);
+    let added = forward_p50.as_secs_f64() - plain_p50.as_secs_f64();
+    say(&format!("the forwarder adds {:.2} ms to a job's start at p50", added * 1000.0));
 }
 
 #[test]
