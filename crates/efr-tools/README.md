@@ -81,7 +81,10 @@ The tools:
   `command`, `timeout_seconds` (default 30, at most 600), `nested_shell` (sentinel
   mode, for a `sudo -i`, `bash` or `ssh` started inside the hidden shell; the `auto`
   mode refuses it), `needs` (what a command needs beyond the `auto` sandbox, with
-  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`), and
+  the limits of `Needs::check`; a call over them is `ToolError::InvalidNeeds`; the text
+  of `needs.hosts` sends a server that the user's browser must reach to a background
+  job, whose port efr forwards, and keeps `localhost` for a tool that does not use
+  `HTTPS_PROXY`, such as psql), and
   `background`, `max_minutes` and `watch` (phase C: a background job, which efrd starts
   and which runs on after the call answers; `job_request` reads them, and a call that
   breaks their rules is `ToolError::InvalidJob`). The
