@@ -230,6 +230,15 @@ into the GitHub release notes, and it stops when the section is missing.
   check the dev server that it started. Before, such a check asked for the whole
   network. Only the ports that efr forwards for the same conversation are reachable.
   `docs/sandbox.md`, "Ports of a job", has the rules.
+- Ctrl+B in the turn view moves the agent's running shell call to the background as a
+  job, whatever the input row holds. A call in the sandbox moves at once and keeps its
+  sandbox. A call that runs outside the sandbox asks one `y/n` question first, because
+  the command keeps running with your rights after the turn. The turn goes on at once,
+  the model reads the output so far and the job's id, and a job notice follows when
+  the command ends. The next call gets a new hidden shell in the same directory. In
+  tmux, press Ctrl+B twice. A command that waits for input, that can ask at the
+  terminal (such as `sudo`), or that efr does not allow as a job cannot move, and
+  neither can a call that holds the sandbox's cache.
 - In `auto`, `df` and `findmnt` now run with no review and show your machine's
   mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
   reads the mounts outside the sandbox. A mount that does not answer in one second

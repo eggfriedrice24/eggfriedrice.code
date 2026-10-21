@@ -39,6 +39,11 @@
 //! (plan PB15). Under the call's own plan lock, after the call's snapshot, it asks again
 //! each snapshot ask that was covered, and a call whose answer changed does not start.
 //! [`Toolbox::undo`] is in `tools/undo.rs`.
+//!
+//! The user can move a running foreground `shell` call into a background job with
+//! Ctrl+B (`call.background`): each such call registers while it runs, with the
+//! requirements that the turn judged, and a call that moved answers with the output so
+//! far and the job (`tools/moves.rs`, `jobs/moves.rs`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -82,6 +87,7 @@ use crate::trusted_programs::TrustedPrograms;
 mod cache_deletes;
 mod git_code;
 mod job_tools;
+mod moves;
 mod settings_tool;
 mod shell_children;
 mod snapshot;
@@ -207,7 +213,13 @@ pub(crate) struct DaemonToolbox {
     /// until it runs, and the write roots of the calls past their timeout (v0.0.4,
     /// DV22).
     git_checks: git_code::GitChecks,
+    /// What the turn judged of each foreground `shell` call, until it runs: the job
+    /// decision of a move reads it again (DS19).
+    judged: Arc<Mutex<HashMap<CallId, Answered>>>,
 }
+
+/// The requirements of a call, with their facts, as the turn judged them in its turn.
+type Answered = (TurnId, Requirements);
 
 /// What the facts of one call said efr covers: its turn and each ask with its answer.
 type Answers = (TurnId, Vec<(CoverAsk, Coverage)>);
@@ -267,6 +279,7 @@ impl DaemonToolbox {
             wakes: Arc::default(),
             full: FullTurns::default(),
             git_checks: git_code::GitChecks::default(),
+            judged: Arc::default(),
         }
     }
 
@@ -876,6 +889,15 @@ impl DaemonToolbox {
         let proxy = prepared.proxy;
         let bus = prepared.bus;
         let reach = prepared.reach;
+        // NOTE: a call that holds the cache layer lock cannot move in v0.0.4 (DS19.7).
+        let holds_cache =
+            prepared.contained && moves::holds_cache_lock(&settings, self.home.path()).await;
+        let kind = moves::RunKind {
+            contained: prepared.contained,
+            call_dir: Some(prepared.run.dir.clone()),
+            holds_cache,
+        };
+        let registration = self.register_move(&call.context, &call.input, kind);
         let mut sink = CallSink {
             out,
             connections: &self.connections,
@@ -885,6 +907,29 @@ impl DaemonToolbox {
         let watch = Stopwatch::start();
         let result = lock::run_holding(prepared.guard, &started, &*self.clock, invoke).await;
         tracing::debug!(phase = "sandboxed_run", elapsed_ms = %watch, "phase=sandboxed_run elapsed_ms={}", watch);
+        if let Some(adopted) = self.moved_run(registration).await {
+            // NOTE: the moved call runs on in its sandbox, with writable git dirs and
+            // only its end guard (DS25, OQS8): the outside git check counts its roots
+            // until its launcher wrote the result.
+            if prepared.contained {
+                self.git_checks
+                    .keep_timed_out(prepared.run.dir.clone(), prepared.write_roots.clone());
+            }
+            let parts = moves::MoveParts {
+                proxy,
+                bus,
+                reach,
+                guard_roots: prepared.guard_roots.clone(),
+                write_roots: prepared.write_roots.clone(),
+            };
+            let mut outcome = self.finish_move(adopted, parts).await;
+            let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
+            outcome.changes = self.snapshot_after(snapshot).await;
+            if !notes.is_empty() {
+                outcome.output = format!("{}\n{}", outcome.output, notes.join("\n"));
+            }
+            return outcome;
+        }
         // NOTE: a launcher that wrote no result still runs (a call that answered at its
         // timeout) or was lost, so its command can write after the snapshot below; the
         // turn's record of its roots is then not complete (plan PB39).
@@ -1024,34 +1069,48 @@ impl DaemonToolbox {
         }
         let context = self.context(&call.context);
         let call_context = call.context.clone();
+        // NOTE: a line typed into the hidden shell, or one of full mode, may move into
+        // a job while it runs (DS20).
+        let registration = if shell {
+            self.register_move(&call.context, &call.input, moves::RunKind::default())
+        } else {
+            None
+        };
         let mut sink = CallSink {
             out,
             connections: &self.connections,
             conversation_id: call.context.conversation_id,
         };
-        let mut outcome =
-            match self.registry.invoke(&call.name, context, call.input, &mut sink).await {
-                Ok(result) => {
-                    let written = result.written.clone();
-                    let mut outcome = outcome(result);
-                    if let (false, Some(snapshots)) = (written.is_empty(), &self.snapshots) {
-                        let (changes, diff) = snapshots.written(&call_context, &written);
-                        outcome = outcome.with_changes(changes).with_diff(diff);
-                        // NOTE: what a file tool wrote is the turn's own, so undo takes
-                        // it back (plan PB38).
-                        let mut paths: Vec<PathBuf> = Vec::new();
-                        for file in &written {
-                            paths.push(file.path.clone());
-                            if let WrittenKind::Moved { from } = &file.kind {
-                                paths.push(from.clone());
-                            }
+        let invoked = self.registry.invoke(&call.name, context, call.input, &mut sink).await;
+        if let Some(adopted) = self.moved_run(registration).await {
+            let mut outcome = self.finish_move(adopted, moves::MoveParts::default()).await;
+            // NOTE: the moved command writes on; the job's files join the call's turn.
+            let snapshot = snapshot.map(|(taken, limits)| (taken.runs_on(true), limits));
+            outcome.changes = self.snapshot_after(snapshot).await;
+            return outcome;
+        }
+        let mut outcome = match invoked {
+            Ok(result) => {
+                let written = result.written.clone();
+                let mut outcome = outcome(result);
+                if let (false, Some(snapshots)) = (written.is_empty(), &self.snapshots) {
+                    let (changes, diff) = snapshots.written(&call_context, &written);
+                    outcome = outcome.with_changes(changes).with_diff(diff);
+                    // NOTE: what a file tool wrote is the turn's own, so undo takes
+                    // it back (plan PB38).
+                    let mut paths: Vec<PathBuf> = Vec::new();
+                    for file in &written {
+                        paths.push(file.path.clone());
+                        if let WrittenKind::Moved { from } = &file.kind {
+                            paths.push(from.clone());
                         }
-                        snapshots.after_write(&call_context, paths).await;
                     }
-                    outcome
+                    snapshots.after_write(&call_context, paths).await;
                 }
-                Err(error) => ToolOutcome::error(for_model(&error)),
-            };
+                outcome
+            }
+            Err(error) => ToolOutcome::error(for_model(&error)),
+        };
         if shell {
             // NOTE: a command still running in the hidden shell past its timeout can
             // write after the snapshot below.
@@ -1327,7 +1386,15 @@ impl DaemonToolbox {
     /// Drops what the facts of the call `call` said, once it ran or stopped.
     fn forget_call(&self, call: CallId) {
         self.covered.lock().unwrap_or_else(PoisonError::into_inner).remove(&call);
+        self.judged.lock().unwrap_or_else(PoisonError::into_inner).remove(&call);
         self.git_checks.forget(call);
+    }
+
+    /// What the turn judged of the call `call`, with its facts, for the job decision of a
+    /// move.
+    fn judged_requirements(&self, call: CallId) -> Option<Requirements> {
+        let judged = self.judged.lock().unwrap_or_else(PoisonError::into_inner);
+        judged.get(&call).map(|(_, requirements)| requirements.clone())
     }
 
     /// Changes the home tally of the turn `turn`.
@@ -1534,10 +1601,18 @@ impl Toolbox for DaemonToolbox {
                     tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase=facts elapsed_ms={}", watch);
                 }
                 let requirements = permission_requirements(declared);
-                Ok(match facts {
+                let requirements = match facts {
                     Some(facts) => requirements.with_facts(facts),
                     None => requirements,
-                })
+                };
+                // NOTE: a foreground shell call may move into a job while it runs; the
+                // job decision reads what the turn judged (DS19).
+                if call.name == ShellTool::NAME && !requirements.background {
+                    let mut judged = self.judged.lock().unwrap_or_else(PoisonError::into_inner);
+                    judged
+                        .insert(call.context.call_id, (call.context.turn_id, requirements.clone()));
+                }
+                Ok(requirements)
             }
             Err(error) => {
                 tracing::warn!(error = %error, "the paths of a tool call could not be resolved");
@@ -1714,6 +1789,10 @@ impl Toolbox for DaemonToolbox {
         // interrupted one, so a full turn never stays counted.
         self.full.end_turn(turn_id);
         self.covered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|_, (turn, _)| *turn != turn_id);
+        self.judged
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|_, (turn, _)| *turn != turn_id);

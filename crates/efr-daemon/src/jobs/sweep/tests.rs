@@ -3,7 +3,10 @@ use std::process::Stdio;
 
 use pretty_assertions::assert_eq;
 
-use super::{Process, boot_time, kill_session, members, parse_stat, process, same_boot};
+use super::{
+    Process, boot_time, descendants, kill_descendants, kill_session, members, parse_stat, process,
+    same_boot,
+};
 
 #[test]
 fn stat_fields_after_a_name_with_spaces_and_parens() {
@@ -16,6 +19,7 @@ fn stat_fields_after_a_name_with_spaces_and_parens() {
             pid: 4242,
             name: "my (odd) name".to_owned(),
             state: 'S',
+            parent: 1,
             session: 4242,
             start: 98765
         }
@@ -79,4 +83,36 @@ fn boot_time_reads_btime_line() {
     assert_eq!(boot_time(dir.path()), Some(1_790_000_000));
     let now = jiff::Timestamp::now().as_second();
     assert!(boot_time(Path::new("/proc")).is_some_and(|booted| booted <= now));
+}
+
+#[tokio::test]
+async fn kill_descendants_ends_every_process_below_a_shell_also_a_setsid_one() {
+    let dir = tempfile::tempdir().unwrap();
+    // NOTE: one child in the shell's session and one that left it with `setsid`, as a
+    // command of a moved call can leave them (DS55); the shell itself lives on.
+    let Ok(mut shell) = efr_stdx::process::command("sh", dir.path())
+        .arg("-c")
+        .arg("sleep 30 & setsid sleep 31 & wait")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+    else {
+        return;
+    };
+    let pid = shell.id().unwrap();
+    let proc_root = Path::new("/proc");
+    efr_test_support::Wait::new("the two children")
+        .until(|| {
+            let below = descendants(proc_root, pid);
+            below.len() == 2 && below.iter().all(|child| child.name == "sleep")
+        })
+        .await
+        .unwrap();
+    let left = tokio::task::spawn_blocking(move || kill_descendants(pid)).await.unwrap();
+    assert_eq!(left, Vec::<String>::new());
+    assert!(descendants(proc_root, pid).is_empty());
+    let status = shell.wait().await.unwrap();
+    assert!(status.success(), "the shell itself was not hit: {status:?}");
 }

@@ -143,7 +143,9 @@ impl JobTable {
         let jobs: Vec<RunningJob> = self
             .running()
             .into_iter()
-            .filter(|job| job.contained)
+            // NOTE: a call that the user moved into a job has no state dir of a job: its
+            // guard runs only at its end, in its launcher (DS25, OQS8).
+            .filter(|job| job.contained && !job.moved)
             .filter(|job| roots.is_none_or(|roots| overlap(&job.guard_roots, roots)))
             .collect();
         for job in jobs {

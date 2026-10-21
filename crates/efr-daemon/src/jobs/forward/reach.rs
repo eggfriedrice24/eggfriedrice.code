@@ -27,7 +27,9 @@
 //!   and no idle limit.
 //! - The end: dropping the [`ReachCall`] closes the socket, the control connection and
 //!   every copy. A call that ended drops it; a call that runs on past its timeout keeps
-//!   it until its launcher wrote the result (`SandboxService::keep_reach`).
+//!   it until its launcher wrote the result (`SandboxService::keep_reach`). A call that
+//!   the user moved into a background job loses its reach (DS25,
+//!   [`ReachCall::unreach_all`]): the helper gets `Unreach` for every port first.
 //! - The fact of a line ([`fact`], DS43, DS44): the forwarded ports of the conversation.
 //!   When the line names a loopback port that is not forwarded yet and a job of the
 //!   conversation began to forward less than [`REACH_SETTLE`] ago, efrd first waits for
@@ -50,7 +52,7 @@ use efr_stdx::time::Clock;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::{Forwards, OPEN_WAIT};
@@ -111,11 +113,40 @@ pub(crate) async fn bind(call_dir: &Path) -> Result<UnixListener, DaemonError> {
     UnixListener::from_std(listener).map_err(|source| DaemonError::Io { path, source })
 }
 
+/// How long the end of a call's reach at its move waits for the control connection to
+/// send its `Unreach` frames.
+const UNREACH_WAIT: Duration = Duration::from_secs(1);
+
 /// The reach of one call, from its prepare to its end. Dropping it closes the reach
 /// socket, the control connection and every connection of the call.
 #[derive(Debug)]
 pub(crate) struct ReachCall {
     token: CancellationToken,
+    /// True once a helper said `Hello`.
+    hello: watch::Receiver<bool>,
+    /// Asks the control connection to send `Unreach` for every port it holds, and
+    /// tells when it did.
+    unreach: mpsc::Sender<oneshot::Sender<()>>,
+    clock: Arc<dyn Clock>,
+}
+
+impl ReachCall {
+    /// Ends the reach of a call that the user moved into a background job (DS25): the
+    /// helper first gets `Unreach` for every port that it holds, so the moved command
+    /// no longer reaches the forwarded ports of other jobs, and then the reach ends as
+    /// at a drop. It waits at most [`UNREACH_WAIT`] for the frames.
+    pub(crate) async fn unreach_all(self) {
+        if *self.hello.borrow() {
+            let (done, sent) = oneshot::channel();
+            if self.unreach.try_send(done).is_ok()
+                && self.clock.timeout(UNREACH_WAIT, sent).await.is_err()
+            {
+                tracing::debug!(
+                    "the reach helper of a moved call did not take its unreach frames in time"
+                );
+            }
+        }
+    }
 }
 
 impl Drop for ReachCall {
@@ -137,6 +168,8 @@ struct Shared {
     hello: watch::Sender<bool>,
     /// The ports of the plan, which the helper holds from its start.
     start: BTreeSet<u16>,
+    /// The asks of [`ReachCall::unreach_all`], which the control connection takes.
+    unreach: std::sync::Mutex<Option<mpsc::Receiver<oneshot::Sender<()>>>>,
 }
 
 /// Serves the reach socket `listener` of the call `call` of `conversation`, whose plan
@@ -150,20 +183,22 @@ pub(crate) fn serve(
     start: &[u16],
 ) -> ReachCall {
     let token = CancellationToken::new();
-    let (hello, _) = watch::channel(false);
+    let (hello, said) = watch::channel(false);
+    let (unreach, asks) = mpsc::channel(1);
     let shared = Arc::new(Shared {
         forwards,
-        clock,
+        clock: Arc::clone(&clock),
         conversation,
         call,
         token: token.clone(),
         places: Arc::new(Semaphore::new(MAX_REACH_CONNECTIONS)),
         hello,
         start: start.iter().copied().collect(),
+        unreach: std::sync::Mutex::new(Some(asks)),
     });
     tokio::spawn(warn_late(Arc::clone(&shared)));
     tokio::spawn(accept(shared, listener));
-    ReachCall { token }
+    ReachCall { token, hello: said, unreach, clock }
 }
 
 /// Warns once when no helper said `Hello` within [`HELLO_WAIT`]: its start failed, and
@@ -267,6 +302,8 @@ async fn control(shared: &Shared, stream: UnixStream) {
     tokio::spawn(read_frames(read, frames_tx, shared.token.clone()));
     let mut changes = shared.forwards.changes();
     let mut held = shared.start.clone();
+    let mut unreach =
+        shared.unreach.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     loop {
         changes.borrow_and_update();
         let now: BTreeSet<u16> =
@@ -287,6 +324,20 @@ async fn control(shared: &Shared, stream: UnixStream) {
             changed = changes.changed() => if changed.is_err() {
                 return;
             },
+            // NOTE: the call moved into a job, which gets no reach (DS25): the helper
+            // closes every listener before the reach ends.
+            Some(done) = next_unreach(&mut unreach) => {
+                let sends: Vec<Frame> = held
+                    .iter()
+                    .flat_map(|port| {
+                        ADDRESSES.map(|addr| Frame::unreach(Listen { addr, port: *port }))
+                    })
+                    .collect();
+                send(shared, &mut write, &sends).await;
+                tracing::debug!(call_id = %shared.call, ports = held.len(), "the reach of a call that moved into a job ended");
+                let _ = done.send(());
+                return;
+            }
             frame = frames.recv() => match frame {
                 Some(Ok(frame)) if frame.kind == FrameKind::Bound => {
                     tracing::debug!(call_id = %shared.call, addr = %frame.addr, port = frame.port, status = frame.status, "the reach helper of a call answered");
@@ -305,6 +356,17 @@ async fn control(shared: &Shared, stream: UnixStream) {
                 }
             },
         }
+    }
+}
+
+/// The next ask of [`ReachCall::unreach_all`]; never when the control connection has
+/// none to take.
+async fn next_unreach(
+    asks: &mut Option<mpsc::Receiver<oneshot::Sender<()>>>,
+) -> Option<oneshot::Sender<()>> {
+    match asks {
+        Some(asks) => asks.recv().await,
+        None => std::future::pending().await,
     }
 }
 

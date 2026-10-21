@@ -18,6 +18,14 @@
 //! may still run and whether the launcher was lost, hands the actor the notice (not
 //! while efrd stops), and removes the job's dirs.
 //!
+//! A running `shell` call that the user moved into a job with Ctrl+B
+//! ([`JobTable::adopt`], `jobs/moves.rs`) has no launcher of its own: the job owns the
+//! call's old hidden shell and its PTY ([`JobProcess::Adopted`]). Its stop sends
+//! `SIGINT` to the shell's foreground job and closes the shell after [`STOP_GRACE`]; its
+//! end kills every process below the shell (DS55), closes the shell and sweeps its
+//! session. A call through the launcher keeps it: its `result.json` in the call's dir is
+//! the result, as for a job. A call typed into the shell has none; its exit status is.
+//!
 //! At start, a job that the last efrd left running gets `job_ended` with
 //! `daemon_restart`: efrd kills its launcher only when the pid's start time still
 //! matches the `job_started` event, sweeps its session, and reads a `result.json` that
@@ -34,8 +42,8 @@ use std::time::Duration;
 use efr_config::JobsSettings;
 use efr_conversation::{JobNoticeInput, NoticeBody, notice_text, notice_text_refused};
 use efr_protocol::{
-    CallId, ConversationId, Event, JobId, JobInfo, JobState, JobStopBy, Launch, NoticeKind, Seq,
-    SurfaceChange, TurnId,
+    CallId, ConversationId, Event, InputWait, JobId, JobInfo, JobState, JobStopBy, Launch,
+    NoticeKind, Seq, SurfaceChange, TurnId,
 };
 use efr_sandbox::{RESULT_FILE, SandboxResult};
 use efr_stdx::paths::Dirs;
@@ -57,6 +65,7 @@ use crate::sandbox::seams::HostPorts;
 pub(crate) mod forward;
 pub(crate) mod guard;
 pub(crate) mod launch;
+pub(crate) mod moves;
 pub(crate) mod output;
 pub(crate) mod retention;
 pub(crate) mod since;
@@ -116,6 +125,9 @@ pub(crate) struct RunningJob {
     pub(crate) call_dir: PathBuf,
     /// The job's state dir, `$SBX/jobs/<call>`.
     pub(crate) state_dir: PathBuf,
+    /// True for a call that the user moved into the job: it has no state dir, and its
+    /// guard runs only at its end, in its launcher (DS25, OQS8).
+    pub(crate) moved: bool,
 }
 
 /// A notice for a conversation's actor.
@@ -173,6 +185,30 @@ pub(crate) struct NewJob {
     pub(crate) full: bool,
 }
 
+/// A running call that the user moved into a job, as the tool path hands it to
+/// [`JobTable::adopt`].
+#[derive(Debug)]
+pub(crate) struct AdoptedJob {
+    /// The job; `started_at` and `ends_by` are set at the adopt.
+    pub(crate) info: JobInfo,
+    /// The time limit, from the move (DS24).
+    pub(crate) limit: Duration,
+    /// The conversation's `$SCRATCH`.
+    pub(crate) scratch: PathBuf,
+    /// The call's dir, for a call through the launcher; `None` for a line typed into
+    /// the hidden shell.
+    pub(crate) call_dir: Option<PathBuf>,
+    pub(crate) guard_roots: Vec<PathBuf>,
+    pub(crate) write_roots: Vec<PathBuf>,
+    pub(crate) contained: bool,
+    /// The call's proxy socket, served until the job ends (DS25).
+    pub(crate) proxy: Option<ProxyCall>,
+    /// The call's filtered bus proxies, until the job ends.
+    pub(crate) bus: Option<BusCall>,
+    /// True when a call of full mode moved.
+    pub(crate) full: bool,
+}
+
 /// A launcher that efrd spawned and that waits for its start byte, with the reader of
 /// its output.
 #[derive(Debug)]
@@ -214,6 +250,8 @@ struct Inner {
     full: FullTurns,
     /// The port forwards of every job.
     forwards: forward::Forwards,
+    /// The foreground `shell` calls that may move into a job.
+    moves: moves::Moves,
     table: Mutex<Table>,
     notices: mpsc::UnboundedSender<Notice>,
     /// Cancelled once efrd recorded the end of every job at its stop.
@@ -300,6 +338,7 @@ impl JobTable {
             spawn_env,
             full,
             forwards: forward::Forwards::new(host_ports),
+            moves: moves::Moves::default(),
             table: Mutex::new(Table::default()),
             notices,
             cancel: CancellationToken::new(),
@@ -320,6 +359,11 @@ impl JobTable {
     /// The port forwards of every job.
     pub(crate) fn forwards(&self) -> &forward::Forwards {
         &self.inner.forwards
+    }
+
+    /// The foreground `shell` calls that may move into a job now.
+    pub(crate) fn moves(&self) -> &moves::Moves {
+        &self.inner.moves
     }
 
     /// Stops the port forwards of every running job, with a `stopped` event for each
@@ -472,7 +516,7 @@ impl JobTable {
                 .unwrap_or_else(|| "the launcher ended before the job started".to_owned()),
             None => "the launcher ended before the job started".to_owned(),
         };
-        remove_dirs(job.call_dir.clone(), job.state_dir.clone()).await;
+        remove_dirs(vec![job.call_dir.clone(), job.state_dir.clone()]).await;
         Err(format!("[the job could not start: {reason}. The command did not run.]"))
     }
 
@@ -515,6 +559,7 @@ impl JobTable {
             contained: job.contained,
             call_dir: job.call_dir.clone(),
             state_dir: job.state_dir.clone(),
+            moved: false,
         };
         let launch::Spawned { child, pid, pidfd, lifeline, .. } = process;
         let entry = Entry {
@@ -555,19 +600,149 @@ impl JobTable {
         let task = JobTask {
             table: self.clone(),
             key,
-            child,
+            process: JobProcess::Launcher { child, pidfd },
             pid,
-            pidfd,
             output,
             stop: stop_rx,
             ended: ended_tx,
             ends_by: info.ends_by,
-            call_dir: job.call_dir,
-            state_dir: job.state_dir,
+            result_dir: Some(job.call_dir.clone()),
+            dirs: vec![job.call_dir, job.state_dir],
             output_path: info.output.clone(),
             watching,
         };
         tokio::spawn(task.run());
+        match recorded {
+            Ok(_) => Ok(info),
+            Err(source) => {
+                // NOTE: a job that the store did not take must not run unseen.
+                let _ = self.stop(key, JobStopBy::DaemonStop).await;
+                Err(DaemonError::from(source))
+            }
+        }
+    }
+
+    /// Makes the running call `run`, which the user moved with Ctrl+B, the job `job` in
+    /// the place `slot` (DS22): records `job_started` with the shell's pid and start
+    /// time as the launcher's, writes the output so far and then the rest of the
+    /// command's output to the job's output file, and starts the task that follows the
+    /// job to its end. On any failure the command stops, and its shell closes.
+    pub(crate) async fn adopt(
+        &self,
+        mut run: efr_shell::AdoptedRun,
+        slot: Slot,
+        mut job: AdoptedJob,
+    ) -> Result<JobInfo, DaemonError> {
+        let pid = run.shell_pid();
+        let start = tokio::task::spawn_blocking(move || sweep::start_time(pid))
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0);
+        let now = self.inner.clock.now();
+        job.info.started_at = now;
+        job.info.ends_by = now.checked_add(job.limit).unwrap_or(now);
+        job.info.state = JobState::Running;
+        let info = job.info.clone();
+        // NOTE: a line typed into the hidden shell had no prepare that made the dir.
+        let scratch = job.scratch.clone();
+        let made = tokio::task::spawn_blocking(move || output::make_dir(&scratch)).await;
+        if !matches!(made, Ok(Ok(()))) {
+            tracing::warn!(job = %info.id, "the jobs dir of a moved call could not be made");
+        }
+        let file = match output::OutputFile::create(
+            &job.scratch,
+            &output::file_name(&info.id),
+            output::Limits::DEFAULT,
+        ) {
+            Ok(file) => Some(file),
+            Err(error) => {
+                tracing::warn!(%error, job = %info.id, "a job's output file could not be made; its output is not kept");
+                None
+            }
+        };
+        // NOTE: the output so far first, as the call's result has it, then the rest as
+        // plain text from the shell's tee (DS21).
+        let mut head = run.head().as_bytes().to_vec();
+        if head.last().is_some_and(|byte| *byte != b'\n') {
+            head.push(b'\n');
+        }
+        let head = std::io::Cursor::new(head);
+        let reader: Box<dyn std::io::Read + Send> = match run.take_output() {
+            Some(rest) => Box::new(std::io::Read::chain(head, rest)),
+            None => Box::new(head),
+        };
+        let (send, _matches) = mpsc::unbounded_channel();
+        let output = match output::spawn_reader(info.id.as_str(), reader, file, None, send) {
+            Ok(output) => output,
+            Err(source) => {
+                stop_adopted(&run).await;
+                return Err(DaemonError::Io { path: info.output.clone(), source });
+            }
+        };
+        let key =
+            JobKey { conversation: info.conversation_id, number: info.id.number().unwrap_or(0) };
+        self.lock().launchers.insert(pid);
+        let event = Event::JobStarted {
+            turn_id: info.turn_id,
+            call_id: info.call_id,
+            job: info.clone(),
+            launcher_pid: pid,
+            launcher_start: start,
+        };
+        let recorded = self.inner.writer.append(Batch::new().event(key.conversation, event)).await;
+        let (stop, stop_rx) = watch::channel(None);
+        let (ended_tx, ended) = watch::channel(None);
+        let meta = RunningJob {
+            key,
+            call: info.call_id,
+            turn: info.turn_id,
+            guard_roots: job.guard_roots,
+            write_roots: job.write_roots,
+            started_at: now,
+            contained: job.contained,
+            call_dir: job.call_dir.clone().unwrap_or_default(),
+            state_dir: PathBuf::new(),
+            moved: true,
+        };
+        let entry = Entry {
+            info: info.clone(),
+            meta,
+            output: output.clone(),
+            stop,
+            ended,
+            lifeline: None,
+            kept: None,
+            full: job.full,
+            guard: Vec::new(),
+            proxy: job.proxy,
+            bus: job.bus,
+            forward: None,
+        };
+        if job.full {
+            self.inner.full.begin_job(key);
+        }
+        self.lock().running.insert(key, entry);
+        drop(slot);
+        if job.full && self.inner.full.is_off() {
+            self.request_stop(key, JobStopBy::FullOff);
+        }
+        let task = JobTask {
+            table: self.clone(),
+            key,
+            process: JobProcess::Adopted { run: Box::new(run), end: None },
+            pid,
+            output,
+            stop: stop_rx,
+            ended: ended_tx,
+            ends_by: info.ends_by,
+            result_dir: job.call_dir.clone(),
+            dirs: job.call_dir.into_iter().collect(),
+            output_path: info.output.clone(),
+            watching: None,
+        };
+        tokio::spawn(task.run());
+        tracing::info!(conversation = %key.conversation, job = %info.id, "a running call moved into a background job");
         match recorded {
             Ok(_) => Ok(info),
             Err(source) => {
@@ -850,12 +1025,22 @@ impl JobTable {
             if pid > 0 && !swept.is_empty() {
                 self.lock().sessions.insert(pid);
             }
-            let call_dir = job_call_dir(&dirs, info.conversation_id, info.call_id);
+            // NOTE: a call that the user moved into a job keeps the dir of its call
+            // (DS32); its end guard ran in its launcher, or it is lost with it.
+            let moved = info.moved_from.is_some();
+            let call_dir = if moved {
+                moved_call_dir(&dirs, info.conversation_id, info.call_id)
+            } else {
+                job_call_dir(&dirs, info.conversation_id, info.call_id)
+            };
             let result = read_result(&call_dir).await;
-            let launcher_lost = result.is_none();
+            let contained = matches!(info.launch, Launch::Contained { .. });
+            // NOTE: a moved line that ran outside the sandbox may have been typed into
+            // the hidden shell, with no launcher to lose.
+            let launcher_lost = result.is_none() && (!moved || contained);
             // NOTE: a contained job that left no result had no end guard: its guard
             // check runs now, before its state dir goes.
-            let lost_guard = if launcher_lost && matches!(info.launch, Launch::Contained { .. }) {
+            let lost_guard = if launcher_lost && contained && !moved {
                 let state_dir = job_state_dir(&dirs, info.conversation_id, info.call_id);
                 self.check_lost(call_dir.clone(), state_dir).await.changes
             } else {
@@ -991,18 +1176,52 @@ impl JobTable {
 struct JobTask {
     table: JobTable,
     key: JobKey,
-    child: tokio::process::Child,
+    process: JobProcess,
+    /// The launcher's pid, or the adopted shell's: the session that the end sweeps.
     pid: u32,
-    pidfd: Option<std::os::fd::OwnedFd>,
     output: output::Output,
     stop: watch::Receiver<Option<JobStopBy>>,
     ended: watch::Sender<Option<JobInfo>>,
     ends_by: Timestamp,
-    call_dir: PathBuf,
-    state_dir: PathBuf,
+    /// The dir of the launcher's `result.json`; `None` for a line that a moved call
+    /// typed into the hidden shell, which has no launcher.
+    result_dir: Option<PathBuf>,
+    /// The dirs that go at the end: the call dir and the state dir of a job, the call
+    /// dir only of a moved call (its shell dir with `state.json` stays).
+    dirs: Vec<PathBuf>,
     output_path: PathBuf,
     /// The task that records the job's watch matches.
     watching: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// What runs a job, and the rules of its end (DS22).
+enum JobProcess {
+    /// The launcher that efrd spawned for the job.
+    Launcher { child: tokio::process::Child, pidfd: Option<std::os::fd::OwnedFd> },
+    /// A running call that the user moved into the job, in its old hidden shell.
+    Adopted {
+        run: Box<efr_shell::AdoptedRun>,
+        /// How the command ended, once it did.
+        end: Option<Box<efr_shell::AdoptedEnd>>,
+    },
+}
+
+impl JobProcess {
+    /// Waits until the job's command ends: its launcher, or the moved command.
+    async fn wait(&mut self, key: JobKey) {
+        match self {
+            JobProcess::Launcher { child, .. } => {
+                if let Err(error) = child.wait().await {
+                    tracing::warn!(%error, job = key.number, "waiting for a job's launcher failed");
+                }
+            }
+            JobProcess::Adopted { run, end } => {
+                if let Ok(ended) = run.ended().await {
+                    *end = Some(Box::new(ended));
+                }
+            }
+        }
+    }
 }
 
 impl JobTask {
@@ -1013,13 +1232,9 @@ impl JobTask {
         // first ran still ends the job at its limit.
         let left = self.ends_by.duration_since(clock.now());
         let left = Duration::try_from(left).unwrap_or(Duration::ZERO);
+        let key = self.key;
         let requested = tokio::select! {
-            status = self.child.wait() => {
-                if let Err(error) = status {
-                    tracing::warn!(%error, job = self.key.number, "waiting for a job's launcher failed");
-                }
-                None
-            }
+            () = self.process.wait(key) => None,
             stop = stop_rx.wait_for(Option::is_some) => stop.ok().and_then(|stop| *stop),
             () = clock.sleep(left) => Some(JobStopBy::TimeLimit),
         };
@@ -1038,18 +1253,68 @@ impl JobTask {
         self.finish(stopped_by).await;
     }
 
-    /// SIGCONT and SIGTERM to the launcher, SIGKILL after [`STOP_GRACE`].
+    /// A launcher: SIGCONT and SIGTERM, SIGKILL after [`STOP_GRACE`]. A moved command:
+    /// SIGINT to the job in the shell's foreground (a launcher then writes its result),
+    /// and the shell closes when the command did not end within [`STOP_GRACE`].
     async fn escalate(&mut self, clock: &Arc<dyn Clock>) {
-        launch::signal(self.pidfd.as_ref(), self.pid, Signal::CONT);
-        launch::signal(self.pidfd.as_ref(), self.pid, Signal::TERM);
-        if clock.timeout(STOP_GRACE, self.child.wait()).await.is_err() {
-            tracing::warn!(
-                job = self.key.number,
-                "a job's launcher did not end after SIGTERM; killing it"
-            );
-            launch::signal(self.pidfd.as_ref(), self.pid, Signal::KILL);
-            let _ = self.child.wait().await;
+        let (key, pid) = (self.key, self.pid);
+        match &mut self.process {
+            JobProcess::Launcher { child, pidfd } => {
+                launch::signal(pidfd.as_ref(), pid, Signal::CONT);
+                launch::signal(pidfd.as_ref(), pid, Signal::TERM);
+                if clock.timeout(STOP_GRACE, child.wait()).await.is_err() {
+                    tracing::warn!(
+                        job = key.number,
+                        "a job's launcher did not end after SIGTERM; killing it"
+                    );
+                    launch::signal(pidfd.as_ref(), pid, Signal::KILL);
+                    let _ = child.wait().await;
+                }
+            }
+            JobProcess::Adopted { run, end } => {
+                if let Err(error) = run.interrupt().await {
+                    tracing::warn!(%error, job = key.number, "could not interrupt a moved command");
+                }
+                match clock.timeout(STOP_GRACE, run.ended()).await {
+                    Ok(Ok(ended)) => *end = Some(Box::new(ended)),
+                    Ok(Err(_)) => {}
+                    Err(_) => {
+                        tracing::warn!(
+                            job = key.number,
+                            "a moved command did not end after SIGINT; closing its shell"
+                        );
+                        if let Err(error) = run.close().await {
+                            tracing::warn!(%error, job = key.number, "could not close the shell of a moved command");
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /// Ends what is left of the job's processes and returns the names of those that
+    /// are still there: the launcher's session; for a moved command every process below
+    /// its shell (DS55), then the shell itself and its session.
+    async fn sweep(&self) -> Vec<String> {
+        let session = self.pid;
+        let JobProcess::Adopted { run, .. } = &self.process else {
+            return tokio::task::spawn_blocking(move || sweep::kill_session(session))
+                .await
+                .unwrap_or_default();
+        };
+        let below = tokio::task::spawn_blocking(move || sweep::kill_descendants(session))
+            .await
+            .unwrap_or_default();
+        if let Err(error) = run.close().await {
+            tracing::warn!(%error, job = self.key.number, "could not close the shell of a moved command");
+        }
+        let mut left = tokio::task::spawn_blocking(move || sweep::kill_session(session))
+            .await
+            .unwrap_or_default();
+        left.extend(below);
+        left.sort();
+        left.dedup();
+        left
     }
 
     /// Everything after the launcher ended: the sweep, the rest of the output, the
@@ -1077,10 +1342,7 @@ impl JobTask {
         // job's dirs go.
         drop(forward);
         let Some(info) = info else { return };
-        let session = self.pid;
-        let swept = tokio::task::spawn_blocking(move || sweep::kill_session(session))
-            .await
-            .unwrap_or_default();
+        let swept = self.sweep().await;
         let output_ended = clock.timeout(OUTPUT_GRACE, self.output.ended()).await.is_ok();
         if !output_ended {
             tracing::info!(job = %info.id, "a process of the job still holds its output; the end takes the output so far");
@@ -1113,9 +1375,50 @@ impl JobTask {
             None => BusReport::default(),
         };
         let refused = joined_notes(refused, bus_note(&bus.refused, bus.more, bus.stopped));
-        let result = read_result(&self.call_dir).await;
-        let launcher_lost = result.is_none();
-        let ended = end_of(result.as_ref(), stopped_by);
+        let (refused, result, launcher_lost, ended) = match &self.process {
+            JobProcess::Launcher { .. } => {
+                let result = match &self.result_dir {
+                    Some(dir) => read_result(dir).await,
+                    None => None,
+                };
+                let ended = end_of(result.as_ref(), stopped_by);
+                (refused, result.clone(), result.is_none(), ended)
+            }
+            JobProcess::Adopted { run, end } => {
+                // NOTE: nobody follows a job, so efr-shell stopped a wait for a secret at
+                // once (DS27); the notice says why the command ended.
+                let looked = *run.looks().borrow();
+                let secret = matches!(looked, (InputWait::Hidden, _) | (InputWait::Visible, true));
+                let refused = if secret {
+                    joined_notes(Some(SECRET_STOP.to_owned()), refused)
+                } else {
+                    refused
+                };
+                match &self.result_dir {
+                    Some(dir) => {
+                        let result = match read_result(dir).await {
+                            Some(result) => Some(result),
+                            None => end.as_ref().and_then(|end| end.sandbox.clone()),
+                        };
+                        let ended = end_of(result.as_ref(), stopped_by);
+                        (refused, result.clone(), result.is_none(), ended)
+                    }
+                    // NOTE: a line typed into the hidden shell has no launcher, so none
+                    // was lost; its `D` mark carries its exit status.
+                    None => {
+                        let ended = match (stopped_by, end.as_ref().and_then(|end| end.exit_code)) {
+                            (None, Some(code)) => Ended {
+                                state: JobState::Exited,
+                                exit_code: Some(code),
+                                stopped_by: None,
+                            },
+                            (stopped_by, _) => end_of(None, stopped_by),
+                        };
+                        (refused, None, false, ended)
+                    }
+                }
+            }
+        };
         let summary = result.map(|result| result.summary).unwrap_or_default();
         let mut survivors = summary.survivors;
         survivors.extend(swept.iter().cloned());
@@ -1171,7 +1474,7 @@ impl JobTask {
         }
         table.lock().running.remove(&self.key);
         table.inner.full.end_job(self.key);
-        remove_dirs(self.call_dir.clone(), self.state_dir.clone()).await;
+        remove_dirs(std::mem::take(&mut self.dirs)).await;
         match committed {
             Ok(committed) => {
                 let seq = last_seq(&committed);
@@ -1202,6 +1505,11 @@ impl JobTask {
         let _ = self.ended.send(Some(final_info));
     }
 }
+
+/// The note of a job's end when efr stopped its moved command because it waited for a
+/// password that nobody could type (DS27).
+const SECRET_STOP: &str =
+    "[efr stopped the command: it waited for a password, and nobody can type one in a job]";
 
 /// Writes the notice line of each job end of `ended`, which [`JobTable::recover`]
 /// recorded at this start, to the notice file of its conversation's terminal under
@@ -1397,6 +1705,23 @@ pub(crate) fn job_call_dir(dirs: &Dirs, conversation: ConversationId, call: Call
         .join(call.to_string())
 }
 
+/// The call dir of the call `call` of `conversation` that the user moved into a job,
+/// `$R/sbx/<conversation>/<call>`: the dir of a foreground call of the sandbox.
+pub(crate) fn moved_call_dir(dirs: &Dirs, conversation: ConversationId, call: CallId) -> PathBuf {
+    dirs.runtime().join(SHELL_DIR).join(conversation.to_string()).join(call.to_string())
+}
+
+/// Stops the command of a moved call whose job did not start: `SIGINT` to the job in
+/// its shell's foreground, then the shell closes.
+async fn stop_adopted(run: &efr_shell::AdoptedRun) {
+    if let Err(error) = run.interrupt().await {
+        tracing::warn!(%error, "could not interrupt a moved command");
+    }
+    if let Err(error) = run.close().await {
+        tracing::warn!(%error, "could not close the shell of a moved command");
+    }
+}
+
 /// The job state dir of `call` of `conversation`, `$S/sandbox/<conversation>/jobs/<call>`.
 pub(crate) fn job_state_dir(dirs: &Dirs, conversation: ConversationId, call: CallId) -> PathBuf {
     dirs.state()
@@ -1440,10 +1765,13 @@ fn read_tail(path: &Path) -> (u64, String) {
     (size, tail)
 }
 
-/// Removes a job's call dir and state dir.
-async fn remove_dirs(call_dir: PathBuf, state_dir: PathBuf) {
+/// Removes a job's dirs: its call dir and its state dir.
+async fn remove_dirs(dirs: Vec<PathBuf>) {
+    if dirs.is_empty() {
+        return;
+    }
     let removed = tokio::task::spawn_blocking(move || {
-        for dir in [call_dir, state_dir] {
+        for dir in dirs {
             if let Err(error) = std::fs::remove_dir_all(&dir)
                 && error.kind() != std::io::ErrorKind::NotFound
             {

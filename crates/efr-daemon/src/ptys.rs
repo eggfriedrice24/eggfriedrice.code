@@ -182,7 +182,6 @@ impl Ptys {
     /// A background job adopted the shell on `pty_id` with its running command: the PTY
     /// belongs to no conversation from now on, and the idle collector leaves it to the
     /// job. Its shell stays a model-side peer until it exits.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the move of a call marks its PTY next"))]
     pub(crate) fn adopt(&self, pty_id: PtyId) {
         if let Some(entry) = self.lock().get_mut(&pty_id) {
             entry.adopted = true;

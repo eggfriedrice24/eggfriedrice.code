@@ -443,6 +443,15 @@ pub enum DaemonError {
         /// Why not, never quoting the answer.
         reason: &'static str,
     },
+    /// The running call cannot move into a background job now (`call.background`), so
+    /// nothing moved. The message is the reason alone, which `efr` shows as it is.
+    #[error("{reason}")]
+    NotMoved {
+        /// The call.
+        call_id: CallId,
+        /// Why not, in words for the person who pressed the key.
+        reason: &'static str,
+    },
     /// The command that a call left running in the hidden shell cannot be stopped with
     /// `SIGINT` now, so nothing was signalled.
     #[error("the command of call {call_id} cannot be stopped now: {reason}")]
@@ -622,6 +631,7 @@ impl DaemonError {
             | DaemonError::NotWaitingForInput { .. }
             | DaemonError::StopRefused { .. } => ErrorCode::Conflict,
             DaemonError::InvalidParams { .. }
+            | DaemonError::NotMoved { .. }
             | DaemonError::ForeignModel { .. }
             | DaemonError::NoSuchProvider { .. }
             | DaemonError::NoApiKeyLogin { .. }

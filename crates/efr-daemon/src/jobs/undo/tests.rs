@@ -21,6 +21,7 @@ fn job(conversation_n: u128, number: u32, write_roots: &[&str], contained: bool)
         contained,
         call_dir: PathBuf::from("/r/call"),
         state_dir: PathBuf::from("/s/state"),
+        moved: false,
     }
 }
 
