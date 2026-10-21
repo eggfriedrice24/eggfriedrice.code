@@ -359,9 +359,10 @@ Ctrl+B in the turn view:
 - A task looks for input of the command once per `quiet_period`, as the watch of a
   command left running does, and tells each change on `AdoptedRun::looks`. Nobody
   follows a job, so a hidden wait and a visible wait that looks secret stop the
-  command at once: `SIGINT` to the job that waits, only while it holds the terminal,
-  and when the command is still there after `close_grace`, the shell closes. A plain
-  visible wait stays.
+  command at once: `SIGINT` to the job that waits, only while it holds the terminal.
+  The shell stays. The job reads the wait on `looks` and closes the shell when the
+  command does not end, after it kills every process below the shell. A plain visible
+  wait stays.
 - `AdoptedRun::interrupt` sends `SIGINT` to the job in the terminal's foreground, and
   nothing while the shell itself holds it. `AdoptedRun::close` closes the old shell
   (`SIGHUP`, then `SIGKILL` after `close_grace`).

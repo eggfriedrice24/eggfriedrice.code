@@ -23,7 +23,7 @@ use serde_json::Value;
 use super::DaemonToolbox;
 use crate::jobs::forward::reach::ReachCall;
 use crate::jobs::moves::{self, Confirmed, Moved, Registration, RunningCall};
-use crate::jobs::{AdoptedJob, output};
+use crate::jobs::{AdoptedJob, output, stop_adopted};
 use crate::sandbox::bus::BusCall;
 use crate::sandbox::proxy::ProxyCall;
 
@@ -154,7 +154,7 @@ impl DaemonToolbox {
             Ok(number) => number,
             Err(error) => {
                 tracing::warn!(%conversation, error = %error, "a moved call got no job number; efr stops it");
-                stop(&run).await;
+                stop_adopted(&run).await;
                 let _ = reply.send(Err(moves::NOT_RECORDED));
                 return ToolOutcome::error(MOVE_FAILED);
             }
@@ -227,15 +227,5 @@ impl DaemonToolbox {
             ..SandboxSummary::default()
         });
         ToolOutcome::ok(output).with_job(info).with_sandbox(summary)
-    }
-}
-
-/// Stops the command of a moved call that did not become a job.
-async fn stop(run: &AdoptedRun) {
-    if let Err(error) = run.interrupt().await {
-        tracing::warn!(%error, "could not interrupt a moved command");
-    }
-    if let Err(error) = run.close().await {
-        tracing::warn!(%error, "could not close the shell of a moved command");
     }
 }

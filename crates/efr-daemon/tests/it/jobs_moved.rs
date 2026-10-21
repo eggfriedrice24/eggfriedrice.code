@@ -253,6 +253,47 @@ async fn events_while_time_passes(
     }
 }
 
+/// [`events_while_time_passes`], but the clock moves to the next sleep of the daemon
+/// whenever that sleep ends within the 6 s grace of a job's stop, at most 30 times.
+async fn events_while_graces_pass(
+    daemon: &TestDaemon,
+    stream: &mut ItemStream<ConversationSubscribeItem>,
+    mut stop: impl FnMut(&Event) -> bool,
+) -> Vec<EventEnvelope> {
+    let grace = Duration::from_secs(6);
+    let started = Instant::now();
+    let mut seen = Vec::new();
+    let mut moved = 0;
+    loop {
+        tokio::select! {
+            biased;
+            item = stream.next() => {
+                for envelope in envelopes(item.unwrap().unwrap()) {
+                    let done = stop(&envelope.event);
+                    seen.push(envelope);
+                    if done {
+                        return seen;
+                    }
+                }
+            }
+            () = efr_stdx::time::SystemClock.sleep(Duration::from_millis(50)) => {
+                assert!(started.elapsed() < REAL_TIME_LIMIT, "no end in real time: {seen:#?}");
+                let clock = daemon.clock();
+                let now = clock.now();
+                let next = clock.next_deadline().filter(|deadline| {
+                    *deadline <= now.checked_add(grace).unwrap()
+                });
+                if let Some(next) = next {
+                    assert!(moved < 30, "nothing came in 30 moves: {seen:#?}");
+                    let by = Duration::try_from(next.duration_since(now)).unwrap_or_default();
+                    clock.advance(by.max(Duration::from_millis(1)));
+                    moved += 1;
+                }
+            }
+        }
+    }
+}
+
 /// The text of the job's output file `path`, read after its `job_ended`.
 fn output_of(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
@@ -680,6 +721,69 @@ async fn moved_direct_job_stop_kills_a_setsid_child() {
 }
 
 #[tokio::test]
+async fn moved_job_stop_kills_a_setsid_child_before_it_closes_the_shell() {
+    if !zsh_enabled("moved_job_stop_kills_a_setsid_child_before_it_closes_the_shell") {
+        return;
+    }
+    let place = Place::new();
+    let server = ResponsesServer::start().await;
+    // NOTE: the subshell ignores SIGINT, and so does the `cat` that waits on the FIFO, so
+    // the stop closes the shell after the grace. The setsid child is below the shell
+    // only while the shell lives: efrd must kill it before the close (DS55).
+    let pid_file = place.dirs.root().join("child");
+    let line = format!(
+        "( trap '' INT; sh -c 'setsid sleep 600 > /dev/null 2>&1 & echo $! > {}'; {} )",
+        pid_file.display(),
+        place.line("true")
+    );
+    let daemon = place.daemon(&server, calls(&line)).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, call_id, mut stream) =
+        start(&daemon, &client, 1, Some(Mode::Cautious)).await;
+    let job_id = moved_after_yes(&client, conversation_id, call_id).await;
+    events_until(&mut stream, |event| matches!(event, Event::TurnCompleted { .. })).await.unwrap();
+    let child: u32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    assert!(Path::new(&format!("/proc/{child}")).exists());
+
+    let stop = Method::JobsStop(JobsStop {
+        command_id: command_id(30_000),
+        conversation_id: Some(conversation_id),
+        job_id,
+    });
+    let stopper = {
+        let client = daemon.client_for_tty(TTY).await.unwrap();
+        tokio::spawn(async move { client.call::<JobsStopResult>(stop).await })
+    };
+    let seen = events_while_time_passes(&daemon, &mut stream, 30, |event| {
+        matches!(event, Event::JobEnded { .. })
+    })
+    .await;
+
+    let Some(Event::JobEnded { stopped_by, survivors, .. }) =
+        seen.last().map(|envelope| envelope.event.clone())
+    else {
+        unreachable!()
+    };
+    assert_eq!(stopped_by, Some(JobStopBy::User));
+    assert_eq!(survivors, Vec::<String>::new());
+    stopper.await.unwrap().unwrap();
+    let gone = efr_test_support::Wait::new("the setsid child's end")
+        .until(|| {
+            std::fs::read_to_string(format!("/proc/{child}/stat"))
+                .map_or(true, |stat| stat.contains(") Z "))
+        })
+        .await;
+    if gone.is_err() {
+        // NOTE: never leave the child of a failed test behind.
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(i32::try_from(child).unwrap()),
+            nix::sys::signal::Signal::SIGKILL,
+        );
+    }
+    assert!(gone.is_ok(), "the setsid child was killed before the shell closed (DS55)");
+}
+
+#[tokio::test]
 async fn moved_job_time_limit_counts_from_move() {
     if !zsh_enabled("moved_job_time_limit_counts_from_move") {
         return;
@@ -781,6 +885,63 @@ async fn moved_job_hidden_wait_is_stopped() {
     };
     assert_eq!((state, stopped_by), (JobState::Exited, None));
     assert!(exit_code.is_some_and(|code| code != 0), "SIGINT ended the read: {exit_code:?}");
+}
+
+#[tokio::test]
+async fn moved_job_hidden_wait_that_ignores_sigint_closes_after_its_setsid_child_died() {
+    if !zsh_enabled("moved_job_hidden_wait_that_ignores_sigint_closes_after_its_setsid_child_died")
+    {
+        return;
+    }
+    let place = Place::new();
+    let server = ResponsesServer::start().await;
+    // NOTE: the subshell ignores SIGINT, so the interrupt of the wait for a password
+    // does not end it, and the job closes the shell after the grace (DS27). The setsid
+    // child must die before that close (DS55).
+    let pid_file = place.dirs.root().join("child");
+    let getpass = r#"sh -c 'stty -echo; printf "password: "; IFS= read -r p; stty echo'"#;
+    let line = format!(
+        "( trap '' INT; sh -c 'setsid sleep 600 > /dev/null 2>&1 & echo $! > {}'; {} )",
+        pid_file.display(),
+        place.line(getpass)
+    );
+    let daemon = place.daemon(&server, calls(&line)).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, call_id, mut stream) =
+        start(&daemon, &client, 1, Some(Mode::Cautious)).await;
+    moved_after_yes(&client, conversation_id, call_id).await;
+    events_until(&mut stream, |event| matches!(event, Event::TurnCompleted { .. })).await.unwrap();
+    let child: u32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+
+    place.release().await;
+
+    // NOTE: the watch of the moved command ends at the interrupt, so no sleep of 1 s
+    // is left to move the clock by; the job's grace before the close is 6 s.
+    let seen = events_while_graces_pass(&daemon, &mut stream, |event| {
+        matches!(event, Event::JobEnded { .. })
+    })
+    .await;
+    let Some(Event::JobEnded { stopped_by, survivors, .. }) =
+        seen.last().map(|envelope| envelope.event.clone())
+    else {
+        unreachable!()
+    };
+    assert_eq!(stopped_by, None);
+    assert_eq!(survivors, Vec::<String>::new());
+    let gone = efr_test_support::Wait::new("the setsid child's end")
+        .until(|| {
+            std::fs::read_to_string(format!("/proc/{child}/stat"))
+                .map_or(true, |stat| stat.contains(") Z "))
+        })
+        .await;
+    if gone.is_err() {
+        // NOTE: never leave the child of a failed test behind.
+        let _ = nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(i32::try_from(child).unwrap()),
+            nix::sys::signal::Signal::SIGKILL,
+        );
+    }
+    assert!(gone.is_ok(), "the setsid child was killed before the shell closed (DS55)");
 }
 
 #[tokio::test]

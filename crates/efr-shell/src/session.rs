@@ -1744,16 +1744,6 @@ impl SessionHandle {
         }
     }
 
-    /// Waits until the command of run `id`, adopted by a background job, ended, or the
-    /// shell did.
-    pub(crate) async fn adopted_gone(&self, id: u64) {
-        let mut activity = self.activity.clone();
-        tokio::select! {
-            _ = activity.wait_for(|activity| activity.adopted != Some(id)) => {}
-            _ = self.ended() => {}
-        }
-    }
-
     /// Waits until the shell has ended and tells how.
     pub(crate) async fn ended(&self) -> Option<ChildStatus> {
         let mut life = self.life.clone();

@@ -1101,7 +1101,6 @@ impl ShellSessions {
             holder: Arc::clone(&deps.holder),
             quiet: self.quiet(),
             quiet_period: config.quiet_period,
-            close_grace: config.close_grace,
             looks,
         };
         tokio::spawn(watch.run());
