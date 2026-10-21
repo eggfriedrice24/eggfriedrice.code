@@ -1,6 +1,11 @@
 //! The jobs projection (phase C): one row per background job, from its `job_started`,
-//! `job_ended` and `job_watch_matched` events, and one row per event that a job notice
-//! tells about, with the turn that took the notice.
+//! `job_ended`, `job_watch_matched` and `job_port_forwarded` events, and one row per
+//! event that a job notice tells about, with the turn that took the notice.
+//!
+//! The forwarded ports of a job (`JobInfo::forwards`) follow its `job_port_forwarded`
+//! events: `forwarded` adds the port, `stopped` removes it, and the job's end removes
+//! all of them, because the forwards end with the job. The other outcomes forward
+//! nothing and change nothing.
 //!
 //! efrd seeds the ids of new jobs from it ([`next_number`]), finds the jobs that ran
 //! when it stopped ([`running`]), with the launcher's process id and start time from
@@ -10,7 +15,9 @@
 //! `wake = 1` (`conversations.rs`); [`wake_starts_since`] counts them for the limit of
 //! such turns per hour, so a restart does not reset it.
 
-use efr_protocol::{ConversationId, Event, EventEnvelope, JobInfo, JobState, Seq};
+use efr_protocol::{
+    ConversationId, Event, EventEnvelope, ForwardOutcome, JobInfo, JobState, PortForward, Seq,
+};
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _, Row, params};
 
@@ -97,12 +104,28 @@ pub(crate) fn apply(
                 info.stopped_by = *stopped_by;
                 info.output_bytes = *output_bytes;
                 info.ended_at = Some(sql::truncate_to_micros(envelope.at));
+                // NOTE: the forwards end with the job.
+                info.forwards.clear();
             })?;
         }
         Event::JobWatchMatched { job_id, .. } => {
             let key = (id.clone(), job_number(job_id));
             notice_source(conn, &id, key.1, envelope)?;
             update(conn, &key, |info| info.wakes = info.wakes.saturating_add(1))?;
+        }
+        Event::JobPortForwarded { job_id, listen, port, outcome, .. } => {
+            let key = (id.clone(), job_number(job_id));
+            match outcome {
+                ForwardOutcome::Forwarded => {
+                    update(conn, &key, |info| forwarded(info, listen, *port))?
+                }
+                ForwardOutcome::Stopped => {
+                    update(conn, &key, |info| {
+                        info.forwards.retain(|forward| forward.port != *port)
+                    })?;
+                }
+                _ => {}
+            }
         }
         Event::JobNotice { turn_id, source_seq, .. } => {
             conn.execute(
@@ -128,6 +151,15 @@ fn number(job: &JobInfo) -> i64 {
 
 fn job_number(id: &efr_protocol::JobId) -> i64 {
     id.number().map_or(0, i64::from)
+}
+
+/// Adds the forwarded `port` to `info`; a port that the job forwards already keeps one
+/// entry, with the address of the newest event.
+fn forwarded(info: &mut JobInfo, listen: &str, port: u16) {
+    match info.forwards.iter_mut().find(|forward| forward.port == port) {
+        Some(forward) => listen.clone_into(&mut forward.listen),
+        None => info.forwards.push(PortForward { listen: listen.to_owned(), port }),
+    }
 }
 
 /// A byte count as a column value.

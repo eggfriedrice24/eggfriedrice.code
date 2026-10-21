@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use efr_protocol::{
-    ConversationId, Event, HeldReason, JobId, JobInfo, JobState, JobStopBy, Launch, NoticeKind, Seq,
+    ConversationId, Event, ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, Launch,
+    NoticeKind, PortForward, Seq,
 };
 use jiff::Timestamp;
 use pretty_assertions::assert_eq;
@@ -158,6 +159,111 @@ async fn job_ended_updates_the_row() {
     writer.rebuild_projections().await.unwrap();
     let after = on_writer(&writer, |conn| Ok(testing::dump(conn, "jobs"))).await.unwrap();
     assert_eq!(after, before, "a rebuild gives the same rows");
+}
+
+/// The `job_port_forwarded` of job `n` for `listen`:`port` with `outcome`.
+fn port_event(n: u32, listen: &str, port: u16, outcome: ForwardOutcome) -> Event {
+    Event::JobPortForwarded {
+        job_id: JobId::nth(n),
+        listen: listen.to_owned(),
+        port,
+        outcome,
+        by_job: (outcome == ForwardOutcome::InUse).then(|| JobId::nth(9)),
+        reason: matches!(outcome, ForwardOutcome::Refused | ForwardOutcome::Limit)
+            .then(|| "a service port".to_owned()),
+    }
+}
+
+fn forward(listen: &str, port: u16) -> PortForward {
+    PortForward { listen: listen.to_owned(), port }
+}
+
+/// The forwarded ports of job `n` of conversation 1, as the projection holds them.
+async fn forwards_of(writer: &WriterHandle, n: u32) -> Vec<PortForward> {
+    let id = testing::conversation(1);
+    let rows = on_writer(writer, move |conn| of_conversation(conn, id, 10)).await.unwrap();
+    rows.into_iter().find(|row| row.info.id == JobId::nth(n)).map(|row| row.info.forwards).unwrap()
+}
+
+#[tokio::test]
+async fn forwarded_ports_follow_the_port_events() {
+    let (writer, _thread, _clock) = with_turn().await;
+    let id = testing::conversation(1);
+    writer
+        .append(
+            Batch::new()
+                .event(id, job_started(job(id, 1), 10))
+                .event(id, job_started(job(id, 2), 11))
+                .event(id, port_event(1, "127.0.0.1", 8765, ForwardOutcome::Forwarded))
+                .event(id, port_event(1, "::1", 5173, ForwardOutcome::Forwarded))
+                .event(id, port_event(1, "127.0.0.1", 3000, ForwardOutcome::InUse))
+                .event(id, port_event(1, "127.0.0.1", 6379, ForwardOutcome::Refused))
+                .event(id, port_event(1, "127.0.0.1", 9000, ForwardOutcome::Limit))
+                .event(id, port_event(1, "127.0.0.1", 9001, ForwardOutcome::Unknown))
+                .event(id, port_event(2, "127.0.0.1", 4000, ForwardOutcome::Forwarded)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        forwards_of(&writer, 1).await,
+        [forward("127.0.0.1", 8765), forward("::1", 5173)],
+        "only a forwarded port counts, in the order of the events"
+    );
+    assert_eq!(forwards_of(&writer, 2).await, [forward("127.0.0.1", 4000)]);
+
+    // A port that the job forwards already keeps one entry, with the newest address.
+    writer
+        .append(Batch::new().event(id, port_event(1, "::1", 8765, ForwardOutcome::Forwarded)))
+        .await
+        .unwrap();
+    assert_eq!(forwards_of(&writer, 1).await, [forward("::1", 8765), forward("::1", 5173)]);
+
+    // `stopped` removes its port; a stop of a port that the job does not forward
+    // changes nothing.
+    writer
+        .append(
+            Batch::new()
+                .event(id, port_event(1, "::1", 5173, ForwardOutcome::Stopped))
+                .event(id, port_event(1, "127.0.0.1", 7000, ForwardOutcome::Stopped)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forwards_of(&writer, 1).await, [forward("::1", 8765)]);
+
+    let notices = on_writer(&writer, |conn| Ok(testing::dump(conn, "job_notices"))).await.unwrap();
+    assert!(notices.is_empty(), "a forward is no notice: {notices:?}");
+    let before = on_writer(&writer, |conn| Ok(testing::dump(conn, "jobs"))).await.unwrap();
+    writer.rebuild_projections().await.unwrap();
+    let after = on_writer(&writer, |conn| Ok(testing::dump(conn, "jobs"))).await.unwrap();
+    assert_eq!(after, before, "a rebuild gives the same forwards");
+}
+
+#[tokio::test]
+async fn the_end_of_a_job_ends_its_forwards() {
+    let (writer, _thread, _clock) = with_turn().await;
+    let id = testing::conversation(1);
+    writer
+        .append(
+            Batch::new()
+                .event(id, job_started(job(id, 1), 10))
+                .event(id, job_started(job(id, 2), 11))
+                .event(id, port_event(1, "127.0.0.1", 8765, ForwardOutcome::Forwarded))
+                .event(id, port_event(2, "127.0.0.1", 5173, ForwardOutcome::Forwarded))
+                .event(id, job_ended(1, JobState::Stopped, Some(JobStopBy::DaemonRestart))),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forwards_of(&writer, 1).await, []);
+    assert_eq!(forwards_of(&writer, 2).await, [forward("127.0.0.1", 5173)], "job 2 still runs");
+
+    // An event of a job that the projection does not hold, such as a job of the exit
+    // child, adds no row.
+    writer
+        .append(Batch::new().event(id, port_event(7, "127.0.0.1", 8000, ForwardOutcome::Forwarded)))
+        .await
+        .unwrap();
+    let rows = on_writer(&writer, move |conn| of_conversation(conn, id, 10)).await.unwrap();
+    assert_eq!(rows.len(), 2);
 }
 
 #[tokio::test]
