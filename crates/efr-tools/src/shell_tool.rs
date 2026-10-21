@@ -232,8 +232,9 @@ const NEEDS_MEMBERS: &[(&str, &str)] = &[
     (
         "hosts",
         "Hosts that the command needs, such as gitlab.com. A server that the user's browser \
-         must reach runs as a background job: efr forwards its port. For a tool that does \
-         not use HTTPS_PROXY, such as psql, name localhost or the host with its port.",
+         must reach runs as a background job: in auto, efr forwards its port unless \
+         jobs.forward_ports is off. For a tool that does not use HTTPS_PROXY, such as psql, \
+         name localhost or the host with its port.",
     ),
     ("sockets", "Unix sockets to connect to, such as a tool's own socket."),
     (

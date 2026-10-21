@@ -107,8 +107,9 @@ fn hosts_member_text_holds_in_both_modes() {
     assert_eq!(
         *text,
         "Hosts that the command needs, such as gitlab.com. A server that the user's browser \
-         must reach runs as a background job: efr forwards its port. For a tool that does \
-         not use HTTPS_PROXY, such as psql, name localhost or the host with its port."
+         must reach runs as a background job: in auto, efr forwards its port unless \
+         jobs.forward_ports is off. For a tool that does not use HTTPS_PROXY, such as psql, \
+         name localhost or the host with its port."
     );
     for word in ["allow list", "efr's proxy", "phase"] {
         assert!(!text.contains(word), "{word:?} in {text}");
