@@ -655,7 +655,8 @@ impl Turn {
             Some(cwd) => Some(cwd),
             None => snapshot.agent_cwd(),
         };
-        let preamble = self.live_state(derivation.repo, agent_cwd, moved_from).render();
+        let busy_shell = shared.deps.toolbox.busy_shell(shared.conversation_id).await;
+        let preamble = self.live_state(derivation.repo, agent_cwd, moved_from, busy_shell).render();
         let fresh = match snapshot.summary() {
             Some(compaction) => Some(self.fresh_for(compaction).await),
             None => None,
@@ -978,6 +979,7 @@ impl Turn {
         repo: Option<efr_scope::Repo>,
         agent_cwd: Option<PathBuf>,
         moved_from: Option<PathBuf>,
+        busy_shell: Option<efr_protocol::BusyShell>,
     ) -> LiveState {
         let context = self.spec.context.as_ref();
         let host = &self.config.host;
@@ -1001,6 +1003,7 @@ impl Turn {
             scratch: self.scratch.clone(),
             agent_cwd,
             moved_from,
+            busy_shell,
             mode: self.mode(),
             fallback: self.settings.as_ref().and_then(|settings| settings.fallback.clone()),
             model: self.model_key().model,

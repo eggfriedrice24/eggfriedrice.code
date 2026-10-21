@@ -152,6 +152,8 @@ pub(crate) struct FakeToolbox {
     pub(crate) blocks_undo: Mutex<Option<UndoBusyReason>>,
     /// When set, `wake_allowed` says no, as the daemon-wide limit of notice turns does.
     pub(crate) wakes_denied: AtomicBool,
+    /// What `busy_shell` answers.
+    pub(crate) busy: Mutex<Option<efr_protocol::BusyShell>>,
 }
 
 /// The job `j<number>` of the conversation, started by the call `call_id` of the turn
@@ -410,6 +412,13 @@ impl Toolbox for FakeToolbox {
 
     async fn shell_cwd(&self, _conversation_id: ConversationId) -> Option<PathBuf> {
         self.shell_cwd.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    async fn busy_shell(
+        &self,
+        _conversation_id: ConversationId,
+    ) -> Option<efr_protocol::BusyShell> {
+        self.busy.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     async fn move_shell(&self, _conversation_id: ConversationId, dir: &Path) {
@@ -717,6 +726,7 @@ impl Setup {
             scratch: self.scratch(title),
             agent_cwd: None,
             moved_from: None,
+            busy_shell: None,
             mode: Mode::Cautious,
             fallback: None,
             model: MODEL.to_owned(),

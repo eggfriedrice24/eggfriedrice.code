@@ -34,7 +34,7 @@ use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
 use efr_permissions::Egress;
-use efr_protocol::{Mode, ModeFallback, RecentCommand};
+use efr_protocol::{BusyShell, InputWait, Mode, ModeFallback, RecentCommand};
 use efr_scope::Repo;
 use jiff::Timestamp;
 
@@ -76,6 +76,9 @@ pub(crate) struct LiveState {
     pub(crate) agent_cwd: Option<PathBuf>,
     /// The user's directory at the previous prompt, when the user moved since then.
     pub(crate) moved_from: Option<PathBuf>,
+    /// A command that an earlier call left running in the conversation's hidden shell,
+    /// which takes no other call until it ends.
+    pub(crate) busy_shell: Option<BusyShell>,
     /// The turn's permission mode.
     pub(crate) mode: Mode,
     /// Why the turn runs with a stricter mode than it asked for, such as `auto` without
@@ -113,6 +116,7 @@ impl fmt::Debug for LiveState {
             .field("scratch", &self.scratch)
             .field("agent_cwd", &self.agent_cwd)
             .field("moved_from", &self.moved_from)
+            .field("busy_shell", &self.busy_shell.is_some())
             .field("mode", &self.mode)
             .field("fallback", &self.fallback)
             .field("model", &self.model)
@@ -180,6 +184,9 @@ impl LiveState {
                 let _ = writeln!(text, "Your hidden shell is in {}.", agent_cwd.display());
             }
             (None, None) => {}
+        }
+        if let Some(busy) = &self.busy_shell {
+            text.push_str(&busy_line(busy, self.now));
         }
         if let Some(command) = &self.last_command {
             text.push_str(&last_command(command, self.last_status));
@@ -288,6 +295,31 @@ to type. Your settings tool changes only the defaults in config.toml, after the 
 approves its diff, from the next turn on, and a terminal's own choice still wins over \
 them.
 ";
+
+/// The line about a command left running in the hidden shell: what it is, how long it
+/// has run, whether it waits for input, and what that means for the next call.
+fn busy_line(busy: &BusyShell, now: Timestamp) -> String {
+    let command = cut(&busy.command.split_whitespace().collect::<Vec<_>>().join(" "));
+    let secs = u64::try_from(now.as_second().saturating_sub(busy.since.as_second())).unwrap_or(0);
+    let ran = recent::rough(secs);
+    // NOTE: the word password only for a command outside the sandbox: efr types no
+    // secret into a contained one, and stops such a wait at once.
+    let secret = !busy.contained && (busy.input == InputWait::Hidden || busy.looks_secret);
+    match busy.input {
+        InputWait::None => format!(
+            "The hidden shell still runs: `{command}` (for {ran}). The next shell call waits \
+             for it to end; the user can stop it with ,shell.\n"
+        ),
+        _ => {
+            let what = if secret { "a password" } else { "input" };
+            format!(
+                "The hidden shell still runs: `{command}` (for {ran}; it waits for {what}). \
+                 The next shell call fails at once while it waits; the user answers or stops \
+                 it with ,shell. Never ask the user to type the answer at their prompt.\n"
+            )
+        }
+    }
+}
 
 /// The line that names the turn's permission mode; the list of the modes below it
 /// says what each one means, so the rule of a mode is written once.

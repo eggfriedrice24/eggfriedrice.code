@@ -392,7 +392,12 @@ request:
    git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
    shell's own directory when it differs, one line when the user moved since the
    previous prompt (where from, and whether the hidden shell moved too or where it
-   stayed), the turn's permission mode, model and
+   stayed), one line when an earlier call left a command running in the hidden shell
+   (`Toolbox::busy_shell`, which efrd answers from the live shell: the command on one
+   line, how long it has run, whether it waits for input, `a password` only for a
+   hidden or password-like wait of a command outside the sandbox, never the prompt row,
+   and that the next shell call fails at once while it waits and the user answers or
+   stops it with `,shell`), the turn's permission mode, model and
    effort, the three modes (`manual`, `cautious`, `auto`) with one line each, which
    is the one place that says what a mode allows, as `docs/permissions.md` does (four
    modes with `full` when `permissions.allow_full` is on or the turn runs in full mode;
