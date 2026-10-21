@@ -227,7 +227,9 @@ into the GitHub release notes, and it stops when the section is missing.
   details and the limits.
 - In `auto`, a contained command reaches the forwarded ports of its conversation's
   background jobs at `127.0.0.1` and `localhost` with no question, so the agent can
-  check the dev server that it started.
+  check the dev server that it started. Before, such a check asked for the whole
+  network. Only the ports that efr forwards for the same conversation are reachable.
+  `docs/sandbox.md`, "Ports of a job", has the rules.
 - In `auto`, `df` and `findmnt` now run with no review and show your machine's
   mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
   reads the mounts outside the sandbox. A mount that does not answer in one second
@@ -406,9 +408,12 @@ into the GitHub release notes, and it stops when the section is missing.
   model, efr now tells you: the call shows `still runs in the hidden shell`, the end of the
   turn names the command, and the next prompt shows a notice. When it waits for input,
   such as a password, you see the line that asks, and you answer it in the turn view or
-  after `,shell`; Ctrl+C there stops it. Such a command that waits for input ends after
+  after `,shell` (or `efr shell`); Ctrl+C there stops it. A wait for a password stays
+  for you only when you or your own rule approved a line that may ask for one; efr
+  stops other such waits and tells you. Such a command that waits for input ends after
   `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
-  goes on while you follow the turn.
+  goes on while you follow the turn. The README, "A busy hidden shell", has the
+  details.
 
 ### Changed
 
