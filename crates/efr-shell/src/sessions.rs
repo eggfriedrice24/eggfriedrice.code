@@ -11,22 +11,23 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use efr_holder::{HolderError, PtyHandle, Signal, SignalTarget, Size, SpawnSpec};
-use efr_protocol::{CallId, ConversationId, InputWait, PtyId, SecretText};
+use efr_holder::{PtyHandle, Signal, SignalTarget, Size, SpawnSpec};
+use efr_protocol::{ApprovedBy, CallId, ConversationId, InputWait, PtyId, SecretText};
 use efr_screen::ScreenHandle;
 use efr_stdx::StdxError;
 use efr_stdx::time::{Clock as _, Sleep};
 use tokio::sync::{OnceCell, mpsc, oneshot, watch};
 
-use crate::input::{self, InputWatch, Look, Offer, Quiet};
+use crate::input::{self, InputWatch, Offer, Quiet};
 use crate::live_tail::{LiveTail, Step};
 use crate::modes::Terminal;
+use crate::orphan::{LeftRun, OrphanWatch};
 use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
 use crate::run::{Progress, RunMode, screen_tail, timed_out};
 use crate::session::{
-    Activity, Detached, INBOX_CAPACITY, Life, Msg, RunEnd, RunOrder, SessionActor, SessionCore,
-    SessionHandle, until,
+    Activity, Detached, INBOX_CAPACITY, Life, Looked, Msg, RunEnd, RunOrder, SessionActor,
+    SessionCore, SessionHandle, until,
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
@@ -398,18 +399,8 @@ impl ShellSessions {
         let Ok(session) = self.existing(conversation) else {
             return Ok(());
         };
-        let holder = &self.inner.deps.holder;
-        match holder.signal(session.pty_id, Signal::Hangup, SignalTarget::Child).await {
-            Ok(()) | Err(HolderError::Exited { .. } | HolderError::NotFound { .. }) => {}
-            Err(source) => return Err(ShellError::Holder { conversation, source }),
-        }
-        let grace = self.inner.config.close_grace;
-        if self.inner.deps.clock.timeout(grace, session.ended()).await.is_err() {
-            // Too late to matter whether the kill or the shell's own end came first.
-            let _ = holder.signal(session.pty_id, Signal::Kill, SignalTarget::Child).await;
-            session.ended().await;
-        }
-        Ok(())
+        let deps = &self.inner.deps;
+        session.close(&*deps.holder, &*deps.clock, self.inner.config.close_grace).await
     }
 
     /// Moves the conversation's shell to `dir`, as a `cd` that the user types, because
@@ -668,6 +659,8 @@ impl ShellSessions {
         let offer = Offer::of(request.mode, &request.command);
         let started = deps.clock.now();
         let limits = Limits { interactive: request.interactive_limit, input: request.input_limit };
+        let kept_unfollowed =
+            request.may_prompt && request.approved_by.is_some_and(ApprovedBy::by_person);
         let order = RunOrder {
             id,
             command: request.command,
@@ -773,7 +766,22 @@ impl ShellSessions {
         }
 
         let detached = self.detach(session, id, true, &mut guard).await;
+        // NOTE: the wait that the run reported last goes on with its command, which a
+        // watch of its own follows from here.
+        let reported = watch;
         end_watch(&mut watch, progress);
+        if let Ok(Detached::Running { .. }) = &detached {
+            let left = LeftRun {
+                id,
+                offer,
+                contained,
+                kept_unfollowed,
+                started,
+                limit: limits.input.or(limits.interactive),
+                watch: reported,
+            };
+            self.watch_left(session, left);
+        }
         match detached? {
             Detached::Gone => self.finished(session, answer.await).await,
             Detached::Unstarted => Err(session.not_ready()),
@@ -834,44 +842,14 @@ impl ShellSessions {
         watch: &mut InputWatch,
         progress: &mut dyn RunProgress,
     ) -> Result<bool, ShellError> {
-        let (reply, probed) = oneshot::channel();
-        session.send(Msg::Probe { id, reply }).await?;
-        // A run that ended meanwhile is answered on its reply channel.
-        let Ok(Some(probe)) = probed.await else {
-            return Ok(false);
-        };
-        let config = &self.inner.config;
-        let quiet = Quiet {
-            hidden: config.quiet_period,
-            visible: config.visible_input_quiet,
-            question: config.question_input_quiet,
-        };
-        // A terminal that is not in line mode while a job waits is a relay's, such as
-        // `sudo`'s own pty, or a program's raw mode: only then can a password prompt be
-        // a visible wait.
-        let relayed = probe.job.is_some_and(|job| !job.modes.canonical);
-        let (wait, secret) = match input::look(&probe, self.inner.deps.clock.now(), quiet, offer) {
-            Look::Settled(wait) => (wait, false),
-            // A screen that failed only loses the guess; the command goes on.
-            Look::ReadScreen { questions_only } => match session.screen.snapshot(0).await {
-                Ok(capture)
-                    if input::visible_prompt(&capture.snapshot)
-                        && (!questions_only || input::question_prompt(&capture.snapshot)) =>
-                {
-                    (InputWait::Visible, relayed && input::secret_prompt(&capture.snapshot))
-                }
-                _ => (InputWait::None, false),
-            },
-        };
-        let group = probe.job.map(|job| job.group);
-        if let Some(changed) = watch.settle(wait, secret, group, probe.answers) {
-            // The actor learns which job waits before any client hears of the wait, so an
-            // answer sent for it is checked against that job. The client hears of the
-            // change even when the actor is gone, so the `None` that the caller reports
-            // then follows a wait that the client heard.
-            let told = session.send(Msg::Waiting { id, waiting: watch.waiting() }).await;
-            progress.input_changed(changed, watch.looks_secret());
-            told?;
+        let clock = &*self.inner.deps.clock;
+        match session.look(id, offer, self.quiet(), clock, watch).await? {
+            Looked::Gone => return Ok(false),
+            Looked::Same => {}
+            Looked::Changed { wait, told } => {
+                progress.input_changed(wait, watch.looks_secret());
+                told?;
+            }
         }
         // NOTE: a visible wait that looks secret is a hidden one for a command in the
         // sandbox: sandboxed code can put the terminal in raw mode and print a password
@@ -879,6 +857,34 @@ impl ShellSessions {
         let secret = watch.current() == InputWait::Visible && watch.looks_secret();
         Ok((watch.current() == InputWait::Hidden || (contained && secret))
             && (contained || !progress.can_answer_hidden()))
+    }
+
+    /// The quiet times of a look, from the config.
+    fn quiet(&self) -> Quiet {
+        let config = &self.inner.config;
+        Quiet {
+            hidden: config.quiet_period,
+            visible: config.visible_input_quiet,
+            question: config.question_input_quiet,
+        }
+    }
+
+    /// Watches the command of run `id`, left running at its timeout, until it ends:
+    /// its waits, the stop of a wait that may not stay, and the limit of a wait.
+    fn watch_left(&self, session: &SessionHandle, left: LeftRun) {
+        let deps = &self.inner.deps;
+        let config = &self.inner.config;
+        let watch = OrphanWatch {
+            session: session.clone(),
+            run: left,
+            clock: Arc::clone(&deps.clock),
+            holder: Arc::clone(&deps.holder),
+            followers: Arc::clone(&deps.followers),
+            quiet: self.quiet(),
+            quiet_period: config.quiet_period,
+            close_grace: config.close_grace,
+        };
+        tokio::spawn(watch.run());
     }
 
     /// How much longer a run that reached its deadline waits for its command, when its

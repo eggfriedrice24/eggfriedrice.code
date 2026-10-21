@@ -10,7 +10,10 @@ use efr_holder::{PtyHolder, Size};
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 
-use crate::{Discard, RecordingSink, ScreenFactory, ShellObserver, TerminalModes, Termios};
+use crate::orphan::NoFollowers;
+use crate::{
+    Discard, Followers, RecordingSink, ScreenFactory, ShellObserver, TerminalModes, Termios,
+};
 
 /// How hidden shells are started. The daemon builds it from its own config and passes
 /// it by value; nothing in this crate reads the environment.
@@ -159,13 +162,17 @@ pub struct ShellDeps {
     /// Reads the input modes of a shell's terminal from its master: whether a command
     /// waits for hidden input, and whether an answer may be typed.
     pub modes: Arc<dyn TerminalModes>,
+    /// Tells how many clients that can answer follow a conversation, which decides
+    /// whether a hidden wait of a command left running may stay.
+    pub followers: Arc<dyn Followers>,
 }
 
 impl ShellDeps {
     /// Collaborators that discard the recording and every notice until
     /// [`with_recording`](Self::with_recording) and
-    /// [`with_observer`](Self::with_observer) say otherwise, and read the terminal
-    /// modes with [`Termios`].
+    /// [`with_observer`](Self::with_observer) say otherwise, read the terminal modes
+    /// with [`Termios`], and see nobody follow a conversation until
+    /// [`with_followers`](Self::with_followers) says otherwise.
     pub fn new(
         holder: Arc<dyn PtyHolder>,
         screens: Arc<dyn ScreenFactory>,
@@ -180,7 +187,15 @@ impl ShellDeps {
             clock,
             rng,
             modes: Arc::new(Termios),
+            followers: Arc::new(NoFollowers),
         }
+    }
+
+    /// Asks `followers` how many clients that can answer follow a conversation.
+    #[must_use]
+    pub fn with_followers(mut self, followers: Arc<dyn Followers>) -> Self {
+        self.followers = followers;
+        self
     }
 
     /// Sends the PTY bytes to `recording`.

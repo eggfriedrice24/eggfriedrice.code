@@ -65,7 +65,7 @@ pub use error::ShellError;
 pub use input::takes_manual_answers;
 pub use integration::supports as gets_integration;
 pub use modes::{InputModes, TerminalModes, Termios};
-pub use orphan::LeftRunning;
+pub use orphan::{Followers, LeftRunning};
 pub use recording_sink::{Discard, RecordingSink, ShellNotice, ShellObserver};
 pub use run::{
     CommandResult, Completion, Delimiter, NoProgress, OutputUpdate, RunMode, RunProgress,

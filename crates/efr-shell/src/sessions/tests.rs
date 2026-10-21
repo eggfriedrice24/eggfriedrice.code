@@ -133,13 +133,14 @@ async fn until_free_waits_for_a_run_left_running_and_times_out() {
     harness.clock.advance(RunRequest::DEFAULT_TIMEOUT);
     run.await.unwrap().unwrap();
 
-    // The run left running keeps the shell busy until its timeout.
+    // The run left running keeps the shell busy until its timeout. Its watch sleeps
+    // until its next look beside the wait.
     let sessions = harness.sessions.clone();
     let wait =
         tokio::spawn(
             async move { sessions.until_free(conversation(1), Duration::from_secs(5)).await },
         );
-    harness.clock.wait_for_sleeps(1).await;
+    harness.clock.wait_for_sleeps(2).await;
     harness.clock.advance(Duration::from_secs(5));
     assert!(matches!(wait.await.unwrap(), Err(ShellError::NotReady { fresh: false, .. })));
 
@@ -149,7 +150,7 @@ async fn until_free_waits_for_a_run_left_running_and_times_out() {
         tokio::spawn(
             async move { sessions.until_free(conversation(1), Duration::from_secs(5)).await },
         );
-    harness.clock.wait_for_sleeps(1).await;
+    harness.clock.wait_for_sleeps(2).await;
     terminal.print(b"\x1b]133;D;0\x07").await;
     wait.await.unwrap().unwrap();
 }

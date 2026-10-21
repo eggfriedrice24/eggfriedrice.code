@@ -334,6 +334,19 @@ pub(crate) fn question_prompt(snapshot: &ScreenSnapshot) -> bool {
         || (spaced && (text.ends_with('?') || text.ends_with(':')))
 }
 
+/// How many characters of the cursor's row a wait keeps as its prompt.
+pub(crate) const PROMPT_CHARS: usize = 200;
+
+/// The cursor's row of `snapshot` without its trailing blanks, at most
+/// [`PROMPT_CHARS`] characters: the line that asks, such as `u@h's password:`.
+pub(crate) fn prompt_row(snapshot: &ScreenSnapshot) -> String {
+    snapshot
+        .rows
+        .get(usize::from(snapshot.cursor.row))
+        .map(|row| row_text(row).trim_end().chars().take(PROMPT_CHARS).collect())
+        .unwrap_or_default()
+}
+
 /// True when the cursor's row of `snapshot` reads like a prompt for a secret.
 pub(crate) fn secret_prompt(snapshot: &ScreenSnapshot) -> bool {
     snapshot

@@ -23,8 +23,8 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::watch;
 
 use crate::{
-    InputModes, OutputUpdate, RecordingSink, RunProgress, ScreenFactory, ShellConfig, ShellDeps,
-    ShellNotice, ShellObserver, ShellSessions, TerminalModes,
+    Followers, InputModes, OutputUpdate, RecordingSink, RunProgress, ScreenFactory, ShellConfig,
+    ShellDeps, ShellNotice, ShellObserver, ShellSessions, TerminalModes,
 };
 
 pub(crate) const SIZE: Size = Size { cols: 80, rows: 24 };
@@ -608,6 +608,26 @@ impl RunProgress for Listener {
     }
 }
 
+/// How many clients that can answer follow each conversation, as the test sets it:
+/// nobody until then.
+#[derive(Debug, Default)]
+pub(crate) struct FakeFollowers {
+    count: AtomicUsize,
+}
+
+impl FakeFollowers {
+    /// Makes `count` clients that can answer follow every conversation.
+    pub(crate) fn set(&self, count: usize) {
+        self.count.store(count, Ordering::SeqCst);
+    }
+}
+
+impl Followers for FakeFollowers {
+    fn answerers(&self, _conversation: ConversationId) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+}
+
 /// A manager over a [`FakeHolder`] with a manual clock.
 pub(crate) struct Harness {
     pub(crate) sessions: ShellSessions,
@@ -616,6 +636,7 @@ pub(crate) struct Harness {
     pub(crate) recorded: Arc<Recorded>,
     pub(crate) notices: Arc<Notices>,
     pub(crate) modes: Arc<FakeModes>,
+    pub(crate) followers: Arc<FakeFollowers>,
     pub(crate) dir: tempfile::TempDir,
 }
 
@@ -649,6 +670,7 @@ impl Harness {
         let recorded = Arc::new(Recorded::default());
         let notices = Notices::new();
         let modes = Arc::new(FakeModes::default());
+        let followers = Arc::new(FakeFollowers::default());
         let mut config = ShellConfig::new(
             dir.path().join("zsh"),
             BTreeMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]),
@@ -665,8 +687,9 @@ impl Harness {
         )
         .with_recording(Arc::clone(&recorded) as Arc<dyn RecordingSink>)
         .with_observer(Arc::clone(&notices) as Arc<dyn ShellObserver>)
-        .with_modes(Arc::clone(&modes) as Arc<dyn TerminalModes>);
+        .with_modes(Arc::clone(&modes) as Arc<dyn TerminalModes>)
+        .with_followers(Arc::clone(&followers) as Arc<dyn Followers>);
         let sessions = ShellSessions::new(config, deps).unwrap();
-        Harness { sessions, holder, clock, recorded, notices, modes, dir }
+        Harness { sessions, holder, clock, recorded, notices, modes, followers, dir }
     }
 }

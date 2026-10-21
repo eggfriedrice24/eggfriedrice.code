@@ -273,6 +273,40 @@ and `D`, or the two sentinels):
   holds the terminal (a nested shell) cannot reach the outer zsh's line editor: its
   line goes in, and the outer zsh forgets at its next `B`.
 
+A command left running (`orphan.rs`), a command whose run reached its timeout while it
+went on:
+
+- The session tells of it: `ShellNotice::CommandDetached` as the run is left, with the
+  call, the first 200 characters of the line, the start, whether it runs in the
+  sandbox, the wait that the run reported last, the cursor's row of the screen then and
+  who approved the call; `CommandInputChanged` at each change of its wait; and
+  `CommandEnded` at its end, with its exit status and how it ended (`ended`, `limit`,
+  `stopped`, `closed`, or `shell_exited` when the shell ended for another reason). The
+  daemon turns them into events of the conversation.
+- A task watches it (one per command left running), since the run's `RunProgress` does
+  not live past the call. Once per `quiet_period` on the injected clock it looks for
+  input as the run did, with the wait that the run reported last, so that wait is not
+  lost. At each change of the wait it reads the cursor's row of the screen once (at most
+  200 characters): the line that asks, such as `u@h's password:`, so the user sees which
+  host asks before an answer. A look while another run is active, such as a sentinel
+  run typed into a shell that the command started, sees no wait: the terminal is that
+  run's.
+- The watch stops a wait that may not stay, with `SIGINT` to the job whose wait was
+  reported, only while it holds the terminal, as read right before the signal:
+  - in the sandbox, a hidden wait and a visible wait that looks secret, at once;
+  - outside it, such a wait when no client that can answer follows the conversation
+    (`ShellDeps::with_followers`, a `Followers`; nobody by default), unless the line
+    may ask at the terminal (the shell tool's hard or soft flag) and a person approved
+    it: the user, or the user's own rule (`RunRequest::with_approval`). A line that the
+    reviewer or full mode let through never waits for the user at a later prompt;
+  - any wait once the run's input limit (`RunRequest::input_limit`, else its
+    interactive limit) passed since its start. A command that does not wait has no
+    limit.
+  Such an end is `limit`. When the command is still there after `close_grace`, the
+  watch closes the shell (`SIGHUP`, then `SIGKILL`); the next run starts a new shell. A
+  process that the command moved to a session of its own with `setsid` survives that
+  close, as it survives any close of a hidden shell.
+
 The output as text (`capture.rs`, `replay.rs`), for a finished run and for the output
 so far of a run left running at its timeout:
 
@@ -568,8 +602,12 @@ clock and the seeded generator.
   of a live tail, which a run reads at most once per `tail_interval`.
 - Time and randomness are injected: every timeout runs on the `Clock`, and PTY ids
   and sentinel tokens come from the `Rng`.
-- No error, notice or `Debug` output carries a command line or an environment value,
-  or the text of an answer.
+- No log and no error message carries a command line or an environment value, or the
+  text of an answer. No notice or `Debug` output carries an environment value or the
+  text of an answer. The one place for a command line is a command left running: its
+  notices and `LeftRunning` carry the first 200 characters of
+  its line and the row that asks, which the user and the model read; efr-shell never
+  logs them.
 - An answer reaches a terminal only while the same call's command runs, as far as the
   session has read the stream (`D` not yet read), the run reports a wait of the
   answer's kind, the job in the foreground is the one that was there at the look that
