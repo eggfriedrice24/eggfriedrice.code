@@ -683,7 +683,10 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   allowed here that may ask for a password, an output line that looks like a password
   prompt, or the time after a password answer): it is no character of a password, and
   after the card the keys go back to the call as they were held, so text typed for the
-  call never lands in the row. A refusal of efrd shows `the
+  call never lands in the row. At the answer line of a call that waits for input,
+  Ctrl+B sends nothing: a muted note says `the command was not moved: the command
+  waits for input; answer it first`, and the key never goes into the answer. A
+  refusal of efrd shows `the
   command was not moved: <reason>`, such as `the command waits for input`. efrd
   answers once it recorded the job, so the loop waits for that answer inline, at most
   15 s, and then says `efrd did not confirm the move; efr jobs shows whether it
@@ -1175,8 +1178,10 @@ columns, with colour, under `NO_COLOR` and in a pipe; `follow/tests/row.rs` runs
 against a fake daemon (a call in the sandbox moves at once with text in the row and no
 `turn.interrupt`, a preview asks and `y` sends `confirm` with its token, `n` sends
 nothing, the exits of the job decision, a refusal as a note, a note with no running
-call, a call that ends while the card asks, a wait that ends the card, and a call that
-keeps its keys and gets them back after `n`); `format/jobs/tests.rs` and a history
+call, a call that ends while the card asks, a wait that ends the card, a call that
+keeps its keys and gets them back after `n`, and Ctrl+B at the answer line of a call
+that waits for input, which shows `the command was not moved: the command waits for
+input; answer it first`, sends nothing and never goes into the answer); `format/jobs/tests.rs` and a history
 test check the line of a moved job, the exits that the move covered, the row of `efr
 jobs list` and the texts of the key. `tests/it/smoke.rs` (`efr_jobs_stop_works`) starts a job through
 `efr-test-daemon`'s fake launcher and the `job_env` seam, then runs the built `efr jobs`,

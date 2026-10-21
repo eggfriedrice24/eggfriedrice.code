@@ -1208,6 +1208,14 @@ impl Follower<'_> {
                 self.show(out, view, &step)?;
                 self.surface_respond(question_id, keep, out, view).await
             }
+            // NOTE: a call that waits for input cannot move, so Ctrl+B at its answer line
+            // says so and sends nothing; the key never goes into the answer.
+            Asking::Input { call_id, kind, line } if key == CTRL_B => {
+                self.keys = Some((reader, Asking::Input { call_id, kind, line }));
+                let size = self.ctx.screen.size();
+                let step = view.note(&crate::format::jobs::not_moved(MOVE_INPUT), size);
+                self.show(out, view, &step)
+            }
             Asking::Input { call_id, kind, mut line } => {
                 let edit = line.key(key);
                 let shown = (kind.shown() && edit == Edit::Changed).then(|| line.text().to_owned());
@@ -2076,6 +2084,9 @@ enum TakeBack {
     /// The daemon refused for another reason, which the note gives.
     Refused(String),
 }
+
+/// Why Ctrl+B did not move the call whose answer line asks: it waits for input.
+const MOVE_INPUT: &str = "the command waits for input; answer it first";
 
 /// Why the call did not move when efrd asked again after the user's `y`.
 const MOVE_AGAIN: &str = "efrd asks again; press ctrl+b again";
