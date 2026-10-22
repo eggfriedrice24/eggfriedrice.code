@@ -135,6 +135,11 @@ writer thread, private file creation). `xtask/src/deps.rs` holds the allowlist.
 Third-party crates: `rusqlite` (with `bundled`), `rusqlite_migration`, `tokio` (for
 the channels and `spawn_blocking`), `serde`, `serde_json`, `jiff`, `thiserror`.
 
+Dev-dependency: `efr-test-support`, for the seeded search corpus of the integration
+binary `tests/it`. That binary links the one `efr-store` library that
+`efr-test-support` links too, so the types agree; the unit tests in `src/` do not use
+it, and keep their own small helpers in `testing.rs`.
+
 ## Invariant
 
 - No other crate reaches `rusqlite`; `cargo xtask deps` enforces that, and clippy's
@@ -167,3 +172,17 @@ cargo nextest run -p efr-store
 Most tests use an in-memory store; the reader pool, the backups, the fixture
 databases under `fixtures/db/` and the recordings use temporary directories. The
 tests use no network, no real-time sleeps and no Zig.
+
+The integration binary `tests/it` runs the search index on a database file of the
+seeded corpus of `efr-test-support`. `index_disk_fits_its_budget` (a normal test)
+backfills corpus S (1,000 turns) and checks that the search tables use at most 10 MB
+per 1,000 turns; it prints the size of each table and of the prefix choices. The
+benches `bench_search_apply_round` (1,000 live rounds of one turn) and
+`bench_search_backfill_page` (the backfill and the merges of corpus L, 20,000 turns)
+are ignored. `just bench-search` runs them in release, one at a time, and they fail
+when a budget fails: a round at a p95 of 2 ms and a max of 10 ms, a page at a p95 of
+4 ms and a max of 8 ms. Each max counts the jobs that carry no checkpoint of the
+write-ahead log; the jobs with one are on a line of their own. Each corpus file is
+built once below `target/tmp/search-corpus/`, named by size, seed, schema and
+generator version, and each test copies it. The numbers of a busy machine are not
+valid.

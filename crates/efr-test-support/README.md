@@ -73,6 +73,17 @@ directories, a store and provider traffic from one place and never from the mach
   when the provider is built, so a broken fixture fails before the test runs. A
   provider's own wire format, such as the Responses API, is replayed at the HTTP level
   with wiremock instead.
+- `search_corpus`: `SearchCorpus::new(size, seed)`, a seeded corpus of conversations
+  for the search benches, as `efr_protocol::Event`s per turn and no type of
+  `efr-store`. `CorpusSize::S` is 100 conversations of 10 turns, `L` 1,000 of 20 and
+  `Xl` 10,000 of 5. A turn holds a prompt of about 200 bytes, three answers of about
+  1 KB (each first streamed in four deltas) and eight `shell` commands of about 80
+  bytes with an output of about 400 bytes each. The tail: 2% of the commands carry a
+  heredoc of about 2 KB, 1% of the answers are about 20 KB, and one prompt in 1,000
+  turns is about 100 KB. The words come from a Zipf vocabulary of 5,000 made-up words
+  (`word(rank)` gives one), with paths, identifiers and numbers. The corpus makes each
+  conversation when asked, so corpus XL never sits in memory. A change of the output
+  increases `CORPUS_VERSION`, which names the cached corpus files.
 - `wait`: `Wait`, a poll of a condition that another task or thread makes true:
   `Wait::new("the notice").until(|| ...)`, `until_some` for a value, `until_some_async`
   for a check that awaits, and `until_blocking` for a thread outside the runtime. The
@@ -129,7 +140,9 @@ append through the real writer and read events and a recording back. The redacti
 cover whole-name matching, the timestamp grammar in both directions, and a proptest that
 `restore` undoes `redact`. The replay provider tests replay the fixture through
 `Arc<dyn Provider>`, check the failure reports, map every error event, validate broken
-transcripts, and step a paced answer with `handled_through`. The wait tests see a
+transcripts, and step a paced answer with `handled_through`. The corpus tests pin the
+first words and the first id of a seed, the turn shape and the tail of corpus S, and
+the Zipf share of the most common word. The wait tests see a
 condition made true by a task, by a thread after real time and through an awaited
 check, and check the error at a short limit. They use no network and no Zig, and only
 the wait tests sleep, for at most a third of a second.
