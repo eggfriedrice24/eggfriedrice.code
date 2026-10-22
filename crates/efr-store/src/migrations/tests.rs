@@ -246,16 +246,20 @@ fn a_new_database_starts_an_empty_search_index() {
         .unwrap();
     assert_eq!(index, 1);
     // The table of DQ5 (external content, two UNINDEXED columns, an INTEGER kind, the
-    // prefix indexes) passes FTS5's own check, empty and with a row.
+    // prefix index) passes FTS5's own check, empty and with a row.
     integrity_check(&conn);
     fill_search_tables(&conn);
     integrity_check(&conn);
     let found: i64 = conn
-        .query_row("SELECT rowid FROM search_fts WHERE search_fts MATCH 'rs*'", [], |row| {
+        .query_row("SELECT rowid FROM search_fts WHERE search_fts MATCH 'rsy*'", [], |row| {
             row.get(0)
         })
         .unwrap();
     assert_eq!(found, 1);
+    let automerge: i64 = conn
+        .query_row("SELECT v FROM search_fts_config WHERE k = 'automerge'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(automerge, 8);
 }
 
 fn integrity_check(conn: &Connection) {

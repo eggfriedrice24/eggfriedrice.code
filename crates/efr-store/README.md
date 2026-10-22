@@ -85,25 +85,26 @@ across a restart:
   page of newest events does not reach back to them.
 - `search` (migration 9): the search index of the conversations. `search_docs` holds
   one doc per indexed event, keyed by its sequence number: the text of a prompt, a
-  steer or an answer, or the command line of a `shell` call; `search_fts` is an FTS5
-  index over it (external content, `unicode61 remove_diacritics 2`, a prefix index of
-  3 characters, so a search expands no prefix shorter than 3); `search_titles` holds the title of each conversation, from the
-  first prompt doc that is not blank; `search_state` holds the cursor and the version
-  of the redaction. efrd's indexer fills the tables in the background: `pending`
-  reads the next page of source text after the cursor (at most `PAGE_ROWS` texts,
-  `PAGE_BYTES` of text or `PAGE_SCAN` events, each text cut to `SOURCE_CHARS`
-  characters in SQL), efrd bounds, cleans and redacts it, and
-  `WriterHandle::search_apply` writes the docs, the titles, the docs that a
-  withdrawal or a resent steer takes back, and the cursor in one transaction, or
-  nothing when the cursor or the redaction changed (`Stale`). `search_reset` empties
-  the index for a new redaction version, and `search_merge` merges its segments
-  toward one after a backfill. After the commit of each of these jobs, when the
-  write-ahead log holds more than 500 frames that no checkpoint copied, the job runs
-  a passive checkpoint, so the checkpoint lands on search work and not on a turn's
-  commit. The tables are not projections: a rebuild leaves them alone. The batch that
-  ends a turn writes nothing here. A later delete of a conversation must also delete
-  its `search_docs` rows (its sequence numbers through `events_conversation`, each
-  with an FTS5 `'delete'`) and its `search_titles` row.
+  steer or an answer, or the command line of a `shell` call. `search_fts` is an FTS5
+  index over it: external content, `unicode61 remove_diacritics 2`, and a prefix
+  index of 3 characters, so a search expands no prefix shorter than 3. Its merges run
+  in short steps (`automerge` 8, leaves of 1,000 bytes). `search_titles` holds the
+  title of each conversation, from the first prompt doc that is not blank.
+  `search_state` holds the cursor and the version of the redaction. efrd's indexer
+  fills the tables in the background. `pending` reads the next page of source text
+  after the cursor: at most `PAGE_ROWS` texts, `PAGE_BYTES` of text or `PAGE_SCAN`
+  events, each text cut to `SOURCE_CHARS` characters in SQL. efrd bounds, cleans and
+  redacts the text. Then `WriterHandle::search_apply` writes the docs, the titles, the
+  docs that a withdrawal or a resent steer takes back, and the cursor in one
+  transaction, or nothing when the cursor or the redaction changed (`Stale`).
+  `search_reset` empties the index for a new redaction version, and `search_merge`
+  merges its segments toward one after a backfill. The jobs run no checkpoint of
+  their own, because one costs more than the job; SQLite's checkpoint at 1,000 frames
+  of the write-ahead log runs in whatever commit crosses it, as before. The tables
+  are not projections: a rebuild leaves them alone. The batch that ends a turn writes
+  nothing here. A later delete of a conversation must also delete its `search_docs`
+  rows (its sequence numbers through `events_conversation`, each with an FTS5
+  `'delete'`) and its `search_titles` row.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by

@@ -32,6 +32,16 @@ CREATE VIRTUAL TABLE search_fts USING fts5 (
     prefix = '3'
 );
 
+-- FTS5 merges its segments in steps inside the writes of the index, and one step
+-- writes 64 leaves per level. Two settings keep a step short (the backfill bench on
+-- 20,000 turns): a level merges when 8 segments wait, not 4, which writes about half
+-- as much, and a leaf holds 1,000 bytes, not 4,050, which makes a step a quarter as
+-- long (a step of 4,050 byte leaves took about 9.5 ms). Four leaves of 1,000 bytes
+-- fill a page of 4,096 bytes, so the index grows by less than 3%. The merges after a
+-- backfill still end with one segment.
+INSERT INTO search_fts (search_fts, rank) VALUES ('automerge', 8);
+INSERT INTO search_fts (search_fts, rank) VALUES ('pgsz', 1000);
+
 -- The search title of each conversation: the first line of its first prompt that is
 -- not blank, from the indexed text, so it holds no secret that the redaction found.
 -- `first_seq` is the sequence number of that prompt; when it leaves the index, the
