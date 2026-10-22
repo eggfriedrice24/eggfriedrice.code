@@ -56,6 +56,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 | Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. efr never types an answer that may be a password into it (see "Input in the sandbox"). |
 | Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"): efr forwards its port to your machine. |
 | `/tmp` | private to the conversation; you do not see it. Share files through `$SCRATCH`. |
+| `$SCRATCH` | set to the conversation's scratch dir in every call: contained, in the exit child and in a background job. A command that sets `SCRATCH` itself keeps its own value. |
 
 Some tools show the sandbox's view: `tty` prints `/dev/console`, and `$$` differs from
 `/proc/self`. `df` and `findmnt` show your real mounts, and `ss` and `ip` your real
@@ -1328,7 +1329,8 @@ A job can start in every mode.
   the exit child cannot gain rights through a setuid program (`no_new_privs`), also a
   job of full mode: `sudo` gets no rights there.
 - The job gets the environment of the hidden shell, which the shell writes to a file
-  at each prompt where it changed, and starts in the hidden shell's directory. A job in
+  at each prompt where it changed, and starts in the hidden shell's directory. The
+  launcher sets `SCRATCH` to the conversation's scratch dir in every job. A job in
   the exit child also gets the variables that place efr's own dirs (`EFR_HOME`,
   `EFR_RUNTIME_DIR`, `EFR_DATA_DIR`, `EFR_CONFIG_DIR` and `EFR_STATE_DIR`) that efrd
   has, so an `efr` in it reaches the efrd that runs it. A contained job never gets

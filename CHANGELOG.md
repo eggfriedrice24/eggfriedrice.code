@@ -666,6 +666,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
+- `$SCRATCH` now works in the agent's commands. The model read that `$SCRATCH` was its
+  own directory, but the hidden shell did not set the variable, so `cd "$SCRATCH"` did
+  not move and a `git clone` after it landed in your project. Now every
+  command of the agent has `SCRATCH` set to the conversation's scratch directory: in
+  the hidden shell, in the sandbox, in an approved exit and in a background job. Your
+  own login shell does not change, and a `SCRATCH` that your startup files set does not
+  reach the agent's commands.
 - efr no longer sends an answer that may be a password into a sandboxed command. A
   sandboxed command could show a prompt that looked like a password prompt, and efr took
   your answer for it. Now efr stops such a command at once.
