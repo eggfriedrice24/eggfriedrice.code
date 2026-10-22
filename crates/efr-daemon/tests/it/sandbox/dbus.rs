@@ -417,6 +417,28 @@ async fn shell_dbus_allows_systemctl_failed() {
     setup.daemon.stop().await.unwrap();
 }
 
+/// Corpus row 9: `systemctl status` reads every property of the unit through the
+/// filter, and exits 3 for a unit that is not active.
+#[tokio::test]
+async fn shell_dbus_allows_systemctl_status() {
+    let test = "shell_dbus_allows_systemctl_status";
+    let line = "systemctl status fake-failed.service --no-pager";
+    let Some((output, summary, code, setup)) = routine_line(test, line).await else { return };
+    let report = report(&output, &summary, &setup.buses);
+    assert_eq!(code, Some(3), "{report}");
+    assert!(output.contains("fake-failed.service - A fake failed unit"), "{report}");
+    assert!(output.contains("Result: exit-code"), "{report}");
+    let calls = setup.buses.calls();
+    assert!(
+        calls.iter().any(|call| call.member == "org.freedesktop.DBus.Properties.GetAll"
+            && call.path == "/org/freedesktop/systemd1/unit/fake_2dfailed_2eservice"),
+        "{report}"
+    );
+    assert!(calls.iter().all(|call| call.bus == "system" && call.answered), "{report}");
+    assert_eq!(summary.bus_refused, Vec::new(), "{report}");
+    setup.daemon.stop().await.unwrap();
+}
+
 /// Corpus row 10: `systemctl --user` reaches the session filter through the child
 /// shell's function, which unsets `XDG_RUNTIME_DIR` for it (DE10).
 #[tokio::test]
