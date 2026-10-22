@@ -1,6 +1,7 @@
 //! The integration tests of efr-cli: one test binary with one module per area
 //! (CONVENTIONS.md, tests). `binary` runs the built `efr` against a fake daemon,
-//! `plugin` drives the zsh plugin and `smoke` runs `efr` against a real daemon.
+//! `plugin` drives the zsh plugin, `smoke` runs `efr` against a real daemon and
+//! `search_cost` measures `efr search --picker`, the command of each key of the picker.
 //! nextest names a test `efr-cli::it <module>::<test>`; `-E 'test(/^plugin::/)'`
 //! picks one module.
 
@@ -10,4 +11,5 @@
 
 mod binary;
 mod plugin;
+mod search_cost;
 mod smoke;
