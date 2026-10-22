@@ -29,8 +29,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_daemon::{
-    DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice, Settings,
-    Source, TestHostPorts,
+    DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice,
+    SearchIndexStatus, Settings, Source, TestHostPorts,
 };
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
@@ -41,6 +41,7 @@ use efr_test_support::{Redactor, ReplayProvider, TestClock, TestDirs, TestRng, T
 use efr_transport::client::{Client, ConnectOptions, ItemStream};
 use futures::StreamExt as _;
 use jiff::tz::TimeZone;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -488,6 +489,7 @@ pub struct TestDaemon {
     served: Option<JoinHandle<Result<(), DaemonError>>>,
     peers: PeerProbe,
     host_ports: TestHostPorts,
+    search_index: watch::Receiver<SearchIndexStatus>,
 }
 
 impl TestDaemon {
@@ -627,6 +629,7 @@ impl TestDaemon {
         let daemon = Box::pin(efr_daemon::start(config, deps)).await?;
         let socket = daemon.socket_path().to_path_buf();
         let daemon_id = daemon.daemon_id();
+        let search_index = daemon.search_index();
         let shutdown = CancellationToken::new();
         let served = tokio::spawn(daemon.serve(shutdown.clone()));
         Ok(TestDaemon {
@@ -642,7 +645,25 @@ impl TestDaemon {
             served: Some(served),
             peers,
             host_ports,
+            search_index,
         })
+    }
+
+    /// What the daemon's search indexer has done. Its `sleeping_until` says when a test
+    /// must move the clock for the indexer to go on: after the debounce of a turn's end,
+    /// and between the pages of a backfill.
+    pub fn search_index(&self) -> watch::Receiver<SearchIndexStatus> {
+        self.search_index.clone()
+    }
+
+    /// Waits until every event up to `seq` is in the search index. It does not move
+    /// the clock: the indexer waits [`efr_daemon`]'s debounce of 500 ms after a turn's
+    /// end, so a test moves the clock past it first (see
+    /// [`search_index`](Self::search_index)). `None` when the indexer stopped first.
+    pub async fn wait_indexed(&self, seq: Seq) -> Option<SearchIndexStatus> {
+        let mut status = self.search_index.clone();
+        let reached = status.wait_for(|status| status.indexed_seq >= seq).await.ok()?;
+        Some(*reached)
     }
 
     /// Where the process `pid` stands as a peer of the daemon's socket, as the scope

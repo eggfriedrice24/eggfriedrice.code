@@ -1357,6 +1357,52 @@ pass.; efr history shows all`, or `efr: job notice turn failed (job j3): <title>
 <error>` (`notices::Wake`, read from the turn's row and its events through the end).
 Control and format characters go, as in every notice.
 
+### The search index
+
+`search_index.rs` keeps the search index of the store (migration 9, `efr_store::search`)
+current with the event log, on one background task (`search_index::follow`, spawned
+with the other background tasks). The turn's end path does no work for it: the batch
+that ends a turn writes no index row, and the task writes only through writer jobs of
+its own (`search_apply`, `search_reset`, `search_merge`).
+
+- **What goes in.** The prompts, the steers, the model's answers and the command lines
+  of `shell` calls. Never the output of a command, a diff, the contents of a file or the
+  body of a heredoc. The text rules (`search_index/text.rs`) run in this order: the
+  store cuts each text to 33,792 characters in SQL; a command loses its heredoc bodies;
+  every control and format character goes (the rule of the text that efr shows); each
+  secret that the index redaction recognises becomes `[***]`
+  (`efr_conversation::redact_for_index`); the text is cut to its cap at a line end (a
+  prompt or a steer 32 KiB, an answer 16 KiB, a command 2 KiB); an empty text gives no
+  doc. The strip comes before the redaction, so a key with an escape sequence in it is
+  one word again when the redaction reads it.
+- **When it runs.** At the start, at once (the cursor is in the database, so a crash or
+  a stop loses nothing). Then after each committed batch that ends a turn or takes text
+  back (`prompt_withdrawn`, `steering_withdrawn`), and after the broadcast lagged: it
+  waits 500 ms on the clock first, so the turn ends of that time join one round. A round
+  reads pages after the cursor on the indexer's own read connection (never one of the
+  turns' readers), applies the text rules on the blocking pool, and writes each page in
+  one writer job. A caught-up task holds no timer.
+- **The duty cycle.** After a page that leaves more to read, and after each merge, the
+  task waits 4 times the time of that writer job, at least 5 ms, so a backfill takes at
+  most a fifth of the writer. While a turn runs (the task follows `turn_started` and the
+  turn ends on the broadcast, and reads the running turns again after a lag), it writes
+  at most one page or merge per second. While it waits, it already reads and cleans the
+  next page. After a round of more than one page, it merges the segments of the index
+  (64 leaves at a time) until a merge does no work.
+- **Failures.** A text whose rules panic gives no doc; the task logs its sequence
+  number at `warn`, never its text, and goes on. A store error waits 1 s, then twice as
+  long each time up to 60 s, with one `warn` line each time; a success ends the backoff.
+  efrd's stop ends the task at the next row of a page, and a page cut short is not
+  written.
+- **A new redaction.** When the index holds another `REDACTION_VERSION` than this build
+  (also 0 in a new store), the task clears it (`search_reset`) and builds it again from
+  the start of the log.
+
+After each change the task publishes a `SearchIndexStatus` on a `watch` in `State`
+(`Daemon::search_index`): the cursor, when it sleeps until, the pages and merges with
+their writer time, and whether it is idle. The tests wait on it
+(`TestDaemon::wait_indexed`), never on real time.
+
 ### Full mode
 
 Full mode runs the model's commands as the user, with no sandbox and no questions,
@@ -1784,6 +1830,19 @@ listed is a `host` exit with a grant of that one host, and the record names the 
 `localhost` is a `host` exit with the whole network. The answers are
 written for the verdicts of the spec, not taken from a live model, so the evals prove
 the replay and efr's rules; the real models are a manual check.
+
+The search indexer has unit tests in `search_index/tests.rs` (an in-memory store, a
+`TestClock` and a store seam that fails a read or takes a set time for a job: the
+backfill, the debounce, the duty cycle, the slower backfill while a turn runs, the
+merges, a lagged broadcast, a new redaction, withdrawn prompts and steers, a text whose
+rules panic, the backoff, and the stop in the middle of a page) and of its text rules in
+`search_index/text/tests.rs` (the strip, the cut of each kind, heredocs). The module
+`tests/it/search_index.rs` runs it in a `TestDaemon` (a turn is in the index 500 ms after
+its end; a restart catches up; the stop), and a proptest checks that no 8 characters of
+a secret that the index redaction recognises reach a doc or a title. Its `bench_search_*`
+tests are benches (`#[ignore]`), which `just bench-search` runs in release: the text
+rules of a turn and of the worst docs, the backfill of corpora S and L, the wait that
+the backfill adds to a turn's commit on a store file, and the memory of the indexer.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.

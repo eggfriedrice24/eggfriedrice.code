@@ -34,7 +34,7 @@ use efr_stdx::paths::{Dirs, RootSource as StdxRootSource, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
 use efr_store::recording::Recordings;
-use efr_store::{Store, StoreConfig};
+use efr_store::{Readers, Store, StoreConfig};
 use efr_transport::UnixListener;
 use jiff::tz::TimeZone;
 use tokio::sync::watch;
@@ -58,6 +58,7 @@ use crate::ptys::Ptys;
 use crate::reload::{self, Reloads};
 use crate::repo_hint::RepoHints;
 use crate::sandbox::{self, HostFacts, SandboxService, Seams, ServiceParts, launcher};
+use crate::search_index::{self, SearchIndexStatus};
 use crate::settings::LiveSettings;
 use crate::shells::{self, ShellNotices, ShellParts, StoreRecording};
 use crate::state::{SCRATCH_DIR, State};
@@ -431,6 +432,14 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     }
     let writer = store.writer().clone();
     let readers = store.readers().clone();
+    // NOTE: the search indexer reads on a connection of its own, so a backfill never
+    // takes one of the readers of the turns; an in-memory store reads on its writer.
+    let index_reader = if in_memory_store {
+        readers.clone()
+    } else {
+        Readers::open(StoreConfig::in_data_dir(dirs.data()).path, 1)
+    };
+    let (index_status, index_watch) = search_index::status_channel();
     let notices_dir = dirs.runtime().join(notices::NOTICES_DIR);
     let reconciled = reconcile::reconcile(&readers, &writer, &notices_dir).await?;
     tracing::info!(?reconciled, "reconciled");
@@ -740,6 +749,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         full,
         procs: procs.unwrap_or_else(|| Arc::new(SystemProcView)),
         repo_hints,
+        search_index: index_watch,
     });
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.
@@ -821,6 +831,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
         tokio::spawn(state.providers.models().serve(stop.clone())),
+        tokio::spawn(search_index::follow(
+            state.writer.clone(),
+            index_reader,
+            Arc::clone(&state.clock),
+            index_status,
+            stop.clone(),
+        )),
     ];
     if watch_config && let Some(watching) = reload::watcher::watch(&state).await {
         let follow = reload::watcher::follow(Arc::clone(&state), watching, stop.clone());
@@ -842,6 +859,11 @@ impl Daemon {
     /// The daemon's identity.
     pub fn daemon_id(&self) -> DaemonId {
         self.state.daemon_id
+    }
+
+    /// What the search indexer has done, for the tests that wait for the index.
+    pub fn search_index(&self) -> watch::Receiver<SearchIndexStatus> {
+        self.state.search_index.clone()
     }
 
     /// The connection table, for the tests that check what it keeps after a client
@@ -998,7 +1020,7 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
 
 /// When the turns that job notices started began in the last hour before `now`, in
 /// every conversation, from the store; none when it cannot be read.
-async fn wake_starts(readers: &efr_store::Readers, now: jiff::Timestamp) -> Vec<jiff::Timestamp> {
+async fn wake_starts(readers: &Readers, now: jiff::Timestamp) -> Vec<jiff::Timestamp> {
     let since = now - jiff::SignedDuration::from_hours(1);
     match readers.with(move |conn| efr_store::jobs::wake_starts_since(conn, None, since)).await {
         Ok(starts) => starts,

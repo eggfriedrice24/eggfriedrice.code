@@ -29,6 +29,7 @@ use crate::ptys::Ptys;
 use crate::reload::Reloads;
 use crate::repo_hint::RepoHints;
 use crate::sandbox::SandboxService;
+use crate::search_index::SearchIndexStatus;
 use crate::shells::StoreRecording;
 use crate::telemetry::LogFilter;
 
@@ -104,4 +105,6 @@ pub(crate) struct State {
     /// When efrd last showed the hint for each git repository that is not a project
     /// (`repo_hint.rs`), read from the state root at start.
     pub(crate) repo_hints: RepoHints,
+    /// What the search indexer (`search_index.rs`) has done: how far the index is.
+    pub(crate) search_index: watch::Receiver<SearchIndexStatus>,
 }
