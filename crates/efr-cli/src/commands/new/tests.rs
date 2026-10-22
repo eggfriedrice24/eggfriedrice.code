@@ -122,6 +122,46 @@ async fn new_reads_what_the_plugin_hands_over_in_the_environment() {
 }
 
 #[tokio::test]
+async fn the_queued_prompts_go_into_the_new_conversation() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [(Var::Prompt, "start fresh"), (Var::QueuedPrompts, "then this")];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _captured) = capture();
+    let script = async {
+        let mut sent_prompts = Vec::new();
+        for _ in 0..2 {
+            let mut conn = daemon.accept().await;
+            let (id, method) = conn.request().await;
+            let Method::PromptSend(params) = method else { panic!("expected prompt.send") };
+            sent_prompts.push(params);
+            conn.reply(id, &sent()).await;
+            let (sub, _) = conn.request().await;
+            let done = Event::TurnCompleted {
+                turn_id: turn(),
+                usage: None,
+                changes: None,
+                context: None,
+                stop: None,
+                undo: None,
+            };
+            conn.item(sub, &item(6, done)).await;
+            conn.until_closed().await;
+        }
+        sent_prompts
+    };
+    let line = command(&["new"]);
+    let (exit, sent_prompts) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success);
+    let [first, second] = sent_prompts.try_into().unwrap();
+    assert!(first.new_conversation);
+    assert_eq!(first.text, "start fresh");
+    assert!(!second.new_conversation, "one new conversation, not two");
+    assert_eq!(second.conversation_id, Some(conversation()));
+    assert_eq!(second.text, "then this");
+}
+
+#[tokio::test]
 async fn new_without_a_prompt_is_a_usage_error_and_sends_nothing() {
     let env = TestEnv::new();
     let ctx = env.context();

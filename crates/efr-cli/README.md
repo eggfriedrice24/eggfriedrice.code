@@ -10,7 +10,7 @@ state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
 |---|---|---|
-| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row; the reply's first line is the result's `route` (`format/route.rs`): the switch of the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`, else the scope (`app`, or `○ no project · ~/notes`), with the settings note after ` · `; when `route.hint` names a git repository outside projects, a second muted line says so, such as `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.` (a path that is no plain shell word shows in full, in single quotes); typed by hand on a terminal, the context names efr's parent as its shell when that runs on the same terminal (`tty_nr` of `/proc/<ppid>/stat` against the device of stdin) |
+| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row; the prompts of `EFR_QUEUED_PROMPTS` (one per line, from a paste of `,` lines) go behind it into its conversation, with the same handover: with the input row all at once, as Tab queues them, and the view follows each one; without the row each one when the turn before it ended; when efrd refuses one, it and those after it go into the row with the note `not queued: <message>`, and those that never went go back to the shell as `, ` lines (`draft.rs`); `efr new` does the same; the reply's first line is the result's `route` (`format/route.rs`): the switch of the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`, else the scope (`app`, or `○ no project · ~/notes`), with the settings note after ` · `; when `route.hint` names a git repository outside projects, a second muted line says so, such as `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.` (a path that is no plain shell word shows in full, in single quotes); typed by hand on a terminal, the context names efr's parent as its shell when that runs on the same terminal (`tty_nr` of `/proc/<ppid>/stat` against the device of stdin) |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` with `tty` to find the terminal's current conversation (the one of its last prompt; an older efrd ignores the filter, and the scan of the pages finds the newest row with the tty), `turn.steer` | `--conversation <id>` skips the lookup; a steer takes no turn settings |
 | `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` and `--mode full` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`); `--mode full` exits 2 with the daemon's text, and prints nothing on stdout, when the config does not allow full mode (`full mode is off; set permissions.allow_full = true in config.toml by hand ...`) or efrd cannot run it (`full mode cannot run: efrd runs as root`), else it prints three lines on stderr: what full mode does, what efr still reads and asks, and that a script or a program that a line starts is not read. A daemon that does not report full mode leaves the check to `permissions.allow_full` as `efr` reads the file; the daemon checks each prompt again. Only the flag checks and warns: `EFR_MODE=full` (the terminal's choice that the plugin hands over) does not |
@@ -57,7 +57,8 @@ nothing over, and `efr resume` with the options of `,resume`, which hands over o
 `EFR_CONTEXT` and its other words in `EFR_RESUME_WORDS`)
 and hands the shell context, the last command line, the recent command lines and the
 prompt over in the environment: `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
-`EFR_RECENT_COMMANDS` and `EFR_PROMPT`. For `efr compact`, `EFR_PROMPT` holds the
+`EFR_RECENT_COMMANDS` and `EFR_PROMPT`, and for a paste of `,` lines the prompts to
+queue behind it in `EFR_QUEUED_PROMPTS`. For `efr compact`, `EFR_PROMPT` holds the
 focus, and the plugin hands over no last command, no recent commands and no turn
 settings. Any local user can read a command
 line in `/proc/<pid>/cmdline`; `/proc/<pid>/environ` is readable only by the user's
@@ -1071,8 +1072,8 @@ sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme f
 - The last command line and the recent command lines never reach the shell context,
   and so never an event.
 - What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
-  `EFR_RECENT_COMMANDS`, `EFR_PROMPT` and `EFR_RESUME_WORDS` reaches no child process
-  (also not fzf and its commands) and no log.
+  `EFR_RECENT_COMMANDS`, `EFR_PROMPT`, `EFR_QUEUED_PROMPTS` and `EFR_RESUME_WORDS`
+  reaches no child process (also not fzf and its commands) and no log.
 
 ## Tests
 
@@ -1308,7 +1309,10 @@ the prompts that the view follows, a question and a password that take the keys,
 cursor and bracketed paste, and the text that goes to `EFR_DRAFT_FILE`.
 `draft/tests.rs` checks the file's mode and content and the note without the plugin;
 `commands/send/tests.rs` the keys typed while the prompt goes out, a refused prompt
-and `render.turn_input = false`; the key thread tests on a pseudo-terminal check the
+and `render.turn_input = false`, and the prompts of `EFR_QUEUED_PROMPTS`: queued at
+once with the row and followed in their order, one after another without it, a refused
+one in the row with its note, and those that never went back to the shell as `, `
+lines (`commands/new/tests.rs`: into the new conversation); the key thread tests on a pseudo-terminal check the
 typeahead that the row keeps, Enter and Ctrl+J, Esc, the flush, the keys that a stop
 for the row keeps, and the mode after a stop; table tests check the count of a mark
 while the thread reads (`keys/tests.rs`). `tests/it/smoke.rs` runs the built `efr send` on a pseudo-terminal against a

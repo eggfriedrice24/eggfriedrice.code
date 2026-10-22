@@ -7,9 +7,17 @@
 //! command line in `/proc/<pid>/cmdline`, while `/proc/<pid>/environ` is readable only
 //! by the user's own processes. The arguments stay for use by hand, and an argument
 //! wins over its variable. The recent commands have no argument.
+//!
+//! For a paste whose lines are all `,` prompts, the plugin hands the first one over in
+//! `EFR_PROMPT` and the others in `EFR_QUEUED_PROMPTS`, one per line. They go behind
+//! the first one, in their order: with the input row, efrd queues them at once, as Tab
+//! in the row does, and the view follows each one; without the row, each one goes when
+//! the turn before it ended. Those that did not go go back to the shell as `,` lines.
 
 mod recent;
 mod shell;
+
+use std::collections::VecDeque;
 
 use efr_protocol::{
     ConversationId, ConversationsList, ConversationsListResult, EffectiveSettings, Method, Origin,
@@ -18,7 +26,7 @@ use efr_protocol::{
 };
 use efr_render::render_trace;
 use efr_stdx::env::Var;
-use efr_transport::client::Client;
+use efr_transport::client::{Client, ClientError};
 
 use crate::cli::{LastCommand, SendArgs};
 use crate::context::Context;
@@ -61,6 +69,8 @@ pub(crate) struct Handover {
     /// From the variable only: no argument takes them.
     pub(crate) recent_commands: Vec<RecentCommand>,
     pub(crate) text: String,
+    /// The prompts to queue behind `text`, in their order; from the variable only.
+    pub(crate) queued: Vec<String>,
 }
 
 impl Handover {
@@ -89,7 +99,8 @@ impl Handover {
         } else {
             prompt_text(prompt)
         };
-        Ok(Handover { context, origin, last_command, recent_commands, text })
+        let queued = var(Var::QueuedPrompts)?.map(|lines| queued(&lines)).unwrap_or_default();
+        Ok(Handover { context, origin, last_command, recent_commands, text, queued })
     }
 }
 
@@ -100,13 +111,13 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
         args.last_command.as_ref(),
         &args.prompt,
     )?;
-    let Handover { context, origin, last_command, recent_commands, text } = handover;
+    let Handover { context, origin, last_command, recent_commands, text, queued } = handover;
     if text.trim().is_empty() {
         return Err(CliError::EmptyPrompt);
     }
     if args.steer {
-        // A steer joins a turn whose context is set, so a last command and the recent
-        // commands have no place.
+        // A steer joins a turn whose context is set, so a last command, the recent
+        // commands and prompts to queue have no place.
         return steer(ctx, out, args.conversation, &context, origin, text).await;
     }
     let prompt = Prompt {
@@ -118,18 +129,20 @@ pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &SendArgs) -> Res
         recent_commands,
         settings: Asked::read(ctx, &args.settings)?.to_wire(),
     };
-    send(ctx, out, origin, prompt).await
+    send(ctx, out, origin, prompt, queued).await
 }
 
-/// Sends `prompt` and follows the turn that answers it. On a terminal with
-/// `render.turn_input` on, the input row's key reader starts first, so the keys typed
-/// while the prompt goes out land in the row; a failure before the turn is followed
-/// hands what they typed back to the shell.
+/// Sends `prompt` and follows the turn that answers it, then the prompts of `queued`
+/// in their order. On a terminal with `render.turn_input` on, the input row's key
+/// reader starts first, so the keys typed while the prompt goes out land in the row; a
+/// failure before the turn is followed hands what they typed back to the shell, with
+/// the queued prompts that did not go.
 pub(crate) async fn send(
     ctx: &Context,
     out: &mut Output,
     origin: Origin,
     prompt: Prompt,
+    queued: Vec<String>,
 ) -> Result<(), CliError> {
     let mut reader = if row_wanted(ctx) {
         ctx.keys
@@ -139,11 +152,53 @@ pub(crate) async fn send(
     } else {
         None
     };
-    let result = send_and_follow(ctx, out, origin, prompt, &mut reader).await;
-    if let Some(reader) = reader {
-        give_back(ctx, out, reader).await;
+    let mut queued = VecDeque::from(queued);
+    let compose = compose(&prompt);
+    let mut result = send_and_follow(ctx, out, origin, prompt, &mut reader, &mut queued).await;
+    // NOTE: with the input row, efrd took the queued prompts already. Without it, each
+    // one goes when the turn before it ended, so its answer shows here too.
+    while let Ok(conversation) = result {
+        let Some(text) = queued.pop_front() else { break };
+        let next = Prompt {
+            conversation: Some(conversation),
+            new_conversation: false,
+            text,
+            context: compose.context.clone(),
+            last_command: compose.last_command.clone(),
+            recent_commands: compose.recent_commands.clone(),
+            settings: compose.settings.clone(),
+        };
+        result = send_and_follow(ctx, out, origin, next, &mut None, &mut VecDeque::new()).await;
     }
-    result
+    let unsent = unsent(&queued);
+    if let Some(reader) = reader {
+        give_back(ctx, out, reader, &unsent).await;
+    } else if !unsent.is_empty() {
+        hand_back(ctx, out, &unsent).await;
+    }
+    result.map(|_| ())
+}
+
+/// What a queued prompt sends with: the same as the prompt before it.
+fn compose(prompt: &Prompt) -> Compose {
+    Compose {
+        context: prompt.context.clone(),
+        last_command: prompt.last_command.clone(),
+        recent_commands: prompt.recent_commands.clone(),
+        settings: prompt.settings.clone(),
+    }
+}
+
+/// The prompts of `EFR_QUEUED_PROMPTS`: one per line, without the blank lines.
+fn queued(lines: &str) -> Vec<String> {
+    lines.lines().filter(|line| !line.trim().is_empty()).map(str::to_owned).collect()
+}
+
+/// The queued prompts that did not go, as the text that goes back to the shell: the
+/// plugin puts `, ` before it, and each later prompt starts its own line with `, `, so
+/// Enter sends them again as a paste of `,` lines does.
+fn unsent(queued: &VecDeque<String>) -> String {
+    queued.iter().map(String::as_str).collect::<Vec<_>>().join("\n, ")
 }
 
 /// True when a followed turn gets the input row: `render.turn_input` is on, and stdin
@@ -153,35 +208,43 @@ fn row_wanted(ctx: &Context) -> bool {
 }
 
 /// Stops `reader`, which no turn took over, and hands the keys that it read back to the
-/// shell.
-async fn give_back(ctx: &Context, out: &mut Output, reader: KeyReader) {
+/// shell, then `unsent` (see [`unsent`]) on a line of its own.
+async fn give_back(ctx: &Context, out: &mut Output, reader: KeyReader, unsent: &str) {
     let mut line = RowLine::default();
     for key in reader.stop_keeping().await {
         line.key(key);
     }
-    if let Some(note) = crate::draft::hand_back(ctx, line.text()).await {
+    let text = match (line.text(), unsent) {
+        (typed, "") => typed.to_owned(),
+        ("", unsent) => unsent.to_owned(),
+        (typed, unsent) => format!("{typed}\n, {unsent}"),
+    };
+    hand_back(ctx, out, &text).await;
+}
+
+/// Hands `text` back to the shell, or shows it as a note when it cannot go there.
+async fn hand_back(ctx: &Context, out: &mut Output, text: &str) {
+    if let Some(note) = crate::draft::hand_back(ctx, text).await {
         let options = ctx.render_options(effective_width(ctx.screen.size()));
         out.err(&render_trace(&note, &options));
     }
 }
 
 /// Sends `prompt` and follows the turn, with the input row when `reader` holds its key
-/// reader; the follow loop takes the reader.
+/// reader; the follow loop takes the reader. With the row, the prompts of `queued` go
+/// behind it first, and the view follows them too. Returns the conversation.
 async fn send_and_follow(
     ctx: &Context,
     out: &mut Output,
     origin: Origin,
     prompt: Prompt,
     reader: &mut Option<KeyReader>,
-) -> Result<(), CliError> {
-    let compose = Compose {
-        context: prompt.context.clone(),
-        last_command: prompt.last_command.clone(),
-        recent_commands: prompt.recent_commands.clone(),
-        settings: prompt.settings.clone(),
-    };
+    queued: &mut VecDeque<String>,
+) -> Result<ConversationId, CliError> {
+    let compose = compose(&prompt);
     let client = ctx.connect(origin, prompt.context.tty.as_deref()).await?;
     let result = send_prompt(ctx, &client, prompt).await?;
+    let conversation = result.conversation_id;
     let size = ctx.screen.size();
     let options = ctx.render_options(effective_width(size));
     let render = &ctx.settings.render;
@@ -225,11 +288,57 @@ async fn send_and_follow(
         out.err(&step.err);
         out.out(&step.out)?;
     }
+    if view.has_row() {
+        queue_behind(ctx, &client, out, &mut view, &compose, conversation, queued).await?;
+    }
     view.start();
-    let target =
-        Target { conversation: result.conversation_id, turn: result.turn_id, after: result.seq };
+    let target = Target { conversation, turn: result.turn_id, after: result.seq };
     let row = reader.take().map(|reader| Row { compose, reader, origin });
-    follow::follow(ctx, &client, out, &mut view, target, row).await
+    follow::follow(ctx, &client, out, &mut view, target, row).await?;
+    Ok(conversation)
+}
+
+/// Queues the prompts of `queued` behind the followed one in `conversation`, as Tab in
+/// the input row does, so the view follows each one after the turn before it. When
+/// efrd refuses one, it and those after it go into the row, and a note says why.
+async fn queue_behind(
+    ctx: &Context,
+    client: &Client,
+    out: &mut Output,
+    view: &mut TurnView,
+    compose: &Compose,
+    conversation: ConversationId,
+    queued: &mut VecDeque<String>,
+) -> Result<(), CliError> {
+    while let Some(text) = queued.front().cloned() {
+        let method = Method::PromptSend(PromptSend {
+            command_id: ctx.command_id(),
+            conversation_id: Some(conversation),
+            new_conversation: false,
+            text: text.clone(),
+            context: Some(compose.context.clone()),
+            last_command: compose.last_command.clone().map(LastCommand::into_string),
+            recent_commands: compose.recent_commands.clone(),
+            settings: compose.settings.clone(),
+        });
+        match client.call::<PromptSendResult>(method).await {
+            Ok(result) => {
+                queued.pop_front();
+                view.queued_prompt(result.turn_id, text, false);
+            }
+            Err(ClientError::Server { body }) => {
+                for text in queued.drain(..) {
+                    view.row_append(&text);
+                }
+                let note = format!("not queued: {}", crate::format::one_line(&body.message));
+                let step = view.note(&note, ctx.screen.size());
+                out.err(&step.err);
+                out.out(&step.out)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 /// Sends `prompt` without following the turn.

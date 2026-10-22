@@ -13,7 +13,9 @@
 //! - `efr away` (`,away`, with no prompt and no context)
 //!
 //! The flags `--context-json` and `--last-command` and the prompt words do the same by
-//! hand, and each wins over its variable.
+//! hand, and each wins over its variable. For a paste of `,` lines, `efr send` and `efr
+//! new` also get the prompts to queue behind the first one in `EFR_QUEUED_PROMPTS`,
+//! which has no flag.
 //!
 //! The plugin also hands over the terminal's turn settings, as `EFR_MODE`, `EFR_MODEL`
 //! and `EFR_EFFORT`, to `efr send`, `efr new` and `efr settings`. `--mode`, `--model`
