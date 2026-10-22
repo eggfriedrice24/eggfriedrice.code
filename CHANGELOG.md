@@ -776,8 +776,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - The reviewer's prompt now asks for the parts of its answer in the order in which
   the provider makes the model write them. Before, the prompt asked for the reason
   first, but the provider made the model write the category first. The small model
-  then often wrote no real reason, and the turn's model reviewed instead
-  (`skipped claude-haiku-5-5: parse error`).
+  often wrote no real reason, and the turn's model reviewed instead
+  (`skipped claude-haiku-5-5: parse error`). The new order is to make such answers
+  less frequent. It is not yet known whether it stops them.
 - When a sandboxed command still runs at the end of its call, the end of the screen
   that the model reads no longer holds efr's own line of the hidden shell, such as
   `[[ "${functions[_efr_hs_sbx]-}..." ]] && \_efr_hs_sbx <id>`. It holds the
