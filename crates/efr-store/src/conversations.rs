@@ -515,6 +515,66 @@ pub fn recent(
         .collect()
 }
 
+/// The rows of the list of `,resume` of the conversations `ids`, in their order, for
+/// the rows that a search found. An id with no conversation has no row.
+pub fn rows(conn: &Connection, ids: &[ConversationId]) -> Result<Vec<RecentRow>, StoreError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, status, created_at, updated_at, last_seq, cwd, scope, tty, route \
+         FROM conversations WHERE id = ?1",
+    )?;
+    let mut count = conn.prepare(
+        "SELECT COUNT(*) FROM turns WHERE conversation_id = ?1 AND wake = 0 AND status <> ?2",
+    )?;
+    let mut rows = Vec::with_capacity(ids.len());
+    for id in ids {
+        let Some(RawRecent { summary, route }) =
+            stmt.query_row([id.to_string()], RawRecent::from_row).optional()?
+        else {
+            continue;
+        };
+        let turns: i64 = count
+            .query_row(params![summary.id, TurnStatus::Withdrawn.as_str()], |row| row.get(0))?;
+        let route = route_of_column(route, summary.scope.clone())?;
+        rows.push(RecentRow {
+            summary: summary.decode()?,
+            route,
+            turns: u32::try_from(turns).unwrap_or(u32::MAX),
+        });
+    }
+    Ok(rows)
+}
+
+/// The shortest start of each id of `ids`, at least 8 characters, that no other
+/// conversation of the store shares, for a list that shows short ids. The ids of one
+/// minute share their first 8 hex digits, so a fixed length would not do.
+pub fn short_ids(conn: &Connection, ids: &[ConversationId]) -> Result<Vec<String>, StoreError> {
+    let mut before =
+        conn.prepare("SELECT id FROM conversations WHERE id < ?1 ORDER BY id DESC LIMIT 1")?;
+    let mut after =
+        conn.prepare("SELECT id FROM conversations WHERE id > ?1 ORDER BY id LIMIT 1")?;
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        let text = id.to_string();
+        let mut shared = 0;
+        for stmt in [&mut before, &mut after] {
+            let neighbour: Option<String> = stmt.query_row([&text], |row| row.get(0)).optional()?;
+            if let Some(neighbour) = neighbour {
+                let common =
+                    text.bytes().zip(neighbour.bytes()).take_while(|(a, b)| a == b).count();
+                shared = shared.max(common);
+            }
+        }
+        // NOTE: the 9th character of every id is a `-`, so two ids that share 8
+        // characters share 9, and a start never ends with a `-`.
+        let len = (shared + 1).max(SHORT_ID_CHARS).min(text.len());
+        out.push(text[..len].to_owned());
+    }
+    Ok(out)
+}
+
+/// The shortest short id.
+const SHORT_ID_CHARS: usize = 8;
+
 /// A row of [`recent`] before it is decoded.
 struct RawRecent {
     summary: RawSummary,
