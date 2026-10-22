@@ -36,6 +36,10 @@ fn parser_table() {
         ("a docker", Some("\"docker\"*")),
         ("docker a", Some("\"docker\"")),
         ("-", None),
+        ("abc\0def", Some("\"abc\" AND \"def\"*")),
+        ("\"ab\0cd\"", Some("\"ab cd\"")),
+        ("rsync\0", Some("\"rsync\"")),
+        ("\u{1b}[2J", Some("\"[2J\"")),
     ];
     for (query, expected) in cases {
         assert_eq!(fts(query).as_deref(), *expected, "query {query:?}");
@@ -92,6 +96,13 @@ proptest! {
             prop_assert!(parsed.terms.iter().filter(|term| term.prefix).count() <= 1);
             prop_assert!(parsed.terms.len() <= MAX_TERMS);
         }
+    }
+
+    #[test]
+    fn no_control_character_reaches_a_term(query in "[a-z\\x00-\\x1f\\x7f\" ]{0,40}") {
+        let parsed = parse(&query).unwrap();
+        prop_assert!(parsed.terms.iter().all(|term| !term.text.contains(char::is_control)));
+        prop_assert!(!parsed.fts.unwrap_or_default().contains(char::is_control));
     }
 
     #[test]
