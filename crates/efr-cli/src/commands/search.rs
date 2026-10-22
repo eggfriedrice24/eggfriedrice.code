@@ -21,8 +21,7 @@ use efr_protocol::{
     ConversationsSearchResult, ErrorCode, Method, Origin,
 };
 use efr_render::RenderOptions;
-use efr_transport::client::{Client, ClientError};
-use serde::de::DeserializeOwned;
+use efr_transport::client::ClientError;
 use serde_json::Value;
 
 use crate::cli::SearchArgs;
@@ -32,6 +31,7 @@ use crate::format::search;
 use crate::live::effective_width;
 use crate::output::Output;
 
+use super::resume::call;
 use super::send::Handover;
 
 /// The most code points of a query that efrd takes.
@@ -58,9 +58,6 @@ const PREVIEW_COLUMNS: u16 = 80;
 
 /// The note of the picker when no daemon answers.
 const NO_DAEMON: &str = "efrd does not answer";
-
-/// What an older efrd answers for a method that it does not know.
-const UNKNOWN_FRAME: &str = "the frame is not a valid client frame";
 
 pub(crate) async fn run(
     ctx: &Context,
@@ -189,7 +186,7 @@ async fn hits(
 
 /// The render options of the hidden forms: fzf reads their colours (`--ansi`) also
 /// though stdout is a pipe, and `TERM=dumb` or `NO_COLOR` turn them off.
-fn hidden_options(ctx: &Context, width: u16) -> RenderOptions {
+pub(crate) fn hidden_options(ctx: &Context, width: u16) -> RenderOptions {
     let terminal = ctx.term.term.as_deref() != Some("dumb");
     ctx.term.render_options(effective_width_of(width), &ctx.settings).with_terminal(terminal)
 }
@@ -201,7 +198,7 @@ fn effective_width_of(width: u16) -> u16 {
 
 /// The note that the picker shows for `error`, with no text of the query: `None` for a
 /// busy efrd, which the next key asks again.
-fn note(error: &CliError) -> Option<String> {
+pub(crate) fn note(error: &CliError) -> Option<String> {
     match error {
         CliError::Client(ClientError::Server { body }) if body.code == ErrorCode::Busy => None,
         CliError::Client(
@@ -272,19 +269,6 @@ pub(crate) fn terms(query: &str) -> usize {
     }
     end(&mut current);
     count
-}
-
-/// Calls `method`; the refusal of a daemon that does not know it says to restart it.
-async fn call<T: DeserializeOwned>(client: &Client, method: Method) -> Result<T, CliError> {
-    match client.call(method).await {
-        Ok(result) => Ok(result),
-        Err(ClientError::Server { body })
-            if body.code == ErrorCode::Invalid && body.message == UNKNOWN_FRAME =>
-        {
-            Err(CliError::OlderDaemon)
-        }
-        Err(error) => Err(error.into()),
-    }
 }
 
 #[cfg(test)]

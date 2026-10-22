@@ -43,6 +43,9 @@ use crate::context::{
 use crate::error::CliError;
 use crate::keys::{Key, KeyReader, Keys, Read};
 use crate::output::Output;
+use crate::picker::{
+    Finding, Fzf, NoPicker, Outcome, PickRequest, Picker, Picking, Stops, Version,
+};
 use crate::quit::Quit;
 use crate::settings::Settings;
 use crate::terminal::{Screen, Size, TermFacts};
@@ -921,6 +924,7 @@ impl TestEnv {
             desktop: None,
             fzf_query: None,
             preview_columns: None,
+            picker: Arc::new(ScriptedPicker::none()),
         }
     }
 }
@@ -946,6 +950,12 @@ pub(crate) struct FakeDaemon {
 impl FakeDaemon {
     /// Accepts the next connection and answers its hello.
     pub(crate) async fn accept(&self) -> Conn {
+        self.accept_with(hello_result().capabilities).await
+    }
+
+    /// Accepts the next connection and answers its hello with `capabilities`, such as
+    /// an efrd that searches.
+    pub(crate) async fn accept_with(&self, capabilities: Capabilities) -> Conn {
         let (stream, _) = self.listener.accept().await.unwrap();
         let mut conn =
             Conn { stream, decoder: Decoder::new(), ready: VecDeque::new(), hello: None };
@@ -953,7 +963,7 @@ impl FakeDaemon {
         let Method::Hello(hello) = method else {
             panic!("the first request must be hello, got {}", method.name());
         };
-        conn.reply(id, &hello_result()).await;
+        conn.reply(id, &HelloResult { capabilities, ..hello_result() }).await;
         conn.hello = Some(hello);
         conn
     }
@@ -1047,5 +1057,111 @@ impl Conn {
             frames.push(frame);
         }
         frames
+    }
+}
+
+/// The fzf that a [`ScriptedPicker`] finds: 0.73.1 in `/usr/bin`.
+pub(crate) fn fzf() -> Fzf {
+    Fzf { path: PathBuf::from("/usr/bin/fzf"), version: Version { major: 0, minor: 73, patch: 1 } }
+}
+
+/// What a [`ScriptedPicker`] does when it runs.
+#[derive(Debug, Clone)]
+pub(crate) enum Script {
+    /// Ends at once with this outcome.
+    Outcome(Outcome),
+    /// Waits for Ctrl+C, then ends as interrupted, or for a SIGTERM, then fails as
+    /// ended by it, as fzf does.
+    UntilStopped,
+}
+
+/// A picker for the command tests: it finds the fzf of [`fzf`] or fails with a
+/// reason, runs a [`Script`], and keeps every request it got.
+#[derive(Debug)]
+pub(crate) struct ScriptedPicker {
+    found: Result<Fzf, NoPicker>,
+    efr: Option<PathBuf>,
+    script: Script,
+    requests: Mutex<Vec<PickRequest>>,
+    finds: AtomicUsize,
+    running: Notify,
+}
+
+impl ScriptedPicker {
+    /// No fzf on the `PATH`.
+    pub(crate) fn none() -> ScriptedPicker {
+        ScriptedPicker::failing(NoPicker::NotFound)
+    }
+
+    /// A picker that `find` refuses with `reason`.
+    pub(crate) fn failing(reason: NoPicker) -> ScriptedPicker {
+        ScriptedPicker {
+            found: Err(reason),
+            efr: Some(PathBuf::from("/usr/bin/efr")),
+            script: Script::Outcome(Outcome::Closed),
+            requests: Mutex::new(Vec::new()),
+            finds: AtomicUsize::new(0),
+            running: Notify::new(),
+        }
+    }
+
+    /// The fzf of [`fzf`], which runs `script`.
+    pub(crate) fn running(script: Script) -> ScriptedPicker {
+        ScriptedPicker { found: Ok(fzf()), script, ..ScriptedPicker::none() }
+    }
+
+    /// The same picker with `efr` as the path of this efr.
+    pub(crate) fn with_efr(self, efr: Option<PathBuf>) -> ScriptedPicker {
+        ScriptedPicker { efr, ..self }
+    }
+
+    /// The requests that the picker ran.
+    pub(crate) fn requests(&self) -> Vec<PickRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+
+    /// How many times efr looked for fzf.
+    pub(crate) fn finds(&self) -> usize {
+        self.finds.load(Ordering::SeqCst)
+    }
+
+    /// Waits until the picker runs.
+    pub(crate) async fn until_running(&self) {
+        loop {
+            let notified = self.running.notified();
+            if !self.requests.lock().unwrap().is_empty() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+impl Picker for ScriptedPicker {
+    fn find(&self) -> Finding<'_> {
+        self.finds.fetch_add(1, Ordering::SeqCst);
+        Box::pin(ready(self.found.clone()))
+    }
+
+    fn efr(&self) -> Option<PathBuf> {
+        self.efr.clone()
+    }
+
+    fn run(&self, _fzf: Fzf, request: PickRequest, stops: Stops) -> Picking<'_> {
+        self.requests.lock().unwrap().push(request);
+        self.running.notify_waiters();
+        let script = self.script.clone();
+        Box::pin(async move {
+            match script {
+                Script::Outcome(outcome) => Ok(outcome),
+                Script::UntilStopped => {
+                    let Stops { interrupt, terminate } = stops;
+                    tokio::select! {
+                        () = interrupt => Ok(Outcome::Interrupted),
+                        signal = terminate => Err(CliError::Ended { signal }),
+                    }
+                }
+            }
+        })
     }
 }

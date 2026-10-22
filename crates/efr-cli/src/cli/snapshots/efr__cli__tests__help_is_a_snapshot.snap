@@ -11,7 +11,7 @@ Commands:
   new       Start a new conversation for this terminal with its first prompt
   status    Show whether the daemon runs, and its health
   history   List recent conversations, or show the events of one
-  resume    List the recent conversations, or make one this terminal's conversation again
+  resume    Find a recent conversation, or make one this terminal's conversation again
   search    Find the conversations whose titles or text match some words, best first
   diff      Show what the last turn changed in the files of its project and $SCRATCH
   undo      Take back what the last turn changed in files and branches
