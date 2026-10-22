@@ -586,6 +586,7 @@ const RECENT: [&str; 3] = [E2E_TURNS[2].0, E2E_TURNS[1].0, E2E_TURNS[0].0];
 
 /// The fzf of this machine for the `e2e_fzf_` tests; `None`, with a message, when they
 /// skip.
+#[expect(clippy::print_stderr, reason = "a skipped test says why")]
 fn real_fzf() -> Option<PathBuf> {
     if std::env::var_os("EFR_TEST_FZF").is_none_or(|value| value != "1") {
         eprintln!("skipped: set EFR_TEST_FZF=1 (or run just test-fzf) to run the tests with fzf");
@@ -602,7 +603,8 @@ fn real_fzf() -> Option<PathBuf> {
                 .find(|candidate| candidate.is_file())
         })
         .expect("EFR_TEST_FZF=1, but no fzf in EFR_TEST_FZF_BIN or on the PATH");
-    let output = std::process::Command::new(&fzf)
+    let output = efr_stdx::process::command(&fzf, "/")
+        .into_std()
         .arg("--version")
         .env_remove("FZF_DEFAULT_OPTS")
         .env_remove("FZF_DEFAULT_OPTS_FILE")
@@ -818,12 +820,11 @@ impl Picking {
             "shell_pid": std::process::id(),
         });
         let dirs = daemon.dirs().dirs();
-        let mut command = std::process::Command::new("/usr/bin/setsid");
+        let mut command = efr_stdx::process::command("/usr/bin/setsid", daemon.cwd()).into_std();
         command
             .args(["--ctty", "--wait"])
             .arg(env!("CARGO_BIN_EXE_efr"))
             .arg("resume")
-            .current_dir(daemon.cwd())
             .env_clear()
             .env("HOME", daemon.dirs().home())
             .env("PATH", format!("{}:/usr/bin:/bin", bin.path().display()))
