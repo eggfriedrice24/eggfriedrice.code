@@ -942,18 +942,27 @@ pub(crate) fn cursor_after_text(snapshot: &ScreenSnapshot) -> bool {
     snapshot.rows.get(usize::from(cursor.row)).is_some_and(|row| !row_text(row).trim().is_empty())
 }
 
-/// The text that only the hidden shell's own lines hold: the names of the sandbox
-/// wrapper's functions, which [`WRAPPER_CHECK`] types before each sandboxed call.
-const SHELL_OWN_TEXT: &str = "_efr_hs_sbx";
+/// True when `line` is the fixed line that the hidden shell typed for a sandboxed call:
+/// [`WRAPPER_CHECK`] and then only the call id, after any prompt. Spaces do not count,
+/// because a soft wrap at a space leaves the space out of the row's text. Output that
+/// only names the wrapper, such as `rg _efr_hs_sbx`, or the source line of
+/// [`WRAPPER_CHECK`] itself, is no such line.
+fn is_wrapper_line(line: &str) -> bool {
+    let compact: String = line.split_whitespace().collect();
+    let check: String = WRAPPER_CHECK.split_whitespace().collect();
+    compact.split_once(&check).is_some_and(|(_, call)| {
+        !call.is_empty() && call.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+    })
+}
 
 /// The last rows of a screen up to the cursor's row, as text without trailing blank
-/// rows, and without the hidden shell's own lines: a line that a soft wrap spread over
-/// several rows and that holds [`SHELL_OWN_TEXT`], such as the typed
-/// [`WRAPPER_CHECK`] of a sandboxed call, is left out with all its rows.
+/// rows, and without the hidden shell's own lines: the typed [`WRAPPER_CHECK`] of a
+/// sandboxed call, which a soft wrap spreads over several rows, is left out with all
+/// its rows.
 pub(crate) fn screen_tail(snapshot: &ScreenSnapshot) -> String {
     /// Moves the rows of one whole `line` to `rows`, unless the hidden shell wrote it.
     fn flush(line: &mut Vec<String>, rows: &mut Vec<String>) {
-        if !line.concat().contains(SHELL_OWN_TEXT) {
+        if !is_wrapper_line(&line.concat()) {
             rows.append(line);
         }
         line.clear();

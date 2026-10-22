@@ -147,6 +147,29 @@ fn the_screen_tail_leaves_out_the_hidden_shells_own_line() {
     // NOTE: a row that does not wrap into the shell's line stays.
     let snapshot = screen(&["% echo hs_sbx", "hs_sbx"], (1, 6));
     assert_eq!(screen_tail(&snapshot), "% echo hs_sbx\nhs_sbx");
+    // A soft wrap at a space leaves the space out of the row's text.
+    let at = typed.find(" && ").unwrap();
+    let (head, end) = (&typed[..at], &typed[at + 1..]);
+    let mut snapshot = screen(&[head, end, "working", ""], (3, 0));
+    snapshot.rows[0].wrapped = true;
+    assert_eq!(screen_tail(&snapshot), "working");
+}
+
+/// Output that names the wrapper, or holds the fixed line with no call id after it, is
+/// the command's own and stays in the tail.
+#[test]
+fn the_screen_tail_keeps_output_that_names_the_wrapper() {
+    let source = format!("pub(crate) const WRAPPER_CHECK: &str = r#\"{}\"#;", super::WRAPPER_CHECK);
+    let rows = [
+        "% rg _efr_hs_sbx",
+        "run.rs:510: && \\_efr_hs_sbx \"#;",
+        "% functions _efr_hs_sbx",
+        "_efr_hs_sbx () {",
+        source.as_str(),
+        "",
+    ];
+    let snapshot = screen(&rows, (5, 0));
+    assert_eq!(screen_tail(&snapshot), rows[..5].join("\n"));
 }
 
 #[test]
