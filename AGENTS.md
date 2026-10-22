@@ -21,6 +21,9 @@ pass. Local gates must equal CI.
 - `just test-sandbox-vm` (the CI sandbox job: the same suite in a VM with a 7.1 kernel;
   needs Docker and `/dev/kvm`)
 - `just test-ghostty` when `zig` is on `PATH`
+- `just test-fzf` when `fzf` is on `PATH`
+- `just bench-search` when a change touches the store, the end of a turn or search; run
+  it alone, because the numbers of a busy machine are not valid
 
 ## Safety
 
