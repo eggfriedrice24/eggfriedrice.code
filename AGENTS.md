@@ -14,6 +14,8 @@ Run the gates for what you change before you commit. Before a push, all of these
 pass. Local gates must equal CI.
 
 - `just check` (lint, then the leaf tests)
+- `just docs` (the link check of `docs/` and the book build with mdBook 0.5.4; lint
+  runs it too)
 - `just test`
 - `just test-shell-ubuntu` (the CI shell job in the Ubuntu container; needs Docker)
 - `just test-sandbox` (the sandbox suite on real bwrap; it fails when the tests skip on
