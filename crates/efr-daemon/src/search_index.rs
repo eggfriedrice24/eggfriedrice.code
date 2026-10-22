@@ -47,9 +47,9 @@ use efr_protocol::{Event, Seq, TurnId};
 use efr_stdx::time::Clock;
 use efr_store::conversations::TurnStatus;
 use efr_store::search::{
-    self, DocKind, Pending, SearchApplied, SearchPage, SearchState, SourceRow,
+    self, DocKind, IndexReader, Pending, SearchApplied, SearchPage, SearchState, SourceRow,
 };
-use efr_store::{Committed, Readers, StoreError, WriterHandle};
+use efr_store::{Committed, StoreError, WriterHandle};
 use jiff::Timestamp;
 use tokio::sync::broadcast::{self, error::RecvError, error::TryRecvError};
 use tokio::sync::watch;
@@ -122,11 +122,11 @@ pub(crate) trait IndexStore: Send + Sync + 'static {
     fn subscribe(&self) -> broadcast::Receiver<Committed>;
 }
 
-/// The store of a running efrd: its writer, and the indexer's own readers.
+/// The store of a running efrd: its writer, and the indexer's own reader.
 #[derive(Debug, Clone)]
 pub(crate) struct StoreIndex {
     pub(crate) writer: WriterHandle,
-    pub(crate) reader: Readers,
+    pub(crate) reader: IndexReader,
 }
 
 #[async_trait]
@@ -184,7 +184,7 @@ pub(crate) fn status_channel()
 /// publishing on `status`.
 pub async fn follow(
     writer: WriterHandle,
-    reader: Readers,
+    reader: IndexReader,
     clock: Arc<dyn Clock>,
     status: watch::Sender<SearchIndexStatus>,
     stop: CancellationToken,

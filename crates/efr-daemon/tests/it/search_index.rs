@@ -277,7 +277,7 @@ async fn indexed(batch: Batch) -> Vec<String> {
     let stop = CancellationToken::new();
     let task = tokio::spawn(follow_search_index(
         store.writer().clone(),
-        store.readers().clone(),
+        store.index_reader().clone(),
         clock.shared(),
         sender,
         stop.clone(),
@@ -551,9 +551,9 @@ struct Backfill {
     status: SearchIndexStatus,
 }
 
-/// Runs efrd's indexer with the system clock over the store of `path` until it has
+/// Runs efrd's indexer with the system clock over `store`, a store file, until it has
 /// every event and merged, or until `pages` pages when given.
-async fn run_indexer(store: &Store, path: &Path, pages: Option<u64>) -> Backfill {
+async fn run_indexer(store: &Store, pages: Option<u64>) -> Backfill {
     let newest = store.readers().with(efr_store::events::last_seq).await.unwrap();
     let (sender, mut status) = watch::channel(SearchIndexStatus::default());
     let stop = CancellationToken::new();
@@ -561,7 +561,7 @@ async fn run_indexer(store: &Store, path: &Path, pages: Option<u64>) -> Backfill
     let started = Instant::now();
     let task = tokio::spawn(follow_search_index(
         store.writer().clone(),
-        Readers::open(path, 1),
+        store.index_reader().clone(),
         clock,
         sender,
         stop.clone(),
@@ -616,7 +616,7 @@ async fn bench_search_backfill_s() {
     let (_dir, path) = corpus_copy(CorpusSize::S).await;
     let clock = TestClock::new();
     let store = open(&path, &clock).await;
-    let run = run_indexer(&store, &path, None).await;
+    let run = run_indexer(&store, None).await;
     store.close().await;
     report("bench_search_backfill_s", &backfill_lines(CorpusSize::S, &run));
     let writer = run.status.page_time + run.status.merge_time;
@@ -631,7 +631,7 @@ async fn bench_search_backfill_l() {
     let (_dir, path) = corpus_copy(CorpusSize::L).await;
     let clock = TestClock::new();
     let store = open(&path, &clock).await;
-    let run = run_indexer(&store, &path, None).await;
+    let run = run_indexer(&store, None).await;
     store.close().await;
     report("bench_search_backfill_l", &backfill_lines(CorpusSize::L, &run));
     assert!(run.pages_wall <= Duration::from_secs(90), "the backfill takes {:?}", run.pages_wall);
@@ -692,7 +692,7 @@ async fn bench_search_commit_wait() {
     let stop = CancellationToken::new();
     let task = tokio::spawn(follow_search_index(
         store.writer().clone(),
-        Readers::open(&path, 1),
+        store.index_reader().clone(),
         Arc::new(SystemClock),
         sender,
         stop.clone(),
@@ -774,7 +774,7 @@ async fn bench_search_memory() {
     let stop = CancellationToken::new();
     let task = tokio::spawn(follow_search_index(
         store.writer().clone(),
-        Readers::open(&path, 1),
+        store.index_reader().clone(),
         Arc::new(SystemClock),
         sender,
         stop.clone(),
@@ -805,12 +805,8 @@ async fn bench_search_memory() {
             ),
         ],
     );
-    // NOTE: the budget counts a page cache of 512 KiB for the indexer's connection
-    // (DQ19). Until efrd reads on the store's own index reader with that cache, its
-    // connection has SQLite's default of 2,000 KiB; the bench allows the difference.
-    let default_cache_excess = 2_000 - 512;
     assert!(
-        rest.saturating_sub(before) <= 4 * 1024 + default_cache_excess,
+        rest.saturating_sub(before) <= 4 * 1024,
         "the rest grows by {} KiB",
         rest.saturating_sub(before)
     );
