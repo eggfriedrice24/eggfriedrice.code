@@ -144,8 +144,12 @@ across a restart:
   interrupt out of the stop before the connection serves another search, so a late
   stop never interrupts the next one. One step inside FTS5 (the merge of a prefix,
   the count of `bm25()`) reads no interrupt and runs to its end. `IndexReader` is the
-  one connection of efrd's indexer. Each of the four connections keeps a page cache of
-  512 KiB. An in-memory store runs both on the writer's connection, with the flags of
+  one connection of efrd's indexer. Each of the four connections sets a page cache of
+  512 KiB. That is no hard cap: the bundled SQLite puts the page caches of all
+  connections of the process in one group whose limit is the sum of their sizes, so a
+  lane can also use the room that the writer and the readers leave (up to about 3 MiB
+  for one lane in `bench_search_memory_xl`). An in-memory store runs both on the
+  writer's connection, with the flags of
   the stop but no interrupt.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.

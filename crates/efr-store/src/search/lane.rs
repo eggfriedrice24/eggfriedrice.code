@@ -10,8 +10,11 @@
 //! indexer, outside the semaphore, so the backfill neither takes a turn reader nor
 //! waits for a search.
 //!
-//! Each connection keeps a page cache of [`SEARCH_CACHE_KIB`] KiB, so the four cost at
-//! most 2 MiB of cache. An in-memory store has one connection, the writer's, so its
+//! Each connection sets a page cache of [`SEARCH_CACHE_KIB`] KiB. That is no hard cap:
+//! the bundled SQLite (built with `SQLITE_ENABLE_MEMORY_MANAGEMENT`) puts the page
+//! caches of all connections of the process in one group, whose limit is the sum of
+//! their sizes, so a lane can also use the room that the writer and the readers leave.
+//! An in-memory store has one connection, the writer's, so its
 //! lanes and its index reader run on the writer thread, with the stop's flags but no
 //! interrupt.
 
