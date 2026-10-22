@@ -24,14 +24,19 @@
 #                  use; it shows no text of a message and starts no turn. The words
 #                  go to `efr context` as they are, such as a conversation id or
 #                  --json
-#   ,resume [N]    list the recent conversations, the ones of the current project
-#                  first, each with its number, title, project, age and turns;
-#                  `,resume N` (or an id, or 4 characters of one) makes that one this
-#                  terminal's conversation for its project again: the next `,` prompt
-#                  there continues it, its hidden shell starts in its last directory
-#                  and its jobs report here. When another open terminal holds it, efr
-#                  asks first; `,resume --take N` moves it with no question. It hands
-#                  over the shell context, but no prompt and no turn settings
+#   ,resume [N]    find a conversation to continue: with fzf 0.46 or newer, a live
+#                  search picker below the command line (type to search the titles
+#                  and the text, Enter continues one here, Ctrl-O prints it, Esc
+#                  closes); without fzf, the recent conversations, the ones of the
+#                  current project first, each with its number, title, project, age
+#                  and turns. `,resume N` (or an id, or 4 characters of one) makes that
+#                  one this terminal's conversation for its project again: the next
+#                  `,` prompt there continues it, its hidden shell starts in its last
+#                  directory and its jobs report here. When another open terminal
+#                  holds it, efr asks first; `,resume --take N` moves it with no
+#                  question. `,resume <words>` searches: the picker opens with the
+#                  words, or without fzf the best matches print. It hands over the
+#                  shell context and the words, but no prompt and no turn settings
 #   ,away          tell efr that you are away from this terminal's conversation: a
 #                  question then waits only a short time (presence.away_wait_secs),
 #                  and its call does not run; your next input there ends it
@@ -102,8 +107,8 @@
 #
 # What the user typed reaches efr in its environment, never in its arguments: the
 # context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND, the terminal's
-# recent command lines as EFR_RECENT_COMMANDS and the prompt as EFR_PROMPT (the focus
-# of `,compact` too). Any local user can read a command line in
+# recent command lines as EFR_RECENT_COMMANDS, the prompt as EFR_PROMPT (the focus
+# of `,compact` too) and the words of `,resume` as EFR_RESUME_WORDS. Any local user can read a command line in
 # /proc/<pid>/cmdline, while /proc/<pid>/environ is readable only by this user. The
 # terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
@@ -674,17 +679,28 @@ function ,context {
   efr context "$@"
 }
 
-# Lists the recent conversations, or makes one this terminal's conversation again,
-# through `efr resume`: the conversations of the current project come first, and
-# `,resume N` (or a conversation id, or 4 characters of one) continues that one here.
-# It hands over the shell context, so efr knows the terminal, its shell and the
-# directory, and nothing else: no prompt, no last command and no turn settings. The
-# words are arguments of `efr resume`, such as N or --take, not a prompt.
+# Finds a conversation to continue, or makes one this terminal's conversation again,
+# through `efr resume`: efr opens its fzf picker (or lists the recent conversations,
+# the ones of the current project first), and `,resume N` (or a conversation id, or 4
+# characters of one) continues that one here; other words search. It hands over the
+# shell context, so efr knows the terminal, its shell and the directory, and nothing
+# else: no prompt, no last command and no turn settings. A word that starts with `-`,
+# such as --take, is an option of `efr resume`; the other words reach efr joined by
+# blanks in EFR_RESUME_WORDS, never in its arguments, as a prompt does.
 function ,resume {
   emulate -L zsh
   _efr_available || { _efr_missing; return 127 }
+  local -a options words
+  local word
+  for word in "$@"; do
+    if [[ $word == -* ]]; then
+      options+=($word)
+    else
+      words+=($word)
+    fi
+  done
   _efr_context_json ''
-  EFR_CONTEXT=$REPLY efr resume "$@"
+  EFR_CONTEXT=$REPLY EFR_RESUME_WORDS=${(j: :)words} efr resume "${options[@]}"
 }
 
 # Tells efr that you are away from this terminal's conversation, through `efr away`:

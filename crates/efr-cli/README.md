@@ -21,7 +21,7 @@ state and never writes the daemon's database or credentials.
 | `efr undo [--turn <id>] [--conversation <id>] [--list] [--dry-run] [--yes] [--force] [--redo]` | `conversations.list` to find the conversation, `turn.undo` (operate scope) twice: a dry run, then the apply | takes back the file and ref changes of a turn, from efr's snapshots: by default the newest turn of this terminal's conversation that is not undone, else of the newest conversation, with a dim line on stderr that says which; `--turn` names the turn, `--conversation` takes an id or the start of one. It shows the preview first, one row per path (`restore`, `trash`, `delete`, `command`, `skip` and `not covered` with the reason, such as `skip b.txt (changed after the turn; --force overwrites it)`), one row per ref (`ref main 1a2b3c4 -> 5d6e7f8`) and the daemon's notes, then asks `undo? y = yes, n = no` (one key; Esc says no, Ctrl+C exits 130). The apply names the turn of the preview, and efrd checks each path again; then one line says what it did: `undone: 2 files restored, 1 file moved to ~/.local/share/efr/undo-trash/u-.../`. `--dry-run` stops after the preview, `--yes` needs no question, `--force` also overwrites a path that changed after the turn, `--redo` takes back the newest undo (`redo? y = yes, n = no`, `redone: ...`), and `--list` lists the turns (id, `undone` or `stopped`, `auto` or `full`, title) and changes nothing. A preview with nothing to do says `nothing to undo`. A preview whose rows act only with `--force` (changed after the turn, no record after the turn, a later turn not undone) fails without `--force`, before the question: `efr undo changed nothing: 1 path acts only with --force; efr undo --force acts on it` (exit 1). Without a terminal and without `--yes` it shows the preview, says `efr undo needs a terminal or --yes; nothing changed` and exits 2. A refusal of efrd (`conflict`, `busy`, `forbidden`) is an error (exit 1) with its message and, for a newer turn that is not undone or an undo that needs `--force`, a hint |
 | `efr compact [--conversation <id>] [focus]` | `conversations.list` to find the conversation, `conversation.compact` (operate scope) | makes room in the model's context now: efrd writes a summary of the earlier turns and keeps the newest ones word for word; it never starts a turn. The focus (the words, else `EFR_PROMPT`; blank is none) says what the summary must keep. By default it compacts this terminal's conversation, else the newest one, with a dim line on stderr that says which; `--conversation` takes an id or the start of one. On a terminal a status row (`⠼ compacting context  4s`) shows while efrd works and goes before the result. Then one line says what came of it, as a turn shows a compaction: `context compacted (efr compact): 140k -> 19k tokens, kept 3 turns, summary 3.2k`, muted on a terminal. A refusal of efrd (`conflict` while a turn runs or when nothing lies before the newest turns) is an error (exit 1) with its message. No conversation is an error (exit 1). Ctrl+C stops the wait, not the compaction (exit 130, with a note) |
 | `efr context [conversation] [--model <id>] [--json]` | `conversations.list` to find the conversation, `conversation.context` (read scope) | what fills the model's context of a conversation (`format/context_report.rs`): the model, its window (with a note when efrd does not know it) and the point where it compacts; the provider's last count with the `ctx N%` gauge in its role's colour, else the reason why there is none; efrd's estimate of the next request without its prompt, with one row per part (`system`, `tools`, `summary`, `prompts`, `preambles`, `notices`, `answers`, `tool calls`, `tool outputs`, `pruned`), each with its count in the `muted` role; the five largest items with their turn and the label that `efr history` shows (`output of $ cargo test, turn 12`); the compactions and the newest one; the cache (`last turn 91%; conversation 83% read, 210k written (200k for 1h)`, the last turn only from 2,048 input tokens). It never prints the text of a message, and a label goes through `one_line`. On a terminal a line is cut to the width and the colours show only when it fits; in a pipe the lines are plain. By default it shows this terminal's conversation, else the newest one, with a dim line on stderr that says which; no conversation prints `no conversations yet`. `--model` counts for another model; `--json` prints the daemon's answer as it came |
-| `efr resume [N or conversation] [--take]` | `conversations.recent` (read scope); `conversation.resume` (operate scope) with N or an id; `conversations.list` to match an id start | without an argument, the recent conversations as a short numbered list, inline (`format/resume.rs`): the ones of the scope of the working directory first, then the others, each part newest first, at most 10, each with its title (`(no title)` without one), its project (`no project`, `removed project`), how long ago it was active, its prompt turns and a muted mark (`this terminal`, `open in /dev/pts/4`), then the muted line `,resume N continues one here` (`efr resume N` when the plugin did not run it). On a terminal the titles are cut so a row fits; in a pipe nothing is cut or coloured. An argument of one or two digits is N in the list that efrd computes then; any other is an id or at least 4 characters of one, and exactly one conversation must match (else exit 2 with the matches). The terminal, its shell and the directory come from `EFR_CONTEXT`, else from the process; without a terminal a resume is exit 2. The muted line after it names the title: `↪ resumed "fix the tests" (app, 2 h ago)`, with `; it continues when you prompt in ~/p/app` when the directory is in another scope, or `↪ "fix the tests" is this terminal's app conversation` when the terminal held it. When another open terminal holds it, efr asks on one line, `"why is the build slow" is open in /dev/pts/4. Move it here? [y/N]` (`y` moves it with a new command and `take`; `n`, Enter and Esc move nothing); in a pipe it exits 1 with the hint `efr resume --take N moves it`. `--take` moves it with no question. An efrd from before says `efrd is older than this efr; restart it: systemctl --user restart efrd` |
+| `efr resume [N, conversation or words] [--take]` | `conversations.search` (read scope) for the picker and a search; `conversations.recent` (read scope) for the list; `conversation.resume` (operate scope) with N or an id; `conversations.list` to match an id start; `conversation.history` for Ctrl-O | without an argument, on a terminal, the search picker of `picker.rs`: fzf below the command line (`--height=40%`, never full screen, its rows cleared when it ends), with the rows of `efr search --picker` for the empty query (the recent conversations, the current scope first). Each key runs `efr search --picker` and each move of the focus `efr search --preview`, the same efr (`current_exe`), on the context's terminal (`--tty`), in the context's directory; the preview is on the right from about 100 columns, else below. Enter resumes the row as N does, Ctrl-O prints the conversation as `efr history <id>` does and moves nothing, Esc closes and changes nothing (exit 0), Ctrl+C exits 130 with no message, SIGTERM and SIGHUP end fzf first. The picker opens only when stdin and stdout are terminals, `TERM` is set and not `dumb`, the context names a terminal, `resume.picker` is not `list`, an `fzf` is in an absolute directory of `PATH`, `fzf --version` answers within 1 s with 0.46 or newer, the path of efr and the terminal's name are UTF-8 with no control character, `{` or `}`, and efrd announces `search`. Else, or when fzf fails, the list as before (`format/resume.rs`), with one muted line when the reason is one the user may not expect (`fzf 0.44.1 is older than 0.46, so efr shows the list`, an unsafe path, no version, `fzf ended with status 2`). The list: the ones of the scope of the working directory first, then the others, each part newest first, at most 10, each with its title (`(no title)` without one), its project (`no project`, `removed project`), how long ago it was active, its prompt turns and a muted mark (`this terminal`, `open in /dev/pts/4`), then the muted line `,resume N continues one here` (`efr resume N` when the plugin did not run it). On a terminal the titles are cut so a row fits; in a pipe nothing is cut or coloured. The words come from the arguments, else from `EFR_RESUME_WORDS`. One or two digits are N in the list that efrd computes then; a whole id, or at least 4 characters of hex digits and `-` that start exactly one id, is that conversation (two or more matches are exit 2 with the matches); any other words are a search: the picker opens with them as its query (in fzf's environment as `FZF_DEFAULT_OPTS=--query=...`, never in its arguments), and without the picker the plain list of `efr search` prints (at most 10 rows, `,resume <id> continues one here`). The terminal, its shell and the directory come from `EFR_CONTEXT`, else from the process; without a terminal a resume is exit 2. The muted line after it names the title: `↪ resumed "fix the tests" (app, 2 h ago)`, with `; it continues when you prompt in ~/p/app` when the directory is in another scope, or `↪ "fix the tests" is this terminal's app conversation` when the terminal held it. When another open terminal holds it, efr asks on one line, `"why is the build slow" is open in /dev/pts/4. Move it here? [y/N]` (`y` moves it with a new command and `take`; `n`, Enter and Esc move nothing); in a pipe it exits 1 with the hint `efr resume --take N moves it`. `--take` moves the conversation of N or an id with no question; without words it is a usage error. An efrd from before says `efrd is older than this efr; restart it: systemctl --user restart efrd` |
 | `efr search [--limit N] [--json] [--] <words>...` | `conversations.search` (read scope; efrd answers a user-side peer only) | the conversations whose titles or text match the words, best first (`format/search.rs`): efrd searches the titles, the prompts, the answers and the commands that the agent ran, never the output of a command, with the secrets that it recognises replaced. Each row has the cells of the list of `efr resume` (title, scope, age, turns, holder) and the shortest start of the id that no other conversation shares, which `efr resume` takes; a muted line under it holds the best match, with the matching words in the `accent` role. At most 10 rows (`--limit`, 200 at most), then a muted line when efrd still indexes old conversations (`indexing: 40%`) or stopped early (`partial: time cap`), and `efr resume <id> continues one here` (`,resume <id>` from the plugin). On a terminal the titles and the matches are cut so a row fits; in a pipe nothing is cut or coloured. `--json` prints the daemon's answer as it came, with the measures of the search (`stats`). No words is a usage error (exit 2) whose hint names `,resume`; a query of more than 256 characters or 16 words is one too, before any call. Words on the command line show in the process list, so the help names `,resume <words>`, which keeps them out of it |
 | `efr search --picker --tty <tty>`, `efr search --preview <id> --tty <tty>` (hidden) | `conversations.search` with `limit` 50, `conversation.search` | the two commands that the picker of `,resume` runs in fzf, on each key and each move of the focus. The query comes from `FZF_QUERY`, never from an argument. `--picker` waits 50 ms on the clock (a key in that time makes fzf end it first), then prints a header line (an empty id, a tab, the keys, and a muted note: `indexing: 40%`, `partial: time cap`, `efrd does not answer`, or the error without the query) and one row per conversation: the id, a tab, then the title (at most 48 columns), the scope, the age, the turns, the holder and the snippet, each row at most 640 bytes with its colours, so a list of 50 stays within 32 KiB. `--preview` waits 30 ms, then prints the title and each match under a muted line with its kind and age, cut to `FZF_PREVIEW_COLUMNS` (80 without it); an empty id prints nothing. Both write nothing to stderr: no log, no config warning, no error message (a failure is the note, a busy efrd an empty list), and both exit 0 |
 | `efr away [--conversation <id>]` | `conversations.list` to find the conversation, `presence.set` (operate scope) | tells efr that the user is away from a conversation: the reviewer of `auto` still decides most actions, but a question for the user then waits only `presence.away_wait_secs`, and its call does not run. The next input of the user in the conversation ends it, so there is no command to come back. By default it sets this terminal's conversation, else the newest one, with a dim line on stderr that says which; `--conversation` takes an id or the start of one. One muted line says what changed and how long a question waits, from the `[presence]` table of the `config.toml` that `efr` reads: `away: a question now waits 5 minutes, then its call does not run; your next input here ends this` (`away already:` when it was away). No conversation is an error (exit 1) |
@@ -53,8 +53,8 @@ daemon, the commands that change the file say that it reads the file when it sta
 
 The zsh plugin runs a bare `efr send`, `efr send --steer`, `efr new` or `efr compact`
 (and `efr away` for `,away` and `efr context` with the words of `,context`, which hand
-nothing over, and `efr resume` with the words of `,resume`, which hands over only
-`EFR_CONTEXT`)
+nothing over, and `efr resume` with the options of `,resume`, which hands over only
+`EFR_CONTEXT` and its other words in `EFR_RESUME_WORDS`)
 and hands the shell context, the last command line, the recent command lines and the
 prompt over in the environment: `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
 `EFR_RECENT_COMMANDS` and `EFR_PROMPT`. For `efr compact`, `EFR_PROMPT` holds the
@@ -1023,7 +1023,11 @@ and `VISUAL`, `EDITOR` and `HOME` in `context.rs`: they are terminal and POSIX
 conventions that `efr_stdx::env::Var` does not name. `FZF_QUERY` and
 `FZF_PREVIEW_COLUMNS` are read in `context.rs` too: fzf exports them to the commands of
 the picker of `,resume`, and the query reaches `efr search` there, never in its
-arguments. `OPENAI_API_KEY` and
+arguments. `PATH` is read in `context.rs` only to find `fzf` for that picker; an entry
+that is empty or not absolute is skipped, so a file of the current project never runs.
+fzf gets `SHELL=/bin/sh` and none of `FZF_DEFAULT_OPTS`, `FZF_DEFAULT_OPTS_FILE` and
+`FZF_DEFAULT_COMMAND` of the user, which could make it a popup or a full screen.
+`OPENAI_API_KEY` and
 `ANTHROPIC_API_KEY` are read in `context.rs` (`ProcessKeyInput`) only for
 `efr login ... --from-env`, into a buffer that is zeroed when it is dropped: they are
 the providers' conventions, and the daemon never reads them. `HOME` shortens the paths of the
@@ -1039,7 +1043,10 @@ sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme f
 - efr is not a TUI: no alternate screen, no full-screen view, no footer that stays,
   and committed output is written once and never redrawn. Only the live zone changes,
   and the status row goes before the prompt comes back. No terminal query is sent, and
-  no key is read for the status row or a frame.
+  no key is read for the status row or a frame. The optional picker of `,resume` is
+  fzf, inline below the command line, never full screen, and it clears its rows when it
+  ends; fzf, not efr, may ask the terminal for the cursor position. efr starts no key
+  thread and sets no terminal mode while fzf runs.
 - The cursor is never left hidden on a way out that efr controls, and `output.rs`
   keeps the bytes that undo the view's changes for a panic and SIGQUIT.
 - The terminal is never left in non-canonical mode: every path out of a turn stops the
@@ -1064,7 +1071,8 @@ sandbox's lines to `~/...` and expands a leading `~` in the paths of the theme f
 - The last command line and the recent command lines never reach the shell context,
   and so never an event.
 - What the plugin hands over in `EFR_CONTEXT`, `EFR_LAST_COMMAND`,
-  `EFR_RECENT_COMMANDS` and `EFR_PROMPT` reaches no child process and no log.
+  `EFR_RECENT_COMMANDS`, `EFR_PROMPT` and `EFR_RESUME_WORDS` reaches no child process
+  (also not fzf and its commands) and no log.
 
 ## Tests
 
@@ -1198,11 +1206,36 @@ at 80 columns (`context_lines_at_80_columns`) and in a pipe (`context_in_a_pipe`
 cut of a long line on a terminal only, the gauge on the estimate when there is no
 count, and the cap when auto compaction is off.
 `commands/resume/tests.rs` runs `efr resume` against a fake daemon: one or two digits
-are N in the list and a longer argument is an id start, N sends the terminal and the
+are N in the list, hex digits are an id start and other words a search, N sends the terminal and the
 directory of `EFR_CONTEXT` and resumes row N, an id start that matches two
 conversations fails with both, a `held` answer asks and `n` moves nothing while `y`
 sends a new command with `take`, in a pipe it fails with the `--take` hint, an older
 efrd's refusal says to restart it, and a resume without a terminal is a usage error.
+With a scripted picker (`ScriptedPicker` in `testing.rs`): without fzf the list is the
+same bytes as before; an fzf that is too old, an unsafe path of efr and a failed fzf
+give the list and a muted line; Enter resumes the row with the first rows of the empty
+query, Ctrl-O prints the history and moves nothing, Esc changes nothing, Ctrl+C exits
+130 with no message, SIGTERM ends with the signal; a held conversation asks; an efrd
+that does not search, a pipe, `TERM=dumb` and `resume.picker = "list"` never look for
+fzf; words from `EFR_RESUME_WORDS` and from the arguments are the first query, and
+without the picker they print the plain list; an id start from the plugin that matches
+one conversation resumes it, a hex word that matches none is a search, and `--take`
+without words is a usage error.
+`picker/tests.rs` snapshots the command line of fzf (an efr path with a blank and a
+`'`) and checks it: `reload-sync` last in its own `--bind`, `load:refresh-preview`, no
+`{q}`, `--no-clear`, `--tmux`, `--popup` or `execute`; `exec_word` keeps the exact
+bytes and refuses `{q}`, a newline and bytes that are not UTF-8; the `--query` of the
+words; the colours of the default palette, of the eggfriedrice theme in 24-bit colour
+(the values of its fzf extra) and without colour; the versions of `fzf --version`; what
+each exit of fzf means; and the `PATH` walk past an empty entry, `.` and a relative
+entry that holds an `fzf`.
+`tests/it/picker.rs` runs the built `efr resume` on a pseudo-terminal against a fake
+daemon with a fake `fzf` script, first on a `PATH` without `~/.local/bin`: its command
+line runs the same efr, its environment has no private variable, none of the user's
+fzf defaults and `SHELL=/bin/sh`, its reload searches for `FZF_QUERY` on the test's
+daemon, the words of `,resume` reach it only as `--query`, no command line holds the
+query or the words, Enter, Ctrl-O, Ctrl+C and a failed fzf act end to end, fzf 0.44.1
+gives the list, and an `fzf` in a relative entry of the `PATH` never runs.
 `format/resume/tests.rs` snapshots the list at 80 columns and in a pipe
 (`resume_list_at_80_columns`, `resume_list_in_a_pipe`) and the line after a resume
 (`resume_line_in_another_scope`).
@@ -1223,7 +1256,9 @@ clamped ranges of a match never panic and stay on characters.
 that answers 50 rows and reports the time from the start to the exit without the wait,
 the time of hello and the peak memory (from zsh's `time`); with
 `EFR_TEST_SEARCH_GATE=1`, which `just bench-search` sets, it fails over 15 ms at p95
-or 16 MiB.
+or 16 MiB. It also runs `,resume <words>` on a pseudo-terminal with a fake `fzf` that
+closes at once, from the start of efr to its exit (the `PATH` walk, `fzf --version`,
+hello and the first search), and fails over 30 ms at p95 with the gate.
 `commands/compact/tests.rs` runs `efr compact` against a fake daemon (the
 conversation it picks, the focus from the words and from `EFR_PROMPT`, a refusal, no
 conversation, the status row on a terminal, Ctrl+C), and a history test shows the
@@ -1281,7 +1316,10 @@ the typo `,compcat`, which stays on the line with a hint), a bare `,away` that r
 `efr away` and hands nothing over (a word after it is a usage error; the typo `,aawy`
 stays on the line, and `,sway ...`, one edit from it, is a prompt), `,context` and
 `,context <words>`, which run `efr context` with the words and hand nothing over (the
-typo `,contxet` stays on the line, and `,cortex ...` is a prompt), completion after
+typo `,contxet` stays on the line, and `,cortex ...` is a prompt), `,resume` with
+the context, its options (`--take`) as arguments and its other words, N, an id or a
+search, joined by one blank in `EFR_RESUME_WORDS` and never in the command line,
+completion after
 `compinit` (also of `full`), `EFR_MODE=full` from the environment, which the plugin
 ignores at load with one line on stderr, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
 `XDG_RUNTIME_DIR`, then a private `/run/user/<uid>`, which a test points at a

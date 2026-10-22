@@ -34,7 +34,7 @@ cat /proc/$$/cmdline > "$record.cmdline"
 if [ "$n" = 0 ] && [ -f "$EFR_ARGS.draft" ] && [ -n "$EFR_DRAFT_FILE" ]; then
   mkdir -p "${EFR_DRAFT_FILE%/*}" && cat "$EFR_ARGS.draft" > "$EFR_DRAFT_FILE"
 fi
-for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE; do
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_RESUME_WORDS; do
   eval "isset=\${$var+x} value=\${$var-}"
   if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
 done
@@ -65,6 +65,8 @@ struct Call {
     effort: Option<String>,
     /// Where efr hands back the text of its input row.
     draft_file: Option<String>,
+    /// The words of `,resume`.
+    resume_words: Option<String>,
 }
 
 impl Call {
@@ -94,6 +96,7 @@ impl Call {
             model: var("EFR_MODEL"),
             effort: var("EFR_EFFORT"),
             draft_file: var("EFR_DRAFT_FILE"),
+            resume_words: var("EFR_RESUME_WORDS"),
         }
     }
 
@@ -1514,10 +1517,10 @@ fn e2e_comma_resume_hands_the_context_and_the_argument() {
     );
     assert_eq!(status, Some(0));
     let calls = home.calls();
-    assert_eq!(
-        args(&calls),
-        [vec!["resume"], vec!["resume", "2"], vec!["resume", "--take", "019a9b1c"]]
-    );
+    // An option stays an argument; N and an id reach efr in EFR_RESUME_WORDS.
+    assert_eq!(args(&calls), [vec!["resume"], vec!["resume"], vec!["resume", "--take"]]);
+    let words: Vec<Option<&str>> = calls.iter().map(|call| call.resume_words.as_deref()).collect();
+    assert_eq!(words, [Some(""), Some("2"), Some("019a9b1c")]);
     for call in &calls {
         // The terminal, the shell and the directory, as a prompt hands them over.
         let context = call.context();
@@ -1527,6 +1530,27 @@ fn e2e_comma_resume_hands_the_context_and_the_argument() {
         assert_eq!(call.prompt, None);
         assert_eq!(call.last_command(), None);
         assert_eq!(call.settings(), [None, None, None], "it hands over no turn settings");
+    }
+}
+
+#[test]
+fn e2e_comma_resume_hands_its_words_in_the_environment_not_in_argv() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let (_, status) =
+        run_with(&home, &[], ",resume fix the s3cret tests\n,resume --take   docker  compose");
+    assert_eq!(status, Some(0));
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["resume"], vec!["resume", "--take"]]);
+    assert_eq!(calls[0].resume_words.as_deref(), Some("fix the s3cret tests"));
+    assert_eq!(calls[1].resume_words.as_deref(), Some("docker compose"), "joined by one blank");
+    for call in &calls {
+        assert!(!call.cmdline.contains("s3cret"), "readable by every user: {call:?}");
+        assert!(!call.cmdline.contains("docker"), "readable by every user: {call:?}");
+        assert!(call.context.is_some());
+        assert_eq!(call.prompt, None);
     }
 }
 
@@ -1551,7 +1575,8 @@ fn e2e_comma_resume_in_sticky_mode_runs_as_a_command() {
     let home = Home::new();
     type_lines_with(&home, UTF8, &["<C-Space>", ",resume 3", "what now", "<C-Space>"]);
     let calls = home.calls();
-    assert_eq!(args(&calls), [vec!["resume", "3"], vec!["send"]]);
+    assert_eq!(args(&calls), [vec!["resume"], vec!["send"]]);
+    assert_eq!(calls[0].resume_words.as_deref(), Some("3"));
     assert!(calls[0].context.is_some());
     assert_eq!(calls[1].prompt.as_deref(), Some("what now"));
 }
