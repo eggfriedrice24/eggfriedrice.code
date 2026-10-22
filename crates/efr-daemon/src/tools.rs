@@ -1715,6 +1715,14 @@ impl Toolbox for DaemonToolbox {
         self.shells.busy(conversation_id).and_then(busy_shell)
     }
 
+    async fn take_notes(&self, conversation_id: ConversationId) -> Vec<String> {
+        // NOTE: the outcomes of the job port forwards are efr's only notes (v0.0.4 L2).
+        self.jobs
+            .as_ref()
+            .map(|jobs| jobs.forwards().take_notes(conversation_id))
+            .unwrap_or_default()
+    }
+
     async fn background_jobs(&self, conversation_id: ConversationId) -> Vec<efr_protocol::JobInfo> {
         let Some(jobs) = &self.jobs else { return Vec::new() };
         match jobs.list(Some(conversation_id)).await {

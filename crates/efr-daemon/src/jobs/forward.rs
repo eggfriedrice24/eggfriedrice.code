@@ -38,15 +38,21 @@
 //!   job forwards, and a `watch` changes at each forward and each release. A contained
 //!   foreground call of a conversation with such a job gets a reach plan, and efrd
 //!   routes each connection of the call's reach helper to the job's forwarder.
+//! - The model learns each outcome (v0.0.4 L2): [`Forwards::tell`] keeps the last
+//!   outcome of each port of a running job for the `jobs` tool ([`Forwards::ports_text`])
+//!   and a note ([`note`]) for the model of the job's conversation, unless the port's
+//!   last outcome was the same. The turn takes the notes before its next model call
+//!   ([`Forwards::take_notes`], `Toolbox::take_notes`), also in the middle of a turn. The
+//!   notes and the outcomes of a job go when its forwards end.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use efr_config::JobsSettings;
 use efr_permissions::Egress;
-use efr_protocol::{ConversationId, ForwardOutcome, Grant, JobId, Launch, PortForward};
+use efr_protocol::{ConversationId, ForwardOutcome, Grant, JobId, Launch};
 use efr_sandbox::{BRIDGE_PORT, FORWARD_SOCKET_FILE, ForwardPlan, MAX_DAEMON_FORWARDS, MIN_PORT};
 use jiff::Timestamp;
 use tokio::sync::watch;
@@ -70,14 +76,19 @@ pub(crate) const HELLO_WAIT: Duration = Duration::from_secs(5);
 /// How long a host connection waits for the forwarder's `Data` after efrd sent `Open`.
 pub(crate) const OPEN_WAIT: Duration = Duration::from_secs(5);
 
+/// The most notes of one conversation that wait for the model; a new note drops the
+/// oldest one.
+const MAX_NOTES: usize = 64;
+
 /// The reason of a `stopped` event at a reload that turned forwards off.
 pub(crate) const OFF_REASON: &str = "jobs.forward_ports is off";
 
-/// The sentences of a job's start result when efr forwards its ports (DL16, DS45).
+/// The sentences of a job's start result when efr forwards its ports (DL16, DS45, L2).
 pub(crate) const START_NOTE: &str = "efr forwards each loopback port from 1024 up that this \
     job listens on to the same port of 127.0.0.1 on the user's machine; give the user the \
     URL, such as http://localhost:8765. A port in use there and well-known service ports \
-    are not forwarded. Later contained calls of this conversation reach the forwarded \
+    are not forwarded. A note from efr tells you whether each port is forwarded, and the \
+    jobs tool shows it. Later contained calls of this conversation reach the forwarded \
     ports at http://127.0.0.1:<port> or localhost, with no needs.hosts entry.";
 
 /// The forward plan of a job that starts with `launch` in an efrd whose engine has
@@ -137,6 +148,17 @@ struct Held {
     jobs: HashMap<JobKey, Route>,
     /// How often a reload turned `jobs.forward_ports` off.
     generation: u64,
+    /// The last outcome of each port of each job, until the job's forwards end (L2).
+    told: HashMap<JobKey, BTreeMap<u16, Told>>,
+    /// The notes of each conversation that the model did not read yet, oldest first,
+    /// each with its job.
+    notes: HashMap<ConversationId, VecDeque<(JobKey, String)>>,
+}
+
+/// The last outcome of a port of a job, with its text for the `jobs` tool.
+struct Told {
+    outcome: ForwardOutcome,
+    text: String,
 }
 
 /// The forwards of one job as a call's reach finds them.
@@ -222,10 +244,18 @@ impl Forwards {
         }
     }
 
-    /// Frees every port of the job `key`, and ends the routes of a call's reach to it.
+    /// Frees every port of the job `key`, ends the routes of a call's reach to it, and
+    /// forgets its outcomes and the notes about it that wait.
     pub(crate) fn release_job(&self, key: JobKey) {
         let changed = {
             let mut held = self.lock();
+            held.told.remove(&key);
+            if let Some(notes) = held.notes.get_mut(&key.conversation) {
+                notes.retain(|(job, _)| *job != key);
+                if notes.is_empty() {
+                    held.notes.remove(&key.conversation);
+                }
+            }
             let Held { ports, bound, jobs, .. } = &mut *held;
             let mut changed = jobs.remove(&key).is_some();
             ports.retain(|port, holder| {
@@ -252,6 +282,53 @@ impl Forwards {
         if added {
             self.changed();
         }
+    }
+
+    /// Keeps `outcome` of `port` of the job `key` (a `job_port_forwarded` event of
+    /// efrd) for the `jobs` tool, and a note for the model of the job's conversation,
+    /// unless the port's last outcome was the same: the model reads each outcome once
+    /// (L2). An outcome that efrd does not know is not kept.
+    pub(crate) fn tell(
+        &self,
+        key: JobKey,
+        listen: &str,
+        port: u16,
+        outcome: ForwardOutcome,
+        by_job: Option<&JobId>,
+        reason: Option<&str>,
+    ) {
+        let job = JobId::nth(key.number);
+        let note = note(&job, listen, port, outcome, by_job, reason);
+        let text = port_text(port, outcome, by_job, reason);
+        let (Some(note), Some(text)) = (note, text) else { return };
+        let mut held = self.lock();
+        let told = held.told.entry(key).or_default();
+        if told.get(&port).is_some_and(|told| told.outcome == outcome) {
+            return;
+        }
+        told.insert(port, Told { outcome, text });
+        let notes = held.notes.entry(key.conversation).or_default();
+        if notes.len() >= MAX_NOTES {
+            notes.pop_front();
+        }
+        notes.push_back((key, note));
+    }
+
+    /// Takes the notes of `conversation` that the model did not read yet, oldest
+    /// first; each note is given once.
+    pub(crate) fn take_notes(&self, conversation: ConversationId) -> Vec<String> {
+        let notes = self.lock().notes.remove(&conversation).unwrap_or_default();
+        notes.into_iter().map(|(_, note)| note).collect()
+    }
+
+    /// The outcome of each port of the job `key` for the `jobs` tool, by port: `ports
+    /// 8765 -> http://localhost:8765; 8767 not forwarded: 127.0.0.1:8767 is in use on
+    /// this machine`; `None` when the job has no port.
+    pub(crate) fn ports_text(&self, key: JobKey) -> Option<String> {
+        let held = self.lock();
+        let told = held.told.get(&key).filter(|told| !told.is_empty())?;
+        let ports: Vec<&str> = told.values().map(|told| told.text.as_str()).collect();
+        Some(format!("ports {}", ports.join("; ")))
     }
 
     /// Records that efrd serves the forwards of the job `key` with `ctx` since `since`.
@@ -392,14 +469,97 @@ pub(crate) fn line(
     by_job: Option<&JobId>,
     reason: Option<&str>,
 ) -> String {
-    let address = if listen.contains(':') {
-        format!("[{listen}]:{port}")
-    } else {
-        format!("{listen}:{port}")
+    let head = format!("job {job} listens on {}", address(listen, port));
+    match outcome {
+        ForwardOutcome::Forwarded => format!("{head} -> http://localhost:{port}"),
+        ForwardOutcome::Stopped => stopped(job, port, reason),
+        _ => match not_forwarded(port, outcome, by_job, reason) {
+            Some(why) => format!("{head}; not forwarded: {why}"),
+            None => head,
+        },
+    }
+}
+
+/// The note for the model about an outcome of a port (v0.0.4 L2): what the user and the
+/// model's calls can reach, and what to do; `None` for an outcome that efrd does not
+/// know.
+pub(crate) fn note(
+    job: &JobId,
+    listen: &str,
+    port: u16,
+    outcome: ForwardOutcome,
+    by_job: Option<&JobId>,
+    reason: Option<&str>,
+) -> Option<String> {
+    let head = format!("efr: job {job} listens on {}", address(listen, port));
+    let what = match outcome {
+        ForwardOutcome::Forwarded => {
+            return Some(format!(
+                "{head}; forwarded: the user can open http://localhost:{port}, and your \
+                 contained calls reach it at 127.0.0.1:{port}."
+            ));
+        }
+        ForwardOutcome::Stopped => {
+            return Some(format!(
+                "efr: {}. The user cannot open it now, and your contained calls do not reach \
+                 it.",
+                stopped(job, port, reason)
+            ));
+        }
+        ForwardOutcome::Limit => {
+            "a job keeps its forwarded ports until it ends; stop a job that you do not need"
+        }
+        _ => "choose another port",
     };
-    let head = format!("job {job} listens on {address}");
+    let why = not_forwarded(port, outcome, by_job, reason)?;
+    Some(format!(
+        "{head}; not forwarded: {why}. The user cannot open it in a browser, and your calls \
+         do not reach it; {what}."
+    ))
+}
+
+/// The outcome of `port` for the `jobs` tool: `8765 -> http://localhost:8765`, `8767
+/// not forwarded: ...` or `8765 no longer forwarded (...)`; `None` for an outcome that
+/// efrd does not know.
+fn port_text(
+    port: u16,
+    outcome: ForwardOutcome,
+    by_job: Option<&JobId>,
+    reason: Option<&str>,
+) -> Option<String> {
+    match outcome {
+        ForwardOutcome::Forwarded => Some(format!("{port} -> http://localhost:{port}")),
+        ForwardOutcome::Stopped => Some(match reason {
+            Some(reason) => format!("{port} no longer forwarded ({reason})"),
+            None => format!("{port} no longer forwarded"),
+        }),
+        _ => not_forwarded(port, outcome, by_job, reason)
+            .map(|why| format!("{port} not forwarded: {why}")),
+    }
+}
+
+/// `127.0.0.1:8765`, or `[::1]:8765` for an IPv6 address.
+fn address(listen: &str, port: u16) -> String {
+    if listen.contains(':') { format!("[{listen}]:{port}") } else { format!("{listen}:{port}") }
+}
+
+/// `job j1: port 8765 is no longer forwarded (jobs.forward_ports is off)`.
+fn stopped(job: &JobId, port: u16, reason: Option<&str>) -> String {
+    match reason {
+        Some(reason) => format!("job {job}: port {port} is no longer forwarded ({reason})"),
+        None => format!("job {job}: port {port} is no longer forwarded"),
+    }
+}
+
+/// Why efr does not forward `port`; `None` for a forward, a stop and an outcome that
+/// efrd does not know.
+fn not_forwarded(
+    port: u16,
+    outcome: ForwardOutcome,
+    by_job: Option<&JobId>,
+    reason: Option<&str>,
+) -> Option<String> {
     let why = match outcome {
-        ForwardOutcome::Forwarded => return format!("{head} -> http://localhost:{port}"),
         ForwardOutcome::InUse => match by_job {
             Some(other) => format!("127.0.0.1:{port} is in use by job {other}"),
             None => format!("127.0.0.1:{port} is in use on this machine"),
@@ -411,24 +571,9 @@ pub(crate) fn line(
         ForwardOutcome::Limit => {
             reason.unwrap_or("efr forwards as many ports as it may").to_owned()
         }
-        ForwardOutcome::Stopped => {
-            return match reason {
-                Some(reason) => format!("job {job}: port {port} is no longer forwarded ({reason})"),
-                None => format!("job {job}: port {port} is no longer forwarded"),
-            };
-        }
-        _ => return head,
+        _ => return None,
     };
-    format!("{head}; not forwarded: {why}")
-}
-
-/// `forwarded ports 8765, 5173` for the `jobs` tool; `None` with no forward.
-pub(crate) fn ports_text(forwards: &[PortForward]) -> Option<String> {
-    if forwards.is_empty() {
-        return None;
-    }
-    let ports: Vec<String> = forwards.iter().map(|forward| forward.port.to_string()).collect();
-    Some(format!("forwarded ports {}", ports.join(", ")))
+    Some(why)
 }
 
 #[cfg(test)]

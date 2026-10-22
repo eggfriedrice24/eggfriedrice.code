@@ -124,8 +124,19 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Ctx {
-    /// Records `event` of the job's conversation.
+    /// Records `event` of the job's conversation. The outcome of a port that it tells
+    /// goes to the model first (L2), so its note waits when a client sees the event.
     async fn record(&self, event: Event) {
+        if let Event::JobPortForwarded { listen, port, outcome, by_job, reason, .. } = &event {
+            self.forwards.tell(
+                self.key,
+                listen,
+                *port,
+                *outcome,
+                by_job.as_ref(),
+                reason.as_deref(),
+            );
+        }
         let batch = Batch::new().event(self.key.conversation, event);
         if let Err(error) = self.table.inner.writer.append(batch).await {
             tracing::warn!(%error, job = %self.job, "a port forward of a job could not be recorded");

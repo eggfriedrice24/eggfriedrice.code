@@ -28,6 +28,8 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use crate::sandbox::{REVIEWER_ALLOWS, ScriptedModel, ready, run_turn};
 use crate::support::listens_here;
 
+mod notes;
+
 /// What the start result of a job with forwards says (DL16).
 const START_NOTE: &str = "efr forwards each loopback port from 1024 up that this job \
     listens on to the same port of 127.0.0.1 on the user's machine";
@@ -50,21 +52,25 @@ impl Setup {
     /// A daemon with the fake launcher, a ready sandbox and a model that starts a job
     /// for each line of `lines`, all in one turn.
     fn builder(&self, lines: &[String]) -> TestDaemonBuilder {
-        let env = BTreeMap::from([
-            ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
-            ("HOME".to_owned(), self.dirs.home().display().to_string()),
-        ]);
         let calls: Vec<(&str, Value)> = lines
             .iter()
             .map(|line| ("shell", json!({ "command": line, "background": true })))
             .collect();
-        let model = ScriptedModel::reviewed(calls, REVIEWER_ALLOWS);
+        self.builder_with(ScriptedModel::reviewed(calls, REVIEWER_ALLOWS))
+    }
+
+    /// A daemon with the fake launcher, a ready sandbox and `model`.
+    fn builder_with(&self, model: Arc<dyn Provider>) -> TestDaemonBuilder {
+        let env = BTreeMap::from([
+            ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
+            ("HOME".to_owned(), self.dirs.home().display().to_string()),
+        ]);
         TestDaemon::builder()
             .dirs(Arc::clone(&self.dirs))
             .sandbox_launcher(self.fake.path())
             .probe_override(ready())
             .job_env(env)
-            .custom_provider(model as Arc<dyn Provider>)
+            .custom_provider(model)
     }
 
     /// A FIFO below the test's root, which a job reads and the test writes.
@@ -287,6 +293,10 @@ async fn start_note_names_forwarding() {
     let (daemon, _, fifo, output) = one_job(&setup, |builder| builder).await;
     assert!(output.contains("give the user the URL, such as http://localhost:8765"), "{output}");
     assert!(output.contains("well-known service ports are not forwarded"), "{output}");
+    assert!(
+        output.contains("A note from efr tells you whether each port is forwarded"),
+        "{output}"
+    );
     release(&fifo).await;
     daemon.stop().await.unwrap();
 }
