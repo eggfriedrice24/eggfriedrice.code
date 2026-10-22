@@ -611,7 +611,7 @@ fn a_refusal_names_the_floor_or_the_rule_in_a_few_words() {
     );
     assert_eq!(
         approvals::brief(efr_permissions::exits::ONE_COMMAND),
-        "an approved command outside the sandbox must run alone"
+        "a command that must run outside the sandbox must run alone"
     );
 }
 

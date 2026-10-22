@@ -370,7 +370,10 @@ fn a_long_reason_of_a_refusal_goes_on_in_the_next_row() {
     insta::assert_snapshot!(every_way(&[
         Sent(0, turn_started()),
         Sent(10, shell(1, "cd ~/proj && find . -type f | sort")),
-        Sent(20, ended(1, None, Some("an approved command outside the sandbox must run alone"))),
+        Sent(
+            20,
+            ended(1, None, Some("a command that must run outside the sandbox must run alone"))
+        ),
     ]));
 }
 
