@@ -1,9 +1,8 @@
 # Architecture
 
 This document is the map. It says which crate owns what, which way dependencies
-point, how threads are laid out and what happens at startup and restart. The full
-design record is `research/rust-structure.md`; the rules a contributor follows inside a
-crate are in `CONVENTIONS.md`.
+point, how threads are laid out and what happens at startup and restart. The rules a
+contributor follows inside a crate are in `CONVENTIONS.md`.
 
 ## Shape
 
@@ -61,7 +60,7 @@ shipped binary.
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-transport`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
-milestone 1 file map (`research/rust-structure.md`, section 10).
+milestone 1 file map.
 
 ## The dependency rule
 
