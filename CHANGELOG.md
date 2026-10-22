@@ -217,8 +217,8 @@ into the GitHub release notes, and it stops when the section is missing.
   waits for your next prompt, such as `efr: job j3 waits for your next prompt: <title>;
   no wake turn (wake limit reached)`. The line also names a lost launcher and the
   processes of the job that may still run. After a job notice turn, the line names the
-  jobs and the first line of the answer: `efr: job notice turn finished (job j3):
-  <title>: <first line>; efr history shows all`. After a restart, efrd writes a line for
+  jobs and the first line of the answer: `efr: job notice turn finished (job j3): <title>:
+  <first line>; efr history shows all`. After a restart, efrd writes a line for
   each job that it ended. A notice from before your terminal opened, such as one for an
   earlier terminal of the same name before a reboot, does not show.
 - In the input row of a followed turn, Ctrl+X stops the newest running job of the
@@ -454,11 +454,15 @@ into the GitHub release notes, and it stops when the section is missing.
   for you only when you or your own rule approved a line that may ask for one; efr
   stops other such waits and tells you. Such a command that waits for input ends after
   `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
-  goes on while you follow the turn. The README, "A busy hidden shell", has the
-  details.
+  goes on while you follow the turn. `docs/use/hidden-shell.md`, "A busy hidden
+  shell", has the details.
 - A paste of several lines that all start with `,` now sends one prompt for each line.
   The first prompt runs, and the others wait behind it in their order, as Tab in the
   input row queues them. A paste with any other line stays one prompt.
+- efr has a docs website. mdBook builds it from the files in `docs/`: a guide to install
+  and use efr, the settings and the `config.toml` reference, help, the internals and
+  this changelog. The decision records stay on GitHub only for now. It is dark, in the colours of the eggfriedrice
+  design system, and it works on a phone. `mdbook build book` writes it to `target/book`.
 
 ### Changed
 
@@ -679,6 +683,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - After a restart of efrd, `efr status` says `key sk-ant-...a1b2 not checked since
   efrd started` for a stored API key until the first request with the key gets an
   answer, because efrd keeps the refusals of a key in memory only.
+- The README is now short: it shows how to install efr, a short example and the
+  permission modes. The details moved to the pages of the docs site in `docs/`.
 
 ### Fixed
 
