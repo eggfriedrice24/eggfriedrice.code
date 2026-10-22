@@ -83,6 +83,20 @@ fn keep_opens_a_secret_like_name_and_deny_removes_more() {
 }
 
 #[test]
+fn scratch_names_the_conversations_scratch_whatever_the_shell_held() {
+    let spec = spec();
+    let plan = MountPlan::build(&spec, &world()).unwrap();
+    let filter = EnvFilter::new(&spec, &plan);
+    let scratch = spec.runtime.scratch.to_str().unwrap();
+
+    let (out, removed) = filter.apply(&env(&[("SCRATCH", "/scratch/u")]));
+    assert_eq!(get(&out, "SCRATCH"), Some(scratch));
+    assert_eq!(removed, Vec::<String>::new());
+    let (out, _) = filter.apply(&env(&[]));
+    assert_eq!(get(&out, "SCRATCH"), Some(scratch));
+}
+
+#[test]
 fn desktop_grant_env_survives_socket_strip() {
     let socket = "/run/user/1000/hypr/new_1760000001_9/.socket.sock";
     let mut fs = world();

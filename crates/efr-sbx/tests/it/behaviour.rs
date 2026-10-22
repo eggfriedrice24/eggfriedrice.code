@@ -571,6 +571,37 @@ fn exit_child_survivor_cannot_read_next_input() {
     assert!(!run.result().summary.confined);
 }
 
+/// The line of the `$SCRATCH` tests: the value, a write through it, and a line that
+/// sets its own value for one command.
+const SCRATCH_LINE: &str = "print -r -- \"$SCRATCH\"; print -r -- made > \"$SCRATCH/made\"; \
+                            SCRATCH=/own printenv SCRATCH";
+
+#[test]
+fn scratch_names_the_conversations_scratch_in_a_contained_call() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    // The trusted shell holds a stale value, or one of the user's own.
+    fixture.env.insert("SCRATCH".into(), "/stale".into());
+    let scratch = fixture.spec.runtime.scratch.clone();
+    let run = fixture.run(SCRATCH_LINE);
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{}\n/own\n", scratch.display()), "{run:#?}");
+    assert_eq!(fs::read_to_string(scratch.join("made")).unwrap(), "made\n");
+}
+
+#[test]
+fn scratch_names_the_conversations_scratch_in_the_exit_child() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    fixture.env.remove(std::ffi::OsStr::new("SCRATCH"));
+    fixture.spec.launch = SpecLaunch::Unsandboxed;
+    let scratch = fixture.spec.runtime.scratch.clone();
+    let run = fixture.run(SCRATCH_LINE);
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{}\n/own\n", scratch.display()), "{run:#?}");
+    assert_eq!(fs::read_to_string(scratch.join("made")).unwrap(), "made\n");
+}
+
 #[test]
 fn exit_child_does_not_source_state() {
     let ready = sandbox_or_skip!();

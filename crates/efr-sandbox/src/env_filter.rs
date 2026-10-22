@@ -4,9 +4,9 @@
 //! removes sockets, sessions, secret-like names, git's config from the environment,
 //! proxies, efr's own variables, and each variable whose value is a URL with a
 //! password unless `sandbox.env_keep` names it. It then sets the private `/tmp`, an
-//! empty runtime dir, `EFR_SANDBOX=1`, the variables that stop credential prompts, the
-//! offline hints while there is no network, and for a proxy plan the variables that
-//! point every tool at the bridge.
+//! empty runtime dir, `EFR_SANDBOX=1`, `SCRATCH` (the conversation's scratch dir), the
+//! variables that stop credential prompts, the offline hints while there is no network,
+//! and for a proxy plan the variables that point every tool at the bridge.
 //! `result.json` lists the removed names, never a value.
 
 use std::collections::BTreeMap;
@@ -78,6 +78,9 @@ impl EnvFilter {
             ("SSH_ASKPASS".to_owned(), "/bin/false".to_owned()),
             ("SSH_ASKPASS_REQUIRE".to_owned(), "never".to_owned()),
             ("GCM_INTERACTIVE".to_owned(), "never".to_owned()),
+            // The conversation's scratch is a write root at the same path inside, so
+            // "$SCRATCH" names it there too, whatever the trusted shell holds.
+            ("SCRATCH".to_owned(), spec.runtime.scratch.to_string_lossy().into_owned()),
         ];
         // A network view call keeps the host's namespace, but no socket there reaches
         // the network, so the hints hold for it too.

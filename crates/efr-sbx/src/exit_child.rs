@@ -1,9 +1,9 @@
 //! The exit child (`Launch::Unsandboxed`, the spec's section 3.16): an approved
 //! privilege, upload, persistence or outside run, without bwrap, Landlock or seccomp.
 //!
-//! It runs `zsh -f child.zsh DIR` with the trusted environment, where `DIR` holds only
-//! the trusted `snapshot.zsh` and the line: never `state.zsh`, because nothing made in
-//! the sandbox runs unsandboxed. It is a job of the same session on the same PTY, so
+//! It runs `zsh -f child.zsh DIR` with the trusted environment and `SCRATCH` set to the
+//! conversation's scratch dir, where `DIR` holds only the trusted `snapshot.zsh` and the
+//! line: never `state.zsh`, because nothing made in the sandbox runs unsandboxed. It is a job of the same session on the same PTY, so
 //! the input relay works as for any job. The launcher makes itself a child subreaper
 //! first: orphans of the exit child, also after `setsid` or a double fork, reparent to
 //! it. When the exit child ends, every descendant gets SIGTERM, SIGKILL after 2 s, and
@@ -75,6 +75,9 @@ pub(crate) fn run(
             command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }
     }
+    // NOTE: as in a contained call, "$SCRATCH" names the conversation's scratch dir,
+    // also when the trusted shell or the job's `env` file holds none.
+    command.env("SCRATCH", &spec.runtime.scratch);
     call::stop_if_interrupted()?;
     if let Some(job) = job {
         job.stop_if_stopped()?;

@@ -537,6 +537,24 @@ fn job_exit_child_holds_no_pty_fd() {
     drop(master);
 }
 
+#[test]
+fn a_job_gets_the_conversations_scratch_contained_and_in_the_exit_child() {
+    let ready = sandbox_or_skip!();
+    let mut fixture = Fixture::new(&ready);
+    // The `env` file of a shell that started before efr knew the scratch dir.
+    fixture.env.insert("SCRATCH".into(), "/stale".into());
+    let scratch = fixture.spec.runtime.scratch.clone();
+    let line = "print -r -- \"$SCRATCH\"; SCRATCH=/own printenv SCRATCH";
+    let run = fixture.run_job(line, plan());
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{}\n/own\n", scratch.display()), "{run:#?}");
+
+    fixture.spec.launch = SpecLaunch::Unsandboxed;
+    let run = fixture.run_job(line, plan());
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{}\n/own\n", scratch.display()), "{run:#?}");
+}
+
 /// True while a process named `sleep` runs with `seconds` as its argument.
 fn sleeping(seconds: &str) -> bool {
     let Ok(entries) = fs::read_dir("/proc") else { return false };
