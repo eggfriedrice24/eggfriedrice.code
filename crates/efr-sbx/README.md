@@ -28,7 +28,9 @@ nice to the higher of its own value and the spec's, the idle IO class, a hard fi
 size limit (soft and hard), SIGXFSZ ignored and an `oom_score_adj` of 1000, which
 every child inherits. The job runs contained or in the exit child (with
 `no_new_privs`), with the environment of `$CALL/env`, `/dev/null` as stdin and the
-output pipe as stdout and stderr. A stop thread ends the job on SIGTERM or SIGHUP, at
+output pipe as stdout and stderr. A contained call, the exit child and a job of either
+kind get `SCRATCH` set to the spec's `runtime.scratch`, also when the trusted shell or
+the `env` file holds another value or none. A stop thread ends the job on SIGTERM or SIGHUP, at
 the end of the lifeline, or at efrd's limit plus the backstop: SIGTERM to every process
 of the job but bwrap's own, SIGKILL from 2 s, and it gives up at 4 s. The bridge of a
 proxy job and the forwarder of a job with port forwards (named `efr-bridge` and
