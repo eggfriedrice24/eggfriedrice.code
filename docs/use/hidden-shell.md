@@ -45,6 +45,9 @@ The efr plugin itself does nothing in the hidden shell.
   ```
 
   So `git commit` without `-m` or `git rebase -i` fails at once and does not wait.
+- `SCRATCH` names the scratch directory of the conversation, in every command of the
+  agent: in the sandbox, outside it and in a job. A `SCRATCH` that your startup files
+  set does not reach the agent's commands. Your own shell does not change.
 - efrd gives its own environment to the hidden shell. Do not put an API key in the
   environment of efrd: in `manual`, `cautious` and `full`, a command of the agent can
   read it with `env`. Only the `auto` sandbox removes names such as `*API_KEY*`. Use
