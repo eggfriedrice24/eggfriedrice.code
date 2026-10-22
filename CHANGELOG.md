@@ -451,6 +451,9 @@ into the GitHub release notes, and it stops when the section is missing.
   `shell`, and to `mode`, `model` and `effort` with at most one value that efr accepts.
   In sticky mode, a line of only one of these words runs that command too. A prompt
   with any other word stays a prompt.
+- The command line now shows a pasted prompt of several lines as you pasted it, not as
+  a quoted line (`say\ one$'\n'...`). History keeps the whole text, and Enter on it
+  sends the same prompt again.
 - In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it moves
   the running shell call to the background. The Left arrow still moves the cursor back.
 - efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a password,

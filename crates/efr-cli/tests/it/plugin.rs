@@ -620,13 +620,13 @@ fn e2e_the_hooks_are_registered_once_even_when_sourced_twice() {
         _efr_preexec 'uptime'
         true; _efr_precmd
         source {}
-        efr hooks ${{#${{(M)preexec_functions:#_efr_preexec}}}} ${{#${{(M)precmd_functions:#_efr_precmd}}}} "$_efr_last_command"
+        efr hooks ${{#${{(M)preexec_functions:#_efr_preexec}}}} ${{#${{(M)precmd_functions:#_efr_precmd}}}} ${{#${{(M)zshaddhistory_functions:#_efr_add_history}}}} "$_efr_last_command"
     "#,
         plugin().display()
     ));
     let [call] = calls.as_slice() else { panic!("one call expected: {calls:?}") };
-    // One preexec and one precmd hook, and the remembered command survived.
-    assert_eq!(call.args, ["hooks", "1", "1", "uptime"]);
+    // One preexec, one precmd and one history hook, and the remembered command survived.
+    assert_eq!(call.args, ["hooks", "1", "1", "1", "uptime"]);
 }
 
 /// Prompts that zsh would read as shell syntax if the plugin did not quote them.
@@ -2983,7 +2983,16 @@ async fn e2e_cd_home_and_back_switches_and_says_so() {
     routed.daemon.stop().await.unwrap();
 }
 
-// --- the input of a `,` line: a command word after `, `
+// --- the input of a `,` line: a command word after `, `, a prompt of several lines on
+// the screen
+
+/// `text` as a bracketed paste, as a terminal sends it.
+fn paste(text: &str) -> String {
+    format!("\x1b[200~{text}\x1b[201~")
+}
+
+/// The Up key, which recalls the line before from history.
+const UP: &str = "\x1b[A";
 
 #[test]
 fn e2e_a_comma_and_a_blank_before_a_command_word_runs_the_command() {
@@ -3067,4 +3076,44 @@ fn e2e_in_sticky_mode_a_bare_command_word_runs_as_its_command() {
     let calls = home.calls();
     assert_eq!(args(&calls), [vec!["resume"], vec!["context"], vec!["send"], vec!["shell"]]);
     assert_eq!(calls[2].prompt.as_deref(), Some("resume the work"));
+}
+
+#[test]
+fn e2e_a_pasted_prompt_of_several_lines_shows_as_pasted_and_history_keeps_it() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let pasted = ", say one\nsay 'two' > x\n";
+    let screen =
+        type_lines(&home, &[&paste(pasted), "fc -ln -1 > history.txt", &format!("{UP}{UP}")]);
+    assert!(!home.path().join("x").exists(), "the second line ran as a command");
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    let prompt = Some("say one\nsay 'two' > x".to_owned());
+    assert_eq!(prompts, [prompt.clone(), prompt]);
+    // No quoting reaches the screen: the second line shows on a line of its own.
+    assert!(!screen.contains("$'\\n'") && !screen.contains(r"say\ one"), "{screen}");
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(history.trim_end(), ", say one\\nsay 'two' > x");
+}
+
+#[test]
+fn e2e_a_prompt_of_several_lines_with_a_blank_in_front_keeps_out_of_history() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(
+        &home,
+        &[
+            "setopt hist_ignore_space",
+            "true",
+            &paste(" , private one\nprivate two"),
+            "fc -ln -1 > history.txt",
+        ],
+    );
+    let prompts: Vec<Option<String>> = home.calls().into_iter().map(|call| call.prompt).collect();
+    assert_eq!(prompts, [Some("private one\nprivate two".to_owned())]);
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(history.trim_end(), "true");
 }

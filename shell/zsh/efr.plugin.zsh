@@ -104,8 +104,10 @@
 # `,new`, `,!` and `,compact` are aliases whose expansion ends in a comment marker, so
 # zsh reads the rest of the line as a comment; the commands then take the saved text. The two
 # options this needs (interactive_comments on, bang_hist off) hold for that one line
-# only. A prompt that spans several lines falls back to a quoted rewrite, because a
-# comment ends at the first newline.
+# only. A comment ends at the first newline, so a prompt that spans several lines runs
+# as its first line alone, and the screen shows the other lines after it (POSTDISPLAY),
+# as they were typed or pasted. History keeps the whole text, and Enter on it sends the
+# same prompts again.
 #
 # The plugin only observes and relays. The daemon derives git root, scope and
 # permissions, so nothing here runs git or forks per prompt.
@@ -198,6 +200,9 @@ typeset -gi _efr_new_pending
 # now, and 1 while it is waiting there.
 typeset -g _efr_stash
 typeset -gi _efr_stash_set
+# The whole text of a line of several lines whose first line alone runs, for history
+# to keep instead of that first line (see _efr_add_history), or empty.
+typeset -g _efr_history_line
 # 1 after a line ran efr for a prompt, until the next precmd shows the cursor again.
 typeset -gi _efr_called
 # The user's own interactive_comments and bang_hist ("on" or "off") while a plugin
@@ -1025,13 +1030,13 @@ _efr_mistyped_command() {
   REPLY="efr: ,$word is no command; did you mean ,$meant? \`, $word\` sends a prompt"
 }
 
-# For a one-line plugin line $1 (`,`, `,new`, `,!`, `,compact` or the sticky word,
-# followed by a prompt or a focus): saves the prompt for the command and the user's two options for
-# _efr_restore_options, and returns 0. The caller then sets the options, because an
+# For a plugin line $1 (`,`, `,new`, `,!`, `,compact` or the sticky word, followed by
+# a prompt or a focus, which may span several lines): saves the prompt for the command
+# and the user's two options for _efr_restore_options, sets REPLY to the line that
+# runs (see _efr_cut_line) and returns 0. The caller then sets the options, because an
 # emulate here would undo them. Any other line returns 1 and changes nothing.
 _efr_stash_line() {
   emulate -L zsh -o extended_glob
-  [[ $1 == *$'\n'* ]] && return 1
   _efr_command_pattern
   [[ $1 == (#b)[[:space:]]#(${~REPLY})[[:space:]]##(*) ]] || return 1
   local rest=${match[2]%%[[:space:]]##}
@@ -1039,7 +1044,23 @@ _efr_stash_line() {
   _efr_stash=$rest
   _efr_stash_set=1
   _efr_saved_options=($options[interactivecomments] $options[banghist])
-  return 0
+  _efr_cut_line "$1"
+}
+
+# Sets REPLY to the part of the line $1 that runs: up to the end of its first line
+# that is not blank. When lines that are not blank follow, sets _efr_shown_rest to them,
+# from the newline on, for the screen to show after it, and _efr_history_line to $1
+# without the blanks at its end; otherwise empties both.
+_efr_cut_line() {
+  emulate -L zsh -o extended_glob
+  REPLY=$1
+  _efr_shown_rest=
+  _efr_history_line=
+  [[ $1 == (#b)([[:space:]]#[^[:space:]][^$'\n']#)(*) ]] || return 0
+  [[ -n ${match[2]//[[:space:]]/} ]] || return 0
+  REPLY=$match[1]
+  _efr_shown_rest=$match[2]
+  _efr_history_line=${1%%[[:space:]]##}
 }
 
 # Wraps whatever accept-line was before (another plugin's widget or the builtin),
@@ -1078,15 +1099,21 @@ _efr_accept_line() {
   _efr_unknown_comma_line "$BUFFER" && BUFFER=$REPLY
   # A prompt line that sticky mode made is no command word: _efr_line_to_run checked.
   (( sticky_prompt )) || ! _efr_comma_command_line "$BUFFER" || BUFFER=$REPLY
+  local _efr_shown_rest=
   if _efr_stash_line "$BUFFER"; then
     # The line stays as typed. The alias ends in `#`, which starts a comment only with
     # interactive_comments on, and bang_hist off keeps `!` in the prompt literal.
+    # NOTE: of a prompt over several lines only the first line runs, because the
+    # comment ends at the newline; the others show after it, as they were.
+    if [[ -n $_efr_shown_rest ]]; then
+      BUFFER=$REPLY
+      POSTDISPLAY=$_efr_shown_rest
+    fi
     setopt interactive_comments
     unsetopt bang_hist
   elif _efr_is_plugin_line "$BUFFER"; then
-    # A prompt over several lines, or a bare `,new`: a comment would end at the first
-    # newline and leave the next lines to run as commands, so the prompt is quoted as
-    # one word instead, and the alias's `#` must stay a plain word for this line.
+    # Any other plugin line, such as a bare `,new`: the alias's `#` must stay a plain
+    # word for this line, and the rewrite quotes a prompt as one word.
     _efr_rewrite_line "$BUFFER"
     BUFFER=$REPLY
     _efr_saved_options=($options[interactivecomments] $options[banghist])
@@ -1244,6 +1271,20 @@ _efr_preexec() {
   _efr_restore_options
 }
 
+# Puts the whole text of a prompt over several lines in history, where zsh would keep
+# only the first line, the one that ran (see _efr_cut_line). Enter on it sends the same
+# prompts again. zsh's rule for a line with a blank in front still holds: such a line
+# keeps out of history.
+_efr_add_history() {
+  local line=$_efr_history_line
+  _efr_history_line=
+  [[ -n $line ]] || return 0
+  [[ -o hist_ignore_space && $line == [[:blank:]]* ]] && return 0
+  print -sr -- "$line"
+  # A history of its own for the first line, which zsh drops once the line is saved.
+  fc -p
+}
+
 # Keeps the line that just finished, with its status, unless it ran a plugin command.
 # It keeps the first _efr_command_max characters of the line. A line that starts with a
 # blank stays private (HIST_IGNORE_SPACE's rule): efr gets no last command for it, and
@@ -1306,6 +1347,7 @@ _efr_precmd() {
   # leak into the next one.
   _efr_stash=''
   _efr_stash_set=0
+  _efr_history_line=
   _efr_remember_command $exit_status
   _efr_take_draft
   _efr_print_notices
@@ -1464,6 +1506,7 @@ bindkey -M emacs '^@' _efr_toggle_sticky
 bindkey -M viins '^@' _efr_toggle_sticky
 add-zsh-hook precmd _efr_precmd
 add-zsh-hook preexec _efr_preexec
+add-zsh-hook zshaddhistory _efr_add_history
 _efr_register_completion
 _efr_probe_background
 _efr_clean_drafts
