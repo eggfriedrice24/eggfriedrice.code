@@ -1200,6 +1200,7 @@ version = "0.0.3"
 dependencies = [
  "efr-protocol",
  "efr-stdx",
+ "efr-test-support",
  "jiff",
  "pretty_assertions",
  "proptest",

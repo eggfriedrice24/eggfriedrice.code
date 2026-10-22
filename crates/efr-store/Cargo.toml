@@ -23,6 +23,9 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+# The seeded search corpus of the benches in tests/it; it makes only text and event
+# shapes, and the integration binary links this one efr-store, so the types agree.
+efr-test-support.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

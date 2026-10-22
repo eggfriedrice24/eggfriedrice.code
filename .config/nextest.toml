@@ -35,9 +35,18 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 filter = 'binary_id(efr-snapshot::it) & test(/^cost::/)'
 slow-timeout = { period = "60s", terminate-after = 5 }
 
+# The search benches (`just bench-search`) measure times: they run one at a time, and a
+# bench that builds a corpus of 20,000 or 50,000 turns needs more than the default
+# minute.
+[[profile.default.overrides]]
+filter = 'test(/bench_search_/)'
+test-group = "search-bench"
+slow-timeout = { period = "60s", terminate-after = 10 }
+
 [test-groups]
 shell = { max-threads = 1 }
 sbx-cost = { max-threads = 1 }
+search-bench = { max-threads = 1 }
 
 # Tests that drive a real zsh share terminal state and run one at a time: efr-shell's
 # e2e_ tests, the shell_ tests over a TestDaemon, and efr-daemon's own e2e_ test. The

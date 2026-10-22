@@ -10,6 +10,8 @@
 //!   and timestamps, and back.
 //! - [`ReplayProvider`]: an `efr_provider::Provider` that answers from a transcript and
 //!   checks every request against it.
+//! - [`SearchCorpus`]: a seeded corpus of conversations of a [`CorpusSize`], as events,
+//!   for the search benches.
 //! - [`Wait`]: polls a condition that another task or thread makes true, and gives up
 //!   after a real time limit ([`WAIT_LIMIT`]) with an error that names it.
 //!
@@ -36,6 +38,7 @@ mod ndjson;
 mod redact;
 mod replay_provider;
 mod rng;
+mod search_corpus;
 mod store;
 mod wait;
 
@@ -46,5 +49,6 @@ pub use ndjson::{Entry, Inbound, Outbound, Record, Transcript};
 pub use redact::Redactor;
 pub use replay_provider::ReplayProvider;
 pub use rng::TestRng;
+pub use search_corpus::{CORPUS_VERSION, CorpusConversation, CorpusSize, SearchCorpus};
 pub use store::TestStore;
 pub use wait::{WAIT_LIMIT, Wait};
