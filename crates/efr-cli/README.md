@@ -1371,7 +1371,7 @@ says otherwise, and the scope marker: the project's name or `○` after the robo
 directory, the plain-text marks without UTF-8, no program run while lines draw (a
 fake `efr` and a fake `git` record nothing), a new read only when the file's inode,
 time or size changed (`touch -d @<epoch>`, no sleep), `efr_prompt_info` and
-`$efr_scope`, `PROMPT` and `RPROMPT` that never change, and no marker without the
+`$efr_scope`, a `%` in a name (doubled for a prompt, as typed in the marker), `PROMPT` and `RPROMPT` that never change, and no marker without the
 file) are tested by typing into
 an interactive `zsh -f -i` on a pseudo-terminal through zsh's own `zsh/zpty` module,
 so ZLE reads every key as it does for a person. Its `e2e_` tests need zsh and skip
