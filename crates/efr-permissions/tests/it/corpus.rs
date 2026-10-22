@@ -58,6 +58,10 @@ struct Line {
     /// The full mode result, when it differs from the one that [`full_default`] gives.
     #[serde(default)]
     full: Option<String>,
+    /// The result of the line as a background job on the phase E machine, when it
+    /// differs from the phase E result.
+    #[serde(default)]
+    job: Option<String>,
     #[serde(default)]
     note: Option<String>,
     #[serde(default)]
@@ -826,6 +830,57 @@ fn background_flag_does_not_change_prediction() {
         }
     }
     assert_eq!(changed, [54, 57, 59]);
+}
+
+/// The result of `line` as a background job on the phase E machine: its `job` column,
+/// else its phase E result.
+fn job(line: &Line) -> &str {
+    line.job.as_deref().unwrap_or_else(|| pe(line))
+}
+
+/// The result of a job's `decision` in the words of the `job` column: `J(kind)` for a
+/// job that a part of kind `kind` refuses (the first such part), else the words of
+/// [`verdict`].
+fn job_verdict(decision: &Decision, expected: &str) -> String {
+    let refused =
+        decision.reasons().iter().find_map(|reason| match (&reason.subject, &reason.cause) {
+            (Subject::JobPart { kind, .. }, Cause::NotAsJob) => Some(*kind),
+            _ => None,
+        });
+    match refused {
+        Some(kind) if decision.effect() == Effect::Deny => format!("J({})", kind.as_str()),
+        _ => verdict(decision, expected),
+    }
+}
+
+#[test]
+fn job_routes_match_the_corpus() {
+    // A drift guard for the route of each line as a background job (phase C) on the
+    // machine of phase E, which has the filtered bus: a read form of a systemd tool
+    // reads its view as a job too, and a kind that no job may hold refuses the job.
+    let corpus: Corpus = toml::from_str(CORPUS).unwrap();
+    let engine = pe_engine();
+    let mut failures = Vec::new();
+    for line in corpus.line.iter().filter(|line| line.line.is_some()) {
+        let expected = job(line);
+        let decision = engine.decide(&DecisionInput {
+            requirements: requirements(line, true).with_background(),
+            ..input(line)
+        });
+        let found = job_verdict(&decision, expected);
+        if found != expected {
+            failures.push(format!(
+                "line {} {:?}: expected {expected}, found {found}",
+                line.n, line.line
+            ));
+        }
+    }
+    assert_eq!(failures, Vec::<String>::new());
+    for line in &corpus.line {
+        if let Some(job) = &line.job {
+            assert_ne!(job, pe(line), "line {}: a `job` that equals `pe` says nothing", line.n);
+        }
+    }
 }
 
 #[test]

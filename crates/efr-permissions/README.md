@@ -611,8 +611,9 @@ proptest property:
   still write. A part that no job may hold is denied in every mode
   (`Cause::NotAsJob`). Outside `auto` and full mode each job asks the user
   (`Subject::Job`, `Cause::JobAsks`), whatever the rules say, and a remote turn runs as
-  `cautious`, so it asks too (`src/engine/tests/jobs.rs`, and the corpus table
-  `background_flag_does_not_change_prediction`). A full job starts with no question,
+  `cautious`, so it asks too (`src/engine/tests/jobs.rs`, and the corpus tables
+  `background_flag_does_not_change_prediction` and `job_routes_match_the_corpus`,
+  which checks the `job` column of each row on the phase E machine). A full job starts with no question,
   and also refuses a `destructive` exit and a delete that full mode guards; with no
   sandbox there is no filtered bus, so a read form of the bus is a `bus` exit, which no
   job may hold.
