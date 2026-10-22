@@ -7,7 +7,7 @@ use std::time::Duration;
 use efr_test_support::TestClock;
 use futures::FutureExt as _;
 
-use super::{PlanLocks, run_holding};
+use super::{PlanLocks, real_roots, run_holding};
 
 fn roots(names: &[&str]) -> Vec<PathBuf> {
     names.iter().map(|name| PathBuf::from(format!("/home/u/p/{name}"))).collect()
@@ -17,11 +17,13 @@ fn roots(names: &[&str]) -> Vec<PathBuf> {
 async fn plan_lock_serializes_plans() {
     let locks = PlanLocks::default();
     let first = locks.lock(&roots(&["app", "lib"])).await;
-    // A plan that shares one project waits; one of another project does not.
-    assert!(locks.lock(&roots(&["lib"])).now_or_never().is_none());
-    assert!(locks.lock(&roots(&["other"])).now_or_never().is_some());
+    // A plan that shares one project waits; one of another project does not. NOTE: the
+    // real paths are looked up on the blocking pool, so the checks that must not wait
+    // take the locks of the paths that `lock` would look up.
+    assert!(locks.lock_real(roots(&["lib"])).now_or_never().is_none());
+    assert!(locks.lock_real(roots(&["other"])).now_or_never().is_some());
     drop(first);
-    let second = locks.lock(&roots(&["lib", "app"])).now_or_never();
+    let second = locks.lock_real(roots(&["lib", "app"])).now_or_never();
     assert!(second.is_some(), "the lock is free once the first plan ends");
 }
 
@@ -39,7 +41,7 @@ async fn write_file_not_blocked_by_still_running_call() {
     };
     // While the launcher has not started, the plan lock holds a write back.
     clock.wait_for_sleeps(1).await;
-    assert!(locks.lock(&roots(&["app"])).now_or_never().is_none());
+    assert!(locks.lock_real(roots(&["app"])).now_or_never().is_none());
     // The launcher opened its bind sources: the call runs on, past its timeout, but
     // the lock is free for a write of the same project.
     std::fs::write(&started, "").unwrap();
@@ -64,8 +66,14 @@ async fn one_root_under_two_spellings_shares_one_lock() {
     std::os::unix::fs::symlink(&real, &link).unwrap();
     let locks = PlanLocks::default();
     let first = locks.lock(std::slice::from_ref(&link)).await;
-    assert!(locks.lock(std::slice::from_ref(&real)).now_or_never().is_none());
+    let spellings = real_roots(&[real.clone(), link.clone()]).await;
+    let canonical = std::fs::canonicalize(&real).unwrap();
+    assert_eq!(spellings, [canonical.clone(), canonical.clone()]);
+    assert!(locks.lock_real(vec![canonical]).now_or_never().is_none());
     drop(first);
-    let both = locks.lock(&[real.clone(), link.clone()]).now_or_never();
+    let both = locks.lock_real(spellings).now_or_never();
     assert!(both.is_some(), "one root under two spellings is one lock, taken once");
+    // A root with no real path keeps the path as given.
+    let gone = dir.path().join("gone");
+    assert_eq!(real_roots(std::slice::from_ref(&gone)).await, [gone]);
 }
