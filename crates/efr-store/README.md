@@ -226,10 +226,10 @@ per 1,000 turns; it prints the size of each table and of the prefix choices. The
 benches `bench_search_apply_round` (1,000 live rounds of one turn) and
 `bench_search_backfill_page` (the backfill and the merges of corpus L, 20,000 turns)
 are ignored. `just bench-search` runs them in release, one at a time, and they fail
-when a budget fails: a round at a p95 of 2 ms and a max of 10 ms, a page at a p95 of
-4 ms and a max of 8 ms. Each max counts the jobs that carry no checkpoint of the
-write-ahead log; the jobs with one are on a line of their own. Each p95 counts every
-job, the checkpoints of the search jobs too. `bench_search_reset` reports the one job
+when a budget fails: a round at a p95 of 2 ms, a page at a p95 of 4 ms, and a max of
+10 ms for both. Each p95 counts the jobs that carry no checkpoint of the write-ahead
+log; each max counts every job, the checkpoints of the search jobs too. The jobs with
+a checkpoint are on a line of their own. `bench_search_reset` reports the one job
 that empties the index of corpus L and of XL after a change of the redaction; it has
 no budget. The normal test
 `search_jobs_checkpoint_and_turn_commits_seldom_do` checks where the checkpoints run.
@@ -247,8 +247,8 @@ first row of the worst queries on corpus XL, 10,000 conversations, at most 150 m
 40 ms on XL), `bench_search_snippets` (50 rows in 5 ms), `bench_search_titles_10k`
 (5 ms), `bench_search_cancel` (a stop between rows frees the lane within 10 ms; the
 time inside an FTS5 step is reported) and `bench_search_memory_l` and `_xl` (the
-list on two lanes at once, each corpus in a process of its own: at most 8 MiB at the
-peak and 4 MiB at rest over the start; the rest counts the heap that the allocator
+list on two lanes at once, each corpus in a process of its own: at most 12 MiB at the
+peak and 10 MiB at rest over the start; the rest counts the heap that the allocator
 keeps for the threads after the searches end, so it also prints the rest after the
 list twice more). Each corpus file is
 built once below `target/tmp/search-corpus/`, named by size, seed, schema and

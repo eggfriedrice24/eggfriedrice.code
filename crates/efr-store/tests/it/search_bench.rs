@@ -172,11 +172,11 @@ async fn search_jobs_checkpoint_and_turn_commits_seldom_do() {
     store.close().await;
 }
 
-// NOTE: the max of each bench counts the jobs without a checkpoint of the write-ahead
-// log. A search job runs that checkpoint after its commit when the log holds 500
-// frames or more, and it costs more than the budget (about 5 to 18 ms here); a store
-// with no index pays it too, in a turn's commit at 1,000 frames. Each bench reports
-// those jobs on a line of their own, and the p95 counts every job.
+// NOTE: the p95 of each bench counts the jobs without a checkpoint of the write-ahead
+// log, and the max counts every job (the user's budgets of 2026-10-22). A search job
+// runs that checkpoint after its commit when the log holds 500 frames or more (DQ45),
+// which takes it off the turns' commits; a store with no index pays it too, in a
+// turn's commit at 1,000 frames. Each bench reports those jobs on a line of their own.
 
 /// The writer time of one live round (one turn: 12 docs, about 4 KB).
 const ROUND_P95: Duration = Duration::from_millis(2);
@@ -219,15 +219,15 @@ async fn bench_search_apply_round() {
             line("pending (the read)", &reads),
         ],
     );
-    let (_, p95, _) = percentiles(&applies);
-    let (_, _, max) = percentiles(&plain);
+    let (_, p95, _) = percentiles(&plain);
+    let (_, _, max) = percentiles(&applies);
     assert!(p95 <= ROUND_P95, "the p95 of a round is {p95:?}, more than {ROUND_P95:?}");
     assert!(max <= ROUND_MAX, "the max of a round is {max:?}, more than {ROUND_MAX:?}");
 }
 
 /// The writer time of one backfill page.
 const PAGE_P95: Duration = Duration::from_millis(4);
-const PAGE_MAX: Duration = Duration::from_millis(8);
+const PAGE_MAX: Duration = Duration::from_millis(10);
 
 #[tokio::test]
 #[ignore = "a bench: `just bench-search` runs it in release"]
@@ -275,8 +275,8 @@ async fn bench_search_backfill_page() {
             line("search_merge", &merges),
         ],
     );
-    let (_, p95, _) = percentiles(&applies);
-    let (_, _, max) = percentiles(&plain);
+    let (_, p95, _) = percentiles(&plain);
+    let (_, _, max) = percentiles(&applies);
     assert!(p95 <= PAGE_P95, "the p95 of a page is {p95:?}, more than {PAGE_P95:?}");
     assert!(max <= PAGE_MAX, "the max of a page is {max:?}, more than {PAGE_MAX:?}");
 }

@@ -616,8 +616,10 @@ async fn bench_search_memory_xl() {
 }
 
 async fn memory_bench(size: CorpusSize) {
-    const REST: u64 = 4 * 1024;
-    const PEAK: u64 = 8 * 1024;
+    // The user's budgets of 2026-10-22: most of the rest is heap that the allocator
+    // keeps after a search, which the performance work after v0.0.4 looks at.
+    const REST: u64 = 10 * 1024;
+    const PEAK: u64 = 12 * 1024;
     let mut lines = Vec::new();
     let mut failures = Vec::new();
     {
