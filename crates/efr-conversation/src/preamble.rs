@@ -226,8 +226,8 @@ impl LiveState {
         }
         let _ = writeln!(
             text,
-            "$SCRATCH: {} (your own directory for files; writing there needs no approval \
-             except in manual mode)",
+            "$SCRATCH: {} (your own directory for files; the shell sets $SCRATCH to it; \
+             writing there needs no approval except in manual mode)",
             self.scratch.display()
         );
         text.push_str(&mode_line(self.mode));

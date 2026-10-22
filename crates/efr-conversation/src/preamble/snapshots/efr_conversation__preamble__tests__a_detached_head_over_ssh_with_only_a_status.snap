@@ -11,7 +11,7 @@ Git work tree: /srv/site, detached HEAD.
 Home: /home/u
 OS: Debian GNU/Linux 13
 The user's shell runs over SSH.
-$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval except in manual mode)
+$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; the shell sets $SCRATCH to it; writing there needs no approval except in manual mode)
 Permission mode: manual
 Model: gpt-5.5
 Reasoning effort: the backend's default for the model

@@ -8,7 +8,7 @@ This turn works in /home/u/p/efr, where the job's turn worked.
 Commands you run with the shell tool start there in a new hidden shell; the hidden shell keeps its own directory between calls.
 Your hidden shell is in /home/u/p/efr/web.
 Home: /home/u
-$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval except in manual mode)
+$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; the shell sets $SCRATCH to it; writing there needs no approval except in manual mode)
 Permission mode: auto
 Model: gpt-5.5
 Reasoning effort: the backend's default for the model

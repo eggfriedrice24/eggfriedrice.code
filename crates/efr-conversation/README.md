@@ -389,8 +389,9 @@ request:
    when it is the last command; a directory is cut to 200 characters; at most 2000
    characters, the oldest go first, but the newest entry always stays; no list
    and no line when none remain, so the block is then the one of before the list), the
-   git work tree and branch, home, host, OS, `$SCRATCH`, the hidden
-   shell's own directory when it differs, one line when the user moved since the
+   git work tree and branch, home, host, OS, `$SCRATCH` (the line says that the shell
+   sets it), the hidden shell's own directory when it differs, one line when the user
+   moved since the
    previous prompt (where from, and whether the hidden shell moved too or where it
    stayed), one line when an earlier call left a command running in the hidden shell
    (`Toolbox::busy_shell`, which efrd answers from the live shell: the command on one
