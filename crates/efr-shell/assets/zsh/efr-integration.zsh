@@ -56,7 +56,7 @@ builtin unset _EFR_HS_SBX_DIR _EFR_HS_SBX_BIN
 # user's startup files may set a SCRATCH of their own (some clusters do), so
 # _efr_hs_init exports this value again after them. Read once and kept out of every
 # child's environment.
-builtin typeset -g _efr_hs_scratch=${_EFR_HS_SCRATCH-}
+builtin typeset -gr _efr_hs_scratch=${_EFR_HS_SCRATCH-}
 builtin unset _EFR_HS_SCRATCH
 # 1 while snapshot.zsh may be older than this shell's functions, aliases and options:
 # from the start, and after every line that efr did not type for a sandboxed call.

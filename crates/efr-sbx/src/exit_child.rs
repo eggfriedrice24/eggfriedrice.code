@@ -2,14 +2,15 @@
 //! privilege, upload, persistence or outside run, without bwrap, Landlock or seccomp.
 //!
 //! It runs `zsh -f child.zsh DIR` with the trusted environment and `SCRATCH` set to the
-//! conversation's scratch dir, where `DIR` holds only the trusted `snapshot.zsh` and the
-//! line: never `state.zsh`, because nothing made in the sandbox runs unsandboxed. It is a job of the same session on the same PTY, so
-//! the input relay works as for any job. The launcher makes itself a child subreaper
-//! first: orphans of the exit child, also after `setsid` or a double fork, reparent to
-//! it. When the exit child ends, every descendant gets SIGTERM, SIGKILL after 2 s, and
-//! only then is `result.json` written, so nothing of the call can read the next line
-//! typed into the PTY. A descendant that is still there 2 s after SIGKILL (one that
-//! runs as another user) is reported as a survivor, and efrd starts a new shell.
+//! conversation's scratch dir, where `DIR` holds only the trusted `snapshot.zsh` and
+//! the line: never `state.zsh`, because nothing made in the sandbox runs unsandboxed.
+//! It is a job of the same session on the same PTY, so the input relay works as for any
+//! job. The launcher makes itself a child subreaper first: orphans of the exit child,
+//! also after `setsid` or a double fork, reparent to it. When the exit child ends,
+//! every descendant gets SIGTERM, SIGKILL after 2 s, and only then is `result.json`
+//! written, so nothing of the call can read the next line typed into the PTY. A
+//! descendant that is still there 2 s after SIGKILL (one that runs as another user) is
+//! reported as a survivor, and efrd starts a new shell.
 //!
 //! As a job (`efr-sbx run --job`), the exit child is in the launcher's own session
 //! with no terminal, reads `/dev/null`, writes to the output pipe, runs with the
