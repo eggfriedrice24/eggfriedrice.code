@@ -161,7 +161,7 @@ fn line_start_value(line: &str) -> Option<Range<usize>> {
     let before = blank_len(&line[name_end..]);
     let sign_at = name_end + before;
     let sign = line[sign_at..].chars().next()?;
-    let value_at = sign_at + 1;
+    let value_at = sign_at + sign.len_utf8();
     let after = blank_len(&line[value_at..]);
     let fits = match sign {
         ':' => after > 0,

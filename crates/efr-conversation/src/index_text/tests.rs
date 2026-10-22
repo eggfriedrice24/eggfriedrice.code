@@ -78,6 +78,8 @@ fn index_redaction_corpus(#[case] text: &str, #[case] redacted: &str) {
 #[case::grep_pattern(r#"grep -rn "password:" config/"#)]
 #[case::path("cat /home/u/p/App2/src/Components/UserProfileCard2/Index.tsx")]
 #[case::git_id("git show 3f786850e387550fdab836ed7e6dc881de23001b")]
+#[case::line_starts_outside_ascii("écrire le fichier\n題名 zebra\n🚀 deploy")]
+#[case::name_then_a_sign_outside_ascii("password→hunter2")]
 fn text_without_a_secret_stays(#[case] text: &str) {
     assert_eq!(redact_for_index(text), text);
 }
