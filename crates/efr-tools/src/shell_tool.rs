@@ -661,7 +661,8 @@ impl Tool for ShellTool {
             .with_interactive_limit(ctx.interactive_limit)
             .with_input_limit(ctx.input_limit)
             .with_approval(flagged, ctx.approved_by)
-            .with_sandbox(ctx.sandbox.clone());
+            .with_sandbox(ctx.sandbox.clone())
+            .with_scratch(ctx.scratch.clone());
         let mut progress = Relay { out };
         let started = ctx.clock.now();
         match self.runner.run_command(ctx.ids.conversation_id, request, &mut progress).await {

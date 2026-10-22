@@ -209,6 +209,7 @@ async fn a_finished_command_reports_output_exit_code_and_directory() {
     assert_eq!(request.mode, RunMode::Auto);
     assert_eq!(request.call, Some(ids().call_id), "answers reach this call's command");
     assert!(!request.forget_credentials, "sudo keeps its cache unless the call says");
+    assert_eq!(request.scratch, Some(fixture.context().scratch), "the shell exports $SCRATCH");
     assert_eq!(runner.requests.lock().unwrap()[0].0, ids().conversation_id);
 }
 
