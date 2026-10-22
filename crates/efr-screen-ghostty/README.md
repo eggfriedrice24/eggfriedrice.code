@@ -83,7 +83,9 @@ runs the efr-screen conformance suite with the `ghostty` backend name; its rende
 screens are the `*__ghostty.snap` files in `crates/efr-screen/fixtures/vt/snapshots/`.
 `tests/it/widths.rs` checks the width that `efr` counts in Ghostty
 (`efr_render::text_width` by grapheme cluster) against the cursor of a real screen with
-mode 2027 on: ZWJ emoji, flags, variation selectors, skin tones and wrapped lines. A
+mode 2027 on: ZWJ emoji, flags, variation selectors, skin tones and wrapped lines. It
+also checks that the scope marks of the zsh plugin, `○` and `›`, take one column, with
+mode 2027 on and off, as zle counts them in every locale. A
 wrong count would make `efr` erase one row too many or too few when it draws its live
 zone again.
 

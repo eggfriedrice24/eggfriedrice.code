@@ -48,6 +48,25 @@ fn the_width_of_each_cluster_is_the_one_ghostty_gives_it() {
     }
 }
 
+/// The scope marks of the zsh plugin, `○` (Unicode East Asian width "ambiguous") and `›`
+/// ("neutral"), take one column each in Ghostty, with and without mode 2027, as zle
+/// counts them with wcwidth. Ghostty has no setting that draws an ambiguous character
+/// wide, and its terminal never reads the locale, so a CJK locale does not move zle's
+/// cursor away from the terminal's.
+#[test]
+fn the_scope_marks_of_the_plugin_take_one_column() {
+    let marker = "\u{1f916} \u{25cb} \u{203a} ";
+    for clustering in [true, false] {
+        let mut screen = ghostty(80);
+        if !clustering {
+            screen.feed(b"\x1b[?2027l", &mut Quiet);
+        }
+        screen.feed(marker.as_bytes(), &mut Quiet);
+        assert_eq!(screen.cursor().col, 7, "mode 2027 on: {clustering}");
+    }
+    assert_eq!(text_width(marker, WidthMethod::Grapheme), 7);
+}
+
 #[test]
 fn a_line_of_clusters_wraps_onto_the_rows_that_efr_counts() {
     for sample in SAMPLES {
