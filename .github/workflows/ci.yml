@@ -326,10 +326,11 @@ jobs:
       # The downloads of the next three steps come from two caches when they hold them:
       # the pinned files (the kernel, virtme-ng, xdg-dbus-proxy), by the pins and their
       # SHA-256, and the .deb files of the apt packages, by the packages and the
-      # runner's image. So a slow Ubuntu mirror slows down only a run that misses a
-      # cache. A miss downloads as before, and a run on main then saves the cache at
-      # once, before the tests, so a failed test does not lose it. The script checks
-      # each pinned file's SHA-256 also when it comes from the cache.
+      # runner's image. So a slow Ubuntu mirror slows down a run that hits a cache only
+      # by its package lists. A miss downloads as before, and a run on main then saves
+      # the cache at once, before the tests, so a failed test does not lose it. The
+      # script checks each pinned file's SHA-256 also when it comes from the cache, and
+      # each cached .deb file by the SHA-256 of the signed package lists.
       - id: cache-keys
         run: .github/sandbox-vm.sh cache-keys >>"$GITHUB_OUTPUT"
       - id: downloads
