@@ -482,7 +482,8 @@ the `cd` of `move_to` does. A busy shell and a sentinel run get no such line; th
 run tries again. A command that sets `SCRATCH` itself keeps its own value; efr does not
 look at the variable after the shell has it. The launcher sets `SCRATCH` again for a
 contained call and the exit child (efr-sandbox's `EnvFilter`, efr-sbx), so a sandboxed
-call has it also when the shell does not.
+call has it also when the shell does not. An export or an unset of `SCRATCH` in a
+contained call holds for that call only (efr-sandbox's `OVERLAY_DENY`).
 
 Nobody can use an editor on the hidden screen either, so the shell sets `EDITOR`,
 `VISUAL`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`, `SUDO_EDITOR` and `SYSTEMD_EDITOR` to

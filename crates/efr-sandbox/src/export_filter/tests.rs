@@ -140,9 +140,16 @@ fn export_filter_keeps_out_relative_paths() {
 #[test]
 fn overlay_deny_drops_ld_star() {
     let filter = filter();
-    for name in
-        ["LD_PRELOAD", "LD_LIBRARY_PATH", "BASH_ENV", "ZDOTDIR", "HOME", "EFR_X", "http_proxy"]
-    {
+    for name in [
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "BASH_ENV",
+        "ZDOTDIR",
+        "HOME",
+        "SCRATCH",
+        "EFR_X",
+        "http_proxy",
+    ] {
         assert!(overlay_denied(name), "{name}");
         assert_eq!(filter.check(name, "x"), ExportVerdict::Drop, "{name}");
     }

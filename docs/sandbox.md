@@ -56,7 +56,7 @@ higher, file and socket rights) and seccomp (a list of system calls that fail).
 | Your terminal | the call keeps its terminal. It cannot type into your shell (`TIOCSTI` fails), and efr does not apply its terminal marks. efr never types an answer that may be a password into it (see "Input in the sandbox"). |
 | Background processes | `&`, `nohup` and `setsid` stop when the call ends. Start a server and its test in one command, or start the server as a background job (see "Background jobs"): efr forwards its port to your machine. |
 | `/tmp` | private to the conversation; you do not see it. Share files through `$SCRATCH`. |
-| `$SCRATCH` | set to the conversation's scratch dir in every call: contained, in the exit child and in a background job. A command that sets `SCRATCH` itself keeps its own value. |
+| `$SCRATCH` | set to the conversation's scratch dir in every call: contained, in the exit child and in a background job. A command that sets `SCRATCH` itself keeps its own value. In the sandbox, the value holds for that call only: the next contained call gets the scratch dir again. |
 
 Some tools show the sandbox's view: `tty` prints `/dev/console`, and `$$` differs from
 `/proc/self`. `df` and `findmnt` show your real mounts, and `ss` and `ip` your real

@@ -117,6 +117,9 @@ pub const OVERLAY_DENY: &[&str] = &[
     "HOME",
     "TMPDIR",
     "XDG_RUNTIME_DIR",
+    // The launcher sets it to the conversation's scratch dir in every contained call; an
+    // export of one call must not change it for the later calls.
+    "SCRATCH",
     "EFR_*",
     "_EFR_*",
     "*_proxy",
