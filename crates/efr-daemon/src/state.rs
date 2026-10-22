@@ -13,6 +13,7 @@ use efr_stdx::paths::Dirs;
 use efr_stdx::rng::Rng;
 use efr_stdx::time::Clock;
 use efr_store::recording::Recordings;
+use efr_store::search::SearchLanes;
 use efr_store::{Readers, WriterHandle};
 use jiff::Timestamp;
 use tokio::sync::{broadcast, watch};
@@ -22,6 +23,7 @@ use crate::conversations::Conversations;
 use crate::engine::EngineParts;
 use crate::full::FullTurns;
 use crate::jobs::JobTable;
+use crate::methods::SearchRowHook;
 use crate::presence::PresenceTable;
 use crate::proc_view::ProcView;
 use crate::providers::Providers;
@@ -107,4 +109,9 @@ pub(crate) struct State {
     pub(crate) repo_hints: RepoHints,
     /// What the search indexer (`search_index.rs`) has done: how far the index is.
     pub(crate) search_index: watch::Receiver<SearchIndexStatus>,
+    /// The read connections of the search methods, apart from `readers`, so a search
+    /// never slows a turn or a prompt.
+    pub(crate) search_lanes: SearchLanes,
+    /// A test's hook in the row loop of each search; `None` in production.
+    pub(crate) search_hook: Option<SearchRowHook>,
 }

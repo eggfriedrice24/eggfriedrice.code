@@ -51,6 +51,7 @@ use crate::jobs::{JobParts, JobTable, SpawnEnv};
 use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
 use crate::methods::Methods;
+use crate::methods::SearchRowHook;
 use crate::presence::PresenceTable;
 use crate::proc_view::{ProcView, SystemProcView};
 use crate::providers::{ProviderFactory, ProviderParts, Providers};
@@ -133,6 +134,8 @@ pub struct Deps {
     pub(crate) unit_cgroup: Option<String>,
     /// What routing reads about processes and terminals; `None` reads `/proc`.
     pub(crate) procs: Option<Arc<dyn ProcView>>,
+    /// A test's hook in the row loop of each search; `None` has none.
+    pub(crate) search_hook: Option<SearchRowHook>,
 }
 
 impl fmt::Debug for Deps {
@@ -157,6 +160,7 @@ impl fmt::Debug for Deps {
             .field("programs_path", &self.programs_path)
             .field("unit_cgroup", &self.unit_cgroup)
             .field("procs", &self.procs)
+            .field("search_hook", &self.search_hook)
             .finish_non_exhaustive()
     }
 }
@@ -193,6 +197,7 @@ impl Deps {
             programs_path: None,
             unit_cgroup: None,
             procs: None,
+            search_hook: None,
         }
     }
 
@@ -329,6 +334,14 @@ impl Deps {
         self.procs = Some(procs);
         self
     }
+
+    /// Runs `hook` in the row loop of each search, so a test can hold a search while
+    /// it moves the clock.
+    #[must_use]
+    pub fn with_search_hook(mut self, hook: SearchRowHook) -> Self {
+        self.search_hook = Some(hook);
+        self
+    }
 }
 
 /// A started daemon: the socket is open and `daemon.json` written; nothing is served
@@ -405,6 +418,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         programs_path,
         unit_cgroup,
         procs,
+        search_hook,
     } = deps;
     // NOTE: checked first, so a runtime root deep below EFR_HOME fails with the fix
     // before anything else happens.
@@ -752,6 +766,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         procs: procs.unwrap_or_else(|| Arc::new(SystemProcView)),
         repo_hints,
         search_index: index_watch,
+        // NOTE: the search methods read on lanes of their own, so a burst of keys never
+        // takes one of the readers of the turns.
+        search_lanes: store.search_lanes().clone(),
+        search_hook,
     });
     // NOTE: written before the socket opens, so a shell that sees efrd also finds the
     // projects for its scope marker.

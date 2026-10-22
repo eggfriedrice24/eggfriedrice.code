@@ -29,6 +29,7 @@ pub(crate) fn handle(
     let capabilities = Capabilities {
         admin: Some(granted(context.surface(), peer).contains(&ScopeName::Admin)),
         screen_snapshots: Some(true),
+        search: Some(true),
         ..Capabilities::default()
     };
     let result = HelloResult {

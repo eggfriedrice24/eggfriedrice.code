@@ -2,8 +2,10 @@
 //! catch-up after a restart, the stop, the proptest of the secrets, and the benches of
 //! the indexer (`just bench-search` runs the `bench_search_*` tests in release).
 //!
-//! The search reads are not built yet (S4), so the tests read the index tables
-//! themselves, through the store's readers.
+//! These tests read the index tables themselves, through the store's readers. The
+//! tests of the search methods (`search.rs`) find the same texts through
+//! `conversations.search` and `conversation.search`, and repeat the proptest of the
+//! secrets there.
 
 use std::fs;
 use std::hash::{DefaultHasher, Hash as _, Hasher as _};
@@ -189,7 +191,7 @@ fn draw(rng: &TestRng, alphabet: &str, len: usize) -> String {
 
 /// A text that holds one secret of form `form`, and the secret part that must never
 /// be found. Forms past the keys are the config forms of the index pass.
-fn secret_text(form: usize, seed: u64) -> (String, String) {
+pub(crate) fn secret_text(form: usize, seed: u64) -> (String, String) {
     let rng = TestRng::new(seed);
     if let Some((prefix, alphabet, min)) = KEY_FORMS.get(form) {
         // NOTE: a body that ends with `-` or `_` still ends at the blank after it.
@@ -211,7 +213,7 @@ fn secret_text(form: usize, seed: u64) -> (String, String) {
 }
 
 /// Every form: the keys, then five config forms.
-const FORMS: usize = KEY_FORMS.len() + 5;
+pub(crate) const FORMS: usize = KEY_FORMS.len() + 5;
 
 /// An id of type `T` from a number.
 fn id<T: std::str::FromStr>(n: u64) -> T

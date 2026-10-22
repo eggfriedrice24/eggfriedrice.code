@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use efr_daemon::{
     DaemonError, Deps, HostInfo, PeerProbe, Provider, ProviderFactory, ScreenChoice,
-    SearchIndexStatus, Settings, Source, TestHostPorts,
+    SearchIndexStatus, SearchRowHook, Settings, Source, TestHostPorts,
 };
 use efr_protocol::{
     CommandId, ConversationHistory, ConversationHistoryResult, ConversationId,
@@ -171,6 +171,8 @@ struct Launch {
     procs: Option<FakeProcView>,
     /// Bind the real host port of each job port forward, in place of a free port.
     system_host_ports: bool,
+    /// The hook in the row loop of each search.
+    search_hook: Option<SearchRowHook>,
 }
 
 /// Where a socket peer stands for the daemon: the user's own process, a process of
@@ -230,6 +232,7 @@ impl Default for TestDaemonBuilder {
                 config_watch: false,
                 procs: None,
                 system_host_ports: false,
+                search_hook: None,
             }),
         }
     }
@@ -461,6 +464,16 @@ impl TestDaemonBuilder {
         self
     }
 
+    /// Runs `hook` in the row loop of each search of the daemon, so a test can hold a
+    /// search between two rows while it moves the clock. A restart keeps it. A test
+    /// that holds a search uses a [`persistent`](Self::persistent) daemon: an in-memory
+    /// store searches on its writer, which the hook would hold too.
+    #[must_use]
+    pub fn search_hook(mut self, hook: SearchRowHook) -> Self {
+        self.settings.search_hook = Some(hook);
+        self
+    }
+
     /// Starts the daemon and serves it in a task of its own.
     pub async fn start(self) -> Result<TestDaemon, TestDaemonError> {
         let dirs = match self.dirs {
@@ -572,6 +585,9 @@ impl TestDaemon {
         }
         if let Some(procs) = &settings.procs {
             deps = deps.with_proc_view(Arc::new(procs.clone()));
+        }
+        if let Some(hook) = &settings.search_hook {
+            deps = deps.with_search_hook(hook.clone());
         }
         let peers = PeerProbe::new();
         deps = deps.with_peer_probe(peers.clone());
