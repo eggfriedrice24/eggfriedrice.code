@@ -1144,15 +1144,15 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   example and the schema's `required` list name them in the same order, and the model
   writes its reason before its risk and its verdict. A prompt that asked for another
   order got rationales that were empty, `x` or `placeholder`
-  (`the_prompt_asks_for_the_members_in_the_order_of_the_wire_schema`). A rationale that is shorter than 12 characters
-  or a placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier
-  model gets the same request once more (`JudgeOutcome::reasked`, which the turn
-  records as `exit_judged.reasked`), and a second such answer goes to the next step.
-  The judge
-  returns the model's judgement as it is, with the SHA-256 of the record that the model
-  read. What it keeps between exits (`judge/memory.rs`): the allow and deny verdicts of
-  each conversation's current turn, the models that a conversation skips, and the
-  models that refused the output form, for at most 256 conversations.
+  (`the_prompt_asks_for_the_members_in_the_order_of_the_wire_schema`). A rationale that
+  is shorter than 12 characters or a placeholder (`x`, `n/a`, `tbd`) makes the answer
+  unreadable: the classifier model gets the same request once more
+  (`JudgeOutcome::reasked`, which the turn records as `exit_judged.reasked`), and a
+  second such answer goes to the next step. The judge returns the model's judgement as
+  it is, with the SHA-256 of the record that the model read. What it keeps between exits
+  (`judge/memory.rs`): the allow and deny verdicts of each conversation's current turn,
+  the models that a conversation skips, and the models that refused the output form, for
+  at most 256 conversations.
 - Presence (`presence.rs`): `PresenceTable` implements
   `efr_conversation::PresenceReader`. `methods.rs` marks each input of a person (a
   prompt, a steer, an interrupt, an answer, keys for the hidden shell).

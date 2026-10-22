@@ -613,10 +613,10 @@ proptest property:
   (`Subject::Job`, `Cause::JobAsks`), whatever the rules say, and a remote turn runs as
   `cautious`, so it asks too (`src/engine/tests/jobs.rs`, and the corpus tables
   `background_flag_does_not_change_prediction` and `job_routes_match_the_corpus`,
-  which checks the `job` column of each row on the phase E machine). A full job starts with no question,
-  and also refuses a `destructive` exit and a delete that full mode guards; with no
-  sandbox there is no filtered bus, so a read form of the bus is a `bus` exit, which no
-  job may hold.
+  which checks the `job` column of each row on the phase E machine). A full job starts
+  with no question, and also refuses a `destructive` exit and a delete that full mode
+  guards; with no sandbox there is no filtered bus, so a read form of the bus is a `bus`
+  exit, which no job may hold.
 - In full mode (`src/engine/tests/full.rs`, `src/full/tests.rs`) the effect is never
   `Contain`, and a call asks only for a privileged program, a `privilege`,
   `persistence` or `destructive` exit, a delete that full mode guards, a change of

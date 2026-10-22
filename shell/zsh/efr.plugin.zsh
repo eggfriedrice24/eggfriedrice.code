@@ -91,16 +91,17 @@
 #                  and the line still goes to the agent when history recalls it
 #
 # The scope of the next prompt shows before you send it: in sticky mode, and through
-# efr_prompt_info, a function that prints `app` or `○` (with the full mark in full mode)
-# for your own prompt (`setopt prompt_subst; RPROMPT='$(efr_prompt_info)'`), and the
-# variable $efr_scope, which precmd sets, for a prompt with no subshell
+# efr_prompt_info, a function that prints `app` or `○` (with the full mark in full
+# mode) for your own prompt (`setopt prompt_subst; RPROMPT='$(efr_prompt_info)'`), and
+# the variable $efr_scope, which precmd sets, for a prompt with no subshell
 # (`RPROMPT='${efr_scope}'`). Both double each `%` of a project's name, so a prompt
 # shows `50%` as `50%` and not as a prompt escape. The plugin never changes PROMPT or
 # RPROMPT itself. It knows the scope with no fork and no git: efrd writes the
-# registered projects to projects.tsv in its runtime root, one `<root><tab><name>` line
-# each, and the plugin reads the file again only when it changed, then matches $PWD
-# and ${PWD:A} by whole components, the deepest root first. Before efrd ever ran there is no file and no
-# scope. The head line of efr's reply names the scope that efrd routed by.
+# registered projects to projects.tsv in its runtime root, one `<root><tab><name>`
+# line each, and the plugin reads the file again only when it changed, then matches
+# $PWD and ${PWD:A} by whole components, the deepest root first. Before efrd ever ran
+# there is no file and no scope. The head line of efr's reply names the scope that
+# efrd routed by.
 #
 # A prompt is never parsed as shell syntax, and the line stays as typed on the screen
 # and in history, except that a sticky prompt gets the robot in front and an unknown
@@ -1247,8 +1248,7 @@ _efr_update_scope() {
 # while the terminal's prompts run in full mode. No colours, and nothing without a
 # projects file. Each `%` of the name is doubled, as in $efr_scope, so a prompt with
 # prompt_subst shows it as typed. It starts no program, but $(efr_prompt_info) is a
-# subshell; the
-# variable $efr_scope needs none. For example:
+# subshell; the variable $efr_scope needs none. For example:
 #   setopt prompt_subst; RPROMPT='$(efr_prompt_info)'
 efr_prompt_info() {
   emulate -L zsh
