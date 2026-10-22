@@ -80,6 +80,13 @@ conversations or the daemon's socket. The config root stays readable and read-on
   extra lock.
 - Readers: a few read-only connections behind `Readers::with(|conn| ...)`, used from
   `spawn_blocking`. Whether one reader thread beats a small pool is still open.
+- Search: the reads of conversation search never take one of these readers, so a burst
+  of keys in the picker cannot slow a prompt. `SearchLanes` has 3 read-only
+  connections of its own (the terminal's list, its preview and a phone at one time),
+  with a semaphore of their own; the permit goes back only when the blocking work ends.
+  efrd's search indexer has one more read-only connection (`IndexReader`), outside that
+  semaphore. Each of these 4 connections sets a page cache of 512 KiB. They open on
+  first use. An in-memory store runs them on the writer's connection.
 
 ## Schema
 
@@ -135,6 +142,23 @@ conversations or the daemon's socket. The config root stays readable and read-on
   The index `conversations_tty` covers `(tty, route)`, and `conversations_route` finds
   the newest conversation of a key. Only a row with a `routed_seq`, which a terminal
   held, can be picked up.
+- The search index (migration 9): `search_docs(seq, conversation_id, kind, text)`, one
+  doc per indexed event, keyed by its sequence number: the text of a prompt (kind 0),
+  a steer (1), an answer of the model (2) or the command line of a `shell` call (3),
+  without the bodies of heredocs. `search_fts` is an FTS5 table over it: external
+  content, `unicode61 remove_diacritics 2`, a prefix index of 3 characters, and merges
+  in short steps (`automerge` 8, leaves of 1,000 bytes). `search_titles(conversation_id,
+  title, first_seq)` holds the title of each conversation from its first indexed
+  prompt. `search_state` holds the cursor (`indexed_seq`) and the version of the
+  redaction. efrd writes these tables only from text that it cut, cleaned and
+  redacted (the index never holds a secret that the redaction recognises, a control
+  character, the output of a command or the contents of a file). They are not
+  projections: the log cannot give them back without efrd's redaction, so a rebuild of
+  the projections leaves them alone. The batch that ends a turn writes nothing here.
+  The index `conversations_updated` (`updated_at, last_seq`) gives the recent list and
+  the titles of a search newest first with no sort. A later delete of a conversation
+  must also delete its `search_docs` rows, each with an FTS5 `'delete'`, and its
+  `search_titles` row.
 
 ## Migrations
 
@@ -146,10 +170,32 @@ conversations or the daemon's socket. The config root stays readable and read-on
 - Milestone 1 ships `0001_events.sql`, `0002_conversations.sql`,
   `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
   `0005_turn_messages.sql`, `0006_compactions.sql`, `0007_jobs.sql` (the jobs of
-  phase C) and `0008_routes.sql` (the route columns of the conversations, v0.0.4). The
-  first start of an efrd with a new migration rebuilds the projections from the log
-  once: about 3 s for 100,000 events in a debug build. The devices and scopes table waits for the phone milestone, because a
-  forward-only migration makes an unused table permanent.
+  phase C), `0008_routes.sql` (the route columns of the conversations, v0.0.4) and
+  `0009_search.sql` (the search index, v0.0.4). Each step has a flag that says whether
+  it changes a projection. The first start of an efrd with such a migration rebuilds
+  the projections from the log once: about 3 s for 100,000 events in a debug build.
+  `0009_search.sql` has no flag, so it rebuilds nothing. The devices and scopes table
+  waits for the phone milestone, because a forward-only migration makes an unused
+  table permanent.
+- `0009_search.sql` creates the search tables empty, with the cursor at 0. After the
+  start, efrd's indexer fills them in the background from the log (the backfill): it
+  reads a page of at most 32 texts, 32 KiB of text or 20,000 events, cleans and
+  redacts it, and writes it with one short writer job. After each page it waits 4
+  times the time of the job, at least 5 ms, so the backfill takes at most a fifth of
+  the writer; while a turn runs, it writes at most one page per second. During the
+  wait it already reads and cleans the next page. When a round wrote more than one
+  page, it then merges the index's segments in steps at the same duty, until a step
+  does no work. A store of 20,000 turns takes about a minute and a half. Until the
+  backfill ends, a search finds fewer conversations and says how far the index is.
+  The search jobs run no checkpoint of their own; SQLite's checkpoint at 1,000 frames
+  runs in the commit that crosses it, as before.
+- The index only grows. It takes at most 10 MB per 1,000 turns of the bench corpus
+  (whose text has long answers and heredocs), so at 20 turns a day about 73 MB a year.
+  The file never gets smaller (no `auto_vacuum`), and each backup of `backups/` before
+  a migration holds the index too. A change of what the redaction replaces increases
+  `REDACTION_VERSION` (efr-conversation), and the next start empties the index and
+  builds it again from the start of the log: a full backfill. The free pages of the
+  old index are used again.
 - A migration never edits an earlier file. New columns use `ALTER TABLE ... ADD COLUMN`
   with a default so old projections keep reading.
 - Tests call `Migrations::validate()` and migrate a copy of every fixture database in
