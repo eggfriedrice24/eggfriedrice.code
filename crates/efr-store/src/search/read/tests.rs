@@ -644,6 +644,19 @@ proptest! {
     }
 
     #[test]
+    fn control_character_queries_are_valid_fts5(query in "[a-z\\x00-\\x1f\" ]{0,30}") {
+        let conn = db::open_in_memory().unwrap();
+        conn.execute_batch("CREATE VIRTUAL TABLE t USING fts5 (text, prefix = '3');").unwrap();
+        if let Ok(parsed) = query::parse(&query)
+            && let Some(expression) = parsed.fts
+        {
+            let result: Result<i64, _> =
+                conn.query_row("SELECT count(*) FROM t WHERE t MATCH ?1", [&expression], |row| row.get(0));
+            prop_assert!(result.is_ok(), "{expression:?}: {result:?}");
+        }
+    }
+
+    #[test]
     fn quote_and_symbol_queries_are_valid_fts5(query in "[a-z\"*()^:+\\- ]{0,30}") {
         let conn = db::open_in_memory().unwrap();
         conn.execute_batch("CREATE VIRTUAL TABLE t USING fts5 (text, prefix = '3');").unwrap();

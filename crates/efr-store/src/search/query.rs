@@ -1,7 +1,8 @@
 //! The query language of conversation search (the plan's DQ15): what a person types,
 //! turned into one FTS5 expression and the words of the title scorer.
 //!
-//! A client never sends FTS5 syntax, so a key never makes a syntax error. Words split on
+//! A client never sends FTS5 syntax, so a key never makes a syntax error. A control
+//! character counts as a blank, because FTS5 ends a string at a NUL. Words split on
 //! white space; a `"double quoted"` part is one phrase, and an open quote at the end
 //! counts as closed. Each word or phrase becomes one FTS5 string with each `"` doubled,
 //! and all of them must match in one doc (`AND`). Only the last term matches as a
@@ -90,8 +91,10 @@ pub fn tokens(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Parses what a person typed. An empty query, or one of white space, has no term.
+/// Parses what a person typed. An empty query, or one of white space and control
+/// characters, has no term.
 pub fn parse(query: &str) -> Result<Query, QueryError> {
+    let query: String = query.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
     let trimmed = query.trim();
     let chars = trimmed.chars().count();
     if chars > MAX_CHARS {
