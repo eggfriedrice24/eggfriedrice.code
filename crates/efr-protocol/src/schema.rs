@@ -16,10 +16,11 @@ use crate::{
     ApprovalRespondResult, CallBackground, CallBackgroundResult, ConversationCompact,
     ConversationCompactResult, ConversationContext, ConversationContextResult, ConversationDiff,
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationResume,
-    ConversationResumeResult, ConversationSubscribe, ConversationSubscribeItem, ConversationsList,
-    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ErrorCode, ErrorFrame,
-    Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult, JobsList,
-    JobsListResult, JobsStop, JobsStopResult, LeaseReport, LeaseReportResult, ModelsList,
+    ConversationResumeResult, ConversationSearch, ConversationSearchResult, ConversationSubscribe,
+    ConversationSubscribeItem, ConversationsList, ConversationsListResult, ConversationsRecent,
+    ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult, ErrorCode,
+    ErrorFrame, Event, EventEnvelope, Hello, HelloResult, InputRespond, InputRespondResult,
+    JobsList, JobsListResult, JobsStop, JobsStopResult, LeaseReport, LeaseReportResult, ModelsList,
     ModelsListResult, PROTOCOL_VERSION, PresenceSet, PresenceSetResult, ProjectsList,
     ProjectsListResult, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult,
     PtyAttach, PtyAttachItem, PtyResize, PtyResizeResult, PtyWrite, PtyWriteResult, RequestId,
@@ -162,6 +163,16 @@ pub fn document() -> Value {
             &mut generator,
             "call.background",
             ScopeName::Terminal,
+        ),
+        unary::<ConversationsSearch, ConversationsSearchResult>(
+            &mut generator,
+            "conversations.search",
+            ScopeName::Read,
+        ),
+        unary::<ConversationSearch, ConversationSearchResult>(
+            &mut generator,
+            "conversation.search",
+            ScopeName::Read,
         ),
     ];
     let frames = json!({

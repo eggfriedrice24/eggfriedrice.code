@@ -5,7 +5,7 @@
 //! sandbox's launches, grants, exits and reports, the presence of a person at a
 //! conversation, the background jobs and their notices, the files a call or a turn
 //! changed and the undo of a turn, the
-//! context's use and its compactions,
+//! context's use and its compactions, the search of conversations,
 //! screen snapshots, wire errors, the
 //! pure length-prefix framing and [`PROTOCOL_VERSION`]. The daemon, `efr`, the tests,
 //! the PTY proxy and the WebSocket clients compile against these types; the phone app
@@ -88,6 +88,7 @@ pub use methods::conversation_context::{
 pub use methods::conversation_diff::{ConversationDiff, ConversationDiffResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_resume::{ConversationResume, ConversationResumeResult};
+pub use methods::conversation_search::{ConversationSearch, ConversationSearchResult};
 pub use methods::conversation_subscribe::{
     ConversationSnapshot, ConversationSubscribe, ConversationSubscribeItem, Draft, DraftPart,
 };
@@ -96,6 +97,10 @@ pub use methods::conversations_list::{
 };
 pub use methods::conversations_recent::{
     ConversationsRecent, ConversationsRecentResult, RecentConversation,
+};
+pub use methods::conversations_search::{
+    ConversationsSearch, ConversationsSearchResult, SearchHit, SearchIndexState, SearchKind,
+    SearchLine, SearchPartial, SearchRow, SearchStats, TextRange,
 };
 pub use methods::hello::{DaemonPaths, Hello, HelloResult};
 pub use methods::input_respond::{InputRespond, InputRespondResult};

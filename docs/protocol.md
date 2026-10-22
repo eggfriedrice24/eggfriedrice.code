@@ -624,3 +624,25 @@ No protocol version has shipped yet.
   that is not valid. New fixtures
   `call_background_params.json`, `call_background_result.json`,
   `call_background_result_preview.json` and `events/job_started_moved.json`.
+- Version 1, additive: the search of conversations. New method `conversations.search`
+  (scope `read`, no command id) with `query` and, each absent when not set, `tty`,
+  `pwd`, `limit` (50 when absent, 200 at most) and `stats` (false when absent). Its
+  result has `rows`, best first: each row has `conversation` (a row of
+  `conversations.recent` whose `summary.title` is the title with its secrets
+  replaced), `short_id`, and `title_ranges` and `hit`, absent when not set. A hit has
+  `kind` (`title`, `prompt`, `answer` or `command`; a kind that a reader does not know
+  reads as `unknown`), `seq`, `turn_id` (absent outside a turn), `at`,
+  `history_cursor` and `lines`, each a `text` with its `ranges`. A range is a half-open
+  pair of Unicode code points, `start` and `end`. The result also has `scope`,
+  `current`, `partial` (`row_cap` or `time_cap`; an unknown reason reads as
+  `unknown`), `index` (`percent`) and `stats` (`rows_scanned`, `conversations_scored`,
+  `titles_scored`, `elapsed_us`), each absent when not set. New method
+  `conversation.search` (scope `read`, no command id) with `conversation_id`, `query`
+  and `limit` (20 when absent, 50 at most). Its result has `hits`, newest first, and
+  `title` and `partial`, absent when not set. efrd refuses both methods to a peer that
+  is not the user's, and announces them with the new capability `search` in `hello`.
+  A daemon from before refuses both as frames that are not valid. New fixtures
+  `conversations_search_params.json`, `conversations_search_result.json`,
+  `conversation_search_params.json`, `conversation_search_result.json`,
+  `search_kinds.json` and `search_partials.json`; `hello_result.json` now sets
+  `search`.

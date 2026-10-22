@@ -13,8 +13,8 @@ use super::{
 use crate::{
     AlwaysSaved, ApprovalDecision, ApprovedBy, AttachHow, BlockReason, BusProxyOff, DraftPart,
     Event, ExitKind, FullRefusal, Grant, InputWait, JudgeKind, Launch, Method, Mode, ModelSource,
-    NewReason, NotSavedReason, RootSource, RouteScope, ShellCommandEnd, Switch, UndoAction,
-    UndoReason, UndoRefused, WithdrawTarget,
+    NewReason, NotSavedReason, RootSource, RouteScope, SearchKind, SearchPartial, ShellCommandEnd,
+    Switch, UndoAction, UndoReason, UndoRefused, WithdrawTarget,
 };
 
 const BLESS: &str = "cargo test -p efr-protocol --lib -- --ignored --exact \
@@ -82,10 +82,12 @@ fn method_index(method: &Method) -> usize {
         Method::ShellInterrupt(_) => 35,
         Method::ShellStatus(_) => 36,
         Method::CallBackground(_) => 37,
+        Method::ConversationsSearch(_) => 38,
+        Method::ConversationSearch(_) => 39,
     }
 }
 
-const METHOD_COUNT: usize = 38;
+const METHOD_COUNT: usize = 40;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -495,6 +497,32 @@ fn approved_by_index(by: ApprovedBy) -> usize {
 
 const APPROVED_BY_COUNT: usize = 5;
 
+/// The position of a search hit's kind in the enum, for the same purpose as
+/// `method_index`.
+fn search_kind_index(kind: SearchKind) -> usize {
+    match kind {
+        SearchKind::Title => 0,
+        SearchKind::Prompt => 1,
+        SearchKind::Answer => 2,
+        SearchKind::Command => 3,
+        SearchKind::Unknown => 4,
+    }
+}
+
+const SEARCH_KIND_COUNT: usize = 5;
+
+/// The position of the reason of a partial search in the enum, for the same purpose as
+/// `method_index`.
+fn search_partial_index(partial: SearchPartial) -> usize {
+    match partial {
+        SearchPartial::RowCap => 0,
+        SearchPartial::TimeCap => 1,
+        SearchPartial::Unknown => 2,
+    }
+}
+
+const SEARCH_PARTIAL_COUNT: usize = 3;
+
 #[test]
 fn every_sample_matches_its_frozen_file() {
     for fixture in all() {
@@ -687,6 +715,20 @@ fn every_shell_command_end_and_approver_has_a_sample() {
     assert_eq!(approvers, (0..APPROVED_BY_COUNT).collect::<Vec<_>>());
     for by in ApprovedBy::ALL {
         assert_eq!(serde_json::to_value(by).unwrap(), by.as_str());
+    }
+}
+
+#[test]
+fn every_search_kind_and_partial_reason_has_a_sample() {
+    let kinds: Vec<usize> = SearchKind::ALL.into_iter().map(search_kind_index).collect();
+    assert_eq!(kinds, (0..SEARCH_KIND_COUNT).collect::<Vec<_>>());
+    for kind in SearchKind::ALL {
+        assert_eq!(serde_json::to_value(kind).unwrap(), kind.as_str());
+    }
+    let partials: Vec<usize> = SearchPartial::ALL.into_iter().map(search_partial_index).collect();
+    assert_eq!(partials, (0..SEARCH_PARTIAL_COUNT).collect::<Vec<_>>());
+    for partial in SearchPartial::ALL {
+        assert_eq!(serde_json::to_value(partial).unwrap(), partial.as_str());
     }
 }
 

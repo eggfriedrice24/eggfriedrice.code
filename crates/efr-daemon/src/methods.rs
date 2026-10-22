@@ -136,6 +136,8 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::ShellInterrupt(_) => ScopeName::Terminal,
         Method::ShellStatus(_) => ScopeName::Read,
         Method::CallBackground(_) => ScopeName::Terminal,
+        Method::ConversationsSearch(_) => ScopeName::Read,
+        Method::ConversationSearch(_) => ScopeName::Read,
     }
 }
 
@@ -216,7 +218,9 @@ impl Input {
             | Method::JobsList(_)
             | Method::ConversationContext(_)
             | Method::ConversationsRecent(_)
-            | Method::ShellStatus(_) => None,
+            | Method::ShellStatus(_)
+            | Method::ConversationsSearch(_)
+            | Method::ConversationSearch(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -472,6 +476,11 @@ impl Dispatcher for Methods {
                 }
                 Method::CallBackground(params) => {
                     call_background::handle(state, params, &responder).await
+                }
+                // NOTE: the protocol has the two search methods; efrd serves them in a
+                // later step of v0.0.4, and does not announce `search` before that.
+                Method::ConversationsSearch(_) | Method::ConversationSearch(_) => {
+                    Err(DaemonError::InvalidParams { reason: "not built yet" })
                 }
             };
             state.presence.record(touched).await;

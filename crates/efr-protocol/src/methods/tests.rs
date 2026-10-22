@@ -4,13 +4,13 @@ use serde_json::json;
 use crate::{
     AdminConfigReloadResult, AdminLogoutResult, AdminProjectAdd, AdminProjectRemove,
     AdminStatusResult, ApprovedBy, Base64Bytes, BusyShell, CallBackgroundResult, CatalogOrigin,
-    CatalogStatus, ConfigFileError, ConfigStatus, ConversationId, ConversationSubscribe,
-    ConversationSubscribeItem, Draft, DraftPart, EffectiveSettings, FullModeStatus, HeldConfig,
-    InputRespond, InputWait, JobId, LateSteer, LoginKind, Mode, ModelInfo, ModelSource,
-    ModelsListResult, OverriddenSettings, PageCursor, ProjectInfo, PromptSend, PromptSendResult,
-    PromptWithdraw, ProviderStatus, RecentCommand, RootSource, Seq, ShellContext,
-    ShellStatusResult, TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer,
-    TurnSteerResult, WithdrawTarget,
+    CatalogStatus, ConfigFileError, ConfigStatus, ConversationId, ConversationSearchResult,
+    ConversationSubscribe, ConversationSubscribeItem, ConversationsSearchResult, Draft, DraftPart,
+    EffectiveSettings, FullModeStatus, HeldConfig, InputRespond, InputWait, JobId, LateSteer,
+    LoginKind, Mode, ModelInfo, ModelSource, ModelsListResult, OverriddenSettings, PageCursor,
+    ProjectInfo, PromptSend, PromptSendResult, PromptWithdraw, ProviderStatus, RecentCommand,
+    RootSource, SearchKind, SearchPartial, Seq, ShellContext, ShellStatusResult, TextRange,
+    TurnInterrupt, TurnInterruptResult, TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget,
 };
 
 const CONVERSATION: &str = "019a9b1c-3d00-7a10-8b20-000000000001";
@@ -670,4 +670,42 @@ fn a_move_answers_moved_or_a_preview_and_reads_a_newer_kind_as_unknown() {
     let later: CallBackgroundResult =
         serde_json::from_value(json!({ "kind": "queued", "after": 3 })).unwrap();
     assert_eq!(later, CallBackgroundResult::Unknown);
+}
+
+#[test]
+fn a_search_kind_or_partial_reason_unknown_to_an_old_client_reads_as_unknown() {
+    let kind: SearchKind = serde_json::from_value(json!("file")).unwrap();
+    assert_eq!(kind, SearchKind::Unknown);
+    let partial: SearchPartial = serde_json::from_value(json!("memory_cap")).unwrap();
+    assert_eq!(partial, SearchPartial::Unknown);
+    let result = json!({
+        "rows": [],
+        "hits": [{
+            "kind": "summary",
+            "seq": 7,
+            "at": "2026-10-21T10:00:00Z",
+            "history_cursor": "s:8",
+            "lines": [{ "text": "a line" }]
+        }],
+        "partial": "lane_cap"
+    });
+    let read: ConversationSearchResult = serde_json::from_value(result).unwrap();
+    assert_eq!(read.partial, Some(SearchPartial::Unknown));
+    assert_eq!(read.hits[0].kind, SearchKind::Unknown);
+    assert_eq!(read.hits[0].turn_id, None);
+    assert_eq!(read.hits[0].lines[0].ranges, Vec::<TextRange>::new());
+}
+
+#[test]
+fn a_search_result_with_only_its_rows_reads_and_writes_back_the_same() {
+    let empty = json!({ "rows": [] });
+    let read: ConversationsSearchResult = serde_json::from_value(empty.clone()).unwrap();
+    assert_eq!(read, ConversationsSearchResult::default());
+    assert_eq!(serde_json::to_value(&read).unwrap(), empty, "empty members stay off the wire");
+    let one = json!({ "hits": [] });
+    let read: ConversationSearchResult = serde_json::from_value(one.clone()).unwrap();
+    assert_eq!(read, ConversationSearchResult::default());
+    assert_eq!(serde_json::to_value(&read).unwrap(), one);
+    let range: TextRange = serde_json::from_value(json!({ "start": 3, "end": 9 })).unwrap();
+    assert_eq!(range, TextRange { start: 3, end: 9 });
 }

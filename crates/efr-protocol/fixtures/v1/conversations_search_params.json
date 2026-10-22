@@ -1,0 +1,10 @@
+{
+  "method": "conversations.search",
+  "params": {
+    "query": "disk full",
+    "tty": "/dev/pts/3",
+    "pwd": "/home/me/p/app",
+    "limit": 50,
+    "stats": true
+  }
+}

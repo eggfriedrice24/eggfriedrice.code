@@ -37,6 +37,7 @@ fn extras_are_written_after_the_known_keys_in_name_order() {
     let caps = Capabilities {
         admin: Some(true),
         screen_snapshots: None,
+        search: None,
         extra: BTreeMap::from([("zoom".to_owned(), json!(2)), ("pair".to_owned(), json!(true))]),
     };
     assert_eq!(serde_json::to_string(&caps).unwrap(), r#"{"admin":true,"pair":true,"zoom":2}"#);
@@ -47,8 +48,21 @@ fn a_mix_of_known_and_unknown_keys_reads_back_as_itself() {
     let caps = Capabilities {
         admin: None,
         screen_snapshots: Some(true),
+        search: Some(true),
         extra: BTreeMap::from([("future".to_owned(), json!([1, 2]))]),
     };
     let back: Capabilities = serde_json::from_value(serde_json::to_value(&caps).unwrap()).unwrap();
     assert_eq!(back, caps);
+}
+
+#[test]
+fn the_search_key_reads_into_its_field_and_its_absence_is_no_search() {
+    let caps: Capabilities = serde_json::from_value(json!({ "search": true })).unwrap();
+    assert_eq!(caps.search, Some(true));
+    assert!(caps.extra.is_empty());
+    assert!(!caps.is_empty());
+    let old: Capabilities = serde_json::from_value(json!({ "admin": true })).unwrap();
+    assert_eq!(old.search, None, "a daemon from before the search sends no key");
+    let only = Capabilities { search: Some(false), ..Capabilities::default() };
+    assert_eq!(serde_json::to_value(&only).unwrap(), json!({ "search": false }));
 }
