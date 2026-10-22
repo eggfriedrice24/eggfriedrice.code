@@ -567,6 +567,29 @@ async fn bench_search_cancel() {
     assert!(max <= BETWEEN_ROWS, "a stop between rows takes {max:?}, more than {BETWEEN_ROWS:?}");
 }
 
+/// Runs the queries of `probes` on two lanes at once, half on each.
+async fn run_on_two_lanes(store: &Store, probes: &[Probe]) {
+    let half = probes.len() / 2;
+    let mut sides = Vec::new();
+    for side in [probes[..half].to_vec(), probes[half..].to_vec()] {
+        let lanes = store.search_lanes().clone();
+        sides.push(tokio::spawn(async move {
+            for probe in side {
+                let query = probe.query.clone();
+                lanes
+                    .with(&SearchStop::new(), Duration::from_secs(5), move |conn| {
+                        search::search(conn, &query, 200, &SearchStop::new())
+                    })
+                    .await
+                    .unwrap();
+            }
+        }));
+    }
+    for side in sides {
+        side.await.unwrap();
+    }
+}
+
 /// A number of KiB of `/proc/self/status`, such as `VmRSS`.
 fn status_kib(name: &str) -> u64 {
     let status = fs::read_to_string("/proc/self/status").unwrap();
@@ -578,15 +601,26 @@ fn status_kib(name: &str) -> u64 {
 }
 
 /// The memory of the searches: the worst query list on two lanes at once, then at
-/// rest.
+/// rest. One test per corpus, so each runs in a process of its own and memory that an
+/// earlier corpus left does not hide what this one uses.
 #[tokio::test]
 #[ignore = "a bench: `just bench-search` runs it in release"]
-async fn bench_search_memory() {
+async fn bench_search_memory_l() {
+    memory_bench(CorpusSize::L).await;
+}
+
+#[tokio::test]
+#[ignore = "a bench: `just bench-search` runs it in release"]
+async fn bench_search_memory_xl() {
+    memory_bench(CorpusSize::Xl).await;
+}
+
+async fn memory_bench(size: CorpusSize) {
     const REST: u64 = 4 * 1024;
     const PEAK: u64 = 8 * 1024;
     let mut lines = Vec::new();
     let mut failures = Vec::new();
-    for size in [CorpusSize::L, CorpusSize::Xl] {
+    {
         let corpus = SearchCorpus::new(size, SEED);
         let probes = query_list(&corpus);
         let (_dir, path) = corpus_copy(size, Shape::Indexed).await;
@@ -595,28 +629,44 @@ async fn bench_search_memory() {
         // The corpus and the store are open; from here, the searches count.
         fs::write("/proc/self/clear_refs", "5").unwrap();
         let before = status_kib("VmRSS");
-        let half = probes.len() / 2;
-        let mut sides = Vec::new();
-        for side in [probes[..half].to_vec(), probes[half..].to_vec()] {
+        // Two lanes open their connections with a search of a rare word.
+        let mut warm = Vec::new();
+        for _ in 0..2 {
             let lanes = store.search_lanes().clone();
-            sides.push(tokio::spawn(async move {
-                for probe in side {
-                    let query = probe.query.clone();
-                    lanes
-                        .with(&SearchStop::new(), Duration::from_secs(5), move |conn| {
-                            search::search(conn, &query, 200, &SearchStop::new())
-                        })
-                        .await
-                        .unwrap();
-                }
+            let query = corpus.word(4_000).to_owned();
+            warm.push(tokio::spawn(async move {
+                lanes
+                    .with(&SearchStop::new(), Duration::from_secs(5), move |conn| {
+                        search::search(conn, &query, 50, &SearchStop::new())
+                    })
+                    .await
+                    .unwrap()
             }));
         }
-        for side in sides {
-            side.await.unwrap();
+        for search in warm {
+            search.await.unwrap();
         }
+        let connections = status_kib("VmRSS").saturating_sub(before);
+        lines.push(format!(
+            "{}: two lanes open and search one rare word: {connections} KiB",
+            size.name()
+        ));
+        run_on_two_lanes(&store, &probes).await;
         let peak = status_kib("VmHWM").saturating_sub(before);
         let rest = status_kib("VmRSS").saturating_sub(before);
+        // The list again: memory that a search kept would grow; the heap that the
+        // allocator keeps for the threads does not.
+        let mut again = Vec::new();
+        for _ in 0..2 {
+            run_on_two_lanes(&store, &probes).await;
+            again.push(status_kib("VmRSS").saturating_sub(before).to_string());
+        }
         store.close().await;
+        lines.push(format!(
+            "{}: at rest after the list twice more: {} KiB",
+            size.name(),
+            again.join(" and ")
+        ));
         lines.push(format!(
             "{}: {} queries on {} of {SEARCH_LANES} lanes: peak {peak} KiB over the start, {rest} KiB more at rest",
             size.name(),
@@ -630,7 +680,7 @@ async fn bench_search_memory() {
             failures.push(format!("{}: {rest} KiB at rest, more than {REST} KiB", size.name()));
         }
     }
-    report("bench_search_memory", &lines);
+    report(&format!("bench_search_memory_{}", size.name()), &lines);
     assert!(failures.is_empty(), "{failures:?}");
 }
 

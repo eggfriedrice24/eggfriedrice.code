@@ -534,18 +534,18 @@ async fn a_long_prefix_expands_to_the_words_of_the_index() {
     store.close().await;
 }
 
-#[tokio::test]
-async fn a_long_prefix_with_many_words_stays_a_prefix() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut config = crate::StoreConfig::in_data_dir(dir.path());
+/// A file store with the prompts `texts`, one conversation each (1, 2, ...), indexed.
+async fn file_store(dir: &std::path::Path, texts: &[&str]) -> Store {
+    let mut config = crate::StoreConfig::in_data_dir(dir);
     config.backups = None;
     let store = Store::open(config, TestClock::new()).await.unwrap();
-    let id = conv(1);
-    let words: Vec<String> = (0..=EXPAND_WORDS).map(|n| format!("wordy{n:03}")).collect();
-    let batch = Batch::new()
-        .event(id, testing::created(Some("pts-1")))
-        .event(id, testing::queued(1, &words.join(" ")));
-    store.writer().append(batch).await.unwrap();
+    for (n, text) in texts.iter().enumerate() {
+        let id = conv(n as u64 + 1);
+        let batch = Batch::new()
+            .event(id, testing::created(Some("pts-1")))
+            .event(id, testing::queued(n as u64 + 1, text));
+        store.writer().append(batch).await.unwrap();
+    }
     let current = store.index_reader().with(state).await.unwrap();
     let page =
         store.index_reader().with(move |conn| pending(conn, current.indexed_seq)).await.unwrap();
@@ -557,20 +557,40 @@ async fn a_long_prefix_with_many_words_stays_a_prefix() {
         drops: page.drops,
     };
     store.writer().search_apply(page).await.unwrap();
-    let (expanded, found) = store
+    store
+}
+
+#[tokio::test]
+async fn a_long_prefix_of_many_words_reads_the_prefix_index_and_checks_each_doc() {
+    let dir = tempfile::tempdir().unwrap();
+    let words: Vec<String> = (0..=EXPAND_WORDS).map(|n| format!("wordy{n:03}")).collect();
+    let many = words.join(" ");
+    let store = file_store(
+        dir.path(),
+        &[many.as_str(), "the worse case", "a wordy line\nand more", "older wordy text"],
+    )
+    .await;
+    let (expanded, found, preview, other) = store
         .search_lanes()
         .with(&SearchStop::new(), std::time::Duration::from_millis(200), |conn| {
             let expanded = expression(conn, &query::parse("wordy").unwrap())?.unwrap();
-            Ok((
-                (expanded.text, expanded.long_prefix),
-                search(conn, "wordy", 50, &SearchStop::new())?,
-            ))
+            let found = search(conn, "wordy", 50, &SearchStop::new())?;
+            let preview = search_in(conn, conv(3), "wordy", 20, &SearchStop::new())?;
+            let other = search_in(conn, conv(2), "wordy", 20, &SearchStop::new())?;
+            Ok(((expanded.text, expanded.long_prefix, expanded.superset), found, preview, other))
         })
         .await
         .unwrap();
-    assert_eq!(expanded, ("\"wordy\"*".to_owned(), true));
+    assert_eq!(expanded, ("\"wor\"*".to_owned(), true, true));
     assert!(!found.bm25, "a long prefix ranks without bm25()");
-    assert_eq!(ids(&found), vec![id]);
+    let mut found_ids = ids(&found);
+    found_ids.sort();
+    assert_eq!(found_ids, vec![conv(1), conv(3), conv(4)], "`worse` holds no `wordy`");
+    assert_eq!(found.rows_scanned, 4, "the prefix index read every `wor` doc");
+    let hit = &preview.hits[0];
+    assert_eq!(hit.lines[0].text, "a wordy line");
+    assert_eq!(marked(&hit.lines[0]), vec!["wordy"]);
+    assert!(other.hits.is_empty(), "the preview checks each doc too");
     store.close().await;
 }
 
@@ -635,4 +655,16 @@ proptest! {
             prop_assert!(result.is_ok(), "{expression:?}: {result:?}");
         }
     }
+}
+
+#[test]
+fn hits_keep_the_best_and_the_newer_of_a_tie() {
+    let mut hits = Hits::default();
+    // Rows come newest first: seq 9 is newer than seq 5.
+    for (score, seq) in [(1.0, 9), (2.0, 8), (1.0, 7), (3.0, 6), (2.0, 5), (0.5, 4), (9.0, 3)] {
+        hits.add(score, seq);
+    }
+    assert_eq!(hits.seqs(), &[(9.0, 3), (3.0, 6), (2.0, 8), (2.0, 5)]);
+    assert_eq!(hits.best(), 9.0);
+    assert_eq!(Hits::default().best(), 0.0);
 }

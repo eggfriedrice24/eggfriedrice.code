@@ -115,6 +115,16 @@ across a restart:
   with no sort, and the titles of the 10,000 newest conversations; it ranks in Rust
   (`search::rank`: `bm25()` with a weight per kind, and the fuzzy title score of
   `search::fuzzy`, after fzf), so it never scores every match before the first row.
+  FTS5 merges the doclists of every word of a prefix in memory before the first row
+  when no prefix index has its length, which for a common prefix costs megabytes and
+  tens of milliseconds. So a prefix longer than the prefix index of 3 characters
+  becomes an `OR` of the words of the index that start with it, when they are at most
+  64 (from an `fts5vocab` table in each search connection's temp schema), which FTS5
+  reads lazily; a prefix of more words becomes its first 3 characters, which the
+  prefix index serves, and the search keeps only the docs whose text holds the query
+  (checked in Rust, also in the preview). `bm25()` runs only for a query below the row
+  cap with no long prefix left; else a hit counts by its kind and the newer
+  conversation wins.
   The snippets of the list come from the docs by sequence number (`search::snippet`),
   with no FTS5 statement per row; the preview runs one FTS5 statement over the range
   of the conversation's events, with `highlight()` (`search::marks`). Ranges count
@@ -223,8 +233,11 @@ first row of the worst queries on corpus XL, 10,000 conversations, at most 150 m
 `bench_search_empty_query` (a p95 of 10 ms on XL), `bench_search_preview` (30 ms on L,
 40 ms on XL), `bench_search_snippets` (50 rows in 5 ms), `bench_search_titles_10k`
 (5 ms), `bench_search_cancel` (a stop between rows frees the lane within 10 ms; the
-time inside an FTS5 step is reported) and `bench_search_memory` (two lanes at once:
-at most 8 MiB at the peak and 4 MiB at rest over the start). Each corpus file is
+time inside an FTS5 step is reported) and `bench_search_memory_l` and `_xl` (the
+list on two lanes at once, each corpus in a process of its own: at most 8 MiB at the
+peak and 4 MiB at rest over the start; the rest counts the heap that the allocator
+keeps for the threads after the searches end, so it also prints the rest after the
+list twice more). Each corpus file is
 built once below `target/tmp/search-corpus/`, named by size, seed, schema and
 generator version, and each test copies it. The numbers of a busy machine are not
 valid.

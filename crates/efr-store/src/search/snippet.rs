@@ -190,6 +190,20 @@ pub fn snippet(text: &str, needles: &[Needle]) -> (String, Vec<Range<u32>>) {
     }
 }
 
+/// The ranges of every match in `text`, sorted and merged, when each needle matches at
+/// least once; `None` when one does not. A search whose expression is broader than its
+/// query keeps a doc only when this finds all.
+pub fn all_ranges(text: &str, needles: &[Needle]) -> Option<Vec<Range<u32>>> {
+    let found = find(text, needles);
+    let mut seen = vec![false; needles.len()];
+    for (index, _) in &found {
+        seen[*index] = true;
+    }
+    seen.iter()
+        .all(|seen| *seen)
+        .then(|| merge(found.into_iter().map(|(_, range)| range).collect()))
+}
+
 /// Sorted ranges with no overlap, adjacent ones merged.
 fn merge(mut ranges: Vec<Range<u32>>) -> Vec<Range<u32>> {
     ranges.sort_by_key(|range| (range.start, range.end));
