@@ -70,6 +70,14 @@ pub(crate) fn ready() -> SandboxStatus {
     }
 }
 
+/// How long a test waits in real time for the work of a contained job that it started,
+/// such as a marker that the job writes after it ran git in the sandbox: the launch,
+/// the job's poll for its go file and its commands. That takes about a second on a
+/// desktop, and about ten times more in the VM of CI's sandbox job. The limit is four
+/// times that, and it ends before nextest's limit for the whole test (60 s), so the test
+/// fails with its message.
+pub(crate) const JOB_WORK: Duration = Duration::from_secs(40);
+
 /// The reviewer's answer that hands every exit to the user.
 const REVIEWER_ASKS: &str = r#"{"verdict":"ask_user","risk":"medium","user_authorization":"low","category":"unsure","rationale":"the user decides"}"#;
 

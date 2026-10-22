@@ -27,7 +27,7 @@ use efr_test_daemon::{TTY, TestDaemon, command_id, events_until};
 use efr_test_support::{TestDirs, Wait};
 use serde_json::{Value, json};
 
-use super::{REVIEWER_ASKS, git, kinds, real_launcher, skip, with_zsh};
+use super::{JOB_WORK, REVIEWER_ASKS, git, kinds, real_launcher, skip, with_zsh};
 use crate::support::zsh_enabled;
 
 /// A model whose calls the test adds before each turn: a `None` ends a turn. The
@@ -327,7 +327,11 @@ async fn outside_git_checks_every_running_job() {
         .extend([Some(("shell".to_owned(), json!({ "command": line, "background": true }))), None]);
     let _ = turn(&daemon, 1, "plant it as a job", ApprovalDecision::Deny, false).await;
     std::fs::write(project.join("go"), "").unwrap();
-    Wait::new("the job's own marker").until(|| project.join("written").exists()).await.unwrap();
+    Wait::new("the job's own marker")
+        .limit(JOB_WORK)
+        .until(|| project.join("written").exists())
+        .await
+        .unwrap();
     let hook = project.join("sub/.git/hooks/pre-commit");
     assert!(hook.exists(), "the job planted its hook");
 
