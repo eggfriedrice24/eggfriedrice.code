@@ -1,16 +1,20 @@
 # Releasing
 
 This file tells how to make a release of efr. A release is a tag `v<version>` on
-`main`. Two workflows do the work:
+`main`. Three workflows do the work:
 
 - `.github/workflows/release.yml` starts on the tag. It builds `efrd`, `efr` and
   `efr-sbx` as `just build-release` does, packs
   `efr-code-<version>-x86_64-linux.tar.gz`
-  with a `.sha256` file, and makes the GitHub release. Then it starts `aur.yml`.
+  with a `.sha256` file, and makes the GitHub release. Then it starts `aur.yml` and,
+  for a stable tag, `pages.yml`.
 - `.github/workflows/aur.yml` publishes two AUR packages from `packaging/`:
   `efr-code` builds from the tag tarball, and `efr-code-bin` installs the release
   tarball.
   It builds and checks both packages before it pushes either.
+- `.github/workflows/pages.yml` builds the docs site with mdBook and deploys it to
+  GitHub Pages. The root of the site is the book of the newest stable tag. The book of
+  `main` goes to `/unreleased/`. A push to `main` that changes the docs runs it too.
 
 ## One-time setup
 
@@ -23,8 +27,8 @@ Do these steps once, before the first release.
    curl -s 'https://aur.archlinux.org/rpc/v5/info?arg[]=efr-code&arg[]=efr-code-bin'
    ```
 
-2. Give the AUR account `eggfriedrice` an SSH key for the workflow. You can use the
-   key of frameit again. For a new key, run
+2. Give the AUR account `eggfriedrice` an SSH key for the workflow. You can use a key
+   that the account already has. For a new key, run
    `ssh-keygen -t ed25519 -f aur -C efr-ci` with no passphrase, and add `aur.pub`
    under My Account, SSH Public Key, on <https://aur.archlinux.org/>.
 3. Put the private key in the repository secret `AUR_SSH_PRIVATE_KEY`:
@@ -35,6 +39,15 @@ Do these steps once, before the first release.
 
 The AUR makes the package repositories `efr-code` and `efr-code-bin` on the first
 push.
+
+For the docs site, do these steps once in the settings of the repository on GitHub:
+
+1. Under Settings, Pages, set Source to "GitHub Actions".
+2. Under Settings, Environments, restrict the environment `github-pages` to the branch
+   `main`.
+
+A stable tag without `book/book.toml` has no docs site. While the newest stable tag
+has none, `pages.yml` deploys nothing and says so.
 
 ## Why the workflows never write to main
 
@@ -80,7 +93,8 @@ when one of them changes.
    ```
 
 6. Watch `aur.yml` in the same way. It builds `efr-code` from source and runs its
-   `check()`, so it can take 20 minutes or more.
+   `check()`, so it can take 20 minutes or more. For a stable tag, watch `pages.yml`
+   too.
 7. Check the packages on <https://aur.archlinux.org/packages/efr-code> and
    <https://aur.archlinux.org/packages/efr-code-bin>.
 
@@ -98,6 +112,11 @@ when one of them changes.
   ```
 
   A package that the AUR already has at this version is skipped.
+- If `pages.yml` fails, run it again on the same tag:
+
+  ```sh
+  gh workflow run pages.yml --ref main -f tag=v0.0.5
+  ```
 - A change of the packaging only, with the same efr version, needs a higher
   `pkgrel`. `aur.yml` does not do this; push it to the AUR by hand.
 
