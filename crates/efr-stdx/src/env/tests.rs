@@ -152,6 +152,7 @@ fn all_lists_every_variant() {
         Var::Prompt,
         Var::TerminalBg,
         Var::DraftFile,
+        Var::ResumeWords,
     ];
     for var in every {
         match var {
@@ -177,7 +178,10 @@ fn all_lists_every_variant() {
             | Var::RecentCommands
             | Var::Prompt
             | Var::TerminalBg
-            | Var::DraftFile => assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL"),
+            | Var::DraftFile
+            | Var::ResumeWords => {
+                assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL")
+            }
         }
     }
     assert_eq!(every.len(), Var::ALL.len());
@@ -187,7 +191,16 @@ fn all_lists_every_variant() {
 fn the_plugins_handover_variables_are_the_private_ones() {
     let private: Vec<_> =
         Var::ALL.iter().filter(|var| var.is_private()).map(|var| var.name()).collect();
-    assert_eq!(private, ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_RECENT_COMMANDS", "EFR_PROMPT"]);
+    assert_eq!(
+        private,
+        [
+            "EFR_CONTEXT",
+            "EFR_LAST_COMMAND",
+            "EFR_RECENT_COMMANDS",
+            "EFR_PROMPT",
+            "EFR_RESUME_WORDS"
+        ]
+    );
     assert_eq!(Var::PRIVATE.len(), private.len());
 }
 
@@ -209,10 +222,12 @@ fn debug_shows_a_private_value_only_by_its_length() {
         (Var::Prompt, "export TOKEN=s3cret"),
         (Var::LastCommand, "s3cret"),
         (Var::Context, r#"{"pwd":"/s3cret"}"#),
+        (Var::ResumeWords, "s3cret laptop"),
         (Var::Log, "debug"),
     ]);
     let debug = format!("{env:?}");
     assert!(!debug.contains("s3cret"), "{debug}");
+    assert!(debug.contains(r#""EFR_RESUME_WORDS": <13 bytes>"#), "{debug}");
     assert!(debug.contains(r#""EFR_PROMPT": <19 bytes>"#), "{debug}");
     assert!(debug.contains(r#""EFR_LOG": "debug""#), "{debug}");
     assert_eq!(format!("{:?}", Env::process()), "Env { source: Process }");
