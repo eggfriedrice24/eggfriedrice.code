@@ -228,8 +228,10 @@ benches `bench_search_apply_round` (1,000 live rounds of one turn) and
 are ignored. `just bench-search` runs them in release, one at a time, and they fail
 when a budget fails: a round at a p95 of 2 ms, a page at a p95 of 4 ms, and a max of
 10 ms for both. Each p95 counts the jobs that carry no checkpoint of the write-ahead
-log; each max counts every job, the checkpoints of the search jobs too. The jobs with
-a checkpoint are on a line of their own. `bench_search_reset` reports the one job
+log. The max of a round counts every job, the checkpoints of the search jobs too; the
+max of a page counts the pages without a checkpoint only, because a checkpoint's flush
+takes 10 to 150 ms on some disks and the backfill runs once, in the background. The
+jobs with a checkpoint are on a line of their own. `bench_search_reset` reports the one job
 that empties the index of corpus L and of XL after a change of the redaction; it has
 no budget. The normal test
 `search_jobs_checkpoint_and_turn_commits_seldom_do` checks where the checkpoints run.
