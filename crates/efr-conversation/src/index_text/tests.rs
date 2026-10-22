@@ -56,7 +56,7 @@ use super::{REDACTION_VERSION, redact_for_index};
     "-----BEGIN EC PRIVATE KEY-----\na\n-----END EC PRIVATE KEY-----\nand\n-----BEGIN PRIVATE KEY-----\nb\n-----END PRIVATE KEY-----",
     "[***]\nand\n[***]"
 )]
-fn a_recognised_secret_is_redacted(#[case] text: &str, #[case] redacted: &str) {
+fn index_redaction_corpus(#[case] text: &str, #[case] redacted: &str) {
     assert_eq!(redact_for_index(text), redacted);
 }
 
