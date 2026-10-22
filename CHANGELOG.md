@@ -440,6 +440,9 @@ into the GitHub release notes, and it stops when the section is missing.
   `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
   goes on while you follow the turn. The README, "A busy hidden shell", has the
   details.
+- A paste of several lines that all start with `,` now sends one prompt for each line.
+  The first prompt runs, and the others wait behind it in their order, as Tab in the
+  input row queues them. A paste with any other line stays one prompt.
 
 ### Changed
 

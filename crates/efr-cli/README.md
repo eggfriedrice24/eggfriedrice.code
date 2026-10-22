@@ -1341,7 +1341,10 @@ the context, its options (`--take`) as arguments and its other words, N, an id o
 search, joined by one blank in `EFR_RESUME_WORDS` and never in the command line,
 `, ` and a command word alone (`, resume`, `, new`, `, mode auto`), which runs that
 command, as a line of just the word does in sticky mode, while any other word keeps
-the line a prompt, a prompt of several lines, which the screen shows as it was pasted, with no quoting,
+the line a prompt, a paste of `,` lines, which sends the first prompt and hands the
+others over in `EFR_QUEUED_PROMPTS` (an unknown `,word` line is a prompt; a line that
+is no `,` prompt, such as `, resume` or `,! steer`, keeps the paste one prompt), and a
+prompt of several lines, which the screen shows as it was pasted, with no quoting,
 and which history keeps whole (Up and Enter send it again; with `hist_ignore_space`
 a blank in front keeps it out),
 completion after

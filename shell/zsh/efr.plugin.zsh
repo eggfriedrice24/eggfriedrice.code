@@ -5,7 +5,10 @@
 #                  it: the registered project that holds $PWD (also below its root), or
 #                  the one conversation for every place outside projects. The
 #                  conversation changes when you send a prompt, not when you cd, and a
-#                  dim line before the reply says when it changes
+#                  dim line before the reply says when it changes. A paste of several
+#                  lines that all start with `,` is one prompt for each line: the first
+#                  runs, and the others wait behind it in their order, as Tab in the
+#                  input row queues them. A paste with any other line is one prompt
 #   ,              a line of just `,` toggles sticky agent mode, as Ctrl+Space does
 #   ,new [prompt]  start a new conversation for the scope where you are; this
 #                  terminal's other scopes keep theirs. Without a prompt, the next `,`
@@ -115,7 +118,8 @@
 # What the user typed reaches efr in its environment, never in its arguments: the
 # context as EFR_CONTEXT, the last command line as EFR_LAST_COMMAND, the terminal's
 # recent command lines as EFR_RECENT_COMMANDS, the prompt as EFR_PROMPT (the focus
-# of `,compact` too) and the words of `,resume` as EFR_RESUME_WORDS. Any local user can read a command line in
+# of `,compact` too), the prompts that a paste queues behind it as EFR_QUEUED_PROMPTS
+# (one per line) and the words of `,resume` as EFR_RESUME_WORDS. Any local user can read a command line in
 # /proc/<pid>/cmdline, while /proc/<pid>/environ is readable only by this user. The
 # terminal's turn settings go
 # the same way, as EFR_MODE, EFR_MODEL and EFR_EFFORT.
@@ -200,6 +204,9 @@ typeset -gi _efr_new_pending
 # now, and 1 while it is waiting there.
 typeset -g _efr_stash
 typeset -gi _efr_stash_set
+# The prompts that a paste of `,` lines queues behind the first one, oldest first, for
+# the command of the line that runs now (see _efr_split_line).
+typeset -ga _efr_queue
 # The whole text of a line of several lines whose first line alone runs, for history
 # to keep instead of that first line (see _efr_add_history), or empty.
 typeset -g _efr_history_line
@@ -369,7 +376,8 @@ _efr_rewrite_line() {
 }
 
 # Runs efr with the arguments after the first three, and hands it the context JSON $1,
-# the last command line $2, the prompt $3, the terminal's recent command lines (see
+# the last command line $2, the prompt $3, the prompts to queue behind it (see
+# _efr_queue) one per line, the terminal's recent command lines (see
 # _efr_recent) as a JSON array, the terminal's turn settings and the file for the text
 # of the input row (see _efr_draft_file) in its environment. The last command and the
 # recent ones travel on their own, never inside the context: they can hold a secret,
@@ -380,12 +388,13 @@ _efr_call() {
   # NOTE: not named prompt, which is zsh's special parameter for PS1.
   local context=$1 last_command=$2 text=$3
   shift 3
-  local REPLY draft= recent=
+  local REPLY draft= recent= queued=${(pj:\n:)_efr_queue}
+  _efr_queue=()
   _efr_draft_file && draft=$REPLY
   _efr_recent_json && recent=$REPLY
   _efr_called=1
   EFR_CONTEXT=$context EFR_LAST_COMMAND=$last_command EFR_RECENT_COMMANDS=$recent \
-    EFR_PROMPT=$text \
+    EFR_PROMPT=$text EFR_QUEUED_PROMPTS=$queued \
     EFR_MODE=$_efr_turn_mode EFR_MODEL=$_efr_turn_model EFR_EFFORT=$_efr_turn_effort \
     EFR_DRAFT_FILE=$draft efr "$@"
 }
@@ -657,7 +666,7 @@ function ,! {
   # A running turn keeps its settings, so a steer hands none over. The locals hide the
   # terminal's values from _efr_call, which sees them through zsh's dynamic scope.
   local _efr_turn_mode= _efr_turn_model= _efr_turn_effort=
-  local -a _efr_recent=()
+  local -a _efr_recent=() _efr_queue=()
   _efr_call "$REPLY" '' "$text" send --steer
 }
 
@@ -675,7 +684,7 @@ function ,compact {
   _efr_context_json ''
   # The locals hide the terminal's values from _efr_call, as for `,!`.
   local _efr_turn_mode= _efr_turn_model= _efr_turn_effort=
-  local -a _efr_recent=()
+  local -a _efr_recent=() _efr_queue=()
   _efr_call "$REPLY" '' "$text" compact
 }
 
@@ -1047,6 +1056,43 @@ _efr_stash_line() {
   _efr_cut_line "$1"
 }
 
+# For a line $1 of several lines that are all `,` prompts (blank lines aside): `, `
+# and the text, a `,word` that names nothing (see _efr_unknown_comma_line), or the
+# sticky word and the text; the first one may also be `,new` and the text. Saves the
+# first prompt for the command as _efr_stash_line does, and the others in _efr_queue,
+# for efr to queue behind it. Sets REPLY to the line that runs (see _efr_cut_line) and
+# returns 0. A line that is a command word alone (`, resume`, `, mode auto`) is no
+# prompt. Any other line returns 1 and changes nothing: it stays one prompt.
+_efr_split_line() {
+  emulate -L zsh -o extended_glob
+  [[ $1 == *$'\n'* ]] || return 1
+  local word= line text
+  _efr_sticky_word && word="|${(b)REPLY}"
+  local first=",new|,$word" later=",$word"
+  local -a texts
+  for line in "${(@f)1}"; do
+    [[ -n ${line//[[:space:]]/} ]] || continue
+    _efr_unknown_comma_line "$line" && line=$REPLY
+    if (( $#texts )); then
+      [[ $line == (#b)[[:space:]]#(${~later})[[:space:]]##(*) ]] || return 1
+    else
+      [[ $line == (#b)[[:space:]]#(${~first})[[:space:]]##(*) ]] || return 1
+    fi
+    text=${match[2]%%[[:space:]]##}
+    [[ -n $text ]] || return 1
+    # The words of _efr_command_word_line, without its call of efr for a value.
+    [[ $text == (new|compact|context|resume|away|shell) ]] && return 1
+    [[ $text == (mode|model|effort)([[:space:]]##[^[:space:]]##|) ]] && return 1
+    texts+=("$text")
+  done
+  (( $#texts > 1 )) || return 1
+  _efr_stash=$texts[1]
+  _efr_stash_set=1
+  _efr_queue=("${(@)texts[2,-1]}")
+  _efr_saved_options=($options[interactivecomments] $options[banghist])
+  _efr_cut_line "$1"
+}
+
 # Sets REPLY to the part of the line $1 that runs: up to the end of its first line
 # that is not blank. When lines that are not blank follow, sets _efr_shown_rest to them,
 # from the newline on, for the screen to show after it, and _efr_history_line to $1
@@ -1100,7 +1146,7 @@ _efr_accept_line() {
   # A prompt line that sticky mode made is no command word: _efr_line_to_run checked.
   (( sticky_prompt )) || ! _efr_comma_command_line "$BUFFER" || BUFFER=$REPLY
   local _efr_shown_rest=
-  if _efr_stash_line "$BUFFER"; then
+  if _efr_split_line "$BUFFER" || _efr_stash_line "$BUFFER"; then
     # The line stays as typed. The alias ends in `#`, which starts a comment only with
     # interactive_comments on, and bang_hist off keeps `!` in the prompt literal.
     # NOTE: of a prompt over several lines only the first line runs, because the
@@ -1347,6 +1393,7 @@ _efr_precmd() {
   # leak into the next one.
   _efr_stash=''
   _efr_stash_set=0
+  _efr_queue=()
   _efr_history_line=
   _efr_remember_command $exit_status
   _efr_take_draft

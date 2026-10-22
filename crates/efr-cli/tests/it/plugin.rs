@@ -34,7 +34,7 @@ cat /proc/$$/cmdline > "$record.cmdline"
 if [ "$n" = 0 ] && [ -f "$EFR_ARGS.draft" ] && [ -n "$EFR_DRAFT_FILE" ]; then
   mkdir -p "${EFR_DRAFT_FILE%/*}" && cat "$EFR_ARGS.draft" > "$EFR_DRAFT_FILE"
 fi
-for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_RESUME_WORDS; do
+for var in EFR_CONTEXT EFR_LAST_COMMAND EFR_RECENT_COMMANDS EFR_PROMPT EFR_MODE EFR_MODEL EFR_EFFORT EFR_DRAFT_FILE EFR_RESUME_WORDS EFR_QUEUED_PROMPTS; do
   eval "isset=\${$var+x} value=\${$var-}"
   if [ -n "$isset" ]; then printf 'set:%s' "$value"; else printf unset:; fi > "$record.$var"
 done
@@ -67,6 +67,8 @@ struct Call {
     draft_file: Option<String>,
     /// The words of `,resume`.
     resume_words: Option<String>,
+    /// The prompts to queue behind the prompt, one per line.
+    queued_prompts: Option<String>,
 }
 
 impl Call {
@@ -97,6 +99,7 @@ impl Call {
             effort: var("EFR_EFFORT"),
             draft_file: var("EFR_DRAFT_FILE"),
             resume_words: var("EFR_RESUME_WORDS"),
+            queued_prompts: var("EFR_QUEUED_PROMPTS"),
         }
     }
 
@@ -2983,8 +2986,8 @@ async fn e2e_cd_home_and_back_switches_and_says_so() {
     routed.daemon.stop().await.unwrap();
 }
 
-// --- the input of a `,` line: a command word after `, `, a prompt of several lines on
-// the screen
+// --- the input of a `,` line: a command word after `, `, a paste of `,` lines, a
+// prompt of several lines on the screen
 
 /// `text` as a bracketed paste, as a terminal sends it.
 fn paste(text: &str) -> String {
@@ -3076,6 +3079,64 @@ fn e2e_in_sticky_mode_a_bare_command_word_runs_as_its_command() {
     let calls = home.calls();
     assert_eq!(args(&calls), [vec!["resume"], vec!["context"], vec!["send"], vec!["shell"]]);
     assert_eq!(calls[2].prompt.as_deref(), Some("resume the work"));
+}
+
+#[test]
+fn e2e_a_paste_of_comma_lines_sends_the_first_and_queues_the_others() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    let pasted = ", fix s3cret-one\n,run s3cret-two\n\n  , and s3cret-three; then *.rs";
+    let screen =
+        type_lines(&home, &[&paste(pasted), "fc -ln -1 > history.txt", &format!("{UP}{UP}")]);
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"], vec!["send"]], "Enter on the line from history");
+    for call in &calls {
+        assert_eq!(call.prompt.as_deref(), Some("fix s3cret-one"));
+        // An unknown `,word` is a prompt with the word, as on a line of its own.
+        assert_eq!(
+            call.queued_prompts.as_deref(),
+            Some("run s3cret-two\nand s3cret-three; then *.rs")
+        );
+        assert!(!call.cmdline.contains("s3cret"), "readable by every user: {call:?}");
+    }
+    // The screen shows the paste as it was, and history keeps all of it.
+    assert!(screen.contains("and s3cret-three; then *.rs"), "{screen}");
+    assert!(!screen.contains("$'\\n'"), "{screen}");
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(history.trim_end(), pasted.replace('\n', "\\n"));
+}
+
+#[test]
+fn e2e_a_paste_with_a_line_that_is_no_comma_prompt_stays_one_prompt() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(
+        &home,
+        &[
+            &paste(", one\ntwo"),
+            &paste(", three\n, resume"),
+            &paste(",new four\n, five"),
+            &paste(", six\n,! steer"),
+        ],
+    );
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["send"], vec!["send"], vec!["new"], vec!["send"]]);
+    let sent: Vec<(Option<&str>, Option<&str>)> =
+        calls.iter().map(|call| (call.prompt.as_deref(), call.queued_prompts.as_deref())).collect();
+    assert_eq!(
+        sent,
+        [
+            (Some("one\ntwo"), Some("")),
+            (Some("three\n, resume"), Some("")),
+            // `,new` may start the paste: the others wait in the new conversation.
+            (Some("four"), Some("five")),
+            (Some("six\n,! steer"), Some("")),
+        ]
+    );
 }
 
 #[test]
