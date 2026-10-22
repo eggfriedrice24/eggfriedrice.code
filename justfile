@@ -90,12 +90,17 @@ test-full:
 # The search benches in release, one at a time: the ignored `bench_search_*` tests of
 # the store and of efrd, then the cost of `efr search --picker` with its gate on. Each
 # prints its p50, p95 and max and fails when a budget fails. The numbers of a busy
-# machine are not valid: run it alone.
+# machine are not valid: run it alone. Both parts run when the first fails; the recipe
+# then exits with the first status that is not zero.
 bench-search:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    status=0
     nice -n 19 cargo nextest run --release -p efr-store -p efr-daemon --run-ignored only \
-        --success-output immediate -E 'test(/bench_search_/)'
+        --success-output immediate -E 'test(/bench_search_/)' || status=$?
     EFR_TEST_SEARCH_GATE=1 nice -n 19 cargo nextest run --release -p efr-cli \
-        --success-output immediate -E 'test(/^search_cost::/)'
+        --success-output immediate -E 'test(/^search_cost::/)' || { s=$?; [[ $status -ne 0 ]] || status=$s; }
+    exit "$status"
 
 # The picker of `,resume` with the fzf of this machine on a pseudo-terminal: the
 # `e2e_fzf_` tests of efr-cli, which skip unless EFR_TEST_FZF=1. A missing fzf or one
