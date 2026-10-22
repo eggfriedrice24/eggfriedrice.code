@@ -25,7 +25,7 @@ const SWITCH: &str = "↪";
 const NO_TITLE: &str = "(no title)";
 
 /// The narrowest a title gets on a narrow terminal.
-const MIN_TITLE: usize = 12;
+pub(crate) const MIN_TITLE: usize = 12;
 
 /// The list of `conversations.recent`, then the line that says how to resume one:
 /// `,resume N` from the zsh plugin (`plugin`), else `efr resume N`.
@@ -77,17 +77,18 @@ pub(crate) fn list(
     out
 }
 
-/// The cells of one row, before the columns are padded.
-struct Row {
-    title: String,
-    scope: String,
-    age: String,
-    turns: String,
-    holder: String,
+/// The cells of one row, before the columns are padded. `efr search` lists its rows
+/// with the same cells.
+pub(crate) struct Row {
+    pub(crate) title: String,
+    pub(crate) scope: String,
+    pub(crate) age: String,
+    pub(crate) turns: String,
+    pub(crate) holder: String,
 }
 
 impl Row {
-    fn of(row: &RecentConversation, now: Timestamp) -> Row {
+    pub(crate) fn of(row: &RecentConversation, now: Timestamp) -> Row {
         let title = row.summary.title.as_deref().map_or_else(|| NO_TITLE.to_owned(), one_line);
         let scope = match (&row.route, &row.project) {
             (RouteScope::Project(_), Some(name)) => one_line(name),
@@ -108,13 +109,13 @@ impl Row {
 }
 
 /// `text` with blanks after it to `width` columns.
-fn pad(text: &str, width: usize, method: WidthMethod) -> String {
+pub(crate) fn pad(text: &str, width: usize, method: WidthMethod) -> String {
     let blanks = width.saturating_sub(text_width(text, method));
     format!("{text}{}", " ".repeat(blanks))
 }
 
 /// `text` with blanks before it to `width` columns.
-fn pad_left(text: &str, width: usize, method: WidthMethod) -> String {
+pub(crate) fn pad_left(text: &str, width: usize, method: WidthMethod) -> String {
     let blanks = width.saturating_sub(text_width(text, method));
     format!("{}{text}", " ".repeat(blanks))
 }
