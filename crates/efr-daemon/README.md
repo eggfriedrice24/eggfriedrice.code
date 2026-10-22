@@ -896,7 +896,8 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   (`jobs/launch.rs`, `root_vars` and `with_roots`: `EFR_HOME`, `EFR_RUNTIME_DIR`,
   `EFR_DATA_DIR`, `EFR_CONFIG_DIR`, `EFR_STATE_DIR`, from `Deps::shell_env`), in place of
   any that the hidden shell held, so an `efr` in the job reaches this efrd (DV47). A
-  contained job's env file stays as it is.
+  contained job's env file stays as it is. The launcher sets `SCRATCH` to the spec's
+  scratch dir in every job, whatever the env file holds.
 - The spawn (`jobs/launch.rs`): `efr-sbx run --job` with efrd's own `PATH`, `HOME` and
   `XDG_RUNTIME_DIR`, the job's start dir as its working directory, the lifeline pipe as
   stdin (its write end only in efrd, close-on-exec), the output pipe as stdout and
