@@ -515,3 +515,123 @@ fn any_line_redacts_without_a_panic_and_redacts_once() {
         }
     }
 }
+
+/// A fixed corpus of 100 lines: commands, prose, keys of each form and keys cut at
+/// the end of a line. Its snapshot shows each line with its redaction, so a change of
+/// the output shows in review.
+const REDACTION_CORPUS: &[&str] = &[
+    "ls -la",
+    "cd ~/p/eggfriedrice.code && cargo test -p efr-store",
+    "git log --oneline -5",
+    "git show 3f786850e387550fdab836ed7e6dc881de23001b",
+    "docker run -p 8080:80 nginx",
+    "rsync -av ./site/ laptop:/srv/site/",
+    "grep -rn \"password:\" config/",
+    "rg \"Authorization: Bearer\" src",
+    "export GITHUB_TOKEN=ghp_0123456789abcdefABCDEF0123456789abcd",
+    "export GITHUB_TOKEN=$OTHER",
+    "API_KEY=abc123 cargo run",
+    "export DB_PASSWORD=\"a b c\" && psql",
+    "AWS_SECRET_ACCESS_KEY='x y'; aws s3 ls",
+    "MY_TOKEN=$'a\\tb' run",
+    "tool --api-key=abc --verbose",
+    "curl -d \"user=me&password=hunter2\" x",
+    "TOKEN=\"abc def",
+    "TOKEN=abc\\ def cmd",
+    "A_TOKEN=1 B_SECRET=2 PATH=/bin",
+    "kubectl create secret generic s --from-literal=password=hunter2",
+    "docker run --env=API_TOKEN=abc123 img",
+    "helm install x --set=auth.password=abc ./chart",
+    "llm --max-tokens=4096",
+    "TOKENIZERS_PARALLELISM=false python x.py",
+    "make TOKEN_COUNT=5",
+    "curl -H 'x-api-key: sk-ant-api03-abcdefghijklmnopqrstuv' x",
+    "echo sk-proj-ABCDEFGHIJKLMNOPQRST_123 | pbcopy",
+    "echo sk-0123456789abcdefABCDEF",
+    "git remote set-url origin https://github_pat_11ABCDEFG0123456789_abcdef@github.com/o/r",
+    "echo glpat-0123456789abcdefABCD",
+    "echo pypi-AgEIcHlwaS5vcmcCJDAwMDAwMDAw",
+    "echo xoxb-1234-5678-Db_xHKas1VOqg6YYZYn9 | x",
+    "echo xoxp-1234-5678-Db_xHKas1VOqg6YYZYn9",
+    "echo ghp_0123456789abcdefABCDEF0123456789abcd",
+    "echo gho_0123456789abcdefABCDEF0123456789abcd",
+    "echo ghu_0123456789abcdefABCDEF0123456789abcd",
+    "echo ghs_0123456789abcdefABCDEF0123456789abcd",
+    "echo ghr_0123456789abcdefABCDEF0123456789abcd",
+    "aws configure set aws_access_key_id AKIAIOSFODNN7EXAMPLE",
+    "echo AIzaihA-2O76UMFxFkM-R5Kjp1vRt_1fjORS-6i",
+    "echo npm_0123456789abcdefABCDEF0123456789",
+    "echo hf_0123456789abcdefABCDEF0123456789ab",
+    "pip install sk-learn",
+    "git checkout ghp_short",
+    "ask-0123456789abcdefABCDEF and task-0123456789abcdefABCDEF",
+    "echo $npm_config_userconfig npm_config_registry_of_the_project",
+    "echo AKIA1234",
+    "echo u8jzPde0IgxLd6GncfBAepfJBd0Kq7Zr2LmN",
+    "echo dGhpcyBpcyBhIHRlc3QgT2YgYmFzZTY0IGVuY29kaW5n==",
+    "echo wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "echo eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+    "echo eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
+    "echo eyJ.x eyJhbGciOiJIUzI1NiJ9 eyJ..x",
+    "cat /home/u/p/App2/src/Components/UserProfileCard2/Index.tsx",
+    "vim src/Components/UserProfileCard2/LongFileName2.tsx",
+    "curl https://x.test/Owner/Repo2/blob/main/Src/LongFileName2.rs",
+    "cargo test naming_rule_ignores_a_name_from_an_older_turn_2",
+    "efr history 0192f0c1-7a00-7000-8000-000000000001",
+    "git clone https://me:hunter2@github.com/o/r",
+    "psql postgres://app:s3cret@db:5432/app",
+    "curl http://localhost:8080/api",
+    "git clone ssh://git@github.com:22/o/r",
+    "git clone https://me:$TOKEN@github.com/o/r",
+    "curl -H 'Authorization: Bearer abc123' https://api.example",
+    "curl -H 'Authorization: Basic dXNlcjpwYXNz' x",
+    "curl -H 'Cookie: a=1; session=abc' x",
+    "curl -H \"Authorization: Bearer $TOKEN\" x",
+    "curl -H 'Content-Type: application/json' x",
+    "http POST api.example X-Api-Key:abc",
+    "echo Authorization: Bearer abc && ls",
+    "git -c http.extraHeader='Authorization: token abc' fetch",
+    "mysql -u root -phunter2 app",
+    "mysql -u root -p app",
+    "sshpass -p abc ssh host",
+    "docker login -u me -p abc registry.example",
+    "redis-cli -h h -a abc ping",
+    "curl -u me:abc https://x",
+    "zip -P abc out.zip f",
+    "openssl enc -aes-256-cbc -k abc",
+    "gpg --batch --passphrase abc -d f",
+    "kubectl --token abc get pods",
+    "my password is hunter2, please keep it safe",
+    "the token in the config is 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "password: hunter2xyz",
+    "api_key = \"abc123\"",
+    "\"password\": \"hunter2\"",
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW",
+    "Use `cargo nextest run` to run the tests, then open a PR.",
+    "Le mot de passe est écrit dans le fichier, PASSWORD=ü ✓",
+    "the key ends the line: sk-ant-api03-abcdefghij",
+    "the key ends the line: sk-ant-api03-abcdefghijklmnop",
+    "the key ends the line: ghp_0123456789abcdef",
+    "TOKEN=abc",
+    "x=1,y=2,z=3",
+    "echo a=\"a=\"a=\"",
+    "for f in *.rs; do wc -l \"$f\"; done",
+    "cat > .env <<'EOF'",
+    "ssh -i ~/.ssh/id_ed25519 me@host 'uptime'",
+    "notify-send done",
+];
+
+/// The redaction of the fixed corpus, line by line.
+#[test]
+fn redaction_corpus_is_stable() {
+    assert_eq!(REDACTION_CORPUS.len(), 100);
+    let mut out = String::new();
+    for line in REDACTION_CORPUS {
+        out.push_str(line);
+        out.push_str("\n=> ");
+        out.push_str(&redact(line));
+        out.push('\n');
+    }
+    insta::assert_snapshot!(out);
+}

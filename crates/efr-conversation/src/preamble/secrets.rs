@@ -200,9 +200,14 @@ fn assignments(line: &str) -> Vec<Range<usize>> {
             before.chars().rev().take_while(|c| is_name_char(*c)).map(char::len_utf8).sum();
         let name = before[before.len() - name_len..].trim_start_matches('-').replace('-', "_");
         let start = at + 1;
-        let value = value_len(&line[start..]);
         from = start;
-        if value > 0 && !name.is_empty() && secret_name(&name) {
+        // NOTE: the name first: a value is read only for a secret name, so a line of
+        // many `=` with long values (`a="a="a="...`) costs one pass, not one per `=`.
+        if name.is_empty() || !secret_name(&name) {
+            continue;
+        }
+        let value = value_len(&line[start..]);
+        if value > 0 {
             found.push(start..start + value);
             from = start + value;
         }
@@ -255,13 +260,20 @@ fn keys(line: &str) -> Vec<Range<usize>> {
     while at < line.len() {
         let rest = &line[at..];
         let starts_word = line[..at].chars().next_back().is_none_or(|c| !is_name_char(c));
-        let key = KEY_PREFIXES.iter().find_map(|key| {
-            let body = rest.strip_prefix(key.prefix)?;
-            let chars = body.find(|c: char| !(key.body)(c)).unwrap_or(body.len());
-            (chars >= key.min).then_some(key.prefix.len() + chars)
-        });
+        // NOTE: the start of a word first: the body of a key is read only there, so a
+        // long run of key characters (`xsk-sk-sk-...`) costs one pass, not one per
+        // character.
+        let key = starts_word
+            .then(|| {
+                KEY_PREFIXES.iter().find_map(|key| {
+                    let body = rest.strip_prefix(key.prefix)?;
+                    let chars = body.find(|c: char| !(key.body)(c)).unwrap_or(body.len());
+                    (chars >= key.min).then_some(key.prefix.len() + chars)
+                })
+            })
+            .flatten();
         match key {
-            Some(len) if starts_word => {
+            Some(len) => {
                 found.push(at..at + len);
                 at += len;
             }
