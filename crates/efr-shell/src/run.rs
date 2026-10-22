@@ -74,6 +74,10 @@ pub struct RunRequest {
     /// command goes to the call's `line` file, and the shell gets only a fixed wrapper
     /// line with the call's id. `None` runs it in the shell, as every other mode does.
     pub sandbox: Option<SandboxRun>,
+    /// The conversation's `$SCRATCH`, which the shell exports as `SCRATCH`. A new
+    /// shell gets it in its environment; a shell that runs with another value (or none)
+    /// gets `export SCRATCH=...` typed before the command. `None` changes nothing.
+    pub scratch: Option<PathBuf>,
 }
 
 impl RunRequest {
@@ -98,7 +102,15 @@ impl RunRequest {
             may_prompt: false,
             approved_by: None,
             sandbox: None,
+            scratch: None,
         }
+    }
+
+    /// Sets the conversation's `$SCRATCH`.
+    #[must_use]
+    pub fn with_scratch(mut self, scratch: impl Into<PathBuf>) -> Self {
+        self.scratch = Some(scratch.into());
+        self
     }
 
     /// Runs the command through the auto mode's launcher with `run`, or in the shell

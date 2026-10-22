@@ -17,6 +17,7 @@ fn the_users_variables_are_inherited() {
         &config(&[("PATH", "/usr/bin"), ("HOME", "/home/u"), ("LANG", "C.UTF-8")]),
         Path::new("/home/u/p"),
         true,
+        None,
     );
     assert_eq!(env["PATH"], "/usr/bin");
     assert_eq!(env["HOME"], "/home/u");
@@ -40,6 +41,7 @@ fn daemon_and_terminal_variables_are_removed() {
         ]),
         Path::new("/"),
         true,
+        None,
     );
     let names: Vec<&str> = env.keys().map(String::as_str).collect();
     assert_eq!(
@@ -83,6 +85,7 @@ fn efr_roots_stay_for_commands_outside_the_sandbox() {
         ]),
         Path::new("/"),
         true,
+        None,
     );
     let efr: Vec<(&str, &str)> = env
         .iter()
@@ -107,6 +110,7 @@ fn efr_sets_the_terminal_the_directory_and_the_marker() {
         &config(&[("TERM", "xterm-ghostty"), ("COLORTERM", "24bit")]),
         Path::new("/etc"),
         true,
+        None,
     );
     assert_eq!(env["TERM"], "xterm-256color");
     assert_eq!(env["COLORTERM"], "truecolor");
@@ -116,21 +120,21 @@ fn efr_sets_the_terminal_the_directory_and_the_marker() {
 
 #[test]
 fn the_shim_takes_zdotdir_and_keeps_the_users_value() {
-    let env = shell_env(&config(&[("ZDOTDIR", "/home/u/.config/zsh")]), Path::new("/"), true);
+    let env = shell_env(&config(&[("ZDOTDIR", "/home/u/.config/zsh")]), Path::new("/"), true, None);
     assert_eq!(env["ZDOTDIR"], "/run/user/1000/efr/zsh");
     assert_eq!(env["_EFR_USER_ZDOTDIR"], "/home/u/.config/zsh");
 }
 
 #[test]
 fn without_a_user_zdotdir_the_shim_leaves_no_saved_value() {
-    let env = shell_env(&config(&[]), Path::new("/"), true);
+    let env = shell_env(&config(&[]), Path::new("/"), true, None);
     assert_eq!(env["ZDOTDIR"], "/run/user/1000/efr/zsh");
     assert!(!env.contains_key("_EFR_USER_ZDOTDIR"));
 }
 
 #[test]
 fn a_shell_without_integration_keeps_the_users_zdotdir() {
-    let env = shell_env(&config(&[("ZDOTDIR", "/home/u/.zsh")]), Path::new("/"), false);
+    let env = shell_env(&config(&[("ZDOTDIR", "/home/u/.zsh")]), Path::new("/"), false, None);
     assert_eq!(env["ZDOTDIR"], "/home/u/.zsh");
     assert!(!env.contains_key("_EFR_USER_ZDOTDIR"));
 }
@@ -140,7 +144,7 @@ fn a_saved_zdotdir_from_the_base_environment_is_not_trusted() {
     // A stale value from an outer efr shell must not redirect this one's startup files.
     let mut vars = BTreeMap::new();
     vars.insert("_EFR_USER_ZDOTDIR".to_owned(), "/elsewhere".to_owned());
-    let env = shell_env(&ShellConfig::new("/z", vars), Path::new("/"), true);
+    let env = shell_env(&ShellConfig::new("/z", vars), Path::new("/"), true, None);
     assert!(!env.contains_key("_EFR_USER_ZDOTDIR"));
 }
 
@@ -150,6 +154,7 @@ fn every_pager_is_cat_whatever_the_user_set() {
         &config(&[("PAGER", "less"), ("GIT_PAGER", "delta"), ("MANPAGER", "nvim +Man!")]),
         Path::new("/"),
         false,
+        None,
     );
     assert_eq!(env["PAGER"], "cat");
     assert_eq!(env["GIT_PAGER"], "cat");
@@ -167,6 +172,7 @@ fn every_editor_is_the_stub_whatever_the_user_set() {
             &config(&[("EDITOR", "nvim"), ("VISUAL", "code --wait"), ("GIT_EDITOR", "vim")]),
             Path::new("/"),
             integration,
+            None,
         );
         for name in [
             "EDITOR",
@@ -184,13 +190,13 @@ fn every_editor_is_the_stub_whatever_the_user_set() {
 #[test]
 fn the_trusted_programs_reach_a_zsh_with_the_integration_only() {
     let mut config = config(&[("_EFR_HS_TRUSTED_PROGRAMS", "inherited")]);
-    let without = shell_env(&config, Path::new("/"), true);
+    let without = shell_env(&config, Path::new("/"), true, None);
     assert!(!without.contains_key("_EFR_HS_TRUSTED_PROGRAMS"), "{without:?}");
 
     config.trusted_programs = vec!["ls".to_owned(), "git".to_owned()];
-    let zsh = shell_env(&config, Path::new("/"), true);
+    let zsh = shell_env(&config, Path::new("/"), true, None);
     assert_eq!(zsh["_EFR_HS_TRUSTED_PROGRAMS"], "ls git");
-    let other = shell_env(&config, Path::new("/"), false);
+    let other = shell_env(&config, Path::new("/"), false, None);
     assert!(!other.contains_key("_EFR_HS_TRUSTED_PROGRAMS"), "{other:?}");
 }
 
@@ -198,7 +204,7 @@ fn the_trusted_programs_reach_a_zsh_with_the_integration_only() {
 fn the_sandbox_dir_and_launcher_reach_a_zsh_with_the_integration_only() {
     let conversation = "01920000-0000-7000-8000-000000000001".parse().unwrap();
     let mut config = config(&[("_EFR_HS_SBX_DIR", "/inherited"), ("_EFR_HS_SBX_BIN", "/x")]);
-    let inherited = shell_env(&config, Path::new("/"), true);
+    let inherited = shell_env(&config, Path::new("/"), true, None);
     assert!(!inherited.contains_key("_EFR_HS_SBX_DIR"), "{inherited:?}");
     assert!(!inherited.contains_key("_EFR_HS_SBX_BIN"), "{inherited:?}");
     assert_eq!(sandbox_env(&config, conversation, true), []);
@@ -217,4 +223,25 @@ fn the_sandbox_dir_and_launcher_reach_a_zsh_with_the_integration_only() {
         ]
     );
     assert_eq!(sandbox_env(&config, conversation, false), []);
+}
+
+#[test]
+fn scratch_replaces_the_users_value_and_reaches_the_integration() {
+    let config = config(&[("SCRATCH", "/scratch/u")]);
+    let scratch = Path::new("/home/u/.local/share/efr/scratch/2026-10-22-fix-0a1b2c3d");
+    let zsh = shell_env(&config, Path::new("/"), true, Some(scratch));
+    assert_eq!(zsh["SCRATCH"], scratch.to_str().unwrap());
+    assert_eq!(zsh["_EFR_HS_SCRATCH"], scratch.to_str().unwrap());
+
+    let other = shell_env(&config, Path::new("/"), false, Some(scratch));
+    assert_eq!(other["SCRATCH"], scratch.to_str().unwrap());
+    assert!(!other.contains_key("_EFR_HS_SCRATCH"), "{other:?}");
+}
+
+#[test]
+fn without_a_known_scratch_nothing_is_set() {
+    let inherited = config(&[("_EFR_HS_SCRATCH", "/inherited")]);
+    let env = shell_env(&inherited, Path::new("/"), true, None);
+    assert!(!env.contains_key("SCRATCH"), "{env:?}");
+    assert!(!env.contains_key("_EFR_HS_SCRATCH"), "{env:?}");
 }

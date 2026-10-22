@@ -674,6 +674,29 @@ async fn e2e_zsh_integration_writes_env_file() {
 }
 
 #[tokio::test]
+async fn e2e_zsh_scratch_reaches_the_env_file_and_the_wrapper() {
+    let Some(zsh) = Zsh::start_sandboxed("e2e_zsh_scratch_reaches_the_env_file_and_the_wrapper")
+    else {
+        return;
+    };
+    let scratch = zsh.dir("data/scratch/s");
+    let run = zsh.prepare(1);
+    let request = crate::RunRequest::new("print -r -- \"$SCRATCH\"", zsh.start_dir())
+        .with_call(run.call)
+        .with_sandbox(Some(run.clone()))
+        .with_scratch(&scratch)
+        .with_timeout(std::time::Duration::from_secs(600));
+    let result =
+        zsh.sessions.run_command(zsh.conversation, request, &mut crate::NoProgress).await.unwrap();
+
+    // The fake launcher passes the trusted shell's environment on, as the real one does
+    // before its filter.
+    assert_eq!(result.output, format!("{}\n", scratch.display()), "{result:?}");
+    // A background job gets the shell's exported variables from the env file.
+    env_entries(&zsh, &format!("SCRATCH={}", scratch.display())).await;
+}
+
+#[tokio::test]
 async fn e2e_zsh_snapshot_written_at_first_prompt() {
     let Some(zsh) = Zsh::start_sandboxed("e2e_zsh_snapshot_written_at_first_prompt") else {
         return;

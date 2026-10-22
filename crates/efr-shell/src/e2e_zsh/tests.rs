@@ -1065,3 +1065,127 @@ async fn e2e_move_of_a_real_loop_keeps_its_output() {
     zsh.notices.wait_for(|notice| matches!(notice, ShellNotice::AdoptedExited { .. })).await;
     assert!(!zsh.notices.all().iter().any(|notice| matches!(notice, ShellNotice::Exited { .. })));
 }
+
+impl Zsh {
+    /// The conversation's `$SCRATCH` in these tests, made.
+    fn scratch(&self) -> PathBuf {
+        self.dir("data/scratch/2026-10-22-fix-0a1b2c3d")
+    }
+
+    /// Runs `command` as a tool call does, with the conversation's `$SCRATCH`.
+    async fn run_with_scratch(&self, command: &str) -> CommandResult {
+        let request = self.request(command).with_scratch(self.scratch());
+        self.sessions.run_command(self.conversation, request, &mut NoProgress).await.unwrap()
+    }
+}
+
+/// The line that efr types into a running shell that does not hold `$SCRATCH` yet.
+const SCRATCH_EXPORT: &str = "builtin export SCRATCH=";
+
+#[tokio::test]
+async fn e2e_scratch_is_set_in_a_new_shell_whatever_the_users_startup_files_set() {
+    let Some(zsh) =
+        Zsh::start("e2e_scratch_is_set_in_a_new_shell_whatever_the_users_startup_files_set")
+    else {
+        return;
+    };
+    std::fs::write(zsh.home().join(".zshenv"), "export SCRATCH=/from/zshenv\n").unwrap();
+    std::fs::write(zsh.home().join(".zshrc"), "export SCRATCH=/from/zshrc\n").unwrap();
+    let scratch = zsh.scratch();
+
+    let result =
+        zsh.run_with_scratch("print -r -- \"$SCRATCH\"; cd \"$SCRATCH\" && print -r -- $PWD").await;
+
+    assert_eq!(result.output, format!("{0}\n{0}\n", scratch.display()));
+    assert_eq!(result.cwd_after, scratch);
+    // The shell got it in its environment: efr typed no line for it.
+    assert!(!zsh.recording().await.contains(SCRATCH_EXPORT));
+    // efr's own variable stays out of the commands.
+    let own = zsh.run_with_scratch("print -r -- ${_EFR_HS_SCRATCH-unset}").await;
+    assert_eq!(own.output, "unset\n");
+}
+
+#[tokio::test]
+async fn e2e_a_line_that_sets_scratch_keeps_its_own_value() {
+    let Some(zsh) = Zsh::start("e2e_a_line_that_sets_scratch_keeps_its_own_value") else {
+        return;
+    };
+    let scratch = zsh.scratch();
+
+    let result = zsh.run_with_scratch("SCRATCH=/own printenv SCRATCH; printenv SCRATCH").await;
+
+    assert_eq!(result.output, format!("/own\n{}\n", scratch.display()));
+}
+
+#[tokio::test]
+async fn e2e_a_shell_that_started_before_scratch_was_known_gets_it_once() {
+    let Some(zsh) = Zsh::start("e2e_a_shell_that_started_before_scratch_was_known_gets_it_once")
+    else {
+        return;
+    };
+    // A resumed conversation's shell starts before its turn names $SCRATCH.
+    zsh.sessions.open(zsh.conversation, zsh.start_dir()).await.unwrap();
+    let scratch = zsh.scratch();
+
+    let first = zsh.run_with_scratch("print -r -- \"$SCRATCH\"").await;
+    let second = zsh.run_with_scratch("print -r -- \"$SCRATCH\"").await;
+
+    assert_eq!(first.output, format!("{}\n", scratch.display()));
+    assert_eq!(second.output, first.output);
+    let recording = zsh.recording().await;
+    assert_eq!(recording.matches(SCRATCH_EXPORT).count(), 1, "{recording:?}");
+}
+
+#[tokio::test]
+async fn e2e_a_new_shell_after_a_restart_gets_the_known_scratch() {
+    let Some(zsh) = Zsh::start("e2e_a_new_shell_after_a_restart_gets_the_known_scratch") else {
+        return;
+    };
+    let scratch = zsh.scratch();
+    let first = zsh.run_with_scratch("true").await;
+    assert_eq!(first.exit_code, Some(0));
+    let old = zsh.sessions.state(zsh.conversation).await.unwrap().pty_id;
+    zsh.sessions.close(zsh.conversation).await.unwrap();
+
+    // The next shell starts for a job's environment or a resume, with no run that
+    // names the scratch dir.
+    zsh.sessions.open(zsh.conversation, zsh.start_dir()).await.unwrap();
+    let result = zsh.run("print -r -- \"$SCRATCH\"").await;
+
+    assert_ne!(zsh.sessions.state(zsh.conversation).await.unwrap().pty_id, old);
+    assert_eq!(result.output, format!("{}\n", scratch.display()));
+    assert!(!zsh.recording().await.contains(SCRATCH_EXPORT));
+}
+
+#[tokio::test]
+async fn e2e_a_moved_call_and_the_shell_after_it_keep_scratch() {
+    let Some(zsh) = Zsh::start("e2e_a_moved_call_and_the_shell_after_it_keep_scratch") else {
+        return;
+    };
+    let scratch = zsh.scratch();
+    let call: CallId = "01920000-0000-7000-8000-0000000e2e02".parse().unwrap();
+    let request = zsh
+        .request("print -r -- \"moved $SCRATCH\"; sleep 600")
+        .with_scratch(&scratch)
+        .with_call(call)
+        .with_timeout(Duration::from_secs(3600));
+    let (mut listener, mut heard) = listener(true);
+    let sessions = zsh.sessions.clone();
+    let conversation = zsh.conversation;
+    let run =
+        tokio::spawn(
+            async move { sessions.run_command(conversation, request, &mut listener).await },
+        );
+    heard.output(&format!("moved {}", scratch.display())).await;
+
+    let (to, adopted) = tokio::sync::oneshot::channel();
+    zsh.sessions.request_move(zsh.conversation, call, to).await.unwrap();
+    let adopted = adopted.await.unwrap();
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::Moved);
+
+    // The conversation's next shell is a new one; it holds $SCRATCH from the start.
+    let after = zsh.run("print -r -- \"$SCRATCH\"").await;
+    assert_eq!(after.output, format!("{}\n", scratch.display()));
+    assert!(!zsh.recording().await.contains(SCRATCH_EXPORT));
+    adopted.close().await.unwrap();
+}
