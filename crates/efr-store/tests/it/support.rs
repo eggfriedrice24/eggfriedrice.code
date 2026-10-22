@@ -271,6 +271,8 @@ pub(crate) async fn corpus_copy(size: CorpusSize, shape: Shape) -> (TempDir, Pat
     let dir = temp_dir();
     let path = dir.path().join("efr.sqlite");
     fs::copy(source, &path).unwrap();
+    // The disk writes the copy now, so its writeback does not land in the timed writes.
+    fs::File::open(&path).unwrap().sync_all().unwrap();
     (dir, path)
 }
 
