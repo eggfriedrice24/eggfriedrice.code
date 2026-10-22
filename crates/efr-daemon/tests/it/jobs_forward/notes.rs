@@ -237,7 +237,8 @@ async fn forwarded_note_reaches_the_next_turn() {
     let requests = model.requests();
     assert_eq!(requests.len(), 3, "the job, the answer, the next turn's answer");
     assert_eq!(count_in(&requests[2], FORWARDED_NOTE), 1, "the first request after it");
-    // NOTE: the same port again after a gone is no new outcome, and no new note.
+    // NOTE: the same port again after a gone is the same forward: efrd records no event
+    // for it, so the model gets no new note.
     let real = daemon.host_ports().real_port(8765).unwrap();
     forwarder.gone(LOCALHOST, 8765).await.unwrap();
     forwarder.listen(LOCALHOST, 8765, Some(echo)).await.unwrap();
