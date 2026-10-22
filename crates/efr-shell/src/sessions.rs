@@ -798,7 +798,12 @@ impl ShellSessions {
         let trusted = start.integration.then(|| Arc::clone(&start.trusted_programs));
         match self.launch(conversation, pty_id, child_pid, master, start_dir, trusted) {
             Ok(session) => {
-                if let Some(scratch) = &scratch {
+                // NOTE: only the zsh integration exports `$SCRATCH` again after the
+                // user's startup files. Another shell gets the line at its first run,
+                // so a `SCRATCH` of its startup files does not win.
+                if start.integration
+                    && let Some(scratch) = &scratch
+                {
                     session.set_scratch(scratch);
                 }
                 tracing::info!(%conversation, %pty_id, pid = child_pid, "hidden shell started");

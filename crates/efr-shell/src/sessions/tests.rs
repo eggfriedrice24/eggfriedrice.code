@@ -368,6 +368,43 @@ async fn a_shell_that_is_not_a_zsh_is_driven_by_sentinels_at_once() {
 }
 
 #[tokio::test]
+async fn a_shell_without_the_integration_exports_scratch_after_its_startup_files() {
+    // NOTE: only the zsh integration exports $SCRATCH again after the user's startup
+    // files, so a `SCRATCH` in a `.bashrc` would win over the value of the environment.
+    let harness = Harness::new("/bin/bash");
+    let run = spawn_run(&harness.sessions, request("true").with_scratch("/data/scratch/s1"));
+    let mut terminal = harness.holder.terminal(0).await;
+    let line = terminal.typed_line().await;
+    let typed = String::from_utf8_lossy(&line).into_owned();
+    // NOTE: bash gets a plain `export`; `builtin` is for the zsh integration.
+    assert!(typed.contains(r"eval 'export SCRATCH='\''/data/scratch/s1'\'''"), "{typed}");
+    let token = sentinel_token(&line);
+    terminal
+        .print(format!("__efr_{token}_b\r\n\r\n__efr_{token}_e:0:/home/u\r\n").as_bytes())
+        .await;
+    let line = terminal.typed_line().await;
+    assert!(String::from_utf8_lossy(&line).contains("eval 'true'"));
+    let token = sentinel_token(&line);
+    terminal
+        .print(format!("__efr_{token}_b\r\n\r\n__efr_{token}_e:0:/home/u\r\n").as_bytes())
+        .await;
+    assert_eq!(run.await.unwrap().unwrap().exit_code, Some(0));
+    let spec = &harness.holder.specs()[0];
+    assert_eq!(spec.env.get("SCRATCH").map(String::as_str), Some("/data/scratch/s1"));
+
+    // NOTE: the shell holds it now; the next run types no export.
+    let run = spawn_run(&harness.sessions, request("true").with_scratch("/data/scratch/s1"));
+    let line = terminal.typed_line().await;
+    let typed = String::from_utf8_lossy(&line).into_owned();
+    assert!(!typed.contains("SCRATCH"), "{typed}");
+    let token = sentinel_token(&line);
+    terminal
+        .print(format!("__efr_{token}_b\r\n\r\n__efr_{token}_e:0:/home/u\r\n").as_bytes())
+        .await;
+    assert_eq!(run.await.unwrap().unwrap().exit_code, Some(0));
+}
+
+#[tokio::test]
 async fn the_timeout_reports_a_command_that_waits_for_input() {
     let harness = Harness::new(ZSH);
     let (mut terminal, run) = typed(&harness, "sudo true").await;
