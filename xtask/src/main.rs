@@ -1,9 +1,11 @@
 //! Repository automation that needs Rust: the dependency rule (`deps`), the file rules
-//! (`tidy`) and, from milestone 1, protocol docs, fixture blessing and projection
-//! rebuilds. The justfile composes these; it never reimplements them.
+//! (`tidy`), the link check of the docs site (`docs-links`) and, from milestone 1,
+//! protocol docs, fixture blessing and projection rebuilds. The justfile composes these;
+//! it never reimplements them.
 
 mod config_docs;
 mod deps;
+mod docs_links;
 mod fixtures;
 mod output;
 mod protocol_docs;
@@ -37,6 +39,8 @@ enum Command {
         #[arg(long)]
         fast: bool,
     },
+    /// Check the links and anchors of the docs site (docs/ and docs/SUMMARY.md).
+    DocsLinks,
     /// Regenerate docs/protocol.md from efr-protocol.
     ProtocolDocs,
     /// Write docs/config.md and docs/config.schema.json from efr-config.
@@ -75,6 +79,7 @@ fn run(command: Command) -> anyhow::Result<bool> {
     match command {
         Command::Deps { json } => deps::run(&root, json),
         Command::Tidy { fast } => tidy::run(&root, fast),
+        Command::DocsLinks => docs_links::run(&root),
         Command::ProtocolDocs => Ok(protocol_docs::run()),
         Command::ConfigDocs { check } => config_docs::run(&root, check),
         Command::Fixtures { bless } => Ok(fixtures::run(bless)),
