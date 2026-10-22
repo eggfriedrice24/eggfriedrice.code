@@ -51,6 +51,7 @@ mod run;
 mod runtime;
 mod sandbox;
 mod screens;
+mod search_index;
 mod settings;
 mod shells;
 mod signals;
@@ -83,5 +84,8 @@ pub use providers::{ANTHROPIC, API, ProviderFactory, SUBSCRIPTION};
 pub use run::{Daemon, Deps, run, start};
 pub use runtime::build_runtime;
 pub use sandbox::seams::{PeerProbe, TEST_SEAMS, TestHostPorts};
+pub use search_index::{
+    SearchIndexStatus, follow as follow_search_index, index_text as search_index_text,
+};
 pub use signals::shutdown_on_signals;
 pub use telemetry::{LogFilter, LogTarget, init as init_telemetry};

@@ -831,6 +831,7 @@ dependencies = [
  "jiff",
  "nix",
  "pretty_assertions",
+ "proptest",
  "regex",
  "rustix",
  "rustls",

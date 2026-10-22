@@ -12,6 +12,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
+- efrd now keeps a search index of your conversations: the titles, your prompts, the
+  model's answers and the commands that the agent ran, never the output of a command, the
+  contents of a file or the text of a heredoc. Before text goes into the index, efr removes
+  the secrets that it recognises: keys with a known start, long random words, tokens,
+  passwords in URLs and in assignments, private keys, and `name: value` secrets in config
+  text. It cannot recognise every secret. After the upgrade, efrd indexes your old
+  conversations in the background; until it ends, a search shows how far it is.
 - Full mode, a fourth permission mode: commands run as you, with no sandbox and no
   questions. Turn it on by hand with `permissions.allow_full = true` in `config.toml`,
   then choose it with `,mode full` in a terminal, `--mode=full` for one prompt, or
