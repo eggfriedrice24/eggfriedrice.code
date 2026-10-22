@@ -49,9 +49,9 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport { from: 0, to: 8, backup: None });
+    assert_eq!(report, MigrationReport { from: 0, to: 9, backup: None, rebuilt: false });
     assert!(report.applied());
-    assert_eq!(Migrations::version(&conn).unwrap(), 8);
+    assert_eq!(Migrations::version(&conn).unwrap(), 9);
     assert_eq!(
         tables(&conn),
         [
@@ -64,6 +64,14 @@ fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
             "outbox",
             "receipts",
             "recording_segments",
+            "search_docs",
+            "search_fts",
+            "search_fts_config",
+            "search_fts_data",
+            "search_fts_docsize",
+            "search_fts_idx",
+            "search_state",
+            "search_titles",
             "shells",
             "turn_messages",
             "turns",
@@ -78,7 +86,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport { from: 8, to: 8, backup: None });
+    assert_eq!(report, MigrationReport { from: 9, to: 9, backup: None, rebuilt: false });
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -98,8 +106,11 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
 
     let backup = backups.join("efr.sqlite.2");
-    assert_eq!(report, MigrationReport { from: 2, to: 8, backup: Some(backup.clone()) });
-    assert_eq!(Migrations::version(&conn).unwrap(), 8);
+    assert_eq!(
+        report,
+        MigrationReport { from: 2, to: 9, backup: Some(backup.clone()), rebuilt: true }
+    );
+    assert_eq!(Migrations::version(&conn).unwrap(), 9);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     let dir_mode = fs::metadata(&backups).unwrap().permissions().mode() & 0o777;
@@ -141,9 +152,9 @@ fn an_in_memory_database_gets_no_backup() {
 #[test]
 fn a_database_from_a_newer_build_is_refused() {
     let mut conn = db::open_in_memory().unwrap();
-    conn.pragma_update(None, "user_version", 9).unwrap();
+    conn.pragma_update(None, "user_version", 10).unwrap();
     let error = Migrations::new().migrate(&mut conn, None).unwrap_err();
-    assert!(matches!(error, StoreError::SchemaTooNew { found: 9, supported: 8 }), "{error:?}");
+    assert!(matches!(error, StoreError::SchemaTooNew { found: 10, supported: 9 }), "{error:?}");
 }
 
 static BROKEN: &[M<'static>] = &[
@@ -154,7 +165,7 @@ static BROKEN: &[M<'static>] = &[
 #[test]
 fn a_failing_file_leaves_the_database_at_the_last_good_version() {
     let mut conn = db::open_in_memory().unwrap();
-    let error = Migrations::from_steps(BROKEN).migrate(&mut conn, None).unwrap_err();
+    let error = Migrations::from_steps(BROKEN, &[]).migrate(&mut conn, None).unwrap_err();
     assert!(matches!(error, StoreError::Migrate { .. }), "{error:?}");
     assert_eq!(Migrations::version(&conn).unwrap(), 1);
     assert_eq!(tables(&conn), ["first"]);
@@ -201,6 +212,138 @@ fn migrating_an_existing_database_rebuilds_the_projections() {
 
     let summary = crate::conversations::get(&conn, id).unwrap().unwrap();
     assert_eq!(summary.last_seq.get(), 1);
+}
+
+#[test]
+fn fts5_is_compiled_in() {
+    let conn = db::open_in_memory().unwrap();
+    let mut stmt = conn.prepare("PRAGMA compile_options").unwrap();
+    let options: Vec<String> =
+        stmt.query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect();
+    assert!(options.iter().any(|option| option == "ENABLE_FTS5"), "{options:?}");
+    assert!(options.iter().any(|option| option == "ENABLE_DBSTAT_VTAB"), "{options:?}");
+}
+
+#[test]
+fn a_new_database_starts_an_empty_search_index() {
+    let mut conn = db::open_in_memory().unwrap();
+    Migrations::new().migrate(&mut conn, None).unwrap();
+    let state: (i64, i64, i64) = conn
+        .query_row("SELECT id, indexed_seq, redaction FROM search_state", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap();
+    assert_eq!(state, (1, 0, 0));
+    assert_eq!(count(&conn, "search_docs"), 0);
+    assert_eq!(count(&conn, "search_titles"), 0);
+    let index: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' \
+             AND name = 'conversations_updated'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(index, 1);
+    // The table of DQ5 (external content, two UNINDEXED columns, an INTEGER kind, the
+    // prefix indexes) passes FTS5's own check, empty and with a row.
+    integrity_check(&conn);
+    fill_search_tables(&conn);
+    integrity_check(&conn);
+    let found: i64 = conn
+        .query_row("SELECT rowid FROM search_fts WHERE search_fts MATCH 'rs*'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(found, 1);
+}
+
+fn integrity_check(conn: &Connection) {
+    conn.execute("INSERT INTO search_fts (search_fts) VALUES ('integrity-check')", []).unwrap();
+}
+
+/// Writes a doc, a title and a cursor to the search tables with plain SQL.
+fn fill_search_tables(conn: &Connection) {
+    conn.execute_batch(
+        "INSERT INTO search_docs (seq, conversation_id, kind, text) VALUES (1, 'c', 0, 'rsync');
+         INSERT INTO search_fts (rowid, text, conversation_id, kind) VALUES (1, 'rsync', 'c', 0);
+         INSERT INTO search_titles (conversation_id, title, first_seq) VALUES ('c', 'rsync', 1);
+         UPDATE search_state SET indexed_seq = 1, redaction = 1;",
+    )
+    .unwrap();
+}
+
+fn search_rows(conn: &Connection) -> Vec<Vec<String>> {
+    ["search_docs", "search_titles", "search_state"]
+        .iter()
+        .map(|table| crate::testing::dump(conn, table))
+        .collect()
+}
+
+#[test]
+fn projection_rebuild_keeps_the_search_tables() {
+    let mut conn = db::open_in_memory().unwrap();
+    Migrations::new().migrate(&mut conn, None).unwrap();
+    fill_search_tables(&conn);
+    let before = search_rows(&conn);
+
+    let tx = conn.transaction().unwrap();
+    projection::rebuild(&tx).unwrap();
+    tx.commit().unwrap();
+
+    assert_eq!(search_rows(&conn), before);
+    integrity_check(&conn);
+}
+
+#[test]
+fn a_later_migration_keeps_the_search_tables() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
+    Migrations::new().migrate(&mut conn, None).unwrap();
+    fill_search_tables(&conn);
+    let before = search_rows(&conn);
+    // A later step that rebuilds the projections, as a future migration may.
+    let steps: Vec<M<'static>> =
+        STEPS.iter().cloned().chain([M::up("CREATE TABLE later (x INTEGER);")]).collect();
+    let steps: &'static [M<'static>] = Box::leak(steps.into_boxed_slice());
+
+    let report = Migrations::from_steps(steps, REBUILDS).migrate(&mut conn, None).unwrap();
+
+    assert_eq!((report.from, report.to, report.rebuilt), (9, 10, true));
+    assert_eq!(search_rows(&conn), before);
+    integrity_check(&conn);
+}
+
+/// A database at `version` whose log holds a `conversation_created` that no projection
+/// shows yet, so only a rebuild makes its row.
+fn database_with_an_unprojected_event(dir: &Path, version: usize) -> Connection {
+    let mut conn = db::open(&dir.join("efr.sqlite")).unwrap();
+    Migrations::new().steps.to_version(&mut conn, version).unwrap();
+    let envelope = efr_protocol::EventEnvelope {
+        seq: efr_protocol::Seq::new(1),
+        conversation_id: Some(crate::testing::conversation(1)),
+        at: crate::sql::truncate_to_micros(crate::testing::start()),
+        event: crate::testing::created(Some("pts-1")),
+    };
+    crate::events::insert(&conn, &envelope).unwrap();
+    conn
+}
+
+#[test]
+fn migration_9_needs_no_rebuild() {
+    let id = crate::testing::conversation(1);
+
+    let from_8 = tempfile::tempdir().unwrap();
+    let mut conn = database_with_an_unprojected_event(from_8.path(), 8);
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert_eq!((report.from, report.to, report.rebuilt), (8, 9, false));
+    assert!(crate::conversations::get(&conn, id).unwrap().is_none());
+
+    let from_7 = tempfile::tempdir().unwrap();
+    let mut conn = database_with_an_unprojected_event(from_7.path(), 7);
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert_eq!((report.from, report.to, report.rebuilt), (7, 9, true));
+    assert!(crate::conversations::get(&conn, id).unwrap().is_some());
 }
 
 /// The checked-in databases, one per schema version: `fixtures/db/efr.sqlite.<n>`.
@@ -254,6 +397,11 @@ fn every_fixture_database_migrates_to_the_latest_version() {
         assert_eq!(jobs.len(), usize::from(version >= 7), "efr.sqlite.{version}");
         let turns = crate::conversations::turns(&conn, fixture_conversation()).unwrap();
         assert!(turns.iter().all(|turn| !turn.wake), "efr.sqlite.{version}");
+        // The search index starts empty, and efrd fills it from the log.
+        let cursor: i64 =
+            conn.query_row("SELECT indexed_seq FROM search_state", [], |row| row.get(0)).unwrap();
+        assert_eq!(cursor, 0, "efr.sqlite.{version}");
+        integrity_check(&conn);
     }
 }
 
