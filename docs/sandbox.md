@@ -1407,8 +1407,22 @@ decision.
   at one time. efr copies the bytes and reads none of them.
 - **UDP.** efr forwards TCP only.
 - **The model.** The start result of a job with forwards tells the model that efr
-  forwards its ports, so it gives you the URL. The `jobs` tool shows the forwarded
-  ports of each job.
+  forwards its ports, so it gives you the URL. Then the model learns the outcome of
+  each port. Before its next request, also in the same turn, efr adds a note that says
+  that it comes from efr, not from you:
+  - `efr: job j1 listens on 127.0.0.1:8765; forwarded: the user can open
+    http://localhost:8765, and your contained calls reach it at 127.0.0.1:8765.`
+  - `efr: job j1 listens on 127.0.0.1:8767; not forwarded: 127.0.0.1:8767 is in use on
+    this machine. The user cannot open it in a browser, and your calls do not reach
+    it; choose another port.` The same form gives a port of another job, a port that efr
+    never forwards and the limits.
+  - `efr: job j1: port 8765 is no longer forwarded (jobs.forward_ports is off). The
+    user cannot open it now, and your contained calls do not reach it.`
+
+  The model reads each outcome once. A note does not start a turn: when no turn runs,
+  it waits for your next prompt. The `jobs` tool shows the outcome of each port of a
+  running job, such as `ports 8765 -> http://localhost:8765; 8767 not forwarded:
+  127.0.0.1:8767 is in use on this machine`.
 - **Other calls.** A later contained call of the same conversation reaches the job's
   server on the same port of its own `127.0.0.1` and `::1`, so `curl
   http://localhost:8765` in a call checks the dev server that the model started. Nobody

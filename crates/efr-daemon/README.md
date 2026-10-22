@@ -1002,8 +1002,27 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   copies bytes with `copy_bidirectional`, at most 64 connections for each job. A `Gone`
   keeps the port for the job, and a connection then closes at once. The listeners and
   connections close when the job ends (its `JobInfo` ends with no forwards), at efrd's
-  stop, and at a reload that turns forwards off. `jobs.list` and the `jobs` tool show
-  the forwarded ports of a running job from the table (`forwarded ports 8765, 5173`).
+  stop, and at a reload that turns forwards off. `jobs.list` shows the forwarded ports
+  of a running job from the table.
+- What the model learns of each forward (v0.0.4 L2): before efrd records a
+  `job_port_forwarded`, `Forwards::tell` keeps the outcome of the port for the job and
+  queues a note for the model of the job's conversation, unless the port's last
+  outcome was the same, so the model reads each outcome once (a port that is gone and
+  back makes no new note). `DaemonToolbox::take_notes` gives the turn the queued notes
+  before each model call, also in the middle of a turn, and the turn sends them in one
+  message after `efr_conversation::NOT_USER_NOTE`. A note never starts a turn. The
+  texts (`forward::note`): `efr: job j1 listens on 127.0.0.1:8765; forwarded: the user
+  can open http://localhost:8765, and your contained calls reach it at
+  127.0.0.1:8765.`, `efr: job j1 listens on 127.0.0.1:8767; not forwarded: <why>. The
+  user cannot open it in a browser, and your calls do not reach it; choose another
+  port.` (for the limit: `a job keeps its forwarded ports until it ends; stop a job that
+  you do not need.`), and `efr: job j1: port 8765 is no longer forwarded (<reason>).
+  The user cannot open it now, and your contained calls do not reach it.` At most 64
+  notes of a conversation wait; a new one drops the oldest. The outcomes and the
+  waiting notes of a job go when its forwards end. The `jobs` tool shows the outcome of
+  each port of a running job from the same table (`JobTable::line`: `ports 8765 ->
+  http://localhost:8765; 8767 not forwarded: 127.0.0.1:8767 is in use on this
+  machine`), and the start result says that a note follows.
 - The reach of a contained call (`jobs/forward/reach.rs`, v0.0.4 shell items
   DS34-DS48): a contained foreground call with a network namespace of its own reaches
   the forwarded ports of its own conversation's running jobs at `127.0.0.1:<port>` and

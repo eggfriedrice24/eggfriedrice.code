@@ -318,6 +318,16 @@ turns.
   from one wake turn to the next until a prompt starts a turn. A user's prompt queues
   behind a wake turn, and a steer reaches it as usual. The rebuilt history of a turn
   puts its notices where the turn sent them.
+- efr's own notes (v0.0.4 L2, `Toolbox::take_notes`), such as the outcome of a port
+  forward of a background job. Unlike a job notice, a note does not wait for a turn:
+  before each model call, also in the middle of a turn, the turn takes the notes that
+  came and sends them as one user message, before the steers that it takes: the line
+  `NOT_USER_NOTE` (`efr: these notes come from efr, not from the user; no human input
+  has occurred.`), then each note (`notice::notes_text`). The toolbox gives each note
+  once, so the model reads it in one request and then in the history. A note never
+  starts a turn, records no event and is no user message of an exit record. A turn that
+  ends leaves the notes that come later to the next turn's first model call. The saved
+  messages of the turn keep the note; a history that is rebuilt from events does not.
 - Cache deletes (`turn/cache.rs`). A contained call that deleted files in its private
   cache layer reports them in `SandboxSummary::cache_deletes`. After the call,
   `Engine::decide_cache_delete` makes one `write` exit of each path below a cache, and
