@@ -36,6 +36,12 @@ pub mod query;
 pub mod rank;
 pub mod snippet;
 
+mod lane;
+mod stop;
+
+pub use lane::{IndexReader, SEARCH_CACHE_KIB, SEARCH_LANES, SearchLanes};
+pub use stop::SearchStop;
+
 /// The most docs that one page of [`pending`] returns. With [`PAGE_BYTES`], set from
 /// the bench of a backfill page on corpus L: a page of 32 docs keeps the writer time of
 /// a page at a p95 of about 2 to 4 ms; with 64 docs, twice as large a share of the
