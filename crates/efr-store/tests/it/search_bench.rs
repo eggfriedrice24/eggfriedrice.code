@@ -280,3 +280,27 @@ async fn bench_search_backfill_page() {
     assert!(p95 <= PAGE_P95, "the p95 of a page is {p95:?}, more than {PAGE_P95:?}");
     assert!(max <= PAGE_MAX, "the max of a page is {max:?}, more than {PAGE_MAX:?}");
 }
+
+/// The writer time of `search_reset` on the index of corpus L and XL: one job that
+/// empties the whole index, as efrd runs it at its start after a change of the
+/// redaction. A report only: the plan sets no budget for it.
+#[tokio::test]
+#[ignore = "a bench: `just bench-search` runs it in release"]
+async fn bench_search_reset() {
+    let mut lines = Vec::new();
+    for size in [CorpusSize::L, CorpusSize::Xl] {
+        let (_dir, path) = corpus_copy(size, Shape::Indexed).await;
+        let clock = TestClock::new();
+        let store = open(&path, &clock).await;
+        let started = std::time::Instant::now();
+        store.writer().search_reset(u32::MAX).await.unwrap();
+        let time = started.elapsed();
+        store.close().await;
+        lines.push(format!(
+            "corpus {}: one search_reset job of {:.1} ms, its checkpoint included",
+            size.name(),
+            time.as_secs_f64() * 1000.0
+        ));
+    }
+    report("bench_search_reset", &lines);
+}

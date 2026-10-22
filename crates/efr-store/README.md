@@ -229,7 +229,9 @@ are ignored. `just bench-search` runs them in release, one at a time, and they f
 when a budget fails: a round at a p95 of 2 ms and a max of 10 ms, a page at a p95 of
 4 ms and a max of 8 ms. Each max counts the jobs that carry no checkpoint of the
 write-ahead log; the jobs with one are on a line of their own. Each p95 counts every
-job, the checkpoints of the search jobs too. The normal test
+job, the checkpoints of the search jobs too. `bench_search_reset` reports the one job
+that empties the index of corpus L and of XL after a change of the redaction; it has
+no budget. The normal test
 `search_jobs_checkpoint_and_turn_commits_seldom_do` checks where the checkpoints run.
 
 The module `search_query` of `tests/it` checks the reads on the corpus:
