@@ -1222,8 +1222,8 @@ without the picker they print the plain list; an id start from the plugin that m
 one conversation resumes it, a hex word that matches none is a search, and `--take`
 without words is a usage error.
 `picker/tests.rs` snapshots the command line of fzf (an efr path with a blank and a
-`'`) and checks it: `reload-sync` last in its own `--bind`, `load:refresh-preview`, no
-`{q}`, `--no-clear`, `--tmux`, `--popup` or `execute`; `exec_word` keeps the exact
+`'`) and checks it: `reload-sync` last in its own `--bind`, no `refresh-preview` (fzf
+runs the preview again after each reload), no `{q}`, `--no-clear`, `--tmux`, `--popup` or `execute`; `exec_word` keeps the exact
 bytes and refuses `{q}`, a newline and bytes that are not UTF-8; the `--query` of the
 words; the colours of the default palette, of the eggfriedrice theme in 24-bit colour
 (the values of its fzf extra) and without colour; the versions of `fzf --version`; what
@@ -1236,6 +1236,22 @@ fzf defaults and `SHELL=/bin/sh`, its reload searches for `FZF_QUERY` on the tes
 daemon, the words of `,resume` reach it only as `--query`, no command line holds the
 query or the words, Enter, Ctrl-O, Ctrl+C and a failed fzf act end to end, fzf 0.44.1
 gives the list, and an `fzf` in a relative entry of the `PATH` never runs.
+Its `e2e_fzf_` tests run the built `efr resume` with the real fzf against a
+`TestDaemon` whose index holds three conversations. efr runs as the leader of its own
+session with the pty as its controlling terminal (`setsid --ctty`), because fzf reads
+its keys from `/dev/tty`. The test writes the keys, replays every byte on a `vt100`
+screen (a dev-dependency for these tests only), and answers fzf's question for the
+cursor position from that screen. They check Enter, Ctrl-O, Esc (exit 0), Ctrl+C (exit
+130) and the words of `,resume` as the first query; that the header comes from each
+reload, the list keeps its rows while a reload runs (the daemon's search hook holds
+it), and the marks of the preview follow the query on the same row; and that no byte
+switches to the alternate screen, no row of the picker stays, and the terminal is
+cooked again. One test reports the time from a key to its new rows. They skip with a
+message unless `EFR_TEST_FZF=1`; then a missing fzf or one older than 0.46 fails:
+
+```sh
+just test-fzf
+```
 `format/resume/tests.rs` snapshots the list at 80 columns and in a pipe
 (`resume_list_at_80_columns`, `resume_list_in_a_pipe`) and the line after a resume
 (`resume_line_in_another_scope`).
