@@ -763,6 +763,9 @@ into the GitHub release notes, and it stops when the section is missing.
   `/data/p`, now has one plan lock. Before, a sandboxed call that named the project
   through the link and a file write that named it direct did not wait for each other,
   so the write could change the project while efr prepared the call.
+- A `%` in the name of a project now shows as typed in your own prompt. `$efr_scope`
+  and `efr_prompt_info` double each `%`, so a prompt with `prompt_subst` no longer
+  reads `%~` in a name as a prompt escape. The marker of sticky mode does not change.
 
 ### Security
 

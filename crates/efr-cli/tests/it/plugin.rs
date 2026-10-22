@@ -2772,6 +2772,46 @@ fn e2e_efr_prompt_info_prints_the_scope() {
     assert_eq!(stdout, "[app]\n{app}\n[○]\n{○}\n[🔓 app]\n");
 }
 
+/// A `%` in a project's name is doubled in `$efr_scope` and `efr_prompt_info`, so a
+/// prompt with prompt_subst shows the name as typed and not `%~` as the directory.
+#[test]
+fn e2e_a_percent_in_the_scope_stays_plain_in_a_prompt() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "a%~b")]);
+    let (stdout, status) = run_with(
+        &home,
+        UTF8,
+        r#"
+        setopt prompt_subst
+        cd p/app && _efr_precmd
+        print -r -- "{$efr_scope}[$(efr_prompt_info)]"
+        print -rP -- '{${efr_scope}}[$(efr_prompt_info)]'
+        "#,
+    );
+    assert_eq!(status, Some(0));
+    assert_eq!(stdout, "{a%%~b}[a%%~b]\n{a%~b}[a%~b]\n");
+}
+
+/// The marker of sticky mode is plain text, so it shows a `%` of the name once.
+#[test]
+fn e2e_marker_shows_a_percent_once() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    projects(&home, &[("p/app", "a%~b")]);
+    type_lines_with(
+        &home,
+        UTF8,
+        &[RECORD_ANYWHERE, "cd p/app", "<C-Space>", "\u{18}\u{12}", "<C-Space>"],
+    );
+    let shown: Vec<String> = typed_lines(&home).into_iter().map(|(shown, _)| shown).collect();
+    assert_eq!(shown, ["🤖 a%~b › "]);
+}
+
 #[test]
 fn e2e_prompt_and_rprompt_never_change() {
     if !zsh_tests_enabled() {

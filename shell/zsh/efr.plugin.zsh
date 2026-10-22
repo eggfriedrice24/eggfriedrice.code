@@ -94,11 +94,12 @@
 # efr_prompt_info, a function that prints `app` or `○` (with the full mark in full mode)
 # for your own prompt (`setopt prompt_subst; RPROMPT='$(efr_prompt_info)'`), and the
 # variable $efr_scope, which precmd sets, for a prompt with no subshell
-# (`RPROMPT='${efr_scope}'`). The plugin never changes PROMPT or RPROMPT itself. It
-# knows the scope with no fork and no git: efrd writes the registered projects to
-# projects.tsv in its runtime root, one `<root><tab><name>` line each, and the plugin
-# reads the file again only when it changed, then matches $PWD and ${PWD:A} by whole
-# components, the deepest root first. Before efrd ever ran there is no file and no
+# (`RPROMPT='${efr_scope}'`). Both double each `%` of a project's name, so a prompt
+# shows `50%` as `50%` and not as a prompt escape. The plugin never changes PROMPT or
+# RPROMPT itself. It knows the scope with no fork and no git: efrd writes the
+# registered projects to projects.tsv in its runtime root, one `<root><tab><name>` line
+# each, and the plugin reads the file again only when it changed, then matches $PWD
+# and ${PWD:A} by whole components, the deepest root first. Before efrd ever ran there is no file and no
 # scope. The head line of efr's reply names the scope that efrd routed by.
 #
 # A prompt is never parsed as shell syntax, and the line stays as typed on the screen
@@ -238,8 +239,12 @@ fi
 : ${EFR_SCOPE_STYLE:='fg=8'}
 # The scope of the next prompt for your own prompt (see efr_prompt_info): the name of
 # the registered project that holds $PWD, the outside mark (`○`) anywhere else, or
-# empty while efrd never wrote its projects file. precmd sets it.
+# empty while efrd never wrote its projects file. precmd sets it. Each `%` of the name
+# is doubled, because a prompt reads `%` as the start of an escape.
 typeset -g efr_scope=
+# The same scope as efr_scope with its `%` as typed, for the marker in PREDISPLAY,
+# which zle shows as plain text.
+typeset -g _efr_scope_text=
 # The projects file's stamp that _efr_read_projects read last, and its projects: their
 # roots and names in the order of the file, the deepest root first.
 typeset -g _efr_projects_seen
@@ -847,10 +852,10 @@ _efr_show_indicator() {
         mine+=("P$start ${#PREDISPLAY} $EFR_STICKY_STYLE memo=efr")
       fi
       _efr_update_scope
-      if [[ -n $efr_scope ]]; then
+      if [[ -n $_efr_scope_text ]]; then
         [[ -z $gap ]] && PREDISPLAY+=' '
         start=${#PREDISPLAY}
-        PREDISPLAY+="$efr_scope $_efr_scope_end "
+        PREDISPLAY+="$_efr_scope_text $_efr_scope_end "
         mine+=("P$start ${#PREDISPLAY} $EFR_SCOPE_STYLE memo=efr")
       fi
     fi
@@ -1202,15 +1207,15 @@ _efr_read_projects() {
   return 0
 }
 
-# Sets efr_scope to the scope of a prompt sent now: the name of the registered project
-# whose root holds $PWD, or else ${PWD:A} (its links resolved), as efrd routes; the
-# outside mark (`○`) anywhere else; empty without a projects file. A root matches only
-# whole components: ~/p/app holds ~/p/app/src but not ~/p/apple. The deepest root
-# wins.
+# Sets _efr_scope_text to the scope of a prompt sent now: the name of the registered
+# project whose root holds $PWD, or else ${PWD:A} (its links resolved), as efrd routes;
+# the outside mark (`○`) anywhere else; empty without a projects file. A root matches
+# only whole components: ~/p/app holds ~/p/app/src but not ~/p/apple. The deepest root
+# wins. Sets efr_scope to the same text with each `%` doubled for a prompt.
 _efr_update_scope() {
   emulate -L zsh
   if ! _efr_read_projects; then
-    efr_scope=
+    _efr_scope_text= efr_scope=
     return 0
   fi
   local form root best= name=
@@ -1227,16 +1232,19 @@ _efr_update_scope() {
     [[ -n $best ]] && break
   done
   if [[ -n $best ]]; then
-    efr_scope=${name:-${best:t}}
+    _efr_scope_text=${name:-${best:t}}
   else
-    efr_scope=$_efr_outside_mark
+    _efr_scope_text=$_efr_outside_mark
   fi
+  efr_scope=${_efr_scope_text//\%/%%}
 }
 
 # Prints the scope of a prompt sent now, for your own prompt: the project's name, such
 # as `app`, or `○` outside projects, after the full mark (EFR_FULL_MARK) and a blank
 # while the terminal's prompts run in full mode. No colours, and nothing without a
-# projects file. It starts no program, but $(efr_prompt_info) is a subshell; the
+# projects file. Each `%` of the name is doubled, as in $efr_scope, so a prompt with
+# prompt_subst shows it as typed. It starts no program, but $(efr_prompt_info) is a
+# subshell; the
 # variable $efr_scope needs none. For example:
 #   setopt prompt_subst; RPROMPT='$(efr_prompt_info)'
 efr_prompt_info() {
