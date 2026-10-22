@@ -127,7 +127,13 @@ impl Ctx {
     /// Records `event` of the job's conversation. The outcome of a port that it tells
     /// goes to the model first (L2), so its note waits when a client sees the event.
     async fn record(&self, event: Event) {
-        if let Event::JobPortForwarded { listen, port, outcome, by_job, reason, .. } = &event {
+        self.tell(&event);
+        self.append(event).await;
+    }
+
+    /// Keeps the outcome of the port of `event` and its note for the model (L2).
+    fn tell(&self, event: &Event) {
+        if let Event::JobPortForwarded { listen, port, outcome, by_job, reason, .. } = event {
             self.forwards.tell(
                 self.key,
                 listen,
@@ -137,6 +143,10 @@ impl Ctx {
                 reason.as_deref(),
             );
         }
+    }
+
+    /// Writes `event` to the job's conversation.
+    async fn append(&self, event: Event) {
         let batch = Batch::new().event(self.key.conversation, event);
         if let Err(error) = self.table.inner.writer.append(batch).await {
             tracing::warn!(%error, job = %self.job, "a port forward of a job could not be recorded");
@@ -277,6 +287,15 @@ impl Refused {
     }
 }
 
+/// Why the control connection ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    /// A reload turned `jobs.forward_ports` off, and `stop_all` closed the forwards.
+    Off,
+    /// The job's forwards ended, or the forwarder closed or failed.
+    Other,
+}
+
 /// The task of the control connection, which owns the forward socket.
 struct Control {
     ctx: Arc<Ctx>,
@@ -299,8 +318,12 @@ impl Control {
             () = self.off.cancelled() => None,
             hello = self.hello() => hello,
         };
-        if let Some(stream) = hello {
-            self.serve(stream).await;
+        if let Some(stream) = hello
+            && self.serve(stream).await == Ended::Off
+        {
+            // NOTE: `stop_all` closed already. A second close would forget the
+            // `stopped` notes before the model reads them.
+            return;
         }
         self.close();
     }
@@ -328,7 +351,7 @@ impl Control {
 
     /// Reads the frames of the control connection `stream` and accepts the data
     /// connections, until the job's forwards end.
-    async fn serve(&mut self, stream: UnixStream) {
+    async fn serve(&mut self, stream: UnixStream) -> Ended {
         let ctx = Arc::clone(&self.ctx);
         let (read, write) = stream.into_split();
         let (frames_tx, mut frames) = mpsc::channel(16);
@@ -339,10 +362,10 @@ impl Control {
         let waiting = Arc::new(Semaphore::new(MAX_WAITING_DATA));
         loop {
             tokio::select! {
-                () = ctx.token.cancelled() => return,
+                () = ctx.token.cancelled() => return Ended::Other,
                 () = self.off.cancelled() => {
                     self.stop_all().await;
-                    return;
+                    return Ended::Off;
                 }
                 frame = frames.recv() => match frame {
                     Some(Ok(frame)) if frame.kind == FrameKind::Listen => {
@@ -351,15 +374,15 @@ impl Control {
                     Some(Ok(frame)) if frame.kind == FrameKind::Gone => ctx.gone(frame.target()),
                     Some(Ok(_)) => {
                         tracing::warn!(job = %ctx.job, "a job's forwarder sent a frame of another kind; efrd closed its forwards");
-                        return;
+                        return Ended::Other;
                     }
                     Some(Err(error)) => {
                         tracing::warn!(job = %ctx.job, %error, "a job's forwarder sent a bad frame; efrd closed its forwards");
-                        return;
+                        return Ended::Other;
                     }
                     None => {
                         tracing::debug!(job = %ctx.job, "a job's forwarder closed its connection");
-                        return;
+                        return Ended::Other;
                     }
                 },
                 accepted = self.listener.accept() => match accepted {
@@ -370,7 +393,7 @@ impl Control {
                     }
                     Err(error) => {
                         tracing::warn!(job = %ctx.job, %error, "a job's forward socket failed; efrd closed its forwards");
-                        return;
+                        return Ended::Other;
                     }
                 },
             }
@@ -505,17 +528,14 @@ impl Control {
     }
 
     /// Ends every forward of the job with a `stopped` event for each port, after a
-    /// reload turned `jobs.forward_ports` off.
+    /// reload turned `jobs.forward_ports` off. The job keeps the `stopped` outcomes and
+    /// notes until it ends, so the model reads them.
     async fn stop_all(&mut self) {
         let ctx = Arc::clone(&self.ctx);
         let ports = std::mem::take(&mut *locked(&ctx.ports));
-        self.close();
-        if ports.is_empty() {
-            return;
-        }
-        tracing::info!(job = %ctx.job, ports = ports.len(), "jobs.forward_ports is off; efrd stopped the forwards of a job");
-        for (port, known) in ports {
-            ctx.record(Event::JobPortForwarded {
+        let stopped: Vec<Event> = ports
+            .into_iter()
+            .map(|(port, known)| Event::JobPortForwarded {
                 job_id: ctx.job.clone(),
                 listen: known.addr.to_string(),
                 port,
@@ -523,15 +543,35 @@ impl Control {
                 by_job: None,
                 reason: Some(OFF_REASON.to_owned()),
             })
-            .await;
+            .collect();
+        // NOTE: the outcomes go in while efrd still serves the job. A job that ended
+        // before then keeps none, because `Forwards::tell` keeps nothing for it.
+        for event in &stopped {
+            ctx.tell(event);
+        }
+        self.shut();
+        ctx.forwards.release_ports(ctx.key);
+        if stopped.is_empty() {
+            return;
+        }
+        tracing::info!(job = %ctx.job, ports = stopped.len(), "jobs.forward_ports is off; efrd stopped the forwards of a job");
+        for event in stopped {
+            ctx.append(event).await;
         }
     }
 
-    /// Closes every listener and connection of the job and frees its ports.
+    /// Closes every listener and connection of the job, frees its ports and forgets its
+    /// outcomes and notes.
     fn close(&self) {
+        self.shut();
+        self.ctx.forwards.release_job(self.ctx.key);
+    }
+
+    /// Closes every listener and connection of the job and clears its forwards in the
+    /// job table.
+    fn shut(&self) {
         let ctx = &self.ctx;
         ctx.token.cancel();
-        ctx.forwards.release_job(ctx.key);
         locked(&ctx.ports).clear();
         ctx.table.update(ctx.key, |info| info.forwards.clear());
     }

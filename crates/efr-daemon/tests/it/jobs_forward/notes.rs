@@ -23,7 +23,9 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use tokio::sync::{Notify, Semaphore};
 
-use super::{Forwarded, LOCALHOST, Setup, forwarded, outputs, release, through, until, wait_on};
+use super::{
+    Forwarded, LOCALHOST, Setup, forwarded, outputs, release, reload_with, through, until, wait_on,
+};
 use crate::sandbox::REVIEWER_ALLOWS;
 
 /// The note of a port that a program of the user's machine holds, as the model reads it.
@@ -34,6 +36,11 @@ const IN_USE_NOTE: &str = "efr: job j1 listens on 127.0.0.1:8767; not forwarded:
 /// The note of a forwarded port, as the model reads it.
 const FORWARDED_NOTE: &str = "efr: job j1 listens on 127.0.0.1:8765; forwarded: the user can \
     open http://localhost:8765, and your contained calls reach it at 127.0.0.1:8765.";
+
+/// The note of a port that a reload stopped, as the model reads it.
+const STOPPED_NOTE: &str = "efr: job j1: port 8765 is no longer forwarded \
+    (jobs.forward_ports is off). The user cannot open it now, and your contained calls do not \
+    reach it.";
 
 /// A model that makes each call of `calls` in turn, then says `done`, and keeps every
 /// request of a turn. At the request `gate_at` it tells [`reached`](Self::reached) and
@@ -243,6 +250,42 @@ async fn forwarded_note_reaches_the_next_turn() {
     assert_eq!(requests.len(), 4);
     assert_eq!(count_in(requests.last().unwrap(), FORWARDED_NOTE), 1, "only in the history");
     assert_eq!(count_in(requests.last().unwrap(), NOT_USER_NOTE), 1);
+    release(&fifo).await;
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn reload_off_note_reaches_the_model() {
+    // NOTE: the review of 2026-10-22: the forwards closed a second time after the
+    // reload and forgot the `stopped` notes before the model read them.
+    let setup = Setup::new();
+    let fifo = setup.fifo("go");
+    let job = json!({ "command": wait_on(&fifo), "background": true });
+    let model = GatedModel::new(vec![("shell", job), ("jobs", json!({}))], Some(1));
+    let daemon = setup.builder_with(Arc::clone(&model) as Arc<dyn Provider>).start().await.unwrap();
+    let conversation = send(&daemon, 1, "start the server").await;
+    model.reached.notified().await;
+    let mut forwarder = setup.forwarder().await;
+    forwarder.listen(LOCALHOST, 8765, None).await.unwrap();
+    forwarded(&daemon, conversation, 1).await;
+    reload_with(&setup, &daemon, "[jobs]\nforward_ports = false\n").await;
+    let seen = forwarded(&daemon, conversation, 2).await;
+    assert_eq!(seen[1].outcome, ForwardOutcome::Stopped, "{seen:?}");
+    forwarder.closed().await;
+    model.open();
+    let events = until_end(&daemon, conversation, 1).await;
+    assert!(matches!(events.last().unwrap().event, Event::TurnCompleted { .. }), "{events:?}");
+
+    let requests = model.requests();
+    assert_eq!(requests.len(), 3, "the job, the jobs tool, the answer");
+    assert_eq!(count_in(&requests[1], STOPPED_NOTE), 0, "built before the reload");
+    assert_eq!(count_in(&requests[2], STOPPED_NOTE), 1, "once, in the next request");
+    assert_eq!(count_in(&requests[2], FORWARDED_NOTE), 1, "the outcome before it");
+    let listed = &outputs(&events)[1];
+    assert!(
+        listed.contains("ports 8765 no longer forwarded (jobs.forward_ports is off)"),
+        "the jobs tool shows the port: {listed}"
+    );
     release(&fifo).await;
     daemon.stop().await.unwrap();
 }

@@ -6,7 +6,7 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::os::fd::AsFd as _;
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use efr_config::JobsSettings;
 use efr_permissions::Egress;
@@ -20,6 +20,14 @@ use crate::sandbox::seams::{HostPorts, TestHostPorts};
 
 fn key(conversation: u128, number: u32) -> JobKey {
     JobKey { conversation: ConversationId::from_uuid(uuid::Uuid::from_u128(conversation)), number }
+}
+
+/// Records that efrd serves the forwards of each job of `keys`, as `serve` does at a
+/// job's start; [`Forwards::tell`] keeps nothing for another job.
+fn serving(forwards: &Forwards, keys: &[JobKey]) {
+    for key in keys {
+        forwards.serving(*key, Weak::new(), jiff::Timestamp::UNIX_EPOCH);
+    }
 }
 
 #[test]
@@ -173,6 +181,7 @@ fn each_outcome_has_its_note_for_the_model() {
 fn the_model_reads_each_outcome_of_a_port_once() {
     let forwards = Forwards::new(Arc::new(TestHostPorts::new()));
     let (j1, j2, other) = (key(1, 1), key(1, 2), key(2, 1));
+    serving(&forwards, &[j1, j2, other]);
     let conversation = j1.conversation;
     assert_eq!(forwards.take_notes(conversation), Vec::<String>::new());
     forwards.tell(j1, "127.0.0.1", 8767, ForwardOutcome::InUse, None, None);
@@ -207,9 +216,36 @@ fn the_model_reads_each_outcome_of_a_port_once() {
 }
 
 #[test]
+fn a_turn_off_keeps_the_stopped_notes_until_the_job_ends() {
+    let forwards = Forwards::new(Arc::new(TestHostPorts::new()));
+    let j1 = key(1, 1);
+    serving(&forwards, &[j1]);
+    assert_eq!(forwards.reserve(j1, 8765), Ok(()));
+    forwards.tell(j1, "127.0.0.1", 8765, ForwardOutcome::Forwarded, None, None);
+    forwards.tell(j1, "127.0.0.1", 8765, ForwardOutcome::Stopped, None, Some("a test"));
+    forwards.release_ports(j1);
+    assert!(!forwards.has_forward_job(j1.conversation), "the routes end");
+    assert_eq!(forwards.reserve(key(2, 1), 8765), Ok(()), "the port is free");
+    assert_eq!(
+        forwards.ports_text(j1).as_deref(),
+        Some("ports 8765 no longer forwarded (a test)"),
+        "the jobs tool shows the last outcome"
+    );
+    let notes = forwards.take_notes(j1.conversation);
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(notes[1].contains("port 8765 is no longer forwarded (a test)"), "{notes:?}");
+    // NOTE: a job whose forwards efrd does not serve keeps no new outcome.
+    forwards.tell(j1, "127.0.0.1", 8766, ForwardOutcome::Stopped, None, Some("a test"));
+    assert_eq!(forwards.take_notes(j1.conversation), Vec::<String>::new());
+    forwards.release_job(j1);
+    assert_eq!(forwards.ports_text(j1), None, "the job's end forgets its outcomes");
+}
+
+#[test]
 fn at_most_64_notes_wait() {
     let forwards = Forwards::new(Arc::new(TestHostPorts::new()));
     let j1 = key(1, 1);
+    serving(&forwards, &[j1]);
     for port in 20_000..20_070 {
         forwards.tell(j1, "127.0.0.1", port, ForwardOutcome::Refused, None, Some("a test"));
     }

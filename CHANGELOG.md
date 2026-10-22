@@ -250,7 +250,9 @@ into the GitHub release notes, and it stops when the section is missing.
   forwarded port, the note gives the URL. For a port that efr does not forward, such as
   a port that a program of yours uses, the note gives the reason and tells the model to
   choose another port. So the model does not give you a URL that opens another server.
-  The model reads each outcome once, and the `jobs` tool shows the outcome of each port.
+  When a reload sets `jobs.forward_ports = false`, the model reads that each port is no
+  longer forwarded. The model reads each outcome once, and the `jobs` tool shows the
+  outcome of each port.
 - Ctrl+B in the turn view moves the agent's running shell call to the background as a
   job, whatever the input row holds. A call in the sandbox moves at once and keeps its
   sandbox. A call that runs outside the sandbox asks one `y/n` question first, because

@@ -43,7 +43,9 @@
 //!   and a note ([`note`]) for the model of the job's conversation, unless the port's
 //!   last outcome was the same. The turn takes the notes before its next model call
 //!   ([`Forwards::take_notes`], `Toolbox::take_notes`), also in the middle of a turn. The
-//!   notes and the outcomes of a job go when its forwards end.
+//!   notes and the outcomes of a job go when the job ends or its forwarder fails. A
+//!   reload that turns forwards off keeps them, so the model reads the `stopped` notes
+//!   ([`Forwards::release_ports`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -247,13 +249,28 @@ impl Forwards {
     /// Frees every port of the job `key`, ends the routes of a call's reach to it, and
     /// forgets its outcomes and the notes about it that wait.
     pub(crate) fn release_job(&self, key: JobKey) {
+        self.free_job(key, true);
+    }
+
+    /// Frees every port of the job `key` and ends the routes of a call's reach to it,
+    /// but keeps its outcomes and its notes: a reload turned forwards off, and the model
+    /// must still read the `stopped` notes. They go when the job ends.
+    pub(crate) fn release_ports(&self, key: JobKey) {
+        self.free_job(key, false);
+    }
+
+    /// Frees every port of the job `key`, and forgets its outcomes and notes when
+    /// `forget` is true.
+    fn free_job(&self, key: JobKey, forget: bool) {
         let changed = {
             let mut held = self.lock();
-            held.told.remove(&key);
-            if let Some(notes) = held.notes.get_mut(&key.conversation) {
-                notes.retain(|(job, _)| *job != key);
-                if notes.is_empty() {
-                    held.notes.remove(&key.conversation);
+            if forget {
+                held.told.remove(&key);
+                if let Some(notes) = held.notes.get_mut(&key.conversation) {
+                    notes.retain(|(job, _)| *job != key);
+                    if notes.is_empty() {
+                        held.notes.remove(&key.conversation);
+                    }
                 }
             }
             let Held { ports, bound, jobs, .. } = &mut *held;
@@ -287,7 +304,8 @@ impl Forwards {
     /// Keeps `outcome` of `port` of the job `key` (a `job_port_forwarded` event of
     /// efrd) for the `jobs` tool, and a note for the model of the job's conversation,
     /// unless the port's last outcome was the same: the model reads each outcome once
-    /// (L2). An outcome that efrd does not know is not kept.
+    /// (L2). An outcome that efrd does not know is not kept, and nothing is kept for a
+    /// job whose forwards efrd does not serve: its end forgot them already.
     pub(crate) fn tell(
         &self,
         key: JobKey,
@@ -302,6 +320,9 @@ impl Forwards {
         let text = port_text(port, outcome, by_job, reason);
         let (Some(note), Some(text)) = (note, text) else { return };
         let mut held = self.lock();
+        if !held.jobs.contains_key(&key) {
+            return;
+        }
         let told = held.told.entry(key).or_default();
         if told.get(&port).is_some_and(|told| told.outcome == outcome) {
             return;
