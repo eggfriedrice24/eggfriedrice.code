@@ -44,9 +44,14 @@ fn systemd_unit_variables_are_removed(#[case] name: &str) {
 #[test]
 fn what_the_plugin_hands_to_efr_never_reaches_a_child() {
     let changes = env_changes(&command("true", "/"));
-    for name in
-        ["EFR_CONTEXT", "EFR_LAST_COMMAND", "EFR_RECENT_COMMANDS", "EFR_PROMPT", "EFR_RESUME_WORDS"]
-    {
+    for name in [
+        "EFR_CONTEXT",
+        "EFR_LAST_COMMAND",
+        "EFR_RECENT_COMMANDS",
+        "EFR_PROMPT",
+        "EFR_RESUME_WORDS",
+        "EFR_QUEUED_PROMPTS",
+    ] {
         assert_eq!(changes.get(name), Some(&None), "{name} is not removed");
     }
 }
