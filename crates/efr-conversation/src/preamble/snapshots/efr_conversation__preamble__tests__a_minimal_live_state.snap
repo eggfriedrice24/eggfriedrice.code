@@ -7,7 +7,7 @@ This block shows the state when the user sent this prompt. Only the newest live_
 The user's shell is in /home/u.
 Commands you run with the shell tool start there in a new hidden shell; the hidden shell keeps its own directory between calls.
 Home: /home/u
-$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; writing there needs no approval except in manual mode)
+$SCRATCH: /home/u/.local/share/efr/scratch/2026-10-04-hello-0a1b2c3d (your own directory for files; the shell sets $SCRATCH to it; writing there needs no approval except in manual mode)
 Permission mode: cautious
 Model: gpt-5.5
 Reasoning effort: the backend's default for the model
