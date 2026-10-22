@@ -86,8 +86,8 @@ across a restart:
 - `search` (migration 9): the search index of the conversations. `search_docs` holds
   one doc per indexed event, keyed by its sequence number: the text of a prompt, a
   steer or an answer, or the command line of a `shell` call; `search_fts` is an FTS5
-  index over it (external content, `unicode61 remove_diacritics 2`, prefix indexes of
-  2 and 3 characters); `search_titles` holds the title of each conversation, from the
+  index over it (external content, `unicode61 remove_diacritics 2`, a prefix index of
+  3 characters, so a search expands no prefix shorter than 3); `search_titles` holds the title of each conversation, from the
   first prompt doc that is not blank; `search_state` holds the cursor and the version
   of the redaction. efrd's indexer fills the tables in the background: `pending`
   reads the next page of source text after the cursor (at most `PAGE_ROWS` texts,
