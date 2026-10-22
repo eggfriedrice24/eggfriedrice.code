@@ -463,6 +463,25 @@ or `systemctl status` would otherwise open `less` there and the run would wait u
 someone quit it. A zsh starts as an interactive login shell (`-l -i`, `login` in the
 config).
 
+`$SCRATCH`: the hidden shell exports `SCRATCH`, the conversation's scratch dir, which
+the model's preamble names. `RunRequest::scratch` carries it (the shell tool sets it
+from the call's context), and `ShellSessions` keeps the last value of each
+conversation. A new shell of the conversation gets `SCRATCH` in its environment: the
+first one, one after a restart, after a move to a background job or after an exit, and
+one that `open` starts for a resume or a job's environment once a run named the dir.
+It replaces a `SCRATCH` of the user's environment (some clusters set one). A zsh with
+the integration also gets `_EFR_HS_SCRATCH`, which the integration reads and unsets
+like the trusted programs, and exports as `SCRATCH` again after the user's startup
+files. A running shell that holds another value or none (one that `open` started
+before efr knew the dir, as for a resumed conversation) gets one line typed at its
+prompt before the run's command: `builtin export SCRATCH=<path>` (`export` in a shell
+without the integration). The line shows on the screen and in the recording, as the
+`cd` of `move_to` does. A busy shell and a sentinel run get no such line; the next run
+tries again. A command that sets `SCRATCH` itself keeps its own value; efr does not
+look at the variable after the shell has it. The launcher sets `SCRATCH` again for a
+contained call and the exit child (efr-sandbox's `EnvFilter`, efr-sbx), so a sandboxed
+call has it also when the shell does not.
+
 Nobody can use an editor on the hidden screen either, so the shell sets `EDITOR`,
 `VISUAL`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`, `SUDO_EDITOR` and `SYSTEMD_EDITOR` to
 the path of `efr-editor` in `ShellConfig::integration_dir` (`assets/efr-editor`, a
@@ -638,7 +657,8 @@ nonce and whether the call is contained or the exit child of an approved exit) o
   that a command leaves behind stays in the shell's process tree.
 - `_EFR_HS_SBX_DIR` (`<ShellConfig::sandbox_dir>/<conversation>`) and `_EFR_HS_SBX_BIN`
   reach a zsh with the integration when the config names both; the integration reads
-  them once and removes them from the environment.
+  them once and removes them from the environment. The `env` file holds `SCRATCH` when
+  the shell exports it, so a background job gets it too.
 
 ## Tier
 

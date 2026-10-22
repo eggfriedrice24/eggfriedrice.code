@@ -51,6 +51,13 @@ builtin zmodload -F zsh/datetime p:EPOCHREALTIME 2>/dev/null
 builtin typeset -gr _efr_hs_sbx_dir=${_EFR_HS_SBX_DIR-}
 builtin typeset -gr _efr_hs_sbx_bin=${_EFR_HS_SBX_BIN-}
 builtin unset _EFR_HS_SBX_DIR _EFR_HS_SBX_BIN
+
+# The conversation's $SCRATCH, from the daemon. The daemon sets SCRATCH too, but the
+# user's startup files may set a SCRATCH of their own (some clusters do), so
+# _efr_hs_init exports this value again after them. Read once and kept out of every
+# child's environment.
+builtin typeset -g _efr_hs_scratch=${_EFR_HS_SCRATCH-}
+builtin unset _EFR_HS_SCRATCH
 # 1 while snapshot.zsh may be older than this shell's functions, aliases and options:
 # from the start, and after every line that efr did not type for a sandboxed call.
 builtin typeset -gi _efr_hs_sbx_stale=1
@@ -454,6 +461,12 @@ _efr_hs_init() {
   # wait. The stub next to this file fails at once and says why. The daemon sets these
   # already; a .zshrc often exports EDITOR=vim.
   builtin export EDITOR=$_efr_hs_editor VISUAL=$_efr_hs_editor GIT_EDITOR=$_efr_hs_editor GIT_SEQUENCE_EDITOR=$_efr_hs_editor SUDO_EDITOR=$_efr_hs_editor SYSTEMD_EDITOR=$_efr_hs_editor
+
+  # $SCRATCH names the conversation's own directory, whatever the user's startup files
+  # set.
+  if [[ -n $_efr_hs_scratch ]]; then
+    builtin export SCRATCH=$_efr_hs_scratch
+  fi
 
   # This hook already runs as a precmd hook, so the first prompt is marked from here.
   _efr_hs_precmd

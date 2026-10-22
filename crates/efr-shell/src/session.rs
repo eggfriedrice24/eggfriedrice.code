@@ -9,7 +9,7 @@
 
 use std::collections::VecDeque;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -1577,6 +1577,10 @@ pub(crate) struct SessionHandle {
     /// The trusted programs the shell's integration read when it started; `None` for a
     /// shell without the integration, which removes no alias.
     pub(crate) trusted: Option<Arc<[String]>>,
+    /// The `$SCRATCH` that efr gave the shell, in its environment or with a typed
+    /// `export`; `None` before efr gave it one. A command may change the variable
+    /// itself; efr does not look.
+    pub(crate) scratch: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl SessionHandle {
@@ -1591,6 +1595,15 @@ impl SessionHandle {
 
     pub(crate) fn set_size(&self, size: Size) {
         *self.size.lock().unwrap_or_else(PoisonError::into_inner) = size;
+    }
+
+    pub(crate) fn scratch(&self) -> Option<PathBuf> {
+        // A path is replaced whole, so a poisoned lock still holds a valid one.
+        self.scratch.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    pub(crate) fn set_scratch(&self, scratch: &Path) {
+        *self.scratch.lock().unwrap_or_else(PoisonError::into_inner) = Some(scratch.to_path_buf());
     }
 
     pub(crate) async fn send(&self, msg: Msg) -> Result<(), ShellError> {

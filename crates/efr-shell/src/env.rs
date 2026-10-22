@@ -87,12 +87,23 @@ pub(crate) const EDITORS: &[&str] =
 /// `.zshenv`, and removes it from the environment.
 pub(crate) const TRUSTED_PROGRAMS: &str = "_EFR_HS_TRUSTED_PROGRAMS";
 
+/// The conversation's scratch directory, which the model's preamble names: every
+/// command of the hidden shell can write `"$SCRATCH"`. It replaces a value of the user's
+/// own (some clusters set `SCRATCH`).
+pub(crate) const SCRATCH: &str = "SCRATCH";
+
+/// [`SCRATCH`] for a zsh with the integration, which exports it again after the user's
+/// startup files, as it does the pagers, and removes this name from the environment.
+pub(crate) const INTEGRATION_SCRATCH: &str = "_EFR_HS_SCRATCH";
+
 /// The whole environment of a new hidden shell started in `cwd`. `integration` is
-/// true for a zsh that gets the ZDOTDIR shim.
+/// true for a zsh that gets the ZDOTDIR shim. `scratch` is the conversation's
+/// `$SCRATCH` when efr knows it yet.
 pub(crate) fn shell_env(
     config: &ShellConfig,
     cwd: &Path,
     integration: bool,
+    scratch: Option<&Path>,
 ) -> BTreeMap<String, String> {
     let mut env: BTreeMap<String, String> = config
         .base_env
@@ -122,6 +133,13 @@ pub(crate) fn shell_env(
     let editor = editor.to_string_lossy();
     for name in EDITORS {
         env.insert((*name).to_owned(), editor.clone().into_owned());
+    }
+    if let Some(scratch) = scratch {
+        let scratch = scratch.to_string_lossy().into_owned();
+        if integration {
+            env.insert(INTEGRATION_SCRATCH.to_owned(), scratch.clone());
+        }
+        env.insert(SCRATCH.to_owned(), scratch);
     }
     env
 }

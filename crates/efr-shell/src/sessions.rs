@@ -76,6 +76,9 @@ struct Inner {
     /// Where the next shell of a conversation starts: the directory of its shell that a
     /// job adopted.
     restarts: Mutex<HashMap<ConversationId, PathBuf>>,
+    /// The `$SCRATCH` of each conversation, from its last run that named one: every
+    /// new shell of the conversation gets it in its environment.
+    scratches: Mutex<HashMap<ConversationId, PathBuf>>,
 }
 
 /// A run that takes a move request: it registers when it starts, and its registration
@@ -186,6 +189,7 @@ impl ShellSessions {
                 next_run: AtomicU64::new(0),
                 moves: Mutex::new(HashMap::new()),
                 restarts: Mutex::new(HashMap::new()),
+                scratches: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -281,15 +285,64 @@ impl ShellSessions {
     /// [`RunProgress::can_answer_hidden`](crate::RunProgress::can_answer_hidden) says
     /// that nobody can answer, the run interrupts the command and returns
     /// [`Completion::Unanswered`] at once.
+    ///
+    /// A request that names the conversation's `$SCRATCH` makes the shell export it as
+    /// `SCRATCH`: a new shell gets it in its environment, and a running shell that
+    /// holds another value, or none, gets `export SCRATCH=...` typed at its prompt
+    /// first (see [`RunRequest::scratch`]).
     pub async fn run_command(
         &self,
         conversation: ConversationId,
         request: RunRequest,
         progress: &mut dyn RunProgress,
     ) -> Result<CommandResult, ShellError> {
+        if let Some(scratch) = &request.scratch {
+            self.inner
+                .scratches
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(conversation, scratch.clone());
+        }
         let (session, _) = self.session(conversation, &request.start_dir).await?;
         let session = self.current(session).await?;
+        if request.mode != RunMode::Sentinel
+            && let Some(scratch) = &request.scratch
+        {
+            self.export_scratch(&session, scratch, &request.start_dir).await;
+        }
         self.run_on(&session, request, progress).await
+    }
+
+    /// Types `export SCRATCH=...` into `session` when it holds another `$SCRATCH` than
+    /// `scratch`, or none: a shell that started before efr knew the conversation's
+    /// directory (a resumed conversation's shell starts before its turn), or with
+    /// another one. A busy shell or one that does not take the line keeps what it has,
+    /// and the next run tries again.
+    async fn export_scratch(&self, session: &SessionHandle, scratch: &Path, start_dir: &Path) {
+        if session.scratch().as_deref() == Some(scratch) {
+            return;
+        }
+        let Some(path) = scratch.to_str() else { return };
+        match session.state().await {
+            Ok(state) if !state.is_busy() => {}
+            _ => return,
+        }
+        // NOTE: `builtin` keeps a function named `export` out of it; only zsh and bash
+        // know the word, and efr gives the integration only to zsh.
+        let export = if session.trusted.is_some() { "builtin export" } else { "export" };
+        let mut request =
+            RunRequest::new(format!("{export} SCRATCH={}", sentinel::quote(path)), start_dir);
+        request.timeout = MOVE_TIMEOUT;
+        let conversation = session.conversation;
+        match self.run_on(session, request, &mut NoProgress).await {
+            Ok(result) if result.exit_code == Some(0) => session.set_scratch(scratch),
+            Ok(result) => {
+                tracing::info!(%conversation, exit_code = ?result.exit_code, "the hidden shell did not take its $SCRATCH");
+            }
+            Err(error) => {
+                tracing::info!(%conversation, %error, "the hidden shell did not take its $SCRATCH");
+            }
+        }
     }
 
     /// `session`, or a new shell in its directory when it started with trusted
@@ -721,13 +774,19 @@ impl ShellSessions {
         config.login = start.login;
         config.trusted_programs = start.trusted_programs.to_vec();
         make_shell_dir(&config, conversation, start.integration).await;
+        let scratch = inner
+            .scratches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&conversation)
+            .cloned();
         let pty_id = PtyId::from_uuid(efr_stdx::id::uuid_v7(&*inner.deps.clock, &*inner.deps.rng));
         // NOTE: the shell is a child subreaper, so a process that a command leaves
         // behind after a double fork or `setsid` stays in the shell's process tree,
         // where the daemon's peer check finds it (efr's auto spec, 2.2 and 13.5).
         let spec = SpawnSpec::new(pty_id, &start.program, start_dir, config.size)
             .args(integration::args(start.login))
-            .vars(env::shell_env(&config, start_dir, start.integration))
+            .vars(env::shell_env(&config, start_dir, start.integration, scratch.as_deref()))
             .vars(env::sandbox_env(&config, conversation, start.integration))
             .child_subreaper(true);
         let PtyHandle { master, child_pid, .. } = inner
@@ -739,6 +798,9 @@ impl ShellSessions {
         let trusted = start.integration.then(|| Arc::clone(&start.trusted_programs));
         match self.launch(conversation, pty_id, child_pid, master, start_dir, trusted) {
             Ok(session) => {
+                if let Some(scratch) = &scratch {
+                    session.set_scratch(scratch);
+                }
                 tracing::info!(%conversation, %pty_id, pid = child_pid, "hidden shell started");
                 inner.deps.observer.notice(ShellNotice::Started {
                     conversation,
@@ -831,6 +893,7 @@ impl ShellSessions {
             left: lefts,
             size: Arc::new(Mutex::new(inner.config.size)),
             trusted,
+            scratch: Arc::new(Mutex::new(None)),
         })
     }
 

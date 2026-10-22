@@ -204,6 +204,31 @@ async fn cwd_in_private_tmp_persists() {
 }
 
 #[tokio::test]
+async fn scratch_names_the_conversations_scratch_contained_and_in_the_exit_child() {
+    let Some(sbx) =
+        Launcher::start("scratch_names_the_conversations_scratch_contained_and_in_the_exit_child")
+            .await
+    else {
+        return;
+    };
+    let scratch = sbx.zsh.dir("d/scratch/conversation");
+    let line = "print -r -- \"$SCRATCH\"; cd \"$SCRATCH\" && print -r -- made > made";
+    // The launcher sets it, also when the trusted shell holds none yet.
+    let contained = sbx.contained(1, line).await;
+    assert_eq!(contained.output, format!("{}\n", scratch.display()), "{contained:?}");
+    assert_eq!(std::fs::read_to_string(scratch.join("made")).unwrap(), "made\n");
+    std::fs::remove_file(scratch.join("made")).unwrap();
+
+    let run = sbx.prepare(2, SpecLaunch::Unsandboxed);
+    let request = sbx.request(&run, line).with_scratch(&scratch);
+    let exit =
+        sbx.zsh.sessions.run_command(sbx.zsh.conversation, request, &mut NoProgress).await.unwrap();
+    assert_eq!(exit.output, format!("{}\n", scratch.display()), "{exit:?}");
+    assert_eq!(std::fs::read_to_string(scratch.join("made")).unwrap(), "made\n");
+    assert_eq!(sbx.plain("print -r -- \"$SCRATCH\"").await.output, exit.output);
+}
+
+#[tokio::test]
 async fn cwd_under_host_tmp_starts_in_scratch() {
     let Some(sbx) = Launcher::start("cwd_under_host_tmp_starts_in_scratch").await else {
         return;

@@ -1287,6 +1287,7 @@ async fn a_run_whose_shell_goes_away_while_it_waits_reports_no_wait_last() {
         left: watch::channel(None).1,
         size: Arc::new(Mutex::new(SIZE)),
         trusted: None,
+        scratch: Arc::new(Mutex::new(None)),
     };
     let (mut listener, mut heard) = listener(true);
     let sessions = harness.sessions.clone();
