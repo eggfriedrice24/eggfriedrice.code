@@ -1,0 +1,20 @@
+---
+source: crates/efr-cli/src/picker/tests.rs
+expression: "args().join(\"\\n\").replace('\\t', \"<TAB>\")"
+---
+--height=40%
+--min-height=15
+--layout=reverse
+--no-mouse
+--disabled
+--ansi
+--delimiter=<TAB>
+--with-nth=2..
+--header-lines=1
+--prompt=resume> 
+--expect=ctrl-o,esc
+--bind=load:refresh-preview
+--bind=change:first+reload-sync:exec '/home/user/my bin/it'\''s/efr' search --picker --tty '/dev/pts/7'
+--preview=exec '/home/user/my bin/it'\''s/efr' search --preview {1} --tty '/dev/pts/7'
+--preview-window=right,50%,border-left,<50(down,50%,border-top)
+--color=16,fg:-1

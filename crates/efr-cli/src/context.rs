@@ -28,6 +28,7 @@ use zeroize::Zeroizing;
 
 use crate::error::CliError;
 use crate::keys::{Keys, TtyKeys};
+use crate::picker::{Picker, ProcessFzf};
 use crate::quit::{CtrlBackslash, Quit};
 use crate::settings::Settings;
 use crate::terminal::{self, Screen, StdoutScreen, TermFacts};
@@ -295,6 +296,8 @@ pub(crate) struct Context {
     /// The width of fzf's preview window, from `FZF_PREVIEW_COLUMNS`, for
     /// `efr search --preview`; `None` when it is unset or not a width.
     pub(crate) preview_columns: Option<u16>,
+    /// The fzf picker of `efr resume`: fzf on the `PATH`, or a script in the tests.
+    pub(crate) picker: Arc<dyn Picker>,
 }
 
 impl Context {
@@ -322,13 +325,17 @@ impl Context {
             .filter_map(std::env::var_os)
             .filter_map(|value| value.into_string().ok())
             .find(|value| !value.trim().is_empty());
+        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+        // NOTE: PATH is a POSIX convention, not an efr setting; efr walks it only to
+        // find fzf for the picker of `,resume`.
+        let picker = Arc::new(ProcessFzf::new(std::env::var_os("PATH"), Arc::clone(&clock)));
         Ok(Context {
             dirs,
             sources,
             env,
             editor,
             settings,
-            clock: Arc::new(SystemClock),
+            clock,
             time_zone: TimeZone::system(),
             rng: Arc::new(rng),
             screen: Arc::new(StdoutScreen),
@@ -356,6 +363,7 @@ impl Context {
                 .and_then(|value| value.into_string().ok())
                 .and_then(|value| value.trim().parse().ok())
                 .filter(|columns| *columns > 0),
+            picker,
             term,
         })
     }

@@ -184,6 +184,10 @@ pub(crate) enum CliError {
     )]
     ResumeNeedsTerminal,
 
+    /// `efr resume --take` came without N or a conversation to move.
+    #[error("efr resume --take needs N or a conversation id")]
+    ResumeTakeWithoutTarget,
+
     /// `efr search` came without words to find.
     #[error("efr search needs the words to find")]
     SearchWithoutWords,
@@ -403,6 +407,7 @@ impl CliError {
             | CliError::NoResumeRow { .. }
             | CliError::ResumeAmbiguous { .. }
             | CliError::ResumeNeedsTerminal
+            | CliError::ResumeTakeWithoutTarget
             | CliError::SearchWithoutWords
             | CliError::QueryTooLong { .. }
             | CliError::QueryTooManyWords { .. }

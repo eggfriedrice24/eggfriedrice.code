@@ -434,8 +434,18 @@ into the GitHub release notes, and it stops when the section is missing.
   details.
 - `efr search <words>` prints the conversations that match, best first, with the
   matching text.
+- `,resume` opens a live search picker when fzf 0.46 or newer is installed (an optional
+  program, as bubblewrap is). It shows below the command line, never full screen, and
+  clears itself when it closes. Type to search the titles and the text of your
+  conversations; the preview shows the matching lines. Enter continues the conversation
+  here, Ctrl-O prints it like `efr history`, Esc closes. Without fzf, `,resume` shows the
+  numbered list as before. `[resume] picker = "list"` turns the picker off.
 
 ### Changed
+
+- `,resume <words>` now searches when the words are not a number or a conversation id.
+  The picker opens with the words as its query; without fzf, the best matches print.
+  The words never show in the process list.
 
 - In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it moves
   the running shell call to the background. The Left arrow still moves the cursor back.

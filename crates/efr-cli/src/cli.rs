@@ -53,13 +53,18 @@ pub(crate) enum Command {
     Status,
     /// List recent conversations, or show the events of one.
     History(HistoryArgs),
-    /// List the recent conversations, or make one this terminal's conversation again.
+    /// Find a recent conversation, or make one this terminal's conversation again.
     ///
-    /// Without an argument it lists them, the ones of the current project first, with
-    /// their number, title, project, age and turns. With N (one or two digits) or an id
-    /// (or at least 4 characters of one), the next prompt in that conversation's project
-    /// continues it, its hidden shell starts in its last directory and its jobs report
-    /// here. When another open terminal holds it, efr asks first.
+    /// Without an argument it opens a live search picker in fzf, below the command line,
+    /// when fzf 0.46 or newer is installed: type to search the titles and the text of
+    /// your conversations; Enter continues one here, Ctrl-O prints it, Esc closes.
+    /// Without fzf it lists the recent conversations, the ones of the current project
+    /// first, with their number, title, project, age and turns. With N (one or two
+    /// digits) or an id (or at least 4 characters of one), the next prompt in that
+    /// conversation's project continues it, its hidden shell starts in its last
+    /// directory and its jobs report here. When another open terminal holds it, efr
+    /// asks first. Other words search: the picker opens with them, or without fzf the
+    /// best matches print.
     Resume(ResumeArgs),
     /// Find the conversations whose titles or text match some words, best first.
     ///
@@ -311,14 +316,15 @@ pub(crate) struct HistoryArgs {
 /// The arguments of `efr resume`.
 #[derive(Debug, Args)]
 pub(crate) struct ResumeArgs {
-    /// N, the number of a row of the list, or a conversation: its id, or the start of
-    /// it. Without it, the list.
-    #[arg(value_name = "N|CONVERSATION")]
-    pub(crate) conversation: Option<String>,
+    /// N, the number of a row of the list; a conversation: its id, or the start of it;
+    /// or words to search for. Without them, the picker or the list. Words on the
+    /// command line show in the process list; the words of ,resume stay out of it.
+    #[arg(value_name = "N|CONVERSATION|WORDS")]
+    pub(crate) words: Vec<String>,
 
-    /// Move the conversation here also when another open terminal holds it, with no
-    /// question.
-    #[arg(long, requires = "conversation")]
+    /// Move the conversation of N or an id here also when another open terminal holds
+    /// it, with no question.
+    #[arg(long)]
     pub(crate) take: bool,
 }
 

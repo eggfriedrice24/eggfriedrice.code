@@ -11,6 +11,7 @@
 //!   input; `row`: the line of the input row; `draft`: its text back to the shell;
 //!   `quit`: `Ctrl+\`, which opens an answer line for a silent command; `terminal`: the
 //!   terminal facts and size.
+//! - `picker`: the fzf picker of `,resume`, inline below the command line.
 //! - `context`: what every command runs with; `settings`: the `[render]` table and the
 //!   turn defaults of `config.toml`, and the checks of `efr config`; `turn_settings`:
 //!   the mode, model and effort a command asks for; `format`: the CLI's own lines;
@@ -36,6 +37,7 @@ mod format;
 mod keys;
 mod live;
 mod output;
+mod picker;
 mod progress;
 mod quit;
 mod row;
