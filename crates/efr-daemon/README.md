@@ -1390,7 +1390,10 @@ its own (`search_apply`, `search_reset`, `search_merge`).
   next page. After a round of more than one page, it merges the segments of the index
   (64 leaves at a time) until a merge does no work.
 - **Failures.** A text whose rules panic gives no doc; the task logs its sequence
-  number at `warn`, never its text, and goes on. A store error waits 1 s, then twice as
+  number at `warn`, never its text, and goes on. A panic message can quote its text,
+  so the rules, the reads of the index and each search run inside
+  `efr_stdx::panic::quiet`, and the hook that efrd installs at its start
+  (`install_quiet_hook`) writes only the thread and the place of such a panic. A store error waits 1 s, then twice as
   long each time up to 60 s, with one `warn` line each time; a success ends the backoff.
   efrd's stop ends the task at the next row of a page, and a page cut short is not
   written.

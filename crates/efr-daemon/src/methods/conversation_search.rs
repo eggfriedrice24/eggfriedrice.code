@@ -31,9 +31,13 @@ pub(crate) async fn handle(
     let limit = page_size(limit, DEFAULT_HITS, MAX_HITS);
     let query_chars = query.chars().count();
     let mut run = Run::start(state);
-    // NOTE: the limits of a query fail before the search takes a lane.
-    search::check_query(&query).map_err(search_error)?;
-    let terms = search::query::parse(&query).map_or(0, |parsed| parsed.terms.len());
+    // NOTE: the limits of a query fail before the search takes a lane. A panic message
+    // could quote the query; inside `quiet` efrd's hook shows none.
+    let terms = efr_stdx::panic::quiet(|| {
+        search::check_query(&query)?;
+        Ok(search::query::parse(&query).map_or(0, |parsed| parsed.terms.len()))
+    })
+    .map_err(search_error)?;
     let stop = run.stop();
     let started = run.started();
     let lane_stop = stop.clone();

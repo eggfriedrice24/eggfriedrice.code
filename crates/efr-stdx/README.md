@@ -36,6 +36,11 @@ Modules, in the order of the milestone 1 file map:
   draws nothing or turns the text around it; efr shows a stand-in for it in each
   command, path and model text on the user's screen.
 - `thread`: `spawn_named(name, stack_size, f)`, a named std thread.
+- `panic`: `quiet(f)` runs `f` with the panic message hidden on its thread, and
+  `install_quiet_hook()` puts a hook before the current one that, inside `quiet`,
+  writes only the thread and the place of a panic. A panic message can quote its text,
+  so code that holds a secret before its redaction or a search query runs inside
+  `quiet`.
 - `id`: `uuid_v7(clock, rng)`, a version 7 UUID whose time and random bits both come
   from the injected `Clock` and `Rng`.
 

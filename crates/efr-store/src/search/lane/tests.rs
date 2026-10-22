@@ -324,6 +324,19 @@ async fn in_memory_store_never_interrupts() {
 }
 
 #[tokio::test]
+async fn searches_and_index_reads_hide_a_panic_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let (path, writer, _thread) = file_store(dir.path());
+    let quiet = |_: &Connection| Ok(efr_stdx::panic::is_quiet());
+    let file = SearchLanes::open(&path, Arc::new(NoWait));
+    assert!(file.with(&SearchStop::new(), WAIT, quiet).await.unwrap());
+    assert!(IndexReader::open(&path).with(quiet).await.unwrap());
+    let memory = SearchLanes::through_writer(writer.clone(), Arc::new(NoWait));
+    assert!(memory.with(&SearchStop::new(), WAIT, quiet).await.unwrap());
+    assert!(IndexReader::through_writer(writer).with(quiet).await.unwrap());
+}
+
+#[tokio::test]
 async fn lanes_set_a_small_page_cache() {
     let dir = tempfile::tempdir().unwrap();
     let (path, _writer, _thread) = file_store(dir.path());

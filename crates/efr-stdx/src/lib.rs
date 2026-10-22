@@ -21,6 +21,7 @@ pub mod env;
 mod error;
 pub mod fs;
 pub mod id;
+pub mod panic;
 pub mod paths;
 pub mod process;
 pub mod rng;

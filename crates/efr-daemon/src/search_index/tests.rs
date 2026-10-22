@@ -426,6 +426,7 @@ async fn panicking_row_is_skipped() {
     harness.append(log.turn(conversation, true, ["first prompt", "boom", "ls"])).await;
     harness.append(log.turn(conversation, false, ["second prompt", "fine", "pwd"])).await;
     let rules: Rules = Arc::new(|kind, text| {
+        assert!(efr_stdx::panic::is_quiet(), "a panic here hides its message");
         assert!(text != "boom", "a test rule that fails");
         index_text(kind, text)
     });

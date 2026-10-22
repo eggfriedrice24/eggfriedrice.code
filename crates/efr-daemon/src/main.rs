@@ -49,6 +49,9 @@ fn main() -> ExitCode {
 }
 
 fn daemon(args: Args) -> anyhow::Result<()> {
+    // A panic inside the text rules of the search index or a search would quote a
+    // secret or a query; this hook hides the message there.
+    efr_stdx::panic::install_quiet_hook();
     if args.test_seams {
         let seams = if efr_daemon::TEST_SEAMS { "on\n" } else { "off\n" };
         std::io::stdout().write_all(seams.as_bytes())?;

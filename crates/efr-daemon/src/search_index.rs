@@ -498,7 +498,11 @@ impl<S: IndexStore> Indexer<S> {
                 if stop.is_cancelled() {
                     return None;
                 }
-                let text = panic::catch_unwind(AssertUnwindSafe(|| rules(row.kind, &row.text)));
+                // NOTE: a panic message could quote the text, which is not redacted yet;
+                // inside `quiet` efrd's hook shows none.
+                let text = panic::catch_unwind(AssertUnwindSafe(|| {
+                    efr_stdx::panic::quiet(|| rules(row.kind, &row.text))
+                }));
                 match text {
                     Ok(Some(text)) => docs.push(SourceRow { text, ..row }),
                     Ok(None) => {}
