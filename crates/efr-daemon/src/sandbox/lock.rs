@@ -32,13 +32,20 @@ pub(crate) struct PlanGuard {
 
 impl PlanLocks {
     /// Takes the lock of each root in `roots`, in the order of their paths, so two
-    /// plans that share roots never wait for each other in a circle.
+    /// plans that share roots never wait for each other in a circle. A root is keyed by
+    /// its real path, so a root named through a link and direct is one lock; a root
+    /// that has no real path keeps the path as given.
     pub(crate) async fn lock(&self, roots: &[PathBuf]) -> PlanGuard {
-        let mut sorted: Vec<&PathBuf> = roots.iter().collect();
+        // NOTE: the real path costs a few small lookups, so it runs here on the worker,
+        // as efrd's other lookups of a real path do.
+        let mut sorted: Vec<PathBuf> = roots
+            .iter()
+            .map(|root| std::fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
+            .collect();
         sorted.sort();
         sorted.dedup();
         let mut held = Vec::with_capacity(sorted.len());
-        for root in sorted {
+        for root in &sorted {
             let semaphore = self.semaphore(root);
             // NOTE: the semaphores are never closed, so the acquire cannot fail; a
             // failure would only cost this one lock.
