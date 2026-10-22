@@ -1,0 +1,167 @@
+# Builds the docs site with mdBook and deploys it to GitHub Pages at
+# https://eggfriedrice24.github.io/eggfriedrice.code/.
+#
+# The root of the site is the book of the newest stable release tag, so the pages
+# match what users installed; its title shows the version ("efr 0.0.5"). The book of
+# main goes to /unreleased/ as a preview, with the title "efr (unreleased)". The site
+# starts with the first stable tag that has book/book.toml: until then a run deploys
+# nothing and says so.
+#
+# Triggers:
+#   - workflow_dispatch with the tag to publish (empty means the newest stable tag).
+#     release.yml uses this path as its last step, because a release created with
+#     GITHUB_TOKEN fires no release event for other workflows.
+#   - push to main that changes the docs: the same tag again, and the new preview.
+#
+# Why it cannot leak a secret:
+#   - It names no secret. The build job's token can only read the contents, and
+#     checkout does not keep it (persist-credentials: false).
+#   - There is no pull_request trigger, so code of a fork never runs here. Pull
+#     requests run only the docs job of ci.yml, which has no Pages rights.
+#   - The deploy job has only pages: write and id-token: write, runs no code of the
+#     repository and takes only the uploaded site.
+#   - The site holds only the rendered pages and the files of docs/ that are not
+#     Markdown; the build lists those. mdBook runs with no preprocessor and no extra
+#     backend, so no code of the repository runs in the build.
+#
+# One-time setup by hand: Settings, Pages, Source "GitHub Actions"; then restrict
+# the github-pages environment to the branch main.
+
+name: pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The stable tag to publish, such as v0.0.5; empty means the newest"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "book/**"
+      - "ARCHITECTURE.md"
+      - "CONVENTIONS.md"
+      - "CHANGELOG.md"
+      - ".github/workflows/pages.yml"
+
+permissions: {}
+
+# One deploy at a time; a new run waits and never cancels a deploy in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      deploy: ${{ steps.tag.outputs.deploy }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-}"
+          if [[ -n "$tag" ]]; then
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::'${tag}' is not a stable tag such as v0.0.5"
+              exit 1
+            fi
+            if ! git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
+              echo "::error::the tag ${tag} does not exist"
+              exit 1
+            fi
+            if ! git cat-file -e "${tag}:book/book.toml" 2>/dev/null; then
+              echo "::error::the tag ${tag} has no book/book.toml, so it has no docs site"
+              exit 1
+            fi
+          else
+            tag="$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
+            if [[ -z "$tag" ]] || ! git cat-file -e "${tag}:book/book.toml" 2>/dev/null; then
+              echo "::notice::the newest stable tag (${tag:-none}) has no book/book.toml; the site starts with the first release that has it; nothing to deploy"
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
+          echo "publishing the docs of ${tag}"
+
+      # The mdBook version of the docs job of ci.yml.
+      - if: steps.tag.outputs.deploy == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.4
+
+      # The book of the tag, from a worktree of it, is the root of the site.
+      - name: Build the book of the tag
+        if: steps.tag.outputs.deploy == 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          MDBOOK_BOOK__TITLE: efr ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          git worktree add --detach "$RUNNER_TEMP/release" "$TAG"
+          mdbook build "$RUNNER_TEMP/release/book" --dest-dir "$RUNNER_TEMP/site"
+
+      # The book of this commit of main goes below the root, after the root is built.
+      - name: Build the preview of main
+        if: steps.tag.outputs.deploy == 'true'
+        env:
+          MDBOOK_BOOK__TITLE: efr (unreleased)
+          MDBOOK_OUTPUT__HTML__SITE_URL: /eggfriedrice.code/unreleased/
+        run: |
+          set -euo pipefail
+          mdbook build book --dest-dir "$RUNNER_TEMP/site/unreleased"
+
+      # A review aid: the files of the site that are not rendered pages come from the
+      # files of docs/ that are not Markdown.
+      - name: List the static files of docs/
+        if: steps.tag.outputs.deploy == 'true'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Static files of docs/"
+            echo
+            echo "The tag ${TAG}:"
+            git -C "$RUNNER_TEMP/release" ls-files docs | grep -v '\.md$' | sed 's/^/- /' || true
+            echo
+            echo "main (/unreleased/):"
+            git ls-files docs | grep -v '\.md$' | sed 's/^/- /' || true
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.tag.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
