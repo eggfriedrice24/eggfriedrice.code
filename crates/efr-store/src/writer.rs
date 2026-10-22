@@ -17,6 +17,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
+use crate::search::{self, SearchApplied, SearchPage};
 use crate::{StoreError, events, projection, reader, receipts, sql, turn_messages};
 
 mod batch;
@@ -154,6 +155,49 @@ impl WriterHandle {
     /// writer built event by event; this is how a projection bug is repaired.
     pub async fn rebuild_projections(&self) -> Result<(), StoreError> {
         self.run(|state| state.write(|tx, _at| projection::rebuild(tx))).await
+    }
+
+    /// Writes one page of the search indexer in one transaction: its docs, the title of
+    /// each conversation whose first prompt is among them (the first line of that
+    /// prompt's doc that is not blank), its drops, and the cursor at `page.through`. A
+    /// dropped prompt that named its conversation passes the title to the oldest prompt
+    /// doc that remains. Answers [`SearchApplied::Stale`] and writes nothing when the
+    /// cursor or the redaction of the index differ from the page's.
+    ///
+    /// After the commit, when the write-ahead log holds more than 500 frames that no
+    /// checkpoint copied, the same job runs a passive checkpoint, so that the
+    /// checkpoint lands on search work and not on a turn's commit.
+    pub async fn search_apply(&self, page: SearchPage) -> Result<SearchApplied, StoreError> {
+        self.run(move |state| {
+            let applied = state.write(|tx, _at| search::apply(tx, &page))?;
+            search::checkpoint_if_large(&state.conn);
+            Ok(applied)
+        })
+        .await
+    }
+
+    /// Empties the search index and sets its cursor to the start with the redaction
+    /// version `redaction`, so the indexer fills it again from the log. The file does
+    /// not get smaller; SQLite uses the free pages again.
+    pub async fn search_reset(&self, redaction: u32) -> Result<(), StoreError> {
+        self.run(move |state| {
+            state.write(|tx, _at| search::reset(tx, redaction))?;
+            search::checkpoint_if_large(&state.conn);
+            Ok(())
+        })
+        .await
+    }
+
+    /// One step of merging the segments of the search index toward one, writing about
+    /// `pages` pages; true when it did work. The indexer runs it after a backfill
+    /// until it answers false.
+    pub async fn search_merge(&self, pages: u32) -> Result<bool, StoreError> {
+        self.run(move |state| {
+            let worked = state.write(|tx, _at| search::merge(tx, pages))?;
+            search::checkpoint_if_large(&state.conn);
+            Ok(worked)
+        })
+        .await
     }
 
     /// Runs a read on the writer's connection with `query_only` set, for an in-memory
