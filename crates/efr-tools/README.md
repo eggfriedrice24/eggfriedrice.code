@@ -46,7 +46,8 @@ the model's `efr_provider::ModelInfo::edit_tool` names.
   and 256 KiB, then `... N more lines`) with the counts of added and removed lines; a
   file that held bytes that are not UTF-8 text is `binary` and gets no diff.
 - `ToolContext`: the call's ids (`CallIds`), the user's working directory, where the
-  hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH`, the scope, the origin,
+  hidden shell is now (`shell_cwd`, when one runs), `$SCRATCH` (which the shell tool
+  puts on the run, so the hidden shell exports it as `SCRATCH`), the scope, the origin,
   the home directory (`efr_scope::Home`), the clock, the write journal,
   `forget_credentials`, which the shell tool passes on to the run so the hidden shell
   forgets sudo's credentials after the call (`shell.sudo_cache = "per_call"`, and
