@@ -694,6 +694,43 @@ The design:
    this, because without the marker the model can answer that turn's prompt. A steer
    that an interrupt sends again as a prompt follows the marker.
 
+## The index redaction
+
+efrd's search index keeps the user's prompts, the model's answers and the commands
+that the agent ran. Before a text goes into it, efrd passes it through
+`redact_for_index` (`index_text.rs`). That function replaces each secret that it
+recognises with `[***]`. The marker has no letter or digit, so the tokenizer of the
+index makes no word of it, and a search for `redacted` cannot list the places where a
+secret was.
+
+It runs two passes:
+
+1. A pass over the whole text, for the index only: a PEM block of a private key
+   (`-----BEGIN ... PRIVATE KEY-----` to its `-----END ...-----`, or to the end of the
+   text when the cut of the index removed that line), and the value of a secret in
+   config text: a line that starts with a name and `: ` (YAML) or `=` with a blank on
+   either side (TOML, INI), and a JSON pair `"name": value` anywhere in a line. The
+   name must look like a secret, by the rule of the preamble (`secret_name`).
+2. The line redaction of the preamble (`preamble/secrets.rs`) on each line, with the
+   marker `[***]` in place of `[redacted]` (`redact_with`). The preamble keeps
+   `redact`, byte for byte as before.
+
+It cannot recognise every secret. A password in prose ("my password is hunter2"), a
+key of only lower case hex, a YAML value on the line after its name and a webhook URL
+with a lower case path stay. The tests list these misses (`index_text/tests.rs`).
+
+A change of the patterns of `preamble/secrets.rs` or of `index_text.rs` must increase
+`REDACTION_VERSION`. efrd keeps the version in the index and, when it differs, clears
+the index and builds it again from the event log: each increase costs a full backfill.
+The file does not get smaller. The snapshot test `redaction_corpus_is_stable` shows
+the version on its first line, above the redaction of a fixed corpus of 100 lines, so
+a reviewer sees a change of the output next to the version.
+
+The loops of the line redaction are linear: a key is read only at the start of a word,
+and the value of an assignment only for a secret name. A text of 33 KiB of one
+repeated pattern costs a few milliseconds at most (efrd's bench
+`bench_search_redaction_worst`).
+
 ## Context
 
 This section is the contract of context management: the accounting, the guards, the
@@ -1274,7 +1311,9 @@ not offer are covered by table tests (`unoffered/tests.rs`) and by turns that mo
 way and back (`turn/tests/tools.rs`), each request a byte prefix of the next. The
 preamble is covered by insta snapshots, and the redaction of the last command by table
 tests with the lines that must change and the lines that must stay
-(`preamble/secrets/tests.rs`, and the shell words in `preamble/secrets/words/tests.rs`);
+(`preamble/secrets/tests.rs`, and the shell words in `preamble/secrets/words/tests.rs`).
+The index redaction has table tests of each form it recognises, of the text that
+stays and of its known misses (`index_text/tests.rs`).
 `append_only.rs` checks that a redacted prompt goes again, byte for byte from the
 store, after a restart. The append-only test (`turn/tests/append_only.rs`) runs
 64 turns against a model that keeps every request (`testing::Recorder`), with tool

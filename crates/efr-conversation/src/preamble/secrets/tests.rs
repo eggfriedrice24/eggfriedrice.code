@@ -622,11 +622,13 @@ const REDACTION_CORPUS: &[&str] = &[
     "notify-send done",
 ];
 
-/// The redaction of the fixed corpus, line by line.
+/// The redaction of the fixed corpus, line by line, under the version of the index
+/// redaction: a change of the output that keeps the version is a missing increase of
+/// `REDACTION_VERSION`.
 #[test]
 fn redaction_corpus_is_stable() {
     assert_eq!(REDACTION_CORPUS.len(), 100);
-    let mut out = String::new();
+    let mut out = format!("REDACTION_VERSION {}\n", crate::REDACTION_VERSION);
     for line in REDACTION_CORPUS {
         out.push_str(line);
         out.push_str("\n=> ");
