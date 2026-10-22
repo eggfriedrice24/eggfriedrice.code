@@ -394,7 +394,7 @@ async fn escape_exit_cannot_carry_helper() {
 
 /// The first words of the one-command refusal.
 fn efr_permissions_one_command() -> &'static str {
-    "an approved command outside the sandbox must run alone"
+    "a command that must run outside the sandbox must run alone"
 }
 
 #[tokio::test]

@@ -554,9 +554,10 @@ secrets and the network. So efr accepts only a narrow line for it. One simple co
 carries the exit, and every other command of the line must be a read-only helper that
 `cautious` allows, such as `echo`, or a `sudo -k` (also `-K`, `--reset-timestamp`)
 that only forgets the cached password, so `sudo -k; sudo true` asks once.
-`sudo -v && ./helper` gets no question; the model reads "an approved command outside
-the sandbox must run alone; run the other parts in a separate call". The processes of
-such a run stop when the call ends.
+`sudo -v && ./helper` gets no question; the model reads "a command that must run
+outside the sandbox must run alone; run the other parts in a separate call", and you
+see `refused: a command that must run outside the sandbox must run alone`. The
+processes of such a run stop when the call ends.
 
 The question shows the whole line, what leaves the sandbox, and how the call runs:
 

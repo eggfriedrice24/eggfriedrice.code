@@ -100,10 +100,11 @@ pub const REGISTRY_HOSTS: &[(Ecosystem, &[&str])] = &[
     (Ecosystem::Go, Preset::Go.hosts()),
 ];
 
-/// What the model reads, and the user never sees, when a line that would run outside
-/// the sandbox holds more than one command.
-pub const ONE_COMMAND: &str = "an approved command outside the sandbox must run alone; run \
-                               the other parts in a separate call";
+/// What the model reads when a line that would run outside the sandbox holds more than
+/// one command. The user sees its first part, before the `;`, as the refusal. It says
+/// nothing of an approval, because the refusal comes before any question.
+pub const ONE_COMMAND: &str = "a command that must run outside the sandbox must run alone; \
+                               run the other parts in a separate call";
 
 /// Who may approve an exit in `auto` (spec 9.1).
 ///

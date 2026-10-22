@@ -769,6 +769,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - `efr jobs list` no longer shows a job as running after its end. Before, for a short
   time after the end, the list still showed the job as running. The model's `jobs`
   tool had the same fault.
+- A line that holds a command that must run outside the sandbox and other commands is
+  now refused with `refused: a command that must run outside the sandbox must run
+  alone`. Before, the refusal said "an approved command", also when you did not
+  approve anything.
 
 ### Security
 
