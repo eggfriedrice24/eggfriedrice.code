@@ -5,12 +5,12 @@
 
 use std::time::Duration;
 
-use efr_store::Store;
+use efr_store::{SEARCH_CHECKPOINT_FRAMES, Store, WAL_AUTOCHECKPOINT};
 use efr_test_support::{CorpusSize, SearchCorpus, TestClock};
 
 use crate::support::{
     SEED, Shape, append_turn, backfill, corpus_copy, line, merge_all, open, percentiles, report,
-    round, wal_frames_waiting,
+    round, temp_dir, wal_frames_waiting,
 };
 
 /// The disk that the index may use per 1,000 turns of the corpus, the tail included.
@@ -119,11 +119,64 @@ async fn index_disk_fits_its_budget() {
     }
 }
 
+/// Appends turns of a corpus until the write-ahead log holds more than `frames` that
+/// no checkpoint copied.
+async fn append_until(
+    store: &Store,
+    clock: &TestClock,
+    path: &std::path::Path,
+    corpus: &mut SearchCorpus,
+    frames: u32,
+) {
+    for conversation in corpus.by_ref() {
+        for turn in conversation.turns {
+            append_turn(store, clock, conversation.id, turn).await;
+            if wal_frames_waiting(path) > frames {
+                return;
+            }
+        }
+    }
+    panic!("the corpus ended first");
+}
+
+#[tokio::test]
+async fn search_jobs_checkpoint_and_turn_commits_seldom_do() {
+    let dir = temp_dir();
+    let path = dir.path().join("efr.sqlite");
+    let clock = TestClock::new();
+    let store = open(&path, &clock).await;
+    let mut corpus = SearchCorpus::new(CorpusSize::S, SEED);
+
+    // Turn commits run no checkpoint below the writer's size.
+    append_until(&store, &clock, &path, &mut corpus, SEARCH_CHECKPOINT_FRAMES).await;
+    let waiting = wal_frames_waiting(&path);
+    assert!(waiting < WAL_AUTOCHECKPOINT, "{waiting} frames");
+    // A page of the index commits with more than 500 frames in the log, and checkpoints.
+    round(&store).await;
+    assert_eq!(wal_frames_waiting(&path), 0);
+
+    // A merge job that works does the same; the second page made a second segment.
+    append_until(&store, &clock, &path, &mut corpus, SEARCH_CHECKPOINT_FRAMES).await;
+    round(&store).await;
+    append_until(&store, &clock, &path, &mut corpus, SEARCH_CHECKPOINT_FRAMES).await;
+    assert!(store.writer().search_merge(64).await.unwrap());
+    assert_eq!(wal_frames_waiting(&path), 0);
+
+    // Below 500 frames, a search job leaves the log as it is.
+    let conversation = corpus.next().unwrap();
+    append_turn(&store, &clock, conversation.id, conversation.turns[0].clone()).await;
+    let before = wal_frames_waiting(&path);
+    assert!(before > 0 && before < SEARCH_CHECKPOINT_FRAMES, "{before} frames");
+    round(&store).await;
+    assert!(wal_frames_waiting(&path) > before, "no checkpoint");
+    store.close().await;
+}
+
 // NOTE: the max of each bench counts the jobs without a checkpoint of the write-ahead
-// log. SQLite runs that checkpoint in the commit that crosses 1,000 frames, whichever
-// job it is, and it costs more than the budget (about 5 to 18 ms here); a store with no
-// index pays it too, in a turn's commit. Each bench reports those jobs on a line of
-// their own, and the p95 counts every job.
+// log. A search job runs that checkpoint after its commit when the log holds 500
+// frames or more, and it costs more than the budget (about 5 to 18 ms here); a store
+// with no index pays it too, in a turn's commit at 1,000 frames. Each bench reports
+// those jobs on a line of their own, and the p95 counts every job.
 
 /// The writer time of one live round (one turn: 12 docs, about 4 KB).
 const ROUND_P95: Duration = Duration::from_millis(2);

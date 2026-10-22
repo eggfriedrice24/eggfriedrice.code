@@ -17,10 +17,11 @@
 //! back. Nothing else is indexed: no output, no diff, no file contents.
 //!
 //! The index is written only by its own writer jobs. The batch that ends a turn writes
-//! nothing here, so the index adds no work to a turn's commit. The jobs run no
-//! checkpoint of their own: one costs about 4 to 18 ms, longer than the job, so the
-//! write-ahead log keeps SQLite's own checkpoint at 1,000 frames, in whatever commit
-//! crosses it.
+//! nothing here, so the index adds no work to a turn's commit. After the commit of a
+//! job, when the write-ahead log holds
+//! [`SEARCH_CHECKPOINT_FRAMES`](crate::SEARCH_CHECKPOINT_FRAMES) or more, the job runs
+//! SQLite's passive checkpoint, so a turn's commit seldom reaches its own at
+//! [`WAL_AUTOCHECKPOINT`](crate::WAL_AUTOCHECKPOINT) (the plan's DQ45).
 
 use efr_protocol::{ConversationId, Seq};
 use rusqlite::{Connection, OptionalExtension as _, Statement, params};

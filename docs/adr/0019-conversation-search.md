@@ -36,13 +36,14 @@ call.
    that ends a turn writes nothing for the index.
 
 2. **A duty cycle.** A backfill reads many pages. After each page or merge job that
-   leaves more work, the task waits 4 times the time of the job, at least 5 ms, so it
+   leaves more work, the task waits 4 times the time of the job, at least 10 ms, so it
    takes at most a fifth of the writer. While a turn runs, it writes at most one page
    per second. During the pause it already reads and cleans the next page. After a
    backfill of more than one page, it merges the FTS5 segments in steps of 64 leaves,
-   at the same duty, until a step does no work. The search jobs run no checkpoint of
-   their own: a checkpoint costs more than the job. SQLite's own checkpoint at 1,000
-   frames runs in the commit that crosses it, as before.
+   at the same duty, until a step does no work. After the commit of a search job,
+   when the write-ahead log holds 500 frames or more, SQLite runs a passive
+   checkpoint in that job. So the index pays for the checkpoints of what it writes,
+   and a turn's commit seldom reaches its own checkpoint at 1,000 frames.
 
 3. **Only cleaned, redacted text goes in.** The indexed text is the user's prompts and
    steers, the model's answers, and the command lines of `shell` calls without the
@@ -138,11 +139,12 @@ Rejected:
   hunter2", keys of lower case hex only, and a YAML value on the next line. The raw text
   stays in `events`, as before.
 - After the upgrade, a search finds fewer conversations until the backfill ends, about
-  a minute and a half for 20,000 turns.
+  two minutes for 20,000 turns.
 - A lane can stay busy after its answer, at most for one FTS5 step. A fourth search at
   once waits for a lane, and gets `busy` after 200 ms.
-- A turn's commit can still carry a WAL checkpoint, as before the index; the index's
-  writes make one come sooner.
+- A turn's commit can still carry a WAL checkpoint, as before the index, when 1,000
+  frames come between two search jobs. A search job that checkpoints is longer, and a
+  turn's commit that comes during it waits for it.
 - A later delete of a conversation must also delete its `search_docs` rows (each with
   an FTS5 `'delete'`) and its `search_titles` row.
 - Only `efr search <words>` typed by hand keeps the words in its arguments, and its

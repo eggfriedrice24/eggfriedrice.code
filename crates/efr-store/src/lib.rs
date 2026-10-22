@@ -50,4 +50,7 @@ pub use error::StoreError;
 pub use migrations::{MigrationReport, Migrations};
 pub use reader::{DEFAULT_READERS, Readers};
 pub use store::{BACKUP_DIR, DATABASE_FILE, Store, StoreConfig};
-pub use writer::{Batch, Committed, DEFAULT_BROADCAST_CAPACITY, StoreWriter, WriterHandle};
+pub use writer::{
+    Batch, Committed, DEFAULT_BROADCAST_CAPACITY, SEARCH_CHECKPOINT_FRAMES, StoreWriter,
+    WAL_AUTOCHECKPOINT, WriterHandle,
+};
