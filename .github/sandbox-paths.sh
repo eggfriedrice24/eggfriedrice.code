@@ -7,9 +7,9 @@
 # EVENT is the event of the run, BASE the commit to compare HEAD with (the base of a pull
 # request, or the commit before a push). The job runs on a scheduled or a manual run,
 # when there is no usable BASE, and when any changed file can change what the job tests.
-# Only the files below cannot: docs, the CLI and the renderer (the sandbox tests never
-# run `efr`), the Ghostty screen (not in the job's archive), packaging, xtask and lint
-# configs. Every other file, a new one too, runs the job.
+# Only the files below cannot: docs and the docs site, the CLI and the renderer (the
+# sandbox tests never run `efr`), the Ghostty screen (not in the job's archive),
+# packaging, xtask and lint configs. Every other file, a new one too, runs the job.
 set -euo pipefail
 
 event="${1:?EVENT}"
@@ -35,11 +35,11 @@ fi
 while IFS= read -r path; do
     case "$path" in
         CHANGELOG.md | README.md | AGENTS.md | ARCHITECTURE.md | CONVENTIONS.md | LICENSE) ;;
-        docs/* | packaging/* | xtask/*) ;;
+        docs/* | book/* | packaging/* | xtask/*) ;;
         crates/efr-cli/* | crates/efr-render/* | crates/efr-screen-ghostty/*) ;;
         crates/*/README.md) ;;
         typos.toml | rustfmt.toml | clippy.toml | deny.toml | .githooks/*) ;;
-        .github/workflows/aur.yml | .github/workflows/release.yml) ;;
+        .github/workflows/aur.yml | .github/workflows/release.yml | .github/workflows/pages.yml) ;;
         *) decide true "$path can change what the sandbox job tests" ;;
     esac
 done <<<"$changed"
