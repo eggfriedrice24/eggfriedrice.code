@@ -77,7 +77,10 @@ struct Inner {
     /// job adopted.
     restarts: Mutex<HashMap<ConversationId, PathBuf>>,
     /// The `$SCRATCH` of each conversation, from its last run that named one: every
-    /// new shell of the conversation gets it in its environment.
+    /// new shell of the conversation gets it in its environment. An entry stays for the
+    /// life of the daemon, also after `close`: the next shell after an idle close or a
+    /// restart needs it, and efrd deletes no conversation. One path for each
+    /// conversation that ran a command is small.
     scratches: Mutex<HashMap<ConversationId, PathBuf>>,
 }
 
