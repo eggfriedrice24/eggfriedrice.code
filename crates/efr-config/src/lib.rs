@@ -10,6 +10,7 @@
 //!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
 //!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`JobsSettings`],
+//!   [`ResumeSettings`] with [`ResumePicker`],
 //!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
 //!   unknown keys refused,
@@ -87,6 +88,7 @@ pub use tables::render::{
     AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,
     RoleColor,
 };
+pub use tables::resume::{ResumePicker, ResumeSettings};
 pub use tables::sandbox::{
     AskDestructive, DEFAULT_CACHES, DEFAULT_MASK_GLOBS, DEFAULT_PROMOTE_ENV, DEFAULT_REBUILDABLE,
     DEFAULT_SURFACE_FILES, DEFAULT_SYNCED_DIRS, DOWNLOAD_CACHES, SandboxSettings, WriteProjects,

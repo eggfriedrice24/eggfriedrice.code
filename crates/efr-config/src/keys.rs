@@ -15,7 +15,8 @@ use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ContextSettings,
     ConversationSettings, DbusSettings, DiffColors, DiffSettings, JobsSettings, ModelSettings,
     NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings, RenderColors,
-    RenderSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings, UndoSettings,
+    RenderSettings, ResumeSettings, SandboxSettings, Settings, ShellSettings, SnapshotSettings,
+    UndoSettings,
 };
 
 /// Where the JSON schema of the file is published. The first line of the example file
@@ -23,8 +24,8 @@ use crate::{
 pub const SCHEMA_URL: &str = "https://raw.githubusercontent.com/eggfriedrice24/eggfriedrice.code/main/docs/config.schema.json";
 
 /// The keys a change applies to only after the daemon restarts. Every other key of the
-/// daemon applies to the next turn, prompt or tool call; the `render` and `diff` keys
-/// belong to `efr`.
+/// daemon applies to the next turn, prompt or tool call; the `render`, `diff` and
+/// `resume` keys belong to `efr`.
 pub const RESTART_KEYS: &[&str] = &[
     "screen",
     "model.provider",
@@ -121,6 +122,7 @@ fn table_fields(table: &str) -> Option<&'static [&'static str]> {
         "snapshot" => fields::<SnapshotSettings>(),
         "presence" => fields::<PresenceSettings>(),
         "jobs" => fields::<JobsSettings>(),
+        "resume" => fields::<ResumeSettings>(),
         "diff" => fields::<DiffSettings>(),
         "render" => fields::<RenderSettings>(),
         "render.colors" => fields::<RenderColors>(),
@@ -162,7 +164,7 @@ impl Applies {
     pub fn of(key: &str) -> Applies {
         if RESTART_KEYS.contains(&key) {
             Applies::Restart
-        } else if key.starts_with("render.") || key.starts_with("diff.") {
+        } else if ["render.", "diff.", "resume."].iter().any(|table| key.starts_with(table)) {
             Applies::Client
         } else {
             Applies::Live

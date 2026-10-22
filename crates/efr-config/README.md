@@ -13,8 +13,8 @@ Modules:
   `AnthropicSettings` in `tables/anthropic`,
   `PermissionSettings`, `ShellSettings`, `ConversationSettings`, `CompactionSettings`,
   `SandboxSettings`, `DbusSettings`, `ClassifierSettings`, `UndoSettings`, `SnapshotSettings`, `PresenceSettings`,
-  `JobsSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
-  `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `WriteProjects`, `ModelEntry` and the default constants
+  `JobsSettings`, `ResumeSettings`, `RenderSettings`) with `deny_unknown_fields` and the defaults in its `Default`, plus
+  `ScreenChoice`, `SudoCache`, `CacheTtlChoice`, `ResumePicker`, `WriteProjects`, `ModelEntry` and the default constants
   (`DEFAULT_SYSTEM_PROMPT`, `DEFAULT_CACHES` and the rest). An entry of
   `openai.models` and `anthropic.models` (`ModelEntry`) is a model id or a table `{ id, context_window,
   max_output_tokens }` (`ModelLimits`); the key is still a list of strings for
@@ -112,6 +112,11 @@ Modules:
   job listens on is forwarded to the same port of 127.0.0.1; `false` at a reload also
   stops the forwards of the jobs that run). Each key applies from the next job or
   notice.
+- `tables/resume`: `[resume]` (`ResumeSettings`, from v0.0.4): `picker`
+  (`ResumePicker`: `auto`, the default, or `list`). `auto` lets `,resume` and
+  `efr resume` open a live search picker in fzf when fzf is on the `PATH`; `list`
+  always shows the numbered list. Only `efr` reads it (`Applies::Client`), at its next
+  run.
 - `tables/snapshot`: `[snapshot]` (`SnapshotSettings`), efr's own snapshots of the
   files that the agent can change (the auto spec, section 10): `enabled`,
   `max_file_mib` (files above it are left out), `ignored` (`IgnoredFiles`:
@@ -147,7 +152,8 @@ Modules:
 - `keys`: `keys()`, every dotted key in the order the tables declare them; `kind()`,
   what a key holds, and `description()`, its doc comment, both from the JSON schema;
   `json_schema()`; `RESTART_KEYS`, the keys a change applies to only after a restart;
-  `Applies`, when a change of a key takes effect (live, restart, or in `efr` only).
+  `Applies`, when a change of a key takes effect (live, restart, or in `efr` only: the
+  keys of `[render]`, `[diff]` and `[resume]`).
 - `reload`: `Settings::reloaded`, the file read again laid over the running settings:
   a restart key that changed keeps its running value and is listed in
   `Reloaded::restart_needed`, and a key an environment variable or a flag set keeps

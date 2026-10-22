@@ -16,8 +16,8 @@ use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ContextSettings,
     ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings, Location,
     ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
-    RenderSettings, SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings, Source,
-    UndoSettings,
+    RenderSettings, ResumeSettings, SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings,
+    Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -77,6 +77,9 @@ pub struct Settings {
     /// Background jobs: whether the model can start them, their limits, and how often
     /// their notices may start a turn.
     pub jobs: JobsSettings,
+    /// What `,resume` and `efr resume` show: a search picker in fzf or the numbered
+    /// list.
+    pub resume: ResumeSettings,
     /// How `efr` groups the changed files of a turn.
     pub diff: DiffSettings,
     /// How `efr` shows replies.
@@ -107,6 +110,7 @@ impl Default for Settings {
             snapshot: SnapshotSettings::default(),
             presence: PresenceSettings::default(),
             jobs: JobsSettings::default(),
+            resume: ResumeSettings::default(),
             diff: DiffSettings::default(),
             render: RenderSettings::default(),
             sources: Vec::new(),
