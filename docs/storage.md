@@ -181,14 +181,15 @@ conversations or the daemon's socket. The config root stays readable and read-on
   start, efrd's indexer fills them in the background from the log (the backfill): it
   reads a page of at most 32 texts, 32 KiB of text or 20,000 events, cleans and
   redacts it, and writes it with one short writer job. After each page it waits 4
-  times the time of the job, at least 5 ms, so the backfill takes at most a fifth of
+  times the time of the job, at least 10 ms, so the backfill takes at most a fifth of
   the writer; while a turn runs, it writes at most one page per second. During the
   wait it already reads and cleans the next page. When a round wrote more than one
   page, it then merges the index's segments in steps at the same duty, until a step
-  does no work. A store of 20,000 turns takes about a minute and a half. Until the
+  does no work. A store of 20,000 turns takes about two minutes. Until the
   backfill ends, a search finds fewer conversations and says how far the index is.
-  The search jobs run no checkpoint of their own; SQLite's checkpoint at 1,000 frames
-  runs in the commit that crosses it, as before.
+  After the commit of a search job, when the write-ahead log holds 500 frames or
+  more, SQLite runs a passive checkpoint in that job. A turn's commit runs one at
+  1,000 frames, as before; beside the indexer it seldom reaches that.
 - The index only grows. It takes at most 10 MB per 1,000 turns of the bench corpus
   (whose text has long answers and heredocs), so at 20 turns a day about 73 MB a year.
   The file never gets smaller (no `auto_vacuum`), and each backup of `backups/` before

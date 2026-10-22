@@ -722,7 +722,7 @@ async fn bench_search_commit_wait() {
             line("append beside the backfill", &beside_all),
             line("  without a checkpoint", &beside),
             line("  with a checkpoint", &beside_checkpointed),
-            "a checkpoint of the write-ahead log runs in the commit that crosses 1,000 frames, whichever job it is: a turn's batch counts it above, and a page or a merge of the indexer counts it in its own job".to_owned(),
+            "a page or a merge of the indexer runs a checkpoint of the write-ahead log after its commit at 500 frames, a turn's batch at 1,000: a turn's batch counts it above when it ran one or waited for one".to_owned(),
         ],
     );
     let (_, alone_p95, _) = percentiles(&alone_all);

@@ -98,9 +98,11 @@ across a restart:
   docs that a withdrawal or a resent steer takes back, and the cursor in one
   transaction, or nothing when the cursor or the redaction changed (`Stale`).
   `search_reset` empties the index for a new redaction version, and `search_merge`
-  merges its segments toward one after a backfill. The jobs run no checkpoint of
-  their own, because one costs more than the job; SQLite's checkpoint at 1,000 frames
-  of the write-ahead log runs in whatever commit crosses it, as before. The tables
+  merges its segments toward one after a backfill. After the commit of a search job,
+  when the write-ahead log holds 500 frames or more, SQLite runs a passive checkpoint
+  in that job (`SEARCH_CHECKPOINT_FRAMES`), so the index pays for the checkpoints of
+  what it writes. A turn's commit runs one at 1,000 frames (`WAL_AUTOCHECKPOINT`,
+  SQLite's default), which beside the indexer it seldom reaches. The tables
   are not projections: a rebuild leaves them alone. The batch that ends a turn writes
   nothing here. A later delete of a conversation must also delete its `search_docs`
   rows (its sequence numbers through `events_conversation`, each with an FTS5
@@ -222,7 +224,9 @@ benches `bench_search_apply_round` (1,000 live rounds of one turn) and
 are ignored. `just bench-search` runs them in release, one at a time, and they fail
 when a budget fails: a round at a p95 of 2 ms and a max of 10 ms, a page at a p95 of
 4 ms and a max of 8 ms. Each max counts the jobs that carry no checkpoint of the
-write-ahead log; the jobs with one are on a line of their own.
+write-ahead log; the jobs with one are on a line of their own. Each p95 counts every
+job, the checkpoints of the search jobs too. The normal test
+`search_jobs_checkpoint_and_turn_commits_seldom_do` checks where the checkpoints run.
 
 The module `search_query` of `tests/it` checks the reads on the corpus:
 `rust_snippet_agrees_with_highlight` (the ranges of the Rust snippets equal those of

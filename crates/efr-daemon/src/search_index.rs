@@ -64,10 +64,8 @@ pub(crate) const DEBOUNCE: Duration = Duration::from_millis(500);
 /// How many times the time of a backfill or merge job the task waits after it.
 pub(crate) const DUTY_FACTOR: u32 = 4;
 
-/// The shortest wait after a backfill or merge job. A page of 32 docs takes about 1 ms
-/// of the writer, so the duty stays below a fifth, and a backfill of 20,000 turns
-/// (7,500 pages) takes about a minute; 10 ms would take more than 90 s.
-pub(crate) const MIN_PAUSE: Duration = Duration::from_millis(5);
+/// The shortest wait after a backfill or merge job (the plan's DQ45).
+pub(crate) const MIN_PAUSE: Duration = Duration::from_millis(10);
 
 /// While a turn runs, the backfill writes at most one page or merge in this time.
 pub(crate) const TURN_PAGE_INTERVAL: Duration = Duration::from_secs(1);

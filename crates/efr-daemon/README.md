@@ -1383,7 +1383,7 @@ its own (`search_apply`, `search_reset`, `search_merge`).
   turns' readers), applies the text rules on the blocking pool, and writes each page in
   one writer job. A caught-up task holds no timer.
 - **The duty cycle.** After a page that leaves more to read, and after each merge, the
-  task waits 4 times the time of that writer job, at least 5 ms, so a backfill takes at
+  task waits 4 times the time of that writer job, at least 10 ms, so a backfill takes at
   most a fifth of the writer. While a turn runs (the task follows `turn_started` and the
   turn ends on the broadcast, and reads the running turns again after a lag), it writes
   at most one page or merge per second. While it waits, it already reads and cleans the

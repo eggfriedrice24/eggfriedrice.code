@@ -13,7 +13,7 @@ use std::sync::Arc;
 use efr_protocol::{Event, EventEnvelope, Seq};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
@@ -37,6 +37,18 @@ const THREAD_NAME: &str = "efr-store-writer";
 /// The default number of committed batches that the broadcast keeps for a slow
 /// subscriber before it reports the subscriber as lagging.
 pub const DEFAULT_BROADCAST_CAPACITY: usize = 1024;
+
+/// The frames of the write-ahead log at which a commit of the writer runs SQLite's
+/// passive checkpoint (`wal_autocheckpoint`, SQLite's default). A search job
+/// checkpoints at [`SEARCH_CHECKPOINT_FRAMES`], so beside the indexer a turn's commit
+/// seldom crosses this. A larger size makes that checkpoint rarer but longer: 4,000
+/// frames took 35 to 120 ms in one turn's commit in `bench_search_commit_wait`.
+pub const WAL_AUTOCHECKPOINT: u32 = 1_000;
+
+/// The frames of the write-ahead log at which a search job runs the passive checkpoint
+/// after its commit (the plan's DQ45), so the search index pays for the checkpoints of
+/// what it writes and a turn's commit does not.
+pub const SEARCH_CHECKPOINT_FRAMES: u32 = 500;
 
 type Job = Box<dyn FnOnce(&mut WriterState) + Send + 'static>;
 
@@ -76,6 +88,7 @@ impl StoreWriter {
         broadcast_capacity: usize,
     ) -> Result<(WriterHandle, StoreWriter), StoreError> {
         let last_seq = events::last_seq(&conn)?;
+        set_autocheckpoint(&conn, WAL_AUTOCHECKPOINT)?;
         let (jobs_tx, jobs_rx) = mpsc::channel::<Job>(JOB_QUEUE);
         // A broadcast channel of capacity 0 panics.
         let (events_tx, _) = broadcast::channel(broadcast_capacity.max(1));
@@ -164,21 +177,21 @@ impl WriterHandle {
     /// doc that remains. Answers [`SearchApplied::Stale`] and writes nothing when the
     /// cursor or the redaction of the index differ from the page's.
     pub async fn search_apply(&self, page: SearchPage) -> Result<SearchApplied, StoreError> {
-        self.run(move |state| state.write(|tx, _at| search::apply(tx, &page))).await
+        self.run(move |state| state.write_search(|tx| search::apply(tx, &page))).await
     }
 
     /// Empties the search index and sets its cursor to the start with the redaction
     /// version `redaction`, so the indexer fills it again from the log. The file does
     /// not get smaller; SQLite uses the free pages again.
     pub async fn search_reset(&self, redaction: u32) -> Result<(), StoreError> {
-        self.run(move |state| state.write(|tx, _at| search::reset(tx, redaction))).await
+        self.run(move |state| state.write_search(|tx| search::reset(tx, redaction))).await
     }
 
     /// One step of merging the segments of the search index toward one, writing about
     /// `pages` leaves of the index (of 1,000 bytes each); true when it did work. The indexer runs it after a backfill
     /// until it answers false.
     pub async fn search_merge(&self, pages: u32) -> Result<bool, StoreError> {
-        self.run(move |state| state.write(|tx, _at| search::merge(tx, pages))).await
+        self.run(move |state| state.write_search(|tx| search::merge(tx, pages))).await
     }
 
     /// Runs a read on the writer's connection with `query_only` set, for an in-memory
@@ -225,6 +238,21 @@ impl WriterState {
         Ok(value)
     }
 
+    /// Runs a search job in an immediate transaction and commits when it succeeds.
+    /// When the write-ahead log holds [`SEARCH_CHECKPOINT_FRAMES`] or more after the
+    /// commit, SQLite runs a passive checkpoint in this job.
+    fn write_search<T>(
+        &mut self,
+        f: impl FnOnce(&Connection) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let conn = &self.conn;
+        let _checkpoint = SearchCheckpoint::set(conn)?;
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+        let value = f(&tx)?;
+        tx.commit()?;
+        Ok(value)
+    }
+
     fn append(&mut self, batch: Batch) -> Result<Committed, StoreError> {
         if batch.is_empty() {
             return Ok(Committed::new(Vec::new(), self.last_seq));
@@ -262,6 +290,34 @@ impl WriterState {
             let _ = self.events.send(committed.clone());
         }
         Ok(committed)
+    }
+}
+
+/// Sets the frames of the write-ahead log at which a commit runs SQLite's passive
+/// checkpoint.
+fn set_autocheckpoint(conn: &Connection, frames: u32) -> Result<(), StoreError> {
+    conn.pragma_update(None, "wal_autocheckpoint", frames)
+        .map_err(|source| StoreError::Configure { pragma: "wal_autocheckpoint", source })
+}
+
+/// Moves the checkpoint of the writer's connection to [`SEARCH_CHECKPOINT_FRAMES`] for
+/// one search job. Dropping the guard, also while a panic unwinds, moves it back to
+/// [`WAL_AUTOCHECKPOINT`].
+struct SearchCheckpoint<'c>(&'c Connection);
+
+impl<'c> SearchCheckpoint<'c> {
+    fn set(conn: &'c Connection) -> Result<Self, StoreError> {
+        set_autocheckpoint(conn, SEARCH_CHECKPOINT_FRAMES)?;
+        Ok(SearchCheckpoint(conn))
+    }
+}
+
+impl Drop for SearchCheckpoint<'_> {
+    fn drop(&mut self) {
+        // Setting a pragma on an open connection does not fail in practice; if it did,
+        // a turn's commit would checkpoint at the smaller size, which is slower but
+        // correct.
+        let _ = set_autocheckpoint(self.0, WAL_AUTOCHECKPOINT);
     }
 }
 
