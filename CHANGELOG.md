@@ -773,6 +773,11 @@ into the GitHub release notes, and it stops when the section is missing.
   now refused with `refused: a command that must run outside the sandbox must run
   alone`. Before, the refusal said "an approved command", also when you did not
   approve anything.
+- The reviewer's prompt now asks for the parts of its answer in the order in which
+  the provider makes the model write them. Before, the prompt asked for the reason
+  first, but the provider made the model write the category first. The small model
+  then often wrote no real reason, and the turn's model reviewed instead
+  (`skipped claude-haiku-5-5: parse error`).
 
 ### Security
 

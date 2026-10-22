@@ -267,7 +267,7 @@ async fn the_request_holds_the_prompt_the_record_and_the_schema() {
     assert_eq!(output.schema["additionalProperties"], json!(false));
     assert_eq!(
         output.schema["required"],
-        json!(["rationale", "category", "risk", "user_authorization", "verdict"])
+        json!(["category", "rationale", "risk", "user_authorization", "verdict"])
     );
     assert_eq!(request.effort.as_deref(), Some("low"));
     assert_eq!(request.provider_options.get("reasoning_summary"), Some(&Value::Null));
