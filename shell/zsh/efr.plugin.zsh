@@ -221,7 +221,10 @@ typeset -ga _efr_saved_options
 # The robot needs a UTF-8 locale; any other locale gets plain text.
 # EFR_FULL_MARK is the mark next to the robot while the terminal's prompts run in full
 # mode; an empty value shows none. The marks of the scope (`○` outside projects, `›`
-# after the scope) have plain-text forms too.
+# after the scope) have plain-text forms too. `○` has the "ambiguous" East Asian width
+# and `›` the "neutral" one. A CJK locale keeps them: glibc's wcwidth, which zle uses,
+# gives both one column in every UTF-8 locale, and Ghostty draws both one column wide
+# whatever the locale (efr-screen-ghostty's widths test).
 if [[ -o multibyte && ${LC_ALL:-${LC_CTYPE:-$LANG}} == *.[Uu][Tt][Ff](-|)8* ]]; then
   : ${EFR_STICKY_INDICATOR:='🤖 '}
   : ${EFR_FULL_MARK='🔓'}
