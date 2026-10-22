@@ -10,6 +10,12 @@
 //! largest resident set of the child that the kernel reports); without zsh, the test
 //! reports no peak, and the gate fails. The numbers of a busy machine are not valid.
 //!
+//! A second test measures `,resume <words>` up to fzf: the `PATH` walk, `fzf
+//! --version`, hello and the first search, with a fake `fzf` that reads the first rows
+//! and closes at once. It counts from the start of `efr resume` to its exit, so the
+//! two starts of the fake `fzf` (a `sh` each) count too: an upper bound. The gate is
+//! p95 at most 30 ms with a fake daemon that answers at once.
+//!
 //! `efr` gets a cleared environment with every efr root in a temporary directory and a
 //! `PATH` without `~/.local/bin`, so it never reaches the real daemon.
 
@@ -38,6 +44,20 @@ const WAIT: Duration = Duration::from_millis(50);
 
 /// The budget of the time from the start to the exit without the wait, at p95.
 const TIME_BUDGET: Duration = Duration::from_millis(15);
+
+/// The budget of `,resume` up to the first rows in fzf, at p95.
+const RESUME_BUDGET: Duration = Duration::from_millis(30);
+
+/// A fake `fzf` that costs as little as it can: `--version` prints 0.73.1; otherwise it
+/// reads the first rows with no other process and closes as Esc does.
+const QUICK_FZF: &str = r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo '0.73.1 (fake)'
+  exit 0
+fi
+while read -r _; do :; done
+printf 'esc\n\n'
+"#;
 
 /// The budget of the peak memory, in KiB.
 const PEAK_BUDGET_KIB: u64 = 16 * 1024;
@@ -330,5 +350,49 @@ fn bench_search_picker_rows() {
         assert!(p95 <= TIME_BUDGET, "p95 {:.2} ms is over the budget", ms(p95));
         let kib = peak.expect("the gate needs zsh for the peak memory");
         assert!(kib <= PEAK_BUDGET_KIB, "the peak of {kib} KiB is over the budget");
+    }
+}
+
+#[test]
+fn bench_search_resume_first_rows() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let gate = gate();
+    let runs = if gate { 60 } else { 12 };
+    let roots = Roots::new();
+    let bin = roots.path("bin");
+    std::fs::create_dir(&bin).unwrap();
+    std::fs::write(bin.join("fzf"), QUICK_FZF).unwrap();
+    std::fs::set_permissions(bin.join("fzf"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let hellos = serve(&roots.path("runtime").join("daemon.sock"), runs);
+    let context = serde_json::json!({ "pwd": roots.path("home"), "tty": TTY }).to_string();
+    let (master, slave) = super::picker::pty();
+    let load = std::fs::read_to_string("/proc/loadavg").unwrap_or_default();
+    say(&format!("load average {}", load.split_whitespace().take(3).collect::<Vec<_>>().join(" ")));
+
+    let mut times = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        let mut command = roots.command(env!("CARGO_BIN_EXE_efr"));
+        command
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("EFR_CONTEXT", &context)
+            .env("EFR_RESUME_WORDS", "rsync lap")
+            .arg("resume")
+            .stdin(slave.try_clone().unwrap())
+            .stdout(slave.try_clone().unwrap())
+            .stderr(Stdio::piped());
+        let started = Instant::now();
+        let output = command.output().unwrap();
+        times.push(started.elapsed());
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(super::picker::screen_of(&master), "", "Esc prints nothing");
+    }
+    let mut hello: Vec<Duration> = hellos.iter().take(runs).collect();
+
+    let (run_line, p95) = line(",resume <words> to fzf and back", &mut times);
+    let (hello_line, _) = line("hello (accept to the request)", &mut hello);
+    say(&format!("{run_line}; budget p95 {} ms", RESUME_BUDGET.as_millis()));
+    say(&hello_line);
+    if gate {
+        assert!(p95 <= RESUME_BUDGET, "p95 {:.2} ms is over the budget", ms(p95));
     }
 }
