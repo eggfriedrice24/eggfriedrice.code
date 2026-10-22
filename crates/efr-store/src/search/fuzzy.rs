@@ -206,13 +206,17 @@ impl Scorer {
 /// The code points of `title`, with each [`REDACTED`] marker made of [`HIDDEN`], so the
 /// positions stay those of the title.
 fn hide_redacted(title: &str) -> Vec<char> {
+    const MARKER: [char; 5] = ['[', '*', '*', '*', ']'];
     let mut text: Vec<char> = title.chars().collect();
-    let marker: Vec<char> = REDACTED.chars().collect();
+    // NOTE: most titles hold no marker, and the byte search is the cheap look.
+    if !title.contains(REDACTED) {
+        return text;
+    }
     let mut at = 0;
-    while at + marker.len() <= text.len() {
-        if text[at..at + marker.len()] == marker[..] {
-            text[at..at + marker.len()].fill(HIDDEN);
-            at += marker.len();
+    while at + MARKER.len() <= text.len() {
+        if text[at..at + MARKER.len()] == MARKER {
+            text[at..at + MARKER.len()].fill(HIDDEN);
+            at += MARKER.len();
         } else {
             at += 1;
         }

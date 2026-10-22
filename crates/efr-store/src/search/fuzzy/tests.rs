@@ -94,6 +94,12 @@ fn no_word_matches_inside_the_redaction_marker() {
 }
 
 #[test]
+fn the_marker_is_the_redacted_constant() {
+    assert_eq!(hide_redacted(REDACTED), vec![HIDDEN; REDACTED.chars().count()]);
+    assert_eq!(hide_redacted("a[**]b"), "a[**]b".chars().collect::<Vec<_>>());
+}
+
+#[test]
 fn a_word_without_a_letter_or_a_digit_is_left_out() {
     assert_eq!(score("a - b", &["-"]), None);
     assert_eq!(score("fix it", &["...", "  "]), None, "no word left matches no title");
