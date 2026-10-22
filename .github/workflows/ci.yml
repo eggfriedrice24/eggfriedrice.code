@@ -323,12 +323,47 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm
+      # The downloads of the next three steps come from two caches when they hold them:
+      # the pinned files (the kernel, virtme-ng, xdg-dbus-proxy), by the pins and their
+      # SHA-256, and the .deb files of the apt packages, by the packages and the
+      # runner's image. So a slow Ubuntu mirror slows down only a run that misses a
+      # cache. A miss downloads as before, and a run on main then saves the cache at
+      # once, before the tests, so a failed test does not lose it. The script checks
+      # each pinned file's SHA-256 also when it comes from the cache.
+      - id: cache-keys
+        run: .github/sandbox-vm.sh cache-keys >>"$GITHUB_OUTPUT"
+      - id: downloads
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/sandbox-vm-cache/downloads
+          key: sandbox-vm-downloads-${{ steps.cache-keys.outputs.downloads }}
+      - id: apt
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/sandbox-vm-cache/apt
+          key: sandbox-vm-apt-${{ steps.cache-keys.outputs.apt }}
       - run: .github/sandbox-vm.sh tools
+        env:
+          SBX_VM_CACHE: ${{ runner.temp }}/sandbox-vm-cache
       # The corpus rows that run cargo use the pinned toolchain, read from
       # rust-toolchain.toml. The guest sees it in the runner's ~/.rustup.
       - run: rustup toolchain install
       - run: .github/sandbox-vm.sh bwrap
+        env:
+          SBX_VM_CACHE: ${{ runner.temp }}/sandbox-vm-cache
       - run: .github/sandbox-vm.sh kernel "$RUNNER_TEMP/kernel"
+        env:
+          SBX_VM_CACHE: ${{ runner.temp }}/sandbox-vm-cache
+      - if: ${{ github.ref == 'refs/heads/main' && steps.downloads.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/sandbox-vm-cache/downloads
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
+      - if: ${{ github.ref == 'refs/heads/main' && steps.apt.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/sandbox-vm-cache/apt
+          key: ${{ steps.apt.outputs.cache-primary-key }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.146
