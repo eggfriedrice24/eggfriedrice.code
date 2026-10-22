@@ -92,6 +92,7 @@ use crate::fresh::Fresh;
 use crate::gap::CallGap;
 use crate::history::{CachedTurn, ModelKey, Snapshot, close_open_calls, end_marker};
 use crate::interrupt::Interrupt;
+use crate::notice;
 use crate::preamble::{self, LiveState};
 use crate::presence::PRESENCE_CHECK;
 use crate::questions::Questions;
@@ -706,6 +707,12 @@ impl Turn {
         for _ in 0..config.max_model_calls {
             if self.control.interrupt.is_raised() {
                 return Ok(Ending::Interrupted);
+            }
+            // NOTE: efr's own notes, such as a port that a job's forward did not get,
+            // reach the model at its next call, also in this turn (v0.0.4 L2).
+            let notes = shared.deps.toolbox.take_notes(shared.conversation_id).await;
+            if !notes.is_empty() {
+                self.push(&mut window, Message::user(notice::notes_text(&notes)));
             }
             let steers = self.control.steering.take();
             if !steers.is_empty() {

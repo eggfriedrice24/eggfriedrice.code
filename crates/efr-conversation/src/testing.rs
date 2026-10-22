@@ -154,6 +154,11 @@ pub(crate) struct FakeToolbox {
     pub(crate) wakes_denied: AtomicBool,
     /// What `busy_shell` answers.
     pub(crate) busy: Mutex<Option<efr_protocol::BusyShell>>,
+    /// The notes that `take_notes` gives once, and every ask of it.
+    pub(crate) notes: Mutex<(Vec<String>, usize)>,
+    /// The notes that come when `invoke` starts a background job, as a port forward
+    /// does right after a job starts.
+    pub(crate) notes_after_job: Mutex<Vec<String>>,
 }
 
 /// The job `j<number>` of the conversation, started by the call `call_id` of the turn
@@ -453,6 +458,10 @@ impl Toolbox for FakeToolbox {
             "edit" => ToolOutcome::ok(format!("edited {path}")),
             "write_file" => ToolOutcome::ok(format!("written {path}")),
             "shell" if call.input["background"] == true => {
+                let after = std::mem::take(
+                    &mut *self.notes_after_job.lock().unwrap_or_else(PoisonError::into_inner),
+                );
+                self.notes.lock().unwrap_or_else(PoisonError::into_inner).0.extend(after);
                 let number = {
                     let mut started =
                         self.jobs_started.lock().unwrap_or_else(PoisonError::into_inner);
@@ -595,6 +604,12 @@ impl Toolbox for FakeToolbox {
 
     fn wake_allowed(&self, _conversation_id: ConversationId) -> bool {
         !self.wakes_denied.load(Ordering::SeqCst)
+    }
+
+    async fn take_notes(&self, _conversation_id: ConversationId) -> Vec<String> {
+        let mut notes = self.notes.lock().unwrap_or_else(PoisonError::into_inner);
+        notes.1 += 1;
+        std::mem::take(&mut notes.0)
     }
 }
 

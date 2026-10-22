@@ -281,3 +281,53 @@ async fn auto_fallback_cautious_job_asks_user() {
     h.wait_end(turn_id).await;
     assert_eq!(h.toolbox.ran()[0].launch, Launch::Direct);
 }
+
+/// How often `text` is in `request`, in the text blocks of its messages.
+fn count_in(request: &efr_provider::Request, text: &str) -> usize {
+    request
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|block| match block {
+            efr_provider::ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .map(|block| block.matches(text).count())
+        .sum()
+}
+
+#[tokio::test]
+async fn efr_notes_reach_the_next_request_once() {
+    let early = "efr: job j0 listens on 127.0.0.1:8765; forwarded";
+    let late = "efr: job j1 listens on 127.0.0.1:8767; not forwarded";
+    let script = Script::new(vec![job("python3 -m http.server 8767")]);
+    let mut h =
+        reviewed(None).start_model(Arc::clone(&script) as Arc<dyn efr_provider::Provider>).await;
+    h.toolbox.notes.lock().unwrap().0.push(early.to_owned());
+    h.toolbox.notes_after_job.lock().unwrap().push(late.to_owned());
+    let sent = h.prompt("start a server on 8767").await;
+    h.wait_end(sent.turn_id).await;
+
+    let requests = script.requests();
+    assert_eq!(requests.len(), 2, "the job, then the answer");
+    assert_eq!(count_in(&requests[0], early), 1, "a note before the turn: its first request");
+    assert_eq!(count_in(&requests[0], late), 0);
+    // NOTE: the note that came while the turn ran reaches the model in the same turn.
+    assert_eq!(count_in(&requests[1], late), 1, "the next request of the same turn");
+    assert_eq!(count_in(&requests[1], early), 1, "once: only in the history");
+    let message = requests[1].messages.last().unwrap();
+    assert_eq!(message.role, efr_provider::Role::User);
+    assert_eq!(
+        message.content,
+        [efr_provider::ContentBlock::Text { text: format!("{}\n{late}", crate::NOT_USER_NOTE) }],
+        "a message of its own, which says that no person wrote it"
+    );
+
+    let sent = h.prompt("and now?").await;
+    h.wait_end(sent.turn_id).await;
+    let requests = script.requests();
+    let last = requests.last().unwrap();
+    assert_eq!((count_in(last, early), count_in(last, late)), (1, 1), "never given again");
+    assert_eq!(count_in(last, crate::NOT_USER_NOTE), 2, "no new note message");
+    assert_eq!(h.toolbox.notes.lock().unwrap().1, 3, "the turn asks before each model call");
+}
