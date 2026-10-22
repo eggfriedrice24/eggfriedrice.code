@@ -36,12 +36,13 @@ impl PlanLocks {
     /// its real path, so a root named through a link and direct is one lock; a root
     /// that has no real path keeps the path as given.
     pub(crate) async fn lock(&self, roots: &[PathBuf]) -> PlanGuard {
-        // NOTE: the real path costs a few small lookups, so it runs here on the worker,
-        // as efrd's other lookups of a real path do.
-        let mut sorted: Vec<PathBuf> = roots
-            .iter()
-            .map(|root| std::fs::canonicalize(root).unwrap_or_else(|_| root.clone()))
-            .collect();
+        self.lock_real(real_roots(roots).await).await
+    }
+
+    /// Takes the lock of each root in `roots`, which are real paths already, in the
+    /// order of their paths.
+    async fn lock_real(&self, roots: Vec<PathBuf>) -> PlanGuard {
+        let mut sorted = roots;
         sorted.sort();
         sorted.dedup();
         let mut held = Vec::with_capacity(sorted.len());
@@ -61,6 +62,17 @@ impl PlanLocks {
         let mut roots = self.roots.lock().unwrap_or_else(PoisonError::into_inner);
         Arc::clone(roots.entry(root.to_path_buf()).or_insert_with(|| Arc::new(Semaphore::new(1))))
     }
+}
+
+/// The real path of each root in `roots`, or the path as given when it has none. A
+/// root on a mount that hangs must not stall a worker, so the lookups run on the
+/// blocking pool.
+async fn real_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut real = Vec::with_capacity(roots.len());
+    for root in roots {
+        real.push(tokio::fs::canonicalize(root).await.unwrap_or_else(|_| root.clone()));
+    }
+    real
 }
 
 /// Runs `call` while it holds `guard`, and lets the guard go once `started` exists,
