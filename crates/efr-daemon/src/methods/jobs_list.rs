@@ -1,7 +1,7 @@
 //! `jobs.list`: the background jobs of one conversation or of all of them
 //! (`efr jobs list`), newest first, at most 200. A job that runs shows the bytes of its
 //! output so far and the ports that efr forwards for it now, from the job table; an
-//! ended one shows what its `job_ended` recorded.
+//! ended one shows what its `job_ended` recorded, from the moment that event commits.
 
 use efr_protocol::{JobsList, JobsListResult};
 use efr_transport::Responder;

@@ -766,6 +766,9 @@ into the GitHub release notes, and it stops when the section is missing.
 - A `%` in the name of a project now shows as typed in your own prompt. `$efr_scope`
   and `efr_prompt_info` double each `%`, so a prompt with `prompt_subst` no longer
   reads `%~` in a name as a prompt escape. The marker of sticky mode does not change.
+- `efr jobs list` no longer shows a job as running after its end. Before, for a short
+  time after the end, the list still showed the job as running. The model's `jobs`
+  tool had the same fault.
 
 ### Security
 
