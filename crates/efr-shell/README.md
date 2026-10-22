@@ -472,12 +472,14 @@ one that `open` starts for a resume or a job's environment once a run named the 
 It replaces a `SCRATCH` of the user's environment (some clusters set one). A zsh with
 the integration also gets `_EFR_HS_SCRATCH`, which the integration reads and unsets
 like the trusted programs, and exports as `SCRATCH` again after the user's startup
-files. A running shell that holds another value or none (one that `open` started
-before efr knew the dir, as for a resumed conversation) gets one line typed at its
-prompt before the run's command: `builtin export SCRATCH=<path>` (`export` in a shell
-without the integration). The line shows on the screen and in the recording, as the
-`cd` of `move_to` does. A busy shell and a sentinel run get no such line; the next run
-tries again. A command that sets `SCRATCH` itself keeps its own value; efr does not
+files. A shell without the integration (not a zsh) has no such step, so its startup
+files could set another value: efr counts it as a shell without the value. A running
+shell that holds another value or none (one that `open` started before efr knew the dir,
+as for a resumed conversation, or a shell without the integration) gets one line typed
+at its prompt before the run's command: `builtin export SCRATCH=<path>` (`export` in a
+shell without the integration). The line shows on the screen and in the recording, as
+the `cd` of `move_to` does. A busy shell and a sentinel run get no such line; the next
+run tries again. A command that sets `SCRATCH` itself keeps its own value; efr does not
 look at the variable after the shell has it. The launcher sets `SCRATCH` again for a
 contained call and the exit child (efr-sandbox's `EnvFilter`, efr-sbx), so a sandboxed
 call has it also when the shell does not.
