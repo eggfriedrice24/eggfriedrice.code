@@ -9,6 +9,9 @@
 //! case step and in a run of matches, and twice the bonus to the first character of the
 //! word. Smart case: the match ignores case unless the word has an upper case letter.
 //!
+//! A word with no letter and no digit matches nothing, and no word matches inside the
+//! [`REDACTED`] marker, so a search cannot list the titles that held a secret.
+//!
 //! The rule and its numbers are those of fzf 0.73.1, `src/algo/algo.go`: the constants
 //! at lines 112 to 151 (`scoreMatch` to `initialCharClass`) and `delimiterChars` at line
 //! 93, `bonusFor` at lines 264 to 292, `calculateScore` at lines 647 to 704 and
@@ -43,6 +46,14 @@ const BONUS_BOUNDARY_WHITE: i32 = BONUS_BOUNDARY + 2;
 const BONUS_BOUNDARY_DELIMITER: i32 = BONUS_BOUNDARY + 1;
 /// The characters that delimit the words of a path or a list.
 const DELIMITERS: &str = "/,:;|";
+
+/// The marker that the redaction of the index puts in place of a secret
+/// (`efr-conversation`'s `index_text`).
+pub const REDACTED: &str = "[***]";
+
+/// What each character of a [`REDACTED`] marker becomes before a title is scored: a
+/// control character, which no pattern holds, of the class of the marker's characters.
+const HIDDEN: char = '\0';
 
 /// The class of a character, in fzf's order: a class after `NonWord` starts a word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -116,8 +127,11 @@ struct Pattern {
 impl Pattern {
     fn new(word: &str) -> Self {
         let case_sensitive = word.chars().any(char::is_uppercase);
-        let chars =
-            if case_sensitive { word.chars().collect() } else { word.chars().map(lower).collect() };
+        let chars = word
+            .chars()
+            .filter(|c| !c.is_control())
+            .map(|c| if case_sensitive { c } else { lower(c) })
+            .collect();
         Pattern { chars, case_sensitive }
     }
 
@@ -139,9 +153,14 @@ pub struct Scorer {
 }
 
 impl Scorer {
-    /// A scorer of `words`. A word that is empty matches every title with no score.
+    /// A scorer of `words`. A word with no letter and no digit is left out; with no
+    /// word left, no title matches.
     pub fn new(words: &[&str]) -> Self {
-        let patterns: Vec<Pattern> = words.iter().map(|word| Pattern::new(word)).collect();
+        let patterns: Vec<Pattern> = words
+            .iter()
+            .filter(|word| word.chars().any(char::is_alphanumeric))
+            .map(|word| Pattern::new(word))
+            .collect();
         let ideal = patterns
             .iter()
             .filter_map(|pattern| {
@@ -163,7 +182,7 @@ impl Scorer {
         if self.patterns.is_empty() {
             return None;
         }
-        let text: Vec<char> = title.chars().collect();
+        let text = hide_redacted(title);
         let mut score = 0;
         let mut positions = Vec::new();
         for pattern in &self.patterns {
@@ -182,6 +201,23 @@ impl Scorer {
         }
         (f64::from(found.score) / f64::from(self.ideal)).clamp(0.0, 1.0)
     }
+}
+
+/// The code points of `title`, with each [`REDACTED`] marker made of [`HIDDEN`], so the
+/// positions stay those of the title.
+fn hide_redacted(title: &str) -> Vec<char> {
+    let mut text: Vec<char> = title.chars().collect();
+    let marker: Vec<char> = REDACTED.chars().collect();
+    let mut at = 0;
+    while at + marker.len() <= text.len() {
+        if text[at..at + marker.len()] == marker[..] {
+            text[at..at + marker.len()].fill(HIDDEN);
+            at += marker.len();
+        } else {
+            at += 1;
+        }
+    }
+    text
 }
 
 /// The score and the matched positions of one word in `text`.

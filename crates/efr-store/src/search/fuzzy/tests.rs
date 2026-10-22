@@ -82,7 +82,44 @@ fn the_ideal_is_the_best_score() {
     assert!(scorer.relative(&weaker) > 0.0);
 }
 
+#[test]
+fn no_word_matches_inside_the_redaction_marker() {
+    let title = "deploy with [***] to staging";
+    for words in [&["***"][..], &["[***]"], &["*"], &["["], &["]"], &["h["], &["h[*"]] {
+        assert_eq!(score(title, words), None, "words {words:?}");
+    }
+    assert_eq!(ranges_of(title, &["staging"]), vec![21..28], "the positions stay the title's");
+    assert_eq!(ranges_of(title, &["[*", "deploy"]), vec![0..6], "only the word with letters");
+    assert_eq!(ranges_of("a * b", &["a*"]), vec![0..1, 2..3], "a star outside the marker matches");
+}
+
+#[test]
+fn a_word_without_a_letter_or_a_digit_is_left_out() {
+    assert_eq!(score("a - b", &["-"]), None);
+    assert_eq!(score("fix it", &["...", "  "]), None, "no word left matches no title");
+    let scorer = Scorer::new(&["fix", "--"]);
+    assert_eq!(scorer.ideal(), Scorer::new(&["fix"]).ideal());
+    assert!(scorer.score("fix it").is_some());
+}
+
 proptest! {
+    #[test]
+    fn no_range_touches_a_redaction_marker(
+        before in "[a-z*\\[\\] ]{0,12}",
+        after in "[a-z*\\[\\] ]{0,12}",
+        words in proptest::collection::vec("[a-z*\\[\\]]{1,4}", 1..3),
+    ) {
+        let title = format!("{before}{REDACTED}{after}");
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        let start = u32::try_from(before.chars().count()).unwrap();
+        let marker = start..start + u32::try_from(REDACTED.chars().count()).unwrap();
+        if let Some(found) = Scorer::new(&words).score(&title) {
+            for range in &found.ranges {
+                prop_assert!(range.end <= marker.start || range.start >= marker.end, "{range:?}");
+            }
+        }
+    }
+
     #[test]
     fn scorer_never_panics(title in "\\PC{0,100}", words in proptest::collection::vec("\\PC{0,8}", 0..4)) {
         let words: Vec<&str> = words.iter().map(String::as_str).collect();

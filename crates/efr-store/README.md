@@ -115,6 +115,9 @@ across a restart:
   with no sort, and the titles of the 10,000 newest conversations; it ranks in Rust
   (`search::rank`: `bm25()` with a weight per kind, and the fuzzy title score of
   `search::fuzzy`, after fzf), so it never scores every match before the first row.
+  The title score leaves out a word with no letter and no digit, and no word matches
+  inside the `[***]` marker of a redacted secret, so a search cannot list the titles
+  that held a secret.
   FTS5 merges the doclists of every word of a prefix in memory before the first row
   when no prefix index has its length, which for a common prefix costs megabytes and
   tens of milliseconds. So a prefix longer than the prefix index of 3 characters

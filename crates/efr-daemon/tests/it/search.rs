@@ -370,8 +370,12 @@ async fn redacted_marker_is_not_found() {
     let daemon = seeded(conversations(&[vec![Turn::prompt(&prompt)]]), |b| b).await;
     let client = daemon.client().await.unwrap();
 
-    assert_eq!(ids(&search(&client, "redacted").await), []);
-    assert_eq!(search_in(&client, id(1), "redacted").await.hits, []);
+    for query in ["redacted", "***", "[***]", "*", "[", "*]"] {
+        assert_eq!(ids(&search(&client, query).await), [], "query {query:?}");
+        assert_eq!(search_in(&client, id(1), query).await.hits, [], "query {query:?}");
+    }
+    let preview = search_in(&client, id(1), "***").await;
+    assert_eq!(preview.title.unwrap().ranges, [], "the marker in the title is no match");
     daemon.stop().await.unwrap();
 }
 
