@@ -106,7 +106,7 @@ impl SearchLanes {
                 let pool = Arc::clone(pool);
                 tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    pool.search(&stop, f)
+                    efr_stdx::panic::quiet(|| pool.search(&stop, f))
                 })
                 .await
                 .map_err(|_| StoreError::TaskPanicked { task: "search lane" })?
@@ -118,7 +118,7 @@ impl SearchLanes {
                         if stop.is_hard() {
                             return Err(StoreError::SearchStopped);
                         }
-                        f(conn).map_err(|error| {
+                        efr_stdx::panic::quiet(|| f(conn)).map_err(|error| {
                             if stop.is_hard() { StoreError::SearchStopped } else { error }
                         })
                     })
@@ -223,11 +223,13 @@ impl IndexReader {
         match &self.backend {
             IndexBackend::File(file) => {
                 let file = Arc::clone(file);
-                tokio::task::spawn_blocking(move || file.read(f))
+                tokio::task::spawn_blocking(move || efr_stdx::panic::quiet(|| file.read(f)))
                     .await
                     .map_err(|_| StoreError::TaskPanicked { task: "index reader" })?
             }
-            IndexBackend::Writer(writer) => writer.read(f).await,
+            IndexBackend::Writer(writer) => {
+                writer.read(move |conn| efr_stdx::panic::quiet(|| f(conn))).await
+            }
         }
     }
 }
