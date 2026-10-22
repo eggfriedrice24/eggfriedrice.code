@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use efr_config::{JobsSettings, SandboxSettings};
 use efr_permissions::Egress;
-use efr_protocol::{CacheMode, CallId, ConversationId, Grant, Launch, Needs};
+use efr_protocol::{CacheMode, CallId, ConversationId, ForwardOutcome, Grant, Launch, Needs};
 use efr_sandbox::{JobPlan, NetworkPlan, SandboxSpec};
 use efr_stdx::paths::Dirs;
 use efr_test_support::{TestClock, Wait};
 use pretty_assertions::assert_eq;
 
-use super::{REACH_SETTLE, fact, named_ports, plan_of};
+use super::{LineReach, REACH_SETTLE, fact, named_ports, plan_of};
 use crate::jobs::JobKey;
 use crate::jobs::forward::Forwards;
 use crate::sandbox::HostFacts;
@@ -204,7 +204,7 @@ async fn the_fact_waits_for_the_port_of_a_new_job() {
         .unwrap();
     forward(&forwards, own, 8765);
     assert_eq!(
-        waiting.await.unwrap(),
+        waiting.await.unwrap().ports,
         [8765],
         "the forward ended the wait; the clock did not move"
     );
@@ -229,7 +229,9 @@ async fn the_fact_waits_at_most_the_rest_of_the_settle_time() {
         .await
         .unwrap();
     clock.advance(rest);
-    assert_eq!(waiting.await.unwrap(), [5173], "the port never came");
+    let line = waiting.await.unwrap();
+    assert_eq!(line.ports, [5173], "the port never came");
+    assert_eq!(line.refusal, None, "no outcome came either: the call asks");
 }
 
 #[tokio::test]
@@ -238,14 +240,120 @@ async fn the_fact_does_not_wait_without_a_new_job() {
     let shared = clock.shared();
     let forwards = forwards();
     let own = key(1, 1);
-    assert_eq!(fact(&forwards, &shared, own.conversation, &[8765]).await, [0u16; 0], "no job");
+    let ports = async |named: &[u16]| fact(&forwards, &shared, own.conversation, named).await.ports;
+    assert_eq!(ports(&[8765]).await, [0u16; 0], "no job");
     forwards.serving(own, Weak::new(), shared.now());
     forward(&forwards, own, 8765);
-    assert_eq!(fact(&forwards, &shared, own.conversation, &[8765]).await, [8765], "forwarded");
-    assert_eq!(fact(&forwards, &shared, own.conversation, &[]).await, [8765], "no port named");
+    assert_eq!(ports(&[8765]).await, [8765], "forwarded");
+    assert_eq!(ports(&[]).await, [8765], "no port named");
     clock.advance(REACH_SETTLE);
-    assert_eq!(fact(&forwards, &shared, own.conversation, &[9000]).await, [8765], "an old job");
+    assert_eq!(ports(&[9000]).await, [8765], "an old job");
     assert!(clock.requested_sleeps().is_empty(), "{:?}", clock.requested_sleeps());
+}
+
+/// Tells `outcome` of `port` of the job `key`, as efrd does after its event.
+fn tell(forwards: &Forwards, key: JobKey, port: u16, outcome: ForwardOutcome) {
+    let reason = match outcome {
+        ForwardOutcome::Stopped => Some("jobs.forward_ports is off"),
+        ForwardOutcome::Refused => Some("a service port"),
+        _ => None,
+    };
+    forwards.tell(key, "127.0.0.1", port, outcome, None, reason);
+}
+
+/// What a line of the D2 7c live test reads: job j1 listens on a port that a program of
+/// the user holds.
+const IN_USE: &str = "efr: port 8767 of job j1 is not forwarded: 127.0.0.1:8767 is in use \
+    on this machine. Your contained calls do not reach the job on this port, and full \
+    network would reach another program on this machine, not the job. efr did not run \
+    this call. Stop job j1 and start the server on another port.";
+
+#[tokio::test]
+async fn a_port_that_is_not_forwarded_refuses_the_line() {
+    let clock = TestClock::new();
+    let shared = clock.shared();
+    let forwards = forwards();
+    let (own, other) = (key(1, 1), key(2, 1));
+    forwards.serving(own, Weak::new(), shared.now());
+    forwards.serving(other, Weak::new(), shared.now());
+    tell(&forwards, own, 8767, ForwardOutcome::InUse);
+    let line = fact(&forwards, &shared, own.conversation, &[8767]).await;
+    assert_eq!(line, LineReach { ports: Vec::new(), refusal: Some(IN_USE.to_owned()) });
+    assert!(clock.requested_sleeps().is_empty(), "the outcome is there: no wait");
+    // NOTE: the jobs are no new jobs now, so a port with no outcome does not wait.
+    clock.advance(REACH_SETTLE);
+    let line = fact(&forwards, &shared, other.conversation, &[8767]).await;
+    assert_eq!(line.refusal, None, "another conversation never reads the job's port");
+    let line = fact(&forwards, &shared, own.conversation, &[8768]).await;
+    assert_eq!(line.refusal, None, "a port of no job keeps its question");
+    // NOTE: a second job of the conversation that forwards the port gives the reach.
+    let second = key(1, 2);
+    forward(&forwards, second, 8767);
+    let line = fact(&forwards, &shared, own.conversation, &[8767]).await;
+    assert_eq!(line, LineReach { ports: vec![8767], refusal: None });
+}
+
+#[tokio::test]
+async fn each_outcome_that_is_no_forward_refuses() {
+    let clock = TestClock::new();
+    let shared = clock.shared();
+    let forwards = forwards();
+    let own = key(1, 1);
+    forwards.serving(own, Weak::new(), shared.now());
+    tell(&forwards, own, 5432, ForwardOutcome::Refused);
+    tell(&forwards, own, 9001, ForwardOutcome::Limit);
+    forward(&forwards, own, 8765);
+    tell(&forwards, own, 8765, ForwardOutcome::Forwarded);
+    assert_eq!(fact(&forwards, &shared, own.conversation, &[8765]).await.refusal, None);
+    let line = fact(&forwards, &shared, own.conversation, &[5432, 9001]).await;
+    let refusal = line.refusal.unwrap();
+    let [refused, limit] = refusal.split('\n').collect::<Vec<_>>()[..] else { panic!("{refusal}") };
+    assert!(
+        refused.starts_with(
+            "efr: port 5432 of job j1 is not forwarded: efr does not forward port 5432 (a \
+             service port). Your contained calls do not reach the job on this port, and full \
+             network does not reach the job either."
+        ),
+        "{refused}"
+    );
+    assert!(limit.ends_with("Stop a job that you do not need."), "{limit}");
+    // NOTE: a reload that turned forwards off stops the port; the job keeps its outcome
+    // until it ends.
+    tell(&forwards, own, 8765, ForwardOutcome::Stopped);
+    forwards.release_ports(own);
+    let line = fact(&forwards, &shared, own.conversation, &[8765]).await;
+    assert_eq!(
+        line.refusal.as_deref(),
+        Some(
+            "efr: port 8765 of job j1 is no longer forwarded (jobs.forward_ports is off). Your \
+             contained calls do not reach the job on this port, and full network does not \
+             reach the job either. efr did not run this call. Tell the user that efr does \
+             not forward ports now."
+        )
+    );
+    forwards.release_job(own);
+    let line = fact(&forwards, &shared, own.conversation, &[8765]).await;
+    assert_eq!(line.refusal, None, "the job ended: the port is no job's");
+}
+
+#[tokio::test]
+async fn the_fact_waits_for_the_outcome_of_a_new_job() {
+    let clock = TestClock::new();
+    let shared = clock.shared();
+    let forwards = forwards();
+    let own = key(1, 1);
+    forwards.serving(own, Weak::new(), shared.now());
+    let waiting = tokio::spawn({
+        let (forwards, shared) = (forwards.clone(), Arc::clone(&shared));
+        async move { fact(&forwards, &shared, own.conversation, &[8767]).await }
+    });
+    Wait::new("the fact waits for the settle time")
+        .until(|| clock.requested_sleeps().contains(&REACH_SETTLE))
+        .await
+        .unwrap();
+    tell(&forwards, own, 8767, ForwardOutcome::InUse);
+    let line = waiting.await.unwrap();
+    assert_eq!(line.refusal.as_deref(), Some(IN_USE), "the outcome ended the wait");
 }
 
 #[tokio::test]

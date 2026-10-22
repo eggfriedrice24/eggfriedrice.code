@@ -245,6 +245,14 @@ into the GitHub release notes, and it stops when the section is missing.
   check the dev server that it started. Before, such a check asked for the whole
   network. Only the ports that efr forwards for the same conversation are reachable.
   `docs/sandbox.md`, "Ports of a job", has the rules.
+- In `auto`, efr no longer asks to give the whole network to a command that checks a
+  port of a background job that efr does not forward, such as a port that a program of
+  yours uses. The whole network would reach your program, not the job. Now efr does not
+  run the command, asks you nothing, and tells the agent why: `efr: port 8767 of job j1
+  is not forwarded: 127.0.0.1:8767 is in use on this machine. ...`. When the job started
+  less than 3 seconds ago, efr first waits for the outcome of the port. A port of no
+  job still asks. The other modes do not change: their commands run outside the
+  sandbox.
 - The agent now learns whether efr forwards each port of its background jobs. Before
   its next step, also in the same turn, the model reads a note from efr. For a
   forwarded port, the note gives the URL. For a port that efr does not forward, such as

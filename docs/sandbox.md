@@ -1461,6 +1461,22 @@ decision.
     share `$SCRATCH`. The job's proxy budget still counts each byte that leaves.
   - A reload that sets `jobs.forward_ports = false` turns the reach off with the
     forwards, also for a call that runs at that time.
+  - A port that a job of the conversation listens on, but that efr does not forward:
+    the port is in use on your machine or by another job, efr never forwards it, a
+    limit stops it, or a reload stopped it. A contained call does not reach the job
+    there, and the whole network would reach another program on your machine, not the
+    job. So in `auto`, efr does not run a line that names such a port on `localhost`,
+    `127.0.0.1` or `[::1]` (also in `needs.hosts`), and asks nobody. The model reads
+    why, such as `efr: port 8767 of job j1 is not forwarded: 127.0.0.1:8767 is in use on
+    this machine. Your contained calls do not reach the job on this port, and full
+    network would reach another program on this machine, not the job. efr did not run
+    this call. Stop job j1 and start the server on another port.` When the job started
+    to forward less than 3 seconds ago, efr first waits for the outcome of the port, as
+    for a forward. The text names only the jobs of the call's own conversation: a port
+    that a job of another conversation holds is `in use on this machine`. A port of no
+    job of the conversation, also a port of a job that ended, still asks for the whole
+    network. In `cautious`, `manual` and full mode, each call runs outside the sandbox
+    already, so this rule does not apply there.
 - **The record.** Each forward and each port that efr does not forward is one
   `job_port_forwarded` event of the conversation (see "What you see").
 

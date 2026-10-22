@@ -46,6 +46,11 @@
 //!   notes and the outcomes of a job go when the job ends or its forwarder fails. A
 //!   reload that turns forwards off keeps them, so the model reads the `stopped` notes
 //!   ([`Forwards::release_ports`]).
+//! - A port that a job of the conversation listens on and efrd does not forward (in use,
+//!   refused, a limit, or stopped) is no host for a call ([`Forwards::unreached`]): a
+//!   shell line of an `auto` turn that names it on loopback gets [`refusal`] and does
+//!   not run (`reach::fact`). The call does not reach the job there, and the whole
+//!   network would reach another program of the machine, not the job.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -161,6 +166,9 @@ struct Held {
 struct Told {
     outcome: ForwardOutcome,
     text: String,
+    /// What efr tells the model when a line names the port and efrd does not forward
+    /// it ([`refusal`]); `None` for a forward.
+    refusal: Option<String>,
 }
 
 /// The forwards of one job as a call's reach finds them.
@@ -319,20 +327,25 @@ impl Forwards {
         let note = note(&job, listen, port, outcome, by_job, reason);
         let text = port_text(port, outcome, by_job, reason);
         let (Some(note), Some(text)) = (note, text) else { return };
-        let mut held = self.lock();
-        if !held.jobs.contains_key(&key) {
-            return;
+        let refusal = refusal(&job, port, outcome, by_job, reason);
+        {
+            let mut held = self.lock();
+            if !held.jobs.contains_key(&key) {
+                return;
+            }
+            let told = held.told.entry(key).or_default();
+            if told.get(&port).is_some_and(|told| told.outcome == outcome) {
+                return;
+            }
+            told.insert(port, Told { outcome, text, refusal });
+            let notes = held.notes.entry(key.conversation).or_default();
+            if notes.len() >= MAX_NOTES {
+                notes.pop_front();
+            }
+            notes.push_back((key, note));
         }
-        let told = held.told.entry(key).or_default();
-        if told.get(&port).is_some_and(|told| told.outcome == outcome) {
-            return;
-        }
-        told.insert(port, Told { outcome, text });
-        let notes = held.notes.entry(key.conversation).or_default();
-        if notes.len() >= MAX_NOTES {
-            notes.pop_front();
-        }
-        notes.push_back((key, note));
+        // NOTE: the fact of a line waits for the outcome of a port of a new job.
+        self.changed();
     }
 
     /// Takes the notes of `conversation` that the model did not read yet, oldest
@@ -404,13 +417,38 @@ impl Forwards {
         self.inner.changes.subscribe()
     }
 
-    /// Waits until efrd forwards each port of `ports` for a job of `conversation`.
+    /// What efr tells the model when a line of `conversation` names `port` on loopback
+    /// and a job of the conversation listens on it, but efrd does not forward it for a
+    /// job of the conversation: the [`refusal`] of the port's last outcome, of the
+    /// newest such job; `None` for a forwarded port and for a port that no job of the
+    /// conversation was told about. It never names a job or a port of another
+    /// conversation.
+    pub(crate) fn unreached(&self, conversation: ConversationId, port: u16) -> Option<String> {
+        let held = self.lock();
+        let forwarded = held.bound.contains(&port)
+            && held.ports.get(&port).is_some_and(|key| key.conversation == conversation);
+        if forwarded {
+            return None;
+        }
+        held.told
+            .iter()
+            .filter(|(key, _)| key.conversation == conversation)
+            .filter_map(|(key, told)| Some((key.number, told.get(&port)?.refusal.as_ref()?)))
+            .max_by_key(|(number, _)| *number)
+            .map(|(_, refusal)| refusal.clone())
+    }
+
+    /// Waits until each port of `ports` has an outcome for a job of `conversation`:
+    /// efrd forwards it, or [`unreached`](Self::unreached) tells why not.
     pub(crate) async fn wait_for(&self, conversation: ConversationId, ports: &[u16]) {
         let mut changes = self.changes();
         loop {
             changes.borrow_and_update();
             let forwarded = self.ports_of(conversation);
-            if ports.iter().all(|port| forwarded.contains(port)) {
+            let settled = |port: &u16| {
+                forwarded.contains(port) || self.unreached(conversation, *port).is_some()
+            };
+            if ports.iter().all(settled) {
                 return;
             }
             if changes.changed().await.is_err() {
@@ -536,6 +574,42 @@ pub(crate) fn note(
     Some(format!(
         "{head}; not forwarded: {why}. The user cannot open it in a browser, and your calls \
          do not reach it; {what}."
+    ))
+}
+
+/// What efr tells the model when a line names `port` of `job` on loopback and efrd does
+/// not forward it: the call does not run. `None` for a forward and for an outcome that
+/// efrd does not know.
+pub(crate) fn refusal(
+    job: &JobId,
+    port: u16,
+    outcome: ForwardOutcome,
+    by_job: Option<&JobId>,
+    reason: Option<&str>,
+) -> Option<String> {
+    let head = match outcome {
+        ForwardOutcome::Stopped => match reason {
+            Some(reason) => format!("port {port} of job {job} is no longer forwarded ({reason})"),
+            None => format!("port {port} of job {job} is no longer forwarded"),
+        },
+        _ => format!(
+            "port {port} of job {job} is not forwarded: {}",
+            not_forwarded(port, outcome, by_job, reason)?
+        ),
+    };
+    let host = if outcome == ForwardOutcome::InUse && by_job.is_none() {
+        "full network would reach another program on this machine, not the job"
+    } else {
+        "full network does not reach the job either"
+    };
+    let what = match outcome {
+        ForwardOutcome::Limit => "Stop a job that you do not need".to_owned(),
+        ForwardOutcome::Stopped => "Tell the user that efr does not forward ports now".to_owned(),
+        _ => format!("Stop job {job} and start the server on another port"),
+    };
+    Some(format!(
+        "efr: {head}. Your contained calls do not reach the job on this port, and {host}. \
+         efr did not run this call. {what}."
     ))
 }
 

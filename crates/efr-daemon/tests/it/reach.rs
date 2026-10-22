@@ -38,6 +38,8 @@ use crate::jobs_wake::{Answer, Recorder};
 use crate::sandbox::ready;
 use crate::support::zsh_enabled;
 
+mod unforwarded;
+
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
 /// The terminal of a second conversation.
