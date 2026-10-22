@@ -17,12 +17,15 @@
 #   sandbox-vm.sh tests ...       inside the VM only: called by `guest`
 #
 # The download cache: when SBX_VM_CACHE names a dir, `tools`, `bwrap` and `kernel` keep
-# what they download below it, and take it from there when it is there. CI's sandbox
-# job keeps that dir with actions/cache, so a slow Ubuntu mirror slows down only a run
-# that misses the cache. `downloads/` holds the files of the pins below, each checked by
-# its SHA-256 on every use. `apt/<set>/` holds the .deb files of one set of packages,
-# with all the dependencies that the machine did not have; apt installs them from
-# there with no package lists and no mirror. Without SBX_VM_CACHE, as in the image of
+# what they download below it, and take it from there when it is there. CI's sandbox job
+# keeps that dir with actions/cache, so a slow Ubuntu mirror slows down a run that hits
+# the cache only by its package lists. `downloads/` holds the files of the pins below,
+# each checked by its SHA-256 on every use. `apt/<set>/` holds the .deb files of one set
+# of packages, with all the dependencies that the machine did not have. A hit gets the
+# package lists first (apt-get update), checks each file by the SHA-256 that the signed
+# lists give for its package and version, and installs the packages by name from those
+# files with no download. So a cached file that does not match the lists never installs,
+# as a download that apt checks. Without SBX_VM_CACHE, as in the image of
 # `just test-sandbox-vm`, the same steps run with temporary dirs, so a cache hit, a miss
 # and a local run install the same way.
 set -euo pipefail
@@ -130,14 +133,28 @@ apt_update() {
     fail "apt-get update failed twice; the mirror does not answer"
 }
 
-# Installs PACKAGES from the .deb files in DIR with no mirror, and checks that each
-# package is installed. The files also serve as apt's archive dir: where a mirror in
-# the package lists has the same version as a file, apt takes it from there, not from
-# the mirror. Old package lists, or none, do no harm.
+# Installs PACKAGES from the .deb files in DIR with no download, and checks that each
+# package is installed. The package lists must be current (apt_update). Each file must
+# have a SHA-256 that the signed lists give for its package and version; apt only
+# checks the size of a file in its archive dir, so this check is what keeps a changed
+# cache from installing anything. apt then resolves PACKAGES by name from the lists and
+# takes the files from DIR as its archive dir. A file that does not match, or a
+# version that the lists no longer have, fails, and the caller downloads.
 apt_from() {
-    local dir="$1" package status=0
+    local dir="$1" deb package version sum records status=0
     shift
     local debs=("$dir"/*.deb)
+    for deb in "${debs[@]}"; do
+        read -r package version < <(dpkg-deb -W --showformat='${Package} ${Version}\n' "$deb")
+        sum="$(sha256sum "$deb" | cut -d ' ' -f 1)"
+        # NOTE: the records go through a variable: with pipefail, a grep -q that stops
+        # early would fail the pipe of a long record.
+        records="$(apt-cache show "$package=$version" 2>/dev/null)" || records=
+        if ! grep -qx "SHA256: $sum" <<<"$records"; then
+            say "apt: ${deb##*/} does not have the SHA-256 of the package lists"
+            return 1
+        fi
+    done
     if ((${#debs[@]} > 0)); then
         local archives
         archives="$(as_root mktemp -d)"
@@ -146,7 +163,7 @@ apt_from() {
         as_root cp "${debs[@]}" "$archives/"
         as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
             -o Dir::Cache::archives="$archives" --no-install-recommends --no-download \
-            "$archives"/*.deb || status=$?
+            "$@" || status=$?
         as_root rm -rf "$archives"
         ((status == 0)) || return 1
     fi
@@ -157,16 +174,20 @@ apt_from() {
 }
 
 # Installs PACKAGES, the set NAME, with apt. A cache that holds the set installs it
-# with no mirror. Otherwise apt downloads the set's .deb files first, with all the
-# dependencies that the machine lacks, into the cache or a temporary dir, and installs
-# them from there: a hit and a miss install the same way. When a cached set does not
-# install (the runner's image changed under the same key), apt downloads what is still
-# missing; that run does not save the cache, because its key is there. The download
-# has a time limit of 20 minutes and gets one more try, which keeps the files that came.
+# with no download, after apt-get update. Otherwise apt downloads the set's .deb files
+# first, with all the dependencies that the machine lacks, into the cache or a
+# temporary dir, and installs them from there: a hit and a miss install the same way.
+# When a cached set does not install (the runner's image or the mirror changed under
+# the same key), apt downloads what is still missing; that run does not save the
+# cache, because its key is there. The download has a time limit of 10 minutes and
+# gets one more try, which keeps the files that came. With the two tries of apt-get
+# update, a mirror that is too slow stops the step after at most 30 minutes, within
+# the job's limit of 40.
 apt_install() {
     local name="$1" dir got try
     shift
     if [[ -n "$cache" ]]; then dir="$cache/apt/$name"; else dir="$(mktemp -d)"; fi
+    apt_update
     if [[ -f "$dir/packages" && "$(<"$dir/packages")" == "$*" ]]; then
         if apt_from "$dir" "$@"; then
             say "apt: the $name packages came from the cache"
@@ -174,11 +195,10 @@ apt_install() {
         fi
         say "apt: the cached $name packages do not install here; downloading them again"
     fi
-    apt_update
     got="$(as_root mktemp -d)"
     as_root mkdir -p "$got/partial"
     for try in 1 2; do
-        if as_root env DEBIAN_FRONTEND=noninteractive timeout 1200 apt-get "${apt_options[@]}" \
+        if as_root env DEBIAN_FRONTEND=noninteractive timeout 600 apt-get "${apt_options[@]}" \
             -o Dir::Cache::archives="$got" install -y -q --no-install-recommends \
             --download-only "$@"; then
             break
