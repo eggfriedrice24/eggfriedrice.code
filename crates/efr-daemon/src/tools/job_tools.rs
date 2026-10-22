@@ -35,7 +35,7 @@ use serde_json::{Value, json};
 
 use super::{DaemonToolbox, SANDBOX_NOT_STARTED, for_model};
 use crate::DaemonError;
-use crate::jobs::{JobKey, JobTable, Matcher, NewJob, Slot, forward, job_line, output};
+use crate::jobs::{JobKey, JobTable, Matcher, NewJob, Slot, forward, output};
 use crate::sandbox::{JobInput, PrepareInput, Prepared};
 use crate::tools::CallSnapshots;
 
@@ -203,7 +203,10 @@ pub(crate) async fn invoke(jobs: Option<&JobTable>, call: &ToolCall) -> ToolOutc
                         ToolOutcome::ok("no background jobs in this conversation")
                     }
                     Ok(list) => ToolOutcome::ok(
-                        list.iter().map(|job| job_line(job, now)).collect::<Vec<_>>().join("\n"),
+                        list.iter()
+                            .map(|job| jobs.line(conversation, job, now))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
                     ),
                     Err(error) => ToolOutcome::error(efr_stdx::with_causes(&error)),
                 };
@@ -215,7 +218,7 @@ pub(crate) async fn invoke(jobs: Option<&JobTable>, call: &ToolCall) -> ToolOutc
             let lines =
                 input.tail.map_or(DEFAULT_TAIL_LINES, |tail| tail.min(MAX_TAIL_LINES) as usize);
             let shown = shown_output(&job.output, input.offset, lines).await;
-            ToolOutcome::ok(format!("{}\n{shown}", job_line(&job, now)))
+            ToolOutcome::ok(format!("{}\n{shown}", jobs.line(conversation, &job, now)))
         }
         _ => {
             let input = match parse::<JobStopInput>(JOB_STOP, &call.input) {
@@ -238,7 +241,7 @@ pub(crate) async fn invoke(jobs: Option<&JobTable>, call: &ToolCall) -> ToolOutc
                 (before, format!("job {} had ended already", input.id))
             };
             let shown = shown_output(&job.output, None, DEFAULT_TAIL_LINES).await;
-            ToolOutcome::ok(format!("{first}\n{}\n{shown}", job_line(&job, now)))
+            ToolOutcome::ok(format!("{first}\n{}\n{shown}", jobs.line(conversation, &job, now)))
         }
     }
 }

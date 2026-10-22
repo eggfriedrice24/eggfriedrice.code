@@ -459,7 +459,8 @@ impl JobTable {
         listed.sort_by_key(|entry| entry.meta.key.number);
         for entry in listed {
             text.push('\n');
-            text.push_str(&job_line(&entry.info, now));
+            let ports = self.inner.forwards.ports_text(entry.meta.key);
+            text.push_str(&job_line(&entry.info, now, ports.as_deref()));
         }
         Err(text)
     }
@@ -882,6 +883,18 @@ impl JobTable {
         let mut info = entry.info.clone();
         info.output_bytes = entry.output.bytes();
         Some(info)
+    }
+
+    /// [`job_line`] of `job` of `conversation`, with the outcome of each of its ports.
+    pub(crate) fn line(
+        &self,
+        conversation: ConversationId,
+        job: &JobInfo,
+        now: Timestamp,
+    ) -> String {
+        let ports =
+            JobKey::of(conversation, &job.id).and_then(|key| self.inner.forwards.ports_text(key));
+        job_line(job, now, ports.as_deref())
     }
 
     /// The running jobs of `conversation`, or of every conversation.
@@ -1747,9 +1760,10 @@ fn jobs_run(count: usize) -> String {
     if count == 1 { "1 job runs".to_owned() } else { format!("{count} jobs run") }
 }
 
-/// One line about `job` for the model: its id, state, command, time left or end, and
-/// output size.
-pub(crate) fn job_line(job: &JobInfo, now: Timestamp) -> String {
+/// One line about `job` for the model: its id, state, command, time left or end, output
+/// size, and for a running job the outcome of each port (`ports`, from
+/// [`forward::Forwards::ports_text`]).
+pub(crate) fn job_line(job: &JobInfo, now: Timestamp, ports: Option<&str>) -> String {
     let command: String = {
         let flat = job.command.split_whitespace().collect::<Vec<_>>().join(" ");
         if flat.chars().count() > 80 {
@@ -1776,11 +1790,10 @@ pub(crate) fn job_line(job: &JobInfo, now: Timestamp) -> String {
             text
         }
     };
-    let ports = match job.state {
-        JobState::Running => forward::ports_text(&job.forwards),
-        _ => None,
+    let ports = match (job.state, ports) {
+        (JobState::Running, Some(ports)) => format!(", {ports}"),
+        _ => String::new(),
     };
-    let ports = ports.map(|ports| format!(", {ports}")).unwrap_or_default();
     format!(
         "{} {}: {command} ({when}, {} bytes of output{ports})",
         job.id,

@@ -10,11 +10,11 @@ use std::sync::Arc;
 
 use efr_config::JobsSettings;
 use efr_permissions::Egress;
-use efr_protocol::{BusKind, ConversationId, ForwardOutcome, Grant, JobId, Launch, PortForward};
+use efr_protocol::{BusKind, ConversationId, ForwardOutcome, Grant, JobId, Launch};
 use efr_sandbox::{ForwardPlan, MAX_DAEMON_FORWARDS, peer_uid};
 use pretty_assertions::assert_eq;
 
-use super::{Forwards, SystemHostPorts, Taken, bind, line, plan_of, ports_text};
+use super::{Forwards, SystemHostPorts, Taken, bind, line, note, plan_of};
 use crate::jobs::JobKey;
 use crate::sandbox::seams::{HostPorts, TestHostPorts};
 
@@ -108,12 +108,114 @@ fn each_outcome_has_its_line() {
     for (got, want) in cases {
         assert_eq!(got, want);
     }
-    let forwards = [
-        PortForward { listen: "127.0.0.1".to_owned(), port: 8765 },
-        PortForward { listen: "::1".to_owned(), port: 5173 },
+}
+
+#[test]
+fn each_outcome_has_its_note_for_the_model() {
+    let (j1, j2) = (JobId::nth(1), JobId::nth(2));
+    let cases = [
+        (
+            note(&j1, "127.0.0.1", 8765, ForwardOutcome::Forwarded, None, None),
+            "efr: job j1 listens on 127.0.0.1:8765; forwarded: the user can open \
+             http://localhost:8765, and your contained calls reach it at 127.0.0.1:8765.",
+        ),
+        (
+            note(&j1, "127.0.0.1", 8767, ForwardOutcome::InUse, None, None),
+            "efr: job j1 listens on 127.0.0.1:8767; not forwarded: 127.0.0.1:8767 is in use on \
+             this machine. The user cannot open it in a browser, and your calls do not reach \
+             it; choose another port.",
+        ),
+        (
+            note(&j2, "::1", 8765, ForwardOutcome::InUse, Some(&j1), None),
+            "efr: job j2 listens on [::1]:8765; not forwarded: 127.0.0.1:8765 is in use by job \
+             j1. The user cannot open it in a browser, and your calls do not reach it; choose \
+             another port.",
+        ),
+        (
+            note(&j1, "127.0.0.1", 5432, ForwardOutcome::Refused, None, Some("a service port")),
+            "efr: job j1 listens on 127.0.0.1:5432; not forwarded: efr does not forward port \
+             5432 (a service port). The user cannot open it in a browser, and your calls do \
+             not reach it; choose another port.",
+        ),
+        (
+            note(
+                &j1,
+                "127.0.0.1",
+                9000,
+                ForwardOutcome::Limit,
+                None,
+                Some("the job forwards 8 ports already"),
+            ),
+            "efr: job j1 listens on 127.0.0.1:9000; not forwarded: the job forwards 8 ports \
+             already. The user cannot open it in a browser, and your calls do not reach it; a \
+             job keeps its forwarded ports until it ends; stop a job that you do not need.",
+        ),
+        (
+            note(
+                &j1,
+                "127.0.0.1",
+                8765,
+                ForwardOutcome::Stopped,
+                None,
+                Some("jobs.forward_ports is off"),
+            ),
+            "efr: job j1: port 8765 is no longer forwarded (jobs.forward_ports is off). The \
+             user cannot open it now, and your contained calls do not reach it.",
+        ),
     ];
-    assert_eq!(ports_text(&forwards).as_deref(), Some("forwarded ports 8765, 5173"));
-    assert_eq!(ports_text(&[]), None);
+    for (got, want) in cases {
+        assert_eq!(got.as_deref(), Some(want));
+    }
+    assert_eq!(note(&j1, "127.0.0.1", 8765, ForwardOutcome::Unknown, None, None), None);
+}
+
+#[test]
+fn the_model_reads_each_outcome_of_a_port_once() {
+    let forwards = Forwards::new(Arc::new(TestHostPorts::new()));
+    let (j1, j2, other) = (key(1, 1), key(1, 2), key(2, 1));
+    let conversation = j1.conversation;
+    assert_eq!(forwards.take_notes(conversation), Vec::<String>::new());
+    forwards.tell(j1, "127.0.0.1", 8767, ForwardOutcome::InUse, None, None);
+    forwards.tell(j1, "127.0.0.1", 8767, ForwardOutcome::InUse, None, None);
+    forwards.tell(j1, "127.0.0.1", 8765, ForwardOutcome::Forwarded, None, None);
+    forwards.tell(other, "127.0.0.1", 9000, ForwardOutcome::Forwarded, None, None);
+    forwards.tell(j1, "127.0.0.1", 8766, ForwardOutcome::Unknown, None, None);
+    let notes = forwards.take_notes(conversation);
+    assert_eq!(notes.len(), 2, "the same outcome once, and only this conversation: {notes:?}");
+    assert!(notes[0].contains("8767; not forwarded: 127.0.0.1:8767 is in use"), "{notes:?}");
+    assert!(notes[1].contains("8765; forwarded"), "oldest first: {notes:?}");
+    assert_eq!(forwards.take_notes(conversation), Vec::<String>::new(), "each note once");
+    assert_eq!(
+        forwards.ports_text(j1).as_deref(),
+        Some(
+            "ports 8765 -> http://localhost:8765; 8767 not forwarded: 127.0.0.1:8767 is in use \
+             on this machine"
+        )
+    );
+    assert_eq!(forwards.ports_text(j2), None, "a job with no port");
+    // NOTE: a new outcome of a port that the model knows is a new note.
+    forwards.tell(j1, "127.0.0.1", 8767, ForwardOutcome::Forwarded, None, None);
+    assert_eq!(forwards.take_notes(conversation).len(), 1);
+    forwards.tell(j1, "127.0.0.1", 8767, ForwardOutcome::Forwarded, None, None);
+    assert_eq!(forwards.take_notes(conversation), Vec::<String>::new());
+    // NOTE: the end of a job's forwards drops its outcomes and its notes that wait.
+    forwards.tell(j1, "127.0.0.1", 8768, ForwardOutcome::Forwarded, None, None);
+    forwards.release_job(j1);
+    assert_eq!(forwards.take_notes(conversation), Vec::<String>::new());
+    assert_eq!(forwards.ports_text(j1), None);
+    assert_eq!(forwards.take_notes(other.conversation).len(), 1, "another job keeps its own");
+}
+
+#[test]
+fn at_most_64_notes_wait() {
+    let forwards = Forwards::new(Arc::new(TestHostPorts::new()));
+    let j1 = key(1, 1);
+    for port in 20_000..20_070 {
+        forwards.tell(j1, "127.0.0.1", port, ForwardOutcome::Refused, None, Some("a test"));
+    }
+    let notes = forwards.take_notes(j1.conversation);
+    assert_eq!(notes.len(), 64);
+    assert!(notes[0].contains("port 20006"), "the oldest went: {}", notes[0]);
 }
 
 /// Check first (plan 5.1): a listener that std binds and tokio takes over has no
