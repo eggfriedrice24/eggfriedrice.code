@@ -32,7 +32,8 @@ fn fzf_args_reload_with_the_query_in_the_environment_only() {
     let args = args();
     let reload = "--bind=change:first+reload-sync:exec '/home/user/my bin/it'\\''s/efr' search --picker --tty '/dev/pts/7'";
     assert!(args.iter().any(|arg| arg == reload), "{args:#?}");
-    assert!(args.iter().any(|arg| arg == "--bind=load:refresh-preview"), "{args:#?}");
+    // fzf runs the preview again after each reload; a bind of its own runs it twice.
+    assert!(!args.iter().any(|arg| arg.contains("refresh-preview")), "{args:#?}");
     let preview =
         "--preview=exec '/home/user/my bin/it'\\''s/efr' search --preview {1} --tty '/dev/pts/7'";
     assert!(args.iter().any(|arg| arg == preview), "{args:#?}");

@@ -32,8 +32,10 @@ pub(crate) use fzf::ProcessFzf;
 
 /// The oldest fzf that has every option of [`fzf_args`] and exports `FZF_QUERY` to the
 /// commands of the picker. fzf's `CHANGELOG.md` names 0.46.0 for `FZF_QUERY`; every
-/// other option is older (`reload-sync` and the `load` event 0.36.0, the `<N(...)`
-/// preview layout 0.31.0, `--disabled` 0.25.0, `refresh-preview` 0.22.0).
+/// other option is older (`reload-sync` 0.36.0, the `<N(...)` preview layout 0.31.0,
+/// `--disabled` 0.25.0). Since 0.41.1 a reload with `--disabled` runs the preview again,
+/// also when the same row keeps the focus, so its marks follow the query with no bind of
+/// our own; a `load:refresh-preview` bind ran it twice for each key.
 pub(crate) const FZF_FLOOR: Version = Version { major: 0, minor: 46, patch: 0 };
 
 /// The name of the program on the `PATH`.
@@ -216,7 +218,6 @@ pub(crate) fn fzf_args(look: &PickerLook) -> Vec<OsString> {
         "--header-lines=1".to_owned(),
         "--prompt=resume> ".to_owned(),
         "--expect=ctrl-o,esc".to_owned(),
-        "--bind=load:refresh-preview".to_owned(),
         // NOTE: the reload has no closing parenthesis and comes last in its own
         // --bind, so no character of the path of efr can end it.
         format!("--bind=change:first+reload-sync:exec {efr} search --picker --tty {tty}"),
