@@ -759,6 +759,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - The `phase=model_answer` log line of an interrupted or failed model call says
   `outcome=interrupted` or `outcome=error`. Before, it said `stop_reason=interrupted`,
   which is no stop reason of the API.
+- A project that efr reaches through a symbolic link, such as `~/p` as a link to
+  `/data/p`, now has one plan lock. Before, a sandboxed call that named the project
+  through the link and a file write that named it direct did not wait for each other,
+  so the write could change the project while efr prepared the call.
 
 ### Security
 

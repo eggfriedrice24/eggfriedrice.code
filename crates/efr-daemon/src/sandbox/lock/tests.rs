@@ -52,3 +52,20 @@ async fn write_file_not_blocked_by_still_running_call() {
     end.send(()).unwrap();
     call.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn one_root_under_two_spellings_shares_one_lock() {
+    // `~/p` may be a link to `/data/p`: a plan that names the root through the link and
+    // a write that names it direct must wait for each other.
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let locks = PlanLocks::default();
+    let first = locks.lock(std::slice::from_ref(&link)).await;
+    assert!(locks.lock(std::slice::from_ref(&real)).now_or_never().is_none());
+    drop(first);
+    let both = locks.lock(&[real.clone(), link.clone()]).now_or_never();
+    assert!(both.is_some(), "one root under two spellings is one lock, taken once");
+}
