@@ -516,6 +516,17 @@ fn any_line_redacts_without_a_panic_and_redacts_once() {
     }
 }
 
+/// The quick refusal of a short name in `secret_name` holds only while no pattern of
+/// `secret_like` matches a shorter name.
+#[test]
+fn no_secret_name_is_shorter_than_the_guard() {
+    for pattern in efr_sandbox::SECRET_NAMES {
+        assert!(pattern.replace('*', "").len() >= super::SHORTEST_SECRET_NAME, "{pattern}");
+    }
+    assert!(super::secret_name("A_KEY"));
+    assert!(!super::secret_name("KEY"));
+}
+
 /// A fixed corpus of 100 lines: commands, prose, keys of each form and keys cut at
 /// the end of a line. Its snapshot shows each line with its redaction, so a change of
 /// the output shows in review.

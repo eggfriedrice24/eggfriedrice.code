@@ -79,6 +79,9 @@ const HEX_ID_LENGTHS: [usize; 2] = [40, 64];
 /// `PASSWORD_LENGTH`, and not a secret.
 const COUNT_WORDS: &[&str] = &["COUNT", "COUNTS", "LIMIT", "LEN", "LENGTH", "SIZE", "MAX", "MIN"];
 
+/// The shortest name that [`secret_like`] can match, such as `_KEY`.
+const SHORTEST_SECRET_NAME: usize = 4;
+
 /// Words of a name that [`secret_like`] matches but that name a count or a model part,
 /// such as `MAX_TOKENS` or `TOKENIZER`, and not a secret.
 const COUNTED_WORDS: &[&str] = &["TOKENS", "TOKENIZER", "TOKENIZERS"];
@@ -145,7 +148,10 @@ pub(crate) fn replace(line: &str, mut found: Vec<Range<usize>>, marker: &str) ->
 /// secret only through one of [`COUNTED_WORDS`]. So `GITHUB_TOKEN` is one, and
 /// `MAX_TOKENS`, `TOKENIZER` and `TOKEN_COUNT` are not.
 pub(crate) fn secret_name(name: &str) -> bool {
-    if !secret_like(name) {
+    // NOTE: every pattern of `secret_like` needs 4 characters or more (`*_KEY`,
+    // `AWS_*`), so a shorter name is none without the allocations of a match: a text
+    // with thousands of `a=` stays fast.
+    if name.len() < SHORTEST_SECRET_NAME || !secret_like(name) {
         return false;
     }
     let upper = name.to_ascii_uppercase();
