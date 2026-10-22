@@ -41,6 +41,7 @@ mod resume;
 mod routing;
 mod sandbox;
 mod scope_marker;
+mod search;
 mod search_index;
 mod shell_tool;
 mod snapshots;

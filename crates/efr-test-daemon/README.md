@@ -27,7 +27,9 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   indexer runs as in efrd: `search_index` gives its status (the cursor, and when it
   sleeps until, so a test moves the clock past the 500 ms after a turn's end), and
   `wait_indexed(seq)` waits until every event up to `seq` is in the index; it never
-  moves the clock. For the `auto` sandbox,
+  moves the clock. `search_hook` runs a hook in the row loop of each search, so a test
+  can hold a search while it moves the clock (on a `persistent` daemon: an in-memory
+  store searches on its writer). For the `auto` sandbox,
   `sandbox_launcher` names the `efr-sbx` to copy (the real one from
   `EFR_TEST_SBX_BIN`, or a fake script) and `probe_override` sets the probe's result;
   without them the daemon finds no launcher next to its test binary, and `auto` runs as

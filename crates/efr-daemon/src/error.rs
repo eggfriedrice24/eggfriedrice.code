@@ -547,6 +547,32 @@ pub enum DaemonError {
     /// `conversation.resume` ran. Nothing moved.
     #[error("another request changed the conversation of this terminal; try again")]
     ResumeRaced,
+    /// A search query has more characters than a query may have.
+    #[error("the query is longer than {limit} characters")]
+    QueryTooLong {
+        /// The most characters of a query.
+        limit: usize,
+    },
+    /// A search query has more words and phrases than a query may have.
+    #[error("the query has more than {limit} words")]
+    QueryTooManyTerms {
+        /// The most words and phrases of a query.
+        limit: usize,
+    },
+    /// No search lane became free while the search could wait.
+    #[error("every search lane is busy")]
+    SearchBusy,
+    /// The search was stopped before it ended.
+    #[error("the search was stopped")]
+    SearchStopped,
+    /// The store failed while it searched. The message never holds the query or a
+    /// text of the index, and neither does the log.
+    #[error("the search failed in the store")]
+    SearchFailed {
+        /// The store's error.
+        #[source]
+        source: StoreError,
+    },
 }
 
 /// Why the filtered bus of a call did not start, or its self-test failed (phase E).
@@ -623,7 +649,11 @@ impl DaemonError {
             DaemonError::Forbidden { .. }
             | DaemonError::ModelSidePeer { .. }
             | DaemonError::ResumeOffTerminal { .. } => ErrorCode::Forbidden,
-            DaemonError::ResumeRaced => ErrorCode::Busy,
+            DaemonError::ResumeRaced | DaemonError::SearchBusy => ErrorCode::Busy,
+            DaemonError::SearchStopped => ErrorCode::Cancelled,
+            DaemonError::QueryTooLong { .. } | DaemonError::QueryTooManyTerms { .. } => {
+                ErrorCode::Invalid
+            }
             DaemonError::SandboxUnavailable { .. } => ErrorCode::Conflict,
             DaemonError::SandboxSpec { .. } => ErrorCode::Invalid,
             DaemonError::HelloRepeated | DaemonError::CommandReused { .. } => ErrorCode::Conflict,
@@ -692,6 +722,7 @@ impl DaemonError {
             | DaemonError::Snapshot { .. }
             | DaemonError::NoModelList { .. }
             | DaemonError::BusProxy { .. }
+            | DaemonError::SearchFailed { .. }
             | DaemonError::TaskPanicked { .. } => ErrorCode::Internal,
         }
     }
@@ -807,6 +838,10 @@ impl From<StoreError> for DaemonError {
             StoreError::UnknownConversation { conversation_id } => {
                 DaemonError::ConversationNotFound { conversation_id }
             }
+            StoreError::QueryTooLong { limit, .. } => DaemonError::QueryTooLong { limit },
+            StoreError::QueryTooManyTerms { limit, .. } => DaemonError::QueryTooManyTerms { limit },
+            StoreError::SearchBusy => DaemonError::SearchBusy,
+            StoreError::SearchStopped => DaemonError::SearchStopped,
             source => DaemonError::Store { source },
         }
     }
@@ -841,7 +876,11 @@ impl From<ShellError> for DaemonError {
 
 fn store_code(error: &StoreError) -> ErrorCode {
     match error {
-        StoreError::Busy { .. } => ErrorCode::Busy,
+        StoreError::Busy { .. } | StoreError::SearchBusy => ErrorCode::Busy,
+        StoreError::SearchStopped => ErrorCode::Cancelled,
+        StoreError::QueryTooLong { .. } | StoreError::QueryTooManyTerms { .. } => {
+            ErrorCode::Invalid
+        }
         StoreError::ApprovalNotPending { .. } | StoreError::UnknownConversation { .. } => {
             ErrorCode::NotFound
         }

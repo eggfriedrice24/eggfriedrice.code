@@ -1403,6 +1403,49 @@ After each change the task publishes a `SearchIndexStatus` on a `watch` in `Stat
 their writer time, and whether it is idle. The tests wait on it
 (`TestDaemon::wait_indexed`), never on real time.
 
+### The search methods
+
+`conversations.search` (`methods/conversations_search.rs`) gives one row per
+conversation, best first, for the picker of `,resume`, `efr search` and the phone.
+`conversation.search` (`methods/conversation_search.rs`) gives the hits in one
+conversation, newest first, for the preview. The store parses the query, searches the
+index and ranks the rows (`efr_store::search`); efrd adds which terminal holds each row
+and the name of its project (`methods/recent_rows.rs`, which `conversations.recent`
+uses too).
+
+- **Who may search.** Both methods need `read`, but only a user-side peer may call
+  them: efrd walks `/proc` for each call, and a model-side peer or one whose process is
+  gone gets `forbidden` (`user_side_only` in `methods.rs`). Search would give a process
+  of the model's commands the text of every project and the places of each secret that
+  the index replaced. A phone whose process is the user's may search.
+- **Lanes.** A search runs on one of the store's 3 search lanes, never on a reader of
+  the turns, so a burst of keys cannot slow a prompt or a turn. A fourth search waits
+  for a lane.
+- **Time.** The time of a search counts from the start of its handler, on the clock
+  (`methods/search.rs`). At 150 ms the row loop of the store ends at the next row, and
+  the search ranks what it saw (`partial: time_cap`). At 200 ms efrd answers: with no
+  rows and `time_cap` when the search has a lane, else `busy`. Then it interrupts the
+  statement of the lane. One step inside FTS5 reads no interrupt, so the lane can stay
+  busy until that step ends. When the client cancels or closes, the transport drops the
+  handler, and the drop stops the search the same way.
+- **The empty query.** The rows of `conversations.recent`, in its order, 50 by default
+  and 200 at most. Only the empty query reads the place of `pwd` (the registry, and the
+  plugin's copy of it); a query reads only the registry file, and only when a row is in
+  a project.
+- **Titles.** Every row shows a title with its secrets replaced, which `title_ranges`
+  point into: the search title (from the indexed text of the first prompt), else the
+  projection's title after the index redaction. When efr cut the projection's title at
+  80 characters, the row loses its last word too, so a key that the cut made too short
+  to be recognised never shows. `conversations.recent` keeps the projection's title.
+- **Hits.** A hit has its kind, its event, its turn, its time and a `history_cursor`
+  whose `conversation.history` page ends at the hit. `index.percent` shows while the
+  indexer is more than 5,000 events behind the log.
+- **Errors and logs.** A query of more than 256 characters or 16 words is `invalid`
+  before the search takes a lane. Every other error of the store on this path is
+  `internal` with one fixed sentence, "the search failed in the store", so neither the
+  answer nor the log shows the query. The debug line of a search holds counts and
+  times, never the query or a text.
+
 ### Full mode
 
 Full mode runs the model's commands as the user, with no sandbox and no questions,
@@ -1843,6 +1886,18 @@ a secret that the index redaction recognises reach a doc or a title. Its `bench_
 tests are benches (`#[ignore]`), which `just bench-search` runs in release: the text
 rules of a turn and of the worst docs, the backfill of corpora S and L, the wait that
 the backfill adds to a turn's commit on a store file, and the memory of the indexer.
+
+The search methods have unit tests in `methods/search/tests.rs` (the caps on a
+`TestClock`, the stop of a dropped handler, the titles, the errors) and in
+`methods/tests.rs` (who may search, and the bench `bench_search_peer_walk` of the walk of
+`/proc` for each search). `tests/it/search.rs` runs them in a `TestDaemon` on a store
+that the test writes before the start: what a query finds and never finds (command
+output, a heredoc body, the redaction marker), the titles, the order of the empty query,
+the index percent, the answer size, and a proptest that no 8 characters of a secret
+are in an answer. The daemon's hook in the row loop (`TestDaemonBuilder::search_hook`)
+holds a search, so the tests of the caps, of a cancel and a closed client, and of a
+prompt while every lane is busy wait on events, never on real time.
+`tests/it/sandbox.rs` checks that a process of the model's command may not search.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.

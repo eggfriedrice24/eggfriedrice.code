@@ -49,9 +49,11 @@ mod conversation_context;
 mod conversation_diff;
 mod conversation_history;
 mod conversation_resume;
+mod conversation_search;
 mod conversation_subscribe;
 mod conversations_list;
 mod conversations_recent;
+mod conversations_search;
 mod hello;
 mod input_respond;
 mod jobs_list;
@@ -68,11 +70,14 @@ mod pty_write;
 mod recent_rows;
 mod sandbox_explain;
 mod sandbox_surface_respond;
+mod search;
 mod shell_interrupt;
 mod shell_status;
 mod turn_interrupt;
 mod turn_steer;
 mod turn_undo;
+
+pub use search::SearchRowHook;
 
 /// The scopes of a phone connection.
 const PHONE_SCOPES: &[ScopeName] = &[ScopeName::Read, ScopeName::Operate, ScopeName::Approve];
@@ -264,14 +269,24 @@ pub(crate) fn granted(surface: Origin, peer: PeerSide) -> &'static [ScopeName] {
     }
 }
 
-/// Refuses `method` on a connection from `surface` and `peer` that lacks its scope.
+/// True for a method that needs only `read` but is open to a user-side peer only:
+/// search, which would give a process of the model's commands an oracle over the text
+/// of every project, and the places of each secret that the index replaced.
+pub(crate) fn user_side_only(method: &Method) -> bool {
+    matches!(method, Method::ConversationsSearch(_) | Method::ConversationSearch(_))
+}
+
+/// Refuses `method` on a connection from `surface` and `peer` that lacks its scope, or
+/// that is not the user's own process for a method that only such a peer may call.
 pub(crate) fn authorize(
     surface: Origin,
     peer: PeerSide,
     method: &Method,
 ) -> Result<(), DaemonError> {
     let needed = scope(method);
-    if granted(surface, peer).contains(&needed) {
+    if user_side_only(method) && peer != PeerSide::User {
+        Err(DaemonError::ModelSidePeer { method: method.name() })
+    } else if granted(surface, peer).contains(&needed) {
         Ok(())
     } else if granted(surface, PeerSide::User).contains(&needed) {
         Err(DaemonError::ModelSidePeer { method: method.name() })
@@ -303,9 +318,13 @@ pub(crate) fn model_side_roots(state: &State) -> Vec<u32> {
 }
 
 /// The side of the peer of `context`, looked at only when `method` needs more than
-/// `read`, which every peer holds.
+/// `read`, which every peer holds, or is open to a user-side peer only.
 async fn side_for(state: &State, context: &ConnectionContext, method: &Method) -> PeerSide {
-    if scope(method) == ScopeName::Read { PeerSide::User } else { peer_side(state, context).await }
+    if scope(method) == ScopeName::Read && !user_side_only(method) {
+        PeerSide::User
+    } else {
+        peer_side(state, context).await
+    }
 }
 
 /// A paging cursor that continues before `seq`.
@@ -478,10 +497,11 @@ impl Dispatcher for Methods {
                 Method::CallBackground(params) => {
                     call_background::handle(state, params, &responder).await
                 }
-                // NOTE: the protocol has the two search methods; efrd serves them in a
-                // later step of v0.0.4, and does not announce `search` before that.
-                Method::ConversationsSearch(_) | Method::ConversationSearch(_) => {
-                    Err(DaemonError::InvalidParams { reason: "not built yet" })
+                Method::ConversationsSearch(params) => {
+                    conversations_search::handle(state, params, &responder).await
+                }
+                Method::ConversationSearch(params) => {
+                    conversation_search::handle(state, params, &responder).await
                 }
             };
             state.presence.record(touched).await;

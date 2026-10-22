@@ -2,17 +2,17 @@ use efr_protocol::{
     AdminConfigReload, AdminLoginOpenAi, AdminProjectAdd, AdminProjectRemove, AdminSandboxCheck,
     AdminStatus, ApprovalDecision, ApprovalRespond, Base64Bytes, CallId, Capabilities, CommandId,
     ConversationCompact, ConversationContext, ConversationHistory, ConversationId,
-    ConversationSubscribe, ConversationsList, ErrorCode, Hello, InputRespond, LeaseReport, Method,
-    ModelsList, Origin, PROTOCOL_VERSION, PageCursor, Presence, PresenceSet, ProjectsList,
-    PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size, TurnInterrupt, TurnSteer, TurnUndo,
-    WithdrawTarget,
+    ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsSearch, ErrorCode,
+    Hello, InputRespond, LeaseReport, Method, ModelsList, Origin, PROTOCOL_VERSION, PageCursor,
+    Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize,
+    PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, Seq, Size,
+    TurnInterrupt, TurnSteer, TurnUndo, WithdrawTarget,
 };
 use pretty_assertions::assert_eq;
 
 use crate::DaemonError;
 use crate::methods::approval_respond::remote_always;
-use crate::methods::{authorize, cursor, granted, page_size, parse_cursor, scope};
+use crate::methods::{authorize, cursor, granted, page_size, parse_cursor, scope, user_side_only};
 use crate::sandbox::peers::PeerSide;
 
 fn id(n: u128) -> uuid::Uuid {
@@ -133,13 +133,22 @@ fn every_method() -> Vec<Method> {
             list: false,
         }),
         Method::ConversationContext(ConversationContext { conversation_id, model: None }),
+        Method::ConversationsSearch(ConversationsSearch {
+            query: "rsync".to_owned(),
+            ..ConversationsSearch::default()
+        }),
+        Method::ConversationSearch(ConversationSearch {
+            conversation_id,
+            query: "rsync".to_owned(),
+            limit: None,
+        }),
     ]
 }
 
 #[test]
 fn every_method_needs_the_scope_the_protocol_names() {
     let methods = every_method();
-    assert_eq!(methods.len(), 28, "one request per method but conversation.diff");
+    assert_eq!(methods.len(), 30, "one request per method but conversation.diff");
     for method in &methods {
         assert_eq!(scope(method), ScopeName::for_method(method), "{}", method.name());
     }
@@ -181,6 +190,8 @@ fn the_scope_table_is_the_designed_one() {
             ("presence.set", ScopeName::Operate),
             ("turn.undo", ScopeName::Operate),
             ("conversation.context", ScopeName::Read),
+            ("conversations.search", ScopeName::Read),
+            ("conversation.search", ScopeName::Read),
         ]
     );
 }
@@ -260,8 +271,10 @@ fn a_declared_phone_below_a_hidden_shell_gets_read_only() {
         for method in every_method() {
             let allowed = authorize(Origin::Phone, peer, &method);
             match scope(&method) {
-                ScopeName::Read => assert!(allowed.is_ok(), "{}", method.name()),
-                ScopeName::Operate | ScopeName::Approve => assert!(
+                ScopeName::Read if !user_side_only(&method) => {
+                    assert!(allowed.is_ok(), "{}", method.name());
+                }
+                ScopeName::Read | ScopeName::Operate | ScopeName::Approve => assert!(
                     matches!(&allowed, Err(DaemonError::ModelSidePeer { method: name })
                         if *name == method.name()),
                     "{peer:?} {}: {allowed:?}",
@@ -393,7 +406,7 @@ fn a_model_side_peer_or_a_gone_one_may_only_read() {
             assert_eq!(granted(surface, peer), [ScopeName::Read]);
             for method in every_method() {
                 let allowed = authorize(surface, peer, &method);
-                if scope(&method) == ScopeName::Read {
+                if scope(&method) == ScopeName::Read && !user_side_only(&method) {
                     assert!(allowed.is_ok(), "{}", method.name());
                 } else {
                     assert!(
@@ -453,4 +466,60 @@ fn sandbox_explain_needs_read_scope_only() {
         .find(|method| method.name() == "sandbox.surface_respond")
         .unwrap();
     assert!(authorize(Origin::Shell, PeerSide::ModelSide, &respond).is_err());
+}
+
+/// Search reads the text of every project and finds where the index replaced a
+/// secret, so a process of the model's commands may not search, though it holds
+/// `read`; the user's own processes and a user's phone may (DQ43).
+#[test]
+fn model_peer_may_not_search() {
+    let searches: Vec<Method> = every_method().into_iter().filter(user_side_only).collect();
+    let names: Vec<&str> = searches.iter().map(Method::name).collect();
+    assert_eq!(names, ["conversations.search", "conversation.search"]);
+    for method in &searches {
+        assert_eq!(scope(method), ScopeName::Read);
+        for surface in [Origin::Shell, Origin::Cli, Origin::Proxy, Origin::Phone] {
+            for peer in [PeerSide::ModelSide, PeerSide::Unknown] {
+                let refused = authorize(surface, peer, method);
+                assert!(
+                    matches!(&refused, Err(DaemonError::ModelSidePeer { method: name }) if *name == method.name()),
+                    "{surface:?} {peer:?}: {refused:?}"
+                );
+            }
+            assert!(authorize(surface, PeerSide::User, method).is_ok(), "{surface:?}");
+        }
+    }
+}
+
+/// The walk of `/proc` that each search makes for its peer (DQ43): at most 2 ms at
+/// p95. The walk goes up from this test to pid 1, past a hidden shell that it never
+/// meets, the longest walk of a user-side peer. `just bench-search` runs it.
+#[test]
+#[ignore = "a bench: run it with just bench-search"]
+#[expect(clippy::print_stdout, reason = "a bench prints its numbers")]
+fn bench_search_peer_walk() {
+    use std::time::{Duration, Instant};
+
+    use crate::sandbox::peers;
+
+    let pid = std::process::id();
+    let mut times: Vec<Duration> = (0..1_000)
+        .map(|_| {
+            let started = Instant::now();
+            let side = peers::side(Some(pid), &[u32::MAX - 1], 1, None);
+            let took = started.elapsed();
+            assert_eq!(side, PeerSide::User);
+            took
+        })
+        .collect();
+    times.sort();
+    let at = |q: f64| times[((times.len() - 1) as f64 * q).round() as usize];
+    let ms = |time: Duration| time.as_secs_f64() * 1000.0;
+    println!(
+        "bench_search_peer_walk: 1000 walks, p50 {:.3} ms, p95 {:.3} ms, max {:.3} ms (budget p95 2 ms)",
+        ms(at(0.5)),
+        ms(at(0.95)),
+        ms(times[times.len() - 1])
+    );
+    assert!(at(0.95) <= Duration::from_millis(2), "the p95 of a walk is {:?}", at(0.95));
 }

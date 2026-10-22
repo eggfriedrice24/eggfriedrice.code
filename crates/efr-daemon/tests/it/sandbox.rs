@@ -1025,6 +1025,44 @@ async fn escape_model_side_peer_declares_phone() {
     );
 }
 
+// NOTE: search needs `read` only, but it would give a process of the model's command
+// the text of every project and the places of each secret that the index replaced, so
+// efrd walks `/proc` for it as for a write (DQ43).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn escape_model_side_peer_may_not_search() {
+    use efr_protocol::{ConversationId, ConversationSearch, ConversationsSearch, Origin};
+
+    let list = Method::ConversationsSearch(ConversationsSearch {
+        query: "x".to_owned(),
+        ..Default::default()
+    });
+    let preview = Method::ConversationSearch(ConversationSearch {
+        conversation_id: ConversationId::from_uuid(uuid::Uuid::from_u128(1)),
+        query: "x".to_owned(),
+        limit: None,
+    });
+    let Some(answers) = model_side_peer(
+        "escape_model_side_peer_may_not_search",
+        Origin::Shell,
+        vec![list, preview],
+    )
+    .await
+    else {
+        return;
+    };
+    assert_eq!(
+        peer_codes(&answers),
+        [(1, None), (2, Some(ErrorCode::Forbidden)), (3, Some(ErrorCode::Forbidden))],
+        "a process of the model's command may not search"
+    );
+    let (_, refused) = &answers[1];
+    let message = refused.as_ref().map(|(_, message)| message.as_str()).unwrap_or_default();
+    assert!(
+        message.contains("not open to a process that the model's commands started"),
+        "the refusal is the model-side one: {message}"
+    );
+}
+
 /// Runs git in `dir` without the machine's configuration.
 async fn git(dir: &Path, args: &[&str]) {
     let status = efr_stdx::process::command("git", dir)
