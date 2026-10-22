@@ -764,6 +764,95 @@ async fn shell_a_contained_call_runs_in_the_real_sandbox() {
     daemon.stop().await.unwrap();
 }
 
+/// The line of the `$SCRATCH` tests: the value, and a file written through it.
+const SCRATCH_LINE: &str = "print -r -- \"scratch=$SCRATCH\"; print -r -- made > \"$SCRATCH/made\"";
+
+/// The conversation's scratch dir that the output of [`SCRATCH_LINE`] names, after a
+/// check that it lies below the data root's scratch root and holds the file.
+fn scratch_of(dirs: &TestDirs, output: &str) -> PathBuf {
+    let line = output.lines().find_map(|line| line.strip_prefix("scratch=")).unwrap();
+    let scratch = PathBuf::from(line);
+    assert_eq!(scratch.parent(), Some(dirs.dirs().data().join("scratch").as_path()), "{output}");
+    assert_eq!(std::fs::read_to_string(scratch.join("made")).unwrap(), "made\n", "{output}");
+    scratch
+}
+
+#[tokio::test]
+async fn shell_scratch_is_set_for_a_call_outside_the_sandbox() {
+    let test = "shell_scratch_is_set_for_a_call_outside_the_sandbox";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let dirs = Arc::new(TestDirs::new().unwrap());
+    let model = ScriptedModel::new(vec![json!({ "command": SCRATCH_LINE })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let (_, events) =
+        run_turn(&daemon, "use scratch", Mode::Cautious, ApprovalDecision::Allow).await;
+    let [(output, exit_code)] = completed(&events).try_into().unwrap();
+    assert_eq!(exit_code, Some(0), "{output}");
+    scratch_of(&dirs, &output);
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn shell_scratch_is_set_in_the_real_sandbox() {
+    let test = "shell_scratch_is_set_in_the_real_sandbox";
+    if !zsh_enabled(test) {
+        return;
+    }
+    let Some(launcher) = real_launcher(test) else { return };
+    // NOTE: below the target dir, not /tmp, which the sandbox replaces with its own.
+    let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
+    let project = dirs.create_dir("home/project").unwrap();
+    let user_runtime = dirs.create_dir("xrt").unwrap();
+    let env = std::collections::BTreeMap::from([
+        ("HOME".to_owned(), dirs.home().to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+        ("LANG".to_owned(), "C.UTF-8".to_owned()),
+        ("XDG_RUNTIME_DIR".to_owned(), user_runtime.to_string_lossy().into_owned()),
+        // The user's own value, as some clusters set it.
+        ("SCRATCH".to_owned(), "/scratch/user".to_owned()),
+    ]);
+    let model = ScriptedModel::new(vec![json!({ "command": SCRATCH_LINE })]);
+    let daemon = with_zsh(TestDaemon::builder())
+        .dirs(Arc::clone(&dirs))
+        .shell_env(env)
+        .sandbox_launcher(&launcher)
+        .custom_provider(model)
+        .start()
+        .await
+        .unwrap();
+    let client = daemon.client().await.unwrap();
+    let status: AdminStatusResult = client.call(Method::AdminStatus(AdminStatus {})).await.unwrap();
+    let sandbox = status.sandbox.unwrap();
+    if !sandbox.available {
+        // NOTE: just test-sandbox fails when this says skipped on a ready machine.
+        skip(test, &format!("the probe says the sandbox is unavailable: {:?}", sandbox.reason));
+        return;
+    }
+    // The turn's project is registered, so the call runs contained without a question.
+    let add =
+        Method::AdminProjectAdd(AdminProjectAdd { path: project, name: None, git_root: false });
+    let _: AdminProjectAddResult = client.call(add).await.unwrap();
+    let (_, events) = run_turn(&daemon, "use scratch", Mode::Auto, ApprovalDecision::Deny).await;
+    assert_eq!(started_settings(&events).mode, Mode::Auto);
+    let launch = events.iter().find_map(|envelope| match &envelope.event {
+        Event::ToolCallStarted { launch, .. } => launch.clone(),
+        _ => None,
+    });
+    assert!(matches!(launch, Some(Launch::Contained { .. })), "{launch:?}");
+    let [(output, exit_code)] = completed(&events).try_into().unwrap();
+    assert_eq!(exit_code, Some(0), "{output}");
+    scratch_of(&dirs, &output);
+    drop(client);
+    daemon.stop().await.unwrap();
+}
+
 #[tokio::test]
 async fn shell_a_contained_call_cannot_reach_the_snapshot_store() {
     let test = "shell_a_contained_call_cannot_reach_the_snapshot_store";
