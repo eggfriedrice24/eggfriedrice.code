@@ -303,7 +303,7 @@ async fn the_wire_schema_puts_the_rationale_before_the_verdict() {
     judge(Arc::new(openai), Vendor::OpenAi, &clock).judge(input(&ids(1), &record)).await;
     judge(Arc::new(anthropic), Vendor::Anthropic, &clock).judge(input(&ids(2), &record)).await;
 
-    let required = json!(["rationale", "category", "risk", "user_authorization", "verdict"]);
+    let required = json!(["category", "rationale", "risk", "user_authorization", "verdict"]);
     for at in ["/v1/responses", "/v1/messages"] {
         let bodies = raw_bodies(&server, at).await;
         assert_eq!(bodies.len(), 1, "{at}");

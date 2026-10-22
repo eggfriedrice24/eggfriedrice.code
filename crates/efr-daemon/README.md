@@ -1137,10 +1137,14 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   small model of the provider's company), then the turn's model, then the user. A step
   that is missing, refuses, times out on the daemon's clock or answers outside the
   schema goes to the next step; refused credentials or a used-up quota go to the user
-  at once. A step that refuses the output form goes once more without it. The prompt
-  and the schema's `required` list put `rationale` first, so the model writes its
-  reason before its verdict; on the wire, `properties` keeps the order of the names
-  (serde_json has no `preserve_order`). A rationale that is shorter than 12 characters
+  at once. A step that refuses the output form goes once more without it. On the
+  wire, `properties` keeps the order of the names (serde_json has no
+  `preserve_order`): `category`, `rationale`, `risk`, `user_authorization`, `verdict`.
+  The output form makes the model write the members in that order, so the prompt, its
+  example and the schema's `required` list name them in the same order, and the model
+  writes its reason before its risk and its verdict. A prompt that asked for another
+  order got rationales that were empty, `x` or `placeholder`
+  (`the_prompt_asks_for_the_members_in_the_order_of_the_wire_schema`). A rationale that is shorter than 12 characters
   or a placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier
   model gets the same request once more (`JudgeOutcome::reasked`, which the turn
   records as `exit_judged.reasked`), and a second such answer goes to the next step.

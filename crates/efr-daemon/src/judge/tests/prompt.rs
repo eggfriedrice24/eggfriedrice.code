@@ -73,3 +73,34 @@ async fn the_request_of_a_proxy_machine_holds_the_proxy_prompt() {
     judge(&setup, &record).await;
     assert_eq!(setup.provider.requests().remove(0).system.as_deref(), Some(PROMPT));
 }
+
+/// The output form makes the model write the members of its answer in the order of the
+/// schema's `properties` on the wire. The prompt's list, its example and the schema's
+/// `required` list must name them in that same order: a prompt that asked for another
+/// order got answers whose `rationale` was empty, `x` or `placeholder`.
+#[test]
+fn the_prompt_asks_for_the_members_in_the_order_of_the_wire_schema() {
+    let schema = super::super::schema();
+    let wire_text = serde_json::to_string(&schema["properties"]).unwrap();
+    let mut wire: Vec<&str> =
+        schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();
+    wire.sort_by_key(|name| wire_text.find(&format!("\"{name}\":")).unwrap());
+    let required: Vec<&str> =
+        schema["required"].as_array().unwrap().iter().map(|name| name.as_str().unwrap()).collect();
+    assert_eq!(required, wire);
+    for prompt in [PROMPT, PROMPT_PROXY] {
+        let output = &prompt[prompt.find("# Output").unwrap()..];
+        let listed: Vec<&str> = output
+            .lines()
+            .filter_map(|line| line.strip_prefix("- `"))
+            .map(|line| line.split('`').next().unwrap())
+            .collect();
+        assert_eq!(listed, wire);
+        let example = output.lines().find(|line| line.starts_with('{')).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(example).unwrap();
+        let mut in_text: Vec<&str> =
+            parsed.as_object().unwrap().keys().map(String::as_str).collect();
+        in_text.sort_by_key(|name| example.find(&format!("\"{name}\":")).unwrap());
+        assert_eq!(in_text, wire, "{example}");
+    }
+}

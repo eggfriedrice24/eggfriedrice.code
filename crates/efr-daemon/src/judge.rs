@@ -21,12 +21,18 @@
 //!
 //! The answer must be exactly one JSON object with the five members of the schema and
 //! no other; efrd checks the lengths after the parse, because the providers take no
-//! length keyword. The schema's `required` list names `rationale` first, and its
-//! description and the prompt tell the model to write its reason before its verdict. The
-//! members of `properties` go on the wire in the order of their names, because
-//! serde_json keeps no insertion order (no `preserve_order`, which would change every
-//! JSON map of the workspace): `category` comes first there, `rationale` before
-//! `verdict`. A `rationale` that is shorter than [`MIN_RATIONALE_CHARS`] or a
+//! length keyword. The members of `properties` go on the wire in the order of their
+//! names, because serde_json keeps no insertion order (no `preserve_order`, which would
+//! change every JSON map of the workspace): `category`, `rationale`, `risk`,
+//! `user_authorization`, `verdict`. The output form makes the model write the members in
+//! that order, so the prompt lists them, and its example writes them, in the same order,
+//! and its rule and the schema's description of `rationale` tell the model to write its
+//! reason before it chooses the risk and the verdict. NOTE: while the prompt put
+//! `rationale` last, Claude's small model filled it with an empty string, `x` or
+//! `placeholder` in 27 of 31 reviews; while the prompt put it first, before `category`,
+//! such answers still came. Both prompts asked for another order than the form's. A test
+//! holds the two orders equal.
+//! A `rationale` that is shorter than [`MIN_RATIONALE_CHARS`] or a
 //! placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier model
 //! gets the same request once more, and a second such answer goes to the next step. When
 //! a step answers that it does not take the output form, the judge sends the step once
@@ -109,7 +115,7 @@ pub(crate) const MIN_RATIONALE_CHARS: usize = 12;
 const PLACEHOLDERS: &[&str] = &["x", "placeholder", "n/a", "none", "...", "tbd", "-"];
 
 /// What the schema says of `rationale`, the same words as the prompt.
-const RATIONALE_RULE: &str = "Write the rationale first, then decide. In one or two sentences, name the user message that relates to the action, or say that none does. Never leave it empty and never write a placeholder. At most 300 characters.";
+const RATIONALE_RULE: &str = "In one or two sentences, name the user message that relates to the action, or say that none does. Write it before you choose the risk and the verdict. Never leave it empty and never write a placeholder. At most 300 characters.";
 
 /// The judge of the daemon: one value serves every conversation.
 pub(crate) struct ClassifierJudge {
@@ -468,20 +474,21 @@ fn request(
 /// The JSON schema of the verdict (9.4): enums, every member required and no other
 /// member, and no length keyword, which the Messages API does not take.
 ///
-/// `required` names `rationale` first, and its description asks the model to write
-/// it first, so the verdict follows from it. serde_json keeps the members of an object
-/// in the order of their names, so `properties` goes on the wire as `category`,
-/// `rationale`, `risk`, `user_authorization`, `verdict`: `rationale` still comes before
-/// `verdict`, but not first.
+/// serde_json keeps the members of an object in the order of their names, so
+/// `properties` goes on the wire as `category`, `rationale`, `risk`,
+/// `user_authorization`, `verdict`, the order in which the output form makes the model
+/// write them. `required`, the prompt and its example name them in the same order; the
+/// description of `rationale` asks the model to write it before the risk and the
+/// verdict, so the verdict follows from it.
 pub(crate) fn schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "rationale": {"type": "string", "description": RATIONALE_RULE},
             "category": {
                 "type": "string",
                 "description": "The category of the risk, at most 40 characters.",
             },
+            "rationale": {"type": "string", "description": RATIONALE_RULE},
             "risk": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
             "user_authorization": {
                 "type": "string",
@@ -489,7 +496,7 @@ pub(crate) fn schema() -> Value {
             },
             "verdict": {"type": "string", "enum": ["allow", "deny", "ask_user"]},
         },
-        "required": ["rationale", "category", "risk", "user_authorization", "verdict"],
+        "required": ["category", "rationale", "risk", "user_authorization", "verdict"],
         "additionalProperties": false,
     })
 }
