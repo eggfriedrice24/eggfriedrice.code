@@ -1,0 +1,210 @@
+/*
+ * The efr docs theme. Every colour comes from the eggfriedrice design system:
+ * eggfriedrice.nvim/extras/palette/eggfriedrice.json. The comment next to each value
+ * names its role in that file. "no role" marks a value that has no role of its own; it
+ * takes the closest role that the comment names.
+ *
+ * The palette is dark only, so the site is dark only. book.toml chooses the navy
+ * theme, and this file sets the same values for every stock mdBook theme class, so a
+ * theme that a browser stored earlier shows the same colours. The theme picker is
+ * hidden.
+ */
+
+:root,
+html.light,
+html.rust,
+html.coal,
+html.navy,
+html.ayu {
+    --bg: #0d111a; /* semantic.surface_1 = apps.zen.newtab = apps.opencode.background */
+    --fg: #d8d3c3; /* semantic.text_primary = apps.opencode.markdown_text */
+
+    --sidebar-bg: #090c13; /* apps.zen.sidebar */
+    --sidebar-fg: #d8d3c3; /* apps.zen.sidebar_text */
+    /* SUMMARY.md has no draft chapters, so the colour of a draft link is not set. */
+    --sidebar-active: #ffc940; /* apps.zen.accent = apps.efr.accent */
+    --sidebar-spacer: #46516c; /* apps.zen.border */
+    --sidebar-header-border-color: #c9a747; /* semantic.border_accent = apps.opencode.border_active */
+
+    --scrollbar: #46516c; /* no role; apps.discord.scrollbar_thumb */
+
+    --icons: #a8a396; /* apps.zen.toolbar_icon */
+    --icons-hover: #ffc940; /* apps.zen.accent */
+
+    --links: #c084fc; /* semantic.link = apps.zen.link = apps.efr.link */
+
+    --inline-code-color: #60e654; /* apps.opencode.markdown_code = apps.efr.code */
+
+    --theme-popup-bg: #090c13; /* apps.zen.popup */
+    --theme-popup-border: #46516c; /* apps.zen.border */
+    --theme-hover: #2f3b54; /* apps.zen.hover */
+
+    --quote-bg: #121722; /* no role; apps.opencode.background_element */
+    --quote-border: #586480; /* no role; apps.opencode.border */
+
+    --warning-border: #ffc940; /* semantic.state_warning = apps.efr.warning */
+
+    --table-border-color: #586480; /* semantic.border_default = apps.opencode.border */
+    --table-header-bg: #121722; /* no role; apps.opencode.background_element */
+    --table-alternate-bg: #0d111a; /* no role; semantic.surface_1, the same as --bg: no stripes */
+
+    --searchbar-border-color: #586480; /* apps.opencode.border */
+    --searchbar-bg: #121722; /* apps.zen.urlbar */
+    --searchbar-fg: #d8d3c3; /* apps.zen.urlbar_text */
+    --searchbar-shadow-color: transparent; /* no role; no shadow */
+    --searchresults-header-fg: #8695b7; /* apps.zen.muted */
+    --searchresults-border-color: #46516c; /* apps.zen.border */
+    --searchresults-li-bg: #121722; /* apps.zen.tab_active */
+    --search-mark-bg: #564825; /* semantic.search_match_bg */
+
+    --color-scheme: dark; /* the palette is dark only */
+
+    /* A filter that draws the black copy icon in #a8a396, apps.zen.toolbar_icon. */
+    --copy-button-filter: invert(74%) sepia(11%) saturate(296%) hue-rotate(5deg) brightness(87%) contrast(85%);
+    /* A filter that draws the black copy icon in #ffc940, apps.zen.accent. */
+    --copy-button-filter-hover: invert(87%) sepia(49%) saturate(1776%) hue-rotate(323deg) brightness(103%) contrast(101%);
+
+    --footnote-highlight: #ffc940; /* semantic.focus */
+
+    --overlay-bg: rgba(9, 12, 19, 0.4); /* no role; semantic.surface_0 #090c13 at 40% */
+
+    --blockquote-note-color: #78e2d6; /* semantic.state_info = apps.opencode.info */
+    --blockquote-tip-color: #60e654; /* semantic.state_success = apps.zen.success */
+    --blockquote-important-color: #c084fc; /* no role; apps.opencode.secondary */
+    --blockquote-warning-color: #ffc940; /* semantic.state_warning */
+    --blockquote-caution-color: #e06c75; /* semantic.state_error = apps.zen.error */
+}
+
+/* Dark only: hide the theme picker. */
+#mdbook-theme-toggle,
+#mdbook-theme-list {
+    display: none !important;
+}
+
+/* Text */
+
+.content h1,
+.content h2,
+.content h3,
+.content h4,
+.content h5,
+.content h6,
+.content .header:link,
+.content .header:visited {
+    color: #e06c75; /* apps.opencode.markdown_heading = apps.efr.heading */
+}
+
+.content strong {
+    color: #f2eddd; /* apps.opencode.markdown_strong */
+}
+
+.content hr {
+    border: none;
+    border-block-start: 1px solid #586480; /* apps.opencode.markdown_horizontal_rule */
+}
+
+.content li::marker {
+    color: #ffc940; /* apps.opencode.markdown_list_item */
+}
+
+.content blockquote {
+    color: #8695b7; /* apps.opencode.markdown_block_quote = apps.efr.quote */
+}
+
+mark {
+    color: #d8d3c3; /* semantic.search_match_fg */
+}
+
+/* Code blocks */
+
+html .hljs,
+html pre > code {
+    background: #090c13; /* no role; semantic.surface_0 = apps.discord.code */
+    color: #d8d3c3; /* apps.bat.foreground */
+}
+
+/* Syntax colours: the semantic.code_* roles, as apps.bat and apps.opencode use them. */
+html .hljs-comment,
+html .hljs-quote {
+    color: #8695b7; /* semantic.code_comment */
+}
+
+html .hljs-keyword,
+html .hljs-selector-tag,
+html .hljs-meta,
+html .hljs-meta .hljs-keyword {
+    color: #c084fc; /* semantic.code_keyword */
+}
+
+html .hljs-string,
+html .hljs-meta .hljs-string,
+html .hljs-addition {
+    color: #60e654; /* semantic.code_string */
+}
+
+html .hljs-title,
+html .hljs-section,
+html .hljs-type,
+html .hljs-number,
+html .hljs-literal,
+html .hljs-built_in,
+html .hljs-symbol,
+html .hljs-bullet {
+    color: #ffc940; /* semantic.code_function, code_type, code_constant */
+}
+
+html .hljs-variable,
+html .hljs-template-variable,
+html .hljs-attr,
+html .hljs-attribute,
+html .hljs-name,
+html .hljs-tag,
+html .hljs-deletion {
+    color: #e06c75; /* semantic.code_variable */
+}
+
+html .hljs-operator {
+    color: #6cb8ff; /* semantic.code_operator */
+}
+
+html .hljs-punctuation {
+    color: #a8a396; /* semantic.code_punctuation */
+}
+
+html .hljs-regexp,
+html .hljs-char.escape_ {
+    color: #78e2d6; /* semantic.code_escape */
+}
+
+/*
+ * Small screens. The page never scrolls sideways: a code block or a table scrolls
+ * inside itself, and mdBook breaks a long word in a paragraph. mdBook's own menu
+ * button opens and closes the sidebar.
+ */
+
+.content pre {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.content pre > code {
+    display: block;
+    overflow-x: auto;
+    overflow-wrap: normal;
+    white-space: pre;
+}
+
+.content .table-wrapper {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+@media only screen and (max-width: 620px) {
+    :root {
+        --page-padding: 10px;
+    }
+
+    .content table {
+        font-size: 0.9em;
+    }
+}

@@ -1,0 +1,28 @@
+# The efr docs site. mdBook 0.5.4 reads the pages in place from docs/ and writes the
+# site to target/book. Build it with `mdbook build book` from the repo root.
+
+[book]
+title = "efr"
+language = "en"
+src = "../docs"
+
+[build]
+build-dir = "../target/book"
+# A SUMMARY line with no file fails the build.
+create-missing = false
+
+[output.html]
+# The design system is dark only, so the site is dark only (see eggfriedrice.css).
+default-theme = "navy"
+preferred-dark-theme = "navy"
+additional-css = ["eggfriedrice.css"]
+site-url = "/eggfriedrice.code/"
+git-repository-url = "https://github.com/eggfriedrice24/eggfriedrice.code"
+# No chapter numbers in the sidebar: the parts give the order.
+no-section-label = true
+# Keep "--" and straight quotes as written: no en dash, no curly quotes.
+smart-punctuation = false
+
+[output.html.print]
+# One print page of all the docs is too long to be of use.
+enable = false
