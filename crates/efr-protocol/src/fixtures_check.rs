@@ -28,9 +28,10 @@ use crate::{
     ConfigStatus, ContextItem, ContextPart, ContextPartKind, ContextUse, ConversationCompact,
     ConversationCompactResult, ConversationContext, ConversationContextResult, ConversationDiff,
     ConversationDiffResult, ConversationHistory, ConversationHistoryResult, ConversationId,
-    ConversationResume, ConversationResumeResult, ConversationSnapshot, ConversationStatus,
-    ConversationSubscribe, ConversationSubscribeItem, ConversationSummary, ConversationsList,
-    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, CountedUse, Cursor,
+    ConversationResume, ConversationResumeResult, ConversationSearch, ConversationSearchResult,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribe, ConversationSubscribeItem,
+    ConversationSummary, ConversationsList, ConversationsListResult, ConversationsRecent,
+    ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult, CountedUse, Cursor,
     DaemonId, DaemonPaths, DaemonRoots, DesktopEnv, DesktopKind, DeviceId, Draft, DraftPart,
     EffectiveSettings, ErrorBody, ErrorCode, Event, EventEnvelope, ExitFacts, ExitInfo, ExitKind,
     ExitRecord, ExitSource, FileChange, FileChanges, ForwardOutcome, FullModeStatus, FullRefusal,
@@ -48,12 +49,13 @@ use crate::{
     RootSource, RouteLabel, RouteScope, Routed, RowCells, SandboxCheck, SandboxExplain,
     SandboxExplainResult, SandboxPathRole, SandboxPaths, SandboxStatus, SandboxSummary,
     SandboxSurfaceRespond, SandboxSurfaceRespondResult, Scope, ScopeName, ScreenSnapshot,
+    SearchHit, SearchIndexState, SearchKind, SearchLine, SearchPartial, SearchRow, SearchStats,
     SecretText, Seq, ServerFrame, ShellCommandEnd, ShellContext, ShellInterrupt,
     ShellInterruptResult, ShellStatus, ShellStatusResult, Size, SnapshotPhase, StopReason,
-    SurfaceChange, Switch, TargetFact, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
-    TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult, UndoAction,
-    UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization, Verdict,
-    Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
+    SurfaceChange, Switch, TargetFact, TextRange, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, TurnStop, TurnUndo, TurnUndoInfo, TurnUndoResult,
+    UndoAction, UndoEntry, UndoId, UndoReason, UndoRefused, UndoableTurn, Usage, UserAuthorization,
+    Verdict, Watch, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 
 /// The directory of the frozen fixtures.
@@ -145,6 +147,8 @@ pub(crate) fn all() -> Vec<Fixture> {
     fixtures.push(fixture("attach_hows.json", &AttachHow::ALL.to_vec()));
     fixtures.push(fixture("shell_command_ends.json", &ShellCommandEnd::ALL.to_vec()));
     fixtures.push(fixture("approved_bys.json", &ApprovedBy::ALL.to_vec()));
+    fixtures.push(fixture("search_kinds.json", &SearchKind::ALL.to_vec()));
+    fixtures.push(fixture("search_partials.json", &SearchPartial::ALL.to_vec()));
     fixtures
 }
 
@@ -865,6 +869,7 @@ pub(crate) fn method_samples() -> Vec<Method> {
             capabilities: Capabilities {
                 admin: None,
                 screen_snapshots: Some(true),
+                search: None,
                 extra: Default::default(),
             },
             tty: Some("/dev/pts/3".into()),
@@ -1042,6 +1047,18 @@ pub(crate) fn method_samples() -> Vec<Method> {
             command_id: command_id(),
             confirm: Some(7_310_442_918_005),
         }),
+        Method::ConversationsSearch(ConversationsSearch {
+            query: "disk full".into(),
+            tty: Some("/dev/pts/3".into()),
+            pwd: Some("/home/me/p/app".into()),
+            limit: Some(50),
+            stats: true,
+        }),
+        Method::ConversationSearch(ConversationSearch {
+            conversation_id: conversation_id(),
+            query: "disk full".into(),
+            limit: Some(20),
+        }),
     ]
 }
 
@@ -1108,6 +1125,7 @@ fn answer_fixtures() -> Vec<Fixture> {
                 capabilities: Capabilities {
                     admin: Some(true),
                     screen_snapshots: Some(true),
+                    search: Some(true),
                     extra: Default::default(),
                 },
                 paths: DaemonPaths {
@@ -1562,6 +1580,8 @@ fn answer_fixtures() -> Vec<Fixture> {
                 exits: moved_job_info().moved_from.map(|moved| moved.exits).unwrap_or_default(),
             },
         ),
+        fixture("conversations_search_result.json", &search_list()),
+        fixture("conversation_search_result.json", &search_in_one()),
         fixture(
             "conversation_resume_result_held.json",
             &ConversationResumeResult::Held {
@@ -1586,14 +1606,91 @@ fn recent_list() -> ConversationsRecentResult {
     ConversationsRecentResult {
         scope: Some(app_label()),
         current: Some(conversation_id()),
-        conversations: vec![RecentConversation {
-            summary: summary(),
-            route: RouteScope::Project(project_id()),
-            project: Some("app".into()),
-            turns: 6,
-            open_in: Some("/dev/pts/4".into()),
-            here: true,
+        conversations: vec![recent_row()],
+    }
+}
+
+/// A row of the list of recent conversations with every member set.
+fn recent_row() -> RecentConversation {
+    RecentConversation {
+        summary: summary(),
+        route: RouteScope::Project(project_id()),
+        project: Some("app".into()),
+        turns: 6,
+        open_in: Some("/dev/pts/4".into()),
+        here: true,
+    }
+}
+
+/// The ranges of `disk` and `full` in the title of [`summary`].
+fn title_ranges() -> Vec<TextRange> {
+    vec![TextRange { start: 11, end: 15 }, TextRange { start: 16, end: 20 }]
+}
+
+/// A hit in an answer, with every member set.
+fn answer_hit() -> SearchHit {
+    SearchHit {
+        kind: SearchKind::Answer,
+        seq: Seq::new(40),
+        turn_id: Some(turn_id()),
+        at: at("2026-10-03T12:00:04Z"),
+        history_cursor: PageCursor::new("s:41"),
+        lines: vec![SearchLine {
+            text: "The disk is full of old journal files: 3.9 GiB in /var/log/journal.".into(),
+            ranges: vec![TextRange { start: 4, end: 8 }, TextRange { start: 12, end: 16 }],
         }],
+    }
+}
+
+/// A search result with every member set.
+fn search_list() -> ConversationsSearchResult {
+    ConversationsSearchResult {
+        scope: Some(app_label()),
+        current: Some(conversation_id()),
+        rows: vec![SearchRow {
+            conversation: recent_row(),
+            short_id: "019a9b1c".into(),
+            title_ranges: title_ranges(),
+            hit: Some(answer_hit()),
+        }],
+        partial: Some(SearchPartial::TimeCap),
+        index: Some(SearchIndexState { percent: 40 }),
+        stats: Some(SearchStats {
+            rows_scanned: 1_240,
+            conversations_scored: 96,
+            titles_scored: 310,
+            elapsed_us: 18_400,
+        }),
+    }
+}
+
+/// The hits of one conversation, newest first, with every member set: an answer with a
+/// line that holds no match, then a command.
+fn search_in_one() -> ConversationSearchResult {
+    let mut answer = answer_hit();
+    answer
+        .lines
+        .push(SearchLine { text: "Run journalctl --vacuum-size=500M.".into(), ranges: vec![] });
+    ConversationSearchResult {
+        title: Some(SearchLine { text: "why is the disk full".into(), ranges: title_ranges() }),
+        hits: vec![
+            answer,
+            SearchHit {
+                kind: SearchKind::Command,
+                seq: Seq::new(38),
+                turn_id: Some(turn_id()),
+                at: at("2026-10-03T12:00:02Z"),
+                history_cursor: PageCursor::new("s:39"),
+                lines: vec![SearchLine {
+                    text: "notify-send \"disk full\"".into(),
+                    ranges: vec![
+                        TextRange { start: 13, end: 17 },
+                        TextRange { start: 18, end: 22 },
+                    ],
+                }],
+            },
+        ],
+        partial: Some(SearchPartial::RowCap),
     }
 }
 

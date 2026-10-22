@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "capabilities": {
     "admin": true,
-    "screen_snapshots": true
+    "screen_snapshots": true,
+    "search": true
   },
   "paths": {
     "scratch_root": "/home/me/.local/share/efr/scratch",

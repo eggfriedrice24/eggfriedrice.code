@@ -1,0 +1,81 @@
+{
+  "scope": {
+    "scope": {
+      "kind": "project",
+      "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+    },
+    "name": "app",
+    "dir": "/home/me/p/app"
+  },
+  "current": "019a9b1c-3d00-7a10-8b20-000000000001",
+  "rows": [
+    {
+      "conversation": {
+        "summary": {
+          "id": "019a9b1c-3d00-7a10-8b20-000000000001",
+          "title": "why is the disk full",
+          "status": "running",
+          "created_at": "2026-10-03T11:58:00Z",
+          "updated_at": "2026-10-03T12:00:05.5Z",
+          "last_seq": 42,
+          "cwd": "/var/log",
+          "scope": {
+            "kind": "machine"
+          },
+          "tty": "/dev/pts/3"
+        },
+        "route": {
+          "kind": "project",
+          "value": "019a9b1c-3d00-7a10-8b20-000000000008"
+        },
+        "project": "app",
+        "turns": 6,
+        "open_in": "/dev/pts/4",
+        "here": true
+      },
+      "short_id": "019a9b1c",
+      "title_ranges": [
+        {
+          "start": 11,
+          "end": 15
+        },
+        {
+          "start": 16,
+          "end": 20
+        }
+      ],
+      "hit": {
+        "kind": "answer",
+        "seq": 40,
+        "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+        "at": "2026-10-03T12:00:04Z",
+        "history_cursor": "s:41",
+        "lines": [
+          {
+            "text": "The disk is full of old journal files: 3.9 GiB in /var/log/journal.",
+            "ranges": [
+              {
+                "start": 4,
+                "end": 8
+              },
+              {
+                "start": 12,
+                "end": 16
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "partial": "time_cap",
+  "index": {
+    "percent": 40
+  },
+  "stats": {
+    "rows_scanned": 1240,
+    "conversations_scored": 96,
+    "titles_scored": 310,
+    "elapsed_us": 18400
+  }
+}

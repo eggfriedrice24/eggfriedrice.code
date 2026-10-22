@@ -8,11 +8,12 @@ use crate::{
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
     Base64Bytes, CallBackground, CallId, Capabilities, CommandId, ConversationCompact,
     ConversationContext, ConversationDiff, ConversationHistory, ConversationId, ConversationResume,
-    ConversationSubscribe, ConversationsList, ConversationsRecent, Hello, InputRespond, JobId,
-    JobsList, JobsStop, LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet,
-    ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId,
-    SandboxExplain, SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt,
-    ShellStatus, Size, TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
+    ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsRecent,
+    ConversationsSearch, Hello, InputRespond, JobId, JobsList, JobsStop, LeaseReport, Method,
+    ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach,
+    PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName,
+    SecretText, ShellContext, ShellInterrupt, ShellStatus, Size, TurnInterrupt, TurnSettings,
+    TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -391,7 +392,88 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             true,
             false,
         ),
+        (
+            Method::ConversationsSearch(ConversationsSearch {
+                query: "disk full".to_owned(),
+                ..ConversationsSearch::default()
+            }),
+            "conversations.search",
+            ScopeName::Read,
+            false,
+            false,
+        ),
+        (
+            Method::ConversationSearch(ConversationSearch {
+                conversation_id: conversation(),
+                query: String::new(),
+                limit: None,
+            }),
+            "conversation.search",
+            ScopeName::Read,
+            false,
+            false,
+        ),
     ]
+}
+
+#[test]
+fn search_methods_have_scope_read() {
+    let list = Method::ConversationsSearch(ConversationsSearch::default());
+    let one = Method::ConversationSearch(ConversationSearch {
+        conversation_id: conversation(),
+        query: "rsync".to_owned(),
+        limit: Some(5),
+    });
+    for method in [&list, &one] {
+        // NOTE: a search reads, so it needs no receipt and no scope above `read`; efrd
+        // refuses it to a model-side peer by the side of the peer, not by its scope.
+        assert_eq!(ScopeName::for_method(method), ScopeName::Read, "{}", method.name());
+        assert_eq!(method.command_id(), None, "{}", method.name());
+        assert!(!method.is_stream(), "{}", method.name());
+    }
+    assert_eq!(
+        serde_json::to_value(&list).unwrap(),
+        json!({ "method": "conversations.search", "params": { "query": "" } }),
+        "the empty members stay off the wire"
+    );
+    assert_eq!(
+        serde_json::to_value(&one).unwrap(),
+        json!({
+            "method": "conversation.search",
+            "params": { "conversation_id": CONVERSATION, "query": "rsync", "limit": 5 }
+        })
+    );
+}
+
+#[test]
+fn a_search_frame_with_only_its_query_reads_with_the_defaults() {
+    let frame = json!({ "method": "conversations.search", "params": { "query": "rsync laptop" } });
+    let read: Method = serde_json::from_value(frame).unwrap();
+    assert_eq!(
+        read,
+        Method::ConversationsSearch(ConversationsSearch {
+            query: "rsync laptop".to_owned(),
+            tty: None,
+            pwd: None,
+            limit: None,
+            stats: false,
+        })
+    );
+    let frame = json!({
+        "method": "conversation.search",
+        "params": { "conversation_id": CONVERSATION, "query": "" }
+    });
+    let read: Method = serde_json::from_value(frame).unwrap();
+    assert_eq!(
+        read,
+        Method::ConversationSearch(ConversationSearch {
+            conversation_id: conversation(),
+            query: String::new(),
+            limit: None,
+        })
+    );
+    let no_query = json!({ "method": "conversations.search", "params": {} });
+    assert!(serde_json::from_value::<Method>(no_query).is_err(), "the query is required");
 }
 
 #[test]

@@ -7,11 +7,11 @@ use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
     ConversationCompact, ConversationContext, ConversationDiff, ConversationHistory,
-    ConversationResume, ConversationSubscribe, ConversationsList, ConversationsRecent, Hello,
-    InputRespond, JobsList, JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList,
-    PromptSend, PromptWithdraw, PtyAttach, PtyResize, PtyWrite, SandboxExplain,
-    SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer,
-    TurnUndo,
+    ConversationResume, ConversationSearch, ConversationSubscribe, ConversationsList,
+    ConversationsRecent, ConversationsSearch, Hello, InputRespond, JobsList, JobsStop, LeaseReport,
+    ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize,
+    PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus,
+    TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -144,6 +144,13 @@ pub enum Method {
     /// job.
     #[serde(rename = "call.background")]
     CallBackground(CallBackground),
+    /// `conversations.search`: the conversations whose titles or text match some
+    /// words, best first.
+    #[serde(rename = "conversations.search")]
+    ConversationsSearch(ConversationsSearch),
+    /// `conversation.search`: the places in one conversation that match some words.
+    #[serde(rename = "conversation.search")]
+    ConversationSearch(ConversationSearch),
 }
 
 impl Method {
@@ -189,6 +196,8 @@ impl Method {
             Method::ShellInterrupt(_) => "shell.interrupt",
             Method::ShellStatus(_) => "shell.status",
             Method::CallBackground(_) => "call.background",
+            Method::ConversationsSearch(_) => "conversations.search",
+            Method::ConversationSearch(_) => "conversation.search",
         }
     }
 
@@ -234,7 +243,9 @@ impl Method {
             | Method::JobsList(_)
             | Method::ConversationContext(_)
             | Method::ConversationsRecent(_)
-            | Method::ShellStatus(_) => None,
+            | Method::ShellStatus(_)
+            | Method::ConversationsSearch(_)
+            | Method::ConversationSearch(_) => None,
         }
     }
 
@@ -279,7 +290,9 @@ impl Method {
             | Method::ConversationResume(_)
             | Method::ShellInterrupt(_)
             | Method::ShellStatus(_)
-            | Method::CallBackground(_) => false,
+            | Method::CallBackground(_)
+            | Method::ConversationsSearch(_)
+            | Method::ConversationSearch(_) => false,
         }
     }
 }
@@ -289,9 +302,11 @@ impl ScopeName {
     ///
     /// `hello`, `lease.report`, `models.list`, `projects.list`, `sandbox.explain`,
     /// `conversation.diff`, `jobs.list`, `conversation.context`,
-    /// `conversations.recent` and `shell.status` need only `read`, which every connection holds. Adding or
+    /// `conversations.recent`, `shell.status`, `conversations.search` and
+    /// `conversation.search` need only `read`, which every connection holds. Adding or
     /// removing a project changes what the `auto` mode trusts, so it needs `admin`, which
-    /// a phone never holds.
+    /// a phone never holds. The daemon also refuses the two search methods to a peer
+    /// that is not the user's: a search reads the text of every conversation.
     pub const fn for_method(method: &Method) -> ScopeName {
         match method {
             Method::Hello(_)
@@ -306,7 +321,9 @@ impl ScopeName {
             | Method::JobsList(_)
             | Method::ConversationContext(_)
             | Method::ConversationsRecent(_)
-            | Method::ShellStatus(_) => ScopeName::Read,
+            | Method::ShellStatus(_)
+            | Method::ConversationsSearch(_)
+            | Method::ConversationSearch(_) => ScopeName::Read,
             Method::PromptSend(_)
             | Method::PromptWithdraw(_)
             | Method::ConversationCompact(_)

@@ -21,6 +21,10 @@ pub struct Capabilities {
     /// can render one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screen_snapshots: Option<bool>,
+    /// The daemon answers `conversations.search` and `conversation.search`. A client
+    /// reads its absence as a daemon from before the search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search: Option<bool>,
     /// Keys that this build does not know, sorted by name.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -29,7 +33,10 @@ pub struct Capabilities {
 impl Capabilities {
     /// True when no key is set, known or extra.
     pub fn is_empty(&self) -> bool {
-        self.admin.is_none() && self.screen_snapshots.is_none() && self.extra.is_empty()
+        self.admin.is_none()
+            && self.screen_snapshots.is_none()
+            && self.search.is_none()
+            && self.extra.is_empty()
     }
 }
 

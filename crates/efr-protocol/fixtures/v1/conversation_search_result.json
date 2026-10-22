@@ -1,0 +1,65 @@
+{
+  "title": {
+    "text": "why is the disk full",
+    "ranges": [
+      {
+        "start": 11,
+        "end": 15
+      },
+      {
+        "start": 16,
+        "end": 20
+      }
+    ]
+  },
+  "hits": [
+    {
+      "kind": "answer",
+      "seq": 40,
+      "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+      "at": "2026-10-03T12:00:04Z",
+      "history_cursor": "s:41",
+      "lines": [
+        {
+          "text": "The disk is full of old journal files: 3.9 GiB in /var/log/journal.",
+          "ranges": [
+            {
+              "start": 4,
+              "end": 8
+            },
+            {
+              "start": 12,
+              "end": 16
+            }
+          ]
+        },
+        {
+          "text": "Run journalctl --vacuum-size=500M."
+        }
+      ]
+    },
+    {
+      "kind": "command",
+      "seq": 38,
+      "turn_id": "019a9b1c-3d00-7a10-8b20-000000000002",
+      "at": "2026-10-03T12:00:02Z",
+      "history_cursor": "s:39",
+      "lines": [
+        {
+          "text": "notify-send \"disk full\"",
+          "ranges": [
+            {
+              "start": 13,
+              "end": 17
+            },
+            {
+              "start": 18,
+              "end": 22
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "partial": "row_cap"
+}
