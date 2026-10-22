@@ -18,7 +18,7 @@ use efr_test_daemon::{TTY, TestDaemon, events_until};
 use efr_test_support::{TestDirs, Wait};
 use serde_json::json;
 
-use super::{git, real_launcher, run_turn_with, skip, with_zsh};
+use super::{JOB_WORK, git, real_launcher, run_turn_with, skip, with_zsh};
 use crate::jobs_undo::Script;
 use crate::support::zsh_enabled;
 
@@ -175,7 +175,11 @@ async fn plant_then(
     assert!(checked.success(), "nothing changed yet");
     std::fs::write(project.join("go"), "").unwrap();
     let hook = project.join("sub/.git/hooks/pre-commit");
-    Wait::new("the job's hook").until(|| project.join("planted").exists()).await.unwrap();
+    Wait::new("the job's hook")
+        .limit(JOB_WORK)
+        .until(|| project.join("planted").exists())
+        .await
+        .unwrap();
     assert!(hook.exists(), "the job planted its hook");
 
     let Method::PromptSend(mut params) = daemon.prompt(2, "show a.txt", TTY) else {

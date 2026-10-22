@@ -36,7 +36,7 @@ use efr_test_support::{TestDirs, Wait};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use super::{git, ready, real_launcher, skip, with_zsh};
+use super::{JOB_WORK, git, ready, real_launcher, skip, with_zsh};
 use crate::jobs_wake::{Answer, Recorder, turn};
 use crate::support::zsh_enabled;
 
@@ -277,6 +277,7 @@ fn questions(events: &[EventEnvelope]) -> Vec<String> {
 /// The text of `path` once it holds `text`.
 async fn file_holding(path: &Path, text: &str) -> String {
     Wait::new("the job's output")
+        .limit(JOB_WORK)
         .until_some(|| std::fs::read_to_string(path).ok().filter(|held| held.contains(text)))
         .await
         .unwrap()
@@ -1151,7 +1152,11 @@ async fn escape_job_commondir_before_push() {
     let Some(daemon) = real_daemon(test, &dirs, model, &[]).await else { return };
     let (sent, _) = auto_turn(&daemon, 1, "plant it as a job", ApprovalDecision::Deny).await;
     std::fs::write(project.join("go"), "").unwrap();
-    Wait::new("the job's own marker").until(|| project.join("written").exists()).await.unwrap();
+    Wait::new("the job's own marker")
+        .limit(JOB_WORK)
+        .until(|| project.join("written").exists())
+        .await
+        .unwrap();
     assert!(project.join("sub/.git/commondir").exists(), "the job planted its commondir");
 
     // The user says yes to the push: it runs outside the sandbox with the user's rights.
