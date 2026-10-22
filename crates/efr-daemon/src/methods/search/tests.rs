@@ -155,3 +155,42 @@ fn a_dropped_run_stops_its_search() {
     drop(run);
     assert!(stop.is_hard());
 }
+
+/// The read of the registry file that a query makes when a row is in a project, so the
+/// row can name it: a registry of 30 projects, at most 2 ms at p95. `just bench-search`
+/// runs it.
+#[tokio::test]
+#[ignore = "a bench: run it with just bench-search"]
+#[expect(clippy::print_stdout, reason = "a bench prints its numbers")]
+async fn bench_search_registry_read() {
+    use std::fmt::Write as _;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("projects.toml");
+    let mut text = String::new();
+    for n in 0..30_u64 {
+        let _ = write!(
+            text,
+            "[[project]]\nid = \"0192f0c1-7a00-7000-8000-{n:012x}\"\nroot = \"/home/u/p/app{n}\"\nname = \"app{n}\"\n\n"
+        );
+    }
+    std::fs::write(&path, text).unwrap();
+    let mut times = Vec::new();
+    for _ in 0..200 {
+        let started = Instant::now();
+        let registry = crate::engine::load_registry(&path).await;
+        times.push(started.elapsed());
+        assert_eq!(registry.projects().len(), 30);
+    }
+    times.sort();
+    let at = |q: f64| times[((times.len() - 1) as f64 * q).round() as usize];
+    let ms = |time: Duration| time.as_secs_f64() * 1000.0;
+    println!(
+        "bench_search_registry_read: 200 reads of 30 projects, p50 {:.3} ms, p95 {:.3} ms, max {:.3} ms (budget p95 2 ms)",
+        ms(at(0.5)),
+        ms(at(0.95)),
+        ms(times[times.len() - 1])
+    );
+    assert!(at(0.95) <= Duration::from_millis(2), "the p95 of a read is {:?}", at(0.95));
+}
