@@ -30,8 +30,8 @@ use crate::{StoreError, events, sql};
 
 /// The most docs that one page of [`pending`] returns. With [`PAGE_BYTES`], set from
 /// the bench of a backfill page on corpus L: a page of 32 docs keeps the writer time of
-/// a page at a p95 of about 2 ms; one of 64 docs makes twice the pages that carry
-/// SQLite's checkpoint of the write-ahead log.
+/// a page at a p95 of about 2 to 4 ms; with 64 docs, twice as large a share of the
+/// pages carries SQLite's checkpoint of the write-ahead log, and the p95 is one.
 pub const PAGE_ROWS: u32 = 32;
 
 /// The most text, in bytes, that one page of [`pending`] returns: the page ends after
@@ -294,7 +294,8 @@ pub(crate) fn reset(conn: &Connection, redaction: u32) -> Result<(), StoreError>
     Ok(())
 }
 
-/// Merges the segments of the index toward one, writing about `pages` pages, and
+/// Merges the segments of the index toward one, writing about `pages` leaves of the
+/// index (of 1,000 bytes each, the `pgsz` of migration 9), and
 /// answers whether it did work. A negative FTS5 `'merge'` merges every level, also one
 /// below the `usermerge` threshold, so the merges after a backfill end with one
 /// segment and a search reads few. FTS5 counts the command itself as one change, and

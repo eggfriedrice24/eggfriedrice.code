@@ -175,7 +175,7 @@ impl WriterHandle {
     }
 
     /// One step of merging the segments of the search index toward one, writing about
-    /// `pages` pages; true when it did work. The indexer runs it after a backfill
+    /// `pages` leaves of the index (of 1,000 bytes each); true when it did work. The indexer runs it after a backfill
     /// until it answers false.
     pub async fn search_merge(&self, pages: u32) -> Result<bool, StoreError> {
         self.run(move |state| state.write(|tx, _at| search::merge(tx, pages))).await
