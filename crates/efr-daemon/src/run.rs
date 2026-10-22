@@ -428,7 +428,13 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     };
     let migration = store.migration();
     if migration.applied() {
-        tracing::info!(from = migration.from, to = migration.to, backup = ?migration.backup, "database migrated");
+        tracing::info!(
+            from = migration.from,
+            to = migration.to,
+            backup = ?migration.backup,
+            rebuilt = migration.rebuilt,
+            "database migrated"
+        );
     }
     let writer = store.writer().clone();
     let readers = store.readers().clone();
