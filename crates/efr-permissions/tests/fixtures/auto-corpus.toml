@@ -57,8 +57,8 @@
 #               result. J(kind) is a job that a part of that kind refuses: no job may
 #               hold a `privilege`, `persistence`, `masked_read` or `bus` exit, a
 #               `desktop_ipc` exit of the user, the whole bus or the socket of a service
-#               manager (`jobs::job_refusal`). A delete that the snapshot covers stays K(destructive) as a job,
-#               because a job answers at once
+#               manager (`jobs::job_refusal`). A delete that the snapshot covers stays
+#               K(destructive) as a job, because a job answers at once
 #   covered, left_out
 #               the daemon's answers to the coverage asks of the line in phase B,
 #               as `path:<p>`, `tracked:<root>`, `untracked:<root>`, `refs:<root>`,
