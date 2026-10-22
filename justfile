@@ -88,11 +88,14 @@ test-full:
     EFR_TEST_SNAPSHOT_GATE=1 cargo nextest run -p efr-snapshot --profile ci --success-output immediate -E '{{ snapshot_gate }}'
 
 # The search benches in release, one at a time: the ignored `bench_search_*` tests of
-# the store and of efrd. Each prints its p50, p95 and max and fails when a budget
-# fails. The numbers of a busy machine are not valid: run it alone.
+# the store and of efrd, then the cost of `efr search --picker` with its gate on. Each
+# prints its p50, p95 and max and fails when a budget fails. The numbers of a busy
+# machine are not valid: run it alone.
 bench-search:
     nice -n 19 cargo nextest run --release -p efr-store -p efr-daemon --run-ignored only \
         --success-output immediate -E 'test(/bench_search_/)'
+    EFR_TEST_SEARCH_GATE=1 nice -n 19 cargo nextest run --release -p efr-cli \
+        --success-output immediate -E 'test(/^search_cost::/)'
 
 # The ghostty conformance suite and daemon tests on the real backend (needs Zig 0.16.0).
 test-ghostty:
