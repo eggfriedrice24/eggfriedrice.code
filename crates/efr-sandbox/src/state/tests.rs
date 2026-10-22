@@ -11,6 +11,7 @@ fn functions_and_exports_stay_and_dropped_names_never_enter() {
             ("VIRTUAL_ENV".to_owned(), "/home/u/p/app/.venv".to_owned()),
             ("PATH".to_owned(), "/home/u/p/app/.venv/bin:/usr/bin".to_owned()),
             ("LD_PRELOAD".to_owned(), "/tmp/x.so".to_owned()),
+            ("SCRATCH".to_owned(), "/own".to_owned()),
             ("bad name".to_owned(), "x".to_owned()),
         ],
         functions: vec![
@@ -26,13 +27,15 @@ fn functions_and_exports_stay_and_dropped_names_never_enter() {
     assert_eq!(state.functions.keys().collect::<Vec<_>>(), ["deactivate"]);
 
     state.apply(&Records {
-        unsets: vec!["VIRTUAL_ENV".to_owned()],
+        unsets: vec!["VIRTUAL_ENV".to_owned(), "SCRATCH".to_owned()],
         removed_functions: vec!["deactivate".to_owned(), "TRAPINT".to_owned()],
         removed_aliases: vec!["ll".to_owned()],
         ..Records::default()
     });
     assert!(!state.exports.contains_key("VIRTUAL_ENV"));
     assert!(state.unsets.contains("VIRTUAL_ENV"));
+    // The launcher's own `$SCRATCH` wins in every later call.
+    assert!(!state.unsets.contains("SCRATCH"));
     assert!(state.functions.is_empty());
     assert!(state.removed_functions.contains("deactivate"));
     // The trap functions of the signals that stop a call never enter the state.

@@ -603,6 +603,24 @@ fn scratch_names_the_conversations_scratch_in_the_exit_child() {
 }
 
 #[test]
+fn scratch_that_a_contained_call_sets_does_not_reach_the_next_call() {
+    let ready = sandbox_or_skip!();
+    let fixture = Fixture::new(&ready);
+    let scratch = fixture.spec.runtime.scratch.clone();
+    let run = fixture.run("export SCRATCH=/own; print -r -- \"$SCRATCH\"");
+    run.expect_status(0);
+    assert_eq!(run.stdout, "/own\n", "the call itself keeps its own value: {run:#?}");
+    assert_eq!(run.result().summary.dropped, ["SCRATCH"], "{run:#?}");
+    assert!(run.apply_fields().is_empty(), "{run:#?}");
+    let run = fixture.run("print -r -- \"$SCRATCH\"; unset SCRATCH");
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{}\n", scratch.display()), "{run:#?}");
+    let run = fixture.run("print -r -- \"${SCRATCH-unset}\"");
+    run.expect_status(0);
+    assert_eq!(run.stdout, format!("{}\n", scratch.display()), "{run:#?}");
+}
+
+#[test]
 fn exit_child_does_not_source_state() {
     let ready = sandbox_or_skip!();
     let mut fixture = Fixture::new(&ready);
