@@ -235,6 +235,14 @@ Background jobs: whether the model can start them, their limits, and how often t
 | `nice` | `19` | live | The CPU priority (nice value) of every job, from 0 to 19; 19 is the lowest. A job never runs at a higher priority than efrd. The disk priority of a job is always the lowest (the idle class). |
 | `forward_ports` | `true` | live | Forward each loopback port that a contained background job listens on to the same port of 127.0.0.1. A job reads it when it starts. `false` at a reload also stops the forwards of the jobs that run; a later `true` does not start them again. |
 
+## [resume]
+
+What `,resume` and `efr resume` show: a search picker in fzf or the numbered list.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `picker` | `"auto"` | client | `auto` opens a live search picker in fzf, below the command line and never full screen, when a new enough fzf is on the `PATH`. Type to search the titles and the text of your conversations. Without fzf, `auto` shows the numbered list. `list` always shows the numbered list. |
+
 ## [diff]
 
 How `efr` groups the changed files of a turn.

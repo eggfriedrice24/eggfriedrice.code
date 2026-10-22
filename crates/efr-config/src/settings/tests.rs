@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     CacheTtlChoice, CompactionSettings, ConfigError, Location, ModelEntry, ModelLimits, Progress,
-    ScreenChoice, Settings, Source, SudoCache, WebSocketChoice,
+    ResumePicker, ScreenChoice, Settings, Source, SudoCache, WebSocketChoice,
 };
 
 const PATH: &str = "/home/u/.config/efr/config.toml";
@@ -299,6 +299,29 @@ fn motion_the_turn_summary_and_the_progress_bar_are_on_or_auto_until_the_file_sa
     assert_eq!(settings.source("render.progress"), Source::File);
     let error = parse("[render]\nprogress = \"sometimes\"\n").unwrap_err();
     assert_eq!(error.key().as_deref(), Some("render.progress"));
+}
+
+#[test]
+fn the_resume_picker_is_auto_until_the_file_says_list() {
+    let settings = parse("").unwrap();
+    assert_eq!(settings.resume.picker, ResumePicker::Auto);
+    assert_eq!(settings.source("resume.picker"), Source::Default);
+    let settings = parse("[resume]\npicker = \"list\"\n").unwrap();
+    assert_eq!(settings.resume.picker, ResumePicker::List);
+    assert_eq!(settings.source("resume.picker"), Source::File);
+    let error = parse("[resume]\npicker = \"fzf\"\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("resume.picker"));
+    let shown = error.file_error();
+    assert_eq!(shown.key.as_deref(), Some("resume.picker"));
+    assert_eq!((shown.line, shown.column), (Some(2), Some(10)));
+    assert!(shown.message.contains("auto") && shown.message.contains("list"), "{shown:?}");
+    let error = parse("[resume]\npick = \"list\"\n").unwrap_err();
+    assert_eq!(error.key().as_deref(), Some("resume.pick"));
+    assert_eq!(
+        crate::kind("resume.picker"),
+        Some(crate::Kind::Choice(ResumePicker::ALL.map(|c| c.as_str().to_owned()).to_vec()))
+    );
+    assert_eq!(crate::Applies::of("resume.picker"), crate::Applies::Client);
 }
 
 #[test]

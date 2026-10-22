@@ -1266,6 +1266,33 @@
         }
       ]
     },
+    "ResumePicker": {
+      "description": "What `,resume` and `efr resume` show when they are not given a row or an id.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "A live search picker in fzf, below the command line, when a new enough fzf is\ninstalled and the terminal allows it. Else the numbered list.",
+          "type": "string"
+        },
+        {
+          "const": "list",
+          "description": "The numbered list, also when fzf is installed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResumeSettings": {
+      "additionalProperties": false,
+      "description": "`[resume]`: how `,resume` and `efr resume` show the conversations to continue.\nOnly `efr` reads it; the daemon accepts it so one file serves both.",
+      "properties": {
+        "picker": {
+          "$ref": "#/$defs/ResumePicker",
+          "default": "auto",
+          "description": "`auto` opens a live search picker in fzf, below the command line and never full\nscreen, when a new enough fzf is on the `PATH`. Type to search the titles and the\ntext of your conversations. Without fzf, `auto` shows the numbered list. `list`\nalways shows the numbered list."
+        }
+      },
+      "type": "object"
+    },
     "Rule": {
       "additionalProperties": false,
       "description": "One rule: when a requirement matches `action` and `resource`, its effect is\n`effect`, unless a later rule matches too.",
@@ -1866,6 +1893,13 @@
         "turn_summary": true
       },
       "description": "How `efr` shows replies."
+    },
+    "resume": {
+      "$ref": "#/$defs/ResumeSettings",
+      "default": {
+        "picker": "auto"
+      },
+      "description": "What `,resume` and `efr resume` show: a search picker in fzf or the numbered\nlist."
     },
     "sandbox": {
       "$ref": "#/$defs/SandboxSettings",
