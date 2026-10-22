@@ -357,6 +357,23 @@ async fn empty_query_preview() {
 }
 
 #[tokio::test]
+async fn a_stop_ends_the_empty_query_preview() {
+    let mut fx = Fixture::new();
+    fx.turn(1, "prompt one", &["an answer"], &[]).await;
+    fx.index().await;
+    let found = fx
+        .read(|conn| {
+            let stop = SearchStop::new();
+            stop.soft();
+            search_in(conn, conv(1), "", 20, &stop)
+        })
+        .await;
+    assert_eq!(found.partial, Some(SearchPartial::TimeCap));
+    assert!(found.hits.is_empty());
+    assert_eq!(found.title.unwrap().text, "prompt one", "the title needs no row loop");
+}
+
+#[tokio::test]
 async fn short_ids_are_unique() {
     let fx = Fixture::new();
     let texts = [
@@ -592,6 +609,71 @@ async fn a_long_prefix_of_many_words_reads_the_prefix_index_and_checks_each_doc(
     assert_eq!(marked(&hit.lines[0]), vec!["wordy"]);
     assert!(other.hits.is_empty(), "the preview checks each doc too");
     store.close().await;
+}
+
+#[tokio::test]
+async fn a_long_prefix_finds_an_older_doc_behind_four_that_do_not_hold_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let words: Vec<String> = (0..=EXPAND_WORDS).map(|n| format!("wordy{n:03}")).collect();
+    let many = words.join(" ");
+    let store = file_store(dir.path(), &[many.as_str()]).await;
+    // Conversation 2: its oldest prompt holds `wordy`, the four newer ones only `wor`.
+    let id = conv(2);
+    let mut batch = Batch::new()
+        .event(id, testing::created(Some("pts-2")))
+        .event(id, testing::queued(10, "an old wordy prompt"));
+    for turn in 11..15 {
+        batch = batch.event(id, testing::queued(turn, "the worse case"));
+    }
+    store.writer().append(batch).await.unwrap();
+    let current = store.index_reader().with(state).await.unwrap();
+    let page =
+        store.index_reader().with(move |conn| pending(conn, current.indexed_seq)).await.unwrap();
+    let page = SearchPage {
+        after: current.indexed_seq,
+        through: page.through,
+        redaction: 0,
+        docs: page.rows,
+        drops: page.drops,
+    };
+    store.writer().search_apply(page).await.unwrap();
+    let found = store
+        .search_lanes()
+        .with(&SearchStop::new(), std::time::Duration::from_millis(200), |conn| {
+            search(conn, "wordy", 50, &SearchStop::new())
+        })
+        .await
+        .unwrap();
+    let mut found_ids = ids(&found);
+    found_ids.sort();
+    assert_eq!(found_ids, vec![conv(1), id]);
+    let row = found.rows.iter().find(|row| row.conversation_id == id).unwrap();
+    assert_eq!(row.hit.as_ref().unwrap().lines[0].text, "an old wordy prompt");
+    store.close().await;
+}
+
+#[tokio::test]
+async fn hard_stop_ends_the_rank() {
+    let mut fx = Fixture::new();
+    for n in 1..=5 {
+        fx.turn(n, &format!("plover {n}"), &[], &[]).await;
+    }
+    fx.index().await;
+    for (hard, rows) in [(false, 5), (true, 0)] {
+        let found = fx
+            .read(move |conn| {
+                let stop = SearchStop::new();
+                let inner = stop.clone();
+                // After the last row, so only the rank is left.
+                let stop = stop
+                    .on_rows(5, Arc::new(move |_| if hard { inner.hard() } else { inner.soft() }));
+                search(conn, "plover", 50, &stop)
+            })
+            .await;
+        assert_eq!(found.partial, Some(SearchPartial::TimeCap), "hard {hard}");
+        assert_eq!(found.rows_scanned, 5, "hard {hard}");
+        assert_eq!(found.rows.len(), rows, "hard {hard}: a soft stop ranks what it saw");
+    }
 }
 
 #[tokio::test]
