@@ -152,13 +152,30 @@ impl Pool {
     }
 }
 
-/// A read-only connection for search, with the small page cache.
+/// A read-only connection for search, with the small page cache and the vocabulary of
+/// the index ([`VOCABULARY`]).
 fn open_search_connection(path: &Path) -> Result<Connection, StoreError> {
     let conn = db::open_read_only(path)?;
     conn.pragma_update(None, "cache_size", -SEARCH_CACHE_KIB)
         .map_err(|source| StoreError::Configure { pragma: "cache_size", source })?;
+    // NOTE: the vocabulary is a table of the connection's own temp schema, which
+    // stores nothing: it reads the index of the file. `query_only` refuses even that
+    // schema change, so it is off for this one statement.
+    conn.pragma_update(None, "query_only", false)
+        .map_err(|source| StoreError::Configure { pragma: "query_only", source })?;
+    let created = conn.execute_batch(&format!(
+        "CREATE VIRTUAL TABLE temp.{VOCABULARY} USING fts5vocab(main, search_fts, row);"
+    ));
+    conn.pragma_update(None, "query_only", true)
+        .map_err(|source| StoreError::Configure { pragma: "query_only", source })?;
+    created?;
     Ok(conn)
 }
+
+/// The `fts5vocab` table over the index that each search connection has in its temp
+/// schema: the words of the index in order, so a search can expand a prefix that no
+/// prefix index serves to the words that start with it. An in-memory store has none.
+pub(crate) const VOCABULARY: &str = "search_vocab";
 
 /// The read connection of efrd's indexer: one connection, outside the lanes and the
 /// readers. Clones share it; reads run one at a time.

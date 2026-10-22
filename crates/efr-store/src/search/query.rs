@@ -117,16 +117,33 @@ pub fn parse(query: &str) -> Result<Query, QueryError> {
             Term { text: part.text, tokens, prefix, indexed }
         })
         .collect();
-    let fts: Vec<String> = terms
-        .iter()
-        .filter(|term| term.indexed)
-        .map(|term| {
-            let quoted = format!("\"{}\"", term.text.replace('"', "\"\""));
-            if term.prefix { quoted + "*" } else { quoted }
-        })
-        .collect();
+    let fts: Vec<String> = terms.iter().filter(|term| term.indexed).map(Term::fts).collect();
     let fts = (!fts.is_empty()).then(|| fts.join(" AND "));
     Ok(Query { terms, fts })
+}
+
+/// `text` as one FTS5 string: in double quotes, with each `"` doubled.
+pub fn quote(text: &str) -> String {
+    format!("\"{}\"", text.replace('"', "\"\""))
+}
+
+impl Term {
+    /// The term as FTS5 syntax: one string, with `*` after it when it is a prefix.
+    pub fn fts(&self) -> String {
+        let quoted = quote(&self.text);
+        if self.prefix { quoted + "*" } else { quoted }
+    }
+
+    /// The prefix of a term that is one ASCII token longer than [`PREFIX_CHARS`]: a
+    /// prefix that no prefix index serves, which a caller may expand to the whole
+    /// words of the index that start with it. In lower case, as the index holds it.
+    pub fn long_prefix(&self) -> Option<String> {
+        let [token] = self.tokens.as_slice() else {
+            return None;
+        };
+        (self.prefix && token.is_ascii() && token.len() > PREFIX_CHARS)
+            .then(|| token.to_ascii_lowercase())
+    }
 }
 
 /// A word or a phrase before its tokens.

@@ -75,10 +75,6 @@ impl SearchStop {
     }
 
     /// Called by the row loop after each row, with the rows read so far.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the row loop of the search reads calls it next")
-    )]
     pub(crate) fn row(&self, rows: u32) {
         if let Some((every, hook)) = &self.hook
             && rows.is_multiple_of(*every)

@@ -37,9 +37,14 @@ pub mod rank;
 pub mod snippet;
 
 mod lane;
+mod read;
 mod stop;
 
 pub use lane::{IndexReader, SEARCH_CACHE_KIB, SEARCH_LANES, SearchLanes};
+pub use read::{
+    EXPAND_WORDS, Found, FoundHit, FoundIn, FoundRow, LIVE_LAG, ROW_CAP, TITLE_CAP, check_query,
+    index_percent, search, search_in, titles,
+};
 pub use stop::SearchStop;
 
 /// The most docs that one page of [`pending`] returns. With [`PAGE_BYTES`], set from

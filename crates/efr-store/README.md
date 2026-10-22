@@ -105,6 +105,33 @@ across a restart:
   nothing here. A later delete of a conversation must also delete its `search_docs`
   rows (its sequence numbers through `events_conversation`, each with an FTS5
   `'delete'`) and its `search_titles` row.
+- `search` reads: `search::search` finds the conversations whose titles or text match
+  a query, one row per conversation, best first; `search::search_in` finds the hits in
+  one conversation for the preview; `titles`, `index_percent`, and
+  `conversations::short_ids` and `conversations::rows` give what a row shows. The store
+  parses the query itself (`search::query`), so no FTS5 syntax comes from a client:
+  every word must match in one doc, and only the last word matches as a prefix of 3
+  or more characters. A search reads at most 10,000 rows of the index, newest first
+  with no sort, and the titles of the 10,000 newest conversations; it ranks in Rust
+  (`search::rank`: `bm25()` with a weight per kind, and the fuzzy title score of
+  `search::fuzzy`, after fzf), so it never scores every match before the first row.
+  The snippets of the list come from the docs by sequence number (`search::snippet`),
+  with no FTS5 statement per row; the preview runs one FTS5 statement over the range
+  of the conversation's events, with `highlight()` (`search::marks`). Ranges count
+  Unicode code points. The modules `query`, `fuzzy`, `rank`, `snippet` and `marks` are
+  pure (`PURE_MODULES` in `xtask/src/tidy.rs`).
+- `SearchLanes` and `IndexReader`: the read connections of search, apart from the
+  `Readers` of the turns. Three lanes with a semaphore of their own; a search waits for
+  a lane on the injected clock and fails with `StoreError::SearchBusy` when none frees
+  in time. The permit lives in the blocking work, so a search whose caller stopped
+  waiting holds its lane until it ends. `SearchStop` ends a search: `soft` at the next
+  row, `hard` also with an interrupt of the running statement. The lane takes its
+  interrupt out of the stop before the connection serves another search, so a late
+  stop never interrupts the next one. One step inside FTS5 (the merge of a prefix,
+  the count of `bm25()`) reads no interrupt and runs to its end. `IndexReader` is the
+  one connection of efrd's indexer. Each of the four connections keeps a page cache of
+  512 KiB. An in-memory store runs both on the writer's connection, with the flags of
+  the stop but no interrupt.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by
@@ -116,8 +143,8 @@ across a restart:
   `pty.attach(since_seq)` and the shell marks use. `RecordingWriter::resize` stores a
   new size of the PTY at the current offset; it takes no stream bytes.
   `Recordings::read_range` slices the bytes and returns the sizes in the range.
-- `Store` and `StoreConfig`: open, back up, migrate and start the writer and readers
-  in one call.
+- `Store` and `StoreConfig`: open, back up, migrate and start the writer, the readers,
+  the search lanes and the index reader in one call.
 
 Consumers: `efr-conversation` appends turn events, `efr-test-support` builds an
 in-memory store, and `efr-daemon` opens the store, reconciles after a restart, serves
@@ -182,7 +209,22 @@ benches `bench_search_apply_round` (1,000 live rounds of one turn) and
 are ignored. `just bench-search` runs them in release, one at a time, and they fail
 when a budget fails: a round at a p95 of 2 ms and a max of 10 ms, a page at a p95 of
 4 ms and a max of 8 ms. Each max counts the jobs that carry no checkpoint of the
-write-ahead log; the jobs with one are on a line of their own. Each corpus file is
+write-ahead log; the jobs with one are on a line of their own.
+
+The module `search_query` of `tests/it` checks the reads on the corpus:
+`rust_snippet_agrees_with_highlight` (the ranges of the Rust snippets equal those of
+FTS5's `highlight()`), `queries_find_their_conversation_first` (a fixed list of
+queries from titles, with the rank that each must reach) and
+`fts5_step_runs_past_the_interrupt`. Its benches, also ignored and run by
+`just bench-search`, hold the budgets of the reads: `bench_search_first_row` (the
+first row of the worst queries on corpus XL, 10,000 conversations, at most 150 ms),
+`bench_search_query_s`, `_l` and `_xl` (200 queries of a fixed list: a p95 of at most
+30, 50 and 60 ms, a rare word at most 30 ms on L, a max of 200 ms on XL),
+`bench_search_empty_query` (a p95 of 10 ms on XL), `bench_search_preview` (30 ms on L,
+40 ms on XL), `bench_search_snippets` (50 rows in 5 ms), `bench_search_titles_10k`
+(5 ms), `bench_search_cancel` (a stop between rows frees the lane within 10 ms; the
+time inside an FTS5 step is reported) and `bench_search_memory` (two lanes at once:
+at most 8 MiB at the peak and 4 MiB at rest over the start). Each corpus file is
 built once below `target/tmp/search-corpus/`, named by size, seed, schema and
 generator version, and each test copies it. The numbers of a busy machine are not
 valid.

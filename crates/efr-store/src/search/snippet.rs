@@ -44,6 +44,17 @@ impl Needle {
             prefix,
         }
     }
+
+    /// False when `line`, which is ASCII, surely holds no match: its first token does
+    /// not occur in it, in any case. A needle that is not ASCII may match anywhere.
+    fn may_match_ascii(&self, line: &[u8]) -> bool {
+        let Some(first) = self.tokens.first().filter(|token| token.is_ascii()) else {
+            return true;
+        };
+        let first = first.as_bytes();
+        !first.is_empty()
+            && line.windows(first.len()).any(|window| window.eq_ignore_ascii_case(first))
+    }
 }
 
 /// `c` as the tokenizer compares it: lower case, without the diacritic of a Latin
@@ -149,6 +160,11 @@ pub fn find(text: &str, needles: &[Needle]) -> Vec<(usize, Range<u32>)> {
 pub fn snippet(text: &str, needles: &[Needle]) -> (String, Vec<Range<u32>>) {
     let mut best: Option<(usize, &str, Vec<Range<u32>>)> = None;
     for line in text.split('\n') {
+        // A cheap look first: most lines of a long doc hold no needle.
+        if line.is_ascii() && !needles.iter().any(|needle| needle.may_match_ascii(line.as_bytes()))
+        {
+            continue;
+        }
         let found = find(line, needles);
         if found.is_empty() {
             continue;
@@ -159,6 +175,10 @@ pub fn snippet(text: &str, needles: &[Needle]) -> (String, Vec<Range<u32>>) {
         if best.as_ref().is_none_or(|(count, _, _)| kinds.len() > *count) {
             let ranges = merge(found.into_iter().map(|(_, range)| range).collect());
             best = Some((kinds.len(), line, ranges));
+            if kinds.len() == needles.len() {
+                // No later line can hold more needles.
+                break;
+            }
         }
     }
     match best {
