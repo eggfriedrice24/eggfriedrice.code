@@ -942,11 +942,32 @@ pub(crate) fn cursor_after_text(snapshot: &ScreenSnapshot) -> bool {
     snapshot.rows.get(usize::from(cursor.row)).is_some_and(|row| !row_text(row).trim().is_empty())
 }
 
+/// The text that only the hidden shell's own lines hold: the names of the sandbox
+/// wrapper's functions, which [`WRAPPER_CHECK`] types before each sandboxed call.
+const SHELL_OWN_TEXT: &str = "_efr_hs_sbx";
+
 /// The last rows of a screen up to the cursor's row, as text without trailing blank
-/// rows.
+/// rows, and without the hidden shell's own lines: a line that a soft wrap spread over
+/// several rows and that holds [`SHELL_OWN_TEXT`], such as the typed
+/// [`WRAPPER_CHECK`] of a sandboxed call, is left out with all its rows.
 pub(crate) fn screen_tail(snapshot: &ScreenSnapshot) -> String {
+    /// Moves the rows of one whole `line` to `rows`, unless the hidden shell wrote it.
+    fn flush(line: &mut Vec<String>, rows: &mut Vec<String>) {
+        if !line.concat().contains(SHELL_OWN_TEXT) {
+            rows.append(line);
+        }
+        line.clear();
+    }
     let last = usize::from(snapshot.cursor.row).min(snapshot.rows.len().saturating_sub(1));
-    let mut rows: Vec<String> = snapshot.rows.iter().take(last + 1).map(row_text).collect();
+    let mut rows: Vec<String> = Vec::new();
+    let mut line: Vec<String> = Vec::new();
+    for row in snapshot.rows.iter().take(last + 1) {
+        line.push(row_text(row));
+        if !row.wrapped {
+            flush(&mut line, &mut rows);
+        }
+    }
+    flush(&mut line, &mut rows);
     while rows.last().is_some_and(String::is_empty) {
         rows.pop();
     }
