@@ -85,7 +85,10 @@ conversations or the daemon's socket. The config root stays readable and read-on
   connections of its own (the terminal's list, its preview and a phone at one time),
   with a semaphore of their own; the permit goes back only when the blocking work ends.
   efrd's search indexer has one more read-only connection (`IndexReader`), outside that
-  semaphore. Each of these 4 connections sets a page cache of 512 KiB. They open on
+  semaphore. Each of these 4 connections sets a page cache of 512 KiB. That is no hard
+  cap: the bundled SQLite puts the page caches of all connections in one group whose
+  limit is the sum of their sizes, so a lane can also use the room that the writer and
+  the readers leave. They open on
   first use. An in-memory store runs them on the writer's connection.
 
 ## Schema
