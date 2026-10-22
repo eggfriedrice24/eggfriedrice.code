@@ -67,6 +67,13 @@ const PREVIEW_SQL: &str = "SELECT rowid, kind, highlight(search_fts, 0, char(2),
                            AND rowid BETWEEN ?2 AND ?3 AND conversation_id = ?4 \
                            ORDER BY rowid DESC LIMIT ?5";
 
+/// The same with the plain text, for an expression broader than the query (see
+/// [`expression`]): the search checks each doc in Rust.
+const PREVIEW_TEXT_SQL: &str = "SELECT rowid, kind, text FROM search_fts \
+                                WHERE search_fts MATCH ?1 \
+                                AND rowid BETWEEN ?2 AND ?3 AND conversation_id = ?4 \
+                                ORDER BY rowid DESC LIMIT ?5";
+
 /// What [`search`] found: the rows, best first, and the measures of the search.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Found {
@@ -144,11 +151,40 @@ fn parse(text: &str) -> Result<Query, StoreError> {
     })
 }
 
-/// The best hit of one conversation.
-#[derive(Debug, Clone, Copy)]
-struct Best {
-    score: f64,
-    seq: i64,
+/// The most text hits of one conversation that a search keeps, best first: when the
+/// expression is broader than the query, the first one that holds the query is the
+/// hit.
+const HIT_SEQS: usize = 4;
+
+/// The best text hits of one conversation: (score, seq), best first, a tie to the
+/// newer. Inline, so a search of 10,000 rows makes one allocation for all of them.
+#[derive(Debug, Clone, Copy, Default)]
+struct Hits {
+    seqs: [(f64, i64); HIT_SEQS],
+    len: usize,
+}
+
+impl Hits {
+    /// Adds a hit. Rows come newest first, so a hit with the score of one before it
+    /// goes after it.
+    fn add(&mut self, score: f64, seq: i64) {
+        let at = self.seqs[..self.len].partition_point(|(have, _)| *have >= score);
+        if at >= HIT_SEQS {
+            return;
+        }
+        let end = self.len.min(HIT_SEQS - 1);
+        self.seqs.copy_within(at..end, at + 1);
+        self.seqs[at] = (score, seq);
+        self.len = (self.len + 1).min(HIT_SEQS);
+    }
+
+    fn seqs(&self) -> &[(f64, i64)] {
+        &self.seqs[..self.len]
+    }
+
+    fn best(&self) -> f64 {
+        self.seqs().first().map_or(0.0, |(score, _)| *score)
+    }
 }
 
 /// The conversations whose titles or text match `query`, best first, at most `limit`.
@@ -171,32 +207,32 @@ pub fn search(
     if parsed.is_empty() || limit == 0 {
         return Ok(found);
     }
-    let mut texts: HashMap<String, Best> = HashMap::new();
-    if let Some(Expression { text: expression, long_prefix }) = expression(conn, &parsed)? {
+    // The conversations of the text rows, each with the index of its hits.
+    let mut texts: HashMap<ConversationId, usize> = HashMap::new();
+    let mut hits: Vec<Hits> = Vec::new();
+    let mut verify = false;
+    if let Some(Expression { text: expression, long_prefix, superset }) = expression(conn, &parsed)?
+    {
+        verify = superset;
         let expression = &expression;
-        let (names, rows) = text_rows(conn, expression, stop, &mut found)?;
+        let rows;
+        (texts, rows) = text_rows(conn, expression, stop, &mut found)?;
         let scores = if !long_prefix && found.partial.is_none() && found.rows_scanned < ROW_CAP {
             bm25_scores(conn, expression, stop, rows.len())?
         } else {
             None
         };
         found.bm25 = scores.is_some();
-        let mut best: Vec<Option<Best>> = vec![None; names.len()];
+        hits = vec![Hits::default(); texts.len()];
         for (index, (seq, conversation, kind)) in rows.into_iter().enumerate() {
             let bm25 = scores.as_ref().and_then(|scores| scores.get(index).copied());
-            let score = rank::hit_score(kind, bm25);
-            // Rows come newest first, so a tie keeps the newer hit.
-            let slot = &mut best[conversation];
-            if slot.is_none_or(|best| score > best.score) {
-                *slot = Some(Best { score, seq });
-            }
+            hits[conversation].add(rank::hit_score(kind, bm25), seq);
         }
-        texts.extend(names.into_iter().zip(best).filter_map(|(name, best)| Some((name, best?))));
     }
     found.conversations_scored = u32::try_from(texts.len()).unwrap_or(u32::MAX);
 
     let scorer = Scorer::new(&parsed.words());
-    let mut titled: HashMap<String, (f64, String, FuzzyMatch)> = HashMap::new();
+    let mut titled: HashMap<ConversationId, (f64, String, FuzzyMatch)> = HashMap::new();
     if found.partial != Some(SearchPartial::TimeCap) {
         let mut stmt = conn.prepare(TITLES_SQL)?;
         let mut rows = stmt.query([TITLE_CAP])?;
@@ -210,64 +246,88 @@ pub fn search(
             let title: String = row.get(1)?;
             if let Some(matched) = scorer.score(&title) {
                 let relative = scorer.relative(&matched);
-                if relative > 0.0 {
-                    titled.insert(row.get(0)?, (relative, title, matched));
+                // NOTE: a weak title counts only beside a text hit; kept apart, the
+                // many weak subsequence matches of a long title would only cost memory.
+                let conversation = conversation_of(row.get_ref(0)?)?;
+                if relative >= rank::MIN_TITLE_SCORE
+                    || relative > 0.0 && texts.contains_key(&conversation)
+                {
+                    titled.insert(conversation, (relative, title, matched));
                 }
             }
         }
     }
 
-    let mut keys: Vec<&String> = texts.keys().chain(titled.keys()).collect();
+    let mut keys: Vec<ConversationId> = texts.keys().chain(titled.keys()).copied().collect();
     keys.sort_unstable();
     keys.dedup();
     let candidates = keys
         .into_iter()
         .map(|key| rank::Candidate {
-            key: key.clone(),
-            text: texts.get(key).map(|best| best.score),
-            title: titled.get(key).map_or(0.0, |(relative, _, _)| *relative),
+            key,
+            text: texts.get(&key).map(|&at| hits[at].best()),
+            title: titled.get(&key).map_or(0.0, |(relative, _, _)| *relative),
         })
         .collect();
-    let ranked = rank::buckets(candidates);
-    let reach = rank::reach(&ranked, limit as usize);
-    let mut recency =
-        conn.prepare("SELECT updated_at, last_seq FROM conversations WHERE id = ?1")?;
-    let mut ordered = Vec::with_capacity(reach);
-    for candidate in ranked.into_iter().take(reach) {
-        let newest: Option<(i64, i64)> =
-            recency.query_row([&candidate.key], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-        if let Some(newest) = newest {
-            ordered.push((candidate.bucket, newest, candidate.key));
-        }
-    }
-    ordered.sort_by(rank::order);
-    ordered.truncate(limit as usize);
-
+    let limit = limit as usize;
     let needles = needles(&parsed);
     let mut docs = Docs::prepare(conn)?;
-    for (_, _, key) in ordered {
-        let (title, title_ranges) = match titled.remove(&key) {
-            Some((_, title, matched)) => (Some(title), matched.ranges),
-            None => {
-                let title = docs.title(&key)?;
-                let ranges = title
-                    .as_deref()
-                    .and_then(|title| scorer.score(title))
-                    .map(|matched| matched.ranges)
-                    .unwrap_or_default();
-                (title, ranges)
+    let mut recency =
+        conn.prepare("SELECT updated_at, last_seq FROM conversations WHERE id = ?1")?;
+    // Bucket by bucket, best first; within a bucket the newer conversation first, so
+    // only the buckets that reach the rows need the time of each conversation.
+    let mut ranked = rank::buckets(candidates).into_iter().peekable();
+    while found.rows.len() < limit {
+        let Some(first) = ranked.next() else { break };
+        let bucket = first.bucket;
+        let mut group = vec![first];
+        while let Some(next) = ranked.next_if(|candidate| candidate.bucket == bucket) {
+            group.push(next);
+        }
+        let mut ordered = Vec::with_capacity(group.len());
+        for candidate in group {
+            let newest: Option<(i64, i64)> = recency
+                .query_row([candidate.key.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional()?;
+            if let Some(newest) = newest {
+                ordered.push((candidate.bucket, newest, candidate.key));
             }
-        };
-        let hit = match texts.get(&key) {
-            Some(best) => docs.snippet_hit(best.seq, &needles)?,
-            None => None,
-        };
-        found.rows.push(FoundRow {
-            conversation_id: sql::parse(&key, "search_docs", "conversation_id")?,
-            title,
-            title_ranges: text_ranges(&title_ranges),
-            hit,
-        });
+        }
+        ordered.sort_by(rank::order);
+        for (_, _, key) in ordered {
+            if found.rows.len() >= limit {
+                break;
+            }
+            let title_match = titled.get(&key);
+            let hit = match texts.get(&key) {
+                Some(&at) => docs.best_hit(hits[at].seqs(), &needles, verify)?,
+                None => None,
+            };
+            // NOTE: with a broader expression, a conversation whose docs do not hold
+            // the query is no row, unless its title matches well.
+            let title_score = title_match.as_ref().map_or(0.0, |(relative, _, _)| *relative);
+            if verify && hit.is_none() && title_score < rank::MIN_TITLE_SCORE {
+                continue;
+            }
+            let (title, title_ranges) = match title_match {
+                Some((_, title, matched)) => (Some(title.clone()), matched.ranges.clone()),
+                None => {
+                    let title = docs.title(&key.to_string())?;
+                    let ranges = title
+                        .as_deref()
+                        .and_then(|title| scorer.score(title))
+                        .map(|matched| matched.ranges)
+                        .unwrap_or_default();
+                    (title, ranges)
+                }
+            };
+            found.rows.push(FoundRow {
+                conversation_id: key,
+                title,
+                title_ranges: text_ranges(&title_ranges),
+                hit,
+            });
+        }
     }
     Ok(found)
 }
@@ -305,7 +365,7 @@ pub fn search_in(
         found.hits = newest(conn, &mut docs, &conversation, limit)?;
         return Ok(found);
     }
-    let Some(Expression { text: expression, .. }) = expression(conn, &parsed)? else {
+    let Some(Expression { text: expression, superset, .. }) = expression(conn, &parsed)? else {
         return Ok(found);
     };
     let span: (Option<i64>, Option<i64>) = conn.query_row(
@@ -316,10 +376,15 @@ pub fn search_in(
     let (Some(first), Some(last)) = span else {
         return Ok(found);
     };
-    let mut stmt = conn.prepare(PREVIEW_SQL)?;
-    let mut rows = stmt.query(params![expression, first, last, conversation, limit])?;
+    // A broader expression reads the text and finds the words in Rust, so a doc that
+    // does not hold the query is no hit; else `highlight()` marks them.
+    let needles = needles(&parsed);
+    let (sql, sql_limit) =
+        if superset { (PREVIEW_TEXT_SQL, -1) } else { (PREVIEW_SQL, i64::from(limit)) };
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query(params![expression, first, last, conversation, sql_limit])?;
     let mut read = 0;
-    loop {
+    while found.hits.len() < limit as usize {
         if stop.is_stopped() {
             found.partial = Some(SearchPartial::TimeCap);
             break;
@@ -328,8 +393,18 @@ pub fn search_in(
         read += 1;
         let seq: i64 = row.get(0)?;
         let kind: i64 = row.get(1)?;
-        let marked: String = row.get(2)?;
-        let (text, ranges) = marks::strip(&marked);
+        let column: String = row.get(2)?;
+        let (text, ranges) = if superset {
+            match snippet::all_ranges(&column, &needles) {
+                Some(ranges) => (column, ranges),
+                None => {
+                    stop.row(read);
+                    continue;
+                }
+            }
+        } else {
+            marks::strip(&column)
+        };
         let lines = snippet::preview(marks::lines(&text, &ranges));
         found.hits.extend(docs.hit(seq, kind, lines)?);
         stop.row(read);
@@ -337,19 +412,32 @@ pub fn search_in(
     Ok(found)
 }
 
+/// A conversation id from a text column.
+fn conversation_of(value: rusqlite::types::ValueRef<'_>) -> Result<ConversationId, StoreError> {
+    let text = value.as_str().map_err(rusqlite::Error::from)?;
+    sql::parse(text, "search_docs", "conversation_id")
+}
+
 /// The FTS5 expression of a query.
 struct Expression {
     text: String,
-    /// True when it still holds a prefix that no prefix index serves.
+    /// True when it still holds a prefix that no prefix index serves, or is broader
+    /// than the query.
     long_prefix: bool,
+    /// True when it matches more docs than the query: a doc is a hit only when the
+    /// words of the query are in its text.
+    superset: bool,
 }
 
-/// The FTS5 expression of `parsed`, with a long prefix expanded to the words of the
-/// index that start with it, when the connection has the vocabulary and they are at
-/// most [`EXPAND_WORDS`]. FTS5 merges the doclists of every word of a prefix into
-/// memory before the first row, which for a common prefix costs megabytes and tens of
-/// milliseconds; an `OR` of the same words reads them lazily, newest first, and stops
-/// at the row cap. The rows are the same either way. `None` when no term is indexed.
+/// The FTS5 expression of `parsed`, with each long prefix (one longer than the prefix
+/// index) replaced, when the connection has the vocabulary. FTS5 merges the doclists
+/// of every word of such a prefix in memory before the first row, which for a common
+/// prefix costs megabytes and tens of milliseconds. So a prefix of at most
+/// [`EXPAND_WORDS`] words becomes an `OR` of those words, which FTS5 reads lazily,
+/// newest first, up to the row cap: the same rows. A prefix of more words becomes its
+/// first [`PREFIX_CHARS`](query::PREFIX_CHARS) characters as a prefix, which the
+/// prefix index serves with no merge: more rows than the query, so the expression is a
+/// `superset` and each hit is checked in Rust. `None` when no term is indexed.
 fn expression(conn: &Connection, parsed: &Query) -> Result<Option<Expression>, StoreError> {
     if parsed.fts.is_none() {
         return Ok(None);
@@ -361,27 +449,31 @@ fn expression(conn: &Connection, parsed: &Query) -> Result<Option<Expression>, S
             .is_some();
     let mut parts = Vec::new();
     let mut long_prefix = false;
+    let mut superset = false;
     for term in parsed.terms.iter().filter(|term| term.indexed) {
-        let words = match term.long_prefix() {
-            Some(prefix) if has_vocabulary => prefix_words(conn, &prefix)?,
-            Some(_) => None,
-            None => {
-                parts.push(term.fts());
-                continue;
-            }
+        let Some(prefix) = term.long_prefix() else {
+            parts.push(term.fts());
+            continue;
         };
-        match words {
-            Some(words) if !words.is_empty() => {
+        if !has_vocabulary {
+            long_prefix = true;
+            parts.push(term.fts());
+            continue;
+        }
+        match prefix_words(conn, &prefix)? {
+            Some(words) if words.is_empty() => parts.push(term.fts()),
+            Some(words) => {
                 let quoted: Vec<String> = words.iter().map(|word| query::quote(word)).collect();
                 parts.push(format!("({})", quoted.join(" OR ")));
             }
-            _ => {
+            None => {
                 long_prefix = true;
-                parts.push(term.fts());
+                superset = true;
+                parts.push(query::quote(&prefix[..query::PREFIX_CHARS]) + "*");
             }
         }
     }
-    Ok(Some(Expression { text: parts.join(" AND "), long_prefix }))
+    Ok(Some(Expression { text: parts.join(" AND "), long_prefix, superset }))
 }
 
 /// The words of the index that start with `prefix` (ASCII, lower case), when they are
@@ -403,26 +495,25 @@ fn prefix_words(conn: &Connection, prefix: &str) -> Result<Option<Vec<String>>, 
     Ok((words.len() <= EXPAND_WORDS as usize).then_some(words))
 }
 
-/// One row of the full text index: its seq, the index of its conversation in the
-/// names of [`text_rows`], and the kind code of its doc.
+/// One row of the full text index: its seq, the index of its conversation (see
+/// [`text_rows`]), and the kind code of its doc.
 type TextRow = (i64, usize, i64);
 
-/// The conversations of the rows, and the rows of the full text index for
-/// `expression`, newest first, at most [`ROW_CAP`]: (seq, the index of the
+/// The conversations of the rows with the index of each, and the rows of the full text
+/// index for `expression`, newest first, at most [`ROW_CAP`]: (seq, the index of the
 /// conversation, kind). A stop ends them at the next row.
 fn text_rows(
     conn: &Connection,
     expression: &str,
     stop: &SearchStop,
     found: &mut Found,
-) -> Result<(Vec<String>, Vec<TextRow>), StoreError> {
+) -> Result<(HashMap<ConversationId, usize>, Vec<TextRow>), StoreError> {
     let mut stmt = conn.prepare(FTS_SQL)?;
     let mut rows = stmt.query(params![expression, ROW_CAP])?;
     let mut out = Vec::new();
-    // NOTE: the conversations of the rows repeat; one string per conversation keeps a
-    // read of 10,000 rows to a few allocations.
-    let mut index: HashMap<String, usize> = HashMap::new();
-    let mut names: Vec<String> = Vec::new();
+    // NOTE: the conversations of the rows repeat; an id is 16 bytes and no string, so
+    // a read of 10,000 rows makes a few allocations.
+    let mut index: HashMap<ConversationId, usize> = HashMap::new();
     loop {
         if stop.is_stopped() {
             found.partial = Some(SearchPartial::TimeCap);
@@ -430,22 +521,16 @@ fn text_rows(
         }
         let Some(row) = rows.next()? else { break };
         found.rows_scanned += 1;
-        let conversation = row.get_ref(1)?.as_str().map_err(rusqlite::Error::from)?;
-        let at = match index.get(conversation) {
-            Some(&at) => at,
-            None => {
-                index.insert(conversation.to_owned(), names.len());
-                names.push(conversation.to_owned());
-                names.len() - 1
-            }
-        };
+        let conversation = conversation_of(row.get_ref(1)?)?;
+        let next = index.len();
+        let at = *index.entry(conversation).or_insert(next);
         out.push((row.get(0)?, at, row.get(2)?));
         stop.row(found.rows_scanned);
     }
     if found.partial.is_none() && found.rows_scanned >= ROW_CAP {
         found.partial = Some(SearchPartial::RowCap);
     }
-    Ok((names, out))
+    Ok((index, out))
 }
 
 /// The `bm25()` of the `count` rows of [`text_rows`], in their order; `None` when a
@@ -569,19 +654,29 @@ impl<'c> Docs<'c> {
         Ok(self.title.query_row([conversation], |row| row.get(0)).optional()?)
     }
 
-    /// The hit of the doc `seq` with its snippet line; `None` when the doc is gone.
-    fn snippet_hit(
+    /// The hit of the first doc of `seqs` with its snippet line, skipping a doc that
+    /// is gone and, when `verify`, one whose text does not hold every needle.
+    fn best_hit(
         &mut self,
-        seq: i64,
+        seqs: &[(f64, i64)],
         needles: &[Needle],
+        verify: bool,
     ) -> Result<Option<FoundHit>, StoreError> {
-        let doc: Option<(i64, String)> =
-            self.doc.query_row([seq], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-        let Some((kind, text)) = doc else {
-            return Ok(None);
-        };
-        let line = snippet::snippet(&text, needles);
-        self.hit(seq, kind, vec![line])
+        for &(_, seq) in seqs {
+            let doc: Option<(i64, String)> =
+                self.doc.query_row([seq], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+            let Some((kind, text)) = doc else {
+                continue;
+            };
+            if verify && snippet::all_ranges(&text, needles).is_none() {
+                continue;
+            }
+            let line = snippet::snippet(&text, needles);
+            if let Some(hit) = self.hit(seq, kind, vec![line])? {
+                return Ok(Some(hit));
+            }
+        }
+        Ok(None)
     }
 
     /// A hit of the doc `seq` with `lines`, and its turn and time from its event;
