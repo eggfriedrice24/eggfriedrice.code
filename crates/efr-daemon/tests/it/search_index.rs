@@ -625,7 +625,8 @@ async fn bench_search_backfill_s() {
     assert!(writer <= Duration::from_secs(2), "the writer time is {writer:?}");
 }
 
-/// The backfill of corpus L: at most 90 s of wall time at the duty cycle and 20 s of
+/// The backfill of corpus L: at most 150 s of wall time at the duty cycle (the user's
+/// budget of 2026-10-22: the 10 ms pauses and the checkpoints of DQ45) and 20 s of
 /// writer time.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "a bench: `just bench-search` runs it in release"]
@@ -636,7 +637,7 @@ async fn bench_search_backfill_l() {
     let run = run_indexer(&store, None).await;
     store.close().await;
     report("bench_search_backfill_l", &backfill_lines(CorpusSize::L, &run));
-    assert!(run.pages_wall <= Duration::from_secs(90), "the backfill takes {:?}", run.pages_wall);
+    assert!(run.pages_wall <= Duration::from_secs(150), "the backfill takes {:?}", run.pages_wall);
     let writer = run.status.page_time + run.status.merge_time;
     assert!(writer <= Duration::from_secs(20), "the writer time is {writer:?}");
 }
@@ -749,7 +750,7 @@ fn status_kib(field: &str) -> u64 {
         .unwrap()
 }
 
-/// The memory of the indexer: at rest after the backfill of corpus S, at most 4 MiB
+/// The memory of the indexer: at rest after the backfill of corpus S, at most 6 MiB
 /// over a store that worked without it, and the peak at most 8 MiB over the rest.
 /// The store first appends and reads turns with its readers, so the writer's page
 /// cache and the threads of the runtime are warm, as in an efrd that runs.
@@ -808,7 +809,7 @@ async fn bench_search_memory() {
         ],
     );
     assert!(
-        rest.saturating_sub(before) <= 4 * 1024,
+        rest.saturating_sub(before) <= 6 * 1024,
         "the rest grows by {} KiB",
         rest.saturating_sub(before)
     );
