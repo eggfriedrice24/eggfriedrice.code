@@ -145,10 +145,11 @@ async fn events_while_time_passes(
 
 /// How long [`events_while_time_passes`] may take in real time. A whole test of this
 /// module takes less than 0.1 s on an idle machine, and each wait only a part of it:
-/// the daemon interrupts a program, takes a snapshot and writes some events. The limit
-/// is more than a hundred times that, for a machine under heavy load, and a quarter of
-/// nextest's limit for the whole test (60 s), so the test fails with what it saw.
-const REAL_TIME_LIMIT: Duration = Duration::from_secs(15);
+/// the daemon interrupts a program, takes a snapshot and writes some events. A full
+/// `just test-shell` on a machine under heavy load once needed more than 15 s for one
+/// wait. The limit is half of nextest's limit for the whole test (60 s), as in
+/// `jobs_moved`, so the test still fails with what it saw.
+const REAL_TIME_LIMIT: Duration = Duration::from_secs(30);
 
 /// The events of `stream` while the daemon's clock moves `seconds` seconds, one second
 /// each time nothing comes for a while.
