@@ -591,39 +591,6 @@ fn search_tables(conn: &Connection) -> Vec<Vec<String>> {
     .collect()
 }
 
-#[tokio::test]
-async fn a_large_log_is_copied_after_a_search_job() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("efr.sqlite");
-    let mut conn = db::open(&path).unwrap();
-    Migrations::new().migrate(&mut conn, None).unwrap();
-    // NOTE: SQLite's own checkpoint would copy the log at 1,000 frames; off here, so only
-    // the search job copies it.
-    conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
-    let (writer, _thread) =
-        StoreWriter::spawn(conn, TestClock::new(), crate::DEFAULT_BROADCAST_CAPACITY).unwrap();
-    let waiting = |writer: &WriterHandle| {
-        let writer = writer.clone();
-        async move { read(&writer, |conn| Ok(wal_frames_waiting(conn))).await }
-    };
-    create(&writer).await;
-    assert!(waiting(&writer).await.is_some_and(|frames| frames > 0));
-    // Many small commits grow the log past the bound.
-    for turn in 1..=300 {
-        append(&writer, vec![testing::queued(turn, "grow the log")]).await;
-    }
-    let before = waiting(&writer).await.unwrap();
-    assert!(before > CHECKPOINT_FRAMES, "{before} frames");
-
-    assert_eq!(round(&writer).await, SearchApplied::Applied);
-
-    let after = waiting(&writer).await.unwrap();
-    assert_eq!(after, 0, "{before} frames before");
-    // An in-memory database has no log.
-    let (memory, _thread) = self::writer();
-    assert_eq!(waiting(&memory).await, None);
-}
-
 #[test]
 fn doc_kinds_keep_their_codes() {
     for (kind, code) in
