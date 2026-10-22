@@ -1341,7 +1341,9 @@ the context, its options (`--take`) as arguments and its other words, N, an id o
 search, joined by one blank in `EFR_RESUME_WORDS` and never in the command line,
 `, ` and a command word alone (`, resume`, `, new`, `, mode auto`), which runs that
 command, as a line of just the word does in sticky mode, while any other word keeps
-the line a prompt,
+the line a prompt, a prompt of several lines, which the screen shows as it was pasted, with no quoting,
+and which history keeps whole (Up and Enter send it again; with `hist_ignore_space`
+a blank in front keeps it out),
 completion after
 `compinit` (also of `full`), `EFR_MODE=full` from the environment, which the plugin
 ignores at load with one line on stderr, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
