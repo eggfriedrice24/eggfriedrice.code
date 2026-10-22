@@ -13,7 +13,10 @@ across a restart:
 - `Migrations`: the forward-only SQL files in `src/migrations/`, embedded with
   `include_str!` and applied by `rusqlite_migration`, one transaction per file,
   tracked in `PRAGMA user_version`. Before migrating an existing database, a copy goes
-  to `backups/efr.sqlite.<user_version>`.
+  to `backups/efr.sqlite.<user_version>`. Then the projections are rebuilt from the
+  log, but only when an applied step adds or reshapes a projection (`REBUILDS`, one
+  flag per step); `0009_search.sql` adds only the search tables, so the start after it
+  does not replay the log. `MigrationReport::rebuilt` says whether a rebuild ran.
 - `StoreWriter` and `WriterHandle`: the single writer. A thread owns the only
   read-write connection; `WriterHandle::append(Batch)` commits events, the projections
   derived from them, command receipts and outbox rows in one transaction, and then

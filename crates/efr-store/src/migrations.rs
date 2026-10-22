@@ -26,7 +26,16 @@ pub(crate) const STEPS: &[M<'static>] = &[
     M::up(include_str!("migrations/0006_compactions.sql")),
     M::up(include_str!("migrations/0007_jobs.sql")),
     M::up(include_str!("migrations/0008_routes.sql")),
+    M::up(include_str!("migrations/0009_search.sql")),
 ];
+
+/// For each step of [`STEPS`], whether it adds or reshapes a projection, so that a
+/// database it migrates needs the projections rebuilt from the log. A step that adds
+/// only tables apart from the projections, such as the search index, needs none, and
+/// the start of efrd after it does not replay the whole log.
+pub(crate) const REBUILDS: &[bool] = &[true, true, true, true, true, true, true, true, false];
+
+const _: () = assert!(REBUILDS.len() == STEPS.len(), "each step needs its rebuild flag");
 
 /// The backups hold every conversation, like the database itself.
 const BACKUP_DIR_MODE: u32 = 0o700;
@@ -36,6 +45,7 @@ const BACKUP_DIR_MODE: u32 = 0o700;
 pub struct Migrations {
     steps: rusqlite_migration::Migrations<'static>,
     count: usize,
+    rebuilds: &'static [bool],
 }
 
 /// What [`Migrations::migrate`] did.
@@ -49,6 +59,9 @@ pub struct MigrationReport {
     /// The copy of the database taken before the first migration ran, when one was
     /// taken.
     pub backup: Option<PathBuf>,
+    /// True when the projections were rebuilt from the log after the migrations,
+    /// because one of them adds or reshapes a projection.
+    pub rebuilt: bool,
 }
 
 impl MigrationReport {
@@ -67,11 +80,17 @@ impl Default for Migrations {
 impl Migrations {
     /// The migrations of this build.
     pub fn new() -> Self {
-        Self::from_steps(STEPS)
+        Self::from_steps(STEPS, REBUILDS)
     }
 
-    pub(crate) fn from_steps(steps: &'static [M<'static>]) -> Self {
-        Migrations { steps: rusqlite_migration::Migrations::from_slice(steps), count: steps.len() }
+    /// The migrations `steps`, with the rebuild flag of each in `rebuilds`; a step
+    /// without a flag rebuilds.
+    pub(crate) fn from_steps(steps: &'static [M<'static>], rebuilds: &'static [bool]) -> Self {
+        Migrations {
+            steps: rusqlite_migration::Migrations::from_slice(steps),
+            count: steps.len(),
+            rebuilds,
+        }
     }
 
     /// The schema version that [`Migrations::migrate`] brings a database to.
@@ -97,7 +116,8 @@ impl Migrations {
     }
 
     /// Brings the database behind `conn` to [`Migrations::latest`], and rebuilds the
-    /// projections when the database had a schema before.
+    /// projections when the database had a schema before and an applied step adds or
+    /// reshapes a projection.
     ///
     /// When the database already has a schema and a migration is pending, a copy of
     /// it is written to `backups/<file name>.<version>` first (with mode 0600, through
@@ -117,7 +137,7 @@ impl Migrations {
             return Err(StoreError::SchemaTooNew { found: from, supported: latest });
         }
         if from == latest {
-            return Ok(MigrationReport { from, to: from, backup: None });
+            return Ok(MigrationReport { from, to: from, backup: None, rebuilt: false });
         }
         let backup = match backups {
             Some(dir) if from > 0 => backup(conn, dir, from)?,
@@ -127,14 +147,18 @@ impl Migrations {
             // One call per file, so each file commits on its own.
             self.steps.to_version(conn, version as usize)?;
         }
-        if from > 0 {
-            // A migration may add or reshape a projection, and projections are a
-            // function of the log, so they are rebuilt rather than migrated row by row.
+        // A migration may add or reshape a projection, and projections are a function
+        // of the log, so they are rebuilt rather than migrated row by row. The steps
+        // run from index `from` (version `from + 1`) on.
+        let rebuilt = from > 0
+            && (from..latest)
+                .any(|index| self.rebuilds.get(index as usize).copied().unwrap_or(true));
+        if rebuilt {
             let tx = conn.transaction()?;
             projection::rebuild(&tx)?;
             tx.commit()?;
         }
-        Ok(MigrationReport { from, to: latest, backup })
+        Ok(MigrationReport { from, to: latest, backup, rebuilt })
     }
 }
 
