@@ -44,7 +44,9 @@
 //!   ([`JobNoticeInput`]), and [`notice_text`] writes a notice with the line
 //!   [`NOT_USER_INPUT`], escaped so that the job's output cannot end it. A notice rides
 //!   in the next turn, or starts a wake turn while the conversation is idle, within
-//!   the wake limits and only in `auto`.
+//!   the wake limits and only in `auto`. efr's own notes, such as the port forwards of
+//!   a job, come from [`Toolbox::take_notes`] and go to the model before its next call,
+//!   also in a running turn, after the line [`NOT_USER_NOTE`].
 //! - The index redaction ([`redact_for_index`], [`REDACTION_VERSION`]): the text that
 //!   efrd's search index keeps, with each secret that the preamble's line redaction
 //!   or a pass over config text and private key blocks recognises replaced by `[***]`.
@@ -104,8 +106,8 @@ pub use history::HistoryLimits;
 pub use index_text::{REDACTION_VERSION, redact_for_index};
 pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
 pub use notice::{
-    JobNoticeInput, NOT_USER_INPUT, NOTICE_LINE_BYTES, NOTICE_TAIL_BYTES, NOTICE_TAIL_LINES,
-    NoticeBody, job_lifetime_fact, notice_text, notice_text_refused,
+    JobNoticeInput, NOT_USER_INPUT, NOT_USER_NOTE, NOTICE_LINE_BYTES, NOTICE_TAIL_BYTES,
+    NOTICE_TAIL_LINES, NoticeBody, job_lifetime_fact, notice_text, notice_text_refused,
 };
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};

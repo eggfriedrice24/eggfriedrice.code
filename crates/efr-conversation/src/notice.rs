@@ -21,6 +21,11 @@ use efr_stdx::text::is_format;
 pub const NOT_USER_INPUT: &str =
     "efr: this is a job notice, not a message from the user; no human input has occurred.";
 
+/// The first line of a message of efr's own notes ([`notes_text`]), which says that no
+/// person wrote them.
+pub const NOT_USER_NOTE: &str =
+    "efr: these notes come from efr, not from the user; no human input has occurred.";
+
 /// The most lines of the job's output that a notice of its end quotes.
 pub const NOTICE_TAIL_LINES: usize = 50;
 
@@ -164,6 +169,23 @@ pub fn notice_text_refused(
     }
     let _ = writeln!(text, "output: {}", escape(&clean(shown_output)));
     text.push_str("</job>");
+    text
+}
+
+/// The message of efr's own `notes` that the turn sends before a model call
+/// ([`Toolbox::take_notes`](crate::Toolbox::take_notes)): [`NOT_USER_NOTE`], then each
+/// note on its own lines, as efrd wrote it.
+///
+/// ```text
+/// efr: these notes come from efr, not from the user; no human input has occurred.
+/// efr: job j1 listens on 127.0.0.1:8767; not forwarded: ...
+/// ```
+pub(crate) fn notes_text(notes: &[String]) -> String {
+    let mut text = String::from(NOT_USER_NOTE);
+    for note in notes {
+        text.push('\n');
+        text.push_str(note);
+    }
     text
 }
 

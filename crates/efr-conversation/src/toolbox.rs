@@ -183,6 +183,16 @@ pub trait Toolbox: Send + Sync + fmt::Debug {
         None
     }
 
+    /// efr's own notes for the model of the conversation that came since the last ask,
+    /// oldest first, such as the outcome of a port forward of a background job. The
+    /// turn asks before each model call and sends them in that call, after the line
+    /// [`NOT_USER_NOTE`](crate::NOT_USER_NOTE), also in the middle of a turn; a note
+    /// that the toolbox gave once is never given again. A note never starts a turn. The
+    /// default has none.
+    async fn take_notes(&self, _conversation_id: ConversationId) -> Vec<String> {
+        Vec::new()
+    }
+
     /// True when the daemon-wide limit of turns that job notices start per hour lets
     /// one more start now (`jobs.max_wakes_per_hour_daemon`). The limit of each
     /// conversation is the actor's own. The default has no daemon-wide limit.
