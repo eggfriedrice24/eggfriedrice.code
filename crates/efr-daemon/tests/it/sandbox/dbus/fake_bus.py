@@ -61,7 +61,57 @@ HOSTNAME = strings({
     "OperatingSystemPrettyName": "efr fake OS",
 })
 SYSTEMD = strings({"Version": "262-fake"})
-UNIT = strings({"ActiveState": "failed", "LoadState": "loaded", "SubState": "failed"})
+# What `systemctl status` of systemd 255 and 262 reads of a failed service, with the
+# types of systemd's own unit and service interfaces: the client aborts without an Id.
+# The unit failed at a fixed time and runs no process, so status shows no cgroup.
+FAILED_AT = 1_790_000_000_000_000
+UNIT = {
+    **strings({
+        "Id": "fake-failed.service",
+        "ActiveState": "failed",
+        "LoadState": "loaded",
+        "SubState": "failed",
+        "FreezerState": "running",
+        "Description": "A fake failed unit",
+        "FragmentPath": "/etc/systemd/system/fake-failed.service",
+        "SourcePath": "",
+        "UnitFileState": "enabled",
+        "UnitFilePreset": "enabled",
+        "Following": "",
+        "ControlGroup": "",
+        "Result": "exit-code",
+        "StatusText": "",
+        "PIDFile": "",
+        "LogNamespace": "",
+        "Type": "simple",
+    }),
+    "Names": GLib.Variant("as", ["fake-failed.service"]),
+    "Documentation": GLib.Variant("as", []),
+    "DropInPaths": GLib.Variant("as", []),
+    "TriggeredBy": GLib.Variant("as", []),
+    "Triggers": GLib.Variant("as", []),
+    "LoadError": GLib.Variant("(ss)", ("", "")),
+    "InactiveExitTimestamp": GLib.Variant("t", FAILED_AT - 1_000_000),
+    "InactiveExitTimestampMonotonic": GLib.Variant("t", 1_000_000),
+    "ActiveEnterTimestamp": GLib.Variant("t", FAILED_AT - 1_000_000),
+    "ActiveExitTimestamp": GLib.Variant("t", FAILED_AT),
+    "InactiveEnterTimestamp": GLib.Variant("t", FAILED_AT),
+    "RuntimeMaxUSec": GLib.Variant("t", 2**64 - 1),
+    "NeedDaemonReload": GLib.Variant("b", False),
+    "Transient": GLib.Variant("b", False),
+    "ExecMainPID": GLib.Variant("u", 0),
+    "MainPID": GLib.Variant("u", 0),
+    "ControlPID": GLib.Variant("u", 0),
+    "StatusErrno": GLib.Variant("i", 0),
+    "ExecMainStartTimestamp": GLib.Variant("t", FAILED_AT - 1_000_000),
+    "ExecMainExitTimestamp": GLib.Variant("t", FAILED_AT),
+    "ExecMainCode": GLib.Variant("i", 1),
+    "ExecMainStatus": GLib.Variant("i", 1),
+    "ConditionTimestamp": GLib.Variant("t", FAILED_AT - 1_000_000),
+    "ConditionResult": GLib.Variant("b", True),
+    "AssertTimestamp": GLib.Variant("t", FAILED_AT - 1_000_000),
+    "AssertResult": GLib.Variant("b", True),
+}
 SESSION_PROPERTIES = strings({"TTY": "tty1", "State": "active", "Seat": "seat0"})
 
 
