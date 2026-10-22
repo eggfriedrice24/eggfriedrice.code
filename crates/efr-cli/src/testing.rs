@@ -919,6 +919,8 @@ impl TestEnv {
             tty: None,
             home: Some(PathBuf::from("/home/user")),
             desktop: None,
+            fzf_query: None,
+            preview_columns: None,
         }
     }
 }

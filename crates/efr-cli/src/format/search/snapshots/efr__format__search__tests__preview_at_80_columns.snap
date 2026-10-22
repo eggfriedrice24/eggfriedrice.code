@@ -1,0 +1,15 @@
+---
+source: crates/efr-cli/src/format/search/tests.rs
+expression: readable(&text)
+---
+\e[33mrsync\e[0m\e[1m the photos to the laptop\e[0m
+
+\e[2mprompt · 25 min ago\e[0m
+please \e[33mrsync\e[0m ~/photos to the laptop and check its disk
+
+\e[2manswer · 24 min ago\e[0m
+I ran \e[33mrsync\e[0m with -a, so the times and the modes stay as they were on the source.
+Then I checked the disk of the laptop: 41% is free.
+
+\e[2mcommand · 23 min ago\e[0m
+\e[33mrsync\e[0m -a ~/photos laptop:/srv/photos

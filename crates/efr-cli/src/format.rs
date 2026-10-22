@@ -36,6 +36,7 @@ pub(crate) mod patch;
 pub(crate) mod resume;
 pub(crate) mod route;
 pub(crate) mod sandbox;
+pub(crate) mod search;
 
 /// Keys of a tool's input that best describe a call in one line, in order of
 /// preference.

@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::builder::{PossibleValuesParser, TypedValueParser as _};
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 use efr_protocol::{ConversationId, JobId, Mode, TurnId};
 
 /// The parsed command line.
@@ -61,6 +61,14 @@ pub(crate) enum Command {
     /// continues it, its hidden shell starts in its last directory and its jobs report
     /// here. When another open terminal holds it, efr asks first.
     Resume(ResumeArgs),
+    /// Find the conversations whose titles or text match some words, best first.
+    ///
+    /// efrd searches the titles, your prompts, the model's answers and the commands that
+    /// the agent ran, never the output of a command. Each row shows the matching text and
+    /// the start of the conversation's id, which efr resume takes. Other local users can
+    /// read the words of a command line in the process list; the words of ,resume stay
+    /// out of it.
+    Search(SearchArgs),
     /// Show what the last turn changed in the files of its project and $SCRATCH.
     Diff(DiffArgs),
     /// Take back what the last turn changed in files and branches.
@@ -312,6 +320,57 @@ pub(crate) struct ResumeArgs {
     /// question.
     #[arg(long, requires = "conversation")]
     pub(crate) take: bool,
+}
+
+/// The arguments of `efr search`.
+///
+/// The picker of `,resume` runs the two hidden forms in fzf: `--picker` prints the rows
+/// for the query that fzf exports in `FZF_QUERY`, and `--preview` prints the matching
+/// lines of one conversation. The query never reaches their arguments.
+#[derive(Debug, Args)]
+#[command(group = ArgGroup::new("hidden").args(["picker", "preview"]))]
+pub(crate) struct SearchArgs {
+    /// The most conversations to list: 10 by default, 200 at most.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=200), conflicts_with = "hidden")]
+    pub(crate) limit: Option<u32>,
+
+    /// Print the daemon's answer as JSON, with the measures of the search.
+    #[arg(long, conflicts_with = "hidden")]
+    pub(crate) json: bool,
+
+    /// Print the rows of the picker of ,resume for the query in FZF_QUERY.
+    #[arg(long, hide = true, requires = "tty")]
+    pub(crate) picker: bool,
+
+    /// Print the lines of this conversation that match the query in FZF_QUERY, for the
+    /// preview of the picker of ,resume. An empty id prints nothing.
+    #[arg(long, hide = true, value_name = "ID", requires = "tty")]
+    pub(crate) preview: Option<String>,
+
+    /// The terminal of the picker.
+    #[arg(long, hide = true, value_name = "TTY", requires = "hidden")]
+    pub(crate) tty: Option<String>,
+
+    /// The words to find. Every word must match in one prompt, answer or command; a
+    /// "quoted phrase" matches as one; the last word matches as the start of a word.
+    #[arg(value_name = "WORDS", conflicts_with = "hidden")]
+    pub(crate) words: Vec<String>,
+}
+
+impl SearchArgs {
+    /// True for the hidden forms that fzf runs: they write nothing to stderr, which fzf
+    /// would draw over its rows.
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.picker || self.preview.is_some()
+    }
+}
+
+impl Command {
+    /// True when the command writes nothing to stderr: no log, no config warning and no
+    /// error message.
+    pub(crate) fn is_quiet(&self) -> bool {
+        matches!(self, Command::Search(args) if args.is_hidden())
+    }
 }
 
 /// The arguments of `efr diff`.

@@ -184,6 +184,18 @@ pub(crate) enum CliError {
     )]
     ResumeNeedsTerminal,
 
+    /// `efr search` came without words to find.
+    #[error("efr search needs the words to find")]
+    SearchWithoutWords,
+
+    /// The query of a search has more code points than efrd takes.
+    #[error("the query is longer than {max} characters", max = crate::commands::search::MAX_QUERY_CHARS)]
+    QueryTooLong { chars: usize },
+
+    /// The query of a search has more words and phrases than efrd takes.
+    #[error("the query has more than {max} words", max = crate::commands::search::MAX_QUERY_TERMS)]
+    QueryTooManyWords { words: usize },
+
     /// `efr shell` found a command that waits for a password, and stdin is not a
     /// terminal: efr reads a password only where nothing shows it.
     #[error("efr shell reads a password only on a terminal, and stdin is not one")]
@@ -391,6 +403,9 @@ impl CliError {
             | CliError::NoResumeRow { .. }
             | CliError::ResumeAmbiguous { .. }
             | CliError::ResumeNeedsTerminal
+            | CliError::SearchWithoutWords
+            | CliError::QueryTooLong { .. }
+            | CliError::QueryTooManyWords { .. }
             | CliError::ShellNeedsTerminal => Exit::Usage,
             CliError::Interrupted | CliError::Escaped => Exit::Interrupted,
             CliError::Ended { signal } => Exit::Signal(*signal),
@@ -457,6 +472,9 @@ impl CliError {
                 Some("no_redo") => Some("efr undo --list shows which turns are undone"),
                 _ => None,
             },
+            CliError::SearchWithoutWords => {
+                Some(",resume in zsh, or efr resume, lists the recent conversations")
+            }
             CliError::NewWithoutPrompt => {
                 Some("in zsh, a bare ,new makes the next , line start a new conversation")
             }

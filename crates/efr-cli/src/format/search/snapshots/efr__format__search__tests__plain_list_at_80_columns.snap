@@ -1,0 +1,10 @@
+---
+source: crates/efr-cli/src/format/search/tests.rs
+expression: readable(&text)
+---
+\e[33mrsync\e[0m the phot…  app         25 min ago  6 turns   \e[2mthis terminal\e[0m        019a9b11
+    \e[2mplease \e[0m\e[33mrsync\e[0m\e[2m ~/photos to the \e[0m\e[33mlap\e[0m\e[2mtop and check its disk\e[0m
+why is the bui…  no project  2 h ago     3 turns   \e[2mopen in /dev/pts/4\e[0m   019a9b12
+    \e[33mrsync\e[0m\e[2m -a target/ \e[0m\e[33mlap\e[0m\e[2m:/srv/cache\e[0m
+set up the \e[33mlap\e[0m…  no project  3 d ago      1 turn                        019a9b13
+\e[2mefr resume <id> continues one here\e[0m
