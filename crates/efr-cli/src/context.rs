@@ -237,6 +237,17 @@ fn tilde(home: &Option<PathBuf>) -> &Path {
     home.as_deref().unwrap_or_else(|| Path::new("~"))
 }
 
+/// The query that fzf exports in `FZF_QUERY` to the commands of the picker of
+/// `,resume`: text that the user typed, so `Debug` shows only its length.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub(crate) struct FzfQuery(pub(crate) String);
+
+impl fmt::Debug for FzfQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FzfQuery(<{} bytes>)", self.0.len())
+    }
+}
+
 /// What every command runs with.
 #[derive(Debug)]
 pub(crate) struct Context {
@@ -278,6 +289,12 @@ pub(crate) struct Context {
     /// The desktop variables of the shell that runs `efr`, which a prompt sends so that
     /// a desktop grant reaches the session of this terminal; `None` without any.
     pub(crate) desktop: Option<Box<DesktopEnv>>,
+    /// The query of the picker of `,resume`, which fzf exports in `FZF_QUERY` to
+    /// `efr search --picker` and `--preview`; `None` when it is unset.
+    pub(crate) fzf_query: Option<FzfQuery>,
+    /// The width of fzf's preview window, from `FZF_PREVIEW_COLUMNS`, for
+    /// `efr search --preview`; `None` when it is unset or not a width.
+    pub(crate) preview_columns: Option<u16>,
 }
 
 impl Context {
@@ -329,6 +346,16 @@ impl Context {
             // NOTE: WAYLAND_DISPLAY and the others are the desktops' conventions, not
             // efr settings, so they are read here and not through efr_stdx::env::Var.
             desktop: desktop_env(|name| std::env::var_os(name)?.into_string().ok()),
+            // NOTE: FZF_QUERY and FZF_PREVIEW_COLUMNS are fzf's, not efr settings, so they
+            // are read here and not through efr_stdx::env::Var. fzf exports them to the
+            // commands of the picker, and the query stays out of every command line.
+            fzf_query: std::env::var_os("FZF_QUERY")
+                .and_then(|value| value.into_string().ok())
+                .map(FzfQuery),
+            preview_columns: std::env::var_os("FZF_PREVIEW_COLUMNS")
+                .and_then(|value| value.into_string().ok())
+                .and_then(|value| value.trim().parse().ok())
+                .filter(|columns| *columns > 0),
             term,
         })
     }

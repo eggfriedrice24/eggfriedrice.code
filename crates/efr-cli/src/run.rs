@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use crate::cli::{Cli, Command};
 use crate::commands::{
     away, compact, config, context, diff, history, jobs, login, logout, models, new, paths,
-    project, resume, sandbox, send, settings, shell, status, undo,
+    project, resume, sandbox, search, send, settings, shell, status, undo,
 };
 use crate::context::Context;
 use crate::error::{CliError, Exit};
@@ -26,14 +26,21 @@ pub(crate) async fn main(cli: Cli, term: TermFacts) -> Exit {
     let mut out = Output::process();
     match Context::from_process(term).await {
         Ok(ctx) => run(&cli.command, &ctx, &mut out).await,
-        Err(error) => report(&error, &mut out, efr_config::DEFAULT_PROVIDER),
+        Err(error) => match &cli.command {
+            Command::Search(args) if args.is_hidden() => {
+                search::without_context(args, &error, &mut out)
+            }
+            _ => report(&error, &mut out, efr_config::DEFAULT_PROVIDER),
+        },
     }
 }
 
 /// Runs `command` with `ctx`, writing to `out`.
 pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> Exit {
-    // `config show` lists the warnings itself.
-    if !matches!(command, Command::Config(_)) {
+    // `config show` lists the warnings itself, and the forms of `efr search` that fzf
+    // runs write nothing to stderr, which fzf would draw over its rows.
+    let quiet = command.is_quiet();
+    if !matches!(command, Command::Config(_)) && !quiet {
         for warning in &ctx.settings.warnings {
             out.err(&format!("efr: warning: {}\n", format::one_line(&warning.to_string())));
         }
@@ -44,6 +51,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         Command::Status => status::run(ctx, out).await,
         Command::History(args) => history::run(ctx, out, args).await,
         Command::Resume(args) => resume::run(ctx, out, args).await,
+        Command::Search(args) => search::run(ctx, out, args).await,
         Command::Diff(args) => diff::run(ctx, out, args).await,
         Command::Undo(args) => Box::pin(undo::run(ctx, out, args)).await,
         Command::Compact(args) => compact::run(ctx, out, args).await,
@@ -62,6 +70,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
     };
     match result {
         Ok(()) => Exit::Success,
+        Err(error) if quiet => error.exit(),
         Err(error) => report(&error, out, ctx.settings.provider()),
     }
 }

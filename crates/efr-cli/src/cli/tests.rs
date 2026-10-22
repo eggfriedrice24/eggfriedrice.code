@@ -176,6 +176,62 @@ fn context_takes_a_conversation_a_model_and_json() {
 }
 
 #[test]
+fn search_takes_words_a_limit_and_json() {
+    let Command::Search(args) = command(&["search", "rsync", "lap"]) else { panic!("not search") };
+    assert_eq!(args.words, ["rsync", "lap"]);
+    assert_eq!((args.limit, args.json, args.picker, args.preview), (None, false, false, None));
+    let Command::Search(args) = command(&["search", "--limit", "5", "--json", "--", "-x"]) else {
+        panic!("not search");
+    };
+    assert_eq!(
+        (args.limit, args.json, args.words.as_slice()),
+        (Some(5), true, ["-x".to_owned()].as_slice())
+    );
+    assert_eq!(parse_error(&["search", "--limit", "0", "x"]), ErrorKind::ValueValidation);
+    assert_eq!(parse_error(&["search", "--limit", "201", "x"]), ErrorKind::ValueValidation);
+    // No words parse; the command says that it needs them, and names ,resume.
+    assert!(matches!(command(&["search"]), Command::Search(_)));
+}
+
+#[test]
+fn the_hidden_search_forms_take_no_words_and_need_a_terminal() {
+    let Command::Search(args) = command(&["search", "--picker", "--tty", "/dev/pts/9"]) else {
+        panic!("not search");
+    };
+    assert!(args.picker && args.is_hidden());
+    assert_eq!(args.tty.as_deref(), Some("/dev/pts/9"));
+    let Command::Search(args) = command(&["search", "--preview", "", "--tty", "/dev/pts/9"]) else {
+        panic!("not search");
+    };
+    assert_eq!(args.preview.as_deref(), Some(""));
+    assert_eq!(parse_error(&["search", "--picker"]), ErrorKind::MissingRequiredArgument);
+    assert_eq!(
+        parse_error(&["search", "--tty", "/dev/pts/9", "x"]),
+        ErrorKind::MissingRequiredArgument
+    );
+    assert_eq!(
+        parse_error(&["search", "--picker", "--tty", "t", "rsync"]),
+        ErrorKind::ArgumentConflict
+    );
+    assert_eq!(
+        parse_error(&["search", "--picker", "--preview", "x", "--tty", "t"]),
+        ErrorKind::ArgumentConflict
+    );
+    assert_eq!(
+        parse_error(&["search", "--picker", "--tty", "t", "--json"]),
+        ErrorKind::ArgumentConflict
+    );
+}
+
+#[test]
+fn search_help_is_a_snapshot() {
+    let mut cli = Cli::command();
+    cli.build();
+    let search = cli.find_subcommand_mut("search").unwrap();
+    insta::assert_snapshot!(search.render_help().to_string());
+}
+
+#[test]
 fn away_takes_a_conversation_and_nothing_else() {
     // The plugin's call is bare.
     let Command::Away(args) = command(&["away"]) else { panic!("not away") };

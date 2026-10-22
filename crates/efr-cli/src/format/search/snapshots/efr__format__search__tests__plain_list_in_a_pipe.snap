@@ -1,0 +1,11 @@
+---
+source: crates/efr-cli/src/format/search/tests.rs
+expression: text
+---
+rsync the photos to the laptop  app         25 min ago  6 turns   this terminal        019a9b11
+    please rsync ~/photos to the laptop and check its disk
+why is the build slow           no project  2 h ago     3 turns   open in /dev/pts/4   019a9b12
+    words before the match words before the match words before the match words before the match words before the match words before the match words before the match words before the match  and at last the word rsync
+set up the laptop               no project  3 d ago      1 turn                        019a9b13
+indexing: 7%
+,resume <id> continues one here

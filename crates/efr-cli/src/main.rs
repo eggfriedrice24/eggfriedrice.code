@@ -64,7 +64,11 @@ fn main() -> ExitCode {
         Err(error) => return usage(&error),
     };
     let term = TermFacts::from_process();
-    telemetry(&term);
+    // NOTE: the forms of `efr search` that fzf runs log nothing: fzf would draw stderr
+    // over its rows.
+    if !cli.command.is_quiet() {
+        telemetry(&term);
+    }
     output::install_panic_hook();
     let runtime = match run::runtime() {
         Ok(runtime) => runtime,

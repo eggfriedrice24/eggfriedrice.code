@@ -1,0 +1,15 @@
+---
+source: crates/efr-cli/src/cli/tests.rs
+expression: search.render_help().to_string()
+---
+Find the conversations whose titles or text match some words, best first
+
+Usage: efr search [OPTIONS] [WORDS]...
+
+Arguments:
+  [WORDS]...  The words to find. Every word must match in one prompt, answer or command; a "quoted phrase" matches as one; the last word matches as the start of a word
+
+Options:
+      --limit <N>  The most conversations to list: 10 by default, 200 at most
+      --json       Print the daemon's answer as JSON, with the measures of the search
+  -h, --help       Print help (see more with '--help')

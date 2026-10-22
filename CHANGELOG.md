@@ -432,6 +432,8 @@ into the GitHub release notes, and it stops when the section is missing.
   `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
   goes on while you follow the turn. The README, "A busy hidden shell", has the
   details.
+- `efr search <words>` prints the conversations that match, best first, with the
+  matching text.
 
 ### Changed
 

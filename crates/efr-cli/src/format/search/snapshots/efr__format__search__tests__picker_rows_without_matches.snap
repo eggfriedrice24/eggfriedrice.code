@@ -1,0 +1,8 @@
+---
+source: crates/efr-cli/src/format/search/tests.rs
+expression: readable(&text)
+---
+	\e[1menter\e[0m\e[2m resume\e[0m\e[2m · \e[0m\e[1mctrl-o\e[0m\e[2m print\e[0m\e[2m · \e[0m\e[1mesc\e[0m\e[2m close\e[0m
+019a9b1c-3d00-7a10-8b20-000000000001	rsync the photos to the laptop  app         25 min ago  6 turns  \e[2mthis terminal\e[0m
+019a9b1c-3d00-7a10-8b20-000000000002	why is the build slow           no project  2 h ago     3 turns  \e[2mopen in /dev/pts/4\e[0m
+019a9b1c-3d00-7a10-8b20-000000000003	set up the laptop               no project  3 d ago      1 turn
