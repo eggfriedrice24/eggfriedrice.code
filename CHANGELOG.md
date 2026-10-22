@@ -245,6 +245,12 @@ into the GitHub release notes, and it stops when the section is missing.
   check the dev server that it started. Before, such a check asked for the whole
   network. Only the ports that efr forwards for the same conversation are reachable.
   `docs/sandbox.md`, "Ports of a job", has the rules.
+- The agent now learns whether efr forwards each port of its background jobs. Before
+  its next step, also in the same turn, the model reads a note from efr. For a
+  forwarded port, the note gives the URL. For a port that efr does not forward, such as
+  a port that a program of yours uses, the note gives the reason and tells the model to
+  choose another port. So the model does not give you a URL that opens another server.
+  The model reads each outcome once, and the `jobs` tool shows the outcome of each port.
 - Ctrl+B in the turn view moves the agent's running shell call to the background as a
   job, whatever the input row holds. A call in the sandbox moves at once and keeps its
   sandbox. A call that runs outside the sandbox asks one `y/n` question first, because
