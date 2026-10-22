@@ -10,8 +10,8 @@
 # release commit sets all of them before the tag (docs/releasing.md).
 #
 # A release created with GITHUB_TOKEN does not fire the "release" event for
-# other workflows, so the AUR publish (aur.yml) is dispatched explicitly as
-# the last step. That needs actions: write.
+# other workflows, so the AUR publish (aur.yml) and the docs site (pages.yml)
+# are dispatched explicitly as the last steps. That needs actions: write.
 
 name: release
 
@@ -157,3 +157,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run aur.yml --ref main -f "tag=${GITHUB_REF_NAME}"
+
+      - name: Trigger the docs site deploy
+        # Stable releases only, as for the AUR: the root of the site is the newest
+        # stable tag. pages.yml builds the book of this tag.
+        if: ${{ !contains(steps.version.outputs.version, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main -f "tag=${GITHUB_REF_NAME}"
