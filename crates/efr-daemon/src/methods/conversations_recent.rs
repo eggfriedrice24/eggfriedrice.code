@@ -7,15 +7,13 @@
 //! follows it; a phone never holds one). A client without a terminal, such as the
 //! phone, sends no `tty`.
 
-use std::path::Path;
-
-use efr_protocol::{ConversationsRecent, ConversationsRecentResult, RecentConversation};
+use efr_protocol::{ConversationsRecent, ConversationsRecentResult};
 use efr_transport::Responder;
 
 use crate::DaemonError;
-use crate::conversations;
 use crate::methods::page_size;
 use crate::methods::prompt_send::read_place;
+use crate::methods::recent_rows::recent_rows;
 use crate::routing;
 use crate::state::State;
 
@@ -44,26 +42,7 @@ pub(crate) async fn handle(
         .as_deref()
         .and_then(|tty| state.conversations.current(tty))
         .map(|(_, slot)| slot.conversation_id);
-    let conversations = rows
-        .into_iter()
-        .map(|row| {
-            let id = row.summary.id;
-            let here = tty.as_deref().is_some_and(|tty| {
-                state.conversations.holders(id).iter().any(|(holder, _, _)| holder == tty)
-            });
-            let open_in =
-                conversations::held(state, id, tty.as_deref()).map(|held| held.tty().to_owned());
-            let project = routing::label(&registry, &row.route, Path::new("")).name;
-            RecentConversation {
-                summary: row.summary,
-                route: row.route,
-                project,
-                turns: row.turns,
-                open_in,
-                here,
-            }
-        })
-        .collect();
+    let conversations = recent_rows(state, rows, &registry, tty.as_deref());
     responder.item(&ConversationsRecentResult { scope, current, conversations }).await?;
     Ok(())
 }

@@ -65,6 +65,7 @@ mod prompt_withdraw;
 mod pty_attach;
 mod pty_resize;
 mod pty_write;
+mod recent_rows;
 mod sandbox_explain;
 mod sandbox_surface_respond;
 mod shell_interrupt;
