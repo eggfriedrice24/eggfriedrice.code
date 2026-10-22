@@ -68,11 +68,16 @@
 #                  `,!word` steers with `word`, and a typo of a plugin command such
 #                  as `,moed`, `,compcat`, `,contxet`, `,resmue`, `,aawy` or `,shlel` stays on
 #                  the line with a hint instead of running
+#   , <word>       a `,` prompt that is one command word alone runs that command:
+#                  `, resume` runs `,resume`, and so do `new`, `compact`, `context`,
+#                  `away` and `shell`; `mode`, `model` and `effort` may have one value
+#                  that efr accepts (`, mode auto`). A prompt with any other word, such
+#                  as `, resume the build`, stays a prompt
 #   Ctrl+Space     toggle sticky agent mode: every line goes to the agent, except
 #                  lines that start with `!` (run as shell commands) or `,` (the
-#                  commands above), and a line of just `mode`, `model` or `effort`,
-#                  alone or with one value that efr accepts, which runs as `,mode`,
-#                  `,model` or `,effort`; a robot and the scope of the next prompt
+#                  commands above), and a line of just a command word, as after
+#                  `, ` above (`resume`, or `mode` with one value that efr accepts),
+#                  which runs as its `,` command; a robot and the scope of the next prompt
 #                  stand before the typed text while it is on, such as `🤖 app › `
 #                  in a registered project and `🤖 ○ › ` outside projects (shown
 #                  with PREDISPLAY, so the prompt itself never changes), after a dim
@@ -889,11 +894,40 @@ _efr_setting_line() {
   REPLY=",$name${value:+ ${(q)value}}"
 }
 
+# Sets REPLY to the line that runs for the prompt text $1 when the text is one plugin
+# command word alone: `new`, `compact`, `context`, `resume`, `away` or `shell` becomes
+# `,new` and so on, and `mode`, `model` or `effort` with at most one value becomes the
+# line of _efr_setting_line. This is the rule of a `, ` line and of a line in sticky
+# mode. Returns 1 for any other text, which stays a prompt.
+_efr_command_word_line() {
+  emulate -L zsh -o extended_glob
+  if [[ $1 == (#b)[[:space:]]#(new|compact|context|resume|away|shell)[[:space:]]# ]]; then
+    REPLY=",$match[1]"
+    return 0
+  fi
+  _efr_setting_line "$1"
+}
+
+# Sets REPLY to the line that runs for the line $1 when it is a `,` prompt whose text
+# is one command word alone (see _efr_command_word_line): `, resume` (or the sticky
+# word, a blank and `resume`) becomes `,resume`. The blanks before it stay. Returns 1
+# for any other line, also for a prompt of several lines.
+_efr_comma_command_line() {
+  emulate -L zsh -o extended_glob
+  local word=
+  _efr_sticky_word && word="|${(b)REPLY}"
+  [[ $1 == (#b)([[:space:]]#)(,${~word})[[:space:]]##(*) ]] || return 1
+  local lead=$match[1] text=${match[3]%%[[:space:]]##}
+  [[ $text != *$'\n'* ]] || return 1
+  _efr_command_word_line "$text" || return 1
+  REPLY=$lead$REPLY
+}
+
 # Sets REPLY to the line that runs for the accepted line $1. In sticky agent mode a
 # line goes to the agent unless it is a plugin line (`,` and the commands above, or a
 # line that history recalled with the sticky word in front), starts with `!` (an
-# escape hatch for one shell command), is a bare setting word (see
-# _efr_setting_line), or is empty. Such a prompt line gets the indicator's own text in
+# escape hatch for one shell command), is a bare command word (see
+# _efr_command_word_line), or is empty. Such a prompt line gets the indicator's own text in
 # front, so the line looks on the screen as it did while it was typed; when the
 # indicator is no sticky word, it gets `, ` instead. Nothing else changes. Outside
 # sticky mode every line runs as typed. Sets _efr_prompt_line to 1 for a prompt line
@@ -908,7 +942,7 @@ _efr_line_to_run() {
     REPLY=${line#!}
   elif [[ -z ${line//[[:space:]]/} ]]; then
     REPLY=$line
-  elif _efr_setting_line "$line"; then
+  elif _efr_command_word_line "$line"; then
     :
   elif _efr_sticky_word; then
     local gap=${EFR_STICKY_INDICATOR#"$REPLY"}
@@ -1030,6 +1064,7 @@ _efr_accept_line() {
     zle -M "$REPLY"
     return 0
   fi
+  local sticky_prompt=0
   if (( _efr_sticky )); then
     _efr_line_to_run "$BUFFER"
     [[ $REPLY == "$BUFFER" ]] || BUFFER=$REPLY
@@ -1038,8 +1073,11 @@ _efr_accept_line() {
     # so nothing moves, and a `!` line shows the command that runs.
     if (( _efr_prompt_line )); then _efr_show_indicator tag; else _efr_show_indicator hide; fi
     _efr_alias_sticky_word
+    sticky_prompt=$_efr_prompt_line
   fi
   _efr_unknown_comma_line "$BUFFER" && BUFFER=$REPLY
+  # A prompt line that sticky mode made is no command word: _efr_line_to_run checked.
+  (( sticky_prompt )) || ! _efr_comma_command_line "$BUFFER" || BUFFER=$REPLY
   if _efr_stash_line "$BUFFER"; then
     # The line stays as typed. The alias ends in `#`, which starts a comment only with
     # interactive_comments on, and bang_hist off keeps `!` in the prompt literal.

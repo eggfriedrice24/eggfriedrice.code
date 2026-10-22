@@ -2982,3 +2982,89 @@ async fn e2e_cd_home_and_back_switches_and_says_so() {
     assert!(new < back, "{screen}");
     routed.daemon.stop().await.unwrap();
 }
+
+// --- the input of a `,` line: a command word after `, `
+
+#[test]
+fn e2e_a_comma_and_a_blank_before_a_command_word_runs_the_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines(
+        &home,
+        &[
+            ", resume",
+            "  , context  ",
+            ", away",
+            ", shell",
+            ", compact",
+            ", mode auto",
+            ", new",
+            ", hello there",
+            ", resume the work",
+            ", mode auto please",
+            ", model",
+            "fc -ln -11 > history.txt",
+        ],
+    );
+    let calls = home.calls();
+    assert_eq!(
+        args(&calls),
+        [
+            vec!["resume"],
+            vec!["context"],
+            vec!["away"],
+            vec!["shell"],
+            vec!["compact"],
+            // The value is checked before the line becomes the command.
+            vec!["settings", "--mode=auto"],
+            vec!["settings", "--mode=auto"],
+            // `, new` sends nothing: the next `,` line starts the conversation.
+            vec!["new"],
+            vec!["send"],
+            vec!["send"],
+            vec!["settings"],
+        ]
+    );
+    assert_eq!(calls[4].prompt.as_deref(), Some(""), "a bare ,compact has no focus");
+    assert_eq!(calls[7].prompt.as_deref(), Some("hello there"));
+    assert_eq!(calls[7].settings(), [Some("auto"), None, None]);
+    // Any other word after the command word keeps the line a prompt.
+    assert_eq!(calls[8].prompt.as_deref(), Some("resume the work"));
+    assert_eq!(calls[9].prompt.as_deref(), Some("mode auto please"));
+    // History keeps the line that ran, and the blanks before it.
+    let history = std::fs::read_to_string(home.path().join("history.txt")).unwrap();
+    assert_eq!(
+        history.lines().map(str::trim_end).collect::<Vec<_>>(),
+        [
+            ",resume",
+            "  ,context",
+            ",away",
+            ",shell",
+            ",compact",
+            ",mode auto",
+            ",new",
+            ", hello there",
+            ", resume the work",
+            ", mode auto please",
+            ",model",
+        ]
+    );
+}
+
+#[test]
+fn e2e_in_sticky_mode_a_bare_command_word_runs_as_its_command() {
+    if !zsh_tests_enabled() {
+        return;
+    }
+    let home = Home::new();
+    type_lines_with(
+        &home,
+        UTF8,
+        &["<C-Space>", "resume", " context ", "resume the work", "🤖 shell", "<C-Space>"],
+    );
+    let calls = home.calls();
+    assert_eq!(args(&calls), [vec!["resume"], vec!["context"], vec!["send"], vec!["shell"]]);
+    assert_eq!(calls[2].prompt.as_deref(), Some("resume the work"));
+}

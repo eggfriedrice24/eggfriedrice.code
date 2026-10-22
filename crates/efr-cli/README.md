@@ -1339,6 +1339,9 @@ stays on the line, and `,sway ...`, one edit from it, is a prompt), `,context` a
 typo `,contxet` stays on the line, and `,cortex ...` is a prompt), `,resume` with
 the context, its options (`--take`) as arguments and its other words, N, an id or a
 search, joined by one blank in `EFR_RESUME_WORDS` and never in the command line,
+`, ` and a command word alone (`, resume`, `, new`, `, mode auto`), which runs that
+command, as a line of just the word does in sticky mode, while any other word keeps
+the line a prompt,
 completion after
 `compinit` (also of `full`), `EFR_MODE=full` from the environment, which the plugin
 ignores at load with one line on stderr, and the runtime root of the notices (`EFR_RUNTIME_DIR`, `EFR_HOME`,
@@ -1354,7 +1357,7 @@ comes after 300 ms (it sets the background and never reaches the line editor), k
 typed while the replies are on their way and between them (they stay for the shell,
 without the replies), and no question without a terminal,
 with keys typed ahead or with `EFR_TERMINAL_BG` set. The widgets (the lone `,` and Ctrl+Space toggles, sticky mode, the
-tag of the terminal's settings before the robot, the bare setting words of sticky
+tag of the terminal's settings before the robot, the bare command words of sticky
 mode, a `,word` that names nothing as a prompt, the full mark next to the robot in
 sticky mode (`EFR_FULL_MARK`) and no tag outside it, the mark of a
 `config.toml` that makes full mode the default, until `,mode` or a change of the file
