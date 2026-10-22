@@ -440,11 +440,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let readers = store.readers().clone();
     // NOTE: the search indexer reads on a connection of its own, so a backfill never
     // takes one of the readers of the turns; an in-memory store reads on its writer.
-    let index_reader = if in_memory_store {
-        readers.clone()
-    } else {
-        Readers::open(StoreConfig::in_data_dir(dirs.data()).path, 1)
-    };
+    let index_reader = store.index_reader().clone();
     let (index_status, index_watch) = search_index::status_channel();
     let notices_dir = dirs.runtime().join(notices::NOTICES_DIR);
     let reconciled = reconcile::reconcile(&readers, &writer, &notices_dir).await?;

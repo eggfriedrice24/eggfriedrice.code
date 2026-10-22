@@ -286,7 +286,10 @@ impl Harness {
 
     fn test_store(&self, broadcast: Option<broadcast::Sender<Committed>>) -> TestStore {
         TestStore {
-            inner: StoreIndex { writer: self.writer().clone(), reader: self.readers().clone() },
+            inner: StoreIndex {
+                writer: self.writer().clone(),
+                reader: self.store.index_reader().clone(),
+            },
             clock: self.clock.clone(),
             knobs: Arc::clone(&self.knobs),
             broadcast,
