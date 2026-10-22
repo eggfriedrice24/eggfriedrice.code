@@ -1019,8 +1019,11 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   you do not need.`), and `efr: job j1: port 8765 is no longer forwarded (<reason>).
   The user cannot open it now, and your contained calls do not reach it.` At most 64
   notes of a conversation wait; a new one drops the oldest. The outcomes and the
-  waiting notes of a job go when its forwards end. The `jobs` tool shows the outcome of
-  each port of a running job from the same table (`JobTable::line`: `ports 8765 ->
+  waiting notes of a job go when the job ends or its forwarder fails. A reload that
+  turns forwards off keeps them (`Forwards::release_ports`), and the control task does
+  not close a second time, so the model reads the `stopped` notes
+  (`reload_off_note_reaches_the_model`). The `jobs` tool shows the outcome of each port
+  of a running job from the same table (`JobTable::line`: `ports 8765 ->
   http://localhost:8765; 8767 not forwarded: 127.0.0.1:8767 is in use on this
   machine`), and the start result says that a note follows.
 - The reach of a contained call (`jobs/forward/reach.rs`, v0.0.4 shell items
