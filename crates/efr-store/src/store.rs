@@ -9,6 +9,7 @@ use std::sync::Arc;
 use efr_stdx::time::Clock;
 
 use crate::reader::DEFAULT_READERS;
+use crate::search::{IndexReader, SearchLanes};
 use crate::writer::DEFAULT_BROADCAST_CAPACITY;
 use crate::{MigrationReport, Migrations, Readers, StoreError, StoreWriter, WriterHandle, db};
 
@@ -51,13 +52,15 @@ impl StoreConfig {
 
 /// An open, migrated store with its writer running.
 ///
-/// Clone [`Store::writer`] and [`Store::readers`] into the actors that need them;
-/// [`Store::close`] waits until every clone is gone and the writer has closed the
-/// database.
+/// Clone [`Store::writer`], [`Store::readers`], [`Store::search_lanes`] and
+/// [`Store::index_reader`] into the actors that need them; [`Store::close`] waits until
+/// every clone is gone and the writer has closed the database.
 #[derive(Debug)]
 pub struct Store {
     writer: WriterHandle,
     readers: Readers,
+    lanes: SearchLanes,
+    index_reader: IndexReader,
     thread: StoreWriter,
     migration: MigrationReport,
 }
@@ -76,13 +79,16 @@ impl Store {
         })
         .await
         .map_err(|_| StoreError::TaskPanicked { task: "open" })??;
-        let (writer, thread) = StoreWriter::spawn(conn, clock, config.broadcast_capacity)?;
-        let readers = Readers::open(config.path, config.readers);
-        Ok(Store { writer, readers, thread, migration })
+        let (writer, thread) =
+            StoreWriter::spawn(conn, Arc::clone(&clock), config.broadcast_capacity)?;
+        let readers = Readers::open(config.path.clone(), config.readers);
+        let lanes = SearchLanes::open(config.path.clone(), clock);
+        let index_reader = IndexReader::open(config.path);
+        Ok(Store { writer, readers, lanes, index_reader, thread, migration })
     }
 
     /// A store in a new private in-memory database, for tests: the same schema and
-    /// writer, with reads running on the writer's connection.
+    /// writer, with reads and searches running on the writer's connection.
     pub async fn open_in_memory(clock: Arc<dyn Clock>) -> Result<Store, StoreError> {
         let (conn, migration) = tokio::task::spawn_blocking(|| {
             let mut conn = db::open_in_memory()?;
@@ -91,9 +97,12 @@ impl Store {
         })
         .await
         .map_err(|_| StoreError::TaskPanicked { task: "open" })??;
-        let (writer, thread) = StoreWriter::spawn(conn, clock, DEFAULT_BROADCAST_CAPACITY)?;
+        let (writer, thread) =
+            StoreWriter::spawn(conn, Arc::clone(&clock), DEFAULT_BROADCAST_CAPACITY)?;
         let readers = Readers::through_writer(writer.clone());
-        Ok(Store { writer, readers, thread, migration })
+        let lanes = SearchLanes::through_writer(writer.clone(), clock);
+        let index_reader = IndexReader::through_writer(writer.clone());
+        Ok(Store { writer, readers, lanes, index_reader, thread, migration })
     }
 
     /// The writer.
@@ -106,6 +115,16 @@ impl Store {
         &self.readers
     }
 
+    /// The read connections of search, apart from the readers.
+    pub fn search_lanes(&self) -> &SearchLanes {
+        &self.lanes
+    }
+
+    /// The read connection of efrd's search indexer.
+    pub fn index_reader(&self) -> &IndexReader {
+        &self.index_reader
+    }
+
     /// What the migrations did when the store opened.
     pub fn migration(&self) -> &MigrationReport {
         &self.migration
@@ -114,8 +133,10 @@ impl Store {
     /// Drops this store's handles and waits until the writer has stopped, which is
     /// when every other clone of the writer and of the readers is gone too.
     pub async fn close(self) {
-        let Store { writer, readers, thread, migration: _ } = self;
+        let Store { writer, readers, lanes, index_reader, thread, migration: _ } = self;
         drop(readers);
+        drop(lanes);
+        drop(index_reader);
         drop(writer);
         thread.join().await;
     }

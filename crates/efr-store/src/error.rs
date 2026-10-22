@@ -243,6 +243,32 @@ pub enum StoreError {
         task: &'static str,
     },
 
+    /// Every search lane stayed busy for the whole wait.
+    #[error("every search lane is busy")]
+    SearchBusy,
+
+    /// The search was stopped with `SearchStop::hard` before it ended.
+    #[error("the search was stopped")]
+    SearchStopped,
+
+    /// A search query has more code points than a query may have.
+    #[error("the query is longer than {limit} characters")]
+    QueryTooLong {
+        /// The code points of the query.
+        chars: usize,
+        /// The most that a query may have.
+        limit: usize,
+    },
+
+    /// A search query has more words and phrases than a query may have.
+    #[error("the query has more than {limit} words")]
+    QueryTooManyTerms {
+        /// The words and phrases of the query.
+        terms: usize,
+        /// The most that a query may have.
+        limit: usize,
+    },
+
     /// A recording file could not be read, written or created.
     #[error("could not access the recording file {}", .path.display())]
     RecordingIo {
