@@ -1070,3 +1070,195 @@ async fn with_render_turn_input_off_no_key_is_read() {
     assert_eq!(keys.starts(), 0, "the keys stay typeahead for the shell");
     assert!(!captured.stdout().contains('\u{203a}'), "{}", readable(&captured.stdout()));
 }
+
+// --- the prompts that a paste of `,` lines queues behind the first one
+
+/// The second and the third turn: the queued prompts.
+fn turn_2() -> efr_protocol::TurnId {
+    "019a9b1c-3d00-7a10-8b20-000000000012".parse().unwrap()
+}
+
+fn turn_3() -> efr_protocol::TurnId {
+    "019a9b1c-3d00-7a10-8b20-000000000013".parse().unwrap()
+}
+
+fn queued_send(turn_id: efr_protocol::TurnId) -> PromptSendResult {
+    PromptSendResult { turn_id, queued: true, ..sent(false) }
+}
+
+fn started(turn_id: efr_protocol::TurnId) -> Event {
+    Event::TurnStarted {
+        turn_id,
+        cwd: PathBuf::from("/etc/nginx"),
+        scope: efr_protocol::Scope::Machine,
+        settings: None,
+    }
+}
+
+fn completed(turn_id: efr_protocol::TurnId, text: &str) -> Event {
+    Event::AssistantMessageCompleted { turn_id, index: 0, text: text.to_owned() }
+}
+
+fn ended(turn_id: efr_protocol::TurnId) -> Event {
+    Event::TurnCompleted {
+        turn_id,
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    }
+}
+
+/// The next request, which must be `prompt.send`.
+async fn prompt_send(conn: &mut Conn) -> (efr_protocol::RequestId, efr_protocol::PromptSend) {
+    let (id, method) = conn.request().await;
+    let Method::PromptSend(params) = method else {
+        panic!("expected prompt.send, got {}", method.name());
+    };
+    (id, params)
+}
+
+#[tokio::test]
+async fn without_the_input_row_each_queued_prompt_goes_when_the_turn_before_it_ended() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let vars = [
+        (Var::Context, CONTEXT),
+        (Var::LastCommand, "nginx -t"),
+        (Var::Prompt, "first"),
+        (Var::QueuedPrompts, "second\n\nthird; *.rs"),
+    ];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut sent_prompts = Vec::new();
+        for reply in ["One.", "Two.", "Three."] {
+            let mut conn = daemon.accept().await;
+            sent_prompts.push(answer(&mut conn, sent(false), reply).await);
+        }
+        sent_prompts
+    };
+    let line = command(&["send"]);
+    let (exit, sent_prompts) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    let texts: Vec<&str> = sent_prompts.iter().map(|params| params.text.as_str()).collect();
+    assert_eq!(texts, ["first", "second", "third; *.rs"]);
+    // The first goes where a prompt goes; the others follow it into its conversation,
+    // with the same handover.
+    assert_eq!(sent_prompts[0].conversation_id, None);
+    for params in &sent_prompts[1..] {
+        assert_eq!(params.conversation_id, Some(conversation()));
+        assert!(!params.new_conversation);
+        assert_eq!(params.last_command.as_deref(), Some("nginx -t"));
+        assert_eq!(params.context.as_ref().unwrap().pwd, PathBuf::from("/etc/nginx"));
+    }
+    assert_eq!(captured.stdout(), "One.\nTwo.\nThree.\n");
+}
+
+#[tokio::test]
+async fn with_the_input_row_the_queued_prompts_wait_behind_the_first_and_the_view_follows_them() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let keys = Arc::new(ScriptedKeys::default());
+    let dir = tempfile::tempdir().unwrap();
+    let vars = [
+        (Var::DraftFile, dir.path().join("draft").into_os_string()),
+        (Var::QueuedPrompts, "second\nthird".into()),
+    ];
+    let ctx = Context { env: Env::fixed(vars), ..row_context(&env, &keys, dir.path()) };
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, first) = prompt_send(&mut conn).await;
+        assert_eq!(first.text, "first");
+        conn.reply(id, &sent(false)).await;
+        // Both go at once, in their order, as Tab in the row queues a prompt.
+        for (text, turn_id) in [("second", turn_2()), ("third", turn_3())] {
+            let (id, params) = prompt_send(&mut conn).await;
+            assert_eq!(params.text, text);
+            assert_eq!(params.conversation_id, Some(conversation()));
+            assert!(!params.new_conversation);
+            conn.reply(id, &queued_send(turn_id)).await;
+        }
+        let (sub, method) = conn.request().await;
+        assert!(matches!(method, Method::ConversationSubscribe(_)), "{}", method.name());
+        conn.item(sub, &item(11, completed(turn(), "One."))).await;
+        conn.item(sub, &item(12, ended(turn()))).await;
+        let mut seq = 13;
+        for (turn_id, text) in [(turn_2(), "Two."), (turn_3(), "Three.")] {
+            for event in [started(turn_id), completed(turn_id, text), ended(turn_id)] {
+                conn.item(sub, &item(seq, event)).await;
+                seq += 1;
+            }
+        }
+        conn.until_closed().await;
+    };
+    let line = command(&["send", "--", "first"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    let shown = bare(&captured.stdout());
+    let at = |text: &str| shown.find(text).unwrap_or_else(|| panic!("no {text}: {shown}"));
+    assert!(at("One.") < at("Two.") && at("Two.") < at("Three."), "{shown}");
+    assert!(shown.contains("queued: third"), "{shown}");
+    assert!(!dir.path().join("draft").exists(), "nothing goes back to the shell");
+}
+
+#[tokio::test]
+async fn a_queued_prompt_that_efrd_refuses_goes_into_the_row_with_the_ones_after_it() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let keys = Arc::new(ScriptedKeys::default());
+    let dir = tempfile::tempdir().unwrap();
+    let vars = [
+        (Var::DraftFile, dir.path().join("draft").into_os_string()),
+        (Var::QueuedPrompts, "second\nthird".into()),
+    ];
+    let ctx = Context { env: Env::fixed(vars), ..row_context(&env, &keys, dir.path()) };
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = prompt_send(&mut conn).await;
+        conn.reply(id, &sent(false)).await;
+        let (id, params) = prompt_send(&mut conn).await;
+        assert_eq!(params.text, "second");
+        conn.fail(id, ErrorBody::new(ErrorCode::Overflow, "the queue is full")).await;
+        // No third prompt: the subscription comes next.
+        let (sub, method) = conn.request().await;
+        assert!(matches!(method, Method::ConversationSubscribe(_)), "{}", method.name());
+        conn.item(sub, &item(11, completed_turn())).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["send", "--", "first"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::Success, "{}", captured.stderr());
+    let shown = format!("{}{}", bare(&captured.stdout()), captured.stderr());
+    assert!(shown.contains("not queued: the queue is full"), "{shown}");
+    // The row's text goes back to the shell when efr ends, so nothing is lost.
+    assert_eq!(std::fs::read_to_string(dir.path().join("draft")).unwrap(), "second\nthird");
+}
+
+#[tokio::test]
+async fn the_queued_prompts_that_did_not_go_go_back_to_the_shell_as_comma_lines() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let dir = tempfile::tempdir().unwrap();
+    let vars = [
+        (Var::Prompt, "first".into()),
+        (Var::QueuedPrompts, "second\nthird".into()),
+        (Var::DraftFile, dir.path().join("draft").into_os_string()),
+    ];
+    let ctx = Context { env: Env::fixed(vars), ..env.context() };
+    let (mut out, _) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let (id, _) = prompt_send(&mut conn).await;
+        conn.fail(id, ErrorBody::new(ErrorCode::Busy, "the daemon is starting")).await;
+        conn.until_closed().await;
+    };
+    let line = command(&["send"]);
+    let (exit, ()) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+    assert_eq!(exit, Exit::DaemonError);
+    // The plugin puts `, ` before the text, so Enter sends both again as two prompts.
+    assert_eq!(std::fs::read_to_string(dir.path().join("draft")).unwrap(), "second\n, third");
+}
