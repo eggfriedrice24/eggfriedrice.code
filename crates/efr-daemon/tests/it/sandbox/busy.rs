@@ -241,11 +241,19 @@ fn envelopes(item: ConversationSubscribeItem) -> Vec<EventEnvelope> {
     }
 }
 
-/// Lets other tasks run for a while.
+/// The real time with no event before the daemon's clock moves one second. The
+/// launcher, the sandbox and the command's processes run in real time, so a slow
+/// machine (CI's nested VM is about ten times slower than a desktop) must get the time
+/// to reach the state that the next look sees. It only paces the clock: no outcome
+/// depends on it.
+const PACE: Duration = Duration::from_millis(200);
+
+/// Lets other tasks run for a while, and then lets [`PACE`] of real time pass.
 async fn idle() {
     for _ in 0..2000 {
         tokio::task::yield_now().await;
     }
+    efr_stdx::time::SystemClock.sleep(PACE).await;
 }
 
 /// How long [`events_while_time_passes`] may take in real time: the launcher starts and
