@@ -17,10 +17,10 @@
 //! back. Nothing else is indexed: no output, no diff, no file contents.
 //!
 //! The index is written only by its own writer jobs. The batch that ends a turn writes
-//! nothing here, so the index adds no work to a turn's commit.
-
-use std::fs::File;
-use std::io::Read as _;
+//! nothing here, so the index adds no work to a turn's commit. The jobs run no
+//! checkpoint of their own: one costs about 4 to 18 ms, longer than the job, so the
+//! write-ahead log keeps SQLite's own checkpoint at 1,000 frames, in whatever commit
+//! crosses it.
 
 use efr_protocol::{ConversationId, Seq};
 use rusqlite::{Connection, OptionalExtension as _, Statement, params};
@@ -28,12 +28,15 @@ use rusqlite::{Connection, OptionalExtension as _, Statement, params};
 use crate::conversations::title_from;
 use crate::{StoreError, events, sql};
 
-/// The most docs that one page of [`pending`] returns.
-pub const PAGE_ROWS: u32 = 64;
+/// The most docs that one page of [`pending`] returns. With [`PAGE_BYTES`], set from
+/// the bench of a backfill page on corpus L: a page of 32 docs keeps the writer time of
+/// a page at a p95 of about 2 ms; one of 64 docs makes twice the pages that carry
+/// SQLite's checkpoint of the write-ahead log.
+pub const PAGE_ROWS: u32 = 32;
 
 /// The most text, in bytes, that one page of [`pending`] returns: the page ends after
 /// the row that reaches it.
-pub const PAGE_BYTES: usize = 64 * 1024;
+pub const PAGE_BYTES: usize = 32 * 1024;
 
 /// The most events that one page of [`pending`] reads, so a long run of events with no
 /// text costs many short reads, not one long one.
@@ -42,12 +45,6 @@ pub const PAGE_SCAN: u32 = 20_000;
 /// The most characters of one text that leave SQLite: [`pending`] cuts each text in
 /// SQL, so a page holds at most [`PAGE_ROWS`] times this much, whatever the event held.
 pub const SOURCE_CHARS: u32 = 33_792;
-
-/// The frames that the write-ahead log may hold, not yet copied into the database,
-/// before a search job copies them itself. SQLite's own checkpoint runs in the commit
-/// that crosses 1,000 pages, which can be a turn's; a checkpoint at 500 after a search
-/// job makes the search work pay for the log that it grows.
-const CHECKPOINT_FRAMES: u32 = 500;
 
 const STATE: &str = "search_state";
 
@@ -307,39 +304,6 @@ pub(crate) fn merge(conn: &Connection, pages: u32) -> Result<bool, StoreError> {
     let pages = -i64::from(pages.max(1));
     conn.execute("INSERT INTO search_fts (search_fts, rank) VALUES ('merge', ?1)", [pages])?;
     Ok(conn.total_changes().saturating_sub(before) >= 2)
-}
-
-/// Copies the write-ahead log into the database with a passive checkpoint when more
-/// than [`CHECKPOINT_FRAMES`] frames wait, after the commit of a search job. A passive
-/// checkpoint never waits for a reader, and a failed one leaves the log for the next.
-pub(crate) fn checkpoint_if_large(conn: &Connection) {
-    if wal_frames_waiting(conn).is_some_and(|frames| frames > CHECKPOINT_FRAMES) {
-        // NOTE: a checkpoint that fails or stops at a reader is no error of the job;
-        // SQLite's own checkpoint still runs at 1,000 frames.
-        let _ = conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()));
-    }
-}
-
-/// The frames of the write-ahead log that no checkpoint copied yet, or `None` for a
-/// database without a log, such as an in-memory one.
-///
-/// rusqlite gives no WAL hook without its `hooks` feature, and `PRAGMA wal_checkpoint`
-/// reports the size only by running one. So this reads the wal-index header in the
-/// `-shm` file, a format that every SQLite since 3.7.0 shares, because processes of
-/// different versions use one database (<https://sqlite.org/walformat.html>, 2.1): the
-/// first header copy at byte 0 starts with `iVersion` 3007000 and has `mxFrame` at
-/// byte 16, and `nBackfill` of the checkpoint info is at byte 96, in native byte
-/// order. A header that does not match gives `None`, which only skips a checkpoint.
-pub(crate) fn wal_frames_waiting(conn: &Connection) -> Option<u32> {
-    const WAL_INDEX_VERSION: u32 = 3_007_000;
-    let path = conn.path().filter(|path| !path.is_empty())?;
-    let mut header = [0; 100];
-    File::open(format!("{path}-shm")).ok()?.read_exact(&mut header).ok()?;
-    let word = |at: usize| header.get(at..at + 4)?.try_into().ok().map(u32::from_ne_bytes);
-    if word(0)? != WAL_INDEX_VERSION {
-        return None;
-    }
-    Some(word(16)?.saturating_sub(word(96)?))
 }
 
 /// The statements of one write job over `search_docs`, `search_fts` and
