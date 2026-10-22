@@ -21,8 +21,9 @@ use efr_stdx::text::is_format;
 pub const NOT_USER_INPUT: &str =
     "efr: this is a job notice, not a message from the user; no human input has occurred.";
 
-/// The first line of a message of efr's own notes ([`notes_text`]), which says that no
-/// person wrote them.
+/// The first line of the message of efr's own notes
+/// ([`Toolbox::take_notes`](crate::Toolbox::take_notes)), which says that no person
+/// wrote them.
 pub const NOT_USER_NOTE: &str =
     "efr: these notes come from efr, not from the user; no human input has occurred.";
 
