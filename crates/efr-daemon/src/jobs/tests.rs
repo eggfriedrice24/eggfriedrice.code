@@ -229,6 +229,49 @@ async fn lifeline_write_end_not_inherited_by_other_jobs() {
     scene.ended(2).await;
 }
 
+/// `job_ended` commits before the job leaves the table; in that gap the list and a
+/// find already show the end that the event recorded.
+#[tokio::test]
+async fn a_job_whose_end_is_recorded_lists_as_ended_while_still_in_the_table() {
+    let scene = Scene::new().await;
+    scene.start(1).await;
+    let listed = scene.table.list(Some(scene.conversation)).await.unwrap();
+    assert_eq!(listed[0].state, JobState::Running);
+    // NOTE: the end as `finish` records it, while the job is still in the table.
+    let ended = Event::JobEnded {
+        job_id: JobId::nth(1),
+        state: JobState::Exited,
+        exit_code: Some(0),
+        stopped_by: None,
+        output_bytes: 0,
+        ran_secs: 0,
+        tail: String::new(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
+    };
+    scene.store.writer().append(Batch::new().event(scene.conversation, ended)).await.unwrap();
+    assert!(scene.table.live(scene.key(1)).is_some(), "the job is still in the table");
+    let listed = scene.table.list(Some(scene.conversation)).await.unwrap();
+    let all = scene.table.list(None).await.unwrap();
+    let found = scene.table.find(scene.key(1)).await.unwrap().unwrap();
+    for job in [&listed[0], &all[0], &found] {
+        assert_eq!((job.state, job.exit_code), (JobState::Exited, Some(0)));
+        assert!(job.ended_at.is_some());
+    }
+    scene.table.drop_lifeline(scene.key(1));
+    Wait::new("the job leaves the table")
+        .until(|| scene.table.live(scene.key(1)).is_none())
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn limit_counts_jobs_that_start() {
     let scene = Scene::new().await;

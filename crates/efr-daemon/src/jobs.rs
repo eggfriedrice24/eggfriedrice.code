@@ -934,26 +934,15 @@ impl JobTable {
             })
             .await?;
         let live = self.live_of(conversation);
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                live.iter()
-                    .find(|job| {
-                        job.conversation_id == row.info.conversation_id && job.id == row.info.id
-                    })
-                    .cloned()
-                    .unwrap_or(row.info)
-            })
-            .collect())
+        Ok(rows.into_iter().map(|row| with_live(row.info, &live)).collect())
     }
 
-    /// The job `key`: as it runs now, else as the store recorded it.
+    /// The job `key`: as the store recorded its end, else as it runs now, else as the
+    /// store recorded it.
     pub(crate) async fn find(&self, key: JobKey) -> Result<Option<JobInfo>, DaemonError> {
-        if let Some(info) = self.live(key) {
-            return Ok(Some(info));
-        }
         let jobs = self.list(Some(key.conversation)).await?;
-        Ok(jobs.into_iter().find(|job| job.id.number() == Some(key.number)))
+        let listed = jobs.into_iter().find(|job| job.id.number() == Some(key.number));
+        Ok(listed.or_else(|| self.live(key)))
     }
 
     /// Asks the running job `key` to stop with the cause `by`, unless a stop was asked
@@ -1600,6 +1589,20 @@ impl JobTask {
         tracing::info!(conversation = %self.key.conversation, job = %info.id, state = ended.state.as_str(), "a job ended");
         let _ = self.ended.send(Some(final_info));
     }
+}
+
+/// The store's record `row` of a job as `jobs.list` shows it: as the job runs now, from
+/// `live`, unless the record has the job's end. `job_ended` commits before the job
+/// leaves the table, so the record of the end wins, and the list never shows a job as
+/// running after its `job_ended`.
+fn with_live(row: JobInfo, live: &[JobInfo]) -> JobInfo {
+    if row.ended_at.is_some() {
+        return row;
+    }
+    live.iter()
+        .find(|job| job.conversation_id == row.conversation_id && job.id == row.id)
+        .cloned()
+        .unwrap_or(row)
 }
 
 /// The note of a job's end when efr stopped its moved command because it waited for a
