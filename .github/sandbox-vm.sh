@@ -7,6 +7,7 @@
 # read-only through virtiofs. CI's sandbox job and `just test-sandbox-vm` both run it,
 # so the pins below are the only copy.
 #
+#   sandbox-vm.sh cache-keys      the keys of the download cache, for $GITHUB_OUTPUT
 #   sandbox-vm.sh tools           QEMU, virtiofsd, virtme-ng and zsh (root or sudo)
 #   sandbox-vm.sh bwrap           Ubuntu's bubblewrap in /usr (root or sudo)
 #   sandbox-vm.sh kernel DIR      the pinned kernel, checked and unpacked into DIR
@@ -14,7 +15,18 @@
 #                                 unpack the archive into EXTRACT, boot, run the tests
 #   sandbox-vm.sh guest ...       inside the VM only: called by `run`
 #   sandbox-vm.sh tests ...       inside the VM only: called by `guest`
+#
+# The download cache: when SBX_VM_CACHE names a dir, `tools`, `bwrap` and `kernel` keep
+# what they download below it, and take it from there when it is there. CI's sandbox
+# job keeps that dir with actions/cache, so a slow Ubuntu mirror slows down only a run
+# that misses the cache. `downloads/` holds the files of the pins below, each checked by
+# its SHA-256 on every use. `apt/<set>/` holds the .deb files of one set of packages,
+# with all the dependencies that the machine did not have; apt installs them from
+# there with no package lists and no mirror. Without SBX_VM_CACHE, as in the image of
+# `just test-sandbox-vm`, the same steps run with temporary dirs, so a cache hit, a miss
+# and a local run install the same way.
 set -euo pipefail
+shopt -s nullglob
 
 # A mainline build of kernel.ubuntu.com: vanilla sources with Ubuntu's config, which
 # has Landlock first in CONFIG_LSM and lacks Ubuntu's AppArmor restriction of user
@@ -50,6 +62,143 @@ as_root() {
     if [[ "$(id -u)" == 0 ]]; then "$@"; else sudo "$@"; fi
 }
 
+cache="${SBX_VM_CACHE:-}"
+
+# The packages of `tools` and of `bwrap`. Their comments are at those commands.
+tools_packages=(
+    busybox-static ca-certificates curl dbus-daemon file gcc gir1.2-glib-2.0 iproute2 kmod
+    libglib2.0-dev meson ninja-build pkg-config python3-argcomplete python3-gi
+    python3-requests python3-venv qemu-system-x86 ripgrep systemd udev virtiofsd xz-utils
+    zsh zstd
+)
+bwrap_packages=(bubblewrap)
+
+# Two keys for actions/cache: `downloads` changes with the pins, `apt` with the packages
+# and with the runner's image (ImageOS and ImageVersion on GitHub's runners), because
+# the set of .deb files that a machine needs depends on what its image has. An image
+# that changes under the same key only costs a new download: see `apt_install`.
+cmd_cache_keys() {
+    local pins packages os arch
+    pins="$(printf '%s\n' "$kernel_release" "$kernel_url" "${kernel_debs[@]}" \
+        "$virtme_ng" "$virtme_ng_sha256" "$dbus_proxy" "$dbus_proxy_sha256")"
+    packages="$(printf '%s\n' "${tools_packages[@]}" -- "${bwrap_packages[@]}")"
+    os="$(sed -nE 's/^VERSION_ID="?([^"]*)"?$/\1/p' /etc/os-release)"
+    arch="$(dpkg --print-architecture)"
+    echo "downloads=$(sha256sum <<<"$pins" | cut -c1-16)"
+    echo "apt=${ImageOS:-ubuntu$os}-${ImageVersion:-local}-$arch-$(sha256sum <<<"$packages" | cut -c1-16)"
+}
+
+# Downloads URL to FILE, unless FILE is there with the SHA-256 sum SUM, and then checks
+# the sum. curl tries a failed download three more times, and stops a transfer that
+# stays below 10 kB/s for a minute, so a stalled server fails the step, not the job's
+# time limit.
+fetch() {
+    local url="$1" sum="$2" file="$3"
+    if [[ -f "$file" ]] && echo "$sum  $file" | sha256sum -c --status -; then
+        say "from the cache: ${file##*/}"
+        return 0
+    fi
+    mkdir -p "$(dirname "$file")"
+    curl -fsSL --retry 3 --retry-all-errors --connect-timeout 30 \
+        --speed-limit 10000 --speed-time 60 -o "$file.part" "$url"
+    mv "$file.part" "$file"
+    echo "$sum  $file" | sha256sum -c -
+}
+
+# The dir of the pinned downloads: the cache's, else DEFAULT.
+downloads() {
+    if [[ -n "$cache" ]]; then echo "$cache/downloads"; else echo "$1"; fi
+}
+
+# apt's own limits: it tries a failed file three more times and drops a connection that
+# sends nothing for a minute. The downloads run as root, into dirs that root made.
+apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=60
+    -o Acquire::https::Timeout=60 -o APT::Sandbox::User=root)
+
+# apt-get update, once per machine: with a time limit, and once more when it fails. A
+# mirror that does not answer stops the step after at most two times 5 minutes.
+apt_update() {
+    local marker=/tmp/efr-sandbox-vm-apt-updated try
+    [[ -e "$marker" ]] && return 0
+    for try in 1 2; do
+        if as_root timeout 300 apt-get "${apt_options[@]}" update -q; then
+            touch "$marker"
+            return 0
+        fi
+        say "apt-get update failed (try $try of 2)"
+    done
+    fail "apt-get update failed twice; the mirror does not answer"
+}
+
+# Installs PACKAGES from the .deb files in DIR with no mirror, and checks that each
+# package is installed. The files also serve as apt's archive dir: where a mirror in
+# the package lists has the same version as a file, apt takes it from there, not from
+# the mirror. Old package lists, or none, do no harm.
+apt_from() {
+    local dir="$1" package status=0
+    shift
+    local debs=("$dir"/*.deb)
+    if ((${#debs[@]} > 0)); then
+        local archives
+        archives="$(as_root mktemp -d)"
+        as_root chmod 0755 "$archives"
+        as_root mkdir "$archives/partial"
+        as_root cp "${debs[@]}" "$archives/"
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q \
+            -o Dir::Cache::archives="$archives" --no-install-recommends --no-download \
+            "$archives"/*.deb || status=$?
+        as_root rm -rf "$archives"
+        ((status == 0)) || return 1
+    fi
+    for package; do
+        [[ "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null)" == installed ]] ||
+            return 1
+    done
+}
+
+# Installs PACKAGES, the set NAME, with apt. A cache that holds the set installs it
+# with no mirror. Otherwise apt downloads the set's .deb files first, with all the
+# dependencies that the machine lacks, into the cache or a temporary dir, and installs
+# them from there: a hit and a miss install the same way. When a cached set does not
+# install (the runner's image changed under the same key), apt downloads what is still
+# missing; that run does not save the cache, because its key is there. The download
+# has a time limit of 20 minutes and gets one more try, which keeps the files that came.
+apt_install() {
+    local name="$1" dir got try
+    shift
+    if [[ -n "$cache" ]]; then dir="$cache/apt/$name"; else dir="$(mktemp -d)"; fi
+    if [[ -f "$dir/packages" && "$(<"$dir/packages")" == "$*" ]]; then
+        if apt_from "$dir" "$@"; then
+            say "apt: the $name packages came from the cache"
+            return 0
+        fi
+        say "apt: the cached $name packages do not install here; downloading them again"
+    fi
+    apt_update
+    got="$(as_root mktemp -d)"
+    as_root mkdir -p "$got/partial"
+    for try in 1 2; do
+        if as_root env DEBIAN_FRONTEND=noninteractive timeout 1200 apt-get "${apt_options[@]}" \
+            -o Dir::Cache::archives="$got" install -y -q --no-install-recommends \
+            --download-only "$@"; then
+            break
+        fi
+        [[ "$try" == 1 ]] || fail "apt-get could not download the $name packages"
+        say "apt: the download of the $name packages failed; once more"
+    done
+    # NOTE: the files go to a dir of the user, so actions/cache can read them.
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    as_root chmod 0755 "$got"
+    local debs=("$got"/*.deb)
+    if ((${#debs[@]} > 0)); then cp "${debs[@]}" "$dir/"; fi
+    as_root rm -rf "$got"
+    echo "$*" >"$dir/packages"
+    say "apt: downloaded ${#debs[@]} files for the $name packages"
+    apt_from "$dir" "$@" || fail "apt-get could not install the $name packages"
+    if [[ -z "$cache" ]]; then rm -rf "$dir"; fi
+}
+
 # The packages that boot the kernel, plus zsh, ripgrep and iproute2 for the tests.
 # busybox and zstd build the initramfs that carries the kernel's virtiofs and overlay
 # modules, virtme-ng reads the kernel version with file, and its init finds the serial
@@ -60,28 +209,21 @@ as_root() {
 # systemctl, loginctl, busctl) against two private dbus-daemon buses, with a fake
 # service in Python that uses Gio (python3-gi and gir1.2-glib-2.0).
 cmd_tools() {
-    as_root apt-get update -q
-    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        busybox-static ca-certificates curl dbus-daemon file gcc gir1.2-glib-2.0 iproute2 kmod \
-        libglib2.0-dev meson ninja-build pkg-config python3-argcomplete python3-gi \
-        python3-requests python3-venv qemu-system-x86 ripgrep systemd udev virtiofsd xz-utils \
-        zsh zstd
+    apt_install tools "${tools_packages[@]}"
     # The wheel by its pinned hash, without pip's resolver: its two dependencies come
     # from apt.
-    local dl wheel="virtme_ng-$virtme_ng-py3-none-any.whl"
-    dl="$(mktemp -d)"
-    curl -fsSL -o "$dl/$wheel" "https://files.pythonhosted.org/packages/py3/v/virtme-ng/$wheel"
-    echo "$virtme_ng_sha256  $dl/$wheel" | sha256sum -c -
-    as_root python3 -m venv --system-site-packages "$virtme_ng_dir"
-    as_root "$virtme_ng_dir/bin/pip" install -q --no-deps --no-index "$dl/$wheel"
-    rm -rf "$dl"
-    "$virtme_ng_dir/bin/vng" --version
+    local dl files wheel="virtme_ng-$virtme_ng-py3-none-any.whl"
     local tarball="xdg-dbus-proxy-$dbus_proxy.tar.xz"
     dl="$(mktemp -d)"
-    curl -fsSL -o "$dl/$tarball" \
-        "https://github.com/flatpak/xdg-dbus-proxy/releases/download/$dbus_proxy/$tarball"
-    echo "$dbus_proxy_sha256  $dl/$tarball" | sha256sum -c -
-    tar -C "$dl" -xJf "$dl/$tarball"
+    files="$(downloads "$dl")"
+    fetch "https://files.pythonhosted.org/packages/py3/v/virtme-ng/$wheel" \
+        "$virtme_ng_sha256" "$files/$wheel"
+    as_root python3 -m venv --system-site-packages "$virtme_ng_dir"
+    as_root "$virtme_ng_dir/bin/pip" install -q --no-deps --no-index "$files/$wheel"
+    "$virtme_ng_dir/bin/vng" --version
+    fetch "https://github.com/flatpak/xdg-dbus-proxy/releases/download/$dbus_proxy/$tarball" \
+        "$dbus_proxy_sha256" "$files/$tarball"
+    tar -C "$dl" -xJf "$files/$tarball"
     meson setup -Dman=disabled -Dtests=false --prefix=/usr \
         "$dl/build" "$dl/xdg-dbus-proxy-$dbus_proxy" >/dev/null
     ninja -C "$dl/build" >/dev/null
@@ -96,24 +238,18 @@ cmd_tools() {
 # launcher tests look. Upstream bwrap has --bind-fd from 0.10.0 on; Ubuntu 24.04's
 # 0.9.0-1ubuntu0.3 has it as a backport, and efr needs no flag that came later.
 cmd_bwrap() {
-    as_root apt-get update -q
-    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        bubblewrap
+    apt_install bwrap "${bwrap_packages[@]}"
     /usr/bin/bwrap --version
     /usr/bin/bwrap --help | grep -q -- '--bind-fd' || fail "this bubblewrap lacks --bind-fd"
 }
 
 cmd_kernel() {
-    local dir="${1:?kernel DIR}" entry sum deb
-    mkdir -p "$dir/debs"
+    local dir="${1:?kernel DIR}" entry sum deb files
+    files="$(downloads "$dir/debs")"
     for entry in "${kernel_debs[@]}"; do
         read -r sum deb <<<"$entry"
-        if [[ ! -f "$dir/debs/$deb" ]]; then
-            curl -fsSL -o "$dir/debs/$deb.part" "$kernel_url/$deb"
-            mv "$dir/debs/$deb.part" "$dir/debs/$deb"
-        fi
-        echo "$sum  $dir/debs/$deb" | sha256sum -c -
-        dpkg-deb -x "$dir/debs/$deb" "$dir"
+        fetch "$kernel_url/$deb" "$sum" "$files/$deb"
+        dpkg-deb -x "$files/$deb" "$dir"
     done
     # virtme-ng finds the modules in usr/lib/modules next to boot/. The package makes the
     # image readable by root only, and QEMU runs as the user.
@@ -328,6 +464,7 @@ cmd_tests() {
 command="${1:-}"
 shift || true
 case "$command" in
+    cache-keys) cmd_cache_keys ;;
     tools | bwrap | kernel | run | guest | tests) "cmd_$command" "$@" ;;
-    *) fail "usage: sandbox-vm.sh tools | bwrap | kernel DIR | run KERNEL ARCHIVE WORKSPACE EXTRACT" ;;
+    *) fail "usage: sandbox-vm.sh cache-keys | tools | bwrap | kernel DIR | run KERNEL ARCHIVE WORKSPACE EXTRACT" ;;
 esac
