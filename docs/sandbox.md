@@ -5,7 +5,7 @@ command that stays in the sandbox runs at once, with no question. An action that
 leaves the sandbox is an exit, and you answer each exit. This file tells what the
 sandbox allows, what it blocks, how an exit asks, what happens when the sandbox cannot
 run, and the limits that stay. [`docs/permissions.md`](permissions.md) has the rules
-of the engine. [`docs/adr/0006-auto-sandbox.md`](adr/0006-auto-sandbox.md) records the
+of the engine. [`docs/adr/0006-auto-sandbox.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0006-auto-sandbox.md) records the
 decision.
 
 ## What auto does
@@ -422,7 +422,8 @@ as `Password:`.
 - A contained command never offers `Ctrl+\`, so you cannot type a manual answer into
   it either.
 - The same rules hold for a contained command that still runs in the hidden shell
-  after its call answered (see "A busy hidden shell" in the README): efrd refuses a
+  after its call answered (see
+  [A busy hidden shell](use/hidden-shell.md#a-busy-hidden-shell)): efrd refuses a
   hidden answer, an answer to a wait that looks like a password prompt and every
   manual answer for it.
 
@@ -603,7 +604,7 @@ The question shows the whole line, what leaves the sandbox, and how the call run
   whoever approved it: you, your rule, the reviewer or full mode. So the password
   prompt of an `rsync` waits for you, not for the model's 30 seconds. With nobody to
   answer, the call answers the model at its timeout, and the command goes on in the
-  hidden shell (see "A busy hidden shell" in the README).
+  hidden shell (see [A busy hidden shell](use/hidden-shell.md#a-busy-hidden-shell)).
 - `the model says:` is the model's reason from `needs`. It is the model's text; treat
   it as a claim, not as a fact.
 - When the model asks to run outside the sandbox, but each other exit that efr finds
@@ -637,7 +638,7 @@ conversation of this terminal, else the newest of all, and says which.
 Some system work only reads your machine: what listens on a port, the traffic
 counters, how full the disks are. In the sandbox these tools would show the
 sandbox's own network and mounts. So efr gives such lines a view of the host, with no
-exit and no question. [`docs/adr/0011-netview-and-mount-view.md`](adr/0011-netview-and-mount-view.md)
+exit and no question. [`docs/adr/0011-netview-and-mount-view.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0011-netview-and-mount-view.md)
 records the decision.
 
 ### The host's network view
@@ -767,7 +768,7 @@ your allow list through efr's network proxy, with no review: the package registr
 by default. So `cargo build` with a new dependency, `npm install` and `pip install`
 run at once. Every other route stays closed. With `network.mode = "none"`, a contained
 command has no network, as before phase D2.
-[`docs/adr/0012-network-proxy.md`](adr/0012-network-proxy.md) records the decision.
+[`docs/adr/0012-network-proxy.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0012-network-proxy.md) records the decision.
 
 ### The path of a connection
 
@@ -1030,7 +1031,7 @@ bus counts too: `/run/user/<uid>/bus`, and the socket of `DBUS_SESSION_BUS_ADDRE
 in efrd's environment, such as one of `dbus-launch` below `/tmp`, also through a
 link. efr does not first look for a keyring on the bus, because a keyring that starts on demand has no owner
 until a program calls it. The whole system bus keeps its approver.
-[`docs/adr/0013-bus-proxy-and-always-allow.md`](adr/0013-bus-proxy-and-always-allow.md)
+[`docs/adr/0013-bus-proxy-and-always-allow.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0013-bus-proxy-and-always-allow.md)
 records the decision.
 
 ### Which lines get the filter
@@ -1364,7 +1365,7 @@ the same port of your `127.0.0.1` and sends each connection to the job's server.
 `http://localhost:8765` in your browser opens the job's server on port 8765. Nobody is
 asked: a forward only lets your programs connect to the job. The job gets no new right
 on your machine and no new route out.
-[`docs/adr/0016-job-port-forwarding.md`](adr/0016-job-port-forwarding.md) records the
+[`docs/adr/0016-job-port-forwarding.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0016-job-port-forwarding.md) records the
 decision.
 
 - **Which jobs.** A job that runs in the sandbox in `auto`, with `network.mode =
@@ -1435,7 +1436,7 @@ decision.
   and sends each connection to efrd. efrd finds the job by the call's conversation and
   the port on each connection, and opens the connection inside the job through its
   forwarder. efrd never opens a connection on your machine for a call.
-  [`docs/adr/0017-busy-shell-and-call-reach.md`](adr/0017-busy-shell-and-call-reach.md)
+  [`docs/adr/0017-busy-shell-and-call-reach.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0017-busy-shell-and-call-reach.md)
   records the decision. The rules:
   - Only a contained foreground call in `auto` with a network namespace of its own,
     with `network.mode = "none"` or the proxy, while `jobs.forward_ports` is on and a
@@ -1562,7 +1563,7 @@ format characters. A notice never enters a running turn. It waits until the turn
 When a shell call of the agent takes long, such as a slow build or a test run, you can
 move it into a background job with Ctrl+B in the turn view. The turn goes on at once,
 and the command runs on as a job. A job notice tells the model when it ends.
-[`docs/adr/0018-moving-a-call-to-the-background.md`](adr/0018-moving-a-call-to-the-background.md)
+[`docs/adr/0018-moving-a-call-to-the-background.md`](https://github.com/eggfriedrice24/eggfriedrice.code/blob/main/docs/adr/0018-moving-a-call-to-the-background.md)
 records the decision.
 
 - **The key.** Ctrl+B acts while a `shell` call of the turn that you follow runs,
@@ -1884,7 +1885,7 @@ the current directory:
 
 ```
 $ efr sandbox explain ~/.zshrc
-~/.zshrc, from ~/p/eggfriedrice.code in auto:
+~/.zshrc, from ~/p/app in auto:
   read   yes
   write  no: a shell startup file (floor); a write goes to the reviewer when a message of yours names the file, and efr copies the file first, so efr undo reverts it; else you decide; a write is a persistence exit
 ```
