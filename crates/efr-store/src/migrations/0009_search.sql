@@ -18,8 +18,10 @@ CREATE TABLE search_docs (
 -- The full text index over `search_docs`. External content: the writer adds and
 -- removes each row of the index in the transaction that changes `search_docs`, with no
 -- trigger. `_`, `-`, `/` and `.` split tokens, so the parts of a path or a snake_case
--- name match. The prefix indexes of 2 and 3 characters keep the one prefix of a query
--- cheap.
+-- name match. The prefix index of 3 characters keeps the one prefix of a query cheap;
+-- a query never expands a shorter prefix (a 2 character last word is a whole word).
+-- A second prefix index of 2 characters costs about 1.2 MB per 1,000 turns of the
+-- bench corpus, which breaks the disk budget of 10 MB.
 CREATE VIRTUAL TABLE search_fts USING fts5 (
     text,
     conversation_id UNINDEXED,
@@ -27,7 +29,7 @@ CREATE VIRTUAL TABLE search_fts USING fts5 (
     content = 'search_docs',
     content_rowid = 'seq',
     tokenize = 'unicode61 remove_diacritics 2',
-    prefix = '2 3'
+    prefix = '3'
 );
 
 -- The search title of each conversation: the first line of its first prompt that is
