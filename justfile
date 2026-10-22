@@ -325,9 +325,9 @@ test-sandbox-vm:
                 --archive-file "$out/nextest-archive.tar.zst"
             .github/sandbox-vm.sh run /opt/efr-kernel "$out/nextest-archive.tar.zst" . "$out"'
 
-# Formatting, spelling, clippy, the docs, cargo-deny, tidy, the dependency rule and every
-# feature combination: CI's fmt, lint, deny, tidy and hack jobs.
-lint: fmt-check typos clippy doc-check deny tidy deps hack
+# Formatting, spelling, clippy, the API docs, cargo-deny, tidy, the dependency rule, the
+# docs site and every feature combination: CI's fmt, lint, deny, tidy, docs and hack jobs.
+lint: fmt-check typos clippy doc-check deny tidy deps docs hack
 
 # The pre-push gate: lint plus the leaf tests.
 check: lint test-leaf
@@ -385,6 +385,21 @@ doc-check:
 # Build the docs with warnings denied, then open them.
 doc: doc-check
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude efr-screen-ghostty --no-deps --open
+
+# The docs site, as CI's docs job: the link check of docs/, then the book of book/ with
+# the mdBook version that ci.yml installs, into target/book.
+docs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    want="$(sed -nE 's/.*tool: mdbook@([0-9.]+).*/\1/p' .github/workflows/ci.yml | head -n1)"
+    have="$(mdbook --version 2>/dev/null || true)"
+    if [[ "$have" != "mdbook v$want" ]]; then
+        echo "docs: needs mdbook $want, found ${have:-no mdbook on PATH}" >&2
+        echo "docs: install it with: cargo install --locked mdbook@$want" >&2
+        exit 1
+    fi
+    cargo xtask docs-links
+    mdbook build book
 
 # Regenerate docs/protocol.md from efr-protocol.
 protocol-docs:
