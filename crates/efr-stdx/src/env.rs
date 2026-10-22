@@ -91,6 +91,10 @@ pub enum Var {
     /// that is still in the input row of a turn when they end. The zsh plugin sets it
     /// and puts the text back on the command line.
     DraftFile,
+    /// `EFR_RESUME_WORDS`: the words of `,resume` that are not an option, which the zsh
+    /// plugin hands to `efr resume` in the environment, never in its arguments.
+    /// Private: see [`Var::PRIVATE`].
+    ResumeWords,
 }
 
 impl Var {
@@ -119,6 +123,7 @@ impl Var {
         Var::Prompt,
         Var::TerminalBg,
         Var::DraftFile,
+        Var::ResumeWords,
     ];
 
     /// The variables that carry what the user typed from the zsh plugin to `efr`.
@@ -129,7 +134,7 @@ impl Var {
     /// ([`process::command`](crate::process::command) removes them) and out of `Debug`
     /// output.
     pub const PRIVATE: &'static [Var] =
-        &[Var::Context, Var::LastCommand, Var::RecentCommands, Var::Prompt];
+        &[Var::Context, Var::LastCommand, Var::RecentCommands, Var::Prompt, Var::ResumeWords];
 
     /// True for a variable in [`Var::PRIVATE`].
     pub fn is_private(self) -> bool {
@@ -162,6 +167,7 @@ impl Var {
             Var::Prompt => "EFR_PROMPT",
             Var::TerminalBg => "EFR_TERMINAL_BG",
             Var::DraftFile => "EFR_DRAFT_FILE",
+            Var::ResumeWords => "EFR_RESUME_WORDS",
         }
     }
 }
