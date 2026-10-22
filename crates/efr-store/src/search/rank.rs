@@ -100,19 +100,6 @@ pub fn buckets<K>(candidates: Vec<Candidate<K>>) -> Vec<Ranked<K>> {
     ranked
 }
 
-/// How many of `ranked` (best bucket first) can reach the first `limit` rows: every
-/// candidate of the buckets up to and including the one that holds row `limit`.
-pub fn reach<K>(ranked: &[Ranked<K>], limit: usize) -> usize {
-    if limit == 0 {
-        return 0;
-    }
-    if ranked.len() <= limit {
-        return ranked.len();
-    }
-    let last = ranked[limit - 1].bucket;
-    ranked.iter().take_while(|candidate| candidate.bucket >= last).count()
-}
-
 /// The order of rows: the bucket high first, then the newest (`recency` high first),
 /// then the key.
 pub fn order<K: Ord, R: Ord>(a: &(u32, R, K), b: &(u32, R, K)) -> Ordering {

@@ -71,20 +71,6 @@ fn near_tie_goes_to_the_newer() {
 }
 
 #[test]
-fn reach_takes_the_whole_last_bucket() {
-    let ranked: Vec<Ranked<u32>> = [20, 18, 18, 18, 10]
-        .into_iter()
-        .enumerate()
-        .map(|(key, bucket)| Ranked { key: key as u32, bucket })
-        .collect();
-    assert_eq!(reach(&ranked, 0), 0);
-    assert_eq!(reach(&ranked, 1), 1);
-    assert_eq!(reach(&ranked, 2), 4);
-    assert_eq!(reach(&ranked, 4), 4);
-    assert_eq!(reach(&ranked, 9), 5);
-}
-
-#[test]
 fn the_path_without_bm25() {
     // With no bm25, a prompt hit (2) and an answer hit (1) give F 1 and 0.5.
     let ranked = buckets(vec![
