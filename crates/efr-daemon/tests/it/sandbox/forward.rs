@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use efr_protocol::{
     AdminProjectAdd, AdminProjectAddResult, AdminStatus, AdminStatusResult, ApprovalDecision,
@@ -49,6 +50,12 @@ const V6_PORT: u16 = 20081;
 
 /// The process name of the forwarder in a job.
 const FORWARDER: &str = "efr-forward";
+
+/// How long a test waits in real time until its call runs: the turn, the review, the
+/// hidden zsh and the launch. That takes about one second on a desktop, and about ten
+/// times more in the VM of CI's sandbox job. The limit is four times that, and it ends
+/// before nextest's limit for the whole test (60 s), so the test fails with its message.
+const CALL_RUNS: Duration = Duration::from_secs(40);
 
 /// A background `shell` call that runs `command`.
 fn job(command: &str) -> Answer {
@@ -452,7 +459,7 @@ async fn shell_foreground_call_gets_no_forwarder() {
     let marker = daemon.cwd().join("started");
     let runtime = dirs.dirs().runtime().to_path_buf();
     let look = async {
-        Wait::new("the call runs").until(|| marker.exists()).await.unwrap();
+        Wait::new("the call runs").limit(CALL_RUNS).until(|| marker.exists()).await.unwrap();
         let seen = (forwarders(), forward_sockets(&runtime));
         let fifo = fifo.clone();
         tokio::task::spawn_blocking(move || std::fs::write(&fifo, b"go\n")).await.unwrap().unwrap();
