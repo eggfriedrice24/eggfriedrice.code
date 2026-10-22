@@ -388,8 +388,8 @@ Each entry is an exit, which the reviewer decides or which asks you. Other modes
 ignore `needs`. With the proxy, efr reads each host of `needs.hosts` as `host:port`:
 `http://host` means port 80 (plain `GET` and `HEAD`), else the port of the word, else
 443. A host on the allow list for that port drops out with a note, because the proxy
-already allows it; a host on the deny list drops out with the note "the user's config
-denies <host>"; a name that is not ASCII drops out with the note "write the host in
+already allows it; a host on the deny list drops out with the note `the user's config
+denies <host>`; a name that is not ASCII drops out with the note "write the host in
 its ASCII (xn--) form". `localhost`, a loopback, private or link-local address, and a
 port other than 443 and 80 give the whole network for the call. Every other host
 gives a grant of that one host and port.
@@ -829,7 +829,8 @@ ends. The engine decides a job as follows.
 
 A shell call answers the model at its timeout. When its command still runs then, the
 command goes on in the conversation's hidden shell, and the shell takes no other call
-until the command ends. The README, "A busy hidden shell", shows what you see. The
+until the command ends. [A busy hidden shell](use/hidden-shell.md#a-busy-hidden-shell)
+shows what you see. The
 engine and the shell keep these rules:
 
 - A line that may ask for a password through ssh has a soft flag: `rsync` with a
