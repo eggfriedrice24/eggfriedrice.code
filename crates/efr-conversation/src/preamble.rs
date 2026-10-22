@@ -26,7 +26,7 @@
 //! byte for byte what it was before full mode existed, so no prompt cache breaks.
 
 mod recent;
-mod secrets;
+pub(crate) mod secrets;
 
 pub(crate) use recent::newest;
 

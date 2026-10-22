@@ -101,6 +101,12 @@ const COUNTED_WORDS: &[&str] = &["TOKENS", "TOKENIZER", "TOKENIZERS"];
 /// A value that starts with `$` or a backtick names another value and stays. When two
 /// secrets overlap or touch, one marker replaces both.
 pub(crate) fn redact(line: &str) -> String {
+    redact_with(line, REDACTED)
+}
+
+/// [`redact`] with `marker` in place of [`REDACTED`]: the same secrets, another mark.
+/// The search index writes a marker with no letter or digit, so it makes no word.
+pub(crate) fn redact_with(line: &str, marker: &str) -> String {
     let commands = words::commands(line);
     let mut found = assignments(line);
     found.extend(keys(line));
@@ -109,12 +115,12 @@ pub(crate) fn redact(line: &str) -> String {
     found.extend(url::passwords(line));
     found.extend(header::values(&commands));
     found.extend(options::values(&commands));
-    replace(line, found)
+    replace(line, found, marker)
 }
 
-/// `line` with each of the `found` byte ranges replaced by [`REDACTED`]; ranges that
+/// `line` with each of the `found` byte ranges replaced by `marker`; ranges that
 /// overlap or touch get one marker.
-fn replace(line: &str, mut found: Vec<Range<usize>>) -> String {
+pub(crate) fn replace(line: &str, mut found: Vec<Range<usize>>, marker: &str) -> String {
     found.sort_by_key(|range| range.start);
     let mut merged: Vec<Range<usize>> = Vec::new();
     for range in found.into_iter().filter(|range| !range.is_empty()) {
@@ -127,7 +133,7 @@ fn replace(line: &str, mut found: Vec<Range<usize>>) -> String {
     let mut at = 0;
     for range in merged {
         out.push_str(&line[at..range.start]);
-        out.push_str(REDACTED);
+        out.push_str(marker);
         at = range.end;
     }
     out.push_str(&line[at..]);
@@ -138,7 +144,7 @@ fn replace(line: &str, mut found: Vec<Range<usize>>) -> String {
 /// it, and it is not a number (its last word is one of [`COUNT_WORDS`]) and not a
 /// secret only through one of [`COUNTED_WORDS`]. So `GITHUB_TOKEN` is one, and
 /// `MAX_TOKENS`, `TOKENIZER` and `TOKEN_COUNT` are not.
-fn secret_name(name: &str) -> bool {
+pub(crate) fn secret_name(name: &str) -> bool {
     if !secret_like(name) {
         return false;
     }
@@ -153,7 +159,7 @@ fn secret_name(name: &str) -> bool {
 
 /// True for a value that names another value: `$NAME`, `$(...)`, `${...}` or a
 /// backtick. `$'...'` is a quoted value, not a name.
-fn names_another_value(value: &str) -> bool {
+pub(crate) fn names_another_value(value: &str) -> bool {
     value.starts_with('`') || (value.starts_with('$') && !value.starts_with("$'"))
 }
 

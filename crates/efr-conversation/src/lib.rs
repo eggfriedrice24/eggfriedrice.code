@@ -45,6 +45,9 @@
 //!   [`NOT_USER_INPUT`], escaped so that the job's output cannot end it. A notice rides
 //!   in the next turn, or starts a wake turn while the conversation is idle, within
 //!   the wake limits and only in `auto`.
+//! - The index redaction ([`redact_for_index`], [`REDACTION_VERSION`]): the text that
+//!   efrd's search index keeps, with each secret that the preamble's line redaction
+//!   or a pass over config text and private key blocks recognises replaced by `[***]`.
 //!
 //! Allowed dependencies: `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`,
 //! `efr-sandbox` (only `secret_like`), `efr-protocol` and `efr-stdx`. Not `efr-tools`:
@@ -64,6 +67,7 @@ mod exit;
 mod fresh;
 mod gap;
 mod history;
+mod index_text;
 mod interrupt;
 mod judge;
 mod notice;
@@ -97,6 +101,7 @@ pub use context::{
 pub use drafts::{ConversationDraft, DRAFT_CAPACITY, draft_channel};
 pub use error::{ConversationError, UndoBusyReason};
 pub use history::HistoryLimits;
+pub use index_text::{REDACTION_VERSION, redact_for_index};
 pub use judge::{ExitJudge, JudgeInput, JudgeOutcome};
 pub use notice::{
     JobNoticeInput, NOT_USER_INPUT, NOTICE_LINE_BYTES, NOTICE_TAIL_BYTES, NOTICE_TAIL_LINES,
