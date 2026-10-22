@@ -11,6 +11,9 @@
 //!
 //! `efr` gets a cleared environment with every efr root in a temporary directory, so it
 //! never reaches the real daemon.
+//!
+//! The `e2e_fzf_` tests at the end run the real fzf against a `TestDaemon` instead;
+//! they skip unless `EFR_TEST_FZF=1` (`just test-fzf`).
 
 use std::collections::VecDeque;
 use std::io::{Read as _, Write as _};
@@ -19,15 +22,20 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
     Capabilities, ClientFrame, ConversationHistoryResult, ConversationResumeResult,
     ConversationStatus, ConversationSummary, ConversationsListResult, ConversationsRecentResult,
-    ConversationsSearchResult, DaemonPaths, HelloResult, Method, PROTOCOL_VERSION,
-    RecentConversation, RequestId, RouteLabel, RouteScope, SearchRow, Seq, ServerFrame,
+    ConversationsSearchResult, DaemonPaths, Event, HelloResult, Method, PROTOCOL_VERSION,
+    PromptSendResult, RecentConversation, RequestId, RouteLabel, RouteScope, SearchRow, Seq,
+    ServerFrame,
 };
+use efr_stdx::time::Clock as _;
+use efr_test_daemon::{ResponsesAnswer, ResponsesServer, SearchRowHook, TestDaemon, events_until};
 use pretty_assertions::assert_eq;
 use serde::Serialize;
 
@@ -64,6 +72,11 @@ exit "${FAKE_FZF_EXIT:-0}"
 /// A pseudo-terminal pair: the master, which plays the screen, and the slave, which
 /// `efr` gets as stdin and stdout.
 pub(crate) fn pty() -> (OwnedFd, OwnedFd) {
+    pty_of(24, 100)
+}
+
+/// A pseudo-terminal pair of `rows` and `cols`.
+fn pty_of(rows: u16, cols: u16) -> (OwnedFd, OwnedFd) {
     use rustix::fs::{Mode, OFlags};
     use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
     let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC).unwrap();
@@ -72,7 +85,7 @@ pub(crate) fn pty() -> (OwnedFd, OwnedFd) {
     let name = ptsname(&master, Vec::new()).unwrap();
     let slave =
         rustix::fs::open(name.as_c_str(), OFlags::RDWR | OFlags::NOCTTY, Mode::empty()).unwrap();
-    let size = rustix::termios::Winsize { ws_row: 24, ws_col: 100, ws_xpixel: 0, ws_ypixel: 0 };
+    let size = rustix::termios::Winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     rustix::termios::tcsetwinsize(&master, size).unwrap();
     (master, slave)
 }
@@ -527,4 +540,556 @@ fn a_relative_entry_of_the_path_is_never_searched() {
     assert!(screen.contains(" 1  rsync the photos to the laptop"), "{screen}");
     assert_eq!(methods(&seen.lock().unwrap()), [vec!["hello", "conversations.recent"]]);
     assert_eq!(roots.recorded("cmdline"), "");
+}
+
+// The picker with the real fzf.
+//
+// The `e2e_fzf_` tests run the built `efr resume` with the fzf of this machine against
+// a `TestDaemon` whose index holds three conversations. They skip with a message
+// unless `EFR_TEST_FZF=1`; with it, a missing fzf or one older than the floor fails.
+// `just test-fzf` sets it and names the fzf in `EFR_TEST_FZF_BIN`.
+//
+// fzf reads its keys from `/dev/tty` and draws there, so efr runs as the leader of a
+// session of its own with the pty as its controlling terminal (`setsid --ctty`). The
+// test plays the person and the screen: it writes keys to the master, replays every
+// byte on a vt100 screen, and answers fzf's question for the cursor position
+// (`ESC [ 6 n`) from that screen, as a terminal does. `efr` gets a `PATH` of a
+// temporary `bin` with a link to that fzf, then `/usr/bin` and `/bin`, never
+// `~/.local/bin`.
+
+/// The width and height of the pty: wide enough that the preview is on the right.
+const E2E_COLS: u16 = 100;
+const E2E_ROWS: u16 = 24;
+
+/// The first column of the preview window at [`E2E_COLS`]: the list has the left half.
+const PREVIEW_FROM: u16 = 50;
+
+/// The longest a test waits for one change of the screen before it fails.
+const E2E_WAIT: Duration = Duration::from_secs(30);
+
+/// The oldest fzf that the picker takes (`picker::FZF_FLOOR`).
+const FZF_FLOOR: (u32, u32, u32) = (0, 46, 0);
+
+/// The terminal that the three conversations came from.
+const OTHER_TTY: &str = "/dev/pts/71";
+
+/// The three conversations of the index: the prompt and the answer of each, oldest
+/// first.
+const E2E_TURNS: [(&str, &str); 3] = [
+    ("rsync the photos to the laptop", "the photos are on the laptop now"),
+    ("docker compose for the blog", "the blog runs in two containers"),
+    ("fix the flaky test in ci", "the test waited on a timer"),
+];
+
+/// The titles of [`E2E_TURNS`] as the recent list orders them: newest first.
+const RECENT: [&str; 3] = [E2E_TURNS[2].0, E2E_TURNS[1].0, E2E_TURNS[0].0];
+
+/// The fzf of this machine for the `e2e_fzf_` tests; `None`, with a message, when they
+/// skip.
+fn real_fzf() -> Option<PathBuf> {
+    if std::env::var_os("EFR_TEST_FZF").is_none_or(|value| value != "1") {
+        eprintln!("skipped: set EFR_TEST_FZF=1 (or run just test-fzf) to run the tests with fzf");
+        return None;
+    }
+    let fzf = std::env::var_os("EFR_TEST_FZF_BIN")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| {
+            let path = std::env::var_os("PATH")?;
+            std::env::split_paths(&path)
+                .filter(|dir| dir.is_absolute())
+                .map(|dir| dir.join("fzf"))
+                .find(|candidate| candidate.is_file())
+        })
+        .expect("EFR_TEST_FZF=1, but no fzf in EFR_TEST_FZF_BIN or on the PATH");
+    let output = std::process::Command::new(&fzf)
+        .arg("--version")
+        .env_remove("FZF_DEFAULT_OPTS")
+        .env_remove("FZF_DEFAULT_OPTS_FILE")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let mut parts = text.split_whitespace().next().unwrap_or_default().split('.').map(|part| {
+        part.chars().take_while(char::is_ascii_digit).collect::<String>().parse::<u32>().ok()
+    });
+    let version = (
+        parts.next().flatten().unwrap_or(0),
+        parts.next().flatten().unwrap_or(0),
+        parts.next().flatten().unwrap_or(0),
+    );
+    assert!(
+        output.status.success() && version >= FZF_FLOOR,
+        "EFR_TEST_FZF=1, but {} says {text:?}: older than 0.46, or no version",
+        fzf.display()
+    );
+    Some(fzf)
+}
+
+/// What the screen showed: every byte, and the bytes replayed on a vt100 screen.
+struct Shown {
+    bytes: Vec<u8>,
+    parser: vt100::Parser,
+    /// True when the pty closed: every process on it ended.
+    closed: bool,
+}
+
+/// The screen of the pty, which a thread fills from the master.
+#[derive(Clone)]
+struct Screen {
+    shown: Arc<(Mutex<Shown>, Condvar)>,
+}
+
+impl Screen {
+    /// Reads `master` until the pty closes, and answers each question for the cursor
+    /// position from the screen.
+    fn follow(master: OwnedFd) -> Screen {
+        let shown = Shown {
+            bytes: Vec::new(),
+            parser: vt100::Parser::new(E2E_ROWS, E2E_COLS, 0),
+            closed: false,
+        };
+        let screen = Screen { shown: Arc::new((Mutex::new(shown), Condvar::new())) };
+        let filled = screen.clone();
+        std::thread::spawn(move || {
+            let mut buffer = [0_u8; 8192];
+            loop {
+                // NOTE: the master reads EIO once no process holds the slave.
+                let read = rustix::io::read(&master, &mut buffer).unwrap_or(0);
+                let (lock, changed) = &*filled.shown;
+                let mut shown = lock.lock().unwrap();
+                if read == 0 {
+                    shown.closed = true;
+                    changed.notify_all();
+                    return;
+                }
+                let bytes = &buffer[..read];
+                shown.bytes.extend_from_slice(bytes);
+                shown.parser.process(bytes);
+                if bytes.windows(4).any(|window| window == b"\x1b[6n") {
+                    let (row, col) = shown.parser.screen().cursor_position();
+                    let answer = format!("\x1b[{};{}R", row + 1, col + 1);
+                    let _ = rustix::io::write(&master, answer.as_bytes());
+                }
+                changed.notify_all();
+            }
+        });
+        screen
+    }
+
+    /// Waits until `ready` gives a value for what the screen showed; fails after
+    /// [`E2E_WAIT`] with the screen and `what`.
+    fn wait<T>(&self, what: &str, mut ready: impl FnMut(&Shown) -> Option<T>) -> T {
+        let (lock, changed) = &*self.shown;
+        let mut shown = lock.lock().unwrap();
+        let deadline = Instant::now() + E2E_WAIT;
+        loop {
+            if let Some(value) = ready(&shown) {
+                return value;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !left.is_zero() && !shown.closed,
+                "no {what} on the screen:\n{}",
+                shown.parser.screen().contents()
+            );
+            shown = changed.wait_timeout(shown, left).unwrap().0;
+        }
+    }
+
+    /// Waits until the pty closed, and returns the bytes and the last screen.
+    fn closed(&self) -> (Vec<u8>, String) {
+        let (lock, changed) = &*self.shown;
+        let shown = lock.lock().unwrap();
+        let (shown, timeout) =
+            changed.wait_timeout_while(shown, E2E_WAIT, |shown| !shown.closed).unwrap();
+        assert!(!timeout.timed_out(), "efr runs on:\n{}", shown.parser.screen().contents());
+        (shown.bytes.clone(), shown.parser.screen().contents())
+    }
+}
+
+/// The titles of [`E2E_TURNS`] in the list, the left half of the screen.
+fn titles_in(shown: &Shown) -> Vec<&'static str> {
+    let list: Vec<String> = shown.parser.screen().rows(0, PREVIEW_FROM).collect();
+    list.iter()
+        .filter_map(|row| {
+            E2E_TURNS.iter().map(|(title, _)| *title).find(|title| row.contains(title))
+        })
+        .collect()
+}
+
+/// True when the screen shows the picker's header once, its prompt with `query`, and
+/// the rows of `titles` in this order and no other.
+fn shows(shown: &Shown, query: &str, titles: &[&str]) -> bool {
+    let contents = shown.parser.screen().contents();
+    contents.matches("enter resume").count() == 1
+        && contents.contains(&format!("resume> {query}"))
+        && titles_in(shown) == titles
+}
+
+/// For each row of the preview window with `word` and `plain`: whether the first
+/// character of `word` has another look than the first of `plain`, which never matches.
+fn marked_in_preview(shown: &Shown, word: &str, plain: &str) -> Vec<bool> {
+    let screen = shown.parser.screen();
+    let mut marks = Vec::new();
+    for (row, text) in screen.rows(PREVIEW_FROM, E2E_COLS - PREVIEW_FROM).enumerate() {
+        let (Some(at), Some(base)) = (text.find(word), text.find(plain)) else { continue };
+        let row = u16::try_from(row).unwrap();
+        let col = |byte: usize| PREVIEW_FROM + u16::try_from(text[..byte].chars().count()).unwrap();
+        let (Some(cell), Some(base)) = (screen.cell(row, col(at)), screen.cell(row, col(base)))
+        else {
+            continue;
+        };
+        marks.push(cell.fgcolor() != base.fgcolor() || cell.bold() != base.bold());
+    }
+    marks
+}
+
+/// A persistent `TestDaemon` with `hook` in its searches, whose index holds the
+/// conversations of [`E2E_TURNS`], each started from [`OTHER_TTY`].
+async fn indexed_daemon(hook: Option<SearchRowHook>) -> (TestDaemon, ResponsesServer) {
+    let server = ResponsesServer::start().await;
+    for (_, answer) in E2E_TURNS {
+        server.push(ResponsesAnswer::text(answer));
+    }
+    let mut builder = TestDaemon::builder().responses(&server).persistent();
+    if let Some(hook) = hook {
+        builder = builder.search_hook(hook);
+    }
+    let daemon = builder.start().await.unwrap();
+    let client = daemon.client_for_tty(OTHER_TTY).await.unwrap();
+    let mut newest = Seq::ZERO;
+    for (n, (prompt, _)) in (1_u128..).zip(E2E_TURNS) {
+        let Method::PromptSend(mut send) = daemon.prompt(n, prompt, OTHER_TTY) else {
+            unreachable!("a prompt is a prompt.send")
+        };
+        send.new_conversation = true;
+        let sent: PromptSendResult = client.call(Method::PromptSend(send)).await.unwrap();
+        let mut events = daemon.follow(&client, sent.conversation_id).await.unwrap();
+        let seen = events_until(&mut events, |event| matches!(event, Event::TurnCompleted { .. }))
+            .await
+            .unwrap();
+        newest = newest.max(seen.last().unwrap().seq);
+    }
+    // The indexer waits its debounce after a turn's end on the daemon's clock.
+    let clock = daemon.clock();
+    let mut status = daemon.search_index();
+    loop {
+        let now = clock.now();
+        let (indexed, sleeping) = {
+            let seen = status
+                .wait_for(|status| {
+                    status.indexed_seq >= newest || status.sleeping_until.is_some_and(|at| at > now)
+                })
+                .await
+                .unwrap();
+            (seen.indexed_seq, seen.sleeping_until)
+        };
+        if indexed >= newest {
+            break;
+        }
+        let until = sleeping.unwrap();
+        clock.advance(Duration::try_from(until.duration_since(now)).unwrap());
+    }
+    (daemon, server)
+}
+
+/// One run of `efr resume` on a pty with the real fzf.
+struct Picking {
+    child: std::process::Child,
+    master: OwnedFd,
+    screen: Screen,
+    _bin: tempfile::TempDir,
+}
+
+/// How a run of the picker ended: efr's status and the last screen.
+type Ended = (ExitStatus, String);
+
+impl Picking {
+    /// Starts `efr resume` with the plugin's context and `vars` against `daemon`.
+    fn start(daemon: &TestDaemon, fzf: &Path, vars: &[(&str, &str)]) -> Picking {
+        let bin = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(fzf, bin.path().join("fzf")).unwrap();
+        let (master, slave) = pty_of(E2E_ROWS, E2E_COLS);
+        // NOTE: efrd moves a conversation only to the terminal that efr runs on.
+        let tty = rustix::pty::ptsname(&master, Vec::new()).unwrap();
+        let context = serde_json::json!({
+            "pwd": daemon.cwd(),
+            "tty": tty.to_str().unwrap(),
+            "shell_pid": std::process::id(),
+        });
+        let dirs = daemon.dirs().dirs();
+        let mut command = std::process::Command::new("/usr/bin/setsid");
+        command
+            .args(["--ctty", "--wait"])
+            .arg(env!("CARGO_BIN_EXE_efr"))
+            .arg("resume")
+            .current_dir(daemon.cwd())
+            .env_clear()
+            .env("HOME", daemon.dirs().home())
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.path().display()))
+            .env("TERM", "xterm-256color")
+            .env("SHELL", "/bin/zsh")
+            .env("EFR_CONFIG_DIR", dirs.config())
+            .env("EFR_DATA_DIR", dirs.data())
+            .env("EFR_STATE_DIR", dirs.state())
+            .env("EFR_RUNTIME_DIR", dirs.runtime())
+            .env("EFR_CONTEXT", context.to_string())
+            .stdin(slave.try_clone().unwrap())
+            .stdout(slave.try_clone().unwrap())
+            .stderr(slave.try_clone().unwrap());
+        for (name, value) in vars {
+            command.env(name, value);
+        }
+        let child = command.spawn().unwrap();
+        // NOTE: the pty closes only when no process holds the slave, this one included.
+        drop(command);
+        drop(slave);
+        let screen = Screen::follow(master.try_clone().unwrap());
+        Picking { child, master, screen, _bin: bin }
+    }
+
+    /// Types `keys` as a person does.
+    fn keys(&self, keys: &str) {
+        rustix::io::write(&self.master, keys.as_bytes()).unwrap();
+    }
+
+    /// Pastes `text`, which fzf takes as one change of its query.
+    fn paste(&self, text: &str) {
+        self.keys(&format!("\x1b[200~{text}\x1b[201~"));
+    }
+
+    /// Waits until the picker shows the recent rows with no query.
+    fn recent(&self) {
+        self.screen.wait("the recent rows", |shown| shows(shown, "", &RECENT).then_some(()));
+    }
+
+    /// Waits until the picker shows the rows of `titles` for `query`.
+    fn rows(&self, query: &str, titles: &[&str]) {
+        self.screen.wait(&format!("the rows of {query:?}"), |shown| {
+            shows(shown, query, titles).then_some(())
+        });
+    }
+
+    /// Waits for the end of efr, and checks that fzf left no trace: the terminal is in
+    /// its cooked mode, no byte switched to the alternate screen, and no row of the
+    /// picker stays.
+    fn end(mut self) -> Ended {
+        let (bytes, screen) = self.screen.closed();
+        let status = self.child.wait().unwrap();
+        let modes = rustix::termios::tcgetattr(&self.master).unwrap().local_modes;
+        let cooked = rustix::termios::LocalModes::ICANON | rustix::termios::LocalModes::ECHO;
+        assert!(modes.contains(cooked), "the terminal is not cooked again: {modes:?}");
+        let alternate = bytes.windows(8).any(|window| window == b"\x1b[?1049h");
+        assert!(!alternate, "fzf drew on the alternate screen");
+        assert!(!screen.contains("resume>"), "the prompt of the picker stays:\n{screen}");
+        assert!(!screen.contains("enter resume"), "the header stays:\n{screen}");
+        (status, screen)
+    }
+}
+
+/// Runs `steps` against a picker of `daemon`, off the runtime's workers, which must
+/// keep serving the daemon.
+async fn pick<T: Send + 'static>(
+    daemon: &TestDaemon,
+    fzf: &Path,
+    vars: &[(&str, &str)],
+    steps: impl FnOnce(Picking) -> T + Send + 'static,
+) -> T {
+    let picking = Picking::start(daemon, fzf, vars);
+    tokio::task::spawn_blocking(move || steps(picking)).await.unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_enter_resumes_the_row_of_the_query() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (status, screen) = pick(&daemon, &fzf, &[], |picking| {
+        picking.recent();
+        // The header comes from each reload (`--header-lines=1`): it shows once, never
+        // as a row.
+        picking.keys("rsync");
+        picking.rows("rsync", &[E2E_TURNS[0].0]);
+        picking.keys("\r");
+        picking.end()
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    assert!(screen.contains("resumed \"rsync the photos to the laptop\""), "{screen}");
+    assert!(!screen.contains("docker"), "no other row stays:\n{screen}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_ctrl_o_prints_the_conversation_and_resumes_nothing() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (status, screen) = pick(&daemon, &fzf, &[], |picking| {
+        picking.recent();
+        picking.keys("rsync");
+        picking.rows("rsync", &[E2E_TURNS[0].0]);
+        picking.keys("\x0f");
+        picking.end()
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    assert!(screen.contains("the photos are on the laptop now"), "the transcript:\n{screen}");
+    assert!(!screen.contains("resumed"), "no resume:\n{screen}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_esc_closes_with_no_line_and_ctrl_c_exits_130() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    // NOTE: with --expect=esc, Esc ends fzf with exit 0, apart from Ctrl+C (130).
+    for (key, code) in [("\x1b", 0), ("\x03", 130)] {
+        let (status, screen) = pick(&daemon, &fzf, &[], move |picking| {
+            picking.recent();
+            picking.keys(key);
+            picking.end()
+        })
+        .await;
+
+        assert_eq!(status.code(), Some(code), "{key:?}\n{screen}");
+        assert_eq!(screen.trim(), "", "{key:?} leaves nothing on the screen");
+    }
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_words_of_resume_are_the_first_query() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (status, screen) = pick(&daemon, &fzf, &[("EFR_RESUME_WORDS", "laptop")], |picking| {
+        picking.rows("laptop", &[E2E_TURNS[0].0]);
+        picking.keys("\x1b");
+        picking.end()
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_preview_marks_follow_the_query_on_the_same_row() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (status, screen) = pick(&daemon, &fzf, &[], |picking| {
+        picking.recent();
+        picking.keys("rsync");
+        picking.screen.wait("a preview with laptop not marked", |shown| {
+            let marks = marked_in_preview(shown, "laptop", "photos");
+            (shows(shown, "rsync", &[E2E_TURNS[0].0])
+                && !marks.is_empty()
+                && marks.iter().all(|marked| !marked))
+            .then_some(())
+        });
+        // The same row keeps the focus; fzf runs its preview again after the reload.
+        picking.keys(" lap");
+        picking.screen.wait("laptop marked in the preview", |shown| {
+            let marks = marked_in_preview(shown, "laptop", "photos");
+            (shows(shown, "rsync lap", &[E2E_TURNS[0].0]) && marks.iter().any(|marked| *marked))
+                .then_some(())
+        });
+        picking.keys("\x1b");
+        picking.end()
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_list_keeps_its_rows_until_the_reload_ends() {
+    let Some(fzf) = real_fzf() else { return };
+    // Once the test arms it, the next search that reaches a row waits in the row loop
+    // until the test lets it go on.
+    let armed = Arc::new(AtomicBool::new(false));
+    let (reached_tx, reached) = std::sync::mpsc::channel::<()>();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    let hook = {
+        let armed = Arc::clone(&armed);
+        SearchRowHook::new(
+            1,
+            Arc::new(move |_rows| {
+                if armed.swap(false, Ordering::SeqCst) {
+                    let _ = reached_tx.send(());
+                    // NOTE: a test that ends drops the sender, which ends the wait too.
+                    let _ = release_rx.lock().unwrap().recv();
+                }
+            }),
+        )
+    };
+    let (daemon, _server) = indexed_daemon(Some(hook)).await;
+
+    let (status, screen) = pick(&daemon, &fzf, &[], move |picking| {
+        picking.recent();
+        armed.store(true, Ordering::SeqCst);
+        picking.paste("docker");
+        reached.recv_timeout(E2E_WAIT).expect("the reload of docker searched");
+        // reload-sync: while the search runs, the old rows stay under the new query.
+        picking.rows("docker", &RECENT);
+        release.send(()).unwrap();
+        picking.rows("docker", &[E2E_TURNS[1].0]);
+        picking.keys("\x1b");
+        picking.end()
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    daemon.stop().await.unwrap();
+}
+
+/// Reports the time from a key to its new rows on the screen, for 20 changes of the
+/// query: a paste of `docker` and Ctrl-U in turn. Report only: the budget (120 ms at
+/// p95 on corpus L) is for a real store, by hand in live step Q4.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_key_to_rows_times() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (times, (status, screen)) = pick(&daemon, &fzf, &[], |picking| {
+        picking.recent();
+        let mut times = Vec::new();
+        for n in 0..20 {
+            let started = Instant::now();
+            if n % 2 == 0 {
+                picking.paste("docker");
+                picking.rows("docker", &[E2E_TURNS[1].0]);
+            } else {
+                picking.keys("\x15");
+                picking.recent();
+            }
+            times.push(started.elapsed());
+        }
+        picking.keys("\x1b");
+        (times, picking.end())
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    let mut sorted = times;
+    sorted.sort();
+    let at = |share: usize| sorted[(sorted.len() * share).div_ceil(100).saturating_sub(1)];
+    let ms = |time: Duration| time.as_secs_f64() * 1000.0;
+    writeln!(
+        std::io::stdout(),
+        "e2e_fzf: a key to its new rows, 20 keys: p50 {:.1} ms, p95 {:.1} ms, max {:.1} ms \
+         (with the wait of 50 ms of efr search --picker)",
+        ms(at(50)),
+        ms(at(95)),
+        ms(sorted[sorted.len() - 1]),
+    )
+    .unwrap();
+    daemon.stop().await.unwrap();
 }

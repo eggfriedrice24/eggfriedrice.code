@@ -45,6 +45,9 @@ mod test_daemon;
 // NOTE: the client types are part of this crate's API (a test daemon hands out
 // clients), so its users need no efr-transport edge of their own.
 pub use efr_transport::client::{Client, ClientError, ConnectOptions, ItemStream};
+// NOTE: the hook of `TestDaemonBuilder::search_hook` is efrd's own type, and the tests
+// of efr-cli may not name efr-daemon.
+pub use efr_daemon::SearchRowHook;
 pub use error::TestDaemonError;
 pub use fake_forwarder::{FakeForwarder, connect_socket, echo_server};
 pub use fake_launcher::FakeLauncher;

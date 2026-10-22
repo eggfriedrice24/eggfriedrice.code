@@ -43,6 +43,8 @@ insta.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
+# The screen of the picker tests with the real fzf (tests/it/picker.rs).
+vt100.workspace = true
 
 [lints]
 workspace = true

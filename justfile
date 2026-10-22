@@ -97,6 +97,22 @@ bench-search:
     EFR_TEST_SEARCH_GATE=1 nice -n 19 cargo nextest run --release -p efr-cli \
         --success-output immediate -E 'test(/^search_cost::/)'
 
+# The picker of `,resume` with the fzf of this machine on a pseudo-terminal: the
+# `e2e_fzf_` tests of efr-cli, which skip unless EFR_TEST_FZF=1. A missing fzf or one
+# older than 0.46 fails. The tests give efr a PATH of a temporary dir with a link to
+# this fzf only, then /usr/bin and /bin, never ~/.local/bin. The key times are a report.
+test-fzf:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fzf="$(command -v fzf || true)"
+    if [[ -z "$fzf" ]]; then
+        echo "test-fzf: fzf is not on PATH" >&2
+        exit 1
+    fi
+    echo "test-fzf: $("$fzf" --version) at $fzf"
+    EFR_TEST_FZF=1 EFR_TEST_FZF_BIN="$fzf" cargo nextest run -p efr-cli \
+        --success-output immediate -E 'test(/^picker::e2e_fzf_/)'
+
 # The ghostty conformance suite and daemon tests on the real backend (needs Zig 0.16.0).
 test-ghostty:
     #!/usr/bin/env bash
