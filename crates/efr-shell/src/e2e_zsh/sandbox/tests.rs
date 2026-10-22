@@ -886,3 +886,50 @@ async fn mount_view_functions_not_in_records() {
     assert_eq!(functions, [("df", "print -r -- my df"), ("findmnt", "print -r -- mine")]);
     assert_eq!(records.removed_functions, Vec::<String>::new());
 }
+
+/// A sandboxed call that still runs at its timeout answers with the end of the screen.
+/// The fixed line that the hidden shell typed for the call, which is longer than a row,
+/// never reaches that tail; the command's output does.
+#[tokio::test]
+async fn a_still_running_call_leaves_the_fixed_line_out_of_its_screen_tail() {
+    let Some(zsh) =
+        Zsh::start_sandboxed("a_still_running_call_leaves_the_fixed_line_out_of_its_screen_tail")
+    else {
+        return;
+    };
+    let run = zsh.prepare(1);
+    let timeout = std::time::Duration::from_secs(20);
+    // NOTE: cat waits for input that never comes and ends when the shell's terminal
+    // closes, so nothing outlives the test.
+    let request = crate::RunRequest::new("print -r -- working; cat", zsh.start_dir())
+        .with_call(run.call)
+        .with_sandbox(Some(run.clone()))
+        .with_timeout(timeout);
+    let sessions = zsh.sessions.clone();
+    let conversation = zsh.conversation;
+    let running = tokio::spawn(async move {
+        sessions.run_command(conversation, request, &mut crate::NoProgress).await
+    });
+    let screen = Wait::new("the shell's screen")
+        .until_some(|| zsh.sessions.screen(zsh.conversation))
+        .await
+        .unwrap();
+    Wait::new("the output on the screen")
+        .until_some_async(async || {
+            let capture = screen.snapshot(0).await.unwrap();
+            let rows = &capture.snapshot.rows;
+            rows.iter().any(|row| efr_screen::row_text(row) == "working").then_some(())
+        })
+        .await
+        .unwrap();
+    // NOTE: the call's timer started before its line was typed, and the output shows
+    // that the line ran.
+    zsh.clock.advance(timeout);
+    let result = running.await.unwrap().unwrap();
+
+    assert_eq!(result.completion, Completion::StillRunning, "{result:?}");
+    let tail = result.screen_tail.unwrap_or_default();
+    assert!(tail.ends_with("working"), "{tail:?}");
+    assert!(!tail.contains("_efr_hs_sbx"), "{tail:?}");
+    assert!(!tail.contains(&run.call.to_string()), "{tail:?}");
+}

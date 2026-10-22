@@ -71,7 +71,10 @@ The `cd` waits at most `MOVE_TIMEOUT` (5 s).
   is on the alternate screen (quiet or not: nobody can reach it until an attach
   exists), `Completion::Interactive` when it waits for input (it has been quiet for
   `quiet_period` and the cursor sits after some text), and `Completion::StillRunning`
-  otherwise.
+  otherwise. The screen's last lines (`screen_tail`, at most 20 rows up to the cursor)
+  leave out the shell's own lines: each line, with all the rows that a soft wrap gave
+  it, that names the sandbox wrapper `_efr_hs_sbx`, such as the fixed line typed for a
+  sandboxed call. The model reads these lines.
 - Such a command is left running. The session keeps what it knows of its run: the
   call, the first 200 characters of the line, the start, whether it runs in the
   sandbox, who approved the call (`RunRequest::with_approval`) and the wait that the

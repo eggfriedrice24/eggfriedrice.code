@@ -131,6 +131,24 @@ fn the_screen_tail_ends_at_the_cursor_row() {
     assert_eq!(screen_tail(&snapshot), "one");
 }
 
+/// The typed line of a sandboxed call is the hidden shell's own: the tail that the
+/// model reads leaves out every row of it, also the rows that a soft wrap made, and
+/// keeps the command's output and a line that only looks like it.
+#[test]
+fn the_screen_tail_leaves_out_the_hidden_shells_own_line() {
+    let typed = format!("% {}0194f0a2-6b1c-7d3e-8f40-123456789abc", super::WRAPPER_CHECK);
+    let (head, rest) = typed.split_at(80);
+    let (middle, end) = rest.split_at(80);
+    let mut snapshot =
+        screen(&["% ls", "a b", head, middle, end, "building...", "50% done", ""], (6, 8));
+    snapshot.rows[2].wrapped = true;
+    snapshot.rows[3].wrapped = true;
+    assert_eq!(screen_tail(&snapshot), "% ls\na b\nbuilding...\n50% done");
+    // NOTE: a row that does not wrap into the shell's line stays.
+    let snapshot = screen(&["% echo hs_sbx", "hs_sbx"], (1, 6));
+    assert_eq!(screen_tail(&snapshot), "% echo hs_sbx\nhs_sbx");
+}
+
 #[test]
 fn other_runners_can_build_results() {
     let result = CommandResult::finished(Some(0), "ok\n", "/tmp")
