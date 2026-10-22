@@ -19,6 +19,14 @@ into the GitHub release notes, and it stops when the section is missing.
   passwords in URLs and in assignments, private keys, and `name: value` secrets in config
   text. It cannot recognise every secret. After the upgrade, efrd indexes your old
   conversations in the background; until it ends, a search shows how far it is.
+- `efr search <words>` prints the conversations that match, best first, with the
+  matching text.
+- `,resume` opens a live search picker when fzf 0.46 or newer is installed (an optional
+  program, as bubblewrap is). It shows below the command line, never full screen, and
+  clears itself when it closes. Type to search the titles and the text of your
+  conversations; the preview shows the matching lines. Enter continues the conversation
+  here, Ctrl-O prints it like `efr history`, Esc closes. Without fzf, `,resume` shows the
+  numbered list as before. `[resume] picker = "list"` turns the picker off.
 - Full mode, a fourth permission mode: commands run as you, with no sandbox and no
   questions. Turn it on by hand with `permissions.allow_full = true` in `config.toml`,
   then choose it with `,mode full` in a terminal, `--mode=full` for one prompt, or
@@ -432,21 +440,12 @@ into the GitHub release notes, and it stops when the section is missing.
   `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
   goes on while you follow the turn. The README, "A busy hidden shell", has the
   details.
-- `efr search <words>` prints the conversations that match, best first, with the
-  matching text.
-- `,resume` opens a live search picker when fzf 0.46 or newer is installed (an optional
-  program, as bubblewrap is). It shows below the command line, never full screen, and
-  clears itself when it closes. Type to search the titles and the text of your
-  conversations; the preview shows the matching lines. Enter continues the conversation
-  here, Ctrl-O prints it like `efr history`, Esc closes. Without fzf, `,resume` shows the
-  numbered list as before. `[resume] picker = "list"` turns the picker off.
 
 ### Changed
 
 - `,resume <words>` now searches when the words are not a number or a conversation id.
   The picker opens with the words as its query; without fzf, the best matches print.
   The words never show in the process list.
-
 - In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it moves
   the running shell call to the background. The Left arrow still moves the cursor back.
 - efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a password,
