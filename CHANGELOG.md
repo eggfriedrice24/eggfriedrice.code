@@ -446,6 +446,11 @@ into the GitHub release notes, and it stops when the section is missing.
 - `,resume <words>` now searches when the words are not a number or a conversation id.
   The picker opens with the words as its query; without fzf, the best matches print.
   The words never show in the process list.
+- `, resume` (with a blank after the `,`) now runs `,resume`, and does not send the
+  prompt "resume". The same rule applies to `new`, `compact`, `context`, `away` and
+  `shell`, and to `mode`, `model` and `effort` with at most one value that efr accepts.
+  In sticky mode, a line of only one of these words runs that command too. A prompt
+  with any other word stays a prompt.
 - In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it moves
   the running shell call to the background. The Left arrow still moves the cursor back.
 - efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a password,
