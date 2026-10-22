@@ -121,6 +121,25 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
+  # The docs site: the link check of `cargo xtask docs-links`, then the book of book/
+  # with mdBook. It runs on every push and pull request, not only on docs paths: it takes
+  # well under a minute, and a path filter would leave a required check pending. As
+  # `just docs`, which reads the mdBook version from this job.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: docs
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.4
+      - run: cargo xtask docs-links
+      - run: mdbook build book
+
   deny:
     runs-on: ubuntu-latest
     steps:
