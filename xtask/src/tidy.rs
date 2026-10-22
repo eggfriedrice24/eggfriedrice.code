@@ -47,7 +47,14 @@ pub(crate) const TEST_DAEMON_HOMES: &[&str] = &["crates/efr-test-daemon/"];
 /// entry is the module's path without `.rs`; the rule covers that file and its
 /// directory. A forbidden edge in `xtask/src/deps.rs` can only keep a whole crate
 /// pure; this rule does the same for one module (ADR 0014).
-pub(crate) const PURE_MODULES: &[&str] = &["crates/efr-tools/src/patch"];
+pub(crate) const PURE_MODULES: &[&str] = &[
+    "crates/efr-tools/src/patch",
+    "crates/efr-store/src/search/query",
+    "crates/efr-store/src/search/fuzzy",
+    "crates/efr-store/src/search/rank",
+    "crates/efr-store/src/search/snippet",
+    "crates/efr-store/src/search/marks",
+];
 
 /// Tokens that a pure module may not name.
 const IMPURE_TOKENS: &[&str] = &["tokio", "async", "await"];
