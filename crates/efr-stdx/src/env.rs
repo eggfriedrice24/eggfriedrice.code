@@ -95,6 +95,10 @@ pub enum Var {
     /// plugin hands to `efr resume` in the environment, never in its arguments.
     /// Private: see [`Var::PRIVATE`].
     ResumeWords,
+    /// `EFR_QUEUED_PROMPTS`: the prompts that `efr send` and `efr new` queue behind the
+    /// prompt of `EFR_PROMPT`, one per line, in their order. The zsh plugin hands them
+    /// over for a paste whose lines are all `,` prompts. Private: see [`Var::PRIVATE`].
+    QueuedPrompts,
 }
 
 impl Var {
@@ -124,6 +128,7 @@ impl Var {
         Var::TerminalBg,
         Var::DraftFile,
         Var::ResumeWords,
+        Var::QueuedPrompts,
     ];
 
     /// The variables that carry what the user typed from the zsh plugin to `efr`.
@@ -133,8 +138,14 @@ impl Var {
     /// process's own user. So they stay out of every child process
     /// ([`process::command`](crate::process::command) removes them) and out of `Debug`
     /// output.
-    pub const PRIVATE: &'static [Var] =
-        &[Var::Context, Var::LastCommand, Var::RecentCommands, Var::Prompt, Var::ResumeWords];
+    pub const PRIVATE: &'static [Var] = &[
+        Var::Context,
+        Var::LastCommand,
+        Var::RecentCommands,
+        Var::Prompt,
+        Var::ResumeWords,
+        Var::QueuedPrompts,
+    ];
 
     /// True for a variable in [`Var::PRIVATE`].
     pub fn is_private(self) -> bool {
@@ -168,6 +179,7 @@ impl Var {
             Var::TerminalBg => "EFR_TERMINAL_BG",
             Var::DraftFile => "EFR_DRAFT_FILE",
             Var::ResumeWords => "EFR_RESUME_WORDS",
+            Var::QueuedPrompts => "EFR_QUEUED_PROMPTS",
         }
     }
 }

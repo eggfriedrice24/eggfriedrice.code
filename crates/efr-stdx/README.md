@@ -94,6 +94,7 @@ table names the same set. An empty value counts as unset.
 | `EFR_TERMINAL_BG` | `dark` or `light`: the background of the terminal, for `render.theme = "auto"`. The zsh plugin asks the terminal once when it loads (OSC 11) and sets it; set it by hand to skip the question. |
 | `EFR_DRAFT_FILE` | An absolute path. `efr send` and `efr new` write the text that is still in the input row of a turn there when they end. The zsh plugin sets it and puts the text back on the command line. |
 | `EFR_RESUME_WORDS` | Private. The words of `,resume` that are not an option, such as the words of a search, which the zsh plugin hands to `efr resume`. |
+| `EFR_QUEUED_PROMPTS` | Private. The prompts that `efr send` and `efr new` queue behind the prompt, one per line. The zsh plugin hands them over for a paste whose lines are all `,` prompts. |
 
 A flag accepts `1`, `true`, `yes` or `on` for on and `0`, `false`, `no` or `off` for
 off, in any letter case. Any other value is an error.

@@ -153,6 +153,7 @@ fn all_lists_every_variant() {
         Var::TerminalBg,
         Var::DraftFile,
         Var::ResumeWords,
+        Var::QueuedPrompts,
     ];
     for var in every {
         match var {
@@ -179,7 +180,8 @@ fn all_lists_every_variant() {
             | Var::Prompt
             | Var::TerminalBg
             | Var::DraftFile
-            | Var::ResumeWords => {
+            | Var::ResumeWords
+            | Var::QueuedPrompts => {
                 assert!(Var::ALL.contains(&var), "{var} is missing from Var::ALL")
             }
         }
@@ -198,7 +200,8 @@ fn the_plugins_handover_variables_are_the_private_ones() {
             "EFR_LAST_COMMAND",
             "EFR_RECENT_COMMANDS",
             "EFR_PROMPT",
-            "EFR_RESUME_WORDS"
+            "EFR_RESUME_WORDS",
+            "EFR_QUEUED_PROMPTS"
         ]
     );
     assert_eq!(Var::PRIVATE.len(), private.len());
@@ -223,11 +226,13 @@ fn debug_shows_a_private_value_only_by_its_length() {
         (Var::LastCommand, "s3cret"),
         (Var::Context, r#"{"pwd":"/s3cret"}"#),
         (Var::ResumeWords, "s3cret laptop"),
+        (Var::QueuedPrompts, "s3cret one\ns3cret two"),
         (Var::Log, "debug"),
     ]);
     let debug = format!("{env:?}");
     assert!(!debug.contains("s3cret"), "{debug}");
     assert!(debug.contains(r#""EFR_RESUME_WORDS": <13 bytes>"#), "{debug}");
+    assert!(debug.contains(r#""EFR_QUEUED_PROMPTS": <21 bytes>"#), "{debug}");
     assert!(debug.contains(r#""EFR_PROMPT": <19 bytes>"#), "{debug}");
     assert!(debug.contains(r#""EFR_LOG": "debug""#), "{debug}");
     assert_eq!(format!("{:?}", Env::process()), "Env { source: Process }");
