@@ -33,7 +33,11 @@
 //! - The fact of a line ([`fact`], DS43, DS44): the forwarded ports of the conversation.
 //!   When the line names a loopback port that is not forwarded yet and a job of the
 //!   conversation began to forward less than [`REACH_SETTLE`] ago, efrd first waits for
-//!   that port up to the rest of that time.
+//!   the port's outcome up to the rest of that time. A named port that a job of the
+//!   conversation listens on but efrd does not forward (in use, refused, a limit,
+//!   stopped) gives the fact a refusal ([`LineReach::refusal`]): in `auto` the call does
+//!   not run, and nobody is asked for the whole network, which would reach another
+//!   program of the machine, not the job.
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -429,30 +433,59 @@ pub(crate) fn named_ports(command: &str, needs: Option<&Needs>) -> Vec<u16> {
     ports
 }
 
-/// The fact `CallFacts::reach_ports` of a line of `conversation` that names the loopback
-/// ports `named` (DS43, DS44): the conversation's forwarded ports. When a named port is
-/// not among them and a job of the conversation began to forward less than
-/// [`REACH_SETTLE`] ago, it waits on `clock` for the port up to the rest of that time.
+/// What a line knows about the loopback ports that it names (DS43, DS44).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LineReach {
+    /// The conversation's forwarded ports: the fact `CallFacts::reach_ports`.
+    pub(crate) ports: Vec<u16>,
+    /// What efr tells the model when the line names a port that a job of the
+    /// conversation listens on and efrd does not forward ([`Forwards::unreached`]), one
+    /// paragraph for each such port; `None` when there is none. In `auto` the call
+    /// then does not run.
+    pub(crate) refusal: Option<String>,
+}
+
+/// The fact of a line of `conversation` that names the loopback ports `named` (DS43,
+/// DS44). When a named port is not forwarded and a job of the conversation began to
+/// forward less than [`REACH_SETTLE`] ago, it first waits on `clock` for the port's
+/// outcome up to the rest of that time.
 pub(crate) async fn fact(
     forwards: &Forwards,
     clock: &Arc<dyn Clock>,
     conversation: ConversationId,
     named: &[u16],
-) -> Vec<u16> {
+) -> LineReach {
     let ports = forwards.ports_of(conversation);
     let missing: Vec<u16> = named.iter().filter(|port| !ports.contains(port)).copied().collect();
     if missing.is_empty() {
-        return ports;
+        return LineReach { ports, refusal: None };
     }
-    let Some(since) = forwards.newest_start(conversation) else { return ports };
-    let age = Duration::try_from(clock.now().duration_since(since)).unwrap_or(Duration::ZERO);
-    let rest = REACH_SETTLE.saturating_sub(age);
-    if rest.is_zero() {
-        return ports;
+    let unsettled: Vec<u16> = missing
+        .iter()
+        .filter(|port| forwards.unreached(conversation, **port).is_none())
+        .copied()
+        .collect();
+    let rest = forwards.newest_start(conversation).map_or(Duration::ZERO, |since| {
+        let age = Duration::try_from(clock.now().duration_since(since)).unwrap_or(Duration::ZERO);
+        REACH_SETTLE.saturating_sub(age)
+    });
+    let ports = if unsettled.is_empty() || rest.is_zero() {
+        ports
+    } else {
+        tracing::debug!(%conversation, ports = ?unsettled, wait_ms = rest.as_millis(), "a line names a port of a new job; efrd waits for its outcome");
+        let _ = clock.timeout(rest, forwards.wait_for(conversation, &unsettled)).await;
+        forwards.ports_of(conversation)
+    };
+    let refusals: Vec<String> = missing
+        .iter()
+        .filter(|port| !ports.contains(port))
+        .filter_map(|port| forwards.unreached(conversation, *port))
+        .collect();
+    if !refusals.is_empty() {
+        tracing::debug!(%conversation, ports = ?missing, "a line names a port of a job that efrd does not forward");
     }
-    tracing::debug!(%conversation, ports = ?missing, wait_ms = rest.as_millis(), "a line names a port of a new job; efrd waits for its forward");
-    let _ = clock.timeout(rest, forwards.wait_for(conversation, &missing)).await;
-    forwards.ports_of(conversation)
+    let refusal = (!refusals.is_empty()).then(|| refusals.join("\n"));
+    LineReach { ports, refusal }
 }
 
 #[cfg(test)]

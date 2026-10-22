@@ -465,13 +465,15 @@ impl DaemonToolbox {
 impl DaemonToolbox {
     /// The facts that the engine reads in `auto`: about the files and programs of a
     /// shell call, and about the targets of a `write_file`, `apply_patch` or `edit`
-    /// call; `None` for another tool or without a sandbox.
+    /// call; `None` for another tool or without a sandbox. `Err` is what the model reads
+    /// when the call does not run: a line of an `auto` turn that names a loopback port
+    /// of a job of the conversation that efrd does not forward.
     async fn facts(
         &self,
         call: &ToolCall,
         declared: &ToolRequirements,
-    ) -> Option<efr_permissions::CallFacts> {
-        let (sandbox, engine) = self.sandbox.as_ref()?;
+    ) -> Result<Option<efr_permissions::CallFacts>, String> {
+        let Some((sandbox, engine)) = self.sandbox.as_ref() else { return Ok(None) };
         let writes: Vec<PathBuf> = declared
             .paths
             .iter()
@@ -480,7 +482,7 @@ impl DaemonToolbox {
             .collect();
         let Some(command) = declared.command.as_deref() else {
             if !FILE_WRITERS.contains(&call.name.as_str()) {
-                return None;
+                return Ok(None);
             }
             // NOTE: a file tool has no line, only the paths it writes. Their kinds and
             // those of their parents tell a file and a new file from a directory, so a
@@ -508,7 +510,7 @@ impl DaemonToolbox {
             // the lock does.
             let projects = sandbox.projects().await;
             facts.covered = self.cover_facts(&call.context, &request.covers, projects).await;
-            return Some(facts);
+            return Ok(Some(facts));
         };
         let engine = Arc::clone(&engine.borrow());
         let command_dir = declared.command_dir.as_deref();
@@ -550,8 +552,17 @@ impl DaemonToolbox {
             && forward_ports
         {
             let named = reach::named_ports(command, declared.needs.as_ref());
-            facts.reach_ports =
-                reach::fact(jobs.forwards(), &self.clock, conversation, &named).await;
+            let line = reach::fact(jobs.forwards(), &self.clock, conversation, &named).await;
+            facts.reach_ports = line.ports;
+            // NOTE: a contained call does not reach a job's port that efrd does not
+            // forward, and the whole network would reach another program of the machine
+            // there, so nobody is asked for it. Only `auto` refuses: a call of full mode
+            // runs as the user already.
+            if let Some(refusal) = line.refusal
+                && call.context.sandboxed()
+            {
+                return Err(refusal);
+            }
         }
         facts.git_code =
             self.git_code_facts(&call.context, sandbox, &request.git_code, &shell_path).await;
@@ -561,7 +572,7 @@ impl DaemonToolbox {
             self.home.path(),
         );
         facts.covered = self.cover_facts(&call.context, &request.covers, projects).await;
-        Some(facts)
+        Ok(Some(facts))
     }
 
     /// The answer to each ask of `asks` for the call `call`, which the call keeps until
@@ -1604,7 +1615,7 @@ impl Toolbox for DaemonToolbox {
                 // Full mode needs no sandbox for them: efrd always builds the service.
                 let watch = Stopwatch::start();
                 let facts =
-                    if call.context.predicts() { self.facts(call, &declared).await } else { None };
+                    if call.context.predicts() { self.facts(call, &declared).await? } else { None };
                 if facts.is_some() {
                     tracing::debug!(phase = "facts", elapsed_ms = %watch, "phase=facts elapsed_ms={}", watch);
                 }

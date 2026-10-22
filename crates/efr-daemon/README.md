@@ -1054,7 +1054,17 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   end it). The fact `CallFacts::reach_ports` of a shell line holds the conversation's
   forwarded ports (`reach::fact`); when the line names a loopback port that is not
   forwarded yet and a job of the conversation began to forward less than 3 s ago, efrd
-  first waits for that port up to the rest of the 3 s on its clock.
+  first waits for that port's outcome (a forward, or an outcome that `Forwards::tell`
+  kept, which changes the `watch` too) up to the rest of the 3 s on its clock. A named
+  port that a job of the conversation listens on and efrd does not forward (`in_use`,
+  `refused`, `limit`, or `stopped` until the job ends) gives `LineReach::refusal`, from
+  `Forwards::unreached` and `forward::refusal` (the newest such job of the same
+  conversation; a forward of the port by another job of the conversation wins). In an
+  `auto` turn `DaemonToolbox::facts` returns it as the error of `requirements`: the call
+  does not run, the engine never sees it, so no exit and no question, and the model
+  reads `efr: port 8767 of job j1 is not forwarded: ... efr did not run this call. ...`.
+  Full mode reads the same fact and keeps its behaviour, and the other modes collect no
+  facts.
 - A call moved into a job (`call.background`, Ctrl+B in `efr`; v0.0.4 shell items
   DS15-DS33 and DS53-DS56, with the user's change of OQS2). The tool path registers
   each foreground `shell` call while it runs (`jobs/moves.rs`, `Moves::register`, from
@@ -1730,9 +1740,13 @@ forwards off, a call past its timeout that keeps its reach until its result, no 
 without a forwarding job, for a job and for the exit child, the limit of 32
 connections that leaves room for the host, and the fact of a line: a forwarded port
 needs no exit, the wait for the forward of a new job, the end of the wait at 3 s, and
-no wait for an older job. The unit tests of `jobs/forward/reach/` cover the ports and
-routes of `Forwards`, which call gets a plan, the ports that a line names and the wait
-of the fact on the test clock.
+no wait for an older job. `reach/unforwarded.rs` covers the live test of a port that a
+program of the user holds: the line of the job's port does not run, with the refusal
+for the model and no question, also when the outcome comes during the settle wait; a
+port of no job still asks; and a forwarded port of the same job still reaches it. The
+unit tests of `jobs/forward/reach/` cover the ports and routes of `Forwards`, which call
+gets a plan, the ports that a line names, the wait of the fact on the test clock, and
+the refusal of each outcome that is no forward, never for another conversation.
 
 The `login` module also runs `admin.login_api_key` and `admin.logout` against the
 local server's `/v1/models`: a key that is checked with its organization and project
