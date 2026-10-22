@@ -101,7 +101,8 @@ pub struct SearchHit {
     /// open the conversation at the hit.
     pub history_cursor: PageCursor,
     /// The text: one snippet line in `conversations.search`, whole lines in
-    /// `conversation.search`. Each line is plain text with no control characters.
+    /// `conversation.search`. Each line is plain text with no control character but the
+    /// tab.
     pub lines: Vec<SearchLine>,
 }
 
