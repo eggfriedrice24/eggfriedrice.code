@@ -224,6 +224,8 @@ fn bus_proxy_engine() -> Engine {
 #[case::watch("watch -n 60 systemctl list-units --state=failed", BusKind::System)]
 #[case::sessions("loginctl list-sessions", BusKind::System)]
 #[case::notify("notify-send done", BusKind::Session)]
+#[case::hostnamectl("hostnamectl", BusKind::System)]
+#[case::status("systemctl status x", BusKind::System)]
 fn job_with_bus_read_form_gets_the_view(#[case] line: &str, #[case] bus: BusKind) {
     // A view is no exit, so `job_refusal` never sees it: the job reads its own filtered
     // bus for its whole life (Q63, DE12).
