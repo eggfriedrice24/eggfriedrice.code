@@ -21,6 +21,8 @@ use super::{
 };
 use crate::compaction::Placed;
 
+mod perf;
+
 fn turn(seed: u64) -> TurnId {
     TurnId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(seed)))
 }

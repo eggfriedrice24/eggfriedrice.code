@@ -1335,3 +1335,14 @@ live state: each newest block starts with the rule, and the block of the first p
 keeps its bytes in every later request, also after a restart. The scratch and resolver
 tests use temporary directories; the resolver tests run git, isolated from the user's
 configuration. No test uses the network, a real model, real time or the user's home.
+
+## Benches
+
+The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
+a time. They report and do not fail on a time.
+
+- `bench_perf_snapshot_read` (`src/history/tests/perf.rs`): the time of
+  `Snapshot::read` and of `window()` on the perf corpus S, M, L and XL of
+  `efr-test-support`, the count of `read_turn_range` calls of one read, and the time of
+  those calls and of the user messages read alone. The corpus files are built once
+  below `target/tmp/perf-corpus/`.
