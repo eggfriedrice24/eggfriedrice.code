@@ -1961,3 +1961,8 @@ The `bench_perf_*` benches are ignored tests. `just bench-perf` runs them in rel
   shell call changed 50, 500 and 2,000 files. A test process cannot change its own
   `PATH`, so the bench also starts a copy of itself with a counting `git` first on the
   `PATH`, and the copy reports the git runs of efrd. It needs `EFR_TEST_ZSH=1`.
+- `bench_perf_daemon_start` (`tests/it/perf_start.rs`): spawns the built `efrd` on a
+  temp `EFR_HOME` and measures the time to `READY=1` and to the socket file, for the
+  first start and for five restarts, with the phases from its log lines. The cases are
+  the sandbox off and on, `dbus.proxy` off and on, and an empty store or search corpus
+  S or L.
