@@ -21,6 +21,7 @@ use super::{
 };
 use crate::compaction::Placed;
 
+mod covered;
 mod perf;
 
 fn turn(seed: u64) -> TurnId {

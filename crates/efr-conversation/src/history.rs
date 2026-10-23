@@ -24,8 +24,10 @@
 //!
 //! After a compaction with a summary, the history is the fresh context block, the
 //! summary, and the messages after the compaction's cut (`efr_store::compactions` reads
-//! the newest compaction with a query of its own, never from the page). A newer
-//! compaction that only pruned puts the stub in each tool result before its cut.
+//! the newest compaction with a query of its own, never from the page). A turn that
+//! the summary covers whole is never read or rebuilt, so the cost of a turn's start
+//! does not grow with the turns before the summary. A newer compaction that only pruned
+//! puts the stub in each tool result before its cut.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -166,6 +168,17 @@ pub(crate) struct Snapshot {
     pub(crate) user_events: Vec<EventEnvelope>,
 }
 
+/// What a read and a window do with the turns that the newest summary covers. Only the
+/// tests keep them, to show that the history is the same without them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Covered {
+    /// Leave them out: the history holds no message of them.
+    Skip,
+    /// Read and rebuild them as any other turn, and let the cut drop their messages.
+    #[cfg_attr(not(test), expect(dead_code, reason = "only the tests keep covered turns"))]
+    Keep,
+}
+
 impl Snapshot {
     /// Reads the snapshot of `conversation_id` in one read transaction.
     pub(crate) async fn read(
@@ -173,8 +186,21 @@ impl Snapshot {
         conversation_id: ConversationId,
         limits: HistoryLimits,
     ) -> Result<Self, ConversationError> {
+        Snapshot::read_with(readers, conversation_id, limits, Covered::Skip).await
+    }
+
+    /// Reads the snapshot of `conversation_id` in one read transaction. With
+    /// [`Covered::Skip`], the events of a turn that the newest summary covers are never
+    /// read: the window needs none of them.
+    pub(crate) async fn read_with(
+        readers: &Readers,
+        conversation_id: ConversationId,
+        limits: HistoryLimits,
+        covered: Covered,
+    ) -> Result<Self, ConversationError> {
         readers
             .with(move |conn| {
+                let compactions = compactions::latest(conn, conversation_id)?;
                 let turns = conversations::turns(conn, conversation_id)?;
                 let page = events::read_turn_history(conn, conversation_id, limits.max_events)?;
                 let saved: HashMap<TurnId, CachedTurn> =
@@ -182,8 +208,12 @@ impl Snapshot {
                         .into_iter()
                         .filter_map(decode)
                         .collect();
+                let cut = match covered {
+                    Covered::Skip => summary_cut(&compactions),
+                    Covered::Keep => None,
+                };
                 let mut older = BTreeMap::new();
-                for (from, through) in older_ranges(&turns, &saved, &page) {
+                for (from, through) in older_ranges(&turns, &saved, &page, cut) {
                     let events = events::read_turn_range(conn, conversation_id, from, through)?;
                     older.extend(events.into_iter().map(|envelope| (envelope.seq, envelope)));
                 }
@@ -194,7 +224,7 @@ impl Snapshot {
                     page,
                     older,
                     saved,
-                    compactions: compactions::latest(conn, conversation_id)?,
+                    compactions,
                     user_events: user_messages::of_conversation(conn, conversation_id)?,
                 })
             })
@@ -290,6 +320,21 @@ impl Snapshot {
         limits: HistoryLimits,
         fresh: Option<&str>,
     ) -> Window {
+        self.window_with(current, cache, key, limits, fresh, Covered::Skip)
+    }
+
+    /// The [`window`](Self::window). With [`Covered::Skip`], a turn that the summary
+    /// covers whole is left out before its messages are looked up, copied or rebuilt;
+    /// the cut would drop each of them anyway.
+    pub(crate) fn window_with(
+        &self,
+        current: Option<TurnId>,
+        cache: &HashMap<TurnId, Arc<CachedTurn>>,
+        key: &ModelKey,
+        limits: HistoryLimits,
+        fresh: Option<&str>,
+        covered: Covered,
+    ) -> Window {
         let mut by_turn: HashMap<TurnId, Vec<&EventEnvelope>> = HashMap::new();
         let mut left = left_steers(&self.older);
         left.extend(left_steers(&self.page));
@@ -310,18 +355,23 @@ impl Snapshot {
             self.turns.iter().enumerate().map(|(at, turn)| (turn.id, at)).collect();
         let position = |turn: TurnId| order.get(&turn).copied();
         let summary = self.summary().and_then(|compaction| {
-            let cut = Cut {
-                through_turn: compaction.through_turn,
-                through_message: compaction.through_message,
-            };
-            compaction.summary.as_deref().map(|summary| (cut, summary))
+            compaction.summary.as_deref().map(|summary| (Cut::of(compaction), summary))
         });
+        let skip = match covered {
+            Covered::Skip => summary.map(|(cut, _)| cut),
+            Covered::Keep => None,
+        };
 
         let ran = |turn: &&Turn| {
             Some(turn.id) != current && turn.status.is_finished() && turn.started_at.is_some()
         };
         let mut turns: Vec<Vec<Placed>> = Vec::new();
         for turn in self.turns.iter().filter(ran) {
+            // NOTE: the cut below drops each message of such a turn, so the turn adds
+            // nothing to the window, to its size or to its omitted turns.
+            if skip.is_some_and(|cut| cut.covers_turn(turn.id, position)) {
+                continue;
+            }
             let exact = cache.get(&turn.id).map(Arc::as_ref).or_else(|| self.saved.get(&turn.id));
             let messages = match exact {
                 Some(exact) if exact.key == *key => exact.messages.clone(),
@@ -366,10 +416,7 @@ impl Snapshot {
             stored.compaction.summary.is_none() && summary_seq.is_none_or(|seq| stored.seq > seq)
         });
         if let Some(pruned) = pruned {
-            let cut = Cut {
-                through_turn: pruned.compaction.through_turn,
-                through_message: pruned.compaction.through_message,
-            };
+            let cut = Cut::of(&pruned.compaction);
             for item in placed.iter_mut().filter(|item| cut.covers(item, position)) {
                 stub_results(&mut item.message);
             }
@@ -396,20 +443,37 @@ impl Snapshot {
     }
 }
 
+/// The cut of the newest compaction with a summary, before which the history holds
+/// nothing; `None` before the first one. A newer compaction that only pruned never
+/// moves it.
+fn summary_cut(compactions: &LatestCompactions) -> Option<Cut> {
+    let compaction = &compactions.summary.as_ref()?.compaction;
+    compaction.summary.as_ref().map(|_| Cut::of(compaction))
+}
+
 /// The ranges of sequence numbers to read for the turns that the page cannot rebuild:
-/// each finished turn that saved no messages, from its `prompt_queued` up to the first
-/// event of `page` or its own last event. Only a turn from an efr before the saved
-/// messages, or one whose saved messages cannot be read back, has such a range.
+/// each finished turn that saved no messages and that `cut` (the summary's) does not
+/// cover whole, from its `prompt_queued` up to the first event of `page` or its own
+/// last event. A turn from an efr before the saved messages, or one whose saved
+/// messages cannot be read back, has such a range. A turn whose saved messages a
+/// compaction with a summary dropped has none: the cut covers it.
 fn older_ranges(
     turns: &[Turn],
     saved: &HashMap<TurnId, CachedTurn>,
     page: &[EventEnvelope],
+    cut: Option<Cut>,
 ) -> Vec<(Seq, Seq)> {
     let first = page.first().map(|envelope| envelope.seq);
+    let order: HashMap<TurnId, usize> = match cut {
+        Some(_) => turns.iter().enumerate().map(|(at, turn)| (turn.id, at)).collect(),
+        None => HashMap::new(),
+    };
+    let position = |turn: TurnId| order.get(&turn).copied();
     turns
         .iter()
         .filter(|turn| turn.status.is_finished() && turn.started_at.is_some())
         .filter(|turn| !saved.contains_key(&turn.id))
+        .filter(|turn| !cut.is_some_and(|cut| cut.covers_turn(turn.id, position)))
         .filter_map(|turn| {
             let through = match first {
                 Some(first) if turn.queued_seq >= first => return None,

@@ -310,3 +310,45 @@ fn a_cut_covers_the_turns_before_it_and_the_messages_before_its_message() {
     assert!(!whole.covers(&at(3, 0, hello.clone()), order));
     assert!(!whole.covers(&at(7, 0, hello), order), "an unknown turn counts as after");
 }
+
+#[test]
+fn a_cut_covers_a_whole_turn_only_when_it_covers_each_of_its_messages() {
+    let order = |id: TurnId| (1..=3).map(turn).position(|turn| turn == id);
+    let inside = Cut { through_turn: turn(2), through_message: Some(2) };
+    let whole = Cut { through_turn: turn(2), through_message: None };
+    let unknown = Cut { through_turn: turn(9), through_message: None };
+
+    assert!(inside.covers_turn(turn(1), order));
+    assert!(!inside.covers_turn(turn(2), order), "its messages from the cut on stay");
+    assert!(!inside.covers_turn(turn(3), order));
+    assert!(whole.covers_turn(turn(1), order));
+    assert!(whole.covers_turn(turn(2), order));
+    assert!(!whole.covers_turn(turn(3), order));
+    assert!(!whole.covers_turn(turn(7), order), "an unknown turn counts as after");
+    assert!(!unknown.covers_turn(turn(1), order), "a cut at an unknown turn covers no turn");
+    assert!(unknown.covers_turn(turn(9), order), "only the unknown turn of the cut itself");
+}
+
+/// Each cut at each place of four turns, the fourth unknown to `order`: a turn that
+/// `covers_turn` covers has no message that `covers` keeps, and a turn that it does not
+/// cover can have one.
+#[test]
+fn covers_turn_agrees_with_covers_on_every_message() {
+    let order = |id: TurnId| (1..=3).map(turn).position(|turn| turn == id);
+    let hello = Message::assistant("x");
+    let firsts = [None, Some(0), Some(1), Some(3), Some(u32::MAX)];
+    for through in 1..=4 {
+        for through_message in firsts {
+            let cut = Cut { through_turn: turn(through), through_message };
+            for number in 1..=4 {
+                let each = |index| cut.covers(&at(number, index, hello.clone()), order);
+                let some_index_stays = number == through && through_message.is_some();
+                assert_eq!(
+                    cut.covers_turn(turn(number), order),
+                    (0..6).all(each) && !some_index_stays,
+                    "{cut:?} and turn {number}"
+                );
+            }
+        }
+    }
+}

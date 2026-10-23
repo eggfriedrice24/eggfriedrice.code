@@ -13,13 +13,18 @@ use efr_test_support::{
     PERF_MODEL, PERF_PROVIDER, PerfCorpus, PerfSize, TestClock, open_store_file,
 };
 
-use crate::history::{HistoryLimits, ModelKey, Snapshot, older_ranges};
+use crate::history::{HistoryLimits, ModelKey, Snapshot, older_ranges, summary_cut};
 
 /// The seed of the corpus.
 const SEED: u64 = 42;
 
 /// A size whose read takes longer than this ends the ladder.
 const STOP_AFTER: Duration = Duration::from_secs(10);
+
+/// The budget of `read_turn_range` calls in one read of any size. A read skips the
+/// turns that the summary covers, and every turn after the cut saved its messages, so
+/// it makes none; before the skip, L made 1,873.
+const MAX_RANGE_CALLS: usize = 4;
 
 /// The dir of the corpus files: cargo's target temp dir. A unit test gets no
 /// `CARGO_TARGET_TMPDIR`, so the dir comes from the test binary, which cargo puts at
@@ -47,6 +52,7 @@ async fn bench_perf_snapshot_read() {
     let cache = HashMap::new();
     let mut reads = Vec::new();
     let mut windows = Vec::new();
+    let mut over_budget = Vec::new();
     for size in PerfSize::ALL {
         let name = size.name();
         let shape = size.shape();
@@ -64,13 +70,17 @@ async fn bench_perf_snapshot_read() {
         report.count(&format!("{name}: events in the log"), events_in_log);
 
         let snapshot = Snapshot::read(&readers, id, limits).await.unwrap();
-        let ranges = older_ranges(&snapshot.turns, &snapshot.saved, &snapshot.page);
+        let cut = summary_cut(&snapshot.compactions);
+        let ranges = older_ranges(&snapshot.turns, &snapshot.saved, &snapshot.page, cut);
         let read = bench::run_async(1, runs(size), || async {
             black_box(Snapshot::read(&readers, id, limits).await.unwrap());
         })
         .await;
         let stats = report.time(&format!("{name}: Snapshot::read"), &read);
         report.count(&format!("{name}: read_turn_range calls per read"), ranges.len() as u64);
+        if ranges.len() > MAX_RANGE_CALLS {
+            over_budget.push(format!("{name}: {} read_turn_range calls", ranges.len()));
+        }
         report.count(&format!("{name}: turns"), snapshot.turns.len() as u64);
         report.count(&format!("{name}: turns with saved messages"), snapshot.saved.len() as u64);
         report.count(&format!("{name}: events in the page"), snapshot.page.len() as u64);
@@ -132,4 +142,5 @@ async fn bench_perf_snapshot_read() {
     report.slope("Snapshot::read over the turns, s to l", &reads[..reads.len().min(3)]);
     report.slope("window() over the turns, s to l", &windows[..windows.len().min(3)]);
     report.finish();
+    assert!(over_budget.is_empty(), "over {MAX_RANGE_CALLS} range calls per read: {over_budget:?}");
 }
