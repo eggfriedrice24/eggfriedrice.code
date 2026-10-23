@@ -676,7 +676,14 @@ The design:
    does not cover it. Its messages come from the actor's cache, else from
    `turn_messages`, else from its events. Only a turn with no saved messages (one from
    an efr before the table) needs its events; when it started before the page, the
-   store reads its events by their sequence numbers (`events::read_turn_range`).
+   store reads its events by their sequence numbers (`events::read_turn_range`). A
+   turn that the newest summary covers whole (`Cut::covers_turn`: a turn before the
+   cut's turn, or the cut's turn when the cut covers all of it) is never read or
+   rebuilt, and the cut still drops each covered message of the cut's own turn. A
+   newer prune-only compaction never moves this cut, and a cut at a turn that the
+   turns do not know covers no turn. The history is the same as when every turn is
+   read: `history/tests/covered.rs` checks the window, the request and the context
+   breakdown with and without the skip.
 3. There is no turn limit. `turn_messages` keeps every turn until a compaction with a
    summary covers it, and the actor keeps in memory the turns that the newest request
    carried.
@@ -1345,4 +1352,6 @@ a time. They report and do not fail on a time.
   `Snapshot::read` and of `window()` on the perf corpus S, M, L and XL of
   `efr-test-support`, the count of `read_turn_range` calls of one read, and the time of
   those calls and of the user messages read alone. The corpus files are built once
-  below `target/tmp/perf-corpus/`.
+  below `target/tmp/perf-corpus/`. It fails when one read of a size makes more than 4
+  `read_turn_range` calls: the turns that the summary covers are never read (before
+  the skip, L made 1,873).

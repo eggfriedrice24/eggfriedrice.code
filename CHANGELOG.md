@@ -69,6 +69,11 @@ into the GitHub release notes, and it stops when the section is missing.
   start of `conversation.subscribe` now has a history cursor. Before, the snapshot had
   no events and no cursor, so a client could not find that event and the events
   before it.
+- In a long conversation, a prompt reaches the model sooner. After a compaction with
+  a summary, a turn no longer reads or rebuilds the earlier turns that the summary
+  covers. In a test conversation of 2,000 turns, the time from the prompt to the
+  model request went from about 44 ms to about 21 ms. The request that the model
+  gets does not change.
 
 ### Security
 

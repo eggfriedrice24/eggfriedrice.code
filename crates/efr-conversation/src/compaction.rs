@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use efr_protocol::{CompactionTrigger, TurnId};
+use efr_protocol::{Compaction, CompactionTrigger, TurnId};
 use efr_provider::{
     CompletionBuilder, ContentBlock, Message, Provider, ProviderError, Request, Role, StopReason,
     TokenUsage,
@@ -83,13 +83,33 @@ pub(crate) struct Cut {
 }
 
 impl Cut {
+    /// The cut of `compaction`.
+    pub(crate) fn of(compaction: &Compaction) -> Cut {
+        Cut { through_turn: compaction.through_turn, through_message: compaction.through_message }
+    }
+
     /// True when `placed` lies before the cut. `order` gives the position of a turn in
     /// the conversation; a turn it does not know counts as after the cut.
     pub(crate) fn covers(&self, placed: &Placed, order: impl Fn(TurnId) -> Option<usize>) -> bool {
         if placed.turn == self.through_turn {
             return self.through_message.is_none_or(|first| placed.index < first);
         }
-        match (order(placed.turn), order(self.through_turn)) {
+        self.covers_turn(placed.turn, order)
+    }
+
+    /// True when the cut covers every message of `turn`, so the history needs nothing
+    /// of it: `turn` is `through_turn` and the cut covers it whole, or `order` knows
+    /// both turns and `turn` comes first. When this is true, [`covers`](Self::covers)
+    /// is true for each message of `turn`.
+    pub(crate) fn covers_turn(
+        &self,
+        turn: TurnId,
+        order: impl Fn(TurnId) -> Option<usize>,
+    ) -> bool {
+        if turn == self.through_turn {
+            return self.through_message.is_none();
+        }
+        match (order(turn), order(self.through_turn)) {
             (Some(turn), Some(through)) => turn < through,
             _ => false,
         }
