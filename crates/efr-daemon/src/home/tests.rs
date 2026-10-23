@@ -312,3 +312,77 @@ fn a_masked_path_inside_a_snapshot_root_needs_no_home_copy() {
     assert!(!root_holds(&home("/home/u/.aws/config"), &roots, &masks), "outside the roots");
     assert!(!root_holds(&CoverAsk::CronTable, &roots, &masks));
 }
+
+/// The target dir's `tmp` dir, from the path of this test binary
+/// (`<target>/<profile>/deps/<binary>`): a big fixture goes to the disk, not to `/tmp`.
+fn target_tmp() -> PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    exe.ancestors().nth(3).unwrap_or(Path::new(".")).join("tmp")
+}
+
+/// The time of `f`, and its value.
+async fn timed<T>(f: impl Future<Output = T>) -> (Duration, T) {
+    let start = std::time::Instant::now();
+    let value = f.await;
+    (start.elapsed(), value)
+}
+
+/// The home copy of a directory of 200, 2,000 and 20,000 files (plan slice W2-G):
+/// `prepare` before the call, the store's copy before it, `after` once the call
+/// changed 10 files and made 10, the store's deltas (`home_after`) and `changed`.
+/// The limit of the test config is raised above the largest size.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_home_copy() {
+    use efr_test_support::bench::Report;
+    let mut report = Report::new("bench_perf_home_copy");
+    let limits = HomeLimits { max_files: 100_000, max_bytes: 16 * 1024 * 1024 * 1024 };
+    let parent = target_tmp().join("efr-daemon-bench");
+    std::fs::create_dir_all(&parent).unwrap();
+    let mut points = Vec::new();
+    for files in [200_usize, 2_000, 20_000] {
+        let temp = tempfile::tempdir_in(&parent).unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let data = root.join("home/data");
+        for n in 0..files {
+            write(&data.join(format!("d{}/f{n}.txt", n / 100)), &format!("line {n}\n"));
+        }
+        let targets = [dir(&data)];
+        let store = store(&root);
+        let (conversation, turn) = ids();
+        let label = format!("{files} files");
+
+        let (prepare_time, before) = timed(async { prepare(&targets, &[], limits).unwrap() }).await;
+        assert!(before.covers(&CoverAsk::HomeDir(data.clone())), "{label}: within the limits");
+        let (copy_time, copy) =
+            timed(store.home_before(conversation, turn, Reader::new(&before))).await;
+        let copy = copy.unwrap();
+        for n in 0..10 {
+            write(&data.join(format!("d0/f{n}.txt")), "changed by the call\n");
+            write(&data.join(format!("new/n{n}.txt")), "made by the call\n");
+        }
+        let (after_time, after_copy) = timed(async { after(&before, &[], limits) }).await;
+        let (deltas_time, deltas) = timed(store.home_after(&copy, Reader::new(&after_copy))).await;
+        let deltas = deltas.unwrap();
+        let (changed_time, backups) = timed(async { changed(&deltas, &before, &after_copy) }).await;
+        assert!(backups.len() >= 20, "{label}: the 10 changed and the 10 new files: {backups:?}");
+
+        report.time(&format!("{label} prepare"), &[prepare_time]);
+        report.time(&format!("{label} home_before (store copy)"), &[copy_time]);
+        report.time(&format!("{label} after"), &[after_time]);
+        report.time(&format!("{label} home_after (deltas)"), &[deltas_time]);
+        report.time(&format!("{label} changed"), &[changed_time]);
+        report.count(&format!("{label} entries before"), before.entries.len() as u64);
+        report.count(&format!("{label} entries after"), after_copy.entries.len() as u64);
+        report.count(&format!("{label} deltas"), deltas.len() as u64);
+        report.count(&format!("{label} changed paths"), backups.len() as u64);
+        points.push((files as u64, prepare_time + after_time));
+        let slowest = [prepare_time, copy_time, after_time, deltas_time, changed_time];
+        if slowest.iter().any(|time| *time > Duration::from_secs(10)) {
+            report.count("stopped_at_n", files as u64);
+            break;
+        }
+    }
+    report.slope("prepare and after slope", &points);
+    report.finish();
+}
