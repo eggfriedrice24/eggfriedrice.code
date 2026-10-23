@@ -49,6 +49,10 @@ const READY: &str = "efr-ready";
 /// nextest ends a test after 60 s.
 const REAL_TIME_LIMIT: Duration = Duration::from_secs(30);
 
+/// The real time with no event before [`until_job_ended`] moves the daemon's clock one
+/// second. It only paces the clock: no outcome depends on it.
+const PACE: Duration = Duration::from_millis(200);
+
 /// A FIFO below the home dir of `dirs`, which a contained command can read.
 fn gate(dirs: &TestDirs) -> PathBuf {
     let fifo = dirs.create_dir("home/gate").unwrap().join("go");
@@ -177,8 +181,9 @@ fn envelopes(item: ConversationSubscribeItem) -> Vec<EventEnvelope> {
 }
 
 /// The events of `stream` up to the first `job_ended`, while the daemon's clock moves
-/// one second whenever a sleep of the daemon ends within it and no event came for a
-/// while, at most `max_seconds` times.
+/// one second whenever a sleep of the daemon ends within it and no event came for
+/// [`PACE`] of real time, at most `max_seconds` times. The job's processes end in real
+/// time, so a slow or busy machine must get that time before the clock moves on.
 async fn until_job_ended(
     daemon: &TestDaemon,
     stream: &mut ItemStream<ConversationSubscribeItem>,
@@ -200,7 +205,7 @@ async fn until_job_ended(
                     }
                 }
             }
-            () = efr_stdx::time::SystemClock.sleep(Duration::from_millis(50)) => {
+            () = efr_stdx::time::SystemClock.sleep(PACE) => {
                 let waited = started.elapsed();
                 assert!(waited < REAL_TIME_LIMIT, "no end in {waited:?} ({moved}s): {seen:#?}");
                 let clock = daemon.clock();
@@ -288,7 +293,7 @@ async fn moved_contained_call_keeps_proxy_and_writes_no_state() {
     assert_eq!(server.log(), Vec::new(), "no request before the move");
 
     release(&fifo).await;
-    let seen = until_job_ended(&daemon, &mut stream, 10).await;
+    let seen = until_job_ended(&daemon, &mut stream, 30).await;
 
     let Some(Event::JobEnded { state, exit_code, launcher_lost, blocked, .. }) =
         seen.last().map(|envelope| envelope.event.clone())
