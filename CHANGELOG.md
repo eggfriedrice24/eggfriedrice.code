@@ -12,6 +12,9 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- The diff of an approval preview and of a finished write now shows only the changed
+  hunks. Before, two small changes far apart in a large file showed as the whole file
+  removed and added again, and the added and removed counts were wrong.
 - A shell line with many relative `cd`s now asks you, as after `cd -`. This occurs
   when the rest of the line may run in more than 32 directories: six `cd`s into
   subdirectories in a row are enough. Before, such a line could make efrd use all its

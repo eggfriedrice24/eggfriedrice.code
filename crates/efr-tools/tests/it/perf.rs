@@ -1,5 +1,6 @@
 //! The benches of the line diff and the patch engine (`just bench-perf`, section 2.3 of
-//! the perf plan) on large files. They report; they have no time budget yet.
+//! the perf plan) on large files. The line diff has a budget on its counts and its
+//! slope; the patch engine reports only.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -53,20 +54,31 @@ fn bench_perf_line_diff() {
     let new: String = (0..50_000).map(|at| format!("rewritten {at:06}\n")).collect();
     cases.push(("full rewrite of 50000 lines".to_owned(), 0, old, new));
 
+    let mut failures = Vec::new();
     for (name, n, old, new) in &cases {
         let mut diff = None;
         let runs = samples(|| diff = written_diff(path, Some(old), new, MAX_CALL_DIFF_LINES));
         let diff = diff.unwrap();
         let stats = report.time(name, &runs);
-        report.count(&format!("{name}: diff lines"), diff.text.lines().count() as u64);
+        let lines = diff.text.lines().count();
+        report.count(&format!("{name}: diff lines"), lines as u64);
         report.count(&format!("{name}: added"), diff.added as u64);
         report.count(&format!("{name}: removed"), diff.removed as u64);
         if *n > 0 {
             points.push((*n, stats.p50));
+            // Budget: two hunks of 9 lines below the two header lines. Before the
+            // anchors, the middle was one replacement of 2,003 lines at every size.
+            if (diff.added, diff.removed) != (2, 2) || lines > 2 + 2 * 9 {
+                failures.push(format!("{name}: {lines} lines, {diff:?}"));
+            }
         }
     }
-    report.slope("2 one-line changes slope over lines", &points);
+    let slope = report.slope("2 one-line changes slope over lines", &points);
+    if slope > 1.3 {
+        failures.push(format!("the slope over lines is {slope:.2}"));
+    }
     report.finish();
+    assert!(failures.is_empty(), "the budget failed: {failures:?}");
 }
 
 /// How the context of a patch differs from the file.
