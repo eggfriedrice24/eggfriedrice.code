@@ -32,8 +32,11 @@ mod remotes;
 mod scan;
 mod view;
 
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
@@ -416,7 +419,9 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let reach = input.facts.map_or(&[][..], |facts| &facts.reach_ports[..]);
     let mut found = Found::default();
     let mut made: Vec<(PathBuf, bool)> = Vec::new();
-    let mut writes: Vec<(PathBuf, String)> = Vec::new();
+    // NOTE: the text of a part is shared, so a part with many targets is not copied for
+    // each one.
+    let mut writes: Vec<(PathBuf, Rc<str>)> = Vec::new();
     let mut fetch: Option<Ecosystem> = None;
     let mut linked: Vec<PathBuf> = Vec::new();
     let mut installs: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
@@ -426,6 +431,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
         let part = part_text(segment);
+        let shared: Rc<str> = Rc::from(part.as_str());
         let assigned = segment.words.iter().any(|word| is_assignment(word));
         for redirect in &segment.redirects {
             let Some(path) = at(&redirect.target) else { continue };
@@ -450,7 +456,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
             }
             made.push((path.clone(), false));
-            writes.push((path, part.clone()));
+            writes.push((path, Rc::clone(&shared)));
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
             fetch = fetch.or_else(|| programs::package_fetch(command));
@@ -579,7 +585,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 .chain(programs::sed_in_place_targets(command))
             {
                 if let Some(path) = at(word) {
-                    writes.push((path, part.clone()));
+                    writes.push((path, Rc::clone(&shared)));
                 }
             }
             let operands = programs::recursive_rm_operands(command);
@@ -593,6 +599,10 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             }
         }
     }
+    // NOTE: built at the first declared write, so a line with many of them resolves each
+    // word once, not once for each write.
+    let mut naming: Option<Naming<'_>> = None;
+    let whole_line: Rc<str> = Rc::from(input.line);
     for PathAccess { path, access } in input.paths {
         let Some(path) = normalize(path).map(|path| input.locations.rehome(&path).into_owned())
         else {
@@ -600,8 +610,10 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         };
         match access {
             Access::Write => {
-                let part = naming_part(&segments, &path, start.as_deref(), input.locations)
-                    .unwrap_or_else(|| input.line.to_owned());
+                let naming = naming.get_or_insert_with(|| {
+                    Naming::new(&segments, start.as_deref(), input.locations)
+                });
+                let part = naming.part(&path).unwrap_or_else(|| Rc::clone(&whole_line));
                 writes.push((path, part));
             }
             Access::Read | Access::ReadTree => {
@@ -611,7 +623,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             }
         }
     }
-    let mut seen: Vec<PathBuf> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
     let cx = WriteFacts {
         facts: input.facts,
         support: input.support,
@@ -619,16 +631,15 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         installs: &installs,
     };
     for (path, part) in writes {
-        if seen.contains(&path) {
+        if !seen.insert(path.clone()) {
             continue;
         }
         let exit = envelope.write_exit(&path, input.facts, &made);
         if let Some(need) = write_need(&envelope, &cx, exit, &path, &part, ExitSource::Predicted) {
             found.push(need);
         }
-        seen.push(path);
     }
-    let networked = found.0.iter().any(|need| {
+    let networked = found.needs.iter().any(|need| {
         matches!(
             need.kind,
             ExitKind::Host
@@ -668,7 +679,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             found.push(need);
         }
     }
-    let mut found = found.0;
+    let mut found = found.needs;
     for need in &mut found {
         match need.kind {
             // NOTE: the stricter of the form's approver and the rule of the program
@@ -951,13 +962,9 @@ pub struct FactRequest {
 pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locations) -> FactRequest {
     let start = command_dir.and_then(normalize);
     let mut request = FactRequest::default();
+    let mut seen = Seen::default();
     // The program words in a place where only a file runs.
-    let mut files: Vec<String> = Vec::new();
-    let add = |list: &mut Vec<PathBuf>, path: PathBuf| {
-        if !list.contains(&path) {
-            list.push(path);
-        }
-    };
+    let mut files: HashSet<String> = HashSet::new();
     let home = locations.home();
     // NOTE: the turn's project is not known here; the dir of the line stands in for
     // it, so a copy into an agent config there asks for its source too. A source too
@@ -986,8 +993,8 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                     covers.extend(cover::path_asks(&[Some(path.clone())]));
                 }
                 covers.extend(cover::write_asks(&path, home));
-                add_real_paths(&mut request.real_paths, &path, home);
-                add(&mut request.targets, path);
+                add_real_paths(&mut request.real_paths, &mut seen.real_paths, &path, home);
+                once(&mut request.targets, &mut seen.targets, path);
             }
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
@@ -999,34 +1006,26 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
                 covers.extend(cover::program_asks(command, assigned, dir, locations, &at));
             }
             covers.extend(persist::covers(command));
-            if let Some(git_code::Trigger::Ask(ask)) = git_code::trigger(command, dir, locations)
-                && !request.git_code.contains(&ask)
-            {
-                request.git_code.push(ask);
+            if let Some(git_code::Trigger::Ask(ask)) = git_code::trigger(command, dir, locations) {
+                once(&mut request.git_code, &mut seen.git_code, ask);
             }
             if remotes::remote_command(command).is_some()
                 && !remotes::steers_git(&segment.words)
                 && let Some(git_dir) = remotes::remote_dir(command, dir, locations)
             {
-                add(&mut request.remotes, git_dir);
+                once(&mut request.remotes, &mut seen.remotes, git_dir);
             }
             for source in persist::sources(command, &envelope, &at) {
-                if !request.sources.contains(&source) {
-                    request.sources.push(source);
-                }
+                once(&mut request.sources, &mut seen.sources, source);
             }
             if let Some(program) = command.first()
                 && !program.contains([OPAQUE, '$'])
             {
-                if !request.programs.contains(program) {
-                    request.programs.push(program.clone());
-                }
+                once(&mut request.programs, &mut seen.programs, program.clone());
                 if by_shell && programs::is_shell_word(program) {
-                    if !request.builtins.contains(program) {
-                        request.builtins.push(program.clone());
-                    }
+                    once(&mut request.builtins, &mut seen.builtins, program.clone());
                 } else if !files.contains(program) {
-                    files.push(program.clone());
+                    files.insert(program.clone());
                 }
             }
             let written = programs::made_paths(command)
@@ -1037,8 +1036,8 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             for word in written {
                 if let Some(path) = written_at(word) {
                     covers.extend(cover::write_asks(&path, home));
-                    add_real_paths(&mut request.real_paths, &path, home);
-                    add(&mut request.targets, path);
+                    add_real_paths(&mut request.real_paths, &mut seen.real_paths, &path, home);
+                    once(&mut request.targets, &mut seen.targets, path);
                 }
             }
             let operands = programs::recursive_rm_operands(command);
@@ -1046,16 +1045,12 @@ pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locatio
             covers.extend(cover::path_asks(&removed));
             for path in removed.into_iter().flatten() {
                 covers.extend(cover::write_asks(&path, home));
-                add(&mut request.targets, path.clone());
-                add(&mut request.tracked, path);
+                once(&mut request.targets, &mut seen.targets, path.clone());
+                once(&mut request.tracked, &mut seen.tracked, path);
             }
         }
     }
-    for ask in covers {
-        if !request.covers.contains(&ask) {
-            request.covers.push(ask);
-        }
-    }
+    request.add_covers(covers);
     // NOTE: a word that runs as a file in one place of the line resolves as a file, so
     // the question shows that file and whether the sandbox wrote it.
     request.builtins.retain(|word| !files.contains(word));
@@ -1075,20 +1070,20 @@ impl FactRequest {
     ) -> Self {
         let Some(needs) = needs else { return self };
         let start = command_dir.and_then(normalize);
+        let mut real: HashSet<PathBuf> = self.real_paths.iter().cloned().collect();
+        let mut targets: HashSet<PathBuf> = self.targets.iter().cloned().collect();
+        let mut asks = Vec::new();
         for word in needs.write.iter().take(Needs::MAX_WRITE) {
             if let Some(path) = resolve(word, start.as_deref(), locations) {
-                self.add_covers(cover::write_asks(&path, locations.home()));
-                add_real_paths(&mut self.real_paths, &path, locations.home());
-                if !self.targets.contains(&path) {
-                    self.targets.push(path);
-                }
+                asks.extend(cover::write_asks(&path, locations.home()));
+                add_real_paths(&mut self.real_paths, &mut real, &path, locations.home());
+                once(&mut self.targets, &mut targets, path);
             }
         }
+        self.add_covers(asks);
         for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
-            if let Some(path) = resolve(word, start.as_deref(), locations)
-                && !self.real_paths.contains(&path)
-            {
-                self.real_paths.push(path);
+            if let Some(path) = resolve(word, start.as_deref(), locations) {
+                once(&mut self.real_paths, &mut real, path);
             }
         }
         self
@@ -1099,32 +1094,60 @@ impl FactRequest {
     /// (phase B).
     #[must_use]
     pub fn with_writes(mut self, writes: &[PathBuf], locations: &Locations) -> Self {
+        let mut real: HashSet<PathBuf> = self.real_paths.iter().cloned().collect();
+        let mut asks = Vec::new();
         for path in writes {
             if let Some(path) = normalize(path) {
                 let path = locations.rehome(&path).into_owned();
-                self.add_covers(cover::write_asks(&path, locations.home()));
-                add_real_paths(&mut self.real_paths, &path, locations.home());
+                asks.extend(cover::write_asks(&path, locations.home()));
+                add_real_paths(&mut self.real_paths, &mut real, &path, locations.home());
             }
         }
+        self.add_covers(asks);
         self
     }
 
+    /// Adds each ask of `asks` that [`covers`](Self::covers) does not hold yet, in
+    /// order.
     fn add_covers(&mut self, asks: Vec<CoverAsk>) {
+        let mut seen: HashSet<CoverAsk> = self.covers.iter().cloned().collect();
         for ask in asks {
-            if !self.covers.contains(&ask) {
-                self.covers.push(ask);
-            }
+            once(&mut self.covers, &mut seen, ask);
         }
+    }
+}
+
+/// The items that the lists of a [`FactRequest`] being built hold, so that each list
+/// gets each item once without a scan of the list: a line of many paths stays linear.
+#[derive(Default)]
+struct Seen {
+    targets: HashSet<PathBuf>,
+    tracked: HashSet<PathBuf>,
+    programs: HashSet<String>,
+    builtins: HashSet<String>,
+    sources: HashSet<Source>,
+    remotes: HashSet<PathBuf>,
+    real_paths: HashSet<PathBuf>,
+    git_code: HashSet<GitCodeAsk>,
+}
+
+/// Pushes `item` to `list` when `seen`, which holds the items of `list`, does not hold
+/// it yet.
+fn once<T: Clone + Eq + Hash>(list: &mut Vec<T>, seen: &mut HashSet<T>, item: T) {
+    if seen.insert(item.clone()) {
+        list.push(item);
     }
 }
 
 /// Adds `path` and each of its parents strictly below `home` to `list`, each once,
 /// when `path` lies strictly below `home`: a contained write grant binds the target or
-/// its nearest existing parent, which lies below the home directory (phase E).
-fn add_real_paths(list: &mut Vec<PathBuf>, path: &Path, home: &Path) {
+/// its nearest existing parent, which lies below the home directory (phase E). `seen`
+/// holds the paths of `list`. Each parent is checked: a socket of `needs.sockets` is in
+/// `list` without its parents.
+fn add_real_paths(list: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: &Path, home: &Path) {
     for dir in path.ancestors().take_while(|dir| dir.starts_with(home) && *dir != home) {
-        if !list.iter().any(|known| known == dir) {
-            list.push(dir.to_path_buf());
+        if !seen.contains(dir) {
+            once(list, seen, dir.to_path_buf());
         }
     }
 }
@@ -1156,7 +1179,12 @@ pub fn tool_fact_requests(requirements: &Requirements, locations: &Locations) ->
 
 /// The exits found so far, each kind, grant set and target once.
 #[derive(Default)]
-struct Found(Vec<ExitNeed>);
+struct Found {
+    needs: Vec<ExitNeed>,
+    /// The kind, grants and target of each need of [`needs`](Self::needs), with its
+    /// place there.
+    known: HashMap<(ExitKind, Vec<Grant>, Option<PathBuf>), usize>,
+}
 
 impl Found {
     /// Adds `need` as [`Found::push`] does, when there is one.
@@ -1169,9 +1197,11 @@ impl Found {
     /// Adds `need`, or merges it into a known exit of the same kind, grants and target:
     /// the stricter approver of the two wins, and the names and hosts of both stay.
     fn push(&mut self, need: ExitNeed) {
-        let known = self.0.iter_mut().find(|known| {
-            known.kind == need.kind && known.grants == need.grants && known.target == need.target
-        });
+        let key = (need.kind, need.grants.clone(), need.target.clone());
+        let known = match self.known.get(&key) {
+            Some(at) => self.needs.get_mut(*at),
+            None => None,
+        };
         match known {
             Some(known) => {
                 // NOTE: two named persistence forms of one line, such as a unit change and
@@ -1212,7 +1242,10 @@ impl Found {
                     (a, b) => a.or(b),
                 };
             }
-            None => self.0.push(need),
+            None => {
+                self.known.insert(key, self.needs.len());
+                self.needs.push(need);
+            }
         }
     }
 }
@@ -1302,22 +1335,39 @@ fn part_text(segment: &Segment) -> String {
     words.join(" ")
 }
 
-/// The simple command whose words or redirections name `path`.
-fn naming_part(
-    segments: &[Segment],
-    path: &Path,
-    start: Option<&Path>,
-    locations: &Locations,
-) -> Option<String> {
-    segments
-        .iter()
-        .find(|segment| {
+/// The simple commands of a line that name each path: by one of their words or by the
+/// target of one of their redirections.
+struct Naming<'s> {
+    segments: &'s [Segment],
+    /// Each path that a word names, with the first segment that names it.
+    first: HashMap<PathBuf, usize>,
+    /// The [`part_text`] of each segment, made when a path first needs it.
+    parts: Vec<Option<Rc<str>>>,
+}
+
+impl<'s> Naming<'s> {
+    /// The paths that `segments` name, from `start` until a `cd`.
+    fn new(segments: &'s [Segment], start: Option<&Path>, locations: &Locations) -> Self {
+        let mut first = HashMap::new();
+        for (at, segment) in segments.iter().enumerate() {
             let dir = if segment.after_cd { None } else { start };
-            let names = |word: &str| resolve(word, dir, locations).as_deref() == Some(path);
-            segment.words.iter().any(|word| names(word))
-                || segment.redirects.iter().any(|redirect| names(&redirect.target))
-        })
-        .map(part_text)
+            let targets = segment.redirects.iter().map(|redirect| &redirect.target);
+            for word in segment.words.iter().chain(targets) {
+                if let Some(path) = resolve(word, dir, locations) {
+                    first.entry(path).or_insert(at);
+                }
+            }
+        }
+        Naming { segments, first, parts: vec![None; segments.len()] }
+    }
+
+    /// The text of the first simple command that names `path`.
+    fn part(&mut self, path: &Path) -> Option<Rc<str>> {
+        let at = *self.first.get(path)?;
+        let segments = self.segments;
+        let part = self.parts[at].get_or_insert_with(|| Rc::from(part_text(&segments[at])));
+        Some(Rc::clone(part))
+    }
 }
 
 /// True when a simple command of `line` runs the zsh function `df` or `findmnt` of the

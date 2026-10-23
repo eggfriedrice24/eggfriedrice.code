@@ -711,19 +711,27 @@ the network or the clock, and nothing needs Zig.
 ## Benches
 
 Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
-`efr-test-support`, a dev-dependency only. They report what they measure and have no
-time budget yet. A size that takes more than 10 s stops its ladder.
-These tests read the clock, and the scan bench starts processes.
+`efr-test-support`, a dev-dependency only. A size that takes more than 10 s stops its
+ladder, and a ladder that stops fails its bench. A cost that grows with the line has a
+budget on its slope: below 1.3, where a linear cost has about 1. Each bench writes its
+report before it checks its budget. These tests read the clock, and the scan bench
+starts processes.
 
 - `bench_perf_scan_nesting` (`src/exits/scan/tests.rs`): the lenient scan on `$(` 100,
   1k, 10k and 50k times, with and without the closing parens, on a thread with a
   stack of 2 MiB. Each depth runs in a child process (this test binary again, with
-  `EFR_BENCH_SCAN_CASE`), because a stack overflow kills the process. A crash is a
-  count, and it stops the ladder.
+  `EFR_BENCH_SCAN_CASE`), because a stack overflow kills the process. Budget: every
+  depth returns, with one segment for each level that the scan reads (64 at most) and
+  one for the rest, and the slope stays below 1.3.
 - `bench_perf_run_forms` (`tests/it/perf.rs`): `Engine::decide` with 20 user `ask`
   rules on `rm f1..fN` and `time rg x f1..fN`, N = 100, 1k, 5k and 10k, with the
-  growth of the peak resident set.
+  growth of the peak resident set. Budget: the slope of each line.
 - `bench_perf_fact_requests` (`tests/it/perf.rs`): `fact_requests` on `rm -rf` and
-  `touch` lines of 100, 1k and 5k operands.
+  `touch` lines of 100, 1k and 5k operands. Budget: the slope of each line.
+- `bench_perf_decide_paths` (`tests/it/perf.rs`): `Engine::decide` on `rm -f` of 100,
+  1k and 6,400 files with each file declared as a write and its facts, as efrd gives
+  them, in the project and outside it. Budget: the slope in the project. Outside the
+  project each file is an exit, and the facts of an exit are still found by a scan of
+  every fact, so it reports only.
 - `bench_perf_decide_line` (`tests/it/perf.rs`): the base cost of one
   `Engine::decide` and one `fact_requests` on a typical line and on a line of 100 KB.

@@ -250,3 +250,5 @@ fn remote_rows_match_the_classifier() {
         assert_eq!(super::programs::is_remote(operand), *remote, "{operand:?}");
     }
 }
+
+mod fact_requests;

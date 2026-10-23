@@ -28,6 +28,7 @@
 //! leads to its file in the user unit dirs (`sandbox/units.rs`). A mask or a secret is
 //! never read.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -96,9 +97,11 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
     });
     let looked = tokio::task::spawn_blocking(move || {
         let mut found: Vec<(PathBuf, Option<TargetKind>)> = Vec::new();
+        // NOTE: the paths of `found`, so a call of many targets stays linear.
+        let mut seen: HashSet<PathBuf> = HashSet::new();
         for target in &targets {
             for (path, kind) in target_and_parents(target) {
-                if !found.iter().any(|(known, _)| *known == path) {
+                if seen.insert(path.clone()) {
                     found.push((path, kind));
                 }
             }

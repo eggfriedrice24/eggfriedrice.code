@@ -1,6 +1,8 @@
 //! The benches of the engine (`just bench-perf`, section 2.3 of the perf plan): the
-//! decision of long lines under the user's ask rules, the fact requests of long lines,
-//! and the base cost of one decision. They report; they have no time budget yet.
+//! decision of long lines under the user's ask rules and with many declared paths, the
+//! fact requests of long lines, and the base cost of one decision. A cost that grows
+//! with the line has a budget on its slope: [`MAX_SLOPE`]. Each bench writes its
+//! report first, then checks its budget.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -8,7 +10,7 @@ use std::time::{Duration, Instant};
 use efr_permissions::exits::fact_requests;
 use efr_permissions::{
     Action, AutoSupport, CallFacts, CommandPattern, ConversationPolicy, DecisionInput, Effect,
-    Engine, Locations, Policy, Requirements, Resource, Rule,
+    Engine, Locations, Policy, Requirements, Resource, Rule, TargetKind,
 };
 use efr_protocol::{Mode, Origin, ProjectId, Scope};
 use efr_test_support::bench::{self, Memory, Report};
@@ -19,6 +21,18 @@ const SCRATCH: &str = "/home/u/.local/share/efr/scratch/2026-10-23-perf-0a1b2c3d
 
 /// A size of a ladder that takes longer than this stops the ladder.
 const LIMIT: Duration = Duration::from_secs(10);
+
+/// The largest slope of a cost over the size of the line: a linear cost has about 1,
+/// and the copies and scans that each word repeated had 2 (v0.0.4).
+const MAX_SLOPE: f64 = 1.3;
+
+/// Fails when a slope of `slopes` is above [`MAX_SLOPE`] or a ladder stopped early.
+fn check_budget(slopes: &[(String, f64)], stopped: &[String]) {
+    assert!(stopped.is_empty(), "stopped early: {stopped:?}");
+    for (label, slope) in slopes {
+        assert!(*slope < MAX_SLOPE, "{label}: slope {slope:.2}, the budget is {MAX_SLOPE}");
+    }
+}
 
 /// The programs of the user's ask rules: 20 of them, as a long config has.
 const ASKED: [&str; 20] = [
@@ -131,6 +145,7 @@ fn samples(mut f: impl FnMut()) -> Vec<Duration> {
 fn bench_perf_run_forms() {
     let engine = engine();
     let mut report = Report::new("bench_perf_run_forms");
+    let (mut slopes, mut stopped) = (Vec::new(), Vec::new());
     // NOTE: `rm` first: the peak of `time rg` stays resident after it, and would hide
     // the growth of the next line.
     for (name, program) in [("rm", "rm"), ("time rg x", "time rg x")] {
@@ -153,12 +168,15 @@ fn bench_perf_run_forms() {
             points.push((n, stats.p50));
             if stats.p50 > LIMIT {
                 report.count(&format!("{name} stopped_at_n"), n);
+                stopped.push(name.to_owned());
                 break;
             }
         }
-        report.slope(&format!("{name} slope over operands"), &points);
+        let label = format!("{name} slope over operands");
+        slopes.push((label.clone(), report.slope(&label, &points)));
     }
     report.finish();
+    check_budget(&slopes, &stopped);
 }
 
 #[test]
@@ -166,6 +184,7 @@ fn bench_perf_run_forms() {
 fn bench_perf_fact_requests() {
     let locations = locations();
     let mut report = Report::new("bench_perf_fact_requests");
+    let (mut slopes, mut stopped) = (Vec::new(), Vec::new());
     for program in ["rm -rf", "touch"] {
         let mut points = Vec::new();
         for n in [100_u64, 1_000, 5_000] {
@@ -180,12 +199,75 @@ fn bench_perf_fact_requests() {
             points.push((n, stats.p50));
             if stats.p50 > LIMIT {
                 report.count(&format!("{program} stopped_at_n"), n);
+                stopped.push(program.to_owned());
                 break;
             }
         }
-        report.slope(&format!("{program} slope over operands"), &points);
+        let label = format!("{program} slope over operands");
+        slopes.push((label.clone(), report.slope(&label, &points)));
     }
     report.finish();
+    check_budget(&slopes, &stopped);
+}
+
+/// The decision input of `rm -f` of `n` files that do not exist in `dir`, which the
+/// line names as `{prefix}1` to `{prefix}N`, as efrd gives it: the line, each file as a
+/// declared write, and the facts that efrd collects for them (each file is missing,
+/// `dir` is a dir).
+fn rm_input(n: usize, dir: &str, prefix: &str) -> DecisionInput {
+    let mut line = String::from("rm -f");
+    for at in 1..=n {
+        line.push_str(&format!(" {prefix}{at}"));
+    }
+    let mut input = input(&line);
+    let files: Vec<PathBuf> = (1..=n).map(|at| PathBuf::from(dir).join(format!("f{at}"))).collect();
+    let mut requirements = input.requirements.clone();
+    let mut facts = requirements.facts.take().unwrap_or_default();
+    facts.targets = files.iter().map(|file| (file.clone(), None)).collect();
+    facts.targets.push((PathBuf::from(dir), Some(TargetKind::Dir)));
+    for file in files {
+        requirements = requirements.with_write(file);
+    }
+    input.requirements = requirements.with_destructive().with_facts(facts);
+    input
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_decide_paths() {
+    let engine = engine();
+    let mut report = Report::new("bench_perf_decide_paths");
+    let (mut slopes, mut stopped) = (Vec::new(), Vec::new());
+    // NOTE: in the project the sandbox writes each file; outside it each file is an
+    // exit of its own.
+    for (place, dir, prefix) in
+        [("in the project", PROJECT, "f"), ("outside the project", "/home/u/notes", "~/notes/f")]
+    {
+        let mut points = Vec::new();
+        for n in [100_u64, 1_000, 6_400] {
+            let input = rm_input(n as usize, dir, prefix);
+            let mut effect = None;
+            let runs = samples(|| effect = Some(engine.decide(&input).effect()));
+            // NOTE: the user's rule for `rm` asks.
+            assert_eq!(effect, Some(Effect::Ask), "rm -f of {n} files {place}");
+            let stats = report.time(&format!("rm -f of {n} files {place}"), &runs);
+            points.push((n, stats.p50));
+            if stats.p50 > LIMIT {
+                report.count(&format!("{place} stopped_at_n"), n);
+                stopped.push(place.to_owned());
+                break;
+            }
+        }
+        let label = format!("{place} slope over files");
+        let slope = report.slope(&label, &points);
+        // NOTE: outside the project each file is an exit, and the facts of each exit
+        // are still found by a scan of every fact (`CallFacts::target`): no budget yet.
+        if place == "in the project" {
+            slopes.push((label, slope));
+        }
+    }
+    report.finish();
+    check_budget(&slopes, &stopped);
 }
 
 /// `runs` runs of `f` after 20 to warm up, which give the base cost of a short call; or,

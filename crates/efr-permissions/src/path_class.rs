@@ -797,7 +797,11 @@ impl Locations {
     }
 
     pub(crate) fn is_secret(&self, path: &Path) -> bool {
-        HOME_SECRETS.iter().any(|secret| path.starts_with(self.home.join(secret)))
+        // NOTE: each secret of the table is relative, so the rest of `path` below the
+        // home directory is compared, with no path made for each secret: a call of many
+        // paths reads this for each one.
+        let below_home = path.strip_prefix(&self.home).ok();
+        HOME_SECRETS.iter().any(|secret| below_home.is_some_and(|rest| rest.starts_with(secret)))
             || SYSTEM_SECRETS.iter().any(|secret| path.starts_with(secret))
             || self.secret_roots.iter().any(|root| path.starts_with(root))
             || is_proc_secret(path)
