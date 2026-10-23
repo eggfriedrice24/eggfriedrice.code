@@ -1,16 +1,21 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
 use bytes::Bytes;
 use efr_holder::Size;
 use efr_protocol::{Cell, Cursor, RowCells, ScreenSnapshot};
-use efr_screen::ScreenError;
+use efr_screen::{Screen, ScreenActor, ScreenError, ScreenEvents, ScreenHandle, ScreenSink};
+use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
 
 use super::{
     FULL_SCREEN_NOTE, MAX_ROWS, Replayer, Scan, TRUSTED_SCROLLBACK, middle_line_end, rows_needed,
     screen_text,
 };
-use crate::ScreenFactory;
 use crate::capture::{Capture, clean};
 use crate::testing::{CountingScreens, DyingScreens, NoScreens, Vt100Screens};
+use crate::{RunRequest, ScreenFactory};
 
 const SIZE: Size = Size { cols: 40, rows: 10 };
 
@@ -354,4 +359,151 @@ fn the_capture_screen_is_never_taller_than_its_ceiling() {
     let big = Size { cols: 300, rows: 400 };
     assert_eq!(super::rows_for(&lines, big), 400);
     assert_eq!(super::rows_for(b"x", SIZE), SIZE.rows);
+}
+
+/// A screen that counts the rows that its snapshots build: the history rows (the
+/// scrollback) and the visible rows.
+struct CountedScreen<S> {
+    inner: S,
+    counts: Arc<ReplayCounts>,
+}
+
+impl<S: Screen> Screen for CountedScreen<S> {
+    fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
+        self.inner.feed(bytes, sink);
+    }
+
+    fn resize(&mut self, cols: u16, rows: u16, sink: &mut dyn ScreenSink) {
+        self.inner.resize(cols, rows, sink);
+    }
+
+    fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot {
+        let snapshot = self.inner.snapshot(scrollback_rows);
+        self.counts.history.fetch_add(snapshot.scrollback.len() as u64, Ordering::SeqCst);
+        self.counts.visible.fetch_add(snapshot.rows.len() as u64, Ordering::SeqCst);
+        snapshot
+    }
+
+    fn row(&self, index: usize) -> RowCells {
+        self.inner.row(index)
+    }
+
+    fn cursor(&self) -> Cursor {
+        self.inner.cursor()
+    }
+
+    fn title(&self) -> Option<&str> {
+        self.inner.title()
+    }
+
+    fn pwd(&self) -> Option<&str> {
+        self.inner.pwd()
+    }
+}
+
+/// What the capture screens of a replay did.
+#[derive(Debug, Default)]
+struct ReplayCounts {
+    spawns: AtomicU64,
+    history: AtomicU64,
+    visible: AtomicU64,
+}
+
+impl ReplayCounts {
+    /// The spawns, the history rows and the visible rows so far; they start at 0 again.
+    fn take(&self) -> (u64, u64, u64) {
+        (
+            self.spawns.swap(0, Ordering::SeqCst),
+            self.history.swap(0, Ordering::SeqCst),
+            self.visible.swap(0, Ordering::SeqCst),
+        )
+    }
+}
+
+/// vt100 screens that count their spawns and whose snapshots count their rows.
+#[derive(Debug, Default)]
+struct CountedVt100 {
+    counts: Arc<ReplayCounts>,
+}
+
+impl ScreenFactory for CountedVt100 {
+    fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
+        self.counts.spawns.fetch_add(1, Ordering::SeqCst);
+        let counts = Arc::clone(&self.counts);
+        let factory = efr_screen::vt100::factory(size);
+        ScreenActor::spawn(name, move || CountedScreen { inner: factory(), counts }, size)
+    }
+}
+
+/// Build output under a status line that moves up to redraw (`ESC [1A`): each step
+/// erases the status line, prints one log line and draws the status line again, so the
+/// output both moves the cursor and grows the scrollback by one row per step. At least
+/// `size` bytes long.
+fn status_line_output(size: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(size + 256);
+    let mut n = 0_u64;
+    out.extend_from_slice(b"\r\n");
+    while out.len() < size {
+        let bar = "=".repeat(usize::try_from(n % 20).unwrap());
+        let step = format!(
+            "\x1b[1A\r\x1b[2K   Compiling crate-{n} v0.{}.0\r\n\x1b[2K    Building [{bar:<20}] \
+             {n}/99999\r\n",
+            n % 50
+        );
+        out.extend_from_slice(step.as_bytes());
+        n += 1;
+    }
+    out
+}
+
+/// The replay of cursor-moving output on vt100: the capture screens started, the rows
+/// their snapshots built and the time of `Replayer::render`, on 512 KiB and 5 MiB kept
+/// whole, and on 5 MiB kept as a run keeps it (1 MiB: the head and the tail). The
+/// ghostty backend cannot run here, because efr-shell never names a backend:
+/// `bench_perf_replay_screen` of efr-screen-ghostty runs the same loop on both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_replay() {
+    let mut report = Report::new("bench_perf_replay");
+    report.count("skipped: ghostty; see efr-screen-ghostty bench_perf_replay_screen", 0);
+    let size = Size { cols: 160, rows: 48 };
+    let screens = CountedVt100::default();
+    let replayer = Replayer::new(&screens, "replay-bench".to_owned(), size);
+    let mut points = Vec::new();
+    let cases = [
+        ("vt100 512 KiB", 512 * 1024, 512 * 1024),
+        ("vt100 5 MiB", 5 * 1024 * 1024, 5 * 1024 * 1024),
+        ("vt100 5 MiB kept 1 MiB", 5 * 1024 * 1024, RunRequest::DEFAULT_OUTPUT_LIMIT),
+    ];
+    for (label, bytes, limit) in cases {
+        let output = status_line_output(bytes);
+        let mut capture = Capture::new(limit);
+        capture.push(&output);
+        let kept = capture.finish();
+        let mut text = String::new();
+        let mut samples = Vec::new();
+        let mut counts = (0, 0, 0);
+        for _ in 0..3 {
+            let start = Instant::now();
+            text = replayer.render(&kept).await.text;
+            samples.push(start.elapsed());
+            counts = screens.counts.take();
+        }
+        assert!(text.contains("Compiling crate-"), "{label}: the replay kept the log lines");
+        let stats = report.time(label, &samples);
+        let (spawns, history, visible) = counts;
+        report.count(&format!("{label} screen spawns"), spawns);
+        report.count(&format!("{label} history rows"), history);
+        report.count(&format!("{label} visible rows"), visible);
+        report.count(&format!("{label} lines out"), text.lines().count() as u64);
+        if limit >= bytes {
+            points.push((bytes as u64, stats.p50));
+        }
+        if stats.p50 > Duration::from_secs(10) {
+            report.count("stopped_at_n", bytes as u64);
+            break;
+        }
+    }
+    report.slope("vt100 slope", &points);
+    report.finish();
 }
