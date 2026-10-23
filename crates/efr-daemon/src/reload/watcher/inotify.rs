@@ -56,7 +56,13 @@ impl Inotify {
         // NOTE: close-on-exec keeps the descriptor out of the hidden shells and the
         // programs they start.
         let fd = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC)?;
-        Ok(Inotify { fd: AsyncFd::new(fd)? })
+        // NOTE: tokio 1.53.3 deprecates AsyncFd::new (RUSTSEC-2026-0386) for a borrowed
+        // descriptor. This AsyncFd owns its OwnedFd, so no other code can close or replace
+        // the descriptor while it is registered, which is the condition that
+        // `AsyncFd::register` asks its caller to keep.
+        #[expect(deprecated, reason = "the AsyncFd owns the descriptor")]
+        let fd = AsyncFd::new(fd)?;
+        Ok(Inotify { fd })
     }
 
     /// Watches the directory `dir` for [`WATCHED`] events and returns the watch. A

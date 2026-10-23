@@ -27,7 +27,7 @@ authors = ["eggfriedrice"]
 # versions of 2026-10-03 from the structure document, section 8.
 [workspace.dependencies]
 # Runtime and async
-tokio = { version = "1.53.2", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "signal", "fs"] }
+tokio = { version = "1.53.3", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "signal", "fs"] }
 tokio-util = { version = "0.7.19", default-features = false, features = ["codec"] }
 tokio-stream = { version = "0.1.19", default-features = false }
 futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }

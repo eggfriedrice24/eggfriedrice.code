@@ -421,6 +421,7 @@ async fn closing_the_last_master_after_release_hangs_up_the_child() {
     let handle = holder.spawn(sh(pty(1), "echo ready; read line")).await.unwrap();
     // A pidfd turns readable when the process exits; the test opens its own, before
     // anything can reap the child, because the holder forgets the PTY on release.
+    #[expect(deprecated, reason = "the AsyncFd owns the pidfd (RUSTSEC-2026-0386)")]
     let pidfd =
         AsyncFd::new(pidfd_open(pid_of(handle.child_pid), PidfdFlags::empty()).unwrap()).unwrap();
     let mut terminal = Terminal::new(handle.master);
