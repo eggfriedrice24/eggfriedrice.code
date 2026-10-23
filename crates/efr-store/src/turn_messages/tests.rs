@@ -209,3 +209,31 @@ async fn a_compaction_inside_the_running_turn_drops_every_earlier_turn() {
     assert_eq!(kept(&writer, one).await, []);
     assert_eq!(kept(&writer, two).await, [testing::turn(9)], "another conversation keeps its own");
 }
+
+#[tokio::test]
+async fn a_read_gives_the_held_turns_by_id_and_decodes_only_the_others() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let id = testing::conversation(1);
+    writer.append(Batch::new().event(id, testing::created(None))).await.unwrap();
+    for turn in 1..=4 {
+        finish_turn(&writer, id, turn).await;
+    }
+    let all = read(&writer, id).await;
+    // NOTE: turn 9 is held but was never saved, as for a turn whose save failed.
+    let held: HashSet<TurnId> = [2, 4, 9].into_iter().map(testing::turn).collect();
+
+    let saved =
+        on_writer(&writer, move |conn| of_conversation_except(conn, id, &held)).await.unwrap();
+
+    assert_eq!(saved.turns, [all[0].clone(), all[2].clone()]);
+    assert_eq!(saved.held, [testing::turn(2), testing::turn(4)], "oldest first, only the saved");
+    let json: usize = [1, 3]
+        .into_iter()
+        .flat_map(messages)
+        .map(|message| serde_json::to_string(&message).unwrap().len())
+        .sum();
+    assert_eq!(saved.bytes, json as u64, "the bytes of the decoded turns only");
+    let none =
+        on_writer(&writer, move |conn| of_conversation_except(conn, id, &HashSet::new())).await;
+    assert_eq!(none.unwrap().turns, all, "nothing held reads every turn");
+}

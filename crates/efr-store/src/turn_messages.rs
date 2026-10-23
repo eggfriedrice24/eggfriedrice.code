@@ -14,6 +14,8 @@
 //! start of every later request. A compaction with a summary drops the turns before its
 //! cut (`forget_compacted`): the summary takes their place in every later request.
 
+use std::collections::HashSet;
+
 use efr_protocol::{Compaction, ConversationId, Seq, TurnId};
 use rusqlite::{Connection, OptionalExtension as _, params};
 use serde_json::Value;
@@ -126,35 +128,79 @@ pub(crate) fn forget_compacted(
     Ok(())
 }
 
+/// The saved turns of a conversation that a reader asked for: the turns that it does
+/// not hold with their messages, and the turns that it holds by their ids only.
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct SavedTurns {
+    /// The saved turns that the reader does not hold, with their messages, oldest
+    /// first.
+    pub turns: Vec<TurnMessages>,
+    /// The saved turns that the reader holds, oldest first. Their messages are never
+    /// copied out of SQLite or decoded.
+    pub held: Vec<TurnId>,
+    /// The bytes of message JSON that the read decoded, for [`turns`](Self::turns).
+    pub bytes: u64,
+}
+
 /// The saved turns of a conversation, oldest first.
 pub fn of_conversation(
     conn: &Connection,
     conversation_id: ConversationId,
 ) -> Result<Vec<TurnMessages>, StoreError> {
+    of_conversation_except(conn, conversation_id, &HashSet::new()).map(|saved| saved.turns)
+}
+
+/// The saved turns of a conversation, oldest first, without the messages of each turn
+/// that `held` names: the reader keeps those turns in memory, so the read copies and
+/// decodes only the turns that it lacks. A held turn that the table does not have is
+/// not in [`SavedTurns::held`].
+pub fn of_conversation_except(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    held: &HashSet<TurnId>,
+) -> Result<SavedTurns, StoreError> {
     let mut stmt = conn.prepare(
         "SELECT turn_id, provider, model, message FROM turn_messages WHERE conversation_id = ?1 \
          ORDER BY turn_seq, turn_id, position",
     )?;
+    // NOTE: a held row reads only its turn id, so SQLite never copies its message
+    // out. A turn id that does not parse is never held: it fails below as before.
     let rows = stmt
         .query_map([conversation_id.to_string()], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
+            let turn_id = row.get::<_, String>(0)?;
+            if turn_id.parse::<TurnId>().is_ok_and(|turn_id| held.contains(&turn_id)) {
+                return Ok((turn_id, None));
+            }
+            let saved =
+                (row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?);
+            Ok((turn_id, Some(saved)))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let mut turns: Vec<TurnMessages> = Vec::new();
-    for (turn_id, provider, model, message) in rows {
+    let mut saved = SavedTurns::default();
+    for (turn_id, row) in rows {
         let turn_id: TurnId = sql::parse(&turn_id, TABLE, "turn_id")?;
+        let Some((provider, model, message)) = row else {
+            if saved.held.last() != Some(&turn_id) {
+                saved.held.push(turn_id);
+            }
+            continue;
+        };
+        saved.bytes += message.len() as u64;
         let message: Value = sql::from_json(&message, TABLE, "message")?;
-        match turns.last_mut() {
+        match saved.turns.last_mut() {
             Some(turn) if turn.turn_id == turn_id => turn.messages.push(message),
-            _ => turns.push(TurnMessages { turn_id, provider, model, messages: vec![message] }),
+            _ => {
+                saved.turns.push(TurnMessages {
+                    turn_id,
+                    provider,
+                    model,
+                    messages: vec![message],
+                });
+            }
         }
     }
-    Ok(turns)
+    Ok(saved)
 }
 
 #[cfg(test)]

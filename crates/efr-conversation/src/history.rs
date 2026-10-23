@@ -20,7 +20,9 @@
 //! A turn also saves its exact messages in the store (`efr_store::turn_messages`) with
 //! the batch that records its end, and the snapshot reads them back, so after a restart,
 //! when the cache is empty, a saved turn takes the cache's place and the request is
-//! the same as without the restart. Only a turn with neither is rebuilt.
+//! the same as without the restart. Only a turn with neither is rebuilt. The snapshot
+//! never copies or decodes the saved messages of a turn that the cache holds, so the
+//! cost of a turn's start does not grow with the turns that the actor keeps.
 //!
 //! After a compaction with a summary, the history is the fresh context block, the
 //! summary, and the messages after the compaction's cut (`efr_store::compactions` reads
@@ -147,6 +149,35 @@ pub(crate) struct CachedTurn {
     pub(crate) messages: Vec<Message>,
 }
 
+impl CachedTurn {
+    /// Gives back the room that the strings and lists of the messages do not use, so
+    /// a tool output of 32 KiB that grew in a buffer of 64 KiB keeps 32 KiB while the
+    /// cache holds it. The content does not change.
+    pub(crate) fn shrink(&mut self) {
+        self.messages.shrink_to_fit();
+        for message in &mut self.messages {
+            message.content.shrink_to_fit();
+            for block in &mut message.content {
+                match block {
+                    ContentBlock::Text { text } | ContentBlock::Reasoning { text } => {
+                        text.shrink_to_fit();
+                    }
+                    ContentBlock::ToolCall { call_id, name, .. } => {
+                        call_id.shrink_to_fit();
+                        name.shrink_to_fit();
+                    }
+                    ContentBlock::ToolResult { call_id, output, .. } => {
+                        call_id.shrink_to_fit();
+                        output.shrink_to_fit();
+                    }
+                    ContentBlock::Image { media_type, .. } => media_type.shrink_to_fit(),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 /// What a turn reads from the store before it starts.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Snapshot {
@@ -159,8 +190,9 @@ pub(crate) struct Snapshot {
     /// The events before the page of each finished turn that saved no messages and
     /// started before the page, oldest first, so such a turn is rebuilt whole.
     pub(crate) older: Vec<EventEnvelope>,
-    /// The exact messages that earlier turns saved, by turn.
-    pub(crate) saved: HashMap<TurnId, CachedTurn>,
+    /// The exact messages that earlier turns saved, by turn. A saved turn that the
+    /// caller's cache holds is the cache's copy: the read never decodes it.
+    pub(crate) saved: HashMap<TurnId, Arc<CachedTurn>>,
     /// The newest compaction with a summary, and the newest of any kind.
     pub(crate) compactions: LatestCompactions,
     /// Every prompt and steer of the conversation, and the events that take one back,
@@ -179,35 +211,68 @@ pub(crate) enum Covered {
     Keep,
 }
 
+/// What a read did with the saved turns: the turns that it decoded, the turns that the
+/// cache held, and the bytes of JSON that it decoded.
+#[derive(Debug, Clone, Copy)]
+struct Decoded {
+    turns: usize,
+    held: usize,
+    bytes: u64,
+}
+
 impl Snapshot {
-    /// Reads the snapshot of `conversation_id` in one read transaction.
+    /// Reads the snapshot of `conversation_id` in one read transaction. `cache` is the
+    /// actor's cache, which the window reads with: the saved messages of a turn that it
+    /// holds are not read again.
     pub(crate) async fn read(
         readers: &Readers,
         conversation_id: ConversationId,
         limits: HistoryLimits,
+        cache: &HashMap<TurnId, Arc<CachedTurn>>,
     ) -> Result<Self, ConversationError> {
-        Snapshot::read_with(readers, conversation_id, limits, Covered::Skip).await
+        Snapshot::read_with(readers, conversation_id, limits, Covered::Skip, cache).await
     }
 
     /// Reads the snapshot of `conversation_id` in one read transaction. With
     /// [`Covered::Skip`], the events of a turn that the newest summary covers are never
     /// read: the window needs none of them.
+    ///
+    /// A saved turn that `cache` holds is not copied out of the store or decoded: its
+    /// entry in [`saved`](Self::saved) is the cache's copy, so the cost of a turn's
+    /// start does not grow with the turns that the actor keeps in memory. The window
+    /// prefers the cache to the saved messages, so the history is the same as when
+    /// every saved turn is decoded. A turn that the cache holds but the store did not
+    /// save is not in `saved`, as before: the read gets its events when the page does
+    /// not hold them.
     pub(crate) async fn read_with(
         readers: &Readers,
         conversation_id: ConversationId,
         limits: HistoryLimits,
         covered: Covered,
+        cache: &HashMap<TurnId, Arc<CachedTurn>>,
     ) -> Result<Self, ConversationError> {
-        readers
+        let held: HashSet<TurnId> = cache.keys().copied().collect();
+        let cache = cache.clone();
+        let (snapshot, decoded) = readers
             .with(move |conn| {
                 let compactions = compactions::latest(conn, conversation_id)?;
                 let turns = conversations::turns(conn, conversation_id)?;
                 let page = events::read_turn_history(conn, conversation_id, limits.max_events)?;
-                let saved: HashMap<TurnId, CachedTurn> =
-                    turn_messages::of_conversation(conn, conversation_id)?
-                        .into_iter()
-                        .filter_map(decode)
-                        .collect();
+                let stored = turn_messages::of_conversation_except(conn, conversation_id, &held)?;
+                let decoded = Decoded {
+                    turns: stored.turns.len(),
+                    held: stored.held.len(),
+                    bytes: stored.bytes,
+                };
+                let mut saved: HashMap<TurnId, Arc<CachedTurn>> = stored
+                    .turns
+                    .into_iter()
+                    .filter_map(decode)
+                    .map(|(turn_id, turn)| (turn_id, Arc::new(turn)))
+                    .collect();
+                saved.extend(stored.held.iter().filter_map(|turn_id| {
+                    cache.get(turn_id).map(|turn| (*turn_id, Arc::clone(turn)))
+                }));
                 let cut = match covered {
                     Covered::Skip => summary_cut(&compactions),
                     Covered::Keep => None,
@@ -218,7 +283,7 @@ impl Snapshot {
                     older.extend(events.into_iter().map(|envelope| (envelope.seq, envelope)));
                 }
                 let older = older.into_values().collect();
-                Ok(Snapshot {
+                let snapshot = Snapshot {
                     summary: conversations::get(conn, conversation_id)?,
                     turns,
                     page,
@@ -226,10 +291,20 @@ impl Snapshot {
                     saved,
                     compactions,
                     user_events: user_messages::of_conversation(conn, conversation_id)?,
-                })
+                };
+                Ok((snapshot, decoded))
             })
             .await
-            .map_err(ConversationError::from_store)
+            .map_err(ConversationError::from_store)?;
+        // NOTE: on the caller's thread, not the reader's, so a test subscriber of the
+        // actor's thread sees it.
+        tracing::debug!(
+            decoded = decoded.turns,
+            held = decoded.held,
+            bytes = decoded.bytes,
+            "the snapshot decoded the saved turns that the cache lacks"
+        );
+        Ok(snapshot)
     }
 
     /// The user's directory when the newest earlier turn started, from its
@@ -372,8 +447,8 @@ impl Snapshot {
             if skip.is_some_and(|cut| cut.covers_turn(turn.id, position)) {
                 continue;
             }
-            let exact = cache.get(&turn.id).map(Arc::as_ref).or_else(|| self.saved.get(&turn.id));
-            let messages = match exact {
+            let exact = cache.get(&turn.id).or_else(|| self.saved.get(&turn.id));
+            let messages = match exact.map(Arc::as_ref) {
                 Some(exact) if exact.key == *key => exact.messages.clone(),
                 Some(exact) => exact.messages.iter().cloned().map(without_raw).collect(),
                 None => rebuild(
@@ -459,7 +534,7 @@ fn summary_cut(compactions: &LatestCompactions) -> Option<Cut> {
 /// compaction with a summary dropped has none: the cut covers it.
 fn older_ranges(
     turns: &[Turn],
-    saved: &HashMap<TurnId, CachedTurn>,
+    saved: &HashMap<TurnId, Arc<CachedTurn>>,
     page: &[EventEnvelope],
     cut: Option<Cut>,
 ) -> Vec<(Seq, Seq)> {
@@ -537,10 +612,31 @@ fn stub_results(message: &mut Message) {
 /// The size of the messages of `placed` as JSON, the measure of
 /// [`HistoryLimits::max_bytes`].
 fn json_size(placed: &[Placed]) -> usize {
-    placed
-        .iter()
-        .map(|placed| serde_json::to_vec(&placed.message).map_or(0, |json| json.len()))
-        .sum()
+    placed.iter().map(|placed| json_len(&placed.message)).sum()
+}
+
+/// The length of `message` as JSON, counted as it is written, so no copy of the
+/// history is made to measure it; 0 when it cannot be written, as before.
+fn json_len(message: &Message) -> usize {
+    let mut counter = ByteCounter(0);
+    match serde_json::to_writer(&mut counter, message) {
+        Ok(()) => counter.0,
+        Err(_) => 0,
+    }
+}
+
+/// A writer that keeps only the count of the bytes written to it.
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// The `turn_steered` events of `page` that left their turn unread at an interrupt:

@@ -29,7 +29,7 @@ use crate::testing::{Recorder, compacting, compactions, request};
 
 /// The page sizes and byte limits that each check reads with: a page that holds one
 /// turn, a few turns, or all of them, and a byte limit that leaves out turns.
-const LIMITS: [(u32, usize); 6] = [
+pub(super) const LIMITS: [(u32, usize); 6] = [
     (3, usize::MAX),
     (10, usize::MAX),
     (40, usize::MAX),
@@ -60,7 +60,9 @@ async fn assert_same(
     let base = request(Vec::new());
     for (max_events, max_bytes) in LIMITS {
         let limits = HistoryLimits::new(max_events, max_bytes);
-        let read = |covered| Snapshot::read_with(store.readers(), conversation(), limits, covered);
+        let none = HashMap::new();
+        let read =
+            |covered| Snapshot::read_with(store.readers(), conversation(), limits, covered, &none);
         let (mut skipped, mut kept) =
             (read(Covered::Skip).await.expect("read"), read(Covered::Keep).await.expect("read"));
         assert_eq!(skipped.turns, kept.turns);
@@ -85,7 +87,7 @@ async fn assert_same(
             .map(|(turn, number)| (turn.id, number))
             .collect();
         let full: HashMap<TurnId, Arc<CachedTurn>> =
-            kept.saved.iter().map(|(id, turn)| (*id, Arc::new(turn.clone()))).collect();
+            kept.saved.iter().map(|(id, turn)| (*id, Arc::clone(turn))).collect();
         for cache in [HashMap::new(), full] {
             for model in [key("replay", "m"), key("other", "m")] {
                 let window = |snapshot: &Snapshot, covered| {
@@ -272,7 +274,7 @@ impl Script {
 /// for some turns, steers that the model read and steers it never read, and
 /// compactions: summaries with every kind of cut, prune-only ones older and newer than
 /// the summary. Gives the store and the running turn, when one runs.
-async fn random_conversation(seed: u64) -> (TestStore, Option<TurnId>) {
+pub(super) async fn random_conversation(seed: u64) -> (TestStore, Option<TurnId>) {
     let mut s = Script::new(seed);
     let count = 3 + s.below(8);
     let summary_after = s.below(count);
@@ -448,7 +450,9 @@ async fn a_cut_inside_a_turn_keeps_the_rest_of_that_turn() {
 
     assert!(checked.fewer_events > 0, "the first turn is never read");
     let limits = HistoryLimits::new(3, usize::MAX);
-    let snapshot = Snapshot::read(store.readers(), conversation(), limits).await.expect("read");
+    let snapshot = Snapshot::read(store.readers(), conversation(), limits, &HashMap::new())
+        .await
+        .expect("read");
     let read: Vec<TurnId> = snapshot.older.iter().filter_map(|e| e.event.turn_id()).collect();
     assert!(!read.contains(&turns[0]), "{read:?}");
     assert!(read.contains(&turns[1]), "the turn of the cut is read: {read:?}");
@@ -462,7 +466,9 @@ async fn a_cut_after_a_whole_turn_skips_that_turn_too() {
     assert_same(&store, None, None, Some("fresh"), &mut checked).await;
 
     let limits = HistoryLimits::new(3, usize::MAX);
-    let snapshot = Snapshot::read(store.readers(), conversation(), limits).await.expect("read");
+    let snapshot = Snapshot::read(store.readers(), conversation(), limits, &HashMap::new())
+        .await
+        .expect("read");
     let read: Vec<TurnId> = snapshot.older.iter().filter_map(|e| e.event.turn_id()).collect();
     assert!(!read.contains(&turns[0]) && !read.contains(&turns[1]), "{read:?}");
     assert!(read.contains(&turns[2]), "the turn after the cut is read: {read:?}");
@@ -478,7 +484,9 @@ async fn a_cut_at_a_turn_that_the_turns_do_not_know_skips_nothing() {
 
     assert_eq!(checked.fewer_events, 0, "every turn is read as before");
     let limits = HistoryLimits::new(3, usize::MAX);
-    let snapshot = Snapshot::read(store.readers(), conversation(), limits).await.expect("read");
+    let snapshot = Snapshot::read(store.readers(), conversation(), limits, &HashMap::new())
+        .await
+        .expect("read");
     let read: Vec<TurnId> = snapshot.older.iter().filter_map(|e| e.event.turn_id()).collect();
     assert!(turns.iter().all(|turn| read.contains(turn)), "{read:?}");
 }
@@ -507,7 +515,9 @@ async fn a_newer_pruning_moves_no_skip() {
     assert_same(&store, None, None, Some("fresh"), &mut checked).await;
 
     let limits = HistoryLimits::new(3, usize::MAX);
-    let snapshot = Snapshot::read(store.readers(), conversation(), limits).await.expect("read");
+    let snapshot = Snapshot::read(store.readers(), conversation(), limits, &HashMap::new())
+        .await
+        .expect("read");
     let read: Vec<TurnId> = snapshot.older.iter().filter_map(|e| e.event.turn_id()).collect();
     assert!(!read.contains(&turns[0]), "{read:?}");
     assert!(read.contains(&turns[1]) && read.contains(&turns[2]), "{read:?}");
@@ -597,9 +607,15 @@ async fn real_compactions_give_the_same_request_with_and_without_the_skip() {
 
     // NOTE: after a restart the cache is empty, so every turn comes from the store.
     let limits = h.settings.borrow().history.for_window(crate::testing::WINDOW);
-    let kept = Snapshot::read_with(h.store.readers(), h.conversation_id, limits, Covered::Keep)
-        .await
-        .expect("read");
+    let kept = Snapshot::read_with(
+        h.store.readers(),
+        h.conversation_id,
+        limits,
+        Covered::Keep,
+        &HashMap::new(),
+    )
+    .await
+    .expect("read");
     let fresh = kept.summary().and_then(|compaction| compaction.fresh.clone());
     let key = ModelKey::new(ProviderId::new("replay").expect("id"), crate::testing::MODEL);
     let old =
