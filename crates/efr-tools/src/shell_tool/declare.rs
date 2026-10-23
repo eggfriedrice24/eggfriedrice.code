@@ -6,18 +6,25 @@
 //! directory the rest of the line may run in, because a `cd` in a pipeline or after
 //! `||` may or may not take effect; a `cd` whose target the text does not show (`cd -`,
 //! `popd`, `cd $DIR`) leaves the directory unknown, and a relative path then counts as
-//! anything below `/`.
+//! anything below `/`. Each relative `cd` adds its target below every directory so far,
+//! so a chain of them doubles the count: past [`MAX_BASES`] directories the directory
+//! is unknown as well, and the line asks or runs contained more often, never less.
 //!
 //! A path that an earlier `cp`, `ln` or `mv` of the same line writes may be a symbolic
 //! link by the time a later command uses it, and the daemon resolves links before the
 //! line runs, so a later path at or below it may reach anything: it counts as anything
 //! below `/` as well. `ln -s ~ h && cat h/.ssh/id_ed25519` then asks.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::reads::{self, Depth, Named};
 use super::words::{Line, Word};
 use crate::paths::normalize;
+
+/// The most directories that the rest of a line may run in. Past it, a relative path
+/// counts as anything below `/`, as after `cd -`.
+pub(super) const MAX_BASES: usize = 32;
 
 /// What a line reads and writes, each path once, in the order first named.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,6 +46,7 @@ pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
         relinked: Vec::new(),
         home,
         out: Declared::default(),
+        seen: Seen::default(),
     };
     for command in &line.commands {
         for input in &command.inputs {
@@ -94,13 +102,23 @@ struct Walk<'a> {
     relinked: Vec<PathBuf>,
     home: &'a Path,
     out: Declared,
+    seen: Seen,
+}
+
+/// The paths of each list of [`Declared`], so a path is added once without a scan of
+/// its list.
+#[derive(Default)]
+struct Seen {
+    reads: HashSet<PathBuf>,
+    trees: HashSet<PathBuf>,
+    writes: HashSet<PathBuf>,
 }
 
 impl Walk<'_> {
     fn change_directory(&mut self, args: &[Word]) {
         let target = args.iter().find(|word| word.text == "-" || !word.text.starts_with('-'));
         match target {
-            None => self.bases.push(self.home.to_path_buf()),
+            None => self.add_base(self.home.to_path_buf()),
             Some(word)
                 if word.text == "-"
                     || word.text.starts_with('+')
@@ -118,12 +136,25 @@ impl Walk<'_> {
                 }
                 let moved = self.resolve(&target.text, target.tilde);
                 for base in moved.into_iter().flatten() {
-                    if !self.bases.contains(&base) {
-                        self.bases.push(base);
-                    }
+                    self.add_base(base);
                 }
             }
         }
+    }
+
+    /// Adds `base` as one more directory the rest of the line may run in. Past
+    /// [`MAX_BASES`] the directory is unknown.
+    fn add_base(&mut self, base: PathBuf) {
+        if self.lost || self.bases.contains(&base) {
+            return;
+        }
+        // NOTE: bases are only added, so without the cap a chain of relative cds
+        // doubles them with each cd, and efrd runs out of time or memory.
+        if self.bases.len() == MAX_BASES {
+            self.lost = true;
+            return;
+        }
+        self.bases.push(base);
     }
 
     /// Declares `named`: a pattern as everything below its fixed directory, anything
@@ -185,12 +216,12 @@ impl Walk<'_> {
     }
 
     fn push(&mut self, path: PathBuf, access: Access, depth: Depth) {
-        let list = match (access, depth) {
-            (Access::Write, _) => &mut self.out.writes,
-            (Access::Read, Depth::One) => &mut self.out.reads,
-            (Access::Read, Depth::Tree) => &mut self.out.trees,
+        let (list, seen) = match (access, depth) {
+            (Access::Write, _) => (&mut self.out.writes, &mut self.seen.writes),
+            (Access::Read, Depth::One) => (&mut self.out.reads, &mut self.seen.reads),
+            (Access::Read, Depth::Tree) => (&mut self.out.trees, &mut self.seen.trees),
         };
-        if !list.contains(&path) {
+        if seen.insert(path.clone()) {
             list.push(path);
         }
     }
