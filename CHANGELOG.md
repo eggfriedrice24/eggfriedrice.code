@@ -17,8 +17,8 @@ into the GitHub release notes, and it stops when the section is missing.
   removed and added again, and the added and removed counts were wrong.
 - A shell line with many relative `cd`s is now judged as after `cd -`: a relative path
   may be anywhere below `/`, so efr runs the line in the sandbox or asks you. This
-  occurs when the rest of the line may run in more than 32 directories: six `cd`s into
-  subdirectories in a row are enough. Before, such a line could make efrd use all its
+  occurs when the rest of the line may run in more than 1024 directories, that is,
+  after more than ten `cd`s into subdirectories in a row. Before, such a line could make efrd use all its
   time and memory.
 
 ### Security
