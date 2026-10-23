@@ -102,6 +102,32 @@ bench-search:
         --success-output immediate -E 'test(/^search_cost::/)' || { s=$?; [[ $status -ne 0 ]] || status=$s; }
     exit "$status"
 
+# The perf benches in release, one at a time: every ignored `bench_perf_*` test of the
+# workspace. Each prints its lines after the load average and the CPU governor, and
+# writes them as JSON lines to the run's directory (target/bench/<time>, or
+# EFR_BENCH_OUT), which `just bench-compare` reads. The numbers of a busy machine are
+# not valid: run it alone. `just bench-perf <filter>` runs only the benches whose name
+# holds <filter>.
+bench-perf filter="":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    out="${EFR_BENCH_OUT:-$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')/bench/$(date +%Y%m%dT%H%M%S)}"
+    mkdir -p "$out"
+    status=0
+    EFR_BENCH_OUT="$out" nice -n 19 cargo nextest run --release --workspace --exclude efr-screen-ghostty \
+        --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
+        -E "test(/bench_perf_.*{{filter}}/)" || status=$?
+    echo "bench-perf: the JSON lines are in $out"
+    exit "$status"
+
+# The change of each bench line between two runs of `just bench-perf`, by their dirs.
+bench-compare old new:
+    cargo xtask bench-compare {{old}} {{new}}
+
+# The release binaries against their size budgets in xtask/size-budget.json.
+bench-size: build-release
+    cargo xtask bench-size
+
 # The picker of `,resume` with the fzf of this machine on a pseudo-terminal: the
 # `e2e_fzf_` tests of efr-cli, which skip unless EFR_TEST_FZF=1. A missing fzf or one
 # older than 0.46 fails. The tests give efr a PATH of a temporary dir with a link to

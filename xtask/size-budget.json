@@ -1,0 +1,8 @@
+{
+  "about": "The largest size in bytes of each release binary of `just build-release` (stripped, with the ghostty screen backend). `just bench-size` fails when a binary is larger. The budgets of 2026-10-23 are the sizes of v0.0.4 plus about 2 percent; lower a budget when a change makes its binary smaller.",
+  "max_bytes": {
+    "efrd": 38400000,
+    "efr": 13600000,
+    "efr-sbx": 3650000
+  }
+}
