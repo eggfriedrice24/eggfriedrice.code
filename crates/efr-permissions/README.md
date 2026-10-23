@@ -187,7 +187,9 @@ Modules:
   contained call made in a cache overlay: one `write` exit per real cache file, with
   the source `cache_delete`, for the classifier.
 - `exits`: `predict`, which finds the exits of a shell call in `auto` from its line
-  (read through a lenient split that never fails), its declared paths, its network
+  (read through a lenient split that never fails; it reads substitutions 64 levels
+  deep, and one `sh -c` segment of unread code stands for a deeper one, so only the
+  user approves such a line outside the sandbox), its declared paths, its network
   need, the model's `needs` and the daemon's `CallFacts`; each `ExitNeed` has a kind,
   the grants a "yes" opens, the bind of a write (`WriteBind`), its `Approver` (the
   classifier, the classifier when a user message names the exit, or only the user),
@@ -250,7 +252,8 @@ Modules:
   its target. It is pure and reads only the line, the locations and the turn's roots.
   It reads the line through the same lenient split as `predict`, behind the same
   wrappers (`sudo`, `env`, `nice`, `timeout`, `setsid`, `nohup`, `xargs`), in each
-  substitution and in each branch that may not run (`false && rm -rf ~`), and one
+  substitution and in each branch that may not run (`false && rm -rf ~`; a
+  substitution below the 64 levels that the split reads is an unreadable target), and one
   level into the literal string of `sh -c`, `bash -c`, `zsh -c` and `eval`. The
   delete forms are: `rm -r`, a pattern operand of a plain `rm`, `find` with `-delete`
   or an `-exec` of `rm`, `shred`, `srm` or `wipe` (its roots), the sources of `mv`,

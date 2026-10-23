@@ -104,6 +104,11 @@ impl Guard<'_> {
         for (at, segment) in segments.iter().enumerate() {
             let dirs = dirs(starts, segment.cds.as_deref(), self.locations);
             let part = shown(&segment.raw.join(" ")).into_owned();
+            if segment.too_deep {
+                // NOTE: a delete may lie in the substitution that the split did not read.
+                self.push(&part, CriticalTarget::Unreadable { word: part.clone() });
+                continue;
+            }
             let producer = at.checked_sub(1).and_then(|before| segments.get(before));
             let commands = placed_commands(&segment.words);
             for (index, (command, _)) in commands.iter().enumerate() {

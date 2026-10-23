@@ -1814,6 +1814,37 @@ fn exits_outside_running_unread_code_is_user(#[case] line: &str, #[case] program
     assert_eq!(need.approver, Approver::User, "{line:?}");
 }
 
+/// A substitution nested deeper than the lenient split reads holds code that efr does
+/// not read, so only the user approves the line outside the sandbox. The decision
+/// returns on a stack as small as a tokio worker's, also for a nest far past the cap.
+#[test]
+fn exits_outside_of_a_line_nested_too_deep_is_user() {
+    let facts = programs(&[("x", Some("/usr/bin/x"), false), ("sh", Some("/usr/bin/sh"), false)]);
+    let shallow = format!("{}x{}", "$(".repeat(3), ")".repeat(3));
+    assert_eq!(approver_of(outside(&shallow).with_facts(facts.clone())), Approver::Classifier);
+    for closed in [true, false] {
+        for depth in [65, 10_000] {
+            let mut line = format!("{}x", "$(".repeat(depth));
+            if closed {
+                line.push_str(&")".repeat(depth));
+            }
+            let facts = facts.clone();
+            let (approver, effect) = std::thread::Builder::new()
+                .stack_size(2 * 1024 * 1024)
+                .spawn(move || {
+                    let effect = decide(shell(&line).with_facts(facts.clone())).effect();
+                    (approver_of(outside(&line).with_facts(facts)), effect)
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+            assert_eq!(approver, Approver::User, "{depth} deep, closed {closed}");
+            // NOTE: with no exit the sandbox holds the line, as it holds every line.
+            assert_eq!(effect, Effect::Contain, "{depth} deep, closed {closed}");
+        }
+    }
+}
+
 #[test]
 fn exits_outside_with_an_interpreters_version_is_classifier() {
     let facts = programs(&[("python3", Some("/usr/bin/python3"), false)]);

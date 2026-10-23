@@ -111,6 +111,25 @@ fn critical_rm_rf_home_names_the_part_and_the_home_for_the_user() {
     assert_eq!(found[0].describe(Path::new(HOME)), "~ (your home directory)");
 }
 
+/// A delete below the deepest substitution that the lenient split reads is not seen,
+/// so the guard asks for the substitution that it did not read; above the cap it reads
+/// the delete itself.
+#[test]
+fn critical_delete_nested_too_deep_is_unreadable() {
+    let nested = |depth: usize| format!("{}rm -rf ~{}", "$(".repeat(depth), ")".repeat(depth));
+    assert_eq!(targets(&nested(3)), [path(HOME, CriticalWhy::Home)]);
+    for depth in [65, 10_000] {
+        let line = nested(depth);
+        let found = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || targets(&line))
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(found, [unreadable("sh -c ...")], "{depth} deep");
+    }
+}
+
 #[rstest]
 #[case::root("rm -rf /")]
 #[case::root_contents("rm -rf /*")]

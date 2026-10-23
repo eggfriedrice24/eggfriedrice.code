@@ -29,6 +29,13 @@ into the GitHub release notes, and it stops when the section is missing.
 - efr now uses ctutils 0.4.5 in the keyring build. This version fixes the advisory
   RUSTSEC-2026-0385 of ctutils 0.4.2.
 
+### Changed
+
+- efr reads a command substitution inside another one down to 64 levels. A line that
+  nests deeper holds code that efr does not read: only you approve it outside the
+  sandbox, and full mode asks you before it runs. Before, a line of thousands of
+  nested `$(` could stop efrd, with all its conversations.
+
 ## [0.0.4] - 2026-10-23
 
 ### Added
