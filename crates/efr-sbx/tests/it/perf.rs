@@ -2,7 +2,8 @@
 //! with the network proxy's bridge and with the reach helper, with the launcher's own
 //! steps from `result.json`; and `efr-sbx guard-check` with 1, 5 and 10 git configs in
 //! the guard roots, with the count of git runs from a counting `git` on the spec's
-//! `PATH`. Benches, ignored: `just bench-perf` runs them in release.
+//! `PATH`: no run for a check when no config changed, one run after one changed.
+//! Benches, ignored: `just bench-perf` runs them in release.
 //!
 //! They take the launcher from `EFR_TEST_SBX_BIN`, as the other tests do, or else a
 //! private copy of the one that cargo built with this test binary
@@ -190,6 +191,7 @@ fn bench_perf_guard_check() {
         return;
     };
     let mut points = Vec::new();
+    let mut over = Vec::new();
     for configs in [1, 5, 10] {
         let mut fixture = Fixture::new(&ready);
         repos(&fixture, configs);
@@ -216,13 +218,31 @@ fn bench_perf_guard_check() {
             assert_eq!(guard_check(&fixture, &counted), 0, "nothing changed");
             per_check.push(take_runs(&runs));
         }
+        // One config gets a key that breaks no rule: the next check lists it alone.
+        let config = fixture.project.join("repo-0/.git/config");
+        let mut text = fs::read_to_string(&config).unwrap();
+        text.push_str("[user]\n\temail = repo@example.invalid\n");
+        fs::write(&config, text).unwrap();
+        assert_eq!(guard_check(&fixture, &counted), 0, "no rule broken");
+        let after_change = take_runs(&runs);
         let label = format!("{configs} configs");
         let stats = report.time(&format!("{label} guard-check"), &times);
         report.count(&format!("{label} git runs of the job's start and end"), at_start);
         let most = per_check.iter().max().copied().unwrap_or(0);
         report.count(&format!("{label} git runs per check"), most);
+        report
+            .count(&format!("{label} git runs of a check after one config changed"), after_change);
+        // Budget: the job's state dir keeps its config listings, so a check runs git
+        // only for a config that changed since the last one.
+        if most > 0 || after_change > 1 {
+            over.push(format!("{label}: {most} runs per check, {after_change} after a change"));
+        }
         points.push((configs as u64, stats.p50));
     }
-    report.slope("guard-check slope", &points);
+    let slope = report.slope("guard-check slope", &points);
     report.finish();
+    assert!(over.is_empty(), "git runs over the budget: {over:?}");
+    // NOTE: with a git run for each config the slope was 0.7; with none it is 0.1 to
+    // 0.2 on a busy machine, because only the scan and the reads of the configs grow.
+    assert!(slope < 0.5, "the cost of a check grows with its configs: slope {slope:.2}");
 }

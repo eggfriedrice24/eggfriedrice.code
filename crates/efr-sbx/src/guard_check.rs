@@ -10,7 +10,10 @@
 //! It reads the record of the job's start from the state dir
 //! (`surface-before.json`, on disk, so it survives a reboot), takes the job's guard
 //! lock, records the surface again, compares, moves every entry that breaks a rule to
-//! the job's quarantine, and writes `guard.json` with the changes. The job's spec in
+//! the job's quarantine, and writes `guard.json` with the changes. git lists only a
+//! config content that the last check or the job's start did not list: the listings
+//! stay in the state dir (`config-listings.json`), and the check writes them back when
+//! they changed. The job's spec in
 //! the call dir must name the same state dir; a call dir that is gone (after a reboot)
 //! leaves the record alone to say where things are. Exit status: 0 with no change, 3
 //! with a change, 1 on an error.
@@ -77,6 +80,8 @@ fn check(call_dir: &Path, state_dir: &Path) -> Result<GuardReport, SbxError> {
     };
     let (mut guard, places) = Guard::load(&state)?;
     let mut changes = guard.after(&places.start);
+    // NOTE: under the job's guard lock, so two checks never write the file at once.
+    guard.keep_listings(&state);
     if guard::quarantine(&mut changes, &places.quarantine).is_err() {
         for change in &mut changes {
             change.quarantined = false;
@@ -89,3 +94,6 @@ fn check(call_dir: &Path, state_dir: &Path) -> Result<GuardReport, SbxError> {
     state.write_atomic(GUARD_FILE, &bytes)?;
     Ok(report)
 }
+
+#[cfg(test)]
+mod tests;

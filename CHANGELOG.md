@@ -20,6 +20,10 @@ into the GitHub release notes, and it stops when the section is missing.
   occurs when the rest of the line may run in more than 1024 directories, that is,
   after more than ten `cd`s into subdirectories in a row. Before, such a line could make efrd use all its
   time and memory.
+- In `auto`, a command starts faster while background jobs run in its project. Before
+  such a command, efr checks the git files that each job can change. This check now
+  runs git only for a git config that changed since the last check, not for each
+  config each time.
 
 ### Security
 
