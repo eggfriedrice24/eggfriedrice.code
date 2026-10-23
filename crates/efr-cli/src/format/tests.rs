@@ -1,11 +1,12 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use efr_protocol::{
     AdminStatusResult, ContextUse, ConversationStatus, ConversationSummary,
     ConversationsListResult, PageCursor, ProviderStatus, Seq, Usage,
 };
 use efr_render::{Colour, ColourMode, Palette, RenderOptions, Role, WidthMethod};
+use efr_test_support::bench::{self, Report};
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
@@ -15,7 +16,7 @@ use super::{
     Block, CACHE_SHOWN_FROM, Spacing, Tone, ago, approval_heading, approval_summary, catalog,
     code_block, conversations, cut, elapsed, keys, lines, local_time, one_line, paint, run_heading,
     size, status, tokens, took, tool_call, tool_result, turn_done, turn_interrupted, until,
-    usage_line,
+    usage_line, wrap_command,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -679,4 +680,45 @@ fn usage_line_holds_numbers_only() {
         line.chars().all(|c| c.is_ascii_digit() || " .,%()kMinoutcachewr1h".contains(c)),
         "{line}"
     );
+}
+
+/// A command line of `bytes` bytes: words of options and paths between spaces, or one
+/// word without a space, as a long base64 argument is.
+fn long_command(bytes: usize, spaces: bool) -> String {
+    let unit = if spaces { "--flag=src/x.rs " } else { "QWxhZGRpbjpvcGVu" };
+    unit.repeat(bytes / unit.len() + 1)[..bytes].to_owned()
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_wrap_command() {
+    let mut report = Report::new("bench_perf_wrap_command");
+    for method in [WidthMethod::CodePoint, WidthMethod::Grapheme] {
+        for spaces in [true, false] {
+            let kind = format!(
+                "{} {}",
+                if method == WidthMethod::Grapheme { "grapheme" } else { "code point" },
+                if spaces { "spaces" } else { "no spaces" }
+            );
+            let mut points = Vec::new();
+            for kb in [1_u64, 10, 100] {
+                let line = long_command(kb as usize * 1024, spaces);
+                let start = Instant::now();
+                let rows = wrap_command(&line, 80, 4, method);
+                let first = start.elapsed();
+                let joined: String = rows.iter().map(|row| row.text.as_str()).collect();
+                assert_eq!(joined, line);
+                let runs = if first > Duration::from_millis(500) { 0 } else { 4 };
+                let mut samples = vec![first];
+                samples.extend(bench::run(0, runs, || {
+                    std::hint::black_box(wrap_command(&line, 80, 4, method));
+                }));
+                let stats = report.time(&format!("{kind} {kb} KB"), &samples);
+                report.count(&format!("{kind} {kb} KB: rows"), rows.len() as u64);
+                points.push((kb, stats.p50));
+            }
+            report.slope(&format!("{kind} slope over bytes"), &points);
+        }
+    }
+    report.finish();
 }
