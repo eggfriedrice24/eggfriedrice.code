@@ -949,3 +949,5 @@ fn the_cautious_policy_round_trips_through_toml() {
     let text = toml::to_string(&config).unwrap();
     assert_eq!(toml::from_str::<Config>(&text).unwrap(), config);
 }
+
+mod run_forms;

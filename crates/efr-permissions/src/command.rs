@@ -169,7 +169,7 @@ const BUILTINS: &[&str] = &[
 pub(crate) const PRIVILEGED: &[&str] = &["sudo", "sudoedit", "doas", "su", "pkexec", "run0"];
 
 /// Programs that run the program named among their arguments.
-const WRAPPERS: &[&str] = &[
+pub(crate) const WRAPPERS: &[&str] = &[
     "env",
     "nice",
     "nohup",
@@ -292,6 +292,25 @@ fn base_name(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
+/// One form of a simple command that [`run_forms`] gives: a program and the words
+/// after it, borrowed from the command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RunForm<'w> {
+    /// Where the program of the form stands in the command's words.
+    pub(crate) at: usize,
+    /// The program: the word as written in the first form, else its base name.
+    pub(crate) head: &'w str,
+    /// The words after the program.
+    pub(crate) rest: &'w [String],
+}
+
+impl RunForm<'_> {
+    /// The words of the form, program first.
+    pub(crate) fn words(&self) -> Vec<String> {
+        std::iter::once(self.head.to_owned()).chain(self.rest.iter().cloned()).collect()
+    }
+}
+
 /// The forms of the simple command `words` (program first) that a rule which asks or
 /// denies reads (efr's v0.0.4 live items plan, OQL3): the words as they are; the words
 /// with the program's base name, so `/usr/bin/git push` reads as `git push`; and when
@@ -299,28 +318,25 @@ fn base_name(word: &str) -> &str {
 /// `-` as the program, by its base name, so `env X=1 nice -n 5 git push` reads as
 /// `git push`. efr does not know which words a wrapper takes as values, so a form may
 /// name a program that does not run, which only asks or denies more.
-pub(crate) fn run_forms(words: &[String]) -> Vec<Vec<String>> {
-    let mut forms = vec![words.to_vec()];
-    let Some(program) = words.first() else { return forms };
-    let named = |rest: &[String]| -> Vec<String> {
-        let mut form = rest.to_vec();
-        if let Some(first) = form.first_mut() {
-            *first = base_name(first).to_owned();
-        }
-        form
-    };
-    let mut add = |form: Vec<String>| {
-        if !forms.contains(&form) {
-            forms.push(form);
-        }
-    };
-    add(named(words));
-    if WRAPPERS.contains(&base_name(program)) {
-        for at in (1..words.len()).filter(|at| !words[*at].starts_with('-')) {
-            add(named(&words[at..]));
-        }
-    }
-    forms
+///
+/// The forms borrow the words, so a long line behind a wrapper costs one form for each
+/// word, not a copy of the rest of the line for each word. Each form comes once: a
+/// form behind a wrapper is shorter than the forms before it.
+pub(crate) fn run_forms(words: &[String]) -> impl Iterator<Item = RunForm<'_>> {
+    let split = words.split_first();
+    let raw = split.map(|(program, rest)| RunForm { at: 0, head: program, rest });
+    let named = split
+        .filter(|(program, _)| base_name(program) != program.as_str())
+        .map(|(program, rest)| RunForm { at: 0, head: base_name(program), rest });
+    let wrapped =
+        split.filter(|(program, _)| WRAPPERS.contains(&base_name(program))).into_iter().flat_map(
+            move |_| {
+                (1..words.len()).filter(move |at| !words[*at].starts_with('-')).map(move |at| {
+                    RunForm { at, head: base_name(&words[at]), rest: &words[at + 1..] }
+                })
+            },
+        );
+    raw.into_iter().chain(named).chain(wrapped)
 }
 
 /// One simple command from its words: assignments first, then the program.
