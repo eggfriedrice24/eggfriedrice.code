@@ -1,3 +1,6 @@
+use std::time::{Duration, Instant};
+
+use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
 use syntect::highlighting::Color;
 
@@ -79,4 +82,57 @@ fn only_truecolor_themes_have_a_background_to_tint() {
     assert_eq!(theme_background(ASSETS.theme(Theme::ANSI)), None);
     let mocha = Theme::from_name("catppuccin-mocha").unwrap();
     assert!(theme_background(ASSETS.theme(mocha)).is_some());
+}
+
+/// Lines of Rust code, as a reply's code block has them.
+const RUST: &[&str] = &[
+    "/// Reads the config file and checks every key.",
+    "pub fn load(path: &Path) -> Result<Config, Error> {",
+    "    let text = std::fs::read_to_string(path).map_err(Error::Read)?;",
+    "    let config: Config = toml::from_str(&text)?;",
+    "    for (key, value) in &config.keys {",
+    "        if value.is_empty() { return Err(Error::Empty(key.clone())); }",
+    "    }",
+    "    let count = config.keys.len() as u64 * 2 + 0x1f; // \"quoted\" text",
+    "    Ok(config)",
+    "}",
+];
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_highlight_line() {
+    let mut report = Report::new("bench_perf_highlight_line");
+    // The first highlight of a process decompresses the grammars and the themes.
+    let assets = fresh_assets();
+    let start = Instant::now();
+    let syntax = assets.syntax_for_label("rust").unwrap();
+    let mut highlight =
+        Highlight::new(assets, syntax, ThemeRef::Embedded(assets.theme(Theme::ANSI)));
+    assert!(highlight.line(RUST[1]).is_some());
+    report.time("cold first highlight (syntax set load)", &[start.elapsed()]);
+
+    let syntax = ASSETS.syntax_for_label("rust").unwrap();
+    for name in ["ansi", "catppuccin-mocha"] {
+        let theme = Theme::from_name(name).unwrap();
+        let mut points = Vec::new();
+        for lines in [1_000_u64, 10_000] {
+            let mut highlight =
+                Highlight::new(&ASSETS, syntax, ThemeRef::Embedded(ASSETS.theme(theme)));
+            let mut per_line = Vec::new();
+            let start = Instant::now();
+            for at in 0..lines {
+                let line = RUST[at as usize % RUST.len()];
+                let one = Instant::now();
+                let tokens = highlight.line(line).unwrap();
+                per_line.push(one.elapsed());
+                assert!(!tokens.is_empty());
+            }
+            let total: Duration = start.elapsed();
+            report.time(&format!("{name} {lines} lines: per line"), &per_line);
+            report.time(&format!("{name} {lines} lines: total"), &[total]);
+            points.push((lines, total));
+        }
+        report.slope(&format!("{name} total slope over lines"), &points);
+    }
+    report.finish();
 }

@@ -1038,6 +1038,7 @@ dependencies = [
 name = "efr-render"
 version = "0.0.4"
 dependencies = [
+ "efr-test-support",
  "insta",
  "pretty_assertions",
  "proptest",
