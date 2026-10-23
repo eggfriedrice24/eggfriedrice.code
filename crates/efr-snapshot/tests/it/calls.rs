@@ -324,6 +324,25 @@ async fn snapshot_skips_large_files_and_says_so() {
 }
 
 #[tokio::test]
+async fn turn_end_lists_each_left_out_path_once_in_the_order_first_seen() {
+    let world = World::new();
+    let dir = world.dir("large");
+    write(&dir.join("small.txt"), "s\n");
+    for name in ["m.sql", "z.sql"] {
+        fs::write(dir.join(name), vec![b'd'; 4096]).unwrap();
+    }
+    let call =
+        world.snapshots.before_call(conversation(1), turn(1), vec![root(&dir)], limits()).await;
+    fs::write(dir.join("b.sql"), vec![b'd'; 4096]).unwrap();
+    world.snapshots.after_call(call, limits()).await;
+    let end = world.snapshots.turn_end(turn(1), limits()).await;
+    // NOTE: `pre` left out m and z, `post` b, m and z. The order picks the lines that
+    // the end of the turn shows, so the path that only `post` left out comes last.
+    let too_large = |name: &str| (dir.join(name), LeftOutReason::TooLarge);
+    assert_eq!(end.left_out, [too_large("m.sql"), too_large("z.sql"), too_large("b.sql")]);
+}
+
+#[tokio::test]
 async fn snapshot_reads_project_info_exclude() {
     let world = World::new();
     let home = world.home();

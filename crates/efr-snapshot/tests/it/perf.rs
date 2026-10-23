@@ -332,6 +332,12 @@ async fn bench_perf_left_out() {
         }
     }
     report.slope("turn end wall over the left-out paths", &walls);
-    report.slope("turn end cpu over the left-out paths", &cpus);
+    let slope = report.slope("turn end cpu over the left-out paths", &cpus);
     report.finish();
+    // The budget (plan W2-B): a seen-set beside the list makes the merge linear. The
+    // linear `contains` of before gave a slope of 1.93 and 20.3 s at 20,000 paths.
+    assert_eq!(walls.len(), LEFT_OUT.len(), "the ladder stopped early: {walls:?}");
+    assert!(slope < 1.3, "the turn end grows faster than linear: slope {slope:.2}");
+    let (most, wall) = walls[walls.len() - 1];
+    assert!(wall < Duration::from_secs(1), "{most} left-out paths took {wall:?} at the turn end");
 }

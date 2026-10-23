@@ -1,12 +1,17 @@
+use std::collections::HashSet;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use efr_conversation::FileBackup;
 use efr_permissions::{CoverAsk, Coverage};
 use efr_protocol::{ConversationId, TurnId, UndoReason};
 use efr_scope::{Git, Home};
-use efr_snapshot::{DEFAULT_SNAPSHOT_TIMEOUT, HomeState, SnapshotParts, Snapshots};
-use efr_test_support::TestClock;
+use efr_snapshot::{
+    DEFAULT_SNAPSHOT_TIMEOUT, HomeDelta, HomeEntry, HomeState, SnapshotParts, Snapshots,
+};
+use efr_stdx::rng::Rng as _;
+use efr_test_support::{TestClock, TestRng};
 use pretty_assertions::assert_eq;
 
 use crate::home::{
@@ -251,7 +256,7 @@ fn old_undo_trash_is_collected() {
     let (_temp, root) = root();
     let trash = root.join("undo-trash");
     let clock = TestClock::new();
-    let rng = efr_test_support::TestRng::new(3);
+    let rng = TestRng::new(3);
     let day = Duration::from_secs(24 * 3600);
     let old = format!("u-{}", efr_stdx::id::uuid_v7(&clock, &rng).hyphenated());
     clock.advance(10 * day);
@@ -330,7 +335,9 @@ async fn timed<T>(f: impl Future<Output = T>) -> (Duration, T) {
 /// The home copy of a directory of 200, 2,000 and 20,000 files (plan slice W2-G):
 /// `prepare` before the call, the store's copy before it, `after` once the call
 /// changed 10 files and made 10, the store's deltas (`home_after`) and `changed`.
-/// The limit of the test config is raised above the largest size.
+/// The limit of the test config is raised above the largest size. Its budget: prepare
+/// and after, and the store's deltas, grow with a slope below 1.3, and prepare and
+/// after of 20,000 files take less than 1 s.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_home_copy() {
@@ -339,7 +346,7 @@ async fn bench_perf_home_copy() {
     let limits = HomeLimits { max_files: 100_000, max_bytes: 16 * 1024 * 1024 * 1024 };
     let parent = target_tmp().join("efr-daemon-bench");
     std::fs::create_dir_all(&parent).unwrap();
-    let mut points = Vec::new();
+    let (mut points, mut store_points) = (Vec::new(), Vec::new());
     for files in [200_usize, 2_000, 20_000] {
         let temp = tempfile::tempdir_in(&parent).unwrap();
         let root = std::fs::canonicalize(temp.path()).unwrap();
@@ -377,12 +384,183 @@ async fn bench_perf_home_copy() {
         report.count(&format!("{label} deltas"), deltas.len() as u64);
         report.count(&format!("{label} changed paths"), backups.len() as u64);
         points.push((files as u64, prepare_time + after_time));
+        store_points.push((files as u64, deltas_time));
         let slowest = [prepare_time, copy_time, after_time, deltas_time, changed_time];
         if slowest.iter().any(|time| *time > Duration::from_secs(10)) {
             report.count("stopped_at_n", files as u64);
             break;
         }
     }
-    report.slope("prepare and after slope", &points);
+    let slope = report.slope("prepare and after slope", &points);
+    let store_slope = report.slope("home_after (deltas) slope", &store_points);
     report.finish();
+    // The budget (plan W2-G): with a set beside each list and an index of each
+    // manifest, a copy costs O(files). The linear searches of before gave slopes of
+    // 1.86 and 1.44, and 6 s for each of prepare and after at 20,000 files.
+    assert_eq!(points.len(), 3, "the ladder stopped early: {points:?}");
+    assert!(slope < 1.3, "prepare and after grow faster than linear: slope {slope:.2}");
+    assert!(store_slope < 1.3, "the store's deltas grow faster than linear: {store_slope:.2}");
+    let (most, time) = points[points.len() - 1];
+    assert!(time < Duration::from_secs(1), "prepare and after of {most} files took {time:?}");
+}
+
+/// The old `Prepared::push`, with a linear search of each list: the reference of the
+/// order and of the first-wins rule.
+fn old_push(prepared: &mut Prepared, entry: HomeEntry) {
+    if let HomeState::NotCovered(reason) = entry.state
+        && !prepared.not_covered.iter().any(|(path, _)| *path == entry.path)
+    {
+        prepared.not_covered.push((entry.path.clone(), reason));
+    }
+    if !prepared.entries.iter().any(|known| known.path == entry.path) {
+        prepared.entries.push(entry);
+    }
+}
+
+/// The old `Prepared::push_state`.
+fn old_push_state(prepared: &mut Prepared, entry: HomeEntry, bytes: Option<Vec<u8>>) {
+    if let Some(bytes) = bytes {
+        prepared.states.retain(|(path, _)| *path != entry.path);
+        prepared.states.push((entry.path.clone(), bytes));
+    }
+    prepared.entries.retain(|known| known.path != entry.path);
+    old_push(prepared, entry);
+}
+
+/// The old `changed`, with a linear search of each list for each delta.
+fn old_changed(deltas: &[HomeDelta], before: &Prepared, after: &Prepared) -> Vec<FileBackup> {
+    let reason = |path: &Path| {
+        before
+            .not_covered
+            .iter()
+            .chain(&after.not_covered)
+            .find(|(known, _)| known == path)
+            .map(|(_, reason)| *reason)
+            .unwrap_or(UndoReason::Unknown)
+    };
+    let stamp = |prepared: &Prepared, path: &Path| {
+        prepared.stamps.iter().find(|(known, _)| known == path).map(|(_, stamp)| *stamp)
+    };
+    let unchanged = |delta: &HomeDelta| {
+        !delta.covered
+            && stamp(before, &delta.path).is_some()
+            && stamp(before, &delta.path) == stamp(after, &delta.path)
+    };
+    deltas
+        .iter()
+        .filter(|delta| delta.changed && !unchanged(delta))
+        .map(|delta| {
+            let link =
+                before.shown.iter().find(|(real, _)| *real == delta.path).map(|(_, link)| link);
+            FileBackup {
+                path: link.cloned().unwrap_or_else(|| delta.path.clone()),
+                backup: PathBuf::new(),
+                floor: delta.floor,
+                real: link.map(|_| delta.path.clone()),
+                reason: (!delta.covered).then(|| reason(&delta.path)),
+            }
+        })
+        .collect()
+}
+
+/// A number below `below` from `rng`.
+fn pick(rng: &TestRng, below: u64) -> u64 {
+    rng.next_u64() % below
+}
+
+/// One of a few paths, so the same path comes often.
+fn some_path(rng: &TestRng) -> PathBuf {
+    PathBuf::from(format!("/home/u/d{}/f{}", pick(rng, 2), pick(rng, 5)))
+}
+
+/// One of a few reasons.
+fn some_reason(rng: &TestRng) -> UndoReason {
+    let reasons =
+        [UndoReason::Masked, UndoReason::OverLimit, UndoReason::LeftOut, UndoReason::Unknown];
+    reasons[usize::try_from(pick(rng, 4)).unwrap()]
+}
+
+/// An entry of a random path and state.
+fn some_entry(rng: &TestRng) -> HomeEntry {
+    let state = match pick(rng, 4) {
+        0 => HomeState::File { mode: 0o644 },
+        1 => HomeState::Missing,
+        2 => HomeState::Link { target: b"/elsewhere".to_vec() },
+        _ => HomeState::NotCovered(some_reason(rng)),
+    };
+    HomeEntry::new(some_path(rng), state, pick(rng, 2) == 0)
+}
+
+/// The lists of `prepared` that the dedup keeps.
+type Lists = (Vec<HomeEntry>, Vec<(PathBuf, UndoReason)>, Vec<PathBuf>);
+
+fn lists(prepared: &Prepared) -> Lists {
+    let states = prepared.states.iter().map(|(path, _)| path.clone()).collect();
+    (prepared.entries.clone(), prepared.not_covered.clone(), states)
+}
+
+/// The paths of `paths`, as a set.
+fn path_set<'a>(paths: impl Iterator<Item = &'a PathBuf>) -> HashSet<PathBuf> {
+    paths.cloned().collect()
+}
+
+#[test]
+fn a_copy_keeps_the_first_entry_of_each_path_in_the_old_order() {
+    let rng = TestRng::new(11);
+    for _ in 0..300 {
+        let (mut old, mut new) = (Prepared::default(), Prepared::default());
+        for _ in 0..pick(&rng, 40) {
+            if pick(&rng, 6) == 0 {
+                let path =
+                    if pick(&rng, 2) == 0 { PathBuf::from("@crontab") } else { some_path(&rng) };
+                let entry = HomeEntry::new(path, HomeState::State, false);
+                let bytes = (pick(&rng, 2) == 0).then(|| b"state\n".to_vec());
+                old_push_state(&mut old, entry.clone(), bytes.clone());
+                new.push_state(entry, bytes);
+            } else {
+                let entry = some_entry(&rng);
+                old_push(&mut old, entry.clone());
+                new.push(entry);
+            }
+            let path = some_path(&rng);
+            let stamp = (pick(&rng, 3), 0, 0, 0, 0, 0);
+            if !old.stamps.iter().any(|(known, _)| *known == path) {
+                old.stamps.push((path.clone(), stamp));
+            }
+            new.push_stamp(&path, stamp);
+        }
+        assert_eq!(lists(&new), lists(&old));
+        assert_eq!(new.stamps, old.stamps);
+        assert_eq!(new.seen.entries, path_set(new.entries.iter().map(|entry| &entry.path)));
+        assert_eq!(new.seen.not_covered, path_set(new.not_covered.iter().map(|(path, _)| path)));
+        assert_eq!(new.seen.stamps, path_set(new.stamps.iter().map(|(path, _)| path)));
+    }
+}
+
+#[test]
+fn the_changed_paths_of_a_copy_are_those_of_the_old_search() {
+    let rng = TestRng::new(13);
+    let some_prepared = |rng: &TestRng| {
+        let mut prepared = Prepared::default();
+        for _ in 0..pick(rng, 12) {
+            prepared.not_covered.push((some_path(rng), some_reason(rng)));
+            prepared.stamps.push((some_path(rng), (pick(rng, 2), 0, 0, 0, 0, 0)));
+            if pick(rng, 3) == 0 {
+                prepared.shown.push((some_path(rng), some_path(rng)));
+            }
+        }
+        prepared
+    };
+    for _ in 0..500 {
+        let (before, after) = (some_prepared(&rng), some_prepared(&rng));
+        let deltas: Vec<HomeDelta> = (0..pick(&rng, 15))
+            .map(|_| HomeDelta {
+                path: some_path(&rng),
+                floor: pick(&rng, 2) == 0,
+                changed: pick(&rng, 4) != 0,
+                covered: pick(&rng, 2) == 0,
+            })
+            .collect();
+        assert_eq!(changed(&deltas, &before, &after), old_changed(&deltas, &before, &after));
+    }
 }

@@ -18,6 +18,7 @@
 //! repository out. A missing path keeps the directories above it that were missing
 //! too, so undo can remove them again when they are empty.
 
+use std::collections::HashSet;
 use std::io::Read;
 use std::path::PathBuf;
 
@@ -403,9 +404,11 @@ impl Snapshots {
 /// `after` lists was missing before.
 fn deltas(before: &[Item], after: &[Item]) -> Vec<HomeDelta> {
     let mut out = Vec::new();
+    let before_index = copy::index(before);
+    let after_paths: HashSet<&str> = after.iter().map(|item| item.path.as_str()).collect();
     for item in after {
         let missing = Item { path: item.path.clone(), ..Item::default() };
-        let was = before.iter().find(|known| known.path == item.path).unwrap_or(&missing);
+        let was = before_index.get(item.path.as_str()).copied().unwrap_or(&missing);
         let covered = was.kind != Kind::NotCovered && item.kind != Kind::NotCovered;
         out.push(HomeDelta {
             path: PathBuf::from(&item.path),
@@ -414,7 +417,7 @@ fn deltas(before: &[Item], after: &[Item]) -> Vec<HomeDelta> {
             covered,
         });
     }
-    for was in before.iter().filter(|was| !after.iter().any(|item| item.path == was.path)) {
+    for was in before.iter().filter(|was| !after_paths.contains(was.path.as_str())) {
         out.push(HomeDelta {
             path: PathBuf::from(&was.path),
             floor: was.floor,
@@ -425,3 +428,6 @@ fn deltas(before: &[Item], after: &[Item]) -> Vec<HomeDelta> {
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
 }
+
+#[cfg(test)]
+mod tests;

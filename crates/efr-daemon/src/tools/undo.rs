@@ -6,15 +6,20 @@
 //! the "before" snapshot and the journal ref `started` first (PB37), then for each path
 //! a fresh read through `DaemonFs` and a compare with what the plan expects (by git's
 //! blob id, PB32), a copy of what is there now into the undo trash
-//! `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` from the store's blob (PB8), and the write
-//! to a new name in the same directory with a rename over the path. Nothing on the way
-//! is a link: a root and every path below it open with `RESOLVE_BENEATH |
-//! RESOLVE_NO_SYMLINKS`. A file that undo makes again gets its recorded mode without
-//! set-id bits (PB11); one that exists keeps its mode. Then the project's refs by
-//! compare and swap, the home paths (each checked again against the masks, PB14), and
-//! the end marker. A write that fails stops the undo and reports what it did; the next
-//! `efr undo` resumes it.
+//! `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (PB8), and the write to a new name in the
+//! same directory with a rename over the path. Nothing on the way is a link: a root and
+//! every path below it open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`. A file that
+//! undo makes again gets its recorded mode without set-id bits (PB11); one that exists
+//! keeps its mode. Then the project's refs by compare and swap, the home paths (each
+//! checked again against the masks, PB14), and the end marker. A write that fails stops
+//! the undo and reports what it did; the next `efr undo` resumes it.
+//!
+//! The trash copy holds the bytes of the plan's trash blob. When the compare has just
+//! read those bytes (a file or a link whose blob id is the trash blob), they go to the
+//! trash as they were read, and the store is not asked; else they come from the
+//! store's blob.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -26,7 +31,7 @@ use efr_protocol::{
 };
 use efr_snapshot::{
     Expect, HomeEntry, HomePlan, HomeState, HomeStep, Limits, ObjectId, PlanAction, PlanEntry,
-    Root, RootPlan, SnapshotError, Snapshots, TurnRefs, UndoPlan, blob_id, stack_blocker,
+    Root, RootPlan, SnapshotError, Snapshots, TurnRefs, UndoPlan, blob_id, link_id, stack_blocker,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -325,7 +330,7 @@ impl DaemonToolbox {
         };
         if !plan.redo && plan.home.steps.iter().any(HomeStep::acts) {
             let entries = undo_before_entries(&plan.home);
-            let mut prepared = home::Prepared { entries, ..home::Prepared::default() };
+            let mut prepared = home::Prepared::of_entries(entries);
             let states = plan.home.steps.iter().filter(|step| step.acts());
             for copy in states.filter_map(|step| StateCopy::from_path(&step.path)) {
                 let (entry, bytes) = state::read(self.state_runner(), copy).await;
@@ -446,12 +451,17 @@ impl DaemonToolbox {
         }
         let trashed = now != Node::Missing;
         if trashed {
-            // NOTE: every overwrite and removal goes to the undo trash first (PB8), from
-            // the store's copy, which equals the file by the check above.
+            // NOTE: every overwrite and removal goes to the undo trash first (PB8), with
+            // the bytes of the trash blob, which equal the file by the check above.
             let (Some((id, mode)), Some(trash)) = (&entry.trash, trash) else {
                 return Ok((Done::Changed, false));
             };
-            let bytes = store.blob(&root.root, id).await.map_err(std::io::Error::other)?;
+            let bytes = match verified_trash(&now, &entry.expect, id) {
+                Some(bytes) => Cow::Borrowed(bytes),
+                None => {
+                    Cow::Owned(store.blob(&root.root, id).await.map_err(std::io::Error::other)?)
+                }
+            };
             let at = Path::new("root").join(root_id(&root.root)).join(relative);
             put_trash(trash, &at, &bytes, *mode)?;
         }
@@ -616,7 +626,12 @@ impl DaemonToolbox {
             let at = Path::new("home").join(relative);
             match (&now, &step.trash) {
                 (_, Some((id, mode))) => {
-                    let bytes = store.home_blob(id).await.map_err(std::io::Error::other)?;
+                    let bytes = match verified_trash(&now, &step.expect, id) {
+                        Some(bytes) => Cow::Borrowed(bytes),
+                        None => {
+                            Cow::Owned(store.home_blob(id).await.map_err(std::io::Error::other)?)
+                        }
+                    };
                     put_trash(trash, &at, &bytes, *mode)?;
                 }
                 (Node::File { bytes, mode }, None) => {
@@ -848,6 +863,28 @@ fn matches_expect(now: &Node, expect: &Expect) -> bool {
         (Node::Link(target), Expect::Link(expected)) => target == expected,
         (Node::Missing | Node::File { .. } | Node::Link(_), Expect::Any) => true,
         _ => false,
+    }
+}
+
+/// The bytes of `now` for the undo trash, when they are the trash blob `id` of the plan:
+/// a file that `expect` names by the blob id `id`, or a link whose target `expect`
+/// names and whose blob id is `id`. It checks the id itself, so the trash holds the
+/// blob byte for byte as the store holds it (PB8), also when a caller did not check
+/// `expect` first. `None` for anything else, such as a path of [`Expect::Any`]: the
+/// caller then reads the blob from the store.
+fn verified_trash<'a>(now: &'a Node, expect: &Expect, id: &ObjectId) -> Option<&'a [u8]> {
+    match (now, expect) {
+        (Node::File { bytes, .. }, Expect::Blob(expected))
+            if expected == id && blob_id(bytes) == *id =>
+        {
+            Some(bytes)
+        }
+        (Node::Link(target), Expect::Link(expected))
+            if target == expected && link_id(target) == *id =>
+        {
+            Some(target)
+        }
+        _ => None,
     }
 }
 
