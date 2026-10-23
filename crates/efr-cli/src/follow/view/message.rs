@@ -14,7 +14,9 @@ use crate::live::Measured;
 #[derive(Debug)]
 pub(crate) struct Message {
     pub(crate) index: u32,
-    renderer: Renderer,
+    /// Boxed: the view lives in the futures of the follow, and a renderer with the state
+    /// of an open fence would push them past clippy's `large_futures` limit.
+    renderer: Box<Renderer>,
     /// The text of the message as far as it arrived.
     received: String,
     /// How many bytes of `received` went into the renderer.
@@ -28,7 +30,7 @@ impl Message {
     pub(crate) fn new(index: u32, options: RenderOptions) -> Message {
         Message {
             index,
-            renderer: Renderer::new(options),
+            renderer: Box::new(Renderer::new(options)),
             received: String::new(),
             pushed: 0,
             live: String::new(),

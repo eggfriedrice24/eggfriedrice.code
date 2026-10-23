@@ -616,9 +616,19 @@ fn bench_perf_cli_memory() {
         };
         (script, format!("fn line_{}(x", lines - 1))
     });
-    for (lines, count) in counts.into_inner() {
+    let counts: Vec<(_, u64)> = counts
+        .into_inner()
+        .into_iter()
+        .map(|(lines, count)| (lines, count.load(Ordering::Relaxed)))
+        .collect();
+    for (lines, count) in &counts {
         let label = format!("fence {lines} lines: subscribed again after an overflow");
-        report.count(&label, count.load(Ordering::Relaxed));
+        report.count(&label, *count);
     }
     report.finish();
+    // The budget of the live render of efr-render: efr keeps up with a 1 ms draft
+    // stream at every fence size, so its queue never overflows.
+    for (lines, count) in &counts {
+        assert_eq!(*count, 0, "fence {lines} lines: subscribed again after an overflow");
+    }
 }
