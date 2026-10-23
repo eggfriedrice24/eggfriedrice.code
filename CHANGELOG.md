@@ -10,6 +10,14 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Security
+
+- efr now uses tokio 1.53.3. This version fixes the advisory RUSTSEC-2026-0386 of
+  tokio 1.53.2 (`AsyncFd` and I/O safety). Each `AsyncFd` of efr owns its
+  descriptor, so efr was not open to the fault.
+- efr now uses ctutils 0.4.5 in the keyring build. This version fixes the advisory
+  RUSTSEC-2026-0385 of ctutils 0.4.2.
+
 ## [0.0.4] - 2026-10-23
 
 ### Added

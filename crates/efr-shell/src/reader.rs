@@ -30,7 +30,13 @@ pub(crate) fn master(master: OwnedFd) -> io::Result<Master> {
     tokio::runtime::Handle::try_current().map_err(io::Error::other)?;
     let flags = rustix::fs::fcntl_getfl(&master)?;
     rustix::fs::fcntl_setfl(&master, flags | OFlags::NONBLOCK)?;
-    Ok(Arc::new(AsyncFd::new(master)?))
+    // NOTE: tokio 1.53.3 deprecates AsyncFd::new (RUSTSEC-2026-0386) for a borrowed
+    // descriptor. This AsyncFd owns its OwnedFd, so no other code can close or replace
+    // the descriptor while it is registered, which is the condition that
+    // `AsyncFd::register` asks its caller to keep.
+    #[expect(deprecated, reason = "the AsyncFd owns the descriptor")]
+    let master = AsyncFd::new(master)?;
+    Ok(Arc::new(master))
 }
 
 /// What the reader hands each chunk to.
