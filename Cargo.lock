@@ -1110,6 +1110,7 @@ dependencies = [
  "efr-protocol",
  "efr-screen",
  "efr-stdx",
+ "efr-test-support",
  "insta",
  "memchr",
  "pretty_assertions",

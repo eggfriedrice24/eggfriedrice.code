@@ -259,3 +259,13 @@ size, title, bell and reply checks of that fixture, never the mark checks. The f
 run of a new backend writes its snapshots as `fixtures/vt/snapshots/*.snap.new`;
 review them and accept them with `just bless`. No test sleeps on real time, needs the
 network or needs Zig.
+
+## Benches
+
+The benches are ignored tests. `just bench-perf` runs them in release. They report
+through `efr_test_support::bench`, a dev-dependency.
+
+- `bench_perf_osc_scan` (`tests/it/osc_scan.rs`): the time and the throughput of the
+  mark scanner on 0.5, 5 and 50 MiB of plain output and of output with many escape
+  sequences. It also scans prompt marks in chunks of 4093 and 7 bytes, so that the
+  marks cross the chunk edges, and counts the marks that it finds.

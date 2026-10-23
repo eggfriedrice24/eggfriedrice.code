@@ -35,6 +35,8 @@ vt100.workspace = true
 # crate's test builds only, so `cargo nextest run -p efr-screen` runs the suite against
 # the in-crate fake screen and the vt100 backend without a --features flag.
 efr-screen = { workspace = true, features = ["conformance"] }
+# The bench of the mark scanner reports through the shared bench helpers.
+efr-test-support.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 
