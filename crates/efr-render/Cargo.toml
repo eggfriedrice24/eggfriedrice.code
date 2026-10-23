@@ -20,6 +20,7 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
+efr-test-support.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true

@@ -156,3 +156,18 @@ with them, and that the rows of a diff fit the width and read back as its lines.
 document, byte-by-byte streaming included, commits what `render` does, and that early
 commits render the elements exactly as one parse of the whole document does. Nothing
 touches the network, the terminal or the home directory.
+
+## Benches
+
+Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
+`efr-test-support`, a dev-dependency only. They report what they measure and have no
+time budget yet. A size that takes more than 10 s stops its ladder.
+
+- `bench_perf_render_diff` (`tests/it/perf.rs`): `render` of a fenced diff of 2k, 10k
+  and 20k lines of Rust, and of a lockfile diff of 2k lines of 1 KB.
+- `bench_perf_live_nested_fence` (`tests/it/perf.rs`): a `1.` item that holds a Rust
+  fence of 30, 150, 300 and 1,000 lines, pushed in pieces of 16 bytes. It gives the
+  total time and the time of each push.
+- `bench_perf_highlight_line` (`src/highlight/tests.rs`): the time of each line with
+  the `ansi` and `catppuccin-mocha` themes, for 1k and 10k lines, and the first
+  highlight of a process, which loads the grammars.
