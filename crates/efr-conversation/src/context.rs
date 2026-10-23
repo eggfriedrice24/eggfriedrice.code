@@ -142,8 +142,28 @@ pub(crate) fn message_tokens(message: &Message) -> u64 {
     estimate_tokens(json_len(message))
 }
 
-fn json_len(value: &impl serde::Serialize) -> u64 {
-    serde_json::to_vec(value).map_or(0, |json| json.len() as u64)
+/// The length of `value` as JSON, counted as it is written, so no copy of a request or
+/// of a history is made to measure it; 0 when it cannot be written.
+pub(crate) fn json_len(value: &impl serde::Serialize) -> u64 {
+    let mut counter = ByteCounter(0);
+    match serde_json::to_writer(&mut counter, value) {
+        Ok(()) => counter.0,
+        Err(_) => 0,
+    }
+}
+
+/// A writer that keeps only the count of the bytes written to it.
+struct ByteCounter(u64);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len() as u64;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// The context of a turn as it grows: the last real count, and the estimate of the

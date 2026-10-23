@@ -49,7 +49,7 @@ use efr_store::user_messages;
 
 use crate::ConversationError;
 use crate::compaction::{Cut, Placed, Window, gap_note, summary_message};
-use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB};
+use crate::context::{BYTES_PER_TOKEN, PRUNED_OUTPUT_STUB, json_len};
 
 /// What the model reads for a tool call whose result was never recorded, as when the
 /// daemon stopped while the call ran or waited for approval.
@@ -612,31 +612,8 @@ fn stub_results(message: &mut Message) {
 /// The size of the messages of `placed` as JSON, the measure of
 /// [`HistoryLimits::max_bytes`].
 fn json_size(placed: &[Placed]) -> usize {
-    placed.iter().map(|placed| json_len(&placed.message)).sum()
-}
-
-/// The length of `message` as JSON, counted as it is written, so no copy of the
-/// history is made to measure it; 0 when it cannot be written, as before.
-fn json_len(message: &Message) -> usize {
-    let mut counter = ByteCounter(0);
-    match serde_json::to_writer(&mut counter, message) {
-        Ok(()) => counter.0,
-        Err(_) => 0,
-    }
-}
-
-/// A writer that keeps only the count of the bytes written to it.
-struct ByteCounter(usize);
-
-impl std::io::Write for ByteCounter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 += bytes.len();
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
+    let bytes: u64 = placed.iter().map(|placed| json_len(&placed.message)).sum();
+    usize::try_from(bytes).unwrap_or(usize::MAX)
 }
 
 /// The `turn_steered` events of `page` that left their turn unread at an interrupt:
