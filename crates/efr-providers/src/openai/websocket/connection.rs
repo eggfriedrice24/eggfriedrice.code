@@ -22,7 +22,7 @@ use tokio::task::JoinHandle;
 use tracing::Instrument as _;
 
 use super::Health;
-use super::continuation::Continuation;
+use super::continuation::{Continuation, Print};
 use crate::openai::convert::ResponsesBody;
 
 /// The error codes of an `error` event that say nothing about the socket's health: the
@@ -93,8 +93,8 @@ pub(crate) struct Create {
     pub(crate) message: String,
     /// Every field of the request but `input`.
     pub(crate) settings: ResponsesBody,
-    /// The request's whole input.
-    pub(crate) input: Vec<Value>,
+    /// The prints of the request's whole input; `None` keeps no continuation.
+    pub(crate) prints: Option<Vec<Print>>,
     /// Where the events go.
     pub(crate) events: mpsc::Sender<Delivery>,
 }
@@ -283,8 +283,8 @@ struct Request<'a> {
     gone: bool,
     /// `response.interrupt` went out.
     interrupted: bool,
-    /// The output items finished so far.
-    items: Vec<Value>,
+    /// The prints of the output items finished so far.
+    items: Vec<Option<Print>>,
 }
 
 impl Request<'_> {
@@ -334,7 +334,7 @@ async fn serve(
     clock: &dyn Clock,
     limits: Limits,
 ) -> Served {
-    let Create { message, settings, input, events } = create;
+    let Create { message, settings, prints, events } = create;
     let mut request = Request {
         events: &events,
         shared,
@@ -421,7 +421,7 @@ async fn serve(
         if kind == "response.output_item.done"
             && let Some(item) = event.get("item")
         {
-            request.items.push(item.clone());
+            request.items.push(Print::of(item));
         }
         if ENDS.contains(&kind.as_str()) {
             let healthy = matches!(kind.as_str(), "response.completed" | "response.incomplete");
@@ -432,7 +432,7 @@ async fn serve(
                 shared.busy = false;
                 shared.closed = !healthy;
                 if kind == "response.completed" && !request.gone {
-                    shared.last = continuation(settings, input, &mut request, &event);
+                    shared.last = continuation(settings, prints, &mut request, &event);
                 }
             }
             request.deliver(Delivery::Event(event)).await;
@@ -506,27 +506,27 @@ async fn interrupt(socket: &WebSocket, request: &mut Request<'_>) -> bool {
     socket.send_text(message.to_string()).await.is_ok()
 }
 
-/// The continuation after a completed answer: the request's input and the answer's
-/// output items, from the finished items or else from the response's `output`.
+/// The continuation after a completed answer: the prints of the request's input and
+/// of the answer's output items, from the finished items or else from the response's
+/// `output`. `None` when an item has no print.
 fn continuation(
     settings: ResponsesBody,
-    mut input: Vec<Value>,
+    prints: Option<Vec<Print>>,
     request: &mut Request<'_>,
     event: &Value,
 ) -> Option<Continuation> {
+    let mut input = prints?;
     let response = event.get("response");
     let response_id = request.response_id.clone().or_else(|| {
         response.and_then(|response| response.get("id")).and_then(Value::as_str).map(str::to_owned)
     })?;
-    let mut items = std::mem::take(&mut request.items);
+    let items = std::mem::take(&mut request.items);
     if items.is_empty() {
-        items = response
-            .and_then(|response| response.get("output"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let output = response.and_then(|response| response.get("output"));
+        input.extend(Print::all(output.and_then(Value::as_array).map_or(&[], Vec::as_slice))?);
+    } else {
+        input.extend(items.into_iter().collect::<Option<Vec<_>>>()?);
     }
-    input.extend(items);
     Some(Continuation { settings, input, response_id })
 }
 

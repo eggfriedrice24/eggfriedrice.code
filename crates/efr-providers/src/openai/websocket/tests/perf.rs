@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use crate::openai::OpenAiConfig;
 use crate::openai::convert::{ResponsesBody, request_body};
-use crate::openai::websocket::continuation::{Continuation, Plan, plan};
+use crate::openai::websocket::continuation::{Continuation, Outgoing, Plan, Print, plan};
 
 /// The seed of the corpus.
 const SEED: u64 = 42;
@@ -90,18 +90,21 @@ fn history(items: usize, bytes: usize) -> History {
 }
 
 /// What a WebSocket call builds after `request_body`, as `Sockets::stream` does: the
-/// plan, the `response.create` message, and the settings and the input that the
-/// connection keeps for the next continuation.
+/// plan, the `response.create` message, and the settings and the prints of the input
+/// that the connection keeps for the next continuation.
 fn websocket_parts(
     last: Option<&Continuation>,
     body: &ResponsesBody,
-) -> (String, ResponsesBody, Vec<Value>) {
-    let (previous, input) = match plan(last, body) {
+) -> (String, ResponsesBody, Option<Vec<Print>>) {
+    let outgoing = Outgoing::of(body);
+    let (previous, input) = match plan(last, &outgoing) {
         Plan::Full => (None, body.input()),
         Plan::Incremental { previous, input } => (Some(previous), input),
     };
-    let message = serde_json::to_string(&body.websocket_create(previous, input)).unwrap();
-    (message, body.settings(), body.input().to_vec())
+    let message =
+        serde_json::to_string(&outgoing.settings.websocket_create(previous, input)).unwrap();
+    let Outgoing { settings, prints, .. } = outgoing;
+    (message, settings, prints)
 }
 
 /// The growth of the peak resident set over one run of `f`.
@@ -127,10 +130,8 @@ fn bench_perf_ws_body() {
         let name = format!("{items} items");
         report.count(&format!("{name}: input items"), items as u64);
         report.count(&format!("{name}: turns of history"), turns as u64);
-        report.bytes(
-            &format!("{name}: input as JSON"),
-            serde_json::to_vec(first.input()).unwrap().len() as u64,
-        );
+        let json = serde_json::to_vec(first.input()).unwrap().len();
+        report.bytes(&format!("{name}: input as JSON"), json as u64);
 
         // The HTTP path: the body, then its bytes.
         let http = || {
@@ -164,15 +165,21 @@ fn bench_perf_ws_body() {
         known.extend(raw);
         let last = Continuation {
             settings: first.settings(),
-            input: known,
+            input: Print::all(&known).unwrap(),
             response_id: "resp_1".to_owned(),
         };
         let mut next = messages.clone();
         next.extend([answer, result]);
         let second = body(&next);
-        let (message, _, _) = websocket_parts(Some(&last), &second);
+        let (message, settings, prints) = websocket_parts(Some(&last), &second);
         assert!(message.contains("\"previous_response_id\":\"resp_1\""), "an incremental call");
         report.bytes(&format!("{name}: incremental message"), message.len() as u64);
+        // What the connection keeps for the next call: the settings and a print of each
+        // item. It kept the whole input before, which is more than its JSON.
+        let prints = prints.unwrap();
+        let kept = serde_json::to_vec(&settings).unwrap().len() + prints.len() * size_of::<Print>();
+        report.bytes(&format!("{name}: kept by the connection"), kept as u64);
+        assert!(kept * 10 < json, "{name}: the connection keeps {kept} bytes of {json}");
         let incremental = || {
             let body = body(&next);
             black_box(websocket_parts(Some(&last), &body));
@@ -192,8 +199,13 @@ fn bench_perf_ws_body() {
             break;
         }
     }
-    report.slope("http body over the items", &https);
-    report.slope("websocket full over the items", &fulls);
-    report.slope("websocket incremental over the items", &incrementals);
+    for (label, points) in [
+        ("http body over the items", &https),
+        ("websocket full over the items", &fulls),
+        ("websocket incremental over the items", &incrementals),
+    ] {
+        let slope = report.slope(label, points);
+        assert!(slope < 1.3, "{label}: slope {slope}");
+    }
     report.finish();
 }

@@ -95,6 +95,10 @@ into the GitHub release notes, and it stops when the section is missing.
   git repository outside your projects gets its answer from efrd sooner, because the
   repository hint also uses one git process. The scope and the branch that efr finds
   do not change.
+- With the OpenAI WebSocket transport, efrd uses less memory for each conversation.
+  Before, each connection kept a copy of all of the history of its last call, which is
+  several MB in a long conversation. Now it keeps about 24 bytes for each item of the
+  history. A call in a long conversation also starts sooner.
 
 ### Security
 

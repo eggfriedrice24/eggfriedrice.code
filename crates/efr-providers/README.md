@@ -234,7 +234,10 @@ history that a compaction or a rebuild changed. The HTTP body never carries
 `previous_response_id`. In practice, the conversation puts its live state into the
 newest user message of each turn's first request and keeps it out of the history, so
 the first call of a turn sends the whole input and the later calls of the turn send
-only their new items.
+only their new items. The connection does not keep the items of the previous call: it
+keeps the length and a 128-bit hash of the JSON text of each item, and it compares the
+new input with them. Thus it compares the bytes that went on the wire. An item that
+cannot be encoded sends the whole input.
 
 Interrupt: when the conversation drops the stream of a running answer, the connection
 sends `{"type": "response.interrupt", "response_id", "mode": "discard_partial_items"}`
@@ -929,13 +932,15 @@ The tests make no network call, sleep on no real time and need no Zig.
 ## Benches
 
 The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
-a time. They report and do not fail on a time. The history comes from the perf corpus
+a time. They report and do not fail on a time. A bench with a budget of a count or a
+slope fails when that budget fails. The history comes from the perf corpus
 of `efr-test-support`. The test binary has no counting allocator, so the benches report
 the time and the growth of the peak resident set.
 
 - `bench_perf_ws_body` (`src/openai/websocket/tests/perf.rs`): the HTTP body, and the
   `response.create` message of the WebSocket with the parts that the connection keeps,
   for the whole input and for a continuation, at 200 and 2,000 input items and at 3 MB
-  of input.
+  of input. Budget: the connection keeps less than a tenth of the bytes of the input's
+  JSON, and each slope over the items is less than 1.3.
 - `bench_perf_messages_body` (`src/anthropic/convert/tests/perf.rs`): the Messages body
   of the same histories without the provider items.

@@ -1,6 +1,7 @@
 use efr_provider::{
     ContentBlock, FREEFORM_INPUT, Message, Request, Role, ToolDefinition, ToolGrammar,
 };
+use insta::assert_snapshot;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -759,4 +760,53 @@ fn a_custom_call_item_reads_back_as_a_freeform_call() {
         OutputItem::parse(&without_name),
         OutputItem::Other { kind: "custom_tool_call".to_owned() }
     );
+}
+
+/// A request that sets every member of the body: an output schema, a limit, the
+/// reasoning, tools and each provider option, with a history of three items.
+fn every_member() -> (Request, OpenAiConfig) {
+    let mut request = verdict_request("gpt-5.5");
+    request.tools = vec![shell_tool()];
+    request.max_output_tokens = Some(4096);
+    request.effort = Some("low".to_owned());
+    request.messages = vec![
+        Message::user("hi"),
+        Message::assistant("Hello."),
+        Message::user("Which shell do I use?"),
+    ];
+    request.provider_options = serde_json::from_value(json!({
+        "reasoning_summary": "auto",
+        "parallel_tool_calls": false,
+        "prompt_cache_key": "conversation-0192",
+        "service_tier": "flex",
+        "text_verbosity": "low",
+    }))
+    .unwrap();
+    (request, OpenAiConfig::api())
+}
+
+#[test]
+fn the_body_and_the_websocket_message_keep_their_member_order() {
+    let (request, config) = every_member();
+    let body = request_body(&request, &config, None);
+    // NOTE: the text comes from the struct itself, not from a `Value`, whose map sorts
+    // its keys: the order on the wire is the order of the fields.
+    assert_snapshot!("http_body", serde_json::to_string_pretty(&body).unwrap());
+    let create = body.websocket_create(Some("resp_1"), &body.input()[2..]);
+    assert_snapshot!("websocket_create", serde_json::to_string_pretty(&create).unwrap());
+    let full = body.websocket_create(None, body.input());
+    assert_snapshot!("websocket_create_full", serde_json::to_string_pretty(&full).unwrap());
+}
+
+#[test]
+fn the_settings_are_every_member_but_the_input() {
+    let (request, config) = every_member();
+    let body = request_body(&request, &config, None);
+    let mut expected = serde_json::to_value(&body).unwrap();
+    expected["input"] = json!([]);
+    let settings = body.settings();
+    assert_eq!(serde_json::to_value(&settings).unwrap(), expected);
+    assert!(settings.input().is_empty());
+    // The settings of the settings are the settings.
+    assert_eq!(settings.settings(), settings);
 }
