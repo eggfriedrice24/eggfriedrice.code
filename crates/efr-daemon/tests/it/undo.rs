@@ -13,6 +13,7 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use efr_protocol::{
@@ -640,4 +641,122 @@ async fn undo_leaves_a_user_edit_made_during_the_turn() {
     assert_eq!(read(&mine), "mine\n", "the user's new file stays");
     assert_eq!(read(&keep), "edited by the user\n", "the user's edit stays");
     daemon.stop().await.unwrap();
+}
+
+/// The file that the counting git of [`bench_perf_undo_apply`] appends a line to for
+/// each run: set only in the copy of the test that the bench starts.
+const GIT_RUNS: &str = "EFR_BENCH_GIT_RUNS";
+
+/// The variable `name` of this test process.
+#[expect(clippy::disallowed_methods, reason = "the bench reads its own switch")]
+fn bench_var(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
+/// The lines of `runs` so far; the count starts at 0 again.
+fn take_git_runs(runs: &Path) -> u64 {
+    let count = std::fs::read(runs).map(|bytes| bytes.iter().filter(|b| **b == b'\n').count());
+    let _ = std::fs::remove_file(runs);
+    count.unwrap_or(0) as u64
+}
+
+/// The undo of one turn whose shell call changed `files` files of the project: the
+/// time of `turn.undo`, and the git runs of efrd during it when `runs` names the file
+/// of a counting git.
+async fn undo_of(files: usize, runs: Option<&Path>) -> (Duration, Option<u64>) {
+    let command = format!("for i in {{1..{files}}}; do print -r -- \"new $i\" > src/f$i.txt; done");
+    let script = Script::new(vec![Answer::Call("shell", json!({ "command": command }))]);
+    let daemon = TestDaemon::builder().local_pty().custom_provider(script).start().await.unwrap();
+    register_cwd(&daemon).await;
+    let src = daemon.cwd().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    for n in 1..=files {
+        std::fs::write(src.join(format!("f{n}.txt")), format!("old {n}\n")).unwrap();
+    }
+    turn(&daemon, 1, "change every file", Mode::Cautious).await;
+    assert_eq!(read(&src.join(format!("f{files}.txt"))), format!("new {files}\n"));
+    if let Some(runs) = runs {
+        take_git_runs(runs);
+    }
+    let start = std::time::Instant::now();
+    let undone = undo(&daemon, 10, |_| {}).await.unwrap();
+    let spent = start.elapsed();
+    let git_runs = runs.map(take_git_runs);
+    assert!(undone.applied, "{undone:?}");
+    let entries = undone.entries.len() + undone.entries_more as usize;
+    assert_eq!(entries, files, "one entry per changed file");
+    assert_eq!(read(&src.join(format!("f{files}.txt"))), format!("old {files}\n"));
+    daemon.stop().await.unwrap();
+    (spent, git_runs)
+}
+
+/// The sizes of [`bench_perf_undo_apply`], in changed files.
+const UNDO_FILES: [usize; 3] = [50, 500, 2_000];
+
+/// The apply of an undo of a turn that changed 50, 500 and 2,000 files (plan slice
+/// W2-C): its time, and the git runs of efrd during it. A test process cannot change
+/// its own `PATH`, so the bench starts a copy of this test with a counting git first on
+/// the `PATH`; the copy reports the counts and its times with that git. It drives a
+/// real zsh (`EFR_TEST_ZSH=1`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_undo_apply() {
+    let test = "bench_perf_undo_apply";
+    let mut report = efr_test_support::bench::Report::new(test);
+    if !zsh_enabled(test) {
+        report.count("skipped: set EFR_TEST_ZSH=1", 0);
+        report.finish();
+        return;
+    }
+    if let Some(runs) = bench_var(GIT_RUNS) {
+        let runs = PathBuf::from(runs);
+        for files in UNDO_FILES {
+            let (spent, count) = undo_of(files, Some(&runs)).await;
+            report.time(&format!("{files} files undo with a counting git"), &[spent]);
+            report.count(&format!("{files} files git runs"), count.unwrap_or(0));
+        }
+        report.finish();
+        return;
+    }
+    let mut points = Vec::new();
+    for files in UNDO_FILES {
+        let (spent, _) = undo_of(files, None).await;
+        report.time(&format!("{files} files undo"), &[spent]);
+        points.push((files as u64, spent));
+        if spent > Duration::from_secs(10) {
+            report.count("stopped_at_n", files as u64);
+            break;
+        }
+    }
+    report.slope("undo slope", &points);
+    report.finish();
+    // The counting copy: a git first on the PATH that counts its runs.
+    let dir = tempfile::tempdir().unwrap();
+    let runs = dir.path().join("runs");
+    let real = ["/usr/bin/git", "/bin/git"].into_iter().find(|git| Path::new(git).is_file());
+    let Some(real) = real else { return };
+    let git = dir.path().join("git");
+    let script = format!("#!/bin/sh\nprintf 'x\\n' >> '{}'\nexec {real} \"$@\"\n", runs.display());
+    std::fs::write(&git, script).unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", dir.path().display(), bench_var("PATH").unwrap_or_default());
+    let exe = std::env::current_exe().unwrap();
+    let output = efr_stdx::process::command(&exe, dir.path())
+        .args(["undo::bench_perf_undo_apply", "--exact", "--ignored", "--nocapture"])
+        .env("PATH", path)
+        .env(GIT_RUNS, &runs)
+        .output()
+        .await
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    pass_on(stderr.lines().filter(|line| line.starts_with(test)));
+    assert!(output.status.success(), "the counting copy failed: {stderr}");
+}
+
+/// Prints the report lines of the counting copy of a bench.
+#[expect(clippy::print_stderr, reason = "the bench passes on the copy's report")]
+fn pass_on<'a>(lines: impl Iterator<Item = &'a str>) {
+    for line in lines {
+        eprintln!("{line}");
+    }
 }

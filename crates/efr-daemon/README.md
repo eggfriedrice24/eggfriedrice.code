@@ -1945,3 +1945,19 @@ prompt while every lane is busy wait on events, never on real time.
 
 No test uses the network, a real model, real time, the user's home, config or runtime
 directory, or the git configuration of the machine.
+
+## Benches
+
+The `bench_perf_*` benches are ignored tests. `just bench-perf` runs them in release.
+
+- `bench_perf_shell_call_sandbox` (`tests/it/sandbox/perf.rs`): 10 calls of `true` in
+  `auto` on the real sandbox, in a git project of 100, 2,000 and 20,000 files, with 0,
+  1 and 4 contained jobs in the same project. Each `phase` line of efrd is a measure.
+  It needs `EFR_TEST_ZSH=1` and `EFR_TEST_SBX_BIN`.
+- `bench_perf_home_copy` (`src/home/tests.rs`): `home::prepare`, the copy into the home
+  store, `home::after`, the deltas and `home::changed` for a directory of 200, 2,000
+  and 20,000 files, with a raised limit.
+- `bench_perf_undo_apply` (`tests/it/undo.rs`): the apply of an undo of a turn whose
+  shell call changed 50, 500 and 2,000 files. A test process cannot change its own
+  `PATH`, so the bench also starts a copy of itself with a counting `git` first on the
+  `PATH`, and the copy reports the git runs of efrd. It needs `EFR_TEST_ZSH=1`.

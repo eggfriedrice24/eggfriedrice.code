@@ -16,6 +16,7 @@ mod jobs_guard;
 mod mount_view;
 mod moved;
 mod netview;
+mod perf;
 mod proxy;
 mod reach;
 mod review;
