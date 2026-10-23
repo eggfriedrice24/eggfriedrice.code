@@ -1119,7 +1119,9 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
     `builtin`, `exec`, `stdbuf`, `ionice`, `chrt`, `taskset`, `setsid`, `flock`,
     `xargs`, `watch`, `unbuffer`, `noglob`, `nocorrect` and zsh's `-`), so `env git push` and `timeout 60 git push` meet a rule for
     `git push`. efr does not know which words a wrapper takes as values, so such a
-    rule may also ask for a line where the program is only a word after the wrapper;
+    rule may also ask for a line where the program is only a word after the wrapper.
+    It reads at most 16 such forms of its program in one command; a command with
+    more, such as `env git git git ...`, matches the rule;
   - `args`: the words that must follow the program, in order. A word may list
     alternatives, as in `"status|diff"`, and may end in `*` to match every word that
     starts with it, as `"-Q*"` matches `-Qi`. For `git`, efr first skips git's own

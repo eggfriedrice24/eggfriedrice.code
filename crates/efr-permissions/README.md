@@ -145,7 +145,10 @@ Modules:
   `timeout`, `xargs` and the rest), each later word that does not start with `-` as the
   program, so `env git -C ~/p/app push` meets `deny git push`. efr does not know which
   words a wrapper takes as values, so the rule may match more than runs, which only
-  asks or denies more. A rule that allows reads neither form.
+  asks or denies more. A rule that allows reads neither form. A rule reads at most
+  `MAX_FORMS` (16) forms of its program in one command, because each form reads the
+  rest of the command and a git form reads it again for each view; past the cap the
+  rule matches in any place, so `env git git git ...` asks or is denied.
   `Policy::base(mode)` is the built-in policy of a mode: `manual` is `any any ask`
   and the secrets rule; `cautious` is `Policy::defaults()`, the table above as eight
   rules followed by the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`,
@@ -726,6 +729,10 @@ starts processes.
 - `bench_perf_run_forms` (`tests/it/perf.rs`): `Engine::decide` with 20 user `ask`
   rules on `rm f1..fN` and `time rg x f1..fN`, N = 100, 1k, 5k and 10k, with the
   growth of the peak resident set. Budget: the slope of each line.
+- `bench_perf_git_forms` (`tests/it/perf.rs`): `Engine::decide` with an `ask` rule
+  for `git push` with `under` on `env` and then `git` N times, N = 100, 1k, 5k and
+  10k. Each git form read its views over the rest of the line: 10k took 0.8 s.
+  Budget: the line asks (the rule reads at most `MAX_FORMS` forms), and the slope.
 - `bench_perf_fact_requests` (`tests/it/perf.rs`): `fact_requests` on `rm -rf` and
   `touch` lines of 100, 1k and 5k operands. Budget: the slope of each line.
 - `bench_perf_decide_paths` (`tests/it/perf.rs`): `Engine::decide` on `rm -f` of 100,

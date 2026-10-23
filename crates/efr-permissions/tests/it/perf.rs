@@ -181,6 +181,40 @@ fn bench_perf_run_forms() {
 
 #[test]
 #[ignore = "bench: run by just bench-perf"]
+fn bench_perf_git_forms() {
+    // NOTE: a git rule with `under` reads the views of every git form, and each view
+    // reads the rest of the line.
+    let git = CommandPattern::new("git").with_args(["push"]).with_under("~/work");
+    let rules = vec![Rule::new(Action::Execute, Resource::Command(git), Effect::Ask)];
+    let engine = Engine::with_rules(locations(), Policy::new(rules).unwrap());
+    let mut report = Report::new("bench_perf_git_forms");
+    let (mut points, mut stopped) = (Vec::new(), Vec::new());
+    for n in [100_u64, 1_000, 5_000, 10_000] {
+        let mut line = String::from("env");
+        for _ in 0..n {
+            line.push_str(" git");
+        }
+        let input = input(&line);
+        let mut effect = None;
+        let runs = samples(|| effect = Some(engine.decide(&input).effect()));
+        // NOTE: past the forms that a rule reads, the rule matches: the line asks.
+        assert_eq!(effect, Some(Effect::Ask), "env and git {n} times");
+        let stats = report.time(&format!("env git x {n}"), &runs);
+        points.push((n, stats.p50));
+        if stats.p50 > LIMIT {
+            report.count("stopped_at_n", n);
+            stopped.push("env git".to_owned());
+            break;
+        }
+    }
+    let label = "slope over git words".to_owned();
+    let slope = report.slope(&label, &points);
+    report.finish();
+    check_budget(&[(label, slope)], &stopped);
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
 fn bench_perf_fact_requests() {
     let locations = locations();
     let mut report = Report::new("bench_perf_fact_requests");
