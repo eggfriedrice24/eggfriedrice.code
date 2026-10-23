@@ -256,3 +256,17 @@ list twice more). Each corpus file is
 built once below `target/tmp/search-corpus/`, named by size, seed, schema and
 generator version, and each test copies it. The numbers of a busy machine are not
 valid.
+
+## Benches
+
+The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
+a time. They report and do not fail on a time. Each one writes the perf corpus of
+`efr-test-support` (20 conversations, interleaved by turn) into a new store file below
+`target/tmp/perf-store/` and measures after each part of the log.
+
+- `bench_perf_user_messages` (`tests/it/perf.rs`): the time of
+  `user_messages::of_conversation` at 10k, 100k and 1M events in the log, the slope,
+  and the lines of `EXPLAIN QUERY PLAN` of its query.
+- `bench_perf_store_append` (`tests/it/perf.rs`): the p50, p95 and max of one append of
+  an output update and of a turn's batch at 1k, 100k and 1M events, and of an output
+  update when the write-ahead log is near the writer's checkpoint size.
