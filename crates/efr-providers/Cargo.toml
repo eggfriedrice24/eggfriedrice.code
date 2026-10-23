@@ -25,6 +25,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# The perf corpus and the report of the bench_perf_* benches.
+efr-test-support.workspace = true
 fastwebsockets.workspace = true
 insta.workspace = true
 pretty_assertions.workspace = true

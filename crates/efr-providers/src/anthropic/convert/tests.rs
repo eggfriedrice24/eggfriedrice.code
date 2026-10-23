@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use super::{MessagesBody, THINKING_BINDING_BETA, UNANSWERED_CALL, request_body, tool_id};
 use crate::anthropic::{AnthropicConfig, CacheTtl};
 
+mod perf;
 mod prefix;
 
 fn shell_tool() -> ToolDefinition {
