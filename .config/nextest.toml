@@ -44,8 +44,8 @@ test-group = "search-bench"
 slow-timeout = { period = "60s", terminate-after = 10 }
 
 # The perf benches (`just bench-perf`) measure times: they run one at a time, and a
-# bench that builds its corpus file for the first time needs more than the default
-# minute.
+# bench that builds a long conversation, a big fixture or its corpus file for the first
+# time needs more than the default minute.
 [[profile.default.overrides]]
 filter = 'test(/bench_perf_/)'
 test-group = "perf-bench"
