@@ -984,6 +984,7 @@ dependencies = [
  "efr-http",
  "efr-provider",
  "efr-stdx",
+ "efr-test-support",
  "fastwebsockets",
  "futures",
  "insta",

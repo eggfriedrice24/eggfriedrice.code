@@ -692,7 +692,8 @@ the clock and of a fetched catalog), `serde` (the typed bodies, the blocks of
 (the task and the channels of a WebSocket connection) and `tracing`. The tests also
 use `fastwebsockets` (the fake WebSocket server), `insta` (the body snapshots of the
 Anthropic requests), `rstest`, `pretty_assertions`, `tempfile`, `tracing-subscriber`
-(to read the log) and `wiremock` (the fake APIs).
+(to read the log) and `wiremock` (the fake APIs). The benches use the dev crate
+`efr-test-support` (the perf corpus and the bench report).
 
 ## Invariant
 
@@ -924,3 +925,17 @@ event after the stream started, a cut stream, a refused connection, and that no
 recorded request, error or log line holds the key, also when the answer quotes it.
 
 The tests make no network call, sleep on no real time and need no Zig.
+
+## Benches
+
+The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
+a time. They report and do not fail on a time. The history comes from the perf corpus
+of `efr-test-support`. The test binary has no counting allocator, so the benches report
+the time and the growth of the peak resident set.
+
+- `bench_perf_ws_body` (`src/openai/websocket/tests/perf.rs`): the HTTP body, and the
+  `response.create` message of the WebSocket with the parts that the connection keeps,
+  for the whole input and for a continuation, at 200 and 2,000 input items and at 3 MB
+  of input.
+- `bench_perf_messages_body` (`src/anthropic/convert/tests/perf.rs`): the Messages body
+  of the same histories without the provider items.

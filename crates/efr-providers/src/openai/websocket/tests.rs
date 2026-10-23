@@ -18,6 +18,8 @@ use crate::openai::{
 };
 use efr_stdx::time::Clock as _;
 
+mod perf;
+
 const KEY: &str = "0192f0c1-conversation";
 
 struct Setup {
