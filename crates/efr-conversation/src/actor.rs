@@ -109,8 +109,9 @@ pub struct ConversationActor {
     start: ConversationStart,
     queue: VecDeque<TurnSpec>,
     running: Option<Running>,
-    /// The exact messages of the turns this actor ran that the newest request carried,
-    /// for their provider items. Emptied after [`IDLE_TRIM`] of idle time.
+    /// The exact messages of the turns that the newest request carried, for their
+    /// provider items: the turns this actor ran, and the saved turns that a turn's
+    /// start read from the store. Emptied after [`IDLE_TRIM`] of idle time.
     cache: HashMap<TurnId, Arc<CachedTurn>>,
     /// The fresh context block of a compaction from an efrd before the stored block,
     /// read from disk once, so every request until the next compaction sends the same
@@ -1411,6 +1412,14 @@ impl ConversationActor {
     fn remember(&mut self, end: TurnEnd) {
         if let Some(carried) = &end.carried {
             self.cache.retain(|turn_id, _| carried.contains(turn_id));
+            // NOTE: a saved turn that the turn's start decoded, after a restart or a
+            // trim, is the same as the turn in memory would be; a start whose cache
+            // held the turn put the cache's own copy here.
+            for (turn_id, turn) in end.read {
+                if carried.contains(&turn_id) {
+                    self.cache.entry(turn_id).or_insert(turn);
+                }
+            }
         }
         if let Some(mut cached) = end.cached {
             cached.shrink();

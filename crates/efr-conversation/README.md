@@ -589,7 +589,9 @@ A turn's start reads back only the saved turns that the cache lacks
 (`turn_messages::of_conversation_except`): it never copies or decodes the messages of
 a turn that the actor keeps in memory. The actor keeps each turn with its strings
 shrunk to their length, so a tool output does not keep the room of the buffer it grew
-in.
+in. The saved turns that a turn's start decoded (after a restart or an idle trim)
+stay in the actor's memory when the turn's newest request carried them, as the turns
+that it ran do, so only that start decodes them.
 Only a turn with no saved messages (one from before the table, or one whose saved
 messages cannot be read back) is rebuilt from the events, with the daemon's call ids
 and without provider items or its preamble.

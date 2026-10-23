@@ -38,7 +38,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - A prompt in a long conversation starts with less work and efrd uses less memory.
   Before, each prompt read again from the database every earlier turn that efrd
   still kept in memory, and each tool output in memory could use up to two times its
-  size.
+  size. After a restart of efrd or 10 idle minutes, only the first prompt reads the
+  earlier turns from the database.
 
 ### Fixed
 
