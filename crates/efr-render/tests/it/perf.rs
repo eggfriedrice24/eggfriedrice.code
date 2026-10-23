@@ -1,6 +1,8 @@
 //! The benches of the renderer (`just bench-perf`, section 2.3 of the perf plan): a
 //! large fenced diff rendered at once, and a long fence inside a list item that streams
-//! in small pieces. They report; they have no time budget yet.
+//! in small pieces. Their budgets are slopes and ratios, not times: `render` grows
+//! with the length of the text, and a push in an open fence costs the same at 30 and
+//! at 1,000 lines.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -10,6 +12,9 @@ use efr_test_support::bench::{self, Report};
 
 /// A size of a ladder that takes longer than this stops the ladder.
 const LIMIT: Duration = Duration::from_secs(10);
+
+/// The highest slope of a cost that must grow with the size and no faster.
+const LINEAR: f64 = 1.3;
 
 /// The measured runs of `f`: one run first, then up to four more while they fit in
 /// about three seconds. The first run alone when it took longer than [`LIMIT`].
@@ -39,6 +44,17 @@ fn rust_diff(lines: usize) -> String {
             text,
             "{mark}    let value_{at} = parse(&input[{at}..], Kind::Item)?; // {at}"
         );
+    }
+    text.push_str("```\n");
+    text
+}
+
+/// A fenced `text` block of `lines` lines: no syntax colours, so the time is the
+/// renderer's own and not the highlighter's.
+fn text_fence(lines: usize) -> String {
+    let mut text = String::from("```text\n");
+    for at in 0..lines {
+        let _ = writeln!(text, "line {at} of a long log that a tool printed");
     }
     text.push_str("```\n");
     text
@@ -79,14 +95,33 @@ fn bench_perf_render_diff() {
             break;
         }
     }
-    report.slope("rust diff slope over lines", &points);
+    let diff_slope = report.slope("rust diff slope over lines", &points);
     let markdown = lockfile_diff(2_000, 1_000);
     report.bytes("lockfile diff markdown", markdown.len() as u64);
     let mut rows = 0;
     let runs = samples(|| rows = render(&markdown, &options).lines().count());
     assert!(rows >= 2_000, "{rows} rows for the lockfile diff");
     report.time("lockfile diff 2k lines of 1 KB", &runs);
+    let mut points = Vec::new();
+    let mut stopped = false;
+    for lines in [20_000, 50_000, 100_000] {
+        let markdown = text_fence(lines);
+        let mut rows = 0;
+        let runs = samples(|| rows = render(&markdown, &options).lines().count());
+        assert_eq!(rows, lines, "the rows of the text fence");
+        let stats = report.time(&format!("text fence {lines} lines"), &runs);
+        points.push((lines as u64, stats.p50));
+        if stats.p50 > LIMIT {
+            report.count("text fence: stopped_at_n", lines as u64);
+            stopped = true;
+            break;
+        }
+    }
+    let text_slope = report.slope("text fence slope over lines", &points);
     report.finish();
+    assert!(diff_slope < LINEAR, "the rust diff grows with slope {diff_slope:.2}");
+    assert!(!stopped, "a text fence took more than {LIMIT:?}");
+    assert!(text_slope < LINEAR, "the text fence grows with slope {text_slope:.2}");
 }
 
 /// A `1.` list item that holds a Rust fence of `lines` lines, as a model writes a step
@@ -106,14 +141,17 @@ fn bench_perf_live_nested_fence() {
     const CHUNK: usize = 16;
     let options = RenderOptions::new(80);
     let mut report = Report::new("bench_perf_live_nested_fence");
+    // The grammars load before the first size, so its pushes are not cold.
+    render("```rust\nlet x = 1;\n```\n", &options);
     let mut points = Vec::new();
+    let mut per_push = Vec::new();
+    let mut stopped = false;
     for lines in [30, 150, 300, 1_000] {
         let markdown = nested_fence(lines);
         let mut renderer = Renderer::new(options.clone());
         let mut pushes = Vec::new();
         let mut out = String::new();
         let start = Instant::now();
-        let mut stopped = false;
         let mut at = 0;
         while at < markdown.len() {
             let mut end = (at + CHUNK).min(markdown.len());
@@ -133,7 +171,7 @@ fn bench_perf_live_nested_fence() {
         out.push_str(&renderer.finish());
         let total = start.elapsed();
         report.time(&format!("{lines} lines: total"), &[total]);
-        report.time(&format!("{lines} lines: per push"), &pushes);
+        let stats = report.time(&format!("{lines} lines: per push"), &pushes);
         report.count(&format!("{lines} lines: pushes"), pushes.len() as u64);
         if stopped {
             report.count("stopped_at_n", lines as u64);
@@ -141,7 +179,21 @@ fn bench_perf_live_nested_fence() {
         }
         assert!(out.contains("value_0"), "the fence was not committed");
         points.push((lines as u64, total));
+        per_push.push((lines, stats.p50));
     }
-    report.slope("total slope over lines", &points);
+    let slope = report.slope("total slope over lines", &points);
     report.finish();
+    assert!(!stopped, "a size took more than {LIMIT:?}");
+    assert!(slope < LINEAR, "the total time grows with slope {slope:.2}");
+    // A push costs the same at every size: its median at 1,000 lines stays
+    // within three times the one at 30 lines. Before, it was eight times at 300 lines.
+    let (first, last) = (per_push[0], per_push[per_push.len() - 1]);
+    assert!(
+        last.1 <= first.1 * 3,
+        "a push takes {:?} at {} lines and {:?} at {} lines",
+        last.1,
+        last.0,
+        first.1,
+        first.0
+    );
 }

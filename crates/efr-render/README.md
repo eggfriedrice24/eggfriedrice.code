@@ -75,6 +75,15 @@ What commits when:
 - A heading or a rule commits with its own line; a quote at a blank line.
 - A partial line is never committed.
 
+What the live zone costs: the text goes in one line at a time, and the work for a
+line does not grow with the reply. A fenced code block in a list item or a quote is
+followed line by line: each new line is checked against the text up to the block's
+opening line only, and the live zone grows by that one painted line. When the item
+ends, it commits as its live zone showed it, so the block is not rendered again.
+From 4 KB of pending text (`LIVE_CACHE_BYTES`), any other open block (a table, a long
+quote or list item) renders its live zone again only when a line is complete, so its
+partial last line shows when the line ends. A partial line of code shows at once.
+
 Because committed output stays on the screen, a few things differ from rendering the
 whole reply at once with a single parse: a reference-style link resolves only against
 a definition in its own block, and emphasis or a setext heading cannot reach back over
@@ -157,20 +166,30 @@ with overrides and with a hex palette in truecolor and in 16 colours; and the
 widths of ZWJ emoji, flags and variation selectors both ways, the live-zone row count
 with them, and that the rows of a diff fit the width and read back as its lines. Property tests check that any chunking of a
 document, byte-by-byte streaming included, commits what `render` does, and that early
-commits render the elements exactly as one parse of the whole document does. Nothing
-touches the network, the terminal or the home directory.
+commits render the elements exactly as one parse of the whole document does. More
+property tests stream fences in list items and quotes (code, blank lines, closing
+fences, lines that end the block, tabs, carriage returns) and check that each push
+commits and shows what a renderer without the line-by-line follow and without kept
+live zones does. A unit test checks that the shared highlighter colours each line as
+a new highlighter for each line did. Nothing touches the network, the terminal or the
+home directory.
 
 ## Benches
 
 Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
-`efr-test-support`, a dev-dependency only. They report what they measure and have no
-time budget yet. A size that takes more than 10 s stops its ladder.
+`efr-test-support`, a dev-dependency only. A size that takes more than 10 s stops its
+ladder. Their budgets are slopes and ratios, not times.
 
 - `bench_perf_render_diff` (`tests/it/perf.rs`): `render` of a fenced diff of 2k, 10k
-  and 20k lines of Rust, and of a lockfile diff of 2k lines of 1 KB.
+  and 20k lines of Rust, of a lockfile diff of 2k lines of 1 KB, and of a `text`
+  fence of 20k, 50k and 100k lines, which has no syntax colours. Budget: the time of
+  the Rust diff and of the text fence grows with a slope below 1.3, and no size
+  stops.
 - `bench_perf_live_nested_fence` (`tests/it/perf.rs`): a `1.` item that holds a Rust
   fence of 30, 150, 300 and 1,000 lines, pushed in pieces of 16 bytes. It gives the
-  total time and the time of each push.
+  total time and the time of each push. Budget: no size stops, the total time grows
+  with a slope below 1.3, and the median push at 1,000 lines takes at most
+  three times the median push at 30 lines.
 - `bench_perf_highlight_line` (`src/highlight/tests.rs`): the time of each line with
   the `ansi` and `catppuccin-mocha` themes, for 1k and 10k lines, and the first
   highlight of a process, which loads the grammars.

@@ -111,6 +111,53 @@ pub(crate) struct ListTail {
 /// Renders `text` as final blocks: nothing in it changes later. Consumes the flow's
 /// continuation and returns the painted text and the tail of the last top-level list.
 pub(crate) fn render_slice(ctx: &Ctx, flow: &mut Flow, text: &str) -> (String, Option<ListTail>) {
+    let writer = write_slice(ctx, flow, text, false);
+    (writer.out, writer.tail)
+}
+
+/// What [`render_slice`] gives for a slice that ends in a code block, kept so that
+/// more lines of that block can be painted one at a time: the painted slice and the
+/// tail of its last list, the block's state after its last line, and the prefix of
+/// the block's next line.
+#[derive(Debug)]
+pub(crate) struct OpenCode {
+    pub(crate) out: String,
+    pub(crate) tail: Option<ListTail>,
+    pub(crate) block: CodeBlock,
+    pub(crate) prefix: Line,
+}
+
+/// Renders `text` as [`render_slice`] does, for a slice whose last element is a
+/// code block. `None` when the output does not end with that block's lines, or when
+/// a next line of the block would not be painted as `prefix` and the line alone: an
+/// item marker or a blank line between blocks is still owed.
+pub(crate) fn render_open_code(ctx: &Ctx, flow: &mut Flow, text: &str) -> Option<OpenCode> {
+    let writer = write_slice(ctx, flow, text, true);
+    let (block, prefix, end) = writer.open_code?;
+    (end == writer.out.len()).then_some(OpenCode {
+        out: writer.out,
+        tail: writer.tail,
+        block,
+        prefix,
+    })
+}
+
+/// Paints the next source line of an open code block under `prefix`, as
+/// [`render_slice`] paints each line of a code block.
+pub(crate) fn paint_code_line(
+    ctx: &Ctx,
+    prefix: &[Span],
+    block: &mut CodeBlock,
+    source: &str,
+) -> String {
+    let mut line = prefix.to_vec();
+    line.extend(block.line(source));
+    let mut out = String::new();
+    ctx.painter.paint(&mut out, &line);
+    out
+}
+
+fn write_slice<'a>(ctx: &'a Ctx, flow: &'a mut Flow, text: &'a str, capture: bool) -> Writer<'a> {
     let continuation = mem::take(&mut flow.continuation);
     let mut writer = Writer {
         ctx,
@@ -130,12 +177,14 @@ pub(crate) fn render_slice(ctx: &Ctx, flow: &mut Flow, text: &str) -> (String, O
         html: None,
         table: None,
         tail: None,
+        capture,
+        open_code: None,
     };
     for (event, range) in Parser::new_ext(text, parser_options()).into_offset_iter() {
         writer.event(event, range);
     }
     writer.flush_inline();
-    (writer.out, writer.tail)
+    writer
 }
 
 enum Container {
@@ -209,6 +258,11 @@ struct Writer<'a> {
     html: Option<String>,
     table: Option<Table>,
     tail: Option<ListTail>,
+    /// Keep the state of the last code block for [`render_open_code`].
+    capture: bool,
+    /// That state: the block after its last line, the prefix of its next line, and
+    /// the length of the output after the block.
+    open_code: Option<(CodeBlock, Line, usize)>,
 }
 
 impl Writer<'_> {
@@ -358,6 +412,10 @@ impl Writer<'_> {
                     for line in source_lines(&text).into_iter().skip(skip) {
                         let rendered = block.line(line);
                         self.emit(&rendered, false);
+                    }
+                    if self.capture {
+                        let end = self.out.len();
+                        self.open_code = self.next_line_prefix().map(|prefix| (block, prefix, end));
                     }
                 }
             }
@@ -664,6 +722,19 @@ impl Writer<'_> {
             }
         }
         (first, rest)
+    }
+
+    /// The prefix of the next line that [`Writer::emit`] writes, when that line is the
+    /// prefix and the content alone: no item marker and no blank line are owed.
+    fn next_line_prefix(&mut self) -> Option<Line> {
+        let marker_owed = self
+            .containers
+            .iter()
+            .any(|container| matches!(container, Container::Item(Item { marker_width: None, .. })));
+        if marker_owed || self.flow.separator {
+            return None;
+        }
+        Some(self.prefixes().0)
     }
 
     /// A blank line inside the current containers: quote bars stay, indents go.

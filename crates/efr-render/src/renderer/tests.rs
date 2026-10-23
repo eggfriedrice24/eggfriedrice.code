@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use pretty_assertions::assert_eq;
 use proptest::prelude::{Just, Strategy, prop, prop_oneof, proptest};
 
@@ -15,22 +17,10 @@ fn options() -> RenderOptions {
 /// Pushes `markdown` cut at `cuts` (byte offsets, moved back to character boundaries)
 /// and returns everything committed, finish included.
 fn chunked(markdown: &str, cuts: &[usize], options: &RenderOptions) -> String {
-    let mut boundaries: Vec<usize> = cuts
-        .iter()
-        .map(|cut| {
-            let mut at = cut % (markdown.len() + 1);
-            while !markdown.is_char_boundary(at) {
-                at -= 1;
-            }
-            at
-        })
-        .collect();
-    boundaries.sort_unstable();
-    boundaries.push(markdown.len());
     let mut renderer = Renderer::new(options.clone());
     let mut out = String::new();
     let mut from = 0;
-    for to in boundaries {
+    for to in boundaries(markdown, cuts) {
         out.push_str(renderer.push(&markdown[from..to]).committed());
         from = to;
     }
@@ -47,6 +37,186 @@ fn has_colour(painted: &str) -> bool {
             param.parse::<u16>().is_ok_and(|n| (30..=49).contains(&n) || (90..=107).contains(&n))
         })
     })
+}
+
+/// The renderer as it was before it followed open fences and kept long live zones:
+/// each push renders the whole live zone again.
+fn plain(options: &RenderOptions) -> Renderer {
+    Renderer::tuned(options.clone(), usize::MAX, false)
+}
+
+/// Pushes `markdown` cut at `cuts` into `fast` and into a [`plain`] renderer, and
+/// checks that each push commits the same and shows the same live zone. Returns
+/// everything committed and whether `fast` followed a fence at some point.
+fn same_as_plain(
+    markdown: &str,
+    cuts: &[usize],
+    options: &RenderOptions,
+    mut fast: Renderer,
+) -> (String, bool) {
+    let mut reference = plain(options);
+    let mut out = String::new();
+    let mut followed = false;
+    let mut from = 0;
+    for to in boundaries(markdown, cuts) {
+        let piece = &markdown[from..to];
+        let got = fast.push(piece);
+        let want = reference.push(piece);
+        assert_eq!(got, want, "after {to} bytes of {markdown:?}");
+        followed |= fast.follows_fence();
+        out.push_str(got.committed());
+        from = to;
+    }
+    let rest = fast.finish();
+    assert_eq!(rest, reference.finish());
+    out.push_str(&rest);
+    (out, followed)
+}
+
+/// `cuts` (byte offsets of `markdown`, moved back to character boundaries) sorted,
+/// with the end of the text last.
+fn boundaries(markdown: &str, cuts: &[usize]) -> Vec<usize> {
+    let mut boundaries: Vec<usize> = cuts
+        .iter()
+        .map(|cut| {
+            let mut at = cut % (markdown.len() + 1);
+            while !markdown.is_char_boundary(at) {
+                at -= 1;
+            }
+            at
+        })
+        .collect();
+    boundaries.sort_unstable();
+    boundaries.push(markdown.len());
+    boundaries
+}
+
+/// Every offset of `markdown` that is a multiple of `size`.
+fn every(markdown: &str, size: usize) -> Vec<usize> {
+    (0..markdown.len()).step_by(size).collect()
+}
+
+/// A `1.` item that holds a Rust fence of `lines` lines, as a model writes a step of
+/// a plan with its code, and the next item.
+fn nested_fence(lines: usize) -> String {
+    let mut text = String::from("Here is the change:\n\n1. Change the parser:\n\n   ```rust\n");
+    for at in 0..lines {
+        let _ = writeln!(text, "   let value_{at} = parse(&input[{at}..], Kind::Item)?;");
+        if at % 7 == 3 {
+            text.push_str("   /* a comment\n\n      over lines */\n");
+        }
+    }
+    text.push_str("   ```\n\n2. Run the tests.\n");
+    text
+}
+
+/// A fenced diff of `lines` lines of Rust, as `efr diff` renders one.
+fn fenced_diff(lines: usize) -> String {
+    let mut text = String::from("```diff\n--- a/src/lib.rs\n+++ b/src/lib.rs\n");
+    let _ = writeln!(text, "@@ -1,{lines} +1,{lines} @@");
+    for at in 0..lines {
+        let mark = [' ', '-', '+'][at % 3];
+        let _ = writeln!(text, "{mark}    let value_{at} = parse(&input[{at}..])?; // \"{at}\"");
+    }
+    text.push_str("```\n");
+    text
+}
+
+#[test]
+fn render_equals_one_push_of_a_long_fenced_diff() {
+    let markdown = fenced_diff(20_000);
+    let mut renderer = Renderer::new(options());
+    let mut pushed = renderer.push(&markdown).into_committed();
+    pushed.push_str(&renderer.finish());
+    let rendered = render(&markdown, &options());
+    assert_eq!(rendered.lines().count(), 20_003);
+    assert_eq!(rendered, pushed);
+}
+
+#[test]
+fn a_long_fence_in_the_last_list_item_streams_as_the_plain_path_does() {
+    let markdown = nested_fence(120);
+    for options in [options(), options().with_theme(Theme::from_name("nord").unwrap())] {
+        let fast = Renderer::tuned(options.clone(), usize::MAX, true);
+        let (out, followed) = same_as_plain(&markdown, &every(&markdown, 16), &options, fast);
+        assert!(followed, "the renderer did not follow the fence");
+        assert_eq!(out, render(&markdown, &options));
+        assert!(out.contains("value_119"));
+    }
+}
+
+#[test]
+fn after_a_long_fence_a_partial_line_that_is_not_code_shows_when_it_ends() {
+    let markdown = nested_fence(120);
+    let (head, rest) = markdown.split_at(markdown.find("2. Run").unwrap());
+    let mut renderer = Renderer::new(options());
+    let before = renderer.push(head).live().to_owned();
+    assert!(renderer.follows_fence());
+    let update = renderer.push(&rest[..4]);
+    assert_eq!(update.committed(), "");
+    assert_eq!(update.live(), before, "the partial line shows late");
+    let update = renderer.push(&rest[4..]);
+    assert_eq!(update.committed(), before);
+    assert_eq!(update.live(), "\n2. Run the tests.\n");
+}
+
+#[test]
+fn an_open_fence_shows_its_partial_line_at_once() {
+    let mut renderer = Renderer::new(options().with_colour(ColourMode::None));
+    renderer.push("1. Step:\n\n   ```\n   one\n");
+    assert!(renderer.follows_fence());
+    let update = renderer.push("   tw");
+    assert_eq!(update.committed(), "");
+    assert_eq!(update.live(), "1. Step:\n   one\n   tw\n");
+    assert_eq!(update.live_rows(), 3);
+    // The fence closes on a partial line, and the next item ends the first one.
+    assert_eq!(renderer.push("o\n   ``").live(), "1. Step:\n   one\n   two\n   ``\n");
+    assert_eq!(renderer.push("`").live(), "1. Step:\n   one\n   two\n");
+    assert!(renderer.follows_fence());
+    let update = renderer.push("\n2. Next\n");
+    assert!(!renderer.follows_fence());
+    assert_eq!(update.committed(), "1. Step:\n   one\n   two\n");
+    assert_eq!(update.live(), "2. Next\n");
+}
+
+#[test]
+fn a_fence_in_a_quote_and_a_nested_list_is_followed() {
+    let options = options();
+    for markdown in [
+        "> Look:\n>\n> ```rust\n> fn a() {}\n>\n> fn b() {}\n> ```\nafter\n",
+        "> ```\n> code\n> ```\n\nA blank line ends the quote.\n",
+        "1. ```\n   code\n   ```\n\n\n   More of the item.\n2. Next\n",
+        "- outer\n  1. inner\n     ```python\n     x = 1\n\n     y = 2\n     ```\n- next\n",
+        "1. ```\n   first line in the item\n   ```\n",
+        "- ~~~~ text\n  ~~~\n  still code\n  ~~~~\n",
+        "1. a\n\n\t```\n\tcode with a tab\n\t```\n",
+    ] {
+        let (out, followed) = same_as_plain(
+            markdown,
+            &(0..markdown.len()).collect::<Vec<_>>(),
+            &options,
+            Renderer::new(options.clone()),
+        );
+        assert!(followed, "{markdown:?}");
+        assert_eq!(out, render(markdown, &options), "{markdown:?}");
+    }
+}
+
+#[test]
+fn a_long_open_block_keeps_its_live_zone_until_a_line_is_complete() {
+    let mut renderer = Renderer::tuned(options(), 16, true);
+    renderer.push("| a | b |\n|---|---|\n| 1 | 2 |\n");
+    let update = renderer.push("| 3");
+    assert!(!update.live().contains('3'), "the partial row shows late");
+    let update = renderer.push(" | 4 |\n");
+    assert!(update.live().contains('3') && update.live().contains('4'));
+    let update = renderer.push("\n");
+    assert!(update.committed().contains('4'));
+    assert_eq!(update.live(), "");
+    // Below the size, the partial line shows at once.
+    let mut renderer = Renderer::new(options());
+    renderer.push("| a | b |\n|---|---|\n");
+    assert!(renderer.push("| 3").live().contains('3'));
 }
 
 #[test]
@@ -319,7 +489,99 @@ fn any_options() -> impl Strategy<Value = RenderOptions> {
     })
 }
 
+/// A block that holds a fence, as its opening lines, and the lines that can follow:
+/// code, blank lines, closing fences that match or not, lines that end the block, and
+/// lines with tabs and carriage returns.
+fn fenced_block() -> impl Strategy<Value = String> {
+    let opening = prop::sample::select(vec![
+        "1. Change it:\n\n   ```rust\n",
+        "- ```\n",
+        "- ```diff\n",
+        "1. Step\n   ~~~~ python\n",
+        "> Look:\n>\n> ```rust\n",
+        "> ```\n",
+        "- outer\n  1. inner\n\n     ```toml\n",
+        "1. a\n\n\t```sh\n",
+        "Para\n\n10. ```text\n",
+    ]);
+    let line = prop::sample::select(vec![
+        "   let x = 1;\n",
+        "   /* open\n",
+        "   still a comment */\n",
+        "     deeper\n",
+        "\n",
+        "   \n",
+        "> fn quoted() {}\n",
+        ">\n",
+        "  - not an item\n",
+        "   ```\n",
+        "   ````\n",
+        "   ~~~\n",
+        "   ~~~~\n",
+        "     ```\n",
+        "```\n",
+        "> ```\n",
+        "2. next item\n",
+        "- other list\n",
+        "unindented text\n",
+        "\tcode after a tab\n",
+        "   crlf line\r\n",
+        "   a lone\rcarriage return\n",
+        "   diff --git a/x.rs b/x.rs\n",
+        "   +added\n",
+    ]);
+    (
+        opening,
+        prop::collection::vec(line, 0..14),
+        prop::sample::select(vec!["", "   tail", "   ``"]),
+    )
+        .prop_map(|(opening, lines, tail)| format!("{opening}{}{tail}", lines.concat()))
+}
+
 proptest! {
+    /// Following an open fence and keeping its live zone changes nothing: each push
+    /// commits and shows what the plain path does.
+    #[test]
+    fn following_fences_commits_and_shows_what_the_plain_path_does(
+        markdown in prop_oneof![fenced_block(), document(), noise()],
+        cuts in prop::collection::vec(proptest::num::usize::ANY, 0..24),
+        options in any_options(),
+    ) {
+        let fast = Renderer::tuned(options.clone(), usize::MAX, true);
+        let (out, _) = same_as_plain(&markdown, &cuts, &options, fast);
+        assert_eq!(out, render(&markdown, &options));
+    }
+
+    #[test]
+    fn byte_by_byte_streaming_of_a_fence_shows_what_the_plain_path_does(
+        markdown in fenced_block(),
+        options in any_options(),
+    ) {
+        let cuts: Vec<usize> = (0..markdown.len()).collect();
+        let fast = Renderer::tuned(options.clone(), usize::MAX, true);
+        let (out, _) = same_as_plain(&markdown, &cuts, &options, fast);
+        assert_eq!(out, render(&markdown, &options));
+    }
+
+    /// A long open block keeps its live zone between lines, and that changes no
+    /// commit.
+    #[test]
+    fn keeping_live_zones_commits_what_render_does(
+        markdown in prop_oneof![fenced_block(), document(), noise()],
+        cuts in prop::collection::vec(proptest::num::usize::ANY, 0..24),
+        options in any_options(),
+    ) {
+        let mut renderer = Renderer::tuned(options.clone(), 0, true);
+        let mut out = String::new();
+        let mut from = 0;
+        for to in boundaries(&markdown, &cuts) {
+            out.push_str(renderer.push(&markdown[from..to]).committed());
+            from = to;
+        }
+        out.push_str(&renderer.finish());
+        assert_eq!(out, render(&markdown, &options));
+    }
+
     #[test]
     fn any_chunking_of_a_document_commits_what_render_does(
         markdown in document(),
