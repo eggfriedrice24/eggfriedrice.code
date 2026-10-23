@@ -1,6 +1,7 @@
 use efr_provider::{Message, Request};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 use super::{Continuation, Outgoing, Plan, Print};
 use crate::openai::OpenAiConfig;
@@ -133,6 +134,12 @@ fn a_print_is_the_same_only_for_the_same_json_text() {
 
     assert_eq!(Print::of(&item.clone()), Some(print));
     assert_ne!(Print::of(&other), Some(print));
+    // The print is the length and the SHA-256 digest of the JSON text, hashed as serde
+    // writes it.
+    let text = serde_json::to_vec(&item).unwrap();
+    assert_eq!(print.len, text.len() as u64);
+    assert_eq!(print.digest, <[u8; 32]>::from(Sha256::digest(&text)));
+    assert_eq!(size_of::<Print>(), 40);
     assert_eq!(serde_json::to_vec(&item).unwrap().len(), serde_json::to_vec(&other).unwrap().len());
     let body = body(history("next"));
     assert_eq!(Outgoing::of(&body).prints.map(|prints| prints.len()), Some(body.input().len()));
