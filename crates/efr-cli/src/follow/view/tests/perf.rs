@@ -1,6 +1,6 @@
 //! The benches of the view (`just bench-perf`, section 2.3 of the perf plan): the
 //! frames of a pending approval with a diff, and a long reply that streams in small
-//! drafts. They report; they have no time budget yet.
+//! drafts. Each one has a budget on a count or a slope.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -57,6 +57,9 @@ fn bench_perf_card_frames() {
     report.count("Card::render calls over 600 ticks", renders);
     report.bytes("written over 600 ticks", written as u64);
     report.finish();
+    // Budget: a tick that changes neither the card's footer nor the width renders no
+    // card (it rendered two per tick).
+    assert_eq!(renders, 0, "Card::render calls over {TICKS} ticks with no change");
 }
 
 /// A reply of `bytes` bytes of prose: lines of about 80 columns, a blank line after
@@ -85,9 +88,12 @@ fn bench_perf_message_delta() {
     // A frame for each 1 KB of drafts, about what the screen sees of a fast model.
     const FRAME_EVERY: usize = 64;
     let mut report = Report::new("bench_perf_message_delta");
+    let mut slopes = Vec::new();
     for frames in [false, true] {
         let kind = if frames { "drafts and a frame per 1 KB" } else { "drafts only" };
         let mut points = Vec::new();
+        // Without the last frame, which renders all that waits at once.
+        let mut draft_points = Vec::new();
         for kb in [10_u64, 100, 1_000] {
             let text = reply(kb as usize * 1024);
             let mut view = started_view(Look::default());
@@ -106,17 +112,26 @@ fn bench_perf_message_delta() {
                     break;
                 }
             }
+            let drafts = start.elapsed();
             written += view.frame(SCREEN, now()).len();
             let total = start.elapsed();
             report.time(&format!("{kind} {kb} KB: total"), &[total]);
+            report.time(&format!("{kind} {kb} KB: drafts"), &[drafts]);
             if stopped {
                 report.count(&format!("{kind} stopped_at_kb"), kb);
                 break;
             }
             assert!(written > 0, "the reply never reached the screen");
             points.push((kb, total));
+            draft_points.push((kb, drafts));
         }
         report.slope(&format!("{kind} slope over bytes"), &points);
+        let slope = report.slope(&format!("{kind} slope of the drafts over bytes"), &draft_points);
+        slopes.push((kind, slope));
     }
     report.finish();
+    // Budget: a draft costs its delta, not the text before it (the slope was 1.7).
+    for (kind, slope) in slopes {
+        assert!(slope < 1.3, "{kind}: slope {slope:.2} of the drafts over bytes");
+    }
 }

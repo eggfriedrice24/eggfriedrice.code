@@ -1401,12 +1401,14 @@ that takes more than 10 s stops its ladder.
   spaces. Budget: each slope over bytes stays below 1.3.
 - `bench_perf_card_frames` (`src/follow/view/tests/perf.rs`): 600 ticks of a view with
   a pending approval that shows a diff. It counts the calls of `Card::render` through
-  a counter that only tests build (`format::card::RENDERS`).
+  a counter that only tests build (`format::card::RENDERS`). Budget: no call, because
+  the ticks change neither the footer of the card nor the width.
 - `bench_perf_input_row` (`src/follow/view/input/tests.rs`): 600 draws of the input
   row with 1 KB, 20 KB and 256 KB of text and the cursor at the end.
 - `bench_perf_message_delta` (`src/follow/view/tests/perf.rs`): a reply of 10 KB,
   100 KB and 1 MB in drafts of 16 bytes, with no frame and with a frame for each
-  1 KB.
+  1 KB. Budget: the slope of the drafts over bytes, without the last frame, stays
+  below 1.3.
 - `bench_perf_cli_first_write` (`tests/it/perf.rs`): measures the time from the spawn
   of `efr status` to the first byte at a fake daemon, and to the exit, with 0, 50 and
   200 permission rules, without and with a theme file. It also times `efr --version`.

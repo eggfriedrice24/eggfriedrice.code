@@ -2,6 +2,7 @@
 //! a rule, its confirm, the line of what an `a` answer saved, and the line of a call
 //! that a rule covered.
 
+use std::cell::Cell;
 use std::path::PathBuf;
 
 use efr_protocol::{
@@ -14,7 +15,9 @@ use super::super::{Ask, TurnView};
 use super::{
     WIDE, contained_completed, contained_started, exit_events, feed, framed, sandbox_view,
 };
-use crate::testing::{call, exit_info, readable, turn};
+use crate::format::card::RENDERS;
+use crate::terminal::Size;
+use crate::testing::{call, exit_info, now, readable, turn};
 
 /// The rule that the test's questions offer.
 const RULE: &str = "write under ~/notes";
@@ -99,6 +102,26 @@ fn the_confirm_takes_the_place_of_the_keys_until_the_next_key() {
     let answered = view.answered(call(), ApprovalDecision::AllowAlways, WIDE);
     frames.push(readable(&framed(answered, &mut view).out));
     insta::assert_snapshot!(frames.join("\n---\n"));
+}
+
+#[test]
+fn a_card_renders_again_only_when_its_footer_or_the_width_changes() {
+    let renders = || RENDERS.with(Cell::get);
+    let mut view = sandbox_view(true);
+    let [record, approval] = write_events(Some(RULE));
+    view.event(&record, WIDE, true);
+    view.event(&approval, WIDE, true);
+    view.frame(WIDE, now());
+    let start = renders();
+    view.tick(WIDE, now());
+    view.tick(WIDE, now());
+    assert_eq!(renders(), start, "ticks with no change");
+    view.confirm_always(call(), WIDE);
+    let confirm = view.frame(WIDE, now());
+    assert!(confirm.contains("save rule"), "{}", readable(&confirm));
+    assert_eq!(renders(), start + 1, "a frame with a new footer");
+    view.tick(Size { cols: 80, ..WIDE }, now());
+    assert_eq!(renders(), start + 2, "a tick at a new width");
 }
 
 #[test]
