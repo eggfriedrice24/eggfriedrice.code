@@ -56,8 +56,8 @@ impl CodeStyle {
     /// The theme of highlighted code: the user's code theme, else the embedded one.
     pub(crate) fn theme_ref(&self) -> ThemeRef {
         match &self.code_theme {
-            Some(theme) => ThemeRef::Custom(theme.clone()),
-            None => ThemeRef::Embedded(self.assets.theme(self.theme)),
+            Some(theme) => theme.theme_ref(),
+            None => self.assets.theme_ref(self.theme),
         }
     }
 
