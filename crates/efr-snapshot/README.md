@@ -296,3 +296,19 @@ files. The numbers go to stderr and to the CI step summary:
 ```sh
 EFR_TEST_SNAPSHOT_GATE=1 cargo nextest run -p efr-snapshot --success-output immediate -E 'test(/^cost::/)'
 ```
+
+## Benches
+
+The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
+a time. They report and do not fail on a time. Their fixtures are fresh git
+repositories below `target/tmp/snapshot-worlds/`. A second store runs git through the
+logging script of `World::logged` (`efr_scope::Git::with_program`), so each case also
+reports the git processes that it starts.
+
+- `bench_perf_snapshot_call` (`tests/it/perf.rs`): the first snapshot of a turn (with
+  the mirror), one call with 0, 1 and 100 changed files, and the turn's end, in a
+  repository of 100, 2,000 and 20,000 tracked files. Also 2,000 tracked files with a
+  `target/` dir of 10,000 files that is ignored, and that is not ignored.
+- `bench_perf_left_out` (`tests/it/perf.rs`): the turn's end with 300, 3,000, 10,000
+  and 20,000 ignored files that the snapshots leave out, in wall time and in the CPU
+  time of the test process.

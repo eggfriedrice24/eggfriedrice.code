@@ -20,7 +20,18 @@ pub(crate) struct World {
 
 impl World {
     pub(crate) fn new() -> World {
-        let base = tempfile::tempdir().unwrap();
+        World::in_base(tempfile::tempdir().unwrap())
+    }
+
+    /// A world below cargo's target temp dir, not on the tmpfs of `/tmp`, for a large
+    /// fixture.
+    pub(crate) fn in_target() -> World {
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("snapshot-worlds");
+        fs::create_dir_all(&dir).unwrap();
+        World::in_base(tempfile::tempdir_in(dir).unwrap())
+    }
+
+    fn in_base(base: tempfile::TempDir) -> World {
         fs::create_dir_all(base.path().join("home/.config")).unwrap();
         fs::create_dir_all(base.path().join("data")).unwrap();
         let clock = TestClock::starting_at("2026-10-08T10:00:00Z".parse::<Timestamp>().unwrap());
@@ -31,7 +42,13 @@ impl World {
     /// A world whose store runs git through a script that writes the subcommand of each
     /// run to a log ([`World::git_runs`]).
     pub(crate) fn with_git_log() -> World {
-        let world = World::new();
+        World::new().logged()
+    }
+
+    /// This world with its store running git through the logging script of
+    /// [`World::with_git_log`].
+    pub(crate) fn logged(self) -> World {
+        let world = self;
         let script = world.base.path().join("git-logged");
         let log = world.base.path().join("git-runs.log");
         let text = format!(
