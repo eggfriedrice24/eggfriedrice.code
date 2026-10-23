@@ -24,6 +24,7 @@ use crate::{ConversationError, ConversationStart};
 
 mod compact;
 mod context;
+mod idle;
 mod jobs;
 mod turn_input;
 mod undo;

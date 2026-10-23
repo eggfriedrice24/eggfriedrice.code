@@ -589,6 +589,13 @@ Only a turn with no saved messages (one from before the table, or one whose save
 messages cannot be read back) is rebuilt from the events, with the daemon's call ids
 and without provider items or its preamble.
 
+An actor that is idle for 10 minutes (`actor::IDLE_TRIM`: no turn, compaction or undo
+runs and no prompt waits) drops the turns that it keeps in memory. The next turn reads
+them from `turn_messages`, as after a restart, so its request has the same bytes. So
+efrd keeps in memory only the turns of the conversations that ran a turn in the last
+10 minutes. The actor keeps its fresh block: only for a compaction from an efr before
+the stored block would the next turn read the block from disk again, with other bytes.
+
 A call of a freeform tool (its input is text, such as a patch) keeps that kind on the
 way: `ContentBlock::ToolCall` has `freeform` set in the saved messages, and the turn
 records it as the `freeform` flag of `tool_call_started`, which a rebuild from the
@@ -686,7 +693,7 @@ The design:
    breakdown with and without the skip.
 3. There is no turn limit. `turn_messages` keeps every turn until a compaction with a
    summary covers it, and the actor keeps in memory the turns that the newest request
-   carried.
+   carried, until it is idle for 10 minutes.
 4. The byte limit (`HistoryLimits::max_bytes`, at least twice the window) stays as
    the safety net. When the window would leave out a turn, the guard compacts before
    the model call, and that compaction always writes a summary. This happens after a
