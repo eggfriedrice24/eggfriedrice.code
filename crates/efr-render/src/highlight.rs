@@ -12,14 +12,16 @@ use syntect::highlighting::{
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 use two_face::theme::EmbeddedLazyThemeSet;
 
-use crate::code_theme::CodeTheme;
 use crate::options::Theme;
 use crate::style::{Colour, Style};
 
-/// The embedded grammars and themes, loaded on first use.
+/// The embedded grammars and themes, loaded on first use, and one highlighter for each
+/// embedded theme, made the first time a block uses that theme. A highlighter sorts
+/// the selectors of its theme, so it is made once and not for each line.
 pub(crate) struct Assets {
     syntaxes: OnceLock<SyntaxSet>,
     themes: OnceLock<EmbeddedLazyThemeSet>,
+    highlighters: [OnceLock<Highlighter<'static>>; Theme::COUNT],
 }
 
 /// The process-wide assets every renderer shares.
@@ -41,7 +43,11 @@ const ALIASES: &[(&str, &str)] = &[
 
 impl Assets {
     pub(crate) const fn new() -> Assets {
-        Assets { syntaxes: OnceLock::new(), themes: OnceLock::new() }
+        Assets {
+            syntaxes: OnceLock::new(),
+            themes: OnceLock::new(),
+            highlighters: [const { OnceLock::new() }; Theme::COUNT],
+        }
     }
 
     fn syntaxes(&self) -> &SyntaxSet {
@@ -50,6 +56,14 @@ impl Assets {
 
     pub(crate) fn theme(&self, theme: Theme) -> &SyntectTheme {
         self.themes.get_or_init(two_face::theme::extra).get(theme.embedded())
+    }
+
+    /// An embedded theme with the highlighter that all its blocks share.
+    pub(crate) fn theme_ref(&'static self, theme: Theme) -> ThemeRef {
+        let syntect = self.theme(theme);
+        let highlighter =
+            self.highlighters[theme.index()].get_or_init(|| Highlighter::new(syntect));
+        ThemeRef { theme: syntect, highlighter }
     }
 
     /// The grammar for a fence label such as `rust`, `rs` or `shell`.
@@ -100,19 +114,24 @@ fn is_plain_text(syntaxes: &SyntaxSet, syntax: &SyntaxReference) -> bool {
     std::ptr::eq(syntax, syntaxes.find_syntax_plain_text())
 }
 
-/// The theme of a highlighted block: an embedded one or the user's own.
-#[derive(Clone, Debug)]
-pub(crate) enum ThemeRef {
-    Embedded(&'static SyntectTheme),
-    Custom(CodeTheme),
+/// The theme of a highlighted block, an embedded one or the user's own, with its
+/// highlighter. Both stay until the process ends: [`Assets`] keeps the embedded ones,
+/// and a [`CodeTheme`](crate::CodeTheme) keeps its own from the parse of its file.
+#[derive(Clone, Copy)]
+pub(crate) struct ThemeRef {
+    pub(crate) theme: &'static SyntectTheme,
+    pub(crate) highlighter: &'static Highlighter<'static>,
 }
 
 impl ThemeRef {
-    pub(crate) fn get(&self) -> &SyntectTheme {
-        match self {
-            ThemeRef::Embedded(theme) => theme,
-            ThemeRef::Custom(theme) => theme.syntect(),
-        }
+    pub(crate) fn get(&self) -> &'static SyntectTheme {
+        self.theme
+    }
+}
+
+impl fmt::Debug for ThemeRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThemeRef").field("name", &self.theme.name).finish_non_exhaustive()
     }
 }
 
@@ -132,8 +151,7 @@ impl Highlight {
         syntax: &SyntaxReference,
         theme: ThemeRef,
     ) -> Highlight {
-        let highlighter = Highlighter::new(theme.get());
-        let state = HighlightState::new(&highlighter, ScopeStack::new());
+        let state = HighlightState::new(theme.highlighter, ScopeStack::new());
         Highlight { syntaxes: assets.syntaxes(), theme, parse: ParseState::new(syntax), state }
     }
 
@@ -143,9 +161,9 @@ impl Highlight {
         // The grammars are the "newlines" set, which expect each line to end in one.
         let text = format!("{line}\n");
         let ops = self.parse.parse_line(&text, self.syntaxes).ok()?;
-        let highlighter = Highlighter::new(self.theme.get());
+        let highlighter = self.theme.highlighter;
         let mut tokens = Vec::new();
-        for (style, piece) in HighlightIterator::new(&mut self.state, &ops, &text, &highlighter) {
+        for (style, piece) in HighlightIterator::new(&mut self.state, &ops, &text, highlighter) {
             let piece = piece.strip_suffix('\n').unwrap_or(piece);
             if !piece.is_empty() {
                 tokens.push((style_of(style), piece.to_owned()));

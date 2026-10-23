@@ -103,7 +103,10 @@ Grammars and themes come from `two-face` (bat's set) on `syntect` with the pure-
 `fancy-regex` backend, and decompress on the first code block that needs them. The
 default theme is `ansi`, which uses the terminal's 16-colour palette and so follows the
 Ghostty theme. `CodeTheme::from_tmtheme` reads the bytes of a `.tmTheme` file (the CLI
-reads the file); while the options have one, it wins over the `Theme`.
+reads the file); while the options have one, it wins over the `Theme`. All code blocks
+of one theme share one highlighter. An embedded theme makes it at its first block; a
+`.tmTheme` file's theme and highlighter are made when the file is parsed and stay in
+memory until the process ends.
 
 ## Tier
 

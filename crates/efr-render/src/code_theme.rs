@@ -4,43 +4,58 @@
 
 use std::fmt;
 use std::io::Cursor;
-use std::sync::Arc;
 
-use syntect::highlighting::{Theme as SyntectTheme, ThemeSet};
+use syntect::highlighting::{Highlighter, Theme as SyntectTheme, ThemeSet};
 
 use crate::error::RenderError;
+use crate::highlight::ThemeRef;
 
 /// A code theme from a `.tmTheme` file. When [`RenderOptions`](crate::RenderOptions)
 /// has one, code blocks and diffs use it and not the embedded [`Theme`](crate::Theme).
 ///
 /// Clones share the parsed theme. Two code themes are equal only when one is a clone
 /// of the other.
+// NOTE: not `Copy`, because callers clone it and clippy rejects a clone of a value
+// that is `Copy`.
 #[derive(Clone)]
 pub struct CodeTheme {
-    theme: Arc<SyntectTheme>,
+    theme: ThemeRef,
 }
 
 impl CodeTheme {
     /// Parses the contents of a `.tmTheme` file (an XML property list).
+    ///
+    /// The parsed theme and its highlighter stay in memory until the process ends, so
+    /// that all code blocks share one highlighter. The CLI reads its theme file once
+    /// for each process, so this memory does not grow.
     pub fn from_tmtheme(bytes: &[u8]) -> Result<CodeTheme, RenderError> {
         let theme = ThemeSet::load_from_reader(&mut Cursor::new(bytes))
             .map_err(|source| RenderError::CodeTheme { source })?;
-        Ok(CodeTheme { theme: Arc::new(theme) })
+        let theme: &'static SyntectTheme = Box::leak(Box::new(theme));
+        let highlighter: &'static Highlighter<'static> =
+            Box::leak(Box::new(Highlighter::new(theme)));
+        Ok(CodeTheme { theme: ThemeRef { theme, highlighter } })
     }
 
     /// The name the file gives the theme, if it gives one.
     pub fn name(&self) -> Option<&str> {
-        self.theme.name.as_deref()
+        self.theme.theme.name.as_deref()
     }
 
-    pub(crate) fn syntect(&self) -> &SyntectTheme {
-        &self.theme
+    #[cfg(test)]
+    pub(crate) fn syntect(&self) -> &'static SyntectTheme {
+        self.theme.theme
+    }
+
+    /// The theme with its highlighter, for a highlighted block.
+    pub(crate) fn theme_ref(&self) -> ThemeRef {
+        self.theme
     }
 }
 
 impl PartialEq for CodeTheme {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.theme, &other.theme)
+        std::ptr::eq(self.theme.theme, other.theme.theme)
     }
 }
 

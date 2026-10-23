@@ -2,11 +2,16 @@ use std::time::{Duration, Instant};
 
 use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
-use syntect::highlighting::Color;
+use syntect::highlighting::{
+    Color, HighlightIterator, HighlightState, Highlighter, Theme as SyntectTheme,
+};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxReference};
 
-use super::{ASSETS, Assets, Highlight, ThemeRef, theme_background, theme_colour};
+use super::{ASSETS, Assets, Highlight, style_of, theme_background, theme_colour};
+use crate::CodeTheme;
+use crate::elements::SAMPLE_TMTHEME;
 use crate::options::Theme;
-use crate::style::Colour;
+use crate::style::{Colour, Style};
 
 fn fresh_assets() -> &'static Assets {
     Box::leak(Box::new(Assets::new()))
@@ -51,8 +56,7 @@ fn paths_find_grammars_without_opening_files() {
 #[test]
 fn a_line_highlights_into_tokens_that_rebuild_it() {
     let syntax = ASSETS.syntax_for_label("rust").unwrap();
-    let mut highlight =
-        Highlight::new(&ASSETS, syntax, ThemeRef::Embedded(ASSETS.theme(Theme::ANSI)));
+    let mut highlight = Highlight::new(&ASSETS, syntax, ASSETS.theme_ref(Theme::ANSI));
     let tokens = highlight.line("fn main() {}").unwrap();
     let text: String = tokens.iter().map(|(_, piece)| piece.as_str()).collect();
     assert_eq!(text, "fn main() {}");
@@ -62,8 +66,7 @@ fn a_line_highlights_into_tokens_that_rebuild_it() {
 #[test]
 fn state_carries_across_lines() {
     let syntax = ASSETS.syntax_for_label("rust").unwrap();
-    let mut highlight =
-        Highlight::new(&ASSETS, syntax, ThemeRef::Embedded(ASSETS.theme(Theme::ANSI)));
+    let mut highlight = Highlight::new(&ASSETS, syntax, ASSETS.theme_ref(Theme::ANSI));
     let comment_style = highlight.line("/* open").unwrap()[0].0;
     let inside = highlight.line("still a comment").unwrap();
     assert_eq!(inside.len(), 1);
@@ -98,6 +101,57 @@ const RUST: &[&str] = &[
     "}",
 ];
 
+/// The highlight of `lines` as it was before the highlighters were shared: a new
+/// highlighter of `theme` for the block and one more for each line.
+fn highlight_with_fresh_highlighters(
+    syntax: &SyntaxReference,
+    theme: &SyntectTheme,
+    lines: &[&str],
+) -> Vec<Vec<(Style, String)>> {
+    let mut parse = ParseState::new(syntax);
+    let mut state = HighlightState::new(&Highlighter::new(theme), ScopeStack::new());
+    let syntaxes = ASSETS.syntaxes();
+    lines
+        .iter()
+        .map(|line| {
+            let text = format!("{line}\n");
+            let ops = parse.parse_line(&text, syntaxes).unwrap();
+            let highlighter = Highlighter::new(theme);
+            HighlightIterator::new(&mut state, &ops, &text, &highlighter)
+                .map(|(style, piece)| (style_of(style), piece.strip_suffix('\n').unwrap_or(piece)))
+                .filter(|(_, piece)| !piece.is_empty())
+                .map(|(style, piece)| (style, piece.to_owned()))
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_shared_highlighter_gives_what_a_fresh_one_for_each_line_gives() {
+    let code: Vec<&str> = RUST.iter().chain(RUST).copied().collect();
+    let syntax = ASSETS.syntax_for_label("rust").unwrap();
+    let custom = CodeTheme::from_tmtheme(SAMPLE_TMTHEME).unwrap();
+    let mut themes: Vec<_> =
+        Theme::names().map(|name| ASSETS.theme_ref(Theme::from_name(name).unwrap())).collect();
+    themes.push(custom.theme_ref());
+    for theme in themes {
+        let mut highlight = Highlight::new(&ASSETS, syntax, theme);
+        let shared: Vec<_> = code.iter().map(|line| highlight.line(line).unwrap()).collect();
+        let fresh = highlight_with_fresh_highlighters(syntax, theme.get(), &code);
+        assert_eq!(shared, fresh, "theme {:?}", theme.get().name);
+    }
+}
+
+#[test]
+fn blocks_of_one_theme_share_one_highlighter() {
+    let mocha = Theme::from_name("catppuccin-mocha").unwrap();
+    let first = ASSETS.theme_ref(mocha).highlighter;
+    assert!(std::ptr::eq(first, ASSETS.theme_ref(mocha).highlighter));
+    assert!(!std::ptr::eq(first, ASSETS.theme_ref(Theme::ANSI).highlighter));
+    let custom = CodeTheme::from_tmtheme(SAMPLE_TMTHEME).unwrap();
+    assert!(std::ptr::eq(custom.theme_ref().highlighter, custom.clone().theme_ref().highlighter));
+}
+
 #[test]
 #[ignore = "bench: run by just bench-perf"]
 fn bench_perf_highlight_line() {
@@ -106,8 +160,7 @@ fn bench_perf_highlight_line() {
     let assets = fresh_assets();
     let start = Instant::now();
     let syntax = assets.syntax_for_label("rust").unwrap();
-    let mut highlight =
-        Highlight::new(assets, syntax, ThemeRef::Embedded(assets.theme(Theme::ANSI)));
+    let mut highlight = Highlight::new(assets, syntax, assets.theme_ref(Theme::ANSI));
     assert!(highlight.line(RUST[1]).is_some());
     report.time("cold first highlight (syntax set load)", &[start.elapsed()]);
 
@@ -116,8 +169,7 @@ fn bench_perf_highlight_line() {
         let theme = Theme::from_name(name).unwrap();
         let mut points = Vec::new();
         for lines in [1_000_u64, 10_000] {
-            let mut highlight =
-                Highlight::new(&ASSETS, syntax, ThemeRef::Embedded(ASSETS.theme(theme)));
+            let mut highlight = Highlight::new(&ASSETS, syntax, ASSETS.theme_ref(theme));
             let mut per_line = Vec::new();
             let start = Instant::now();
             for at in 0..lines {

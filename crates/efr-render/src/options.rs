@@ -110,6 +110,14 @@ impl Theme {
         self.0
     }
 
+    /// How many embedded themes there are.
+    pub(crate) const COUNT: usize = THEMES.len();
+
+    /// The place of this theme in the list of embedded themes, below [`Theme::COUNT`].
+    pub(crate) fn index(self) -> usize {
+        THEMES.iter().position(|(_, embedded)| *embedded == self.0).unwrap_or(0)
+    }
+
     /// True for the themes that encode terminal palette entries instead of RGB, so
     /// they follow the terminal's colours and have no background of their own.
     pub(crate) fn uses_palette(self) -> bool {
