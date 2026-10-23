@@ -528,6 +528,26 @@ async fn the_preview_shows_the_diff_of_every_file_and_marks_a_delete_and_a_move(
     assert_eq!(tool().preview(&fixture.context(), &failing).await, None);
 }
 
+#[tokio::test]
+async fn the_preview_of_two_far_hunks_shows_both_changes_and_little_else() {
+    let fixture = Fixture::new();
+    let line = |at: usize| format!("line {at:04}\n");
+    let file: String = (0..3000).map(line).collect();
+    std::fs::write(fixture.cwd().join("big.txt"), &file).unwrap();
+    let input = patch(
+        "*** Update File: big.txt\n@@\n line 0003\n-line 0004\n+first change\n line 0005\n\
+         @@\n line 2994\n-line 2995\n+second change\n line 2996\n",
+    );
+
+    let preview = tool().preview(&fixture.context(), &input).await.unwrap();
+
+    let lines: Vec<&str> = preview.lines().collect();
+    assert!(lines.contains(&"+first change"), "{preview}");
+    assert!(lines.contains(&"+second change"), "{preview}");
+    assert_eq!(lines.iter().filter(|line| line.starts_with('-')).count(), 1 + 2, "{preview}");
+    assert_eq!(lines.len(), 2 + 2 * 9, "{preview}");
+}
+
 #[test]
 fn a_hunk_that_matches_nowhere_shows_its_anchors_and_the_nearest_lines() {
     let path = PathBuf::from("/w/src/lib.rs");

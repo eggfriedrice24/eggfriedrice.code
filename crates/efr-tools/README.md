@@ -598,6 +598,8 @@ The engine has unit tests next to each module (`src/patch/<module>/tests.rs`). T
 integration binary `tests/it` holds the property tests of `patch.rs`: a patch made
 from a diff of two random texts turns the first text into the second. With repeated
 lines, the patch gives the second text or `PatchError::Ambiguous`, never a wrong text.
+The line diff has a property test of its own (`src/diff/tests.rs`): its hunks, applied
+to the first of two random texts, give the second, with any work budget.
 These tests use no file system, no network and no Zig; `cargo nextest run -p efr-tools
 -E 'test(/^patch::/)'` runs only the engine's.
 
@@ -626,7 +628,9 @@ ladder.
   below 1.3.
 - `bench_perf_line_diff` (`tests/it/perf.rs`): `written_diff` on two one-line changes
   in files of 3k, 10k and 50k lines, and on a full rewrite of 50k lines, with the
-  diff's line count and its added and removed counts.
+  diff's line count and its added and removed counts. Budget: the two changes give
+  two hunks (at most 20 lines with the header) and 2 lines added and 2 removed at
+  each size, and the slope over the lines stays below 1.3.
 - `bench_perf_patch_apply` (`tests/it/perf.rs`): `patch::apply` on a 5 MB file of 50k
   lines with 1, 10 and 100 hunks, whose context matches exactly, with trailing spaces
   and with ASCII quotes for typographic ones.
