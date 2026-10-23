@@ -4,7 +4,7 @@
 //! `efr-meta:` line carries the paths that the turn's calls changed (`touched`), so an
 //! undo acts on those paths only, and a change between two calls stays.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 
@@ -336,12 +336,11 @@ impl Snapshots {
         .await;
         let mut end = TurnEnd::default();
         let mut shown = Vec::new();
+        let mut left_seen = HashSet::new();
         for root in ended {
             end.snapshots.extend(root.snapshots);
             for left in root.left_out {
-                if !end.left_out.contains(&left) {
-                    end.left_out.push(left);
-                }
+                push_once(&mut end.left_out, &mut left_seen, left);
             }
             end.not_covered.extend(root.not_covered);
             end.kept |= root.kept;
@@ -371,7 +370,11 @@ impl Snapshots {
         let kept = match known.state {
             State::Kept(kept) => kept,
             State::TooLarge => {
-                end.left_out.push((path, LeftOutReason::RootTooLarge));
+                push_once(
+                    &mut end.left_out,
+                    &mut end.left_seen,
+                    (path, LeftOutReason::RootTooLarge),
+                );
                 return end;
             }
             State::Failed => {
@@ -401,7 +404,7 @@ impl Snapshots {
                         return end;
                     }
                 };
-                end.left_out.push((path.clone(), reason));
+                push_once(&mut end.left_out, &mut end.left_seen, (path.clone(), reason));
                 end.not_covered.push((path, NOT_COVERED_FAILED.to_owned()));
                 return end;
             }
@@ -653,6 +656,8 @@ struct RootEnd {
     changes: Option<Shown>,
     snapshots: Vec<SnapshotInfo>,
     left_out: Vec<(PathBuf, LeftOutReason)>,
+    /// The entries of `left_out`, so a check for one costs O(1).
+    left_seen: HashSet<(PathBuf, LeftOutReason)>,
     not_covered: Vec<(PathBuf, String)>,
     kept: bool,
     refs_moved: Vec<(PathBuf, u32)>,
@@ -675,11 +680,22 @@ impl RootEnd {
         for left in left_out {
             let path =
                 if left.path.is_empty() { root.to_path_buf() } else { root.join(&left.path) };
-            let entry = (path, left.reason);
-            if !self.left_out.contains(&entry) {
-                self.left_out.push(entry);
-            }
+            push_once(&mut self.left_out, &mut self.left_seen, (path, left.reason));
         }
+    }
+}
+
+/// Adds `entry` to `list` when `seen` does not hold it yet. `list` keeps the order in
+/// which each entry came first: it picks which lines the end of a turn shows within
+/// `MAX_NOT_COVERED`, so a sorted set cannot take its place. `seen` holds the same
+/// entries as `list`, so one call costs O(1), not O(len).
+fn push_once(
+    list: &mut Vec<(PathBuf, LeftOutReason)>,
+    seen: &mut HashSet<(PathBuf, LeftOutReason)>,
+    entry: (PathBuf, LeftOutReason),
+) {
+    if seen.insert(entry.clone()) {
+        list.push(entry);
     }
 }
 
@@ -701,3 +717,6 @@ pub(crate) fn set_touched(meta: &mut Meta, touched: &BTreeSet<String>) {
     meta.touched = touched.iter().take(MAX_TOUCHED).cloned().collect();
     meta.touched_more = touched.len() > MAX_TOUCHED;
 }
+
+#[cfg(test)]
+mod tests;

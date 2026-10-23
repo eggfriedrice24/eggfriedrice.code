@@ -1333,8 +1333,10 @@ A model-side peer holds no `approve` scope at all.
   The apply holds the plan lock of each root of the plan for all of it: the "before"
   snapshot and the journal ref, then for each path a fresh read and a compare with
   what the plan expects (git's blob id), a copy of what is there into
-  `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (from the store's blob, so another file
-  system needs nothing special; directories 0700, files their own mode), and the
+  `$XDG_DATA_HOME/efr/undo-trash/<undo-id>/` (the bytes of the plan's trash blob,
+  written as a new file, so another file system needs nothing special; directories
+  0700, files their own mode; the bytes that the compare read when their blob id is
+  the trash blob, else the store's blob), and the
   write: a new file next to the path, renamed over it, or a link made the same way.
   Every path opens below its root (or `/` for a home path) with `RESOLVE_BENEATH |
   RESOLVE_NO_SYMLINKS` (`sandbox/fs.rs`, `Beneath`), so a path through a link is
@@ -1982,11 +1984,14 @@ the test binary, with a git first on its `PATH` that counts its runs.
   It needs `EFR_TEST_ZSH=1` and `EFR_TEST_SBX_BIN`.
 - `bench_perf_home_copy` (`src/home/tests.rs`): `home::prepare`, the copy into the home
   store, `home::after`, the deltas and `home::changed` for a directory of 200, 2,000
-  and 20,000 files, with a raised limit.
+  and 20,000 files, with a raised limit. Its budget: `prepare` and `after`, and the
+  deltas, grow with a slope below 1.3, and `prepare` and `after` of 20,000 files take
+  less than 1 s.
 - `bench_perf_undo_apply` (`tests/it/undo.rs`): the apply of an undo of a turn whose
   shell call changed 50, 500 and 2,000 files. A test process cannot change its own
   `PATH`, so the bench also starts a copy of itself with a counting `git` first on the
-  `PATH`, and the copy reports the git runs of efrd. It needs `EFR_TEST_ZSH=1`.
+  `PATH`, and the copy reports the git runs of efrd. It needs `EFR_TEST_ZSH=1`. Its
+  budget: at most one git run per changed file and 50 more.
 - `bench_perf_daemon_start` (`tests/it/perf_start.rs`): spawns the built `efrd` on a
   temp `EFR_HOME` and measures the time to `READY=1` and to the socket file, for the
   first start and for five restarts, with the phases from its log lines. The cases are

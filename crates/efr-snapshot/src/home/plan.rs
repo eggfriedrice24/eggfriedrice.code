@@ -164,22 +164,20 @@ impl Snapshots {
             }
             names.sort_unstable();
             names.dedup();
+            let before_index = before.index();
+            let after_index = after.as_ref().map(Manifest::index);
             for name in names {
+                let in_after = after_index.as_ref().and_then(|index| index.get(name)).copied();
                 // NOTE: a path that only the "after" lists was missing before; the
                 // "after" names the directories that its call made above it.
-                let was = before.get(name).cloned().unwrap_or_else(|| {
-                    let made = after.as_ref().and_then(|after| after.get(name));
-                    missing(name, made.map(|item| item.parents.clone()).unwrap_or_default())
+                let was = before_index.get(name).map(|item| (*item).clone()).unwrap_or_else(|| {
+                    missing(name, in_after.map(|item| item.parents.clone()).unwrap_or_default())
                 });
                 let last = match &after {
                     None => After::Unfinished,
-                    Some(after) => After::Done(after.get(name).cloned()),
+                    Some(_) => After::Done(in_after.cloned()),
                 };
-                let floor = was.floor
-                    || after
-                        .as_ref()
-                        .and_then(|after: &Manifest| after.get(name))
-                        .is_some_and(|item| item.floor);
+                let floor = was.floor || in_after.is_some_and(|item| item.floor);
                 let path = PathBuf::from(name);
                 match paths.get_mut(&path) {
                     Some(known) => {

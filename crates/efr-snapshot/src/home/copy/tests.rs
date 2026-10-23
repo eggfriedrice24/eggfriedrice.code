@@ -1,11 +1,13 @@
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use efr_protocol::UndoReason;
 use pretty_assertions::assert_eq;
+use tokio::sync::mpsc;
 
-use super::{Item, Kind, Manifest, git_refuses, quote, tree_path};
+use super::{CommitPlan, Item, Kind, Manifest, git_refuses, produce, quote, tree_path};
+use crate::home::{HomeEntries, HomeEntry, HomeState};
 
 #[test]
 fn a_home_path_has_one_place_in_the_tree() {
@@ -63,6 +65,54 @@ fn old_home_copies_still_read() {
     assert!(text.contains(r#""parents":["/home/u/a/b","/home/u/a"]"#), "{text}");
     let plain = serde_json::to_string(&Item::default()).unwrap();
     assert!(!plain.contains("parents"), "a path with no missing parent writes none: {plain}");
+}
+
+#[test]
+fn the_index_of_a_manifest_keeps_the_first_item_of_a_path() {
+    let item = |path: &str, kind: Kind| Item { path: path.to_owned(), kind, ..Item::default() };
+    let manifest = Manifest {
+        phase: "before".to_owned(),
+        entries: vec![
+            item("/home/u/a", Kind::File),
+            item("/home/u/b", Kind::Missing),
+            item("/home/u/a", Kind::NotCovered),
+        ],
+    };
+    let index = manifest.index();
+    assert_eq!(index.len(), 2);
+    assert_eq!(index["/home/u/a"].kind, Kind::File, "the first item of the path");
+    assert_eq!(index["/home/u/b"].kind, Kind::Missing);
+    assert!(!index.contains_key("/home/u/c"));
+}
+
+#[test]
+fn a_copy_that_names_a_path_twice_keeps_the_first() {
+    let entry = |path: &str, state: HomeState| HomeEntry::new(PathBuf::from(path), state, false);
+    let mut reader = HomeEntries::new(vec![
+        (entry("/home/u/a", HomeState::File { mode: 0o644 }), Some(b"first\n".to_vec())),
+        (entry("/home/u/b", HomeState::Missing), None),
+        (entry("/home/u/a", HomeState::Missing), None),
+        (entry("/home/u/c", HomeState::NotCovered(UndoReason::Masked)), None),
+        (entry("/home/u/b", HomeState::File { mode: 0o600 }), Some(b"second\n".to_vec())),
+    ]);
+    let plan = CommitPlan {
+        name: "refs/efr/x/home/1".to_owned(),
+        from: None,
+        message: "copy\n".to_owned(),
+        time: "0 +0000".to_owned(),
+        phase: "before".to_owned(),
+    };
+    let (sender, mut parts) = mpsc::channel(4);
+    let drain = std::thread::spawn(move || while parts.blocking_recv().is_some() {});
+    let items = produce(&mut reader, &plan, sender).unwrap();
+    drain.join().unwrap();
+    let kinds: Vec<(&str, Kind)> =
+        items.iter().map(|item| (item.path.as_str(), item.kind)).collect();
+    assert_eq!(
+        kinds,
+        [("/home/u/a", Kind::File), ("/home/u/b", Kind::Missing), ("/home/u/c", Kind::NotCovered)],
+        "the first entry of each path, in the order of the reader"
+    );
 }
 
 #[test]

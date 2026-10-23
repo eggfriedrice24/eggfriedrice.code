@@ -49,6 +49,16 @@ into the GitHub release notes, and it stops when the section is missing.
 
 - On a very narrow terminal, a wide character that did not fit in a row of a question
   card showed two times. Now it shows one time.
+- The end of a turn is faster when its snapshots leave out many paths, such as
+  thousands of ignored files. With 20,000 such paths, it took about 20 seconds. Now
+  it takes less than a tenth of a second. The list of what undo does not cover stays
+  the same.
+- A call that can write in a large directory outside your projects starts and ends
+  faster. efr copies such a directory before the call and reads it again after the
+  call. For 20,000 files, these steps took more than 12 seconds. Now they take less
+  than a second.
+- `efr undo` starts fewer git processes: one for each file that it writes back, not
+  two. The undo trash keeps the same bytes.
 
 ### Security
 

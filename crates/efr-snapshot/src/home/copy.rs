@@ -2,6 +2,7 @@
 //! fast-import` of the home store, with a manifest `efr-home.json` that names the
 //! state of each path. git never reads a home path itself, and no filter runs.
 
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt as _;
@@ -92,9 +93,20 @@ pub(crate) struct Manifest {
 }
 
 impl Manifest {
-    pub(crate) fn get(&self, path: &str) -> Option<&Item> {
-        self.entries.iter().find(|item| item.path == path)
+    /// The item of each path, the first one where a path comes twice, as a search from
+    /// the start of the list finds it. A lookup costs O(1), not O(entries).
+    pub(crate) fn index(&self) -> HashMap<&str, &Item> {
+        index(&self.entries)
     }
+}
+
+/// The first item of each path of `items`.
+pub(crate) fn index(items: &[Item]) -> HashMap<&str, &Item> {
+    let mut index = HashMap::with_capacity(items.len());
+    for item in items {
+        index.entry(item.path.as_str()).or_insert(item);
+    }
+    index
 }
 
 /// The prefixes of the NTFS short names of `.gitmodules`, which git refuses for a link.
@@ -239,11 +251,12 @@ pub(crate) fn produce(
 ) -> Result<Vec<Item>, SnapshotError> {
     let mut stream = Stream { sender, marks: 0, files: Vec::new() };
     let mut items: Vec<Item> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     while let Some(next) = reader.next() {
         let (entry, bytes) = next?;
         let path = entry.path.clone();
         let item = take(&mut stream, entry, bytes)?;
-        if items.iter().any(|known| known.path == item.path) {
+        if !seen.insert(item.path.clone()) {
             tracing::debug!(path = %path.display(), "a home copy named a path twice; the first stays");
             continue;
         }

@@ -32,7 +32,7 @@
 //! holds the state that the program that sets it reads (`home/state.rs`): the entries
 //! `@crontab` and `@linger`, whose bytes come with the copy, not from a file.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::fs;
 use std::io::Read as _;
@@ -150,6 +150,18 @@ pub(crate) struct Prepared {
     /// missing directories above it, the deepest first. A path that the call makes in
     /// it gets them as its missing parents in the copy after the call.
     pub(crate) missing_dirs: Vec<(PathBuf, Vec<PathBuf>)>,
+    /// The paths of `entries`, `not_covered` and `stamps`, so the check that keeps the
+    /// first entry of a path costs O(1). Only the methods of this module write the
+    /// three lists, and each write keeps its set equal to it.
+    seen: Seen,
+}
+
+/// The paths of the lists of a [`Prepared`].
+#[derive(Debug, Clone, Default)]
+struct Seen {
+    entries: HashSet<PathBuf>,
+    not_covered: HashSet<PathBuf>,
+    stamps: HashSet<PathBuf>,
 }
 
 /// What `lstat` says of a path that no copy holds: its inode, size, change and status
@@ -163,14 +175,28 @@ fn stamp_of(meta: &fs::Metadata) -> Stamp {
 }
 
 impl Prepared {
+    /// A copy of `entries` as they are, with nothing else.
+    pub(crate) fn of_entries(entries: Vec<HomeEntry>) -> Prepared {
+        let seen = entries.iter().map(|entry| entry.path.clone()).collect();
+        Prepared { entries, seen: Seen { entries: seen, ..Seen::default() }, ..Prepared::default() }
+    }
+
+    /// Adds `entry`, unless an entry of its path came first: the first one stays.
     fn push(&mut self, entry: HomeEntry) {
         if let HomeState::NotCovered(reason) = entry.state
-            && !self.not_covered.iter().any(|(path, _)| *path == entry.path)
+            && self.seen.not_covered.insert(entry.path.clone())
         {
             self.not_covered.push((entry.path.clone(), reason));
         }
-        if !self.entries.iter().any(|known| known.path == entry.path) {
+        if self.seen.entries.insert(entry.path.clone()) {
             self.entries.push(entry);
+        }
+    }
+
+    /// Adds the [`Stamp`] of `path`, unless one of its path came first.
+    fn push_stamp(&mut self, path: &Path, stamp: Stamp) {
+        if self.seen.stamps.insert(path.to_path_buf()) {
+            self.stamps.push((path.to_path_buf(), stamp));
         }
     }
 
@@ -181,6 +207,7 @@ impl Prepared {
             self.states.push((entry.path.clone(), bytes));
         }
         self.entries.retain(|known| known.path != entry.path);
+        self.seen.entries.remove(&entry.path);
         self.push(entry);
     }
 
@@ -458,10 +485,8 @@ fn dir_entries(
         }
         Walk::Within(found) => {
             for (path, state, stamp) in found {
-                if let Some(stamp) = stamp
-                    && !prepared.stamps.iter().any(|(known, _)| *known == path)
-                {
-                    prepared.stamps.push((path.clone(), stamp));
+                if let Some(stamp) = stamp {
+                    prepared.push_stamp(&path, stamp);
                 }
                 prepared.push(entry(&path, state, floor));
             }
@@ -627,34 +652,39 @@ impl HomeReader for Reader {
 /// so an untouched large file there is not named at each copy.
 /// The `backup` path is empty: the copy is in the home store, which has no path of its
 /// own for one file (efr-conversation's `FileBackup`).
-pub(crate) fn changed(
+pub(crate) fn changed<'a>(
     deltas: &[HomeDelta],
-    before: &Prepared,
-    after: &Prepared,
+    before: &'a Prepared,
+    after: &'a Prepared,
 ) -> Vec<FileBackup> {
-    let reason = |path: &Path| {
-        before
-            .not_covered
-            .iter()
-            .chain(&after.not_covered)
-            .find(|(known, _)| known == path)
-            .map(|(_, reason)| *reason)
-            .unwrap_or(UndoReason::Unknown)
+    // NOTE: each index keeps the first value of a path, as a search from the start of
+    // its list finds it.
+    let mut reasons: HashMap<&Path, UndoReason> = HashMap::new();
+    for (path, reason) in before.not_covered.iter().chain(&after.not_covered) {
+        reasons.entry(path.as_path()).or_insert(*reason);
+    }
+    let stamps = |prepared: &'a Prepared| {
+        let mut stamps: HashMap<&'a Path, Stamp> = HashMap::new();
+        for (path, stamp) in &prepared.stamps {
+            stamps.entry(path.as_path()).or_insert(*stamp);
+        }
+        stamps
     };
-    let stamp = |prepared: &Prepared, path: &Path| {
-        prepared.stamps.iter().find(|(known, _)| known == path).map(|(_, stamp)| *stamp)
-    };
+    let (stamps_before, stamps_after) = (stamps(before), stamps(after));
+    let mut links: HashMap<&Path, &PathBuf> = HashMap::new();
+    for (real, link) in &before.shown {
+        links.entry(real.as_path()).or_insert(link);
+    }
+    let reason = |path: &Path| reasons.get(path).copied().unwrap_or(UndoReason::Unknown);
     let unchanged = |delta: &HomeDelta| {
-        !delta.covered
-            && stamp(before, &delta.path).is_some()
-            && stamp(before, &delta.path) == stamp(after, &delta.path)
+        let stamp = stamps_before.get(delta.path.as_path());
+        !delta.covered && stamp.is_some() && stamp == stamps_after.get(delta.path.as_path())
     };
     deltas
         .iter()
         .filter(|delta| delta.changed && !unchanged(delta))
         .map(|delta| {
-            let link =
-                before.shown.iter().find(|(real, _)| *real == delta.path).map(|(_, link)| link);
+            let link = links.get(delta.path.as_path()).copied();
             FileBackup {
                 path: link.cloned().unwrap_or_else(|| delta.path.clone()),
                 backup: PathBuf::new(),

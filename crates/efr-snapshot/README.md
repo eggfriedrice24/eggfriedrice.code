@@ -300,7 +300,7 @@ EFR_TEST_SNAPSHOT_GATE=1 cargo nextest run -p efr-snapshot --success-output imme
 ## Benches
 
 The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
-a time. They report and do not fail on a time. Their fixtures are fresh git
+a time. They report, and only a bench with a budget fails. Their fixtures are fresh git
 repositories below `target/tmp/snapshot-worlds/`. A second store runs git through the
 logging script of `World::logged` (`efr_scope::Git::with_program`), so each case also
 reports the git processes that it starts.
@@ -311,4 +311,5 @@ reports the git processes that it starts.
   `target/` dir of 10,000 files that is ignored, and that is not ignored.
 - `bench_perf_left_out` (`tests/it/perf.rs`): the turn's end with 300, 3,000, 10,000
   and 20,000 ignored files that the snapshots leave out, in wall time and in the CPU
-  time of the test process.
+  time of the test process. Its budget: the CPU time grows with a slope below 1.3, and
+  the turn end of 20,000 paths takes less than 1 s.

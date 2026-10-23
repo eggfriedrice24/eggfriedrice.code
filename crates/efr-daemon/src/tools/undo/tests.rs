@@ -826,3 +826,78 @@ async fn a_home_write_beside_a_repository_runs_is_covered_and_undone() {
     assert_eq!(read(&notes.join("a.md")), "a\n");
     assert_eq!(read(&notes.join(".git/HEAD")), "ref: refs/heads/main\n");
 }
+
+/// Each file below `dir` with its bytes and mode, sorted by path.
+fn bytes_below(dir: &Path) -> Vec<(Vec<u8>, u32)> {
+    files_below(dir)
+        .into_iter()
+        .map(|(path, _, mode)| (std::fs::read(path).unwrap(), mode))
+        .collect()
+}
+
+#[tokio::test]
+async fn undo_trash_holds_the_bytes_of_each_file_byte_for_byte() {
+    let (_temp, root) = canonical_temp();
+    let kept = kept(&root, Settings::default()).await;
+    let scratch = scratch(&kept);
+    let (file, made) = (scratch.join("a.txt"), scratch.join("made.txt"));
+    let notes = kept.home.join("notes.md");
+    std::fs::write(&file, "old\n").unwrap();
+    std::fs::write(&notes, "old\n").unwrap();
+    let text = "nul \u{0} cr \r\n tab \t \u{e9} \u{2713} and no newline at the end";
+
+    for (n, path) in [&file, &made].into_iter().enumerate() {
+        let input = json!({"path": path, "content": text});
+        run(&kept, 2, n as u128 + 1, "write_file", input, Vec::new()).await;
+    }
+    let input = json!({"path": notes, "content": text});
+    run(&kept, 2, 3, "write_file", input, vec![home_write(&notes)]).await;
+    end(&kept, 2).await;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let after_turn: Vec<Vec<u8>> =
+        [&file, &made, &notes].iter().map(|path| std::fs::read(path).unwrap()).collect();
+    let done = undo(&kept, &[2], 1, |_| {}).await.unwrap();
+
+    assert!(done.applied, "{done:?}");
+    assert_eq!(after_turn, [text.as_bytes(), text.as_bytes(), text.as_bytes()]);
+    let trash = done.trash.unwrap();
+    let home = trash.join("home").join(notes.strip_prefix("/").unwrap());
+    assert_eq!(std::fs::read(&home).unwrap(), text.as_bytes(), "the home file");
+    let mut roots = bytes_below(&trash.join("root"));
+    roots.sort();
+    assert_eq!(
+        roots,
+        [(text.as_bytes().to_vec(), 0o600), (text.as_bytes().to_vec(), 0o644)],
+        "the changed file with its mode of now, and the made file"
+    );
+    assert_eq!(read(&file), "old\n");
+    assert!(!made.exists());
+    assert_eq!(read(&notes), "old\n");
+}
+
+#[test]
+fn the_trash_takes_the_bytes_read_only_when_they_are_the_trash_blob() {
+    use efr_snapshot::{Expect, blob_id, link_id};
+
+    use super::verified_trash;
+    use crate::sandbox::fs::Node;
+
+    let file = Node::File { bytes: b"new\n".to_vec(), mode: 0o644 };
+    let id = blob_id(b"new\n");
+    let other = blob_id(b"other\n");
+    assert_eq!(verified_trash(&file, &Expect::Blob(id.clone()), &id), Some(&b"new\n"[..]));
+    assert_eq!(verified_trash(&file, &Expect::Blob(other.clone()), &id), None, "another expect");
+    assert_eq!(verified_trash(&file, &Expect::Blob(other.clone()), &other), None, "other bytes");
+    assert_eq!(verified_trash(&file, &Expect::Any, &id), None, "force reads the store");
+    assert_eq!(verified_trash(&file, &Expect::Unknown, &id), None);
+
+    let link = Node::Link(b"/elsewhere".to_vec());
+    let link_blob = link_id(b"/elsewhere");
+    let expect = Expect::Link(b"/elsewhere".to_vec());
+    assert_eq!(verified_trash(&link, &expect, &link_blob), Some(&b"/elsewhere"[..]));
+    assert_eq!(verified_trash(&link, &expect, &id), None, "another trash blob");
+    assert_eq!(verified_trash(&link, &Expect::Link(b"/x".to_vec()), &link_id(b"/x")), None);
+    assert_eq!(verified_trash(&link, &Expect::Any, &link_blob), None);
+    assert_eq!(verified_trash(&Node::Missing, &Expect::Missing, &id), None);
+    assert_eq!(verified_trash(&Node::Other, &Expect::Blob(id.clone()), &id), None);
+}

@@ -693,11 +693,16 @@ async fn undo_of(files: usize, runs: Option<&Path>) -> (Duration, Option<u64>) {
 /// The sizes of [`bench_perf_undo_apply`], in changed files.
 const UNDO_FILES: [usize; 3] = [50, 500, 2_000];
 
+/// The git runs of one undo in [`bench_perf_undo_apply`] that do not depend on the
+/// number of files (the plan, the snapshot before it, the refs), with room: 33 today.
+const UNDO_RUNS: u64 = 50;
+
 /// The apply of an undo of a turn that changed 50, 500 and 2,000 files (plan slice
 /// W2-C): its time, and the git runs of efrd during it. A test process cannot change
 /// its own `PATH`, so the bench starts a copy of this test with a counting git first on
 /// the `PATH`; the copy reports the counts and its times with that git. It drives a
-/// real zsh (`EFR_TEST_ZSH=1`).
+/// real zsh (`EFR_TEST_ZSH=1`). Its budget: at most one git run per changed file and
+/// [`UNDO_RUNS`] more.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_undo_apply() {
@@ -710,12 +715,21 @@ async fn bench_perf_undo_apply() {
     }
     if let Some(runs) = bench_var(GIT_RUNS) {
         let runs = PathBuf::from(runs);
+        let mut counts = Vec::new();
         for files in UNDO_FILES {
             let (spent, count) = undo_of(files, Some(&runs)).await;
             report.time(&format!("{files} files undo with a counting git"), &[spent]);
             report.count(&format!("{files} files git runs"), count.unwrap_or(0));
+            counts.push((files as u64, count.unwrap_or(0)));
         }
         report.finish();
+        // The budget (plan W2-C): the trash takes the bytes that the check read, so a
+        // changed file costs one git run, for the blob that undo writes back. Before,
+        // the trash read the store's blob too: 2 runs per file and 33 more.
+        for (files, count) in counts {
+            assert!(count > 0, "{files} files: the counting git counted nothing");
+            assert!(count <= files + UNDO_RUNS, "{files} files: {count} git runs");
+        }
         return;
     }
     let mut points = Vec::new();
