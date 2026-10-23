@@ -1129,6 +1129,7 @@ dependencies = [
  "bytes",
  "efr-render",
  "efr-screen",
+ "efr-test-support",
  "libghostty-vt",
  "pretty_assertions",
  "thiserror 2.0.21",

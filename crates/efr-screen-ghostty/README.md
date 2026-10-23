@@ -50,7 +50,8 @@ Tier 2.
 Third-party crates: `libghostty-vt` at the pinned git rev with default features off
 (no kitty graphics), `thiserror` and `tracing` (the cross-check warnings and the
 factory error). Tests add `bytes`, `pretty_assertions`, `efr-screen` with its
-`conformance` feature, and `efr-render` (a dev-dependency only, for its width count).
+`conformance` feature, `efr-render` (a dev-dependency only, for its width count) and
+`efr-test-support` (the bench helpers).
 
 ## Invariant
 
@@ -94,3 +95,14 @@ takes in roughly 120 KB of plain text per second. The tests feed little, so they
 about a second; set `LIBGHOSTTY_VT_SYS_OPTIMIZE=ReleaseSafe` for a faster local loop
 over large inputs. No test needs the network once ghostty is cloned, reads
 the user's home or sleeps on real time.
+
+## Benches
+
+The benches are ignored tests. `just bench-perf` runs them in release. They report
+through `efr_test_support::bench`, a dev-dependency.
+
+- `bench_perf_replay_screen` (`tests/it/replay_screen.rs`): the capture screens of a
+  replay of 512 KiB and 5 MiB of output that moves the cursor, on vt100 and on ghostty.
+  It uses the split rule of efr-shell's replay, and reads each screen with all its
+  scrollback and with 1,000 rows. It reports the time, the screens and the history
+  rows.

@@ -23,6 +23,8 @@ bytes.workspace = true
 efr-render.workspace = true
 # The conformance feature turns on efr_screen::conformance for the test targets only.
 efr-screen = { workspace = true, features = ["conformance"] }
+# The bench of the capture screens reports through the shared bench helpers.
+efr-test-support.workspace = true
 pretty_assertions.workspace = true
 
 [lints]
