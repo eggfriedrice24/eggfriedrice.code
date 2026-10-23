@@ -9,10 +9,20 @@
 //!
 //! It may find a program too many, never one too few where it can see one: text
 //! analysis can only add a question, and the sandbox holds what it misses.
+//!
+//! It reads substitutions inside substitutions down to [`MAX_DEPTH`] levels. Below that
+//! level a substitution is code that efr does not read: one segment of its own stands
+//! for it, and only the user approves a line that holds one.
 
 /// Stands in a word for text that only the shell knows: a substitution or a parameter
 /// expansion. A word that holds it names no path the engine can resolve.
 pub(super) const OPAQUE: char = '\u{1}';
+
+/// How many substitutions deep the split reads, one in another. Each level holds a
+/// frame of the split on the stack, and a line of 10,000 nested `$(` overflowed the
+/// 2 MiB stack of a tokio worker, which aborted efrd with all its conversations. Below
+/// this level the split reads no text and gives a [`Segment::too_deep`] segment.
+pub(super) const MAX_DEPTH: usize = 64;
 
 /// One simple command as the lenient split reads it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -33,6 +43,10 @@ pub(super) struct Segment {
     /// Empty when no such command comes before it. Only the guard of full mode reads
     /// it (`critical.rs`); [`after_cd`](Self::after_cd) stays what the exits read.
     pub(super) cds: Option<Vec<CdTarget>>,
+    /// True for the segment that stands for a substitution below [`MAX_DEPTH`], whose
+    /// text the split did not read: its words are `sh -c` and an [`OPAQUE`] script, so
+    /// every reader that looks for code it cannot read finds it.
+    pub(super) too_deep: bool,
 }
 
 /// The target of a `cd` or `pushd`, as [`Segment::words`] and [`Segment::raw`] hold it.
@@ -56,9 +70,14 @@ pub(super) struct Redirect {
 /// The simple commands of `line`, in the order the split meets them; the commands of a
 /// substitution come before the command that holds it.
 pub(super) fn scan(line: &str) -> Vec<Segment> {
+    scan_to(line, MAX_DEPTH)
+}
+
+/// [`scan`] with `max_depth` in place of [`MAX_DEPTH`].
+fn scan_to(line: &str, max_depth: usize) -> Vec<Segment> {
     let chars: Vec<char> = line.chars().collect();
     let mut out = Vec::new();
-    scan_into(&chars, &mut out);
+    scan_into(&chars, &mut out, Depth { at: 0, max: max_depth });
     let mut after_cd = false;
     let mut cds: Option<Vec<CdTarget>> = Some(Vec::new());
     for segment in &mut out {
@@ -131,6 +150,20 @@ enum Pending {
     HereDocument { strip_tabs: bool },
 }
 
+/// How deep the text being read lies: `at` substitutions in, of at most `max`.
+#[derive(Debug, Clone, Copy)]
+struct Depth {
+    at: usize,
+    max: usize,
+}
+
+/// The segment that stands for a substitution below [`MAX_DEPTH`]: `sh -c` with a
+/// script that efr does not read, which only the user approves.
+fn unread_segment() -> Segment {
+    let words: Vec<String> = ["sh", "-c", &OPAQUE.to_string()].map(str::to_owned).into();
+    Segment { raw: words.clone(), words, too_deep: true, ..Segment::default() }
+}
+
 /// The simple command being read.
 #[derive(Debug, Default)]
 struct Building {
@@ -190,11 +223,12 @@ impl Building {
             redirects: std::mem::take(&mut self.redirects),
             after_cd: false,
             cds: None,
+            too_deep: false,
         });
     }
 }
 
-fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
+fn scan_into(chars: &[char], out: &mut Vec<Segment>, depth: Depth) {
     let mut building = Building::default();
     let mut at = 0;
     while let Some(&c) = chars.get(at) {
@@ -234,7 +268,7 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
                 at += 1;
             }
             '<' | '>' if next == Some('(') && !building.in_word() => {
-                at = substitution(chars, at + 1, out, &mut building);
+                at = substitution(chars, at + 1, out, &mut building, depth);
             }
             '<' | '>' => {
                 if !building.quoted && building.word.chars().all(|c| c.is_ascii_digit()) {
@@ -258,7 +292,7 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
             }
             '"' => {
                 building.quoted = true;
-                at = double_quoted(chars, at + 1, out, &mut building);
+                at = double_quoted(chars, at + 1, out, &mut building, depth);
             }
             '\\' => {
                 match next {
@@ -270,10 +304,10 @@ fn scan_into(chars: &[char], out: &mut Vec<Segment>) {
                 }
                 at += 2;
             }
-            '$' => at = dollar(chars, at, out, &mut building),
-            '`' => at = backquoted(chars, at + 1, out, &mut building),
+            '$' => at = dollar(chars, at, out, &mut building, depth),
+            '`' => at = backquoted(chars, at + 1, out, &mut building, depth),
             '=' if next == Some('(') && !building.in_word() => {
-                at = substitution(chars, at + 1, out, &mut building);
+                at = substitution(chars, at + 1, out, &mut building, depth);
             }
             '#' if !building.in_word() => {
                 while chars.get(at).is_some_and(|&c| c != '\n') {
@@ -348,6 +382,7 @@ fn double_quoted(
     mut at: usize,
     out: &mut Vec<Segment>,
     building: &mut Building,
+    depth: Depth,
 ) -> usize {
     while let Some(&c) = chars.get(at) {
         match c {
@@ -363,8 +398,8 @@ fn double_quoted(
                 }
                 at += 2;
             }
-            '$' => at = dollar(chars, at, out, building),
-            '`' => at = backquoted(chars, at + 1, out, building),
+            '$' => at = dollar(chars, at, out, building, depth),
+            '`' => at = backquoted(chars, at + 1, out, building, depth),
             c => {
                 building.word.push(c);
                 at += 1;
@@ -375,9 +410,15 @@ fn double_quoted(
 }
 
 /// A `$` at `at`: a substitution, an expansion or a quote; returns where it ends.
-fn dollar(chars: &[char], at: usize, out: &mut Vec<Segment>, building: &mut Building) -> usize {
+fn dollar(
+    chars: &[char],
+    at: usize,
+    out: &mut Vec<Segment>,
+    building: &mut Building,
+    depth: Depth,
+) -> usize {
     match chars.get(at + 1) {
-        Some('(') => substitution(chars, at + 1, out, building),
+        Some('(') => substitution(chars, at + 1, out, building, depth),
         Some('{') => {
             building.word.push(OPAQUE);
             closing(chars, at + 1, '{', '}') + 1
@@ -415,16 +456,23 @@ fn substitution(
     open: usize,
     out: &mut Vec<Segment>,
     building: &mut Building,
+    depth: Depth,
 ) -> usize {
     let close = closing(chars, open, '(', ')');
     let inner = chars.get(open + 1..close.min(chars.len())).unwrap_or_default();
-    scan_into(inner, out);
+    nested(inner, out, depth);
     building.word.push(OPAQUE);
     close + 1
 }
 
 /// A backquoted substitution whose text starts at `at`; returns where it ends.
-fn backquoted(chars: &[char], at: usize, out: &mut Vec<Segment>, building: &mut Building) -> usize {
+fn backquoted(
+    chars: &[char],
+    at: usize,
+    out: &mut Vec<Segment>,
+    building: &mut Building,
+    depth: Depth,
+) -> usize {
     let mut end = at;
     while let Some(&c) = chars.get(end) {
         match c {
@@ -434,9 +482,19 @@ fn backquoted(chars: &[char], at: usize, out: &mut Vec<Segment>, building: &mut 
         }
     }
     let inner = chars.get(at..end.min(chars.len())).unwrap_or_default();
-    scan_into(inner, out);
+    nested(inner, out, depth);
     building.word.push(OPAQUE);
     end + 1
+}
+
+/// Reads `inner`, the text of a substitution in text at `depth`, as commands of its
+/// own; below the deepest level it reads, one [`unread_segment`] stands for it.
+fn nested(inner: &[char], out: &mut Vec<Segment>, depth: Depth) {
+    if depth.at < depth.max {
+        scan_into(inner, out, Depth { at: depth.at + 1, ..depth });
+    } else {
+        out.push(unread_segment());
+    }
 }
 
 /// The position of the bracket that closes the one at `open`, past nested pairs and
