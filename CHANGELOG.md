@@ -99,6 +99,9 @@ into the GitHub release notes, and it stops when the section is missing.
   Before, each connection kept a copy of all of the history of its last call, which is
   several MB in a long conversation. Now it keeps about 24 bytes for each item of the
   history. A call in a long conversation also starts sooner.
+- efrd uses less CPU while a command in the hidden shell prints much output. efr now
+  reads the output in chunks of up to 64 KiB, so it hands on 3 to 10 times fewer
+  chunks. A prompt still shows as soon as the shell prints it.
 
 ### Security
 

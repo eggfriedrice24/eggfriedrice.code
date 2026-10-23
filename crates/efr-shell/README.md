@@ -16,9 +16,11 @@ prompts such as `sudo` stay visible.
   id>`, so the two shells of a conversation whose call moved to the background have
   two names.
 - It reads and writes the PTY master through tokio's `AsyncFd`. The holder hands the
-  master over in blocking mode; the session sets `O_NONBLOCK` itself. Every chunk read
-  goes to the `RecordingSink` first (the daemon appends it to the PTY recording), then
-  to the session's actor, then to the screen. Writes (typed lines, `pty.write` input,
+  master over in blocking mode; the session sets `O_NONBLOCK` itself. The reader waits
+  for the first bytes, then reads on until the master has no more or it has 64 KiB,
+  and hands on that chunk. It never waits for more output, so a prompt goes on as soon
+  as it is read. Every chunk goes to the `RecordingSink` first (the daemon appends it
+  to the PTY recording), then to the session's actor, then to the screen. Writes (typed lines, `pty.write` input,
   the screen's answers to terminal queries) go through one writer task that never
   makes a sender wait on the shell.
 - The actor scans the stream for OSC 133 and OSC 7 marks with efr-screen's
@@ -776,7 +778,8 @@ The benches are ignored tests. `just bench-perf` runs them in release. They need
   500 MiB of text lines and 10 MiB of progress output that moves the cursor up. The
   bench reports the wall time, the CPU time of the test process, the count of chunks
   that the PTY reader hands on and the bytes per chunk. Its tree is below the target
-  dir, not below `/tmp`.
+  dir, not below `/tmp`. Budget: the largest chunk is more than one read of 16 KiB and
+  at most 64 KiB, and the progress output comes in chunks of 16 KiB or more.
 - `bench_perf_replay` (`src/replay/tests.rs`): `Replayer::render` on vt100 for
   512 KiB and 5 MiB of output that moves the cursor, and for 5 MiB kept as a run keeps
   it (1 MiB). It counts the capture screens and the history rows that their snapshots

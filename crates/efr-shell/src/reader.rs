@@ -14,8 +14,10 @@ use tokio::sync::mpsc;
 use crate::RecordingSink;
 use crate::session::Msg;
 
-/// How much one read takes at most.
-const READ_CHUNK: usize = 16 * 1024;
+/// The most bytes that the reader hands on as one chunk. A PTY gives a few KB a read
+/// while a program prints fast, so a chunk of many reads costs the recording, the
+/// session and the screen one step each, not one step per read.
+pub(crate) const BATCH: usize = 64 * 1024;
 
 /// The master in non-blocking mode inside tokio's reactor, shared by the reader and
 /// the writer.
@@ -51,36 +53,73 @@ pub(crate) struct ReaderTargets {
 /// Reads the shell's output until the PTY closes. Each chunk goes to the recording
 /// first, then to the session (marks, runs), then to the screen. Every step waits, so
 /// a slow consumer slows the reads and, through the kernel's buffer, the shell.
+///
+/// A chunk is what the master holds when the reader looks, up to [`BATCH`]: the reader
+/// waits for the first bytes, then reads on until the master has no more. It never
+/// waits for more output, so a prompt goes on as soon as it is read.
 pub(crate) async fn read_loop(master: Master, targets: ReaderTargets) {
-    let mut buf = vec![0; READ_CHUNK];
+    // NOTE: the reads go into one buffer, and each chunk is one copy of its bytes. A
+    // chunk that shares a larger buffer would keep all of that buffer alive while an
+    // attached client's queue holds the chunk.
+    let mut buf = vec![0; BATCH];
     let mut offset: u64 = 0;
     loop {
-        let n = match read_some(&master, &mut buf).await {
-            // EIO on a master means no process holds the slave open any more.
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
-        };
-        let bytes = Bytes::copy_from_slice(&buf[..n]);
-        let start = Seq::new(offset);
-        offset = offset.saturating_add(n as u64);
-        targets.recording.record(targets.pty_id, start, bytes.clone()).await;
-        if targets.session.send(Msg::Chunk { start, bytes: bytes.clone() }).await.is_err() {
+        let Batch { len, end } = read_batch(&master, &mut buf).await;
+        if len > 0 {
+            let bytes = Bytes::copy_from_slice(&buf[..len]);
+            let start = Seq::new(offset);
+            offset = offset.saturating_add(len as u64);
+            targets.recording.record(targets.pty_id, start, bytes.clone()).await;
+            if targets.session.send(Msg::Chunk { start, bytes: bytes.clone() }).await.is_err() {
+                break;
+            }
+            // A screen that stopped only loses the view; the shell goes on.
+            let _ = targets.screen.feed(bytes, start).await;
+        }
+        if end {
             break;
         }
-        // A screen that stopped only loses the view; the shell goes on.
-        let _ = targets.screen.feed(bytes, start).await;
     }
 }
 
-async fn read_some(master: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> io::Result<usize> {
+/// What one batch of reads took.
+struct Batch {
+    /// The bytes read, at the start of the buffer.
+    len: usize,
+    /// The PTY closed: EOF, or EIO, which on a master means that no process holds the
+    /// slave open any more.
+    end: bool,
+}
+
+/// Waits until the master is readable, then reads into `buf` until it is full or the
+/// master has nothing more.
+async fn read_batch(master: &AsyncFd<OwnedFd>, buf: &mut [u8]) -> Batch {
+    let mut len = 0;
     loop {
-        let mut ready = master.readable().await?;
-        match ready.try_io(|fd| rustix::io::read(fd.get_ref(), &mut *buf).map_err(io::Error::from))
-        {
-            Ok(Err(error)) if error.kind() == io::ErrorKind::Interrupted => {}
-            Ok(result) => return result,
-            // Not readable after all; tokio cleared the readiness, so wait again.
-            Err(_would_block) => {}
+        let mut ready = match master.readable().await {
+            Ok(ready) => ready,
+            Err(_) => return Batch { len, end: true },
+        };
+        while len < buf.len() {
+            let free = &mut buf[len..];
+            match ready
+                .try_io(|fd| rustix::io::read(fd.get_ref(), &mut *free).map_err(io::Error::from))
+            {
+                Ok(Ok(0)) => return Batch { len, end: true },
+                Ok(Ok(n)) => len += n,
+                Ok(Err(error)) if error.kind() == io::ErrorKind::Interrupted => {}
+                Ok(Err(_)) => return Batch { len, end: true },
+                // Nothing more to read; tokio cleared the readiness. With bytes in
+                // hand, they go on now; without, the reader waits again.
+                Err(_would_block) if len > 0 => return Batch { len, end: false },
+                Err(_would_block) => break,
+            }
+        }
+        if len == buf.len() {
+            return Batch { len, end: false };
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

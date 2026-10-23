@@ -143,4 +143,11 @@ async fn bench_perf_pty_read() {
     report.count("largest chunk", largest);
     shell.sessions.close_all().await;
     report.finish();
+    // Budget: the reader hands on many reads as one chunk. One read took at most 16 KiB
+    // before, and a fast `cat` gave about 6 KB a chunk; it gives about 55 KB now.
+    let batch = crate::reader::BATCH as u64;
+    assert!(largest > 16 * 1024 && largest <= batch, "largest chunk {largest}");
+    let last = costs.last().unwrap();
+    let per_chunk = last.bytes / last.chunks.max(1);
+    assert!(per_chunk >= 16 * 1024, "progress: {per_chunk} bytes per chunk");
 }

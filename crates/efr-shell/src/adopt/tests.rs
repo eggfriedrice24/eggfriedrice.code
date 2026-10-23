@@ -333,11 +333,11 @@ async fn tee_never_blocks_the_actor() {
     let (mut terminal, run) = running(&harness, "yes", b"y\r\n", "y").await;
     let mut adopted = move_call(&harness).await;
     run.await.unwrap().unwrap();
-    // Nobody reads the output while the command prints more than the queue holds: at
-    // most one read of the PTY per chunk, so this is more chunks than it takes.
+    // Nobody reads the output while the command prints more than the queue holds: a
+    // chunk is at most one batch of the reader, so this is more chunks than it takes.
     let line = [b'y'; 1023];
     let mut flood = Vec::new();
-    while flood.len() <= (TEE_CAPACITY + 8) * 16 * 1024 {
+    while flood.len() <= (TEE_CAPACITY + 8) * crate::reader::BATCH {
         flood.extend_from_slice(&line);
         flood.extend_from_slice(b"\r\n");
     }
