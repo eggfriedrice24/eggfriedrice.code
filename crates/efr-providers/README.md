@@ -235,8 +235,10 @@ history that a compaction or a rebuild changed. The HTTP body never carries
 newest user message of each turn's first request and keeps it out of the history, so
 the first call of a turn sends the whole input and the later calls of the turn send
 only their new items. The connection does not keep the items of the previous call: it
-keeps the length and a 128-bit hash of the JSON text of each item, and it compares the
-new input with them. Thus it compares the bytes that went on the wire. An item that
+keeps the length and the SHA-256 digest of the JSON text of each item, and it compares
+the new input with them. Thus it compares the bytes that went on the wire. The items
+are partly the model's and the tools' text, so the hash must resist a chosen
+collision: with one, the server would continue a prefix other than the one efr has. An item that
 cannot be encoded sends the whole input.
 
 Interrupt: when the conversation drops the stream of a running answer, the connection
@@ -691,10 +693,11 @@ it again with `cargo tree`.
 Third-party crates: `async-trait`, `futures` (the event streams), `jiff` (the time of
 the clock and of a fetched catalog), `serde` (the typed bodies, the blocks of
 `provider_raw`, the entries of a catalog and its cache file), `serde_json` (with
-`raw_value`, for the exact replay of Claude's assistant content), `thiserror`, `tokio`
+`raw_value`, for the exact replay of Claude's assistant content), `sha2` (the print of
+each input item that a WebSocket connection keeps), `thiserror`, `tokio`
 (the task and the channels of a WebSocket connection) and `tracing`. The tests also
 use `fastwebsockets` (the fake WebSocket server), `insta` (the body snapshots of the
-Anthropic requests), `rstest`, `pretty_assertions`, `tempfile`, `tracing-subscriber`
+Anthropic requests and the member order of the Responses bodies), `rstest`, `pretty_assertions`, `tempfile`, `tracing-subscriber`
 (to read the log) and `wiremock` (the fake APIs). The benches use the dev crate
 `efr-test-support` (the perf corpus and the bench report).
 

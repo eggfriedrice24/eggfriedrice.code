@@ -17,15 +17,15 @@
 //! and a history that a compaction or a rebuild changed, because its start no longer
 //! matches.
 //!
-//! A connection keeps a [`Print`] of each item, not the item: the length and a 128-bit
-//! hash of its JSON text. Two items with the same print are the same bytes on the
-//! wire, which is what the server compares. An item that cannot be encoded has no
+//! A connection keeps a [`Print`] of each item, not the item: the length and the
+//! SHA-256 digest of its JSON text. Two items with the same print are the same bytes
+//! on the wire, which is what the server compares. An item that cannot be encoded has no
 //! print, and its request sends the whole input and keeps no continuation.
 
-use std::hash::{DefaultHasher, Hasher};
 use std::io;
 
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 
 use crate::openai::convert::ResponsesBody;
 
@@ -40,21 +40,21 @@ pub(crate) struct Continuation {
     pub(crate) response_id: String,
 }
 
-/// One input item as a continuation compares it: the length of its JSON text and a
-/// 128-bit hash of that text, as two halves so that a print takes 24 bytes.
+/// One input item as a continuation compares it: the length of its JSON text and the
+/// SHA-256 digest of that text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Print {
     len: u64,
-    hash: [u64; 2],
+    digest: [u8; 32],
 }
 
 impl Print {
     /// The print of `item`, or `None` when it cannot be encoded.
     pub(crate) fn of(item: &Value) -> Option<Print> {
-        let mut writer = PrintWriter::default();
+        let mut writer = PrintWriter { len: 0, hasher: Sha256::new() };
         serde_json::to_writer(&mut writer, item).ok()?;
-        let PrintWriter { len, low, high } = writer;
-        Some(Print { len, hash: [low.finish(), high.finish()] })
+        let PrintWriter { len, hasher } = writer;
+        Some(Print { len, digest: hasher.finalize().into() })
     }
 
     /// The prints of `items`, or `None` when one of them cannot be encoded.
@@ -65,30 +65,19 @@ impl Print {
 
 /// Hashes the JSON text as serde writes it, so no item is copied to a buffer.
 ///
-/// NOTE: the two halves are SipHash with fixed keys (std's `DefaultHasher::new`), the
-/// second after one more leading byte. The hash is the same for the same bytes in one
-/// process, and that is all that a continuation needs: it lives in memory with its
-/// connection. Two different items of the same length have the same print only by a
-/// chance of about 2^-128; the model would then continue the old history.
+/// NOTE: the items are partly the model's and the tools' text, so the hash must resist
+/// a collision that someone chose. With a collision, a changed history would go as a
+/// continuation, and the server would continue a prefix other than the one efr has.
+/// SHA-256 resists that; a hash with fixed public keys, such as std's SipHash, does not.
 struct PrintWriter {
     len: u64,
-    low: DefaultHasher,
-    high: DefaultHasher,
-}
-
-impl Default for PrintWriter {
-    fn default() -> Self {
-        let mut high = DefaultHasher::new();
-        high.write_u8(1);
-        PrintWriter { len: 0, low: DefaultHasher::new(), high }
-    }
+    hasher: Sha256,
 }
 
 impl io::Write for PrintWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.len = self.len.saturating_add(bytes.len() as u64);
-        self.low.write(bytes);
-        self.high.write(bytes);
+        self.hasher.update(bytes);
         Ok(bytes.len())
     }
 

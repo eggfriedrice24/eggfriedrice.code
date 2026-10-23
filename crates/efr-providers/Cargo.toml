@@ -20,6 +20,8 @@ futures.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The SHA-256 print of each input item that a WebSocket connection keeps.
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
