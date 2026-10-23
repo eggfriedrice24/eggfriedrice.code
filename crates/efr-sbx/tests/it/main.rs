@@ -15,6 +15,7 @@ mod job;
 mod mount_view;
 mod moved;
 mod netview;
+mod perf;
 mod probe;
 mod proxy;
 mod reach;

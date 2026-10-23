@@ -274,3 +274,21 @@ in a container that is set up like the runner. The job runs only when a changed 
 can change what it tests (`.github/sandbox-paths.sh`). On a push or a pull request, the
 launch cost tests run with 100 calls each and no gate (`SBX_GATE=0`). The weekly run
 on Monday and `just test-sandbox-vm` run them with `EFR_TEST_SBX_GATE=1`.
+
+## Benches
+
+The benches are ignored tests. `just bench-perf` runs them in release. They report
+through `efr_test_support::bench`, a dev-dependency. The benches on the real bwrap take
+the launcher from `EFR_TEST_SBX_BIN`, or else a private copy of the launcher that cargo
+built with the test binary. They skip with a report line when the probe says that the
+sandbox cannot run here.
+
+- `bench_perf_launch` (`tests/it/perf.rs`): 60 calls of `true` each, plain, with the
+  proxy bridge and with the reach helper, and the time of each step of the launcher
+  from `result.json`.
+- `bench_perf_guard_check` (`tests/it/perf.rs`): `efr-sbx guard-check` of a finished
+  job with 1, 5 and 10 git configs in the project. A counting `git` on the job's `PATH`
+  gives the git runs per check.
+- `bench_perf_seccomp_compile` (`src/seccomp/tests.rs`): the JSON of a profile and its
+  compile to BPF, for the profiles of the call, the network view, the bridge and the
+  reach helper.

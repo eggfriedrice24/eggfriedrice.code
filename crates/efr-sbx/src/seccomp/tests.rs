@@ -462,3 +462,35 @@ fn forward_filter_runs_on_bpf_cases() {
         }
     }
 }
+
+/// The cost of the seccomp compile that the inner stage, the bridge and the reach
+/// helper run on every call: the profile as seccompiler's JSON, then the whole compile
+/// (the JSON again and seccompiler's compile of it to BPF).
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_seccomp_compile() {
+    use efr_test_support::bench::{self, Report};
+    let mut report = Report::new("bench_perf_seccomp_compile");
+    let profiles = [
+        ("phase1", SeccompProfile::phase1()),
+        ("net_view", SeccompProfile::net_view()),
+        ("bridge", SeccompProfile::bridge()),
+        ("reach", SeccompProfile::reach()),
+    ];
+    for (name, profile) in profiles {
+        let (target_arch, arch) = target(&profile).unwrap();
+        let json = bench::run(10, 200, || {
+            let json = filters_json(&profile, arch).unwrap();
+            std::hint::black_box(serde_json::to_vec(&json).unwrap());
+        });
+        let mut programs = 0;
+        let compiled = bench::run(10, 200, || {
+            programs = compile_for(&profile, target_arch, arch).unwrap().len();
+        });
+        report.time(&format!("{name} json"), &json);
+        report.time(&format!("{name} compile"), &compiled);
+        report.count(&format!("{name} programs"), programs as u64);
+        report.count(&format!("{name} rules"), profile.rules.len() as u64);
+    }
+    report.finish();
+}
