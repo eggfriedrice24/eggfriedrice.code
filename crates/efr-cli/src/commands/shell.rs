@@ -437,7 +437,9 @@ impl Session<'_> {
         let events = match serde_json::from_value::<ConversationSubscribeItem>(value) {
             Ok(ConversationSubscribeItem::Event(envelope)) => vec![envelope],
             // NOTE: the events of a snapshot came before the subscription; in order, they
-            // end at the command's state now, which `shell.status` read just before.
+            // end at the command's state now, which `shell.status` read just before. Only
+            // what changed after that read matters, and those are the newest events, so
+            // the events that a cut snapshot leaves out are not read (`follow` reads them).
             Ok(ConversationSubscribeItem::Snapshot(snapshot)) => snapshot.events,
             Ok(_) | Err(_) => return Ok(Some(keys)),
         };
