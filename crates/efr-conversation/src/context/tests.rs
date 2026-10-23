@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::{
     CompactionConfig, ContextLimits, DEFAULT_CONTEXT_WINDOW, Full, HARD_CAP_PERCENT, Meter,
-    context_base, context_full, estimate_tokens, kilo, message_tokens, request_tokens,
+    context_base, context_full, estimate_tokens, json_len, kilo, message_tokens, request_tokens,
 };
 
 /// The model of the turns of the tests.
@@ -250,4 +250,30 @@ fn token_counts_read_as_a_person_says_them() {
     assert_eq!(kilo(3_240), "3.2k");
     assert_eq!(kilo(24_400), "24k");
     assert_eq!(kilo(281_000), "281k");
+}
+
+/// The count of the bytes as they are written is the length of the JSON that
+/// `serde_json` makes, for text with escapes, wide characters and provider items.
+#[test]
+fn the_json_length_is_counted_without_a_copy_of_the_same_length() {
+    use efr_stdx::rng::Rng as _;
+    let rng = TestRng::new(3);
+    let pieces = ["a", "\"", "\\", "\n", "\u{1}", "é", "日本", "😀", " ", "</tag>"];
+    for _ in 0..200 {
+        let mut text = String::new();
+        for _ in 0..(rng.next_u64() % 300) {
+            text.push_str(pieces[(rng.next_u64() % pieces.len() as u64) as usize]);
+        }
+        let raw = json!([{ "id": text.clone(), "n": rng.next_u64() }]);
+        let messages = vec![
+            Message::user(text.clone()),
+            Message::assistant(text.clone()).with_provider_raw(raw),
+        ];
+        for message in &messages {
+            assert_eq!(json_len(message), serde_json::to_vec(message).unwrap().len() as u64);
+        }
+        let mut request = crate::testing::request(messages);
+        request.system = Some(text);
+        assert_eq!(json_len(&request), serde_json::to_vec(&request).unwrap().len() as u64);
+    }
 }
