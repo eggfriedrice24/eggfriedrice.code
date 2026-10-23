@@ -12,7 +12,9 @@
 #![cfg(test)]
 
 mod binary;
+mod perf;
 mod picker;
 mod plugin;
+mod plugin_cost;
 mod search_cost;
 mod smoke;

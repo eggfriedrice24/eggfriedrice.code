@@ -1406,3 +1406,13 @@ time budget yet. A size that takes more than 10 s stops its ladder.
 - `bench_perf_message_delta` (`src/follow/view/tests/perf.rs`): a reply of 10 KB,
   100 KB and 1 MB in drafts of 16 bytes, with no frame and with a frame for each
   1 KB.
+- `bench_perf_cli_first_write` (`tests/it/perf.rs`): measures the time from the spawn
+  of `efr status` to the first byte at a fake daemon, and to the exit, with 0, 50 and
+  200 permission rules, without and with a theme file. It also times `efr --version`.
+- `bench_perf_cli_memory` (`tests/it/perf.rs`): measures the peak memory, the CPU time
+  and the wall time of `efr diff` on a terminal for 2k, 10k and 20k lines, and of
+  `efr send` that follows a nested code fence of 30 to 1,000 lines in drafts.
+- `bench_perf_zsh_prompt` (`tests/it/plugin_cost.rs`): measures `_efr_preexec` and
+  `_efr_precmd` over 200 prompts in zsh, and the `source` of the plugin, with 50 to
+  5,000 exported variables, 0 and 1,000 draft files, a deep `PWD`, a projects file and
+  a long command line.
