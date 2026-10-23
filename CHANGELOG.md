@@ -10,6 +10,13 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Changed
+
+- A shell line with many relative `cd`s now asks you, as after `cd -`. This occurs
+  when the rest of the line may run in more than 32 directories: six `cd`s into
+  subdirectories in a row are enough. Before, such a line could make efrd use all its
+  time and memory.
+
 ### Security
 
 - efr now uses tokio 1.53.3. This version fixes the advisory RUSTSEC-2026-0386 of

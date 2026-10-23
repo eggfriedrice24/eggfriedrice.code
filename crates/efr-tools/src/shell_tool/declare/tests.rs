@@ -8,7 +8,7 @@ use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 
-use super::{Declared, declared};
+use super::{Declared, MAX_BASES, declared};
 use crate::shell_tool::words::split;
 
 const HOME: &str = "/home/u";
@@ -112,11 +112,67 @@ fn follows_cd(#[case] line: &str, #[case] reads: &[&str], #[case] trees: &[&str]
     assert_eq!(declared.trees, paths(trees), "{line:?}");
 }
 
+/// `count` relative `cd`s one level down each, `cd d1 && ... && cd dN`.
+fn downward_cds(count: usize) -> String {
+    (1..=count).map(|n| format!("cd d{n} && ")).collect()
+}
+
+/// `count` `cd`s to absolute directories, each one more directory the line may run in.
+fn absolute_cds(count: usize) -> String {
+    (1..=count).map(|n| format!("cd /a{n} && ")).collect()
+}
+
+#[test]
+fn past_the_cap_of_directories_a_relative_path_is_anything_below_root() {
+    let line = format!(
+        "{}cat x && rm y && cat ~/.ssh/k /etc/hosts && rm /tmp/z ~/w",
+        downward_cds(MAX_BASES + 1)
+    );
+    let declared = declare(&line);
+    assert_eq!(declared.trees, paths(&["/"]), "{line:?}");
+    assert_eq!(declared.writes, paths(&["/", "/tmp/z", "/home/u/w"]), "{line:?}");
+    assert!(!declared.reads.iter().any(|path| path.ends_with("x")), "{:?}", declared.reads);
+    // NOTE: a path of `~` or `/` does not depend on the directory, so it stays exact.
+    assert!(declared.reads.ends_with(&paths(&["/home/u/.ssh/k", "/etc/hosts"])), "{line:?}");
+}
+
+#[rstest]
+// Five downward cds give 2^5 = 32 directories; the sixth would give 64.
+#[case::downward_at_the_cap(downward_cds(5), Some(MAX_BASES))]
+#[case::downward_past_the_cap(downward_cds(6), None)]
+// The start and 31 absolute cds are 32 directories; one more passes the cap.
+#[case::absolute_at_the_cap(absolute_cds(MAX_BASES - 1), Some(MAX_BASES))]
+#[case::absolute_past_the_cap(absolute_cds(MAX_BASES), None)]
+// A bare cd adds the home directory, and the cap counts it too.
+#[case::home_at_the_cap(format!("{}cd && ", absolute_cds(MAX_BASES - 2)), Some(MAX_BASES))]
+#[case::home_past_the_cap(format!("{}cd && ", absolute_cds(MAX_BASES - 1)), None)]
+fn the_cap_counts_every_directory_the_line_may_run_in(
+    #[case] cds: String,
+    #[case] bases: Option<usize>,
+) {
+    let line = format!("{cds}cat x && rm y");
+    let declared = declare(&line);
+    let below: Vec<&PathBuf> = declared.reads.iter().filter(|path| path.ends_with("x")).collect();
+    match bases {
+        Some(count) => {
+            assert_eq!(below.len(), count, "{line:?}");
+            assert_eq!(declared.writes.len(), count, "{line:?}");
+            assert!(!declared.trees.contains(&PathBuf::from("/")), "{line:?}");
+        }
+        None => {
+            assert_eq!(below, Vec::<&PathBuf>::new(), "{line:?}");
+            assert_eq!(declared.trees, paths(&["/"]), "{line:?}");
+            assert_eq!(declared.writes, paths(&["/"]), "{line:?}");
+        }
+    }
+}
+
 // The bench of `declared` on chains of `cd` (`just bench-perf`, section 2.3 of the perf
-// plan). Each `cd` adds its target below every directory so far, so the work doubles
-// with each one. A depth can run for hours, and a test cannot stop a thread, so each
-// depth runs in a child process: this test binary again, with `CASE` naming the depth,
-// which runs `declare_cds_case` only. The parent kills a child that runs too long.
+// plan). Each `cd` adds its target below every directory so far, so without the cap of
+// `MAX_BASES` the work doubles with each one. A depth could run for hours, and a test
+// cannot stop a thread, so each depth runs in a child process: this test binary again,
+// with `CASE` naming the depth, which runs `declare_cds_case` only. The parent kills a
+// child that runs too long.
 
 /// The variable that names the case of a child process, such as `cds:15`.
 const CASE: &str = "EFR_BENCH_DECLARE_CASE";
@@ -221,7 +277,7 @@ fn declare_cds_case() {
     let mut runs = Vec::new();
     let mut found = Declared::default();
     let start = Instant::now();
-    while runs.len() < 5 && (runs.is_empty() || start.elapsed() < Duration::from_secs(2)) {
+    while runs.len() < 100 && (runs.is_empty() || start.elapsed() < Duration::from_secs(2)) {
         let one = Instant::now();
         found = declared(&line, Path::new(CWD), Path::new(HOME));
         runs.push(one.elapsed());
@@ -240,21 +296,28 @@ fn declare_cds_case() {
 #[ignore = "bench: run by just bench-perf"]
 fn bench_perf_declare_cds() {
     let mut report = Report::new("bench_perf_declare_cds");
+    let mut failures = Vec::new();
     for kind in ["cds", "groups"] {
         let what =
             if kind == "cds" { "cd d1 && .. && cd dK && cat x" } else { "(cd gN && make) x K" };
         let mut points = Vec::new();
-        for k in [5_u64, 10, 15, 20, 25] {
+        let mut most_paths = 0;
+        for k in [5_u64, 10, 15, 20, 25, 50, 100] {
             match child(&format!("{kind}:{k}")) {
                 Outcome::Done { samples, paths, bases } => {
                     let stats = report.time(&format!("{what}, K={k}"), &samples);
                     report.count(&format!("{kind} K={k}: declared paths"), paths);
                     if kind == "cds" {
                         report.count(&format!("{kind} K={k}: bases of cat x"), bases);
+                        if bases > MAX_BASES as u64 {
+                            failures.push(format!("{kind} K={k}: {bases} bases of cat x"));
+                        }
                     }
+                    most_paths = most_paths.max(paths);
                     points.push((k, stats.p50));
                     if stats.p50 > LIMIT {
                         report.count(&format!("{kind} stopped_at_n"), k);
+                        failures.push(format!("{kind} stopped at K={k}"));
                         break;
                     }
                 }
@@ -262,16 +325,28 @@ fn bench_perf_declare_cds() {
                     let signal = signal.map_or(0, |signal| signal as u64);
                     report.count(&format!("{kind} K={k}: crashed, signal"), signal);
                     report.count(&format!("{kind} stopped_at_n"), k);
+                    failures.push(format!("{kind} K={k} crashed"));
                     break;
                 }
                 Outcome::TimedOut => {
                     report.count(&format!("{kind} K={k}: killed after 15 s"), 1);
                     report.count(&format!("{kind} stopped_at_n"), k);
+                    failures.push(format!("{kind} K={k} was killed"));
                     break;
                 }
             }
         }
-        report.slope(&format!("{kind} slope over K"), &points);
+        let slope = report.slope(&format!("{kind} slope over K"), &points);
+        // Budget: past the cap a cd adds nothing, so the declared paths stay few and the
+        // time grows with the length of the line only. Without the cap, K = 10 declared
+        // 2,047 paths and K = 15 ran for more than 15 s.
+        if most_paths > 4 * MAX_BASES as u64 {
+            failures.push(format!("{kind}: {most_paths} declared paths"));
+        }
+        if slope > 1.3 {
+            failures.push(format!("{kind}: the slope over K is {slope:.2}"));
+        }
     }
     report.finish();
+    assert!(failures.is_empty(), "the budget failed: {failures:?}");
 }
