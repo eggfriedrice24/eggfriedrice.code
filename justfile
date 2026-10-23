@@ -103,20 +103,42 @@ bench-search:
     exit "$status"
 
 # The perf benches in release, one at a time: every ignored `bench_perf_*` test of the
-# workspace. Each prints its lines after the load average and the CPU governor, and
-# writes them as JSON lines to the run's directory (target/bench/<time>, or
-# EFR_BENCH_OUT), which `just bench-compare` reads. The numbers of a busy machine are
-# not valid: run it alone. `just bench-perf <filter>` runs only the benches whose name
-# holds <filter>.
+# workspace, with a real zsh and a copy of the release launcher, and the ghostty ones
+# when zig is on PATH. A bench that misses bwrap, zsh or zig prints a `skipped:` line.
+# Each bench prints its lines after the load average and the CPU governor, and writes
+# them as JSON lines to the run's directory (target/bench/<time>, or EFR_BENCH_OUT),
+# which `just bench-compare` reads. The numbers of a busy machine are not valid: run it
+# alone. `just bench-perf <filter>` runs only the benches whose name holds <filter>.
 bench-perf filter="":
     #!/usr/bin/env bash
     set -uo pipefail
-    out="${EFR_BENCH_OUT:-$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')/bench/$(date +%Y%m%dT%H%M%S)}"
+    target="$(cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+    out="${EFR_BENCH_OUT:-$target/bench/$(date +%Y%m%dT%H%M%S)}"
     mkdir -p "$out"
+    # The sandbox benches run a private copy of the release launcher, as test-sandbox
+    # does, in the target dir and never below /tmp, which the sandbox replaces.
+    built="$(cargo build --release -p efr-sbx --message-format=json-render-diagnostics \
+        | sed -nE 's/.*"executable":"([^"]*\/efr-sbx)".*/\1/p' | tail -n1)"
+    if [[ -z "$built" || ! -x "$built" ]]; then
+        echo "bench-perf: cargo built no efr-sbx binary" >&2
+        exit 1
+    fi
+    private="$(mktemp -d "$(dirname "$built")/sbx-bench.XXXXXX")"
+    trap 'rm -rf "$private"' EXIT
+    cp "$built" "$private/efr-sbx"
+    export EFR_BENCH_OUT="$out" EFR_TEST_SBX_BIN="$private/efr-sbx" EFR_TEST_ZSH=1
+    filter='test(/bench_perf_.*{{filter}}/)'
     status=0
-    EFR_BENCH_OUT="$out" nice -n 19 cargo nextest run --release --workspace --exclude efr-screen-ghostty \
+    nice -n 19 cargo nextest run --release --workspace --exclude efr-screen-ghostty \
         --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
-        -E "test(/bench_perf_.*{{filter}}/)" || status=$?
+        -E "$filter" || status=$?
+    if command -v zig >/dev/null; then
+        nice -n 19 cargo nextest run --release -p efr-screen-ghostty \
+            --run-ignored only --test-threads 1 --success-output immediate --no-fail-fast \
+            --no-tests pass -E "$filter" || { s=$?; [[ $status -ne 0 ]] || status=$s; }
+    else
+        echo "bench-perf: skipped the ghostty benches: no zig on PATH"
+    fi
     echo "bench-perf: the JSON lines are in $out"
     exit "$status"
 
