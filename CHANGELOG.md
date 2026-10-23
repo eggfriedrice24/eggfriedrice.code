@@ -18,8 +18,8 @@ into the GitHub release notes, and it stops when the section is missing.
 - A shell line with many relative `cd`s is now judged as after `cd -`: a relative path
   may be anywhere below `/`, so efr runs the line in the sandbox or asks you. This
   occurs when the rest of the line may run in more than 1024 directories, that is,
-  after more than ten `cd`s into subdirectories in a row. Before, such a line could make efrd use all its
-  time and memory.
+  after more than ten `cd`s into subdirectories in a row. Before, such a line could
+  make efrd use all its time and memory.
 - In `auto`, a command starts faster while background jobs run in its project. Before
   such a command, efr checks the git files that each job can change. This check now
   runs git only for a git config that changed since the last check, not for each
@@ -27,6 +27,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - In a long block that is still open (from 4 KB, such as a large table or a long list
   item), the last line shows when it is complete, not letter by letter. A line of
   code shows at once.
+- efr reads a command substitution inside another one down to 64 levels. A line that
+  nests deeper holds code that efr does not read: only you approve it outside the
+  sandbox, and full mode asks you before it runs. Before, a line of thousands of
+  nested `$(` could stop efrd, with all its conversations.
 
 ### Fixed
 
@@ -44,9 +48,6 @@ into the GitHub release notes, and it stops when the section is missing.
 - A long reply streams with less CPU. Each draft of the model now costs only its own
   text. Before, each draft copied all of the reply before it, and a reply of 1 MB
   used about 1 second of CPU.
-
-### Fixed
-
 - On a very narrow terminal, a wide character that did not fit in a row of a question
   card showed two times. Now it shows one time.
 - The end of a turn is faster when its snapshots leave out many paths, such as
@@ -62,9 +63,6 @@ into the GitHub release notes, and it stops when the section is missing.
 - A terminal that attaches to a conversation with long answers shows it sooner. With
   answers of 500 KB, the start of `conversation.subscribe` took about 340 ms. Now it
   takes about 20 ms.
-
-### Fixed
-
 - When the newest event of a conversation is larger than 1 MiB, the snapshot at the
   start of `conversation.subscribe` now has a history cursor. Before, the snapshot had
   no events and no cursor, so a client could not find that event and the events
@@ -74,6 +72,11 @@ into the GitHub release notes, and it stops when the section is missing.
   covers. In a test conversation of 2,000 turns, the time from the prompt to the
   model request went from about 44 ms to about 21 ms. The request that the model
   gets does not change.
+- A long shell line no longer stalls efrd before the call starts. efr checked each
+  path of the line against each other path, so an `rm` of a few thousand files took
+  about 9 seconds before it ran. It now takes a fraction of a second. A long line
+  behind a wrapper such as `env` or `time` under your `ask` rules no longer uses
+  gigabytes of memory.
 
 ### Security
 
@@ -82,21 +85,6 @@ into the GitHub release notes, and it stops when the section is missing.
   descriptor, so efr was not open to the fault.
 - efr now uses ctutils 0.4.5 in the keyring build. This version fixes the advisory
   RUSTSEC-2026-0385 of ctutils 0.4.2.
-
-### Changed
-
-- efr reads a command substitution inside another one down to 64 levels. A line that
-  nests deeper holds code that efr does not read: only you approve it outside the
-  sandbox, and full mode asks you before it runs. Before, a line of thousands of
-  nested `$(` could stop efrd, with all its conversations.
-
-### Fixed
-
-- A long shell line no longer stalls efrd before the call starts. efr checked each
-  path of the line against each other path, so an `rm` of a few thousand files took
-  about 9 seconds before it ran. It now takes a fraction of a second. A long line
-  behind a wrapper such as `env` or `time` under your `ask` rules no longer uses
-  gigabytes of memory.
 
 ## [0.0.4] - 2026-10-23
 
