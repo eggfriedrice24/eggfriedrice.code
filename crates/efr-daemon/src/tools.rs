@@ -45,7 +45,7 @@
 //! requirements that the turn judged, and a call that moved answers with the output so
 //! far and the job (`tools/moves.rs`, `jobs/moves.rs`).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -237,6 +237,68 @@ struct HomeTally {
     /// still waits at the end of the turn did not finish (its call was interrupted or
     /// its "after" failed), so undo leaves its paths alone (plan PB12).
     pending: Vec<(CallId, Vec<String>)>,
+    /// The paths of `changed` and the lines of `not_covered`: a call that changes
+    /// thousands of home files adds each one in O(1), and the lists keep their order.
+    seen: TallySeen,
+}
+
+/// What the lists of a [`HomeTally`] hold, for a look-up in O(1).
+#[derive(Debug, Clone, Default)]
+struct TallySeen {
+    changed: HashSet<PathBuf>,
+    not_covered: HashSet<String>,
+}
+
+impl HomeTally {
+    /// Adds the changed files of the copy after the call `call`: a covered file to
+    /// `changed`, else its line to `not_covered`. The copy no longer waits.
+    fn add_after(&mut self, call: CallId, changed: &[FileBackup], shown: impl Fn(&Path) -> String) {
+        self.pending.retain(|(pending, _)| *pending != call);
+        for backup in changed {
+            match backup.reason {
+                None => {
+                    if self.seen.changed.insert(backup.path.clone()) {
+                        self.changed.push(backup.path.clone());
+                    }
+                }
+                Some(reason) => {
+                    self.add_not_covered(format!(
+                        "{} ({})",
+                        shown(&backup.path),
+                        reason_text(reason)
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Ends each copy of the call `call` that waits, and names its targets as not
+    /// covered for `why`.
+    fn end_pending(&mut self, call: CallId, why: &str) {
+        let names: Vec<String> = self
+            .pending
+            .iter()
+            .filter(|(pending, _)| *pending == call)
+            .flat_map(|(_, names)| names.clone())
+            .collect();
+        self.pending.retain(|(pending, _)| *pending != call);
+        for name in names {
+            self.add_not_covered(format!("{name} ({why})"));
+        }
+    }
+
+    /// Adds `line` to `not_covered`, unless it is there: the first one stays.
+    fn add_not_covered(&mut self, line: String) {
+        if self.seen.not_covered.insert(line.clone()) {
+            self.not_covered.push(line);
+        }
+    }
+
+    /// Adds each of `lines` to `not_covered`, also a line that is there.
+    fn extend_not_covered(&mut self, lines: Vec<String>) {
+        self.seen.not_covered.extend(lines.iter().cloned());
+        self.not_covered.extend(lines);
+    }
 }
 
 /// One home copy of a call, between the copy before it and the copy after it.
@@ -1341,24 +1403,7 @@ impl DaemonToolbox {
         };
         let changed = home::changed(&deltas, &before, &after);
         let shown = |path: &Path| self.shown_home(path);
-        self.tally(call.turn_id, |tally| {
-            tally.pending.retain(|(pending, _)| *pending != call.call_id);
-            for backup in &changed {
-                match backup.reason {
-                    None => {
-                        if !tally.changed.contains(&backup.path) {
-                            tally.changed.push(backup.path.clone());
-                        }
-                    }
-                    Some(reason) => {
-                        let line = format!("{} ({})", shown(&backup.path), reason_text(reason));
-                        if !tally.not_covered.contains(&line) {
-                            tally.not_covered.push(line);
-                        }
-                    }
-                }
-            }
-        });
+        self.tally(call.turn_id, |tally| tally.add_after(call.call_id, &changed, shown));
         changed
     }
 
@@ -1366,21 +1411,7 @@ impl DaemonToolbox {
     /// turn names its files as not covered, because a job wrote them.
     fn leave_copy(&self, call: &CallContext, copying: Copying) {
         drop(copying);
-        self.tally(call.turn_id, |tally| {
-            let names: Vec<String> = tally
-                .pending
-                .iter()
-                .filter(|(pending, _)| *pending == call.call_id)
-                .flat_map(|(_, names)| names.clone())
-                .collect();
-            tally.pending.retain(|(pending, _)| *pending != call.call_id);
-            for name in names {
-                let line = format!("{name} ({JOB_WROTE})");
-                if !tally.not_covered.contains(&line) {
-                    tally.not_covered.push(line);
-                }
-            }
-        });
+        self.tally(call.turn_id, |tally| tally.end_pending(call.call_id, JOB_WROTE));
     }
 
     /// The programs of the state copies of cron and linger, with this toolbox's clock.
@@ -1795,7 +1826,7 @@ impl Toolbox for DaemonToolbox {
             let shown: Vec<String> =
                 paths.iter().map(|path| format!("{} ({over})", self.shown_home(path))).collect();
             if self.snapshots.is_some() {
-                self.tally(call.turn_id, |tally| tally.not_covered.extend(shown));
+                self.tally(call.turn_id, |tally| tally.extend_not_covered(shown));
             }
         }
         applied
@@ -1828,10 +1859,7 @@ impl Toolbox for DaemonToolbox {
         let mut tally = tally.unwrap_or_default();
         let unfinished = reason_text(efr_protocol::UndoReason::CallUnfinished);
         for name in std::mem::take(&mut tally.pending).into_iter().flat_map(|(_, names)| names) {
-            let line = format!("{name} ({unfinished})");
-            if !tally.not_covered.contains(&line) {
-                tally.not_covered.push(line);
-            }
+            tally.add_not_covered(format!("{name} ({unfinished})"));
         }
         let Some(snapshots) = &self.snapshots else { return TurnChanges::default() };
         let mut ended = snapshots.turn_end(turn_id).await;

@@ -967,7 +967,9 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
 - Programs that a job wrote (`jobs/since.rs`, `sandbox/facts.rs`): a program counts as
   changed in a turn from the earliest of the turn's start and the start of each job of
   the conversation that ran since the previous turn started, by its modification time
-  (mtime) or its change time (ctime).
+  (mtime) or its change time (ctime). The previous turn's start comes from one query of
+  the store (`conversations::previous_turn_start`). A turn that the store does not know
+  has no previous turn, so every job of the conversation counts.
 - The daemon-wide limit of wake turns (`jobs/wakes.rs`): `Toolbox::wake_allowed` counts
   the wake turns of every conversation in the last hour against
   `jobs.max_wakes_per_hour_daemon`, seeded at start from the store's wake turns.
@@ -1993,6 +1995,13 @@ the test binary, with a git first on its `PATH` that counts its runs.
   and 20,000 files, with a raised limit. Its budget: `prepare` and `after`, and the
   deltas, grow with a slope below 1.3, and `prepare` and `after` of 20,000 files take
   less than 1 s.
+- `bench_perf_home_tally` (`src/tools/tests.rs`): a cache delete of a directory of 200,
+  2,000 and 20,000 files with its home copies, whose copy after the call adds each
+  file to the tally of the turn, and the end of the turn. Then the tally alone with as
+  many files that no copy covers and as many targets of a job call that left its copy.
+  Its budget: both grow with a slope below 1.3, the tally of 20,000 files takes less
+  than 1 s, and the delete and the turn end of 20,000 files less than 3.5 s (with a
+  linear search of each list they took about 7 s).
 - `bench_perf_undo_apply` (`tests/it/undo.rs`): the apply of an undo of a turn whose
   shell call changed 50, 500 and 2,000 files. A test process cannot change its own
   `PATH`, so the bench also starts a copy of itself with a counting `git` first on the

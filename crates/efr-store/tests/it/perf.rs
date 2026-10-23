@@ -1,7 +1,8 @@
 //! The `bench_perf_*` benches of the store on the perf corpus: the read of a
-//! conversation's user messages (the plan's W1-B) and the latency of one append as the
-//! log grows. Ignored; `just bench-perf` runs them in release. Each bench writes its
-//! log in parts and measures after each part, so one build serves the whole ladder.
+//! conversation's user messages (the plan's W1-B), the latency of one append as the
+//! log grows, and the read of the previous turn's start (W2-D). Ignored; `just
+//! bench-perf` runs them in release. Each bench writes its log in parts and measures
+//! after each part, so one build serves the whole ladder.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -131,6 +132,127 @@ async fn bench_perf_user_messages() {
     log.store.close().await;
     report.finish();
 }
+
+/// The turn sizes of the previous turn bench.
+const TURN_LADDER: [usize; 3] = [20, 200, 2_000];
+
+/// The bytes of each prompt of the previous turn bench.
+const PROMPT_BYTES: usize = 512;
+
+/// The turn `n` of the conversation of the previous turn bench.
+fn bench_turn(n: usize) -> TurnId {
+    format!("019a0000-0000-7000-8000-{:012x}", 0x1_0000 + n).parse().unwrap()
+}
+
+/// One whole turn `n` with a prompt of [`PROMPT_BYTES`]: queued, started and completed.
+fn whole_turn(batch: Batch, id: ConversationId, n: usize) -> Batch {
+    let turn_id = bench_turn(n);
+    let command_id: CommandId =
+        format!("019a0000-0000-7000-8000-{:012x}", 0x2_0000 + n).parse().unwrap();
+    let text = format!("turn {n}: ").repeat(PROMPT_BYTES / 8);
+    batch
+        .event(
+            id,
+            Event::PromptQueued {
+                turn_id,
+                command_id,
+                text,
+                origin: Origin::Shell,
+                context: None,
+                settings: TurnSettings::default(),
+                steers: Vec::new(),
+            },
+        )
+        .event(
+            id,
+            Event::TurnStarted {
+                turn_id,
+                cwd: PathBuf::from("/srv"),
+                scope: Scope::Path(PathBuf::from("/srv")),
+                settings: None,
+            },
+        )
+        .event(
+            id,
+            Event::TurnCompleted {
+                turn_id,
+                usage: None,
+                changes: None,
+                context: None,
+                stop: None,
+                undo: None,
+            },
+        )
+}
+
+/// The previous turn's start that the facts of a call read when a job runs (plan
+/// W2-D), for the newest turn of a conversation of 20, 200 and 2,000 turns with
+/// prompts of 512 bytes: the old read of every turn with `conversations::turns` and
+/// the one scalar query of `conversations::previous_turn_start`. The query still
+/// visits the row of each earlier turn for its start, because no index holds the
+/// start. Budget: at 2,000 turns the scalar query takes less than a third of the old
+/// read (about a seventh on a busy machine) and less than [`PREVIOUS_TURN_BUDGET`].
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_previous_turn() {
+    let mut report = Report::new("bench_perf_previous_turn");
+    let dir = temp_dir();
+    let clock = TestClock::new();
+    let store = open_store_file(&dir.path().join("efr.sqlite"), &clock).await.unwrap();
+    let id: ConversationId = "019a0000-0000-7000-8000-00000000d0de".parse().unwrap();
+    let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
+    store.writer().append(Batch::new().event(id, created)).await.unwrap();
+    let readers = store.readers().clone();
+    let (mut written, mut points, mut last) = (0, Vec::new(), None);
+    for turns in TURN_LADDER {
+        while written < turns {
+            let mut batch = Batch::new();
+            let end = (written + 100).min(turns);
+            for n in written..end {
+                batch = whole_turn(batch, id, n);
+            }
+            written = end;
+            clock.advance(Duration::from_secs(60));
+            store.writer().append(batch).await.unwrap();
+        }
+        let turn = bench_turn(turns - 1);
+        let label = format!("{turns} turns");
+        let old = || {
+            readers.with(move |conn| {
+                let all = efr_store::conversations::turns(conn, id)?;
+                let before = all.iter().position(|known| known.id == turn).unwrap_or(all.len());
+                Ok(all[..before].iter().filter_map(|known| known.started_at).max())
+            })
+        };
+        let new = || {
+            readers.with(move |conn| efr_store::conversations::previous_turn_start(conn, id, turn))
+        };
+        assert_eq!(new().await.unwrap(), old().await.unwrap(), "{label}: the same start");
+        assert!(new().await.unwrap().is_some(), "{label}: a turn came before");
+        let old_samples = bench::run_async(2, 20, || async {
+            old().await.unwrap();
+        })
+        .await;
+        let new_samples = bench::run_async(2, 20, || async {
+            new().await.unwrap();
+        })
+        .await;
+        let old_stats = report.time(&format!("{label}: every turn (old)"), &old_samples);
+        let new_stats = report.time(&format!("{label}: previous_turn_start"), &new_samples);
+        points.push((turns as u64, new_stats.p50));
+        last = Some((old_stats.p50, new_stats.p50));
+    }
+    report.slope("previous_turn_start over turns", &points);
+    drop(readers);
+    store.close().await;
+    report.finish();
+    let Some((old, new)) = last else { unreachable!("the ladder has sizes") };
+    assert!(new * 3 < old, "the scalar query took {new:?}, the old read {old:?}");
+    assert!(new < PREVIOUS_TURN_BUDGET, "the scalar query of 2,000 turns took {new:?}");
+}
+
+/// The budget of `previous_turn_start` at 2,000 turns: about 0.2 ms on a busy machine.
+const PREVIOUS_TURN_BUDGET: Duration = Duration::from_millis(2);
 
 /// A conversation of its own with one running turn and a running call, so a probe
 /// batch of one output update lands in a real turn.

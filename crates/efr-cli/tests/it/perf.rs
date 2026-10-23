@@ -16,6 +16,11 @@
 //!   events, with a gap of 300, 1,000 and 3,000 events before them. It counts the pages
 //!   of `conversation.history` that efr reads and checks that each event shows once and
 //!   in order.
+//! - `bench_perf_cli_diff_all`: the peak resident set, the CPU time, the wall time and
+//!   the pages of history of `efr diff --stat --all` on a terminal, for a history of
+//!   2k, 10k and 20k events in which each tenth event ends a turn that changed a file.
+//!   Budget: at most one page for each 500 events, and the peak grows less than 4 MiB
+//!   from 2k to 20k events.
 //!
 //! `efr` gets a cleared environment with every efr root in a temp dir below cargo's
 //! target temp dir and `PATH=/usr/bin:/bin`, so it never reaches the real daemon.
@@ -803,4 +808,125 @@ fn bench_perf_follow_gap() {
         let needed = (gap + 1).div_ceil(SNAPSHOT_EVENTS);
         assert_eq!(pages, needed, "gap {gap}: pages of conversation.history");
     }
+}
+
+/// The files that the turns of the history of the `--all` bench change.
+const ALL_FILES: usize = 50;
+
+/// The budget of the growth of the peak of `--all` from 2k to 20k events: about
+/// 0.5 MiB when efr keeps only the turn ends.
+const ALL_PEAK_GROWTH: u64 = 4 * 1024 * 1024;
+
+/// A history of `events` events for `efr diff --stat --all`: turns of 10 events, 9
+/// answers of about 400 bytes and an end that changed one of [`ALL_FILES`] files.
+fn all_history(events: usize) -> Vec<EventEnvelope> {
+    (1..=events)
+        .map(|seq| {
+            let turn_id =
+                format!("019a9b1c-3d00-7a10-8b20-{:012x}", 0x10_0000 + seq / 10).parse().unwrap();
+            let event = if seq % 10 == 0 {
+                let file = FileChange {
+                    path: format!("src/f{}.rs", (seq / 10) % ALL_FILES),
+                    kind: ChangeKind::Modified,
+                    from: None,
+                    added: 1,
+                    removed: 0,
+                    binary: false,
+                };
+                Event::TurnCompleted {
+                    turn_id,
+                    usage: None,
+                    changes: Some(FileChanges::from_files(vec![file])),
+                    context: None,
+                    stop: None,
+                    undo: None,
+                }
+            } else {
+                let text = format!("answer {seq}: the build passed and the tests ran. ").repeat(8);
+                Event::AssistantMessageCompleted { turn_id, index: 0, text }
+            };
+            let ConversationSubscribeItem::Event(envelope) = envelope(seq as u64, event) else {
+                unreachable!("an event")
+            };
+            envelope
+        })
+        .collect()
+}
+
+/// The fake daemon's side of `efr diff --stat --all`: each page of `history` as efrd
+/// sends it (the newest page first, each page oldest first, at most 500 events), and
+/// the count of the pages in `pages`.
+fn serve_history(conn: &mut Conn, history: &[EventEnvelope], pages: &AtomicU64) {
+    while let Some(frame) = conn.recv() {
+        let ClientFrame::Request { id, method } = frame else { continue };
+        let Method::ConversationHistory(params) = method else {
+            panic!("got {}", method.name());
+        };
+        pages.fetch_add(1, Ordering::Relaxed);
+        let limit = params.limit.unwrap_or(100).min(500) as usize;
+        let end = params.cursor.map_or(history.len(), |cursor| cursor.as_str().parse().unwrap());
+        let start = end.saturating_sub(limit);
+        let next_cursor = (start > 0).then(|| PageCursor::new(start.to_string()));
+        let events = history[start..end].to_vec();
+        conn.reply(id, &ConversationHistoryResult { events, next_cursor });
+    }
+}
+
+#[expect(clippy::print_stderr, reason = "a bench says what it skipped")]
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_cli_diff_all() {
+    let mut report = Report::new("bench_perf_cli_diff_all");
+    let Some(zsh) = zsh() else {
+        eprintln!("bench_perf_cli_diff_all: skipped: no zsh at /usr/bin or /bin for the peak");
+        report.count("skipped_no_zsh", 1);
+        report.finish();
+        return;
+    };
+    let args = ["diff", "--stat", "--all", "--conversation", CONVERSATION];
+    let (mut points, mut peaks, mut over) = (Vec::new(), Vec::new(), Vec::new());
+    for events in [2_000, 10_000, 20_000] {
+        let label = format!("{events} events");
+        let roots = Roots::new();
+        let history = Arc::new(all_history(events));
+        let pages = Arc::new(AtomicU64::new(0));
+        let (served, counted) = (Arc::clone(&history), Arc::clone(&pages));
+        let (_, server) = serve(&roots.socket(), TERMINAL_RUNS, move |conn| {
+            serve_history(conn, &served, &counted);
+        });
+        let last = format!("{ALL_FILES} files changed, +{}", events / 10);
+        let (mut peak, mut cpu, mut wall) = (0, Vec::new(), Vec::new());
+        for _ in 0..TERMINAL_RUNS {
+            let Some(ran) = on_terminal(&roots, zsh, &args) else { break };
+            assert!(ran.screen.contains(&last), "{label}: the screen shows {last:?}");
+            peak = peak.max(ran.peak);
+            cpu.push(ran.cpu);
+            wall.push(ran.wall);
+        }
+        if cpu.len() < TERMINAL_RUNS {
+            report.count("stopped_at_n", events as u64);
+            break;
+        }
+        server.join().unwrap();
+        let per_run = pages.load(Ordering::Relaxed) / TERMINAL_RUNS as u64;
+        report.bytes(&format!("{label}: peak (VmHWM)"), peak);
+        let stats = report.time(&format!("{label}: cpu"), &cpu);
+        report.time(&format!("{label}: wall"), &wall);
+        report.count(&format!("{label}: history pages of each run"), per_run);
+        points.push((events as u64, stats.p50));
+        peaks.push(peak);
+        if per_run > (events as u64).div_ceil(500) {
+            over.push(format!("{label}: {per_run} pages"));
+        }
+    }
+    report.slope("cpu over events", &points);
+    report.finish();
+    // The budget (plan W2-I): efr asks for pages of 500 events, the most that efrd
+    // sends; it asked for pages of 100 before. And it keeps only the ends of the turns
+    // that changed files: the peak of 20k events was 16 MiB above the peak of 2k when
+    // it kept every event.
+    assert_eq!(points.len(), 3, "the ladder stopped early: {points:?}");
+    assert!(over.is_empty(), "more pages than events / 500: {over:?}");
+    let growth = peaks[2].saturating_sub(peaks[0]);
+    assert!(growth < ALL_PEAK_GROWTH, "the peak grew {growth} bytes from 2k to 20k events");
 }

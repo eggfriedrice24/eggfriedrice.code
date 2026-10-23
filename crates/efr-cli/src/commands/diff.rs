@@ -36,6 +36,9 @@ use crate::output::Output;
 /// The most pages of a conversation's history that `--all` reads.
 const MAX_HISTORY_PAGES: usize = 1_000;
 
+/// The events of each page that `--all` asks for: the most that efrd sends.
+const HISTORY_PAGE: u32 = 500;
+
 pub(crate) async fn run(ctx: &Context, out: &mut Output, args: &DiffArgs) -> Result<(), CliError> {
     let client = ctx.connect(Origin::Cli, None).await?;
     let (conversation_id, picked) = match (&args.conversation, args.turn) {
@@ -93,27 +96,19 @@ async fn all_turns(
     groups: &DiffGroups,
     options: &RenderOptions,
 ) -> Result<(), CliError> {
-    let mut pages = Vec::new();
-    let mut cursor = None;
-    for _ in 0..MAX_HISTORY_PAGES {
-        let method = Method::ConversationHistory(ConversationHistory {
-            conversation_id,
-            cursor: cursor.take(),
-            limit: None,
-        });
-        let page: ConversationHistoryResult = client.call(method).await?;
-        cursor = page.next_cursor;
-        pages.push(page.events);
-        if cursor.is_none() {
-            break;
-        }
-    }
+    let (pages, capped) = turn_ends(client, conversation_id).await?;
     // NOTE: the first page is the newest; the events of each page are oldest first.
-    let events = pages.iter().rev().flatten().map(|envelope| &envelope.event);
-    let (turns, summed) = sum_turns(events);
+    let (turns, summed) = sum_turns(pages.iter().rev().flatten());
     if let Some(picked) = picked {
         let unit = if turns == 1 { "turn" } else { "turns" };
         let line = format!("{turns} {unit} of {} that changed files", picked.words());
+        out.err(&format!("{}\n", format::paint(&line, Tone::Dim, options)));
+    }
+    if capped {
+        let line = format!(
+            "the history has more than {MAX_HISTORY_PAGES} pages; efr adds up only the turns \
+             of the newest {MAX_HISTORY_PAGES}"
+        );
         out.err(&format!("{}\n", format::paint(&line, Tone::Dim, options)));
     }
     if summed.count() == 0 {
@@ -121,6 +116,49 @@ async fn all_turns(
         return Ok(());
     }
     out.out(&changes::stat(&summed, groups, options))
+}
+
+/// The events of the history of `conversation_id` that [`sum_turns`] reads, by page,
+/// the newest page first, and true when the history has more than
+/// [`MAX_HISTORY_PAGES`] pages. Each page keeps only those events, so the memory
+/// follows the turns that changed files and not the length of the history.
+async fn turn_ends(
+    client: &Client,
+    conversation_id: ConversationId,
+) -> Result<(Vec<Vec<Event>>, bool), CliError> {
+    let mut pages = Vec::new();
+    let mut cursor = None;
+    for _ in 0..MAX_HISTORY_PAGES {
+        let method = Method::ConversationHistory(ConversationHistory {
+            conversation_id,
+            cursor: cursor.take(),
+            limit: Some(HISTORY_PAGE),
+        });
+        let page: ConversationHistoryResult = client.call(method).await?;
+        let mut kept: Vec<Event> =
+            page.events.into_iter().map(|envelope| envelope.event).filter(counts).collect();
+        // NOTE: the collect reuses the buffer of the whole page; a kept page holds only
+        // its few events.
+        kept.shrink_to_fit();
+        pages.push(kept);
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            return Ok((pages, false));
+        }
+    }
+    Ok((pages, true))
+}
+
+/// True for an event that [`sum_turns`] reads: the end of a turn that changed files,
+/// or an undo or a redo.
+fn counts(event: &Event) -> bool {
+    match event {
+        Event::TurnCompleted { changes: Some(changes), .. }
+        | Event::TurnInterrupted { changes: Some(changes), .. }
+        | Event::TurnFailed { changes: Some(changes), .. } => changes.count() > 0,
+        Event::UndoApplied { .. } => true,
+        _ => false,
+    }
 }
 
 /// The number of turns among `events` (in the order of the log) that changed files

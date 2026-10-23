@@ -260,9 +260,10 @@ valid.
 ## Benches
 
 The `bench_perf_*` benches are ignored. `just bench-perf` runs them in release, one at
-a time. They report and do not fail on a time. Each one writes the perf corpus of
-`efr-test-support` (20 conversations, interleaved by turn) into a new store file below
-`target/tmp/perf-store/` and measures after each part of the log.
+a time. They report, and only a bench whose budget the list names fails on a time.
+Each one writes a log into a new store file below `target/tmp/perf-store/` and
+measures after each part of the log. The first two write the perf corpus of
+`efr-test-support` (20 conversations, interleaved by turn).
 
 - `bench_perf_user_messages` (`tests/it/perf.rs`): the time of
   `user_messages::of_conversation` at 10k, 100k and 1M events in the log, the slope,
@@ -270,3 +271,8 @@ a time. They report and do not fail on a time. Each one writes the perf corpus o
 - `bench_perf_store_append` (`tests/it/perf.rs`): the p50, p95 and max of one append of
   an output update and of a turn's batch at 1k, 100k and 1M events, and of an output
   update when the write-ahead log is near the writer's checkpoint size.
+- `bench_perf_previous_turn` (`tests/it/perf.rs`): the start of the previous turn
+  for the newest turn of one conversation of 20, 200 and 2,000 turns of its own,
+  from `conversations::previous_turn_start` and from the old read of every turn.
+  This bench has a budget: at 2,000 turns the scalar query takes less than a third
+  of the old read and less than 2 ms.

@@ -688,6 +688,24 @@ pub fn turns(conn: &Connection, conversation_id: ConversationId) -> Result<Vec<T
     )
 }
 
+/// The latest start of a turn of `conversation_id` that was queued before `turn_id`:
+/// since when a job counts for the facts of a call of `turn_id`. One scalar query, so
+/// a conversation of many turns reads no prompt. `None` when no earlier turn started,
+/// and when `turn_id` is not a turn of the conversation, so every job counts.
+pub fn previous_turn_start(
+    conn: &Connection,
+    conversation_id: ConversationId,
+    turn_id: TurnId,
+) -> Result<Option<Timestamp>, StoreError> {
+    let started: Option<i64> = conn.query_row(
+        "SELECT MAX(started_at) FROM turns WHERE conversation_id = ?1 AND queued_seq < \
+         (SELECT queued_seq FROM turns WHERE id = ?2 AND conversation_id = ?1)",
+        params![conversation_id.to_string(), turn_id.to_string()],
+        |row| row.get(0),
+    )?;
+    started.map(|value| sql::to_timestamp(value, TURNS, "started_at")).transpose()
+}
+
 /// One turn, with the conversation it belongs to.
 pub fn turn(conn: &Connection, turn_id: TurnId) -> Result<Option<Turn>, StoreError> {
     let mut found = query_turns(
