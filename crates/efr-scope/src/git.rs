@@ -14,6 +14,11 @@
 //! configuration, with optional locks and terminal prompts off, and under a timeout on
 //! the injected clock, because the next turn waits for it.
 //!
+//! One `rev-parse` tells both the root and the branch, because each prompt and each
+//! turn waits for discovery. A second run asks `symbolic-ref` for the branch only when
+//! `HEAD` names no commit yet or its name is ambiguous. Nothing is cached: each
+//! discovery asks git again.
+//!
 //! Every look at the file system that discovery and derivation make (`is_dir`,
 //! `canonicalize`, listing `$HOME`) and the start of git itself run on tokio's blocking
 //! pool under the same timeout, through `Git::probe`: on a hung network mount a
@@ -125,7 +130,8 @@ impl Git {
         self
     }
 
-    /// Which git work tree holds `cwd`, with the guards of this module.
+    /// Which git work tree holds `cwd`, with the guards of this module. It runs git one
+    /// time, two times when `HEAD` names no commit yet.
     ///
     /// Fails when `cwd` is relative, when git cannot be started, or when git or the look
     /// at `cwd` does not finish in time.
@@ -137,8 +143,18 @@ impl Git {
         if !self.probe(&cwd, move || target.is_dir()).await? {
             return Ok(Discovery::NotARepository);
         }
-        let Some(root) = self.run(&cwd, home, ["rev-parse", "--show-toplevel"]).await? else {
-            return Ok(Discovery::NotARepository);
+        let output = self.output(&cwd, home, ROOT_AND_BRANCH).await?;
+        let (root, head) = match read_answer(output.status.success(), &output.stdout) {
+            Answer::NoRepository => return Ok(Discovery::NotARepository),
+            Answer::Root { root, head } => (root, head),
+            // NOTE: an answer in another form (a root with a newline in it) is not read;
+            // git is asked for the root alone, as before the one run.
+            Answer::Unclear => {
+                match self.run(&cwd, home, ["rev-parse", "--show-toplevel"]).await? {
+                    Some(root) => (root, Head::Ask),
+                    None => return Ok(Discovery::NotARepository),
+                }
+            }
         };
         let root = PathBuf::from(OsString::from_vec(root));
         if !root.is_absolute() {
@@ -147,10 +163,14 @@ impl Git {
         if home.is_at_or_above(&root) {
             return Ok(Discovery::Guarded { root });
         }
-        let branch = self
-            .run(&cwd, home, ["symbolic-ref", "--quiet", "--short", "HEAD"])
-            .await?
-            .and_then(|name| String::from_utf8(name).ok());
+        let branch = match head {
+            Head::Branch(name) => String::from_utf8(name).ok(),
+            Head::Detached => None,
+            Head::Ask => self
+                .run(&cwd, home, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+                .await?
+                .and_then(|name| String::from_utf8(name).ok()),
+        };
         Ok(Discovery::WorkTree(Repo { root, branch }))
     }
 
@@ -167,6 +187,29 @@ impl Git {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
+        let output = self.output(cwd, home, args).await?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let mut stdout = output.stdout;
+        if stdout.last() == Some(&b'\n') {
+            stdout.pop();
+        }
+        Ok(Some(stdout))
+    }
+
+    /// Runs git in `cwd` as [`Git::run`] does and returns its status and its whole
+    /// standard output, which git may have written before it failed.
+    async fn output<I, S>(
+        &self,
+        cwd: &Path,
+        home: &Home,
+        args: I,
+    ) -> Result<std::process::Output, ScopeError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         let mut command = self.command(cwd, home, args);
         let output = async move {
             // NOTE: spawning returns only once the child has changed into `cwd` and
@@ -176,21 +219,11 @@ impl Git {
                 .map_err(io::Error::other)??;
             child.wait_with_output().await
         };
-        let output = match self.clock.timeout(self.timeout, output).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(source)) => {
-                return Err(ScopeError::RunGit { program: self.program.clone(), source });
-            }
-            Err(_) => return Err(ScopeError::GitTimedOut { after: self.timeout }),
-        };
-        if !output.status.success() {
-            return Ok(None);
+        match self.clock.timeout(self.timeout, output).await {
+            Ok(Ok(output)) => Ok(output),
+            Ok(Err(source)) => Err(ScopeError::RunGit { program: self.program.clone(), source }),
+            Err(_) => Err(ScopeError::GitTimedOut { after: self.timeout }),
         }
-        let mut stdout = output.stdout;
-        if stdout.last() == Some(&b'\n') {
-            stdout.pop();
-        }
-        Ok(Some(stdout))
     }
 
     /// Runs `probe`, a look at the file system around `path`, on tokio's blocking pool
@@ -246,6 +279,65 @@ impl Git {
                 .env("XDG_CONFIG_HOME", home.path().join(".config"));
         }
         command
+    }
+}
+
+/// The one git run that tells the root of the work tree and the branch of `HEAD`.
+///
+/// git prints the root two times and then the short name of the branch, one per line,
+/// so a root with a newline in it can never pass for a root and a branch. `--verify`
+/// keeps git from reading `HEAD` as a file name when it names no commit yet, and
+/// `loose` shortens the name as `symbolic-ref --short` does (`heads/main` only next to
+/// a tag `main`).
+const ROOT_AND_BRANCH: [&str; 7] = [
+    "rev-parse",
+    "--show-toplevel",
+    "--show-toplevel",
+    "--verify",
+    "--quiet",
+    "--abbrev-ref=loose",
+    "HEAD",
+];
+
+/// What the run of [`ROOT_AND_BRANCH`] said.
+#[derive(Debug, PartialEq, Eq)]
+enum Answer {
+    /// git failed before it printed a root: no work tree holds the directory.
+    NoRepository,
+    /// The root of the work tree, and what git said about `HEAD`.
+    Root { root: Vec<u8>, head: Head },
+    /// An answer in another form, which is not read.
+    Unclear,
+}
+
+/// The branch of `HEAD` in the answer of [`ROOT_AND_BRANCH`].
+#[derive(Debug, PartialEq, Eq)]
+enum Head {
+    /// The short name of the branch.
+    Branch(Vec<u8>),
+    /// `HEAD` names a commit and no branch.
+    Detached,
+    /// git named nothing: `HEAD` names no commit yet (git then fails after the root), or
+    /// the name `HEAD` is ambiguous (a tag named `HEAD`). `symbolic-ref` is asked.
+    Ask,
+}
+
+/// Reads the answer of [`ROOT_AND_BRANCH`]: whether git succeeded, and its standard
+/// output. Only the root two times the same, with or without one name after it, is
+/// read; anything else is [`Answer::Unclear`].
+fn read_answer(success: bool, stdout: &[u8]) -> Answer {
+    let text = stdout.strip_suffix(b"\n").unwrap_or(stdout);
+    if text.is_empty() {
+        return if success { Answer::Unclear } else { Answer::NoRepository };
+    }
+    let lines: Vec<&[u8]> = text.split(|byte| *byte == b'\n').collect();
+    match lines[..] {
+        [root, again] if root == again => Answer::Root { root: root.to_vec(), head: Head::Ask },
+        [root, again, name] if success && root == again => {
+            let head = if name == b"HEAD" { Head::Detached } else { Head::Branch(name.to_vec()) };
+            Answer::Root { root: root.to_vec(), head }
+        }
+        _ => Answer::Unclear,
     }
 }
 

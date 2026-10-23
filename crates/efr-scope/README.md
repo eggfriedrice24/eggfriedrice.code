@@ -35,6 +35,10 @@ Modules:
   configuration, with optional locks and terminal prompts off, and under a timeout on
   the injected `efr_stdx::time::Clock`. A work tree whose root is `$HOME`, `/` or a
   directory above `$HOME` comes back as `Discovery::Guarded`, never as a work tree.
+  One `rev-parse` gives the root and the branch. A second run (`symbolic-ref`) asks
+  for the branch only when `HEAD` names no commit yet or the name `HEAD` is
+  ambiguous, and an answer in an unexpected form (a root with a newline in it) makes
+  git give the root alone first, as before.
   `Git::command` and `Git::run` are public, so the daemon runs its hardened
   `git status` of the `auto` sandbox (the counts of a destructive exit and the
   turn-end report) the same way.

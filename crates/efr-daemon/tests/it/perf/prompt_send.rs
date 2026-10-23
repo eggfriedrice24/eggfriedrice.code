@@ -10,6 +10,12 @@
 //! that ended before the ack (`git by ack`; the turn's own can start before the ack),
 //! and those of the whole turn up to its end (`git per turn`). The model answers at
 //! once and calls no tool.
+//!
+//! The budget is the git runs of each place ([`GIT_BUDGET`]): one `rev-parse` gives the
+//! root and the branch of a work tree, so a discovery runs git one time. v0.0.4 ran two
+//! for a work tree (`rev-parse`, then `symbolic-ref`): 2 per turn in the project; 2 by
+//! the ack and 4 per turn in the repository outside with the hint; 2 per turn without
+//! it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -38,6 +44,16 @@ const SAMPLES: usize = 15;
 /// terminal's conversation of the scope.
 const WARMUP: usize = 2;
 
+/// The most git runs of a prompt from each place: by its ack, and in its whole turn.
+/// The repository hint runs one discovery before the ack, and the scope of the turn one
+/// more.
+const GIT_BUDGET: [(&str, u64, u64); 4] = [
+    ("project", 0, 1),
+    ("outside repo", 1, 2),
+    ("outside plain", 1, 2),
+    ("outside repo no hint", 0, 1),
+];
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_prompt_send() {
@@ -45,6 +61,7 @@ async fn bench_perf_prompt_send() {
         return;
     };
     let mut report = Report::new("bench_perf_prompt_send");
+    let mut over = Vec::new();
     for repo_hint in [true, false] {
         let dirs = tree();
         let clock = TestClock::new();
@@ -108,6 +125,15 @@ async fn bench_perf_prompt_send() {
                 report.time(&format!("open {open} {place} send->ack"), &acks);
                 report.count(&format!("open {open} {place} git by ack"), median(&by_ack));
                 report.count(&format!("open {open} {place} git per turn"), median(&per_turn));
+                let runs = (median(&by_ack), median(&per_turn));
+                let budget = GIT_BUDGET
+                    .iter()
+                    .find(|(name, _, _)| name == place)
+                    .map(|(_, by_ack, per_turn)| (*by_ack, *per_turn))
+                    .unwrap();
+                if runs.0 > budget.0 || runs.1 > budget.1 {
+                    over.push(format!("open {open} {place}: {runs:?} over {budget:?}"));
+                }
                 if target == OPEN[0] {
                     for (command, count) in git.commands_after(last) {
                         report.count(&format!("{place} turn: git {command}"), count);
@@ -118,4 +144,5 @@ async fn bench_perf_prompt_send() {
         daemon.stop().await.unwrap();
     }
     report.finish();
+    assert!(over.is_empty(), "git runs (by the ack, per turn) over the budget: {over:#?}");
 }
