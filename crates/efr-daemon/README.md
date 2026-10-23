@@ -1991,7 +1991,10 @@ the test binary, with a git first on its `PATH` that counts its runs.
 - `bench_perf_shell_call_sandbox` (`tests/it/sandbox/perf.rs`): 10 calls of `true` in
   `auto` on the real sandbox, in a git project of 100, 2,000 and 20,000 files, with 0,
   1 and 4 contained jobs in the same project. Each `phase` line of efrd is a measure.
-  It needs `EFR_TEST_ZSH=1` and `EFR_TEST_SBX_BIN`.
+  It needs `EFR_TEST_ZSH=1` and `EFR_TEST_SBX_BIN`. Its budget: in the step with no
+  job, each call writes one `snapshot_before` and one `snapshot_after` line, and the
+  snapshot of each of its two roots after it a `snapshot_changes` line, so no time
+  counts twice.
 - `bench_perf_home_copy` (`src/home/tests.rs`): `home::prepare`, the copy into the home
   store, `home::after`, the deltas and `home::changed` for a directory of 200, 2,000
   and 20,000 files, with a raised limit. Its budget: `prepare` and `after`, and the

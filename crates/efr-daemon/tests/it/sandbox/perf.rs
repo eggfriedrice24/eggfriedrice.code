@@ -193,8 +193,12 @@ async fn start_jobs(
     assert_eq!(started, count, "{:?}", super::kinds(&events));
 }
 
-/// The measures of one size of project.
-async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Option<()> {
+/// The phase lines of the step with no job, by phase, for the budget.
+type Lines = BTreeMap<String, usize>;
+
+/// The measures of one size of project, and how many lines each phase wrote in the
+/// step with no job.
+async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Option<Lines> {
     let dirs = Arc::new(TestDirs::new_in(Path::new(env!("CARGO_TARGET_TMPDIR"))).unwrap());
     let user_runtime = dirs.create_dir("xrt").unwrap();
     let project = project(&dirs, files).await;
@@ -241,6 +245,7 @@ async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Op
     turn_cost(&daemon, prompts.next(), &project, Mode::Auto, CALLS).await;
     take_log();
     let mut running = 0;
+    let mut counted = Lines::new();
     for jobs in JOBS {
         if jobs > running {
             start_jobs(&daemon, &model, &mut prompts, &project, jobs - running).await;
@@ -250,6 +255,11 @@ async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Op
         model.push(&call, CALLS as usize);
         let per_call = turn_cost(&daemon, prompts.next(), &project, Mode::Auto, CALLS).await;
         let lines = phase_lines(&take_log());
+        if jobs == 0 {
+            for (phase, _) in &lines {
+                *counted.entry(phase.clone()).or_default() += 1;
+            }
+        }
         let label = format!("{files} files {jobs} jobs");
         report.time(&format!("{label} turn per call"), &[per_call]);
         let mut order: Vec<&str> = Vec::new();
@@ -275,7 +285,7 @@ async fn project_steps(report: &mut Report, launcher: &Path, files: usize) -> Op
     }
     drop(client);
     daemon.stop().await.unwrap();
-    Some(())
+    Some(counted)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -293,12 +303,25 @@ async fn bench_perf_shell_call_sandbox() {
         report.finish();
         return;
     };
+    let mut counted = Vec::new();
     for files in PROJECTS {
         let start = std::time::Instant::now();
-        if project_steps(&mut report, &launcher, files).await.is_none() {
-            break;
-        }
+        let Some(lines) = project_steps(&mut report, &launcher, files).await else { break };
+        counted.push((files, lines));
         report.time(&format!("{files} files whole step"), &[start.elapsed()]);
     }
     report.finish();
+    // The budget: each call writes one `snapshot_before` and one `snapshot_after` line,
+    // and each of its two roots (the project and `$SCRATCH`) a line of its own with
+    // another name. Before, the line of each root after the call had the name
+    // `snapshot_after` too, so the time of the snapshots after a call counted twice.
+    for (files, lines) in counted {
+        let calls = CALLS as usize;
+        for (phase, expected) in
+            [("snapshot_before", calls), ("snapshot_after", calls), ("snapshot_changes", 2 * calls)]
+        {
+            let found = lines.get(phase).copied().unwrap_or(0);
+            assert_eq!(found, expected, "{files} files: the lines of phase={phase}");
+        }
+    }
 }
