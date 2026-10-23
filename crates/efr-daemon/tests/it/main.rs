@@ -30,6 +30,7 @@ mod jobs_undo;
 mod jobs_wake;
 mod login;
 mod netview;
+mod perf;
 mod perf_start;
 mod presence;
 mod prompt_send;
