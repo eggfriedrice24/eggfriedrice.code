@@ -1950,6 +1950,31 @@ directory, or the git configuration of the machine.
 
 The `bench_perf_*` benches are ignored tests. `just bench-perf` runs them in release.
 
+The benches of `tests/it/perf.rs` run efrd end to end. They report times, counts and
+sizes, and do not fail on a time. Each one runs a `TestDaemon` with a file store on a
+tree under cargo's target temp dir. A task moves the daemon's `TestClock` with real
+time, so these benches use real time. The model is a fake model of the test, or the
+real providers against the fake servers. Two benches run again in a child process of
+the test binary, with a git first on its `PATH` that counts its runs.
+
+- `bench_perf_ttft`: the time from `prompt.send` to the first text of the answer, on
+  the HTTP Responses path and the Messages path, at 20, 200 and up to 2,000 turns.
+  It also gives the time to the model request.
+- `bench_perf_prompt_send`: the time from `prompt.send` to its ack, with 1, 5 and 20
+  open conversations, in a project and outside, with the repository hint on and off.
+  It counts the git runs.
+- `bench_perf_turn_end`: the time from the model's last event to the turn's end, in a
+  git project of 100, 2,000, 19,000 and 20,000 files where the turn writes one file.
+  It counts the git runs.
+- `bench_perf_shell_call_auto`: one `shell` call in `auto` with the fake launcher, for
+  `true`, 10 `cd`s and `rm` lines of 100 B to 100 KB, with 0, 1, 4 and 16 jobs. It
+  needs `EFR_TEST_ZSH=1`.
+- `bench_perf_subscribe_snapshot`: the start of `conversation.subscribe` on events of
+  1 KB, 32 KB and 500 KB, and with a newest event of 1.5 MiB.
+- `bench_perf_daemon_memory`: the resident memory of this process after the start,
+  after 20 conversations of 50 turns, and after an idle period.
+- `bench_perf_daemon_growth`: the resident memory after 50, 150 and 300 conversations
+  of 5 turns, and its growth for each conversation.
 - `bench_perf_shell_call_sandbox` (`tests/it/sandbox/perf.rs`): 10 calls of `true` in
   `auto` on the real sandbox, in a git project of 100, 2,000 and 20,000 files, with 0,
   1 and 4 contained jobs in the same project. Each `phase` line of efrd is a measure.
