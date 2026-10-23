@@ -1975,9 +1975,15 @@ the test binary, with a git first on its `PATH` that counts its runs.
 - `bench_perf_subscribe_snapshot`: the start of `conversation.subscribe` on events of
   1 KB, 32 KB and 500 KB, and with a newest event of 1.5 MiB.
 - `bench_perf_daemon_memory`: the resident memory of this process after the start,
-  after 20 conversations of 50 turns, and after an idle period.
+  after 20 conversations of 50 turns, and after an idle period of 3 hours on the
+  clock. It counts the turns that the idle trim of the conversation actors drops
+  (from the actor's debug event), and fails when the trim drops less than 90% of the
+  turns of the load. The resident set has no budget: glibc keeps most of the freed
+  heap in its arenas, so it falls by a few MiB only.
 - `bench_perf_daemon_growth`: the resident memory after 50, 150 and 300 conversations
-  of 5 turns, and its growth for each conversation.
+  of 5 turns, and its growth for each conversation. After each batch the bench moves
+  the clock past the idle trim and waits for the trims, so the growth is what a
+  conversation keeps after its trim. It fails when that growth passes 46 KiB.
 - `bench_perf_shell_call_sandbox` (`tests/it/sandbox/perf.rs`): 10 calls of `true` in
   `auto` on the real sandbox, in a git project of 100, 2,000 and 20,000 files, with 0,
   1 and 4 contained jobs in the same project. Each `phase` line of efrd is a measure.
