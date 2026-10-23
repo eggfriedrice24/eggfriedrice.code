@@ -84,6 +84,11 @@ into the GitHub release notes, and it stops when the section is missing.
   prompt cache of your provider still works. efrd uses the freed memory again for the
   next turns, so the memory use that your system shows can stay high after an idle
   period.
+- Each turn in a git repository starts one git process fewer. efr now gets the root
+  and the branch of the repository from one git process, not from two. A prompt in a
+  git repository outside your projects gets its answer from efrd sooner, because the
+  repository hint also uses one git process. The scope and the branch that efr finds
+  do not change.
 
 ### Security
 

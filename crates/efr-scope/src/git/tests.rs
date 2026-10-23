@@ -1,6 +1,7 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStringExt as _;
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use pretty_assertions::assert_eq;
@@ -205,4 +206,226 @@ fn ceilings_list_both_forms_of_home_and_skip_unlistable_ones() {
     assert_eq!(super::ceilings(&home), "/home/u:/var/home/u:/");
     let colon = Home::linked("/home/a:b", "/home/a:b");
     assert_eq!(super::ceilings(&colon), "/");
+}
+
+/// The discovery of v0.0.4, the reference of the one git run: `rev-parse
+/// --show-toplevel`, then `symbolic-ref` for the branch of a work tree that is not
+/// guarded.
+async fn two_run_discovery(git: &Git, cwd: &Path, home: &Home) -> Result<Discovery, ScopeError> {
+    let Some(cwd) = crate::home::normalize(cwd) else {
+        return Err(ScopeError::NotAbsolute { path: cwd.to_path_buf() });
+    };
+    if !cwd.is_dir() {
+        return Ok(Discovery::NotARepository);
+    }
+    let Some(root) = git.run(&cwd, home, ["rev-parse", "--show-toplevel"]).await? else {
+        return Ok(Discovery::NotARepository);
+    };
+    let root = PathBuf::from(OsString::from_vec(root));
+    if !root.is_absolute() {
+        return Ok(Discovery::NotARepository);
+    }
+    if home.is_at_or_above(&root) {
+        return Ok(Discovery::Guarded { root });
+    }
+    let branch = git
+        .run(&cwd, home, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .await?
+        .and_then(|name| String::from_utf8(name).ok());
+    Ok(Discovery::WorkTree(Repo { root, branch }))
+}
+
+/// A git runner whose program logs each run to a file and then runs the real git.
+struct CountingGit {
+    git: Git,
+    log: PathBuf,
+}
+
+impl CountingGit {
+    fn new(sandbox: &Sandbox) -> Self {
+        let log = sandbox.root().join("git-runs.log");
+        let script = sandbox.root().join("counting-git");
+        let text = format!("#!/bin/sh\necho \"$1\" >> '{}'\nexec git \"$@\"\n", log.display());
+        std::fs::write(&script, text).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        CountingGit { git: git().with_program(&script), log }
+    }
+
+    fn runs(&self) -> usize {
+        std::fs::read_to_string(&self.log).map_or(0, |log| log.lines().count())
+    }
+
+    /// Discovers `cwd` with the one run and with the reference, asserts that both give
+    /// the same, and returns the discovery and the git runs of the one run.
+    async fn same_as_before(&self, cwd: &Path, home: &Home) -> (Discovery, usize) {
+        let before = self.runs();
+        let discovery = self.git.discover(cwd, home).await.unwrap();
+        let runs = self.runs() - before;
+        let reference = two_run_discovery(&git(), cwd, home).await.unwrap();
+        assert_eq!(discovery, reference, "in {}", cwd.display());
+        (discovery, runs)
+    }
+}
+
+fn work_tree(root: &Path, branch: Option<&str>) -> Discovery {
+    Discovery::WorkTree(Repo { root: root.to_path_buf(), branch: branch.map(str::to_owned) })
+}
+
+#[tokio::test]
+async fn one_git_run_tells_the_root_and_the_branch() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let app = sandbox.init(&sandbox.in_home("p/app")).await;
+    sandbox.git(&app, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    let src = sandbox.mkdir(&app.join("src"));
+    for cwd in [&app, &src] {
+        let found = counting.same_as_before(cwd, sandbox.home()).await;
+        assert_eq!(found, (work_tree(&app, Some("main")), 1));
+    }
+}
+
+#[tokio::test]
+async fn a_branch_switch_and_a_detached_head_show_at_the_next_discovery() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let app = sandbox.init(&sandbox.in_home("app")).await;
+    sandbox.git(&app, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    let home = sandbox.home();
+    assert_eq!(counting.same_as_before(&app, home).await, (work_tree(&app, Some("main")), 1));
+    sandbox.git(&app, &["checkout", "--quiet", "-b", "feature/x"]).await;
+    let found = counting.same_as_before(&app, home).await;
+    assert_eq!(found, (work_tree(&app, Some("feature/x")), 1));
+    sandbox.git(&app, &["checkout", "--quiet", "--detach"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await, (work_tree(&app, None), 1));
+    sandbox.git(&app, &["checkout", "--quiet", "main"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await, (work_tree(&app, Some("main")), 1));
+}
+
+#[tokio::test]
+async fn a_new_repository_and_a_removed_one_show_at_the_next_discovery() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let home = sandbox.home();
+    let dir = sandbox.mkdir(&sandbox.in_home("later"));
+    assert_eq!(counting.same_as_before(&dir, home).await, (Discovery::NotARepository, 1));
+    sandbox.init(&dir).await;
+    // NOTE: with no commit, `HEAD` names no commit, so a second run asks for the
+    // branch, as before.
+    assert_eq!(counting.same_as_before(&dir, home).await, (work_tree(&dir, Some("main")), 2));
+    std::fs::write(dir.join("HEAD"), "a file named HEAD").unwrap();
+    assert_eq!(counting.same_as_before(&dir, home).await, (work_tree(&dir, Some("main")), 2));
+    sandbox.git(&dir, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    assert_eq!(counting.same_as_before(&dir, home).await, (work_tree(&dir, Some("main")), 1));
+    std::fs::remove_dir_all(dir.join(".git")).unwrap();
+    assert_eq!(counting.same_as_before(&dir, home).await, (Discovery::NotARepository, 1));
+}
+
+#[tokio::test]
+async fn a_linked_work_tree_and_a_linked_directory_give_the_same_as_before() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let home = sandbox.home();
+    let app = sandbox.init(&sandbox.in_home("p/app")).await;
+    sandbox.git(&app, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    let linked = sandbox.in_home("p/app-wt");
+    let worktree = linked.to_str().unwrap();
+    sandbox.git(&app, &["worktree", "add", "--quiet", "-b", "wt", worktree]).await;
+    assert!(linked.join(".git").is_file());
+    assert_eq!(counting.same_as_before(&linked, home).await, (work_tree(&linked, Some("wt")), 1));
+    let link = sandbox.in_home("app-link");
+    std::os::unix::fs::symlink(&app, &link).unwrap();
+    let below = sandbox.mkdir(&app.join("src"));
+    assert_eq!(counting.same_as_before(&link, home).await, (work_tree(&app, Some("main")), 1));
+    for cwd in [link.join("src"), below] {
+        assert_eq!(counting.same_as_before(&cwd, home).await.0, work_tree(&app, Some("main")));
+    }
+}
+
+#[tokio::test]
+async fn ambiguous_names_give_the_same_as_before() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let home = sandbox.home();
+    let app = sandbox.init(&sandbox.in_home("app")).await;
+    sandbox.git(&app, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    // A tag with the name of the branch: both runs spell the branch `heads/main`.
+    sandbox.git(&app, &["tag", "main"]).await;
+    let found = counting.same_as_before(&app, home).await;
+    assert_eq!(found, (work_tree(&app, Some("heads/main")), 1));
+    sandbox.git(&app, &["tag", "-d", "main"]).await;
+    // A remote with the name of the branch: `symbolic-ref --short` still says `main`.
+    sandbox.git(&app, &["update-ref", "refs/remotes/main/HEAD", "HEAD"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await, (work_tree(&app, Some("main")), 1));
+    // A tag named HEAD: git names no branch for `HEAD`, so a second run asks for it.
+    sandbox.git(&app, &["update-ref", "refs/tags/HEAD", "HEAD"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await, (work_tree(&app, Some("main")), 2));
+    sandbox.git(&app, &["checkout", "--quiet", "--detach"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await, (work_tree(&app, None), 2));
+}
+
+#[tokio::test]
+async fn a_root_with_a_newline_is_never_split_into_a_root_and_a_branch() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let home = sandbox.home();
+    let app = sandbox.init(&sandbox.in_home("p/two\nlines")).await;
+    sandbox.git(&app, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await.0, work_tree(&app, Some("main")));
+    // NOTE: with a tag named HEAD, git prints the root and no branch. Read one line each,
+    // `p/two` would be the root and `lines` the branch.
+    sandbox.git(&app, &["update-ref", "refs/tags/HEAD", "HEAD"]).await;
+    assert_eq!(counting.same_as_before(&app, home).await.0, work_tree(&app, Some("main")));
+    let unborn = sandbox.init(&sandbox.in_home("p/new\n")).await;
+    let found = counting.same_as_before(&unborn, home).await.0;
+    assert_eq!(found, work_tree(&unborn, Some("main")));
+}
+
+#[tokio::test]
+async fn a_branch_name_that_is_not_utf8_is_no_branch_as_before() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let app = sandbox.init(&sandbox.in_home("app")).await;
+    sandbox.git(&app, &["commit", "--quiet", "--allow-empty", "-m", "first"]).await;
+    let commit = std::fs::read(app.join(".git/refs/heads/main")).unwrap();
+    let name = OsString::from_vec(b"br\xff".to_vec());
+    std::fs::write(app.join(".git/refs/heads").join(&name), commit).unwrap();
+    std::fs::write(app.join(".git/HEAD"), b"ref: refs/heads/br\xff\n").unwrap();
+    assert_eq!(counting.same_as_before(&app, sandbox.home()).await, (work_tree(&app, None), 1));
+}
+
+#[tokio::test]
+async fn guarded_bare_and_missing_places_give_the_same_as_before() {
+    let sandbox = Sandbox::new();
+    let counting = CountingGit::new(&sandbox);
+    let home = sandbox.home();
+    let app = sandbox.init(&sandbox.in_home("app")).await;
+    let bare = sandbox.init_bare(&sandbox.in_home("dots.git"), None).await;
+    let elsewhere = sandbox.mkdir(&sandbox.in_home("elsewhere"));
+    let pointed = sandbox.init_bare(&sandbox.in_home("pointed.git"), elsewhere.to_str()).await;
+    for cwd in [app.join(".git"), bare, pointed, elsewhere, sandbox.in_home("gone")] {
+        counting.same_as_before(&cwd, home).await;
+    }
+    sandbox.init(home.path()).await;
+    let guarded = counting.same_as_before(home.path(), home).await;
+    assert_eq!(guarded, (Discovery::Guarded { root: home.path().to_path_buf() }, 1));
+    sandbox.init(sandbox.root()).await;
+    let above = counting.same_as_before(sandbox.root(), home).await.0;
+    assert_eq!(above, Discovery::Guarded { root: sandbox.root().to_path_buf() });
+}
+
+#[test]
+fn the_answer_of_the_one_run_is_read_only_in_its_expected_forms() {
+    use super::{Answer, Head, read_answer};
+    let root = |head| Answer::Root { root: b"/r".to_vec(), head };
+    assert_eq!(read_answer(true, b"/r\n/r\nmain\n"), root(Head::Branch(b"main".to_vec())));
+    assert_eq!(read_answer(true, b"/r\n/r\nHEAD\n"), root(Head::Detached));
+    assert_eq!(read_answer(true, b"/r\n/r\n"), root(Head::Ask));
+    assert_eq!(read_answer(false, b"/r\n/r\n"), root(Head::Ask));
+    assert_eq!(read_answer(false, b""), Answer::NoRepository);
+    let unclear: [&[u8]; 5] =
+        [b"", b"/r\n", b"/r\n/s\nmain\n", b"/a\nb\n/a\nb\n", b"/r\n/r\nm\nx\n"];
+    for answer in unclear {
+        assert_eq!(read_answer(true, answer), Answer::Unclear, "{answer:?}");
+    }
+    assert_eq!(read_answer(false, b"/r\n/r\nmain\n"), Answer::Unclear);
 }
