@@ -36,6 +36,9 @@ signal-hook.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# The benches (tests/it/perf.rs, the seccomp compile) report through the shared bench
+# helpers.
+efr-test-support.workspace = true
 pretty_assertions.workspace = true
 tempfile.workspace = true
 uuid.workspace = true

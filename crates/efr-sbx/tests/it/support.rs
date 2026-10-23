@@ -84,6 +84,11 @@ fn ready() -> Result<Ready, String> {
     let bin = env_var("EFR_TEST_SBX_BIN")
         .map(PathBuf::from)
         .ok_or("EFR_TEST_SBX_BIN is not set; just test-sandbox sets it")?;
+    probe(bin)
+}
+
+/// The launcher `bin` when its probe says that the sandbox can run here, or why not.
+pub(crate) fn probe(bin: PathBuf) -> Result<Ready, String> {
     let dir = target_tmp().join("probe");
     fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir).map_err(|e| e.to_string())?;
     let output = command(&bin)
