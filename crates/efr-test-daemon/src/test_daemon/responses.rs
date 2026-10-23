@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use wiremock::matchers::{method, path};
@@ -336,6 +336,7 @@ impl fmt::Debug for TokenRequest {
 struct Queue {
     answers: VecDeque<ResponsesAnswer>,
     received: Vec<ReceivedRequest>,
+    received_at: Vec<Instant>,
     token_answers: VecDeque<ResponsesAnswer>,
     token_requests: Vec<TokenRequest>,
     models: Option<ModelsAnswer>,
@@ -397,6 +398,14 @@ impl ResponsesServer {
         lock(&self.queue).received.clone()
     }
 
+    /// When each request of [`received`](Self::received) reached the server, in the
+    /// same order: the time its whole body arrived, before the server parsed it. A
+    /// bench splits with it the daemon's work before a model call from the stream
+    /// after it.
+    pub fn received_times(&self) -> Vec<Instant> {
+        lock(&self.queue).received_at.clone()
+    }
+
     /// Every request to the token endpoint so far, in order.
     pub fn token_requests(&self) -> Vec<TokenRequest> {
         lock(&self.queue).token_requests.clone()
@@ -437,6 +446,7 @@ struct Answers {
 
 impl Respond for Answers {
     fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let at = Instant::now();
         let body = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
         let header = |name: &str| {
             request.headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned)
@@ -445,6 +455,7 @@ impl Respond for Answers {
         let account_id = header("chatgpt-account-id");
         let mut queue = lock(&self.queue);
         queue.received.push(ReceivedRequest { body, authorization, account_id });
+        queue.received_at.push(at);
         match queue.answers.pop_front() {
             Some(answer) if (200..300).contains(&answer.status) => {
                 ResponseTemplate::new(answer.status)
