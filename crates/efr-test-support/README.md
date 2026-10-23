@@ -84,6 +84,23 @@ directories, a store and provider traffic from one place and never from the mach
   (`word(rank)` gives one), with paths, identifiers and numbers. The corpus makes each
   conversation when asked, so corpus XL never sits in memory. A change of the output
   increases `CORPUS_VERSION`, which names the cached corpus files.
+- `perf_corpus`: `PerfCorpus::new(size, seed)`, a seeded corpus of long conversations
+  for the `bench_perf_*` benches, as `PerfTurn`s with their events and their saved
+  messages. `PerfSize::S` is one conversation of 20 turns, `M` one of 200, `L` one of
+  2,000 with a summary compaction through turn 1,990, and `Xl` 20 conversations of the
+  `L` kind, interleaved by turn. `PerfCorpus::of_shape` takes any `PerfShape`. A turn
+  holds 48 events: the prompt, five answers in deltas, four `shell` calls with four
+  output updates each, and the end. `PerfTurn::batch` is the batch of the turn with
+  its messages, as the conversation actor saves them: the prompt with a preamble, each
+  answer with its tool call and its Responses items in `provider_raw` (with about
+  600 bytes of encrypted reasoning), and each tool result. The compaction goes into the
+  turn six turns after its cut, so the writer drops the saved messages before the cut
+  as in efrd. `write` and `write_turns` append the corpus to a store.
+  `PerfCorpus::file` builds a store file once per shape, seed, schema and
+  `PERF_CORPUS_VERSION` below a dir that the caller names, and `copy` gives a copy of
+  it for a test that writes. `open_store_file` opens a store file without backups. The
+  L file holds about 50 MB of events; the XL file is about 2 GB and takes about
+  90 s to build once.
 - `bench`: the shared parts of the `bench_perf_*` benches. `bench::run(warmup, runs,
   f)` and `run_async` time a body; `Stats::of(samples)` gives the min, p50, p95, max
   and mean; `slope(points)` gives the exponent `k` of a cost that grows as `n^k`, so a
@@ -151,7 +168,9 @@ cover whole-name matching, the timestamp grammar in both directions, and a propt
 `Arc<dyn Provider>`, check the failure reports, map every error event, validate broken
 transcripts, and step a paced answer with `handled_through`. The corpus tests pin the
 first words and the first id of a seed, the turn shape and the tail of corpus S, and
-the Zipf share of the most common word. The wait tests see a
+the Zipf share of the most common word. The perf corpus tests check the turn shape,
+the seed, the order of interleaved conversations, and that a compaction drops the
+saved messages before its cut in a real store. The wait tests see a
 condition made true by a task, by a thread after real time and through an awaited
 check, and check the error at a short limit. They use no network and no Zig, and only
 the wait tests sleep, for at most a third of a second.

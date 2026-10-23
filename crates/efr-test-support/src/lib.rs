@@ -15,6 +15,9 @@
 //!   checks every request against it.
 //! - [`SearchCorpus`]: a seeded corpus of conversations of a [`CorpusSize`], as events,
 //!   for the search benches.
+//! - [`PerfCorpus`]: a seeded corpus of long conversations of a [`PerfSize`] or a
+//!   [`PerfShape`], with the saved messages and a compaction, written into a real store
+//!   for the `bench_perf_*` benches.
 //! - [`Wait`]: polls a condition that another task or thread makes true, and gives up
 //!   after a real time limit ([`WAIT_LIMIT`]) with an error that names it.
 //!
@@ -42,6 +45,7 @@ mod dirs;
 mod error;
 pub mod fixtures;
 mod ndjson;
+mod perf_corpus;
 mod redact;
 mod replay_provider;
 mod rng;
@@ -53,6 +57,10 @@ pub use clock::TestClock;
 pub use dirs::TestDirs;
 pub use error::TestSupportError;
 pub use ndjson::{Entry, Inbound, Outbound, Record, Transcript};
+pub use perf_corpus::{
+    PERF_CORPUS_VERSION, PERF_MODEL, PERF_PROVIDER, PerfCorpus, PerfShape, PerfSize, PerfTurn,
+    PerfWritten, open_store_file,
+};
 pub use redact::Redactor;
 pub use replay_provider::ReplayProvider;
 pub use rng::TestRng;
