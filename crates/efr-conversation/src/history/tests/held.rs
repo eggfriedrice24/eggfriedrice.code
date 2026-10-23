@@ -257,9 +257,10 @@ fn bytes(request: &Request, count: usize) -> String {
 }
 
 /// The real actor: while its cache holds the earlier turns, a turn's start decodes no
-/// saved turn; after an idle trim and after a restart it decodes each of them. Every
-/// request starts with the bytes of the request before it, so the model reads the
-/// same history from the cache and from the store.
+/// saved turn; after an idle trim and after a restart it decodes each of them once,
+/// and the cache keeps them for the next start. Every request starts with the bytes of
+/// the request before it, so the model reads the same history from the cache and from
+/// the store.
 #[tokio::test]
 async fn a_turn_start_decodes_only_the_saved_turns_that_the_cache_lacks() {
     let (reads, _guard) = Reads::install();
@@ -278,18 +279,20 @@ async fn a_turn_start_decodes_only_the_saved_turns_that_the_cache_lacks() {
     let five = turn_read(&mut h, &reads, "prompt 5").await;
     let mut h = h.restart_model(model.clone()).await;
     let six = turn_read(&mut h, &reads, "prompt 6").await;
+    let seven = turn_read(&mut h, &reads, "prompt 7").await;
 
     let held = |held| Read { decoded: 0, held, bytes: 0 };
     assert_eq!([one, two, three], [held(0), held(1), held(2)], "the cache holds each turn");
     assert_eq!((four.decoded, four.held), (3, 0), "after the trim");
     assert!(four.bytes > 2 * 32 * 1024, "two reads of 32 KiB: {four:?}");
-    assert_eq!((five.decoded, five.held), (3, 1), "the cache holds the turn it ran since");
+    assert_eq!(five, held(4), "the cache keeps the turns that the trim dropped again");
     assert_eq!((six.decoded, six.held), (5, 0), "after the restart");
     assert!(six.bytes > four.bytes, "{six:?}");
+    assert_eq!(seven, held(6), "the cache keeps the turns that the restart dropped again");
 
     let requests: Vec<Request> =
         model.requests().into_iter().filter(|request| !request.side_call).collect();
-    assert_eq!(requests.len(), 9, "two requests for each read");
+    assert_eq!(requests.len(), 10, "two requests for each read");
     for (at, pair) in requests.windows(2).enumerate() {
         let [before, after] = pair else { unreachable!("a window of two") };
         let count = before.messages.len();

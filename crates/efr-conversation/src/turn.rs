@@ -262,6 +262,11 @@ pub(crate) struct TurnEnd {
     /// of the turn: the only ones that the next turn can need from the actor's cache.
     /// `None` when the turn stopped before it built a request.
     pub(crate) carried: Option<HashSet<TurnId>>,
+    /// The saved turns that the snapshot of the turn's start holds, for the actor's
+    /// cache: after a restart or an idle trim, the actor keeps those that the newest
+    /// request carried, as if it had run them, so the next start does not decode them
+    /// again.
+    pub(crate) read: HashMap<TurnId, Arc<CachedTurn>>,
     /// The background jobs that the turn's calls started.
     pub(crate) jobs: Vec<JobInfo>,
     /// The mode the turn ran with; `None` when it stopped before it resolved one.
@@ -431,6 +436,8 @@ struct Turn {
     stop: Option<ErrorBody>,
     /// The earlier turns that the newest request carried; see [`TurnEnd::carried`].
     carried: Option<HashSet<TurnId>>,
+    /// The saved turns of the snapshot; see [`TurnEnd::read`].
+    read: HashMap<TurnId, Arc<CachedTurn>>,
     /// Why the newest model call that completed stopped, as its provider said.
     answer_stop: Option<StopReason>,
     /// Why the model stopped, for `turn_completed`, when its final answer had no text
@@ -533,6 +540,7 @@ impl Turn {
             exits,
             stop: None,
             carried: None,
+            read: HashMap::new(),
             answer_stop: None,
             final_stop: None,
             jobs: Vec::new(),
@@ -555,6 +563,7 @@ impl Turn {
         let snapshot =
             Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history, cache)
                 .await?;
+        self.read = snapshot.saved.clone();
         let summary = snapshot.summary.as_ref();
         self.cwd = match (&self.spec.context, summary.and_then(|summary| summary.cwd.as_ref())) {
             (Some(context), _) => context.pwd.clone(),
@@ -886,6 +895,7 @@ impl Turn {
             record: batch,
             fresh: self.fresh,
             carried: self.carried,
+            read: self.read,
             jobs: self.jobs,
             mode: self.settings.map(|settings| settings.mode),
             cwd: self.cwd,
