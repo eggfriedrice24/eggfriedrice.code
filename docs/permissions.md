@@ -962,8 +962,8 @@ directory:
 - the commands inside `$(...)`, backquotes and groups declare their paths too;
 - a `cd` in the line adds its target as one more directory where the rest of the line
   may run. After `cd -`, `popd` or `cd $DIR`, a relative path may be anywhere below `/`.
-  The same is true when the line may run in more than 32 directories: each relative
-  `cd` can double that number, so `cd a && cd b && ...` with six of them passes it;
+  The same is true when the line may run in more than 1024 directories: each relative
+  `cd` can double that number, so `cd a && cd b && ...` with eleven of them passes it;
 - a path that an earlier `cp`, `ln`, `mv`, `git mv` or `git worktree add` of the same
   line writes may be a symbolic link by the time a later command uses it, so a later
   path at or below it may be anywhere below `/` too: `ln -s ~ h && cat h/.ssh/x`

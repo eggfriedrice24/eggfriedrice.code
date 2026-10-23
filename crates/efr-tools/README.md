@@ -159,7 +159,7 @@ The tools:
   `-s` or `cp -l`), `reads.rs` does the same for `git rm`, `git mv` and
   `git worktree add`, and `shell_tool/declare.rs` resolves them against the hidden shell's directory (with
   `$HOME` at the start of a word read as `~`, and `rev:path` also naming `path`), follows
-  `cd` within the line (past 32 directories that the rest of the line may run in, a
+  `cd` within the line (past 1024 directories that the rest of the line may run in, a
   relative path counts as anywhere below `/`, as after `cd -`), counts a path at or below what an earlier `cp`, `ln` or `mv`
   of the line wrote as anywhere below `/` too (it may be a link by then), turns a glob into everything below its fixed directory and an
   output redirection into a write. So `cat ~/.ssh/id_ed25519` declares the key and is
@@ -624,8 +624,8 @@ ladder.
   20, 25, 50 and 100, with the count of the directories that `cat x` runs in. Each K
   runs in a child process (this test binary again, with `EFR_BENCH_DECLARE_CASE`),
   which the bench kills after 15 s. Budget: no K stops the ladder, `cat x` runs in at
-  most 32 directories, a line declares at most 128 paths, and the slope over K stays
-  below 1.3.
+  most 1024 directories, a line declares at most 4096 paths, each K takes less than
+  10 ms, and the slope over the K past the cap (15 and more) stays below 1.3.
 - `bench_perf_line_diff` (`tests/it/perf.rs`): `written_diff` on two one-line changes
   in files of 3k, 10k and 50k lines, and on a full rewrite of 50k lines, with the
   diff's line count and its added and removed counts. Budget: the two changes give

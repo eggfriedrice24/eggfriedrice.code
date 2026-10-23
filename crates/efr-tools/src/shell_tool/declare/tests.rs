@@ -112,6 +112,15 @@ fn follows_cd(#[case] line: &str, #[case] reads: &[&str], #[case] trees: &[&str]
     assert_eq!(declared.trees, paths(trees), "{line:?}");
 }
 
+#[rstest]
+#[case::plain("cd a && cd b/c && cat x y/z && rm w")]
+#[case::dots("cd ./a && cd ../b/ && cat ./x y/../z .. && rm w//v/")]
+#[case::home("cd && cd .ssh && cat id && cd ~/k && ls")]
+fn a_start_and_a_home_that_are_not_normal_declare_the_same(#[case] line: &str) {
+    let odd = declared(&split(line), Path::new("/home/u/p/./x/../app/"), Path::new("/home//u/"));
+    assert_eq!(odd, declare(line), "{line:?}");
+}
+
 /// `count` relative `cd`s one level down each, `cd d1 && ... && cd dN`.
 fn downward_cds(count: usize) -> String {
     (1..=count).map(|n| format!("cd d{n} && ")).collect()
@@ -126,7 +135,7 @@ fn absolute_cds(count: usize) -> String {
 fn past_the_cap_of_directories_a_relative_path_is_anything_below_root() {
     let line = format!(
         "{}cat x && rm y && cat ~/.ssh/k /etc/hosts && rm /tmp/z ~/w",
-        downward_cds(MAX_BASES + 1)
+        downward_cds(MAX_BASES.ilog2() as usize + 1)
     );
     let declared = declare(&line);
     assert_eq!(declared.trees, paths(&["/"]), "{line:?}");
@@ -137,10 +146,10 @@ fn past_the_cap_of_directories_a_relative_path_is_anything_below_root() {
 }
 
 #[rstest]
-// Five downward cds give 2^5 = 32 directories; the sixth would give 64.
-#[case::downward_at_the_cap(downward_cds(5), Some(MAX_BASES))]
-#[case::downward_past_the_cap(downward_cds(6), None)]
-// The start and 31 absolute cds are 32 directories; one more passes the cap.
+// Ten downward cds give 2^10 = 1024 directories; the eleventh would give 2048.
+#[case::downward_at_the_cap(downward_cds(MAX_BASES.ilog2() as usize), Some(MAX_BASES))]
+#[case::downward_past_the_cap(downward_cds(MAX_BASES.ilog2() as usize + 1), None)]
+// The start and 1023 absolute cds are 1024 directories; one more passes the cap.
 #[case::absolute_at_the_cap(absolute_cds(MAX_BASES - 1), Some(MAX_BASES))]
 #[case::absolute_past_the_cap(absolute_cds(MAX_BASES), None)]
 // A bare cd adds the home directory, and the cap counts it too.
@@ -302,6 +311,7 @@ fn bench_perf_declare_cds() {
             if kind == "cds" { "cd d1 && .. && cd dK && cat x" } else { "(cd gN && make) x K" };
         let mut points = Vec::new();
         let mut most_paths = 0;
+        let mut slowest = Duration::ZERO;
         for k in [5_u64, 10, 15, 20, 25, 50, 100] {
             match child(&format!("{kind}:{k}")) {
                 Outcome::Done { samples, paths, bases } => {
@@ -314,6 +324,7 @@ fn bench_perf_declare_cds() {
                         }
                     }
                     most_paths = most_paths.max(paths);
+                    slowest = slowest.max(stats.p50);
                     points.push((k, stats.p50));
                     if stats.p50 > LIMIT {
                         report.count(&format!("{kind} stopped_at_n"), k);
@@ -336,15 +347,21 @@ fn bench_perf_declare_cds() {
                 }
             }
         }
-        let slope = report.slope(&format!("{kind} slope over K"), &points);
-        // Budget: past the cap a cd adds nothing, so the declared paths stay few and the
-        // time grows with the length of the line only. Without the cap, K = 10 declared
-        // 2,047 paths and K = 15 ran for more than 15 s.
+        report.slope(&format!("{kind} slope over K"), &points);
+        // Ten cds reach the cap; from K = 15 on, a cd adds nothing.
+        let past: Vec<_> = points.iter().copied().filter(|(k, _)| *k >= 15).collect();
+        let slope = report.slope(&format!("{kind} slope over K past the cap"), &past);
+        // Budget: past the cap the declared paths stop growing and the time grows with
+        // the length of the line only. Before the cap, K = 10 took 94 ms with linear
+        // scans of the bases and the lists, and K = 15 ran for more than 15 s.
         if most_paths > 4 * MAX_BASES as u64 {
             failures.push(format!("{kind}: {most_paths} declared paths"));
         }
+        if slowest > Duration::from_millis(10) {
+            failures.push(format!("{kind}: a K took {slowest:?}"));
+        }
         if slope > 1.3 {
-            failures.push(format!("{kind}: the slope over K is {slope:.2}"));
+            failures.push(format!("{kind}: the slope over K past the cap is {slope:.2}"));
         }
     }
     report.finish();

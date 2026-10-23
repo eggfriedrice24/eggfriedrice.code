@@ -16,6 +16,7 @@
 //! below `/` as well. `ln -s ~ h && cat h/.ssh/id_ed25519` then asks.
 
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use super::reads::{self, Depth, Named};
@@ -24,7 +25,7 @@ use crate::paths::normalize;
 
 /// The most directories that the rest of a line may run in. Past it, a relative path
 /// counts as anything below `/`, as after `cd -`.
-pub(super) const MAX_BASES: usize = 32;
+pub(super) const MAX_BASES: usize = 1024;
 
 /// What a line reads and writes, each path once, in the order first named.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,13 +41,14 @@ pub(super) struct Declared {
 
 /// The paths of `line`, run from `start` by a user whose home directory is `home`.
 pub(super) fn declared(line: &Line, start: &Path, home: &Path) -> Declared {
+    let start = normalize(start);
     let mut walk = Walk {
-        bases: vec![start.to_path_buf()],
+        bases: vec![start.clone()],
         lost: false,
         relinked: Vec::new(),
         home,
         out: Declared::default(),
-        seen: Seen::default(),
+        seen: Seen { bases: HashSet::from([start.clone().into_os_string()]), ..Seen::default() },
     };
     for command in &line.commands {
         for input in &command.inputs {
@@ -93,7 +95,7 @@ enum Access {
 }
 
 struct Walk<'a> {
-    /// The directories the next command may run in.
+    /// The directories the next command may run in, each one normal.
     bases: Vec<PathBuf>,
     /// True once a `cd` went somewhere the text does not show.
     lost: bool,
@@ -105,20 +107,22 @@ struct Walk<'a> {
     seen: Seen,
 }
 
-/// The paths of each list of [`Declared`], so a path is added once without a scan of
-/// its list.
+/// The paths of `bases` and of each list of [`Declared`], so a path is added once
+/// without a scan of its list. Each path is normal, so its bytes are the key: the hash
+/// of a `Path` reads it name by name, and a line can name thousands of paths.
 #[derive(Default)]
 struct Seen {
-    reads: HashSet<PathBuf>,
-    trees: HashSet<PathBuf>,
-    writes: HashSet<PathBuf>,
+    bases: HashSet<OsString>,
+    reads: HashSet<OsString>,
+    trees: HashSet<OsString>,
+    writes: HashSet<OsString>,
 }
 
 impl Walk<'_> {
     fn change_directory(&mut self, args: &[Word]) {
         let target = args.iter().find(|word| word.text == "-" || !word.text.starts_with('-'));
         match target {
-            None => self.add_base(self.home.to_path_buf()),
+            None => self.add_base(normalize(self.home)),
             Some(word)
                 if word.text == "-"
                     || word.text.starts_with('+')
@@ -129,12 +133,18 @@ impl Walk<'_> {
             }
             Some(word) => {
                 let target = named(word, Depth::One);
-                self.declare(&target, Access::Read);
+                let declared = self.declare(&target, Access::Read);
                 if self.relinked.iter().any(|link| self.reaches(&target, link)) {
                     self.lost = true;
                     return;
                 }
-                let moved = self.resolve(&target.text, target.tilde);
+                // NOTE: `declare` reads a word such as `~user` without its tilde, so only
+                // a word without one reuses what it resolved.
+                let moved = if target.tilde {
+                    self.resolve(&target.text, target.tilde)
+                } else {
+                    Some(declared)
+                };
                 for base in moved.into_iter().flatten() {
                     self.add_base(base);
                 }
@@ -145,16 +155,18 @@ impl Walk<'_> {
     /// Adds `base` as one more directory the rest of the line may run in. Past
     /// [`MAX_BASES`] the directory is unknown.
     fn add_base(&mut self, base: PathBuf) {
-        if self.lost || self.bases.contains(&base) {
+        if self.lost {
             return;
         }
         // NOTE: bases are only added, so without the cap a chain of relative cds
         // doubles them with each cd, and efrd runs out of time or memory.
         if self.bases.len() == MAX_BASES {
-            self.lost = true;
+            self.lost = !self.seen.bases.contains(base.as_os_str());
             return;
         }
-        self.bases.push(base);
+        if self.seen.bases.insert(base.clone().into_os_string()) {
+            self.bases.push(base);
+        }
     }
 
     /// Declares `named`: a pattern as everything below its fixed directory, anything
@@ -209,6 +221,10 @@ impl Walk<'_> {
             vec![PathBuf::from(text)]
         } else if self.lost {
             return None;
+        } else if plain(text) {
+            // NOTE: a normal base joined with plain names is normal, so this skips the
+            // normalize of each path: a line can run in up to 1024 bases.
+            return Some(self.bases.iter().map(|base| base.join(text)).collect());
         } else {
             self.bases.iter().map(|base| base.join(text)).collect()
         };
@@ -221,10 +237,16 @@ impl Walk<'_> {
             (Access::Read, Depth::One) => (&mut self.out.reads, &mut self.seen.reads),
             (Access::Read, Depth::Tree) => (&mut self.out.trees, &mut self.seen.trees),
         };
-        if seen.insert(path.clone()) {
+        if seen.insert(path.clone().into_os_string()) {
             list.push(path);
         }
     }
+}
+
+/// True when `text` is names joined by single slashes, none of them `.` or `..`, with
+/// no slash at either end.
+fn plain(text: &str) -> bool {
+    !text.is_empty() && text.split('/').all(|name| !matches!(name, "" | "." | ".."))
 }
 
 fn named(word: &Word, depth: Depth) -> Named {
