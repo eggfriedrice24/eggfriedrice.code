@@ -143,6 +143,7 @@ mod left;
 mod message;
 mod status;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -404,6 +405,32 @@ struct Shown {
     /// The card is in the scrollback, because it did not fit on the screen; only its
     /// keys stay in the live zone.
     committed: bool,
+    /// The card with the footer as the live zone showed it last, and the options and
+    /// the footer it was rendered with. Each frame shows the card, and most frames
+    /// change neither. In a box, so the view stays small in the futures that hold it.
+    rendered: RefCell<Option<Box<(RenderOptions, Footer, String)>>>,
+}
+
+impl Shown {
+    fn new(card: Card, about: About, footer: Footer) -> Shown {
+        Shown { card, about, footer, committed: false, rendered: RefCell::new(None) }
+    }
+
+    /// Adds the card with its footer at `options` to `out`. It is rendered again only
+    /// when the options or the footer changed.
+    fn push_card(&self, out: &mut String, options: &RenderOptions) {
+        let mut rendered = self.rendered.borrow_mut();
+        match rendered.as_deref() {
+            Some((at, footer, text)) if at == options && *footer == self.footer => {
+                out.push_str(text);
+            }
+            _ => {
+                let text = self.card.render(Some(&self.footer), options);
+                out.push_str(&text);
+                *rendered = Some(Box::new((options.clone(), self.footer.clone(), text)));
+            }
+        }
+    }
 }
 
 /// The tool call whose output is arriving now.
@@ -2376,7 +2403,7 @@ impl TurnView {
             self.stage(&before);
             // One card at a time: one that still waits goes to the scrollback whole.
             self.commit_question();
-            self.question = Some(Shown { card, about, footer, committed: false });
+            self.question = Some(Shown::new(card, about, footer));
             self.dirty = true;
         } else {
             let mut text = self.err_spacing.before(Block::Question).to_owned();
@@ -3211,9 +3238,6 @@ impl TurnView {
         step
     }
 
-    /// An update of message `index`: `delta` at byte `offset` of its text. An update
-    /// that starts past what this view holds, because it joined in the middle of the
-    /// message, is skipped; the completed message fills the gap.
     /// True when the text of message `index` from `offset` on reaches past the text held.
     fn adds_text(&self, index: u32, offset: u64, delta: &str) -> bool {
         let held = self
@@ -3224,21 +3248,36 @@ impl TurnView {
         usize::try_from(offset).map_or(true, |offset| offset.saturating_add(delta.len()) > held)
     }
 
+    /// An update of message `index`: `delta` at byte `offset` of its text. An update
+    /// that starts past what this view holds, because it joined in the middle of the
+    /// message, is skipped; the completed message fills the gap. It costs the delta,
+    /// not the text that arrived before it.
     fn message_delta(&mut self, index: u32, offset: u64, delta: &str, size: Size) -> Step {
         let held = self
             .message
             .as_ref()
             .filter(|message| message.index == index)
             .map_or("", Message::received);
-        let Some(before) = usize::try_from(offset).ok().and_then(|offset| held.get(..offset))
+        let Some(offset) =
+            usize::try_from(offset).ok().filter(|offset| held.get(..*offset).is_some())
         else {
             return Step::default();
         };
-        let text = format!("{before}{delta}");
-        self.message_text(index, &text, false, size)
+        self.message_with(index, false, size, |message| message.receive_at(offset, delta))
     }
 
     fn message_text(&mut self, index: u32, text: &str, complete: bool, size: Size) -> Step {
+        self.message_with(index, complete, size, |message| message.receive(text))
+    }
+
+    /// Message `index` takes text through `receive`, after the message before it ends.
+    fn message_with(
+        &mut self,
+        index: u32,
+        complete: bool,
+        size: Size,
+        receive: impl FnOnce(&mut Message),
+    ) -> Step {
         if index < self.next_index {
             return Step::default();
         }
@@ -3256,7 +3295,7 @@ impl TurnView {
         }
         let terminal = self.terminal();
         if let Some(message) = &mut self.message {
-            message.receive(text);
+            receive(message);
             // On a terminal the text goes into the renderer at the pace of the frames.
             if !terminal {
                 committed.push_str(&message.push_all());
@@ -3704,7 +3743,7 @@ impl TurnView {
                 live.push_str(&card::footer_row(&shown.footer, &options));
             } else {
                 live.push_str(self.spacing.peek(Block::Question));
-                live.push_str(&shown.card.render(Some(&shown.footer), &options));
+                shown.push_card(&mut live, &options);
             }
         }
         if let Some(input) = self.input.as_ref().filter(|_| !self.ended) {

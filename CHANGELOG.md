@@ -38,6 +38,12 @@ into the GitHub release notes, and it stops when the section is missing.
 - A question card shows a long command fast. Before, a command line of 100 KB took
   up to 2 seconds to show on a terminal that counts by grapheme cluster.
 - The input row under a running turn draws a long paste in about half the time.
+- While a question waits for your answer, efr no longer draws its card again at each
+  tick of the status row. It draws the card again only when the card or the width of
+  the terminal changes. A card with a diff used about 1 ms of CPU for each tick.
+- A long reply streams with less CPU. Each draft of the model now costs only its own
+  text. Before, each draft copied all of the reply before it, and a reply of 1 MB
+  used about 1 second of CPU.
 
 ### Fixed
 

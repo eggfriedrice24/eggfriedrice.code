@@ -65,6 +65,18 @@ impl Message {
         }
     }
 
+    /// The message's text is the text that arrived up to byte `offset`, then `delta`:
+    /// the same as [`receive`](Message::receive) of that text, at the cost of the
+    /// delta only. An `offset` past the text, or inside a character, changes nothing.
+    pub(crate) fn receive_at(&mut self, offset: usize, delta: &str) {
+        let Some(after) = self.received.get(offset..) else { return };
+        match delta.strip_prefix(after) {
+            Some(new) => self.received.push_str(new),
+            None if after.starts_with(delta) => {}
+            None => tracing::debug!(index = self.index, "an assistant message rewrote sent text"),
+        }
+    }
+
     /// Pushes all of the waiting text into the renderer and returns what it committed.
     pub(crate) fn push_all(&mut self) -> String {
         let Some(delta) = self.received.get(self.pushed..).filter(|delta| !delta.is_empty()) else {
