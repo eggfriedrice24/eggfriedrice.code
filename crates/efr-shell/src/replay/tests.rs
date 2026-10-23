@@ -420,19 +420,126 @@ impl ReplayCounts {
     }
 }
 
-/// vt100 screens that count their spawns and whose snapshots count their rows.
+/// vt100 screens that count their spawns and whose snapshots count their rows. They keep
+/// `scrollback` rows of history, or vt100's default when it is `None`.
 #[derive(Debug, Default)]
 struct CountedVt100 {
     counts: Arc<ReplayCounts>,
+    scrollback: Option<usize>,
 }
 
 impl ScreenFactory for CountedVt100 {
     fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
         self.counts.spawns.fetch_add(1, Ordering::SeqCst);
         let counts = Arc::clone(&self.counts);
-        let factory = efr_screen::vt100::factory(size);
-        ScreenActor::spawn(name, move || CountedScreen { inner: factory(), counts }, size)
+        let rows = self.scrollback.unwrap_or(efr_screen::vt100::DEFAULT_SCROLLBACK_ROWS);
+        let screen = move || CountedScreen {
+            inner: efr_screen::vt100::Vt100Screen::with_scrollback(size, rows),
+            counts,
+        };
+        ScreenActor::spawn(name, screen, size)
     }
+}
+
+/// What one snapshot of a [`CheckedScreen`] asked for and what the screen held.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Asked {
+    /// The scrollback rows that the replay asked for.
+    rows: usize,
+    /// The rows of scrollback that the screen held.
+    held: usize,
+    /// The snapshot is the newest `rows` rows of the one with all the scrollback.
+    newest: bool,
+}
+
+/// A vt100 screen with `scrollback` rows of history, whose snapshots also take one with
+/// all of it, as the replay asked for before it asked for [`TRUSTED_SCROLLBACK`] rows.
+struct CheckedScreen {
+    inner: efr_screen::vt100::Vt100Screen,
+    asked: Arc<std::sync::Mutex<Vec<Asked>>>,
+}
+
+impl Screen for CheckedScreen {
+    fn feed(&mut self, bytes: &[u8], sink: &mut dyn ScreenSink) {
+        self.inner.feed(bytes, sink);
+    }
+
+    fn resize(&mut self, cols: u16, rows: u16, sink: &mut dyn ScreenSink) {
+        self.inner.resize(cols, rows, sink);
+    }
+
+    fn snapshot(&mut self, scrollback_rows: usize) -> ScreenSnapshot {
+        let all = self.inner.snapshot(usize::MAX);
+        let snapshot = self.inner.snapshot(scrollback_rows);
+        let newest = all.scrollback.len().saturating_sub(scrollback_rows);
+        let asked = Asked {
+            rows: scrollback_rows,
+            held: all.scrollback.len(),
+            newest: snapshot.rows == all.rows && snapshot.scrollback == all.scrollback[newest..],
+        };
+        self.asked.lock().unwrap().push(asked);
+        snapshot
+    }
+
+    fn row(&self, index: usize) -> RowCells {
+        self.inner.row(index)
+    }
+
+    fn cursor(&self) -> Cursor {
+        self.inner.cursor()
+    }
+
+    fn title(&self) -> Option<&str> {
+        self.inner.title()
+    }
+
+    fn pwd(&self) -> Option<&str> {
+        self.inner.pwd()
+    }
+}
+
+/// Capture screens over [`CheckedScreen`] with `scrollback` rows of history.
+#[derive(Debug, Default)]
+struct CheckedScreens {
+    scrollback: usize,
+    asked: Arc<std::sync::Mutex<Vec<Asked>>>,
+}
+
+impl ScreenFactory for CheckedScreens {
+    fn spawn(&self, name: &str, size: Size) -> Result<(ScreenHandle, ScreenEvents), ScreenError> {
+        let (asked, scrollback) = (Arc::clone(&self.asked), self.scrollback);
+        let screen = move || CheckedScreen {
+            inner: efr_screen::vt100::Vt100Screen::with_scrollback(size, scrollback),
+            asked,
+        };
+        ScreenActor::spawn(name, screen, size)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_reads_only_the_trusted_scrollback_and_its_text_stays_the_same() {
+    let size = Size { cols: 160, rows: 48 };
+    let output = Bytes::from(status_line_output(256 * 1024));
+    let steps = output.windows(12).filter(|part| part == b"   Compiling").count();
+    // vt100 keeps 1,000 rows of scrollback; ghostty keeps 5,000, as this one does.
+    let mut texts = Vec::new();
+    for scrollback in [efr_screen::vt100::DEFAULT_SCROLLBACK_ROWS, 5000] {
+        let screens = CheckedScreens { scrollback, ..CheckedScreens::default() };
+        let text = replayer(&screens, size).text(&output).await;
+        let asked = screens.asked.lock().unwrap().clone();
+
+        assert!(asked.len() > 2, "{scrollback}: the output was split: {asked:?}");
+        for asked in &asked {
+            assert_eq!(asked.rows, TRUSTED_SCROLLBACK, "{scrollback}: {asked:?}");
+            // The rows are the newest of all the scrollback, and the replay splits the
+            // same pieces as with all of it.
+            assert!(asked.newest, "{scrollback}: {asked:?}");
+        }
+        let compiled = text.lines().filter(|line| line.starts_with("   Compiling")).count();
+        assert_eq!(compiled, steps, "{scrollback}: every log line is kept");
+        texts.push((asked.len(), text));
+    }
+    assert_eq!(texts[0], texts[1], "both backends give the same splits and the same text");
 }
 
 /// Build output under a status line that moves up to redraw (`ESC [1A`): each step
@@ -460,22 +567,29 @@ fn status_line_output(size: usize) -> Vec<u8> {
 /// their snapshots built and the time of `Replayer::render`, on 512 KiB and 5 MiB kept
 /// whole, and on 5 MiB kept as a run keeps it (1 MiB: the head and the tail). The
 /// ghostty backend cannot run here, because efr-shell never names a backend:
-/// `bench_perf_replay_screen` of efr-screen-ghostty runs the same loop on both.
+/// `bench_perf_replay_screen` of efr-screen-ghostty runs the same loop on both. A vt100
+/// that keeps 5,000 rows of scrollback, as ghostty does, stands in for it.
+///
+/// Budget: no snapshot builds more than [`TRUSTED_SCROLLBACK`] history rows (plan slice
+/// W1-J); before, a screen that kept 5,000 rows gave them all.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_replay() {
     let mut report = Report::new("bench_perf_replay");
     report.count("skipped: ghostty; see efr-screen-ghostty bench_perf_replay_screen", 0);
     let size = Size { cols: 160, rows: 48 };
-    let screens = CountedVt100::default();
-    let replayer = Replayer::new(&screens, "replay-bench".to_owned(), size);
+    let vt100 = CountedVt100::default();
+    let deep = CountedVt100 { scrollback: Some(5000), ..CountedVt100::default() };
     let mut points = Vec::new();
+    let mut over = Vec::new();
     let cases = [
-        ("vt100 512 KiB", 512 * 1024, 512 * 1024),
-        ("vt100 5 MiB", 5 * 1024 * 1024, 5 * 1024 * 1024),
-        ("vt100 5 MiB kept 1 MiB", 5 * 1024 * 1024, RunRequest::DEFAULT_OUTPUT_LIMIT),
+        ("vt100 512 KiB", &vt100, 512 * 1024, 512 * 1024),
+        ("vt100 5 MiB", &vt100, 5 * 1024 * 1024, 5 * 1024 * 1024),
+        ("vt100 5 MiB kept 1 MiB", &vt100, 5 * 1024 * 1024, RunRequest::DEFAULT_OUTPUT_LIMIT),
+        ("vt100 5000 rows 5 MiB", &deep, 5 * 1024 * 1024, 5 * 1024 * 1024),
     ];
-    for (label, bytes, limit) in cases {
+    for (label, screens, bytes, limit) in cases {
+        let replayer = Replayer::new(screens, "replay-bench".to_owned(), size);
         let output = status_line_output(bytes);
         let mut capture = Capture::new(limit);
         capture.push(&output);
@@ -496,7 +610,10 @@ async fn bench_perf_replay() {
         report.count(&format!("{label} history rows"), history);
         report.count(&format!("{label} visible rows"), visible);
         report.count(&format!("{label} lines out"), text.lines().count() as u64);
-        if limit >= bytes {
+        if history > spawns * TRUSTED_SCROLLBACK as u64 {
+            over.push(format!("{label}: {history} history rows from {spawns} screens"));
+        }
+        if limit >= bytes && screens.scrollback.is_none() {
             points.push((bytes as u64, stats.p50));
         }
         if stats.p50 > Duration::from_secs(10) {
@@ -506,4 +623,5 @@ async fn bench_perf_replay() {
     }
     report.slope("vt100 slope", &points);
     report.finish();
+    assert!(over.is_empty(), "{over:?}");
 }
