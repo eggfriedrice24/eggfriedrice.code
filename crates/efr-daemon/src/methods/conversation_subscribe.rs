@@ -5,7 +5,9 @@
 //! live events above the mark. The start is a replay of the events after `after_seq`
 //! when that gap is at most 128 events and 1 MiB, and otherwise (or without
 //! `after_seq`) a bounded snapshot: the summary, the newest events up to the same
-//! bounds, and a history cursor for the older ones.
+//! bounds, and a history cursor for the older ones. An event that is over the bound by
+//! itself is never in a snapshot: the cursor reaches it. When it is the newest event,
+//! the snapshot has no events and a cursor before the number after the high-water mark.
 //!
 //! Live events go through the transport's bounded subscriber queue (64 items). A
 //! subscriber that falls behind, at the queue or at the store's broadcast, is closed
@@ -346,37 +348,63 @@ async fn next_draft(
 }
 
 /// True when `events` may be sent as they are: at most [`MAX_EVENTS`] and
-/// [`MAX_BYTES`].
+/// [`MAX_BYTES`]. It writes each event as JSON at most once and stops at the bound.
 pub(crate) fn fits(events: &[EventEnvelope]) -> bool {
-    events.len() <= MAX_EVENTS && bytes(events) <= MAX_BYTES
+    events.len() <= MAX_EVENTS
+        && events
+            .iter()
+            .try_fold(0_usize, |total, envelope| {
+                let total = total.saturating_add(json_len(envelope));
+                (total <= MAX_BYTES).then_some(total)
+            })
+            .is_some()
 }
 
-fn bytes(events: &[EventEnvelope]) -> usize {
-    events
-        .iter()
-        .map(|envelope| serde_json::to_vec(envelope).map_or(usize::MAX, |json| json.len()))
-        .fold(0, usize::saturating_add)
+/// The length of `envelope` as JSON; `usize::MAX`, which never fits, when it cannot be
+/// written.
+fn json_len(envelope: &EventEnvelope) -> usize {
+    serde_json::to_vec(envelope).map_or(usize::MAX, |json| json.len())
 }
 
 /// The newest of `events` (oldest first) that fit the bounds, and whether any older
-/// one was left out.
-pub(crate) fn newest_that_fit(mut events: Vec<EventEnvelope>) -> (Vec<EventEnvelope>, bool) {
-    let mut cut = false;
-    while !fits(&events) {
-        events.remove(0);
-        cut = true;
+/// one was left out. When the newest event alone is over [`MAX_BYTES`], none fits.
+pub(crate) fn newest_that_fit(events: Vec<EventEnvelope>) -> (Vec<EventEnvelope>, bool) {
+    newest_within(events, json_len)
+}
+
+/// [`newest_that_fit`] with the length of each event from `len`. It walks from the
+/// newest event back and stops at the first one that does not fit, so it measures
+/// each event at most once.
+pub(crate) fn newest_within(
+    mut events: Vec<EventEnvelope>,
+    mut len: impl FnMut(&EventEnvelope) -> usize,
+) -> (Vec<EventEnvelope>, bool) {
+    let mut start = events.len();
+    let mut total = 0_usize;
+    for envelope in events.iter().rev().take(MAX_EVENTS) {
+        total = total.saturating_add(len(envelope));
+        if total > MAX_BYTES {
+            break;
+        }
+        start -= 1;
     }
-    (events, cut)
+    events.drain(..start);
+    (events, start > 0)
 }
 
 /// A snapshot of `conversation` with its newest `events` (oldest first); `older` says
-/// whether events before them exist.
+/// whether events before them exist. Without `events`, the cursor continues before
+/// the number after `hwm`, so its first page holds the newest event.
 pub(crate) fn snapshot(
     conversation: efr_protocol::ConversationSummary,
     events: Vec<EventEnvelope>,
     older: bool,
     hwm: Seq,
 ) -> ConversationSnapshot {
-    let history_cursor = if older { events.first().map(|first| cursor(first.seq)) } else { None };
+    // NOTE: a newest event over the bound leaves no event. A cursor that is absent
+    // would say that the conversation has no older events, so it must be there.
+    let before =
+        events.first().map_or_else(|| Seq::new(hwm.get().saturating_add(1)), |first| first.seq);
+    let history_cursor = older.then(|| cursor(before));
     ConversationSnapshot { conversation, events, history_cursor, hwm }
 }

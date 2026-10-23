@@ -4,11 +4,20 @@
 //! more than 129 events, from real turns whose answers are 1 KB, 32 KB or 500 KB of
 //! text (an answer gives two events of its size: its update and its completion). One
 //! more case adds an answer of 1.5 MiB as the newest events of the 32 KB conversation.
+//! The snapshot leaves that answer out, and its history cursor reaches it.
+//!
+//! The budgets: the start keeps the newest events in one pass from the newest back, so
+//! it measures an event at most once and stops at the bound. Before, it removed the
+//! oldest event and measured the rest again until they fit: 343 ms for the 500 KB
+//! events and 108 ms with the 1.5 MiB answer.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use efr_protocol::{ConversationId, ConversationSubscribe, ConversationSubscribeItem, Method};
+use efr_protocol::{
+    ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSubscribe,
+    ConversationSubscribeItem, Method, PageCursor,
+};
 use efr_provider::Provider;
 use efr_test_daemon::Client;
 use efr_test_support::TestClock;
@@ -29,6 +38,14 @@ const SAMPLES: usize = 15;
 /// The subscriptions before the measured ones.
 const WARMUP: usize = 2;
 
+/// The most time the start of the 500 KB conversation may take (about 50 ms on a busy
+/// machine, 343 ms before the one pass).
+const BUDGET_500_KB: Duration = Duration::from_millis(150);
+
+/// The most time the start with the newest answer of 1.5 MiB may take (about 6 ms on
+/// a busy machine, 108 ms before the one pass).
+const BUDGET_NEWEST: Duration = Duration::from_millis(36);
+
 /// An answer of `bytes` of text.
 fn answer(bytes: usize) -> String {
     let words = "the build passed and the tests passed, so the change is ready. ";
@@ -41,11 +58,12 @@ struct Start {
     times: Vec<Duration>,
     events: u64,
     bytes: u64,
+    cursor: Option<PageCursor>,
 }
 
 /// Subscribes at the start of `conversation_id` `WARMUP + SAMPLES` times.
 async fn starts(client: &Client, conversation_id: ConversationId) -> Start {
-    let mut start = Start { times: Vec::new(), events: 0, bytes: 0 };
+    let mut start = Start { times: Vec::new(), events: 0, bytes: 0, cursor: None };
     for n in 0..WARMUP + SAMPLES {
         let params = ConversationSubscribe {
             conversation_id,
@@ -67,6 +85,7 @@ async fn starts(client: &Client, conversation_id: ConversationId) -> Start {
         start.times.push(time);
         start.events = snapshot.events.len() as u64;
         start.bytes = serde_json::to_string(&snapshot.events).unwrap().len() as u64;
+        start.cursor = snapshot.history_cursor;
     }
     start
 }
@@ -87,6 +106,7 @@ async fn bench_perf_subscribe_snapshot() {
     let mut report = Report::new("bench_perf_subscribe_snapshot");
     let mut points = Vec::new();
     let mut middle = None;
+    let mut p50_500_kb = Duration::ZERO;
     for (label, bytes) in SIZES {
         let tty = format!("/dev/pts/perf-subscribe-{bytes}");
         let client = daemon.client_for_tty(&tty).await.unwrap();
@@ -110,6 +130,9 @@ async fn bench_perf_subscribe_snapshot() {
         if bytes == 32 * 1024 {
             middle = Some((client, tty, conversation));
         }
+        if bytes == 500 * 1024 {
+            p50_500_kb = stats.p50;
+        }
     }
     report.slope("subscribe over event size", &points);
     let (client, tty, conversation) = middle.unwrap();
@@ -117,10 +140,28 @@ async fn bench_perf_subscribe_snapshot() {
     let run = run_turn(&client, prompt(&tty, &cwd, "report", None)).await;
     assert_eq!(run.end_kind(), "turn_completed");
     let start = starts(&client, conversation).await;
-    report.time("newest 1.5 MiB: subscribe->snapshot", &start.times);
+    let newest = report.time("newest 1.5 MiB: subscribe->snapshot", &start.times);
     report.count("newest 1.5 MiB: events in the snapshot", start.events);
     report.bytes("newest 1.5 MiB: snapshot events", start.bytes);
+    // The answer that the snapshot left out is on the first page before its cursor.
+    let page: ConversationHistoryResult = client
+        .call(Method::ConversationHistory(ConversationHistory {
+            conversation_id: conversation,
+            cursor: start.cursor,
+            limit: Some(4),
+        }))
+        .await
+        .unwrap();
+    let largest = page
+        .events
+        .iter()
+        .map(|envelope| serde_json::to_vec(envelope).unwrap().len())
+        .max()
+        .unwrap_or(0);
     drop(client);
     daemon.stop().await.unwrap();
     report.finish();
+    assert!(largest > 1536 * 1024, "the cursor reaches the answer: {largest} bytes");
+    assert!(p50_500_kb < BUDGET_500_KB, "500 KB events: {p50_500_kb:?}");
+    assert!(newest.p50 < BUDGET_NEWEST, "newest 1.5 MiB: {:?}", newest.p50);
 }
