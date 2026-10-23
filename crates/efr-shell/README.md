@@ -766,3 +766,19 @@ the wrapper keeps the shell out of `/tmp`. `e2e_zsh::launcher` drives the real
 `efr-sbx` that `EFR_TEST_SBX_BIN` names (`just test-sandbox` sets it); its tests print
 `skipped: <reason>` and pass when the variable is unset or the launcher's probe says
 the machine cannot run the sandbox.
+
+## Benches
+
+The benches are ignored tests. `just bench-perf` runs them in release. They need no
+`EFR_TEST_ZSH`, and skip with a report line when the machine has no zsh.
+
+- `bench_perf_pty_read` (`src/e2e_zsh/perf/tests.rs`): a real zsh prints 50 MiB and
+  500 MiB of text lines and 10 MiB of progress output that moves the cursor up. The
+  bench reports the wall time, the CPU time of the test process, the count of chunks
+  that the PTY reader hands on and the bytes per chunk. Its tree is below the target
+  dir, not below `/tmp`.
+- `bench_perf_replay` (`src/replay/tests.rs`): `Replayer::render` on vt100 for
+  512 KiB and 5 MiB of output that moves the cursor, and for 5 MiB kept as a run keeps
+  it (1 MiB). It counts the capture screens and the history rows that their snapshots
+  build. efr-shell names no backend, so the ghostty numbers come from
+  `bench_perf_replay_screen` of efr-screen-ghostty.

@@ -130,6 +130,7 @@ fn enabled(test: &str) -> bool {
 }
 
 mod launcher;
+mod perf;
 mod sandbox;
 #[cfg(test)]
 mod tests;
