@@ -1,8 +1,10 @@
 //! Repository automation that needs Rust: the dependency rule (`deps`), the file rules
-//! (`tidy`), the link check of the docs site (`docs-links`) and, from milestone 1,
-//! protocol docs, fixture blessing and projection rebuilds. The justfile composes these;
+//! (`tidy`), the link check of the docs site (`docs-links`), the size budget of the
+//! release binaries (`bench-size`), the table of two bench runs (`bench-compare`) and,
+//! from milestone 1, protocol docs, fixture blessing and projection rebuilds. The justfile composes these;
 //! it never reimplements them.
 
+mod bench;
 mod config_docs;
 mod deps;
 mod docs_links;
@@ -57,6 +59,19 @@ enum Command {
     },
     /// Rebuild the SQLite projections from the event log.
     RebuildProjections,
+    /// Compare the sizes of the release binaries with xtask/size-budget.json.
+    BenchSize {
+        /// The directory of the binaries; cargo's target dir `release` by default.
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
+    /// Print the change of each line between two runs of `just bench-perf`.
+    BenchCompare {
+        /// The directory of the old run's JSON lines.
+        old: PathBuf,
+        /// The directory of the new run's JSON lines.
+        new: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -84,6 +99,8 @@ fn run(command: Command) -> anyhow::Result<bool> {
         Command::ConfigDocs { check } => config_docs::run(&root, check),
         Command::Fixtures { bless } => Ok(fixtures::run(bless)),
         Command::RebuildProjections => Ok(rebuild_projections::run()),
+        Command::BenchSize { dir } => bench::size(&root, dir),
+        Command::BenchCompare { old, new } => bench::compare(&old, &new),
     }
 }
 
