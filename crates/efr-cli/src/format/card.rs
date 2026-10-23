@@ -103,6 +103,13 @@ pub(crate) enum Footer {
     Waiting,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many cards this thread rendered: a test seam, for the count of the frame
+    /// bench (`bench_perf_card_frames`).
+    pub(crate) static RENDERS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// A question: its title, safe to print, and its rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Card {
@@ -114,6 +121,8 @@ impl Card {
     /// The card as lines, each with its newline, the last row `footer` when there is
     /// one: cut into rows of the screen's width on a terminal, as they are elsewhere.
     pub(crate) fn render(&self, footer: Option<&Footer>, options: &RenderOptions) -> String {
+        #[cfg(test)]
+        RENDERS.with(|renders| renders.set(renders.get() + 1));
         let columns = columns(options);
         let mut out = String::new();
         let title = vec![(format!("{MARK}{}", self.title), Tone::Attention)];

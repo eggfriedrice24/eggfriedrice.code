@@ -1388,3 +1388,21 @@ EFR_TEST_ZSH=1 cargo nextest run -p efr-cli -E 'test(/^plugin::/)'
 Nothing touches the network, the real home, config or runtime directory, and nothing
 under test sleeps on real time: only `Wait` sleeps between its polls, and its limit
 decides only when a failing test stops waiting.
+
+## Benches
+
+Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
+`efr-test-support`, a dev-dependency only. They report what they measure and have no
+time budget yet. A size that takes more than 10 s stops its ladder.
+
+- `bench_perf_wrap_command` (`src/format/tests.rs`): `wrap_command` at 80 columns, by
+  code point and by grapheme, on lines of 1 KB, 10 KB and 100 KB with and without
+  spaces.
+- `bench_perf_card_frames` (`src/follow/view/tests/perf.rs`): 600 ticks of a view with
+  a pending approval that shows a diff. It counts the calls of `Card::render` through
+  a counter that only tests build (`format::card::RENDERS`).
+- `bench_perf_input_row` (`src/follow/view/input/tests.rs`): 600 draws of the input
+  row with 1 KB, 20 KB and 256 KB of text and the cursor at the end.
+- `bench_perf_message_delta` (`src/follow/view/tests/perf.rs`): a reply of 10 KB,
+  100 KB and 1 MB in drafts of 16 bytes, with no frame and with a frame for each
+  1 KB.

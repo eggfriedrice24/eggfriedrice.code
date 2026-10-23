@@ -1,5 +1,8 @@
+use std::time::{Duration, Instant};
+
 use efr_protocol::{Seq, TurnId};
 use efr_render::RenderOptions;
+use efr_test_support::bench::Report;
 use pretty_assertions::assert_eq;
 
 use super::{BACKGROUND_HINT, HINT, Input, MAX_ROWS, first_line, user_message};
@@ -143,4 +146,44 @@ fn a_steer_reads_back_as_the_users_message() {
     assert_eq!(user_message("check the logs\nfirst\n", &plain()), "> check the logs\n> first\n");
     let bold = user_message("x", &RenderOptions::new(40));
     assert_eq!(readable(&bold), "\\e[1m> x\\e[0m\n");
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_input_row() {
+    const DRAWS: usize = 600;
+    let limit = Duration::from_secs(10);
+    let options = RenderOptions::new(80);
+    let mut report = Report::new("bench_perf_input_row");
+    let mut points = Vec::new();
+    for kb in [1_u64, 20, 256] {
+        // A paste of one long line, the cursor at its end.
+        let unit = "cargo test -p efr-cli -- --nocapture ";
+        let text =
+            unit.repeat(kb as usize * 1024 / unit.len() + 1)[..kb as usize * 1024].to_owned();
+        let mut input = Input { shown: true, ..Input::default() };
+        input.line.append(&text);
+        assert_eq!(input.line.text().len(), text.len());
+        let mut draws = Vec::with_capacity(DRAWS);
+        let start = Instant::now();
+        for _ in 0..DRAWS {
+            let draw = Instant::now();
+            let tail = input.row(&options, 80);
+            draws.push(draw.elapsed());
+            assert_eq!(tail.text.lines().count(), MAX_ROWS);
+            if start.elapsed() > limit {
+                break;
+            }
+        }
+        let total = start.elapsed();
+        report.time(&format!("{kb} KB: per draw"), &draws);
+        report.time(&format!("{kb} KB: {} draws total", draws.len()), &[total]);
+        if draws.len() < DRAWS {
+            report.count("stopped_at_kb", kb);
+            break;
+        }
+        points.push((kb, total));
+    }
+    report.slope("total slope over bytes", &points);
+    report.finish();
 }
