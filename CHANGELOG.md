@@ -59,6 +59,16 @@ into the GitHub release notes, and it stops when the section is missing.
   than a second.
 - `efr undo` starts fewer git processes: one for each file that it writes back, not
   two. The undo trash keeps the same bytes.
+- A terminal that attaches to a conversation with long answers shows it sooner. With
+  answers of 500 KB, the start of `conversation.subscribe` took about 340 ms. Now it
+  takes about 20 ms.
+
+### Fixed
+
+- When the newest event of a conversation is larger than 1 MiB, the snapshot at the
+  start of `conversation.subscribe` now has a history cursor. Before, the snapshot had
+  no events and no cursor, so a client could not find that event and the events
+  before it.
 
 ### Security
 

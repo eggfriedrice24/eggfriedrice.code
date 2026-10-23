@@ -326,8 +326,10 @@ mod subscribe {
     use jiff::Timestamp;
     use pretty_assertions::assert_eq;
 
+    use proptest::prelude::*;
+
     use crate::methods::conversation_subscribe::{
-        MAX_BYTES, MAX_EVENTS, fits, newest_that_fit, snapshot,
+        MAX_BYTES, MAX_EVENTS, fits, newest_that_fit, newest_within, snapshot,
     };
     use crate::methods::{cursor, tests::id};
 
@@ -396,6 +398,94 @@ mod subscribe {
         assert!(!older);
         assert_eq!(snapshot.history_cursor, None);
         assert_eq!(snapshot.events.len(), 2);
+    }
+
+    #[test]
+    fn a_newest_event_over_the_bound_leaves_no_event_and_a_cursor_that_reaches_it() {
+        let (kept, older) = newest_that_fit(vec![steered(1, 10), steered(2, MAX_BYTES)]);
+
+        assert!(older);
+        assert!(kept.is_empty());
+        let snapshot = snapshot(summary(), kept, older, Seq::new(2));
+        // The cursor continues before the number after the high-water mark, so the
+        // first history page holds the event that the snapshot left out.
+        assert_eq!(snapshot.history_cursor, Some(cursor(Seq::new(3))));
+        assert!(snapshot.events.is_empty());
+    }
+
+    #[test]
+    fn a_snapshot_writes_each_event_as_json_at_most_once() {
+        // 16 KiB events: 64 of them fill the bytes, far below the 128 events.
+        let events: Vec<_> = (1..=MAX_EVENTS as u64).map(|seq| steered(seq, 16 * 1024)).collect();
+        let total = events.len();
+
+        let mut encodes = 0;
+        let (kept, older) = newest_within(events.clone(), |envelope| {
+            encodes += 1;
+            json_len(envelope)
+        });
+
+        assert!(older);
+        assert!(encodes <= total, "{encodes} encodes for {total} events");
+        let mut before = 0;
+        let (old_kept, _) = removed_one_by_one(events, |envelope| {
+            before += 1;
+            json_len(envelope)
+        });
+        assert!(before > total, "the old way wrote {before} events");
+        assert_eq!(kept, old_kept);
+    }
+
+    fn json_len(envelope: &EventEnvelope) -> usize {
+        serde_json::to_vec(envelope).unwrap().len()
+    }
+
+    /// The way before one pass: remove the oldest event until the rest fit, and write
+    /// the rest as JSON again after each removal.
+    fn removed_one_by_one(
+        mut events: Vec<EventEnvelope>,
+        mut len: impl FnMut(&EventEnvelope) -> usize,
+    ) -> (Vec<EventEnvelope>, bool) {
+        let mut cut = false;
+        loop {
+            let bytes = events.iter().map(&mut len).fold(0, usize::saturating_add);
+            if events.len() <= MAX_EVENTS && bytes <= MAX_BYTES {
+                return (events, cut);
+            }
+            events.remove(0);
+            cut = true;
+        }
+    }
+
+    proptest! {
+        // NOTE: the lengths come from the list, not from JSON, so the old way, which
+        // measures again after each removal, stays fast on large events.
+        #[test]
+        fn one_pass_keeps_what_removing_one_by_one_keeps(
+            lens in prop::collection::vec(
+                prop_oneof![
+                    Just(10_usize),
+                    Just(MAX_BYTES / MAX_EVENTS),
+                    0_usize..300 * 1024,
+                    Just(MAX_BYTES),
+                    Just(MAX_BYTES + 1),
+                    Just(usize::MAX),
+                ],
+                0..140,
+            ),
+        ) {
+            let events: Vec<_> = (1..=lens.len() as u64).map(|seq| steered(seq, 0)).collect();
+            let len = |envelope: &EventEnvelope| lens[envelope.seq.get() as usize - 1];
+
+            let mut measured = 0;
+            let kept = newest_within(events.clone(), |envelope| {
+                measured += 1;
+                len(envelope)
+            });
+
+            prop_assert_eq!(&kept, &removed_one_by_one(events, len));
+            prop_assert!(measured <= lens.len());
+        }
     }
 }
 
