@@ -1,5 +1,8 @@
 //! Light helpers for the tests of every efr crate.
 //!
+//! - [`bench`](mod@bench): samples and their percentiles, the report of a `bench_perf_*` bench
+//!   with its JSON lines, the slope of a cost over its input size, and the resident
+//!   memory of a process.
 //! - [`TestClock`]: an `efr_stdx` clock that moves only when a test moves it.
 //! - [`TestRng`]: a seeded `efr_stdx` generator whose sequence never changes.
 //! - [`TestDirs`]: the four efr roots and a home directory in a throwaway tree.
@@ -23,6 +26,9 @@
 //! the scenario driver live in `efr-test-daemon`), and any provider's API, which is
 //! replayed at the HTTP level with wiremock instead.
 //!
+//! `bench` is a public module because its names (`run`, `slope`, `Report`) read as
+//! `bench::run` at the call site.
+//!
 //! `fixtures` is a public module because its path is the one the structure document
 //! names for every crate's tests: `efr_test_support::fixtures::path(file!(), "...")`.
 
@@ -30,6 +36,7 @@
 // `[lints]` table that both inherits the workspace lints and adds its own.
 #![warn(missing_docs)]
 
+pub mod bench;
 mod clock;
 mod dirs;
 mod error;

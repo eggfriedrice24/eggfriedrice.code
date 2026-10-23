@@ -84,6 +84,15 @@ directories, a store and provider traffic from one place and never from the mach
   (`word(rank)` gives one), with paths, identifiers and numbers. The corpus makes each
   conversation when asked, so corpus XL never sits in memory. A change of the output
   increases `CORPUS_VERSION`, which names the cached corpus files.
+- `bench`: the shared parts of the `bench_perf_*` benches. `bench::run(warmup, runs,
+  f)` and `run_async` time a body; `Stats::of(samples)` gives the min, p50, p95, max
+  and mean; `slope(points)` gives the exponent `k` of a cost that grows as `n^k`, so a
+  bench can fail when a linear path turns quadratic. `Memory::of_self()` and
+  `Memory::of(pid)` read `VmRSS` and `VmHWM` from `/proc`, and `reset_peak()` sets the
+  peak back through `/proc/self/clear_refs`, so memory needs no counting allocator and
+  no allocator hook. `Report` collects the lines of one bench: `finish()` prints them to
+  stderr after the load average and the CPU governor, and, when `EFR_BENCH_OUT` names a
+  directory, appends one JSON object per line to `<dir>/<bench>.jsonl`.
 - `wait`: `Wait`, a poll of a condition that another task or thread makes true:
   `Wait::new("the notice").until(|| ...)`, `until_some` for a value, `until_some_async`
   for a check that awaits, and `until_blocking` for a thread outside the runtime. The
