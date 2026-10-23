@@ -35,6 +35,13 @@ into the GitHub release notes, and it stops when the section is missing.
   the text then came late in one jump.
 - A very long code block renders in a time that grows only with its length. Before,
   100,000 lines in a `text` block took about 4 s. Now they take less than 0.1 s.
+- A question card shows a long command fast. Before, a command line of 100 KB took
+  up to 2 seconds to show on a terminal that counts by grapheme cluster.
+
+### Fixed
+
+- On a very narrow terminal, a wide character that did not fit in a row of a question
+  card showed two times. Now it shows one time.
 
 ### Security
 

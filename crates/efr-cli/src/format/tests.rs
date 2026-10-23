@@ -10,13 +10,14 @@ use efr_test_support::bench::{self, Report};
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use pretty_assertions::assert_eq;
+use proptest::prelude::{prop, proptest};
 use serde_json::json;
 
 use super::{
     Block, CACHE_SHOWN_FROM, Spacing, Tone, ago, approval_heading, approval_summary, catalog,
     code_block, conversations, cut, elapsed, keys, lines, local_time, one_line, paint, run_heading,
     size, status, tokens, took, tool_call, tool_result, turn_done, turn_interrupted, until,
-    usage_line, wrap_command,
+    usage_line, wrap_command, wrap_spans,
 };
 use crate::testing::{FAILED_UNITS, FROM_SRC, conversation, now};
 
@@ -693,6 +694,7 @@ fn long_command(bytes: usize, spaces: bool) -> String {
 #[ignore = "bench: run by just bench-perf"]
 fn bench_perf_wrap_command() {
     let mut report = Report::new("bench_perf_wrap_command");
+    let mut slopes = Vec::new();
     for method in [WidthMethod::CodePoint, WidthMethod::Grapheme] {
         for spaces in [true, false] {
             let kind = format!(
@@ -717,8 +719,223 @@ fn bench_perf_wrap_command() {
                 report.count(&format!("{kind} {kb} KB: rows"), rows.len() as u64);
                 points.push((kb, stats.p50));
             }
-            report.slope(&format!("{kind} slope over bytes"), &points);
+            slopes.push((kind.clone(), report.slope(&format!("{kind} slope over bytes"), &points)));
         }
     }
     report.finish();
+    // Budget: the cost grows with the line, not with its square (it was 1.9).
+    for (kind, slope) in slopes {
+        assert!(slope < 1.3, "{kind}: slope {slope:.2} over bytes");
+    }
+}
+
+#[test]
+fn a_piece_wider_than_the_row_shows_once() {
+    let spans = [("\u{65e5}".to_owned(), Tone::Plain), (" ok".to_owned(), Tone::Plain)];
+    assert_eq!(
+        wrap_spans(&spans, 1, 1, WidthMethod::CodePoint),
+        [
+            vec![("\u{65e5}".to_owned(), Tone::Plain)],
+            vec![("o".to_owned(), Tone::Plain)],
+            vec![("k".to_owned(), Tone::Plain)]
+        ]
+    );
+}
+
+/// The code of `wrap_command`, `wrap_spans` and `cut` before `pieces` became an
+/// iterator and the width checks stopped at a full row: the reference of the property
+/// tests below. `wrap_spans` has the fix of `a_piece_wider_than_the_row_shows_once`.
+mod before {
+    use efr_render::{WidthMethod, text_width};
+    use unicode_segmentation::UnicodeSegmentation as _;
+
+    use super::super::{CommandRow, RowEnd, Tone, WORD_MARK, WRAP_MARK, push_span, runs};
+
+    fn pieces(text: &str, method: WidthMethod) -> Vec<&str> {
+        match method {
+            WidthMethod::Grapheme => text.graphemes(true).collect(),
+            _ => text.split_inclusive(|_| true).collect(),
+        }
+    }
+
+    pub(super) fn wrap_command(
+        line: &str,
+        room: usize,
+        indent: usize,
+        method: WidthMethod,
+    ) -> Vec<CommandRow> {
+        let mark = text_width(WRAP_MARK, method).max(text_width(WORD_MARK, method));
+        let mut rows = Vec::new();
+        let mut left = line;
+        let mut indented = false;
+        loop {
+            let here = if indented { room.saturating_sub(indent) } else { room }.max(1);
+            if text_width(left, method) <= here {
+                rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
+                return rows;
+            }
+            let budget = here.saturating_sub(mark);
+            let (mut end, mut used, mut after_space, mut word) = (0, 0, None, false);
+            for piece in pieces(left, method) {
+                let width = text_width(piece, method);
+                if end > 0 && used + width > budget {
+                    break;
+                }
+                end += piece.len();
+                used += width;
+                if piece == " " {
+                    if word {
+                        after_space = Some(end);
+                    }
+                } else {
+                    word = true;
+                }
+            }
+            let (cut, kind) = match after_space {
+                Some(at) if at == end || text_width(&left[..at], method) * 2 >= here => {
+                    (at, RowEnd::Space)
+                }
+                _ => (end, RowEnd::Word),
+            };
+            if cut >= left.len() {
+                rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
+                return rows;
+            }
+            let (row, after) = left.split_at(cut);
+            rows.push(CommandRow { text: row.to_owned(), indented, end: kind });
+            left = after;
+            indented |= kind == RowEnd::Space;
+        }
+    }
+
+    pub(super) fn wrap_spans(
+        spans: &[(String, Tone)],
+        first: usize,
+        rest: usize,
+        method: WidthMethod,
+    ) -> Vec<Vec<(String, Tone)>> {
+        let mut rows: Vec<Vec<(String, Tone)>> = vec![Vec::new()];
+        let mut used = 0;
+        let mut room = first;
+        for (text, tone) in spans {
+            for token in runs(text) {
+                let width = text_width(token, method);
+                let space = token.starts_with(' ');
+                if space && used == 0 && rows.len() > 1 {
+                    continue;
+                }
+                if used + width <= room {
+                    push_span(&mut rows, token, *tone);
+                    used += width;
+                    continue;
+                }
+                if used > 0 {
+                    rows.push(Vec::new());
+                    used = 0;
+                    room = rest;
+                }
+                if space {
+                    continue;
+                }
+                let mut left = token;
+                while text_width(left, method) > room {
+                    let mut end = 0;
+                    let mut taken = 0;
+                    for piece in pieces(left, method) {
+                        let width = text_width(piece, method);
+                        if end > 0 && taken + width > room {
+                            break;
+                        }
+                        end += piece.len();
+                        taken += width;
+                    }
+                    // The one change: a piece wider than the row showed twice.
+                    if end == left.len() {
+                        break;
+                    }
+                    let (row, after) = left.split_at(end);
+                    push_span(&mut rows, row, *tone);
+                    rows.push(Vec::new());
+                    room = rest;
+                    left = after;
+                }
+                push_span(&mut rows, left, *tone);
+                used = text_width(left, method);
+            }
+        }
+        for row in &mut rows {
+            if let Some((text, _)) = row.last_mut() {
+                let kept = text.trim_end_matches(' ').len();
+                text.truncate(kept);
+            }
+            row.retain(|(text, _)| !text.is_empty());
+        }
+        while rows.len() > 1 && rows.last().is_some_and(Vec::is_empty) {
+            rows.pop();
+        }
+        rows
+    }
+
+    pub(super) fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
+        if text_width(text, method) <= columns {
+            return text.to_owned();
+        }
+        let mut out = String::new();
+        let mut used = 0;
+        for piece in pieces(text, method) {
+            let w = text_width(piece, method);
+            if used + w + 1 > columns {
+                break;
+            }
+            out.push_str(piece);
+            used += w;
+        }
+        out.push('\u{2026}');
+        out
+    }
+}
+
+/// Text of the kinds that make a cut hard: words and runs of spaces, wide characters,
+/// combining marks, a zero width joiner in an emoji, flags, a variation selector and a
+/// zero width space.
+const HARD_TEXT: &str = "(a|bc|--flag=x|  | |\u{65e5}\u{672c}|e\u{301}|\u{1f468}\u{200d}\u{1f469}|\u{1f1e9}\u{1f1ea}|\u{2764}\u{fe0f}|\u{200b}){0,40}";
+
+proptest! {
+    /// The rows of a command are the ones that the code before the fix gave.
+    #[test]
+    fn wrap_command_keeps_the_rows_it_had(
+        line in HARD_TEXT,
+        room in 1_usize..24,
+        indent in 0_usize..8,
+        grapheme in proptest::bool::ANY,
+    ) {
+        let method = if grapheme { WidthMethod::Grapheme } else { WidthMethod::CodePoint };
+        assert_eq!(
+            wrap_command(&line, room, indent, method),
+            before::wrap_command(&line, room, indent, method)
+        );
+    }
+
+    /// The rows of spans and a cut text are the ones that the code before the fix gave.
+    #[test]
+    fn wrap_spans_and_cut_keep_what_they_gave(
+        texts in prop::collection::vec(HARD_TEXT, 1..4),
+        first in 0_usize..24,
+        rest in 1_usize..24,
+        grapheme in proptest::bool::ANY,
+    ) {
+        let method = if grapheme { WidthMethod::Grapheme } else { WidthMethod::CodePoint };
+        let spans: Vec<(String, Tone)> = texts
+            .iter()
+            .enumerate()
+            .map(|(at, text)| (text.clone(), if at % 2 == 0 { Tone::Plain } else { Tone::Dim }))
+            .collect();
+        assert_eq!(
+            wrap_spans(&spans, first, rest, method),
+            before::wrap_spans(&spans, first, rest, method)
+        );
+        for text in &texts {
+            assert_eq!(cut(text, rest, method), before::cut(text, rest, method));
+        }
+    }
 }
