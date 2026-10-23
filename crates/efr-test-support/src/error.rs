@@ -60,12 +60,30 @@ pub enum TestSupportError {
         source: StdxError,
     },
 
-    /// The in-memory store could not be opened.
-    #[error("could not open the in-memory store")]
+    /// The store could not be opened.
+    #[error("could not open the store")]
     OpenStore {
         /// The error from `efr-store`.
         #[source]
         source: StoreError,
+    },
+
+    /// A batch of a corpus could not be appended to the store.
+    #[error("could not write to the store")]
+    WriteStore {
+        /// The error from `efr-store`.
+        #[source]
+        source: StoreError,
+    },
+
+    /// A store file of a corpus could not be copied or moved into place.
+    #[error("could not write the store file {}", .path.display())]
+    StoreFile {
+        /// The file.
+        path: PathBuf,
+        /// The error from the file system.
+        #[source]
+        source: io::Error,
     },
 
     /// A read from the store failed.
