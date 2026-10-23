@@ -15,7 +15,8 @@ pub const DEFAULT_CLASSIFIER_EFFORT: &str = "low";
 pub struct ClassifierSettings {
     /// `true` lets a reviewer model decide most actions that leave the sandbox in
     /// `auto`, and hand the unsure ones to you. `false` asks you about every such
-    /// action, as before phase A. Each review is one more request to your provider.
+    /// action, as efr did before it had a reviewer. Each review is one more request to
+    /// your provider.
     pub enabled: bool,
     /// The model that reviews first. Unset: the small model of the turn's provider,
     /// such as `gpt-6-luna` for OpenAI or `claude-haiku-5-5` for Claude.

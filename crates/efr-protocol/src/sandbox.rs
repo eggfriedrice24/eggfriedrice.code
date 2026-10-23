@@ -254,10 +254,10 @@ impl CacheMode {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum NetworkMode {
-    /// Loopback only (phase 1). A network need is a `host` exit.
+    /// Loopback only. A network need is a `host` exit.
     #[default]
     None,
-    /// TCP through the efr proxy to the hosts of the allow list (phase D).
+    /// TCP through the efr proxy to the hosts of the allow list.
     Proxy,
 }
 
