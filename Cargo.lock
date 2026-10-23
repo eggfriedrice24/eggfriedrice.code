@@ -932,6 +932,7 @@ name = "efr-permissions"
 version = "0.0.4"
 dependencies = [
  "efr-protocol",
+ "efr-test-support",
  "pretty_assertions",
  "proptest",
  "rstest",

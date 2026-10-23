@@ -704,3 +704,23 @@ cargo nextest run -p efr-permissions
 
 Every test feeds literal inputs and asserts decisions; nothing touches the file system,
 the network or the clock, and nothing needs Zig.
+
+## Benches
+
+Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
+`efr-test-support`, a dev-dependency only. They report what they measure and have no
+time budget yet. A size that takes more than 10 s stops its ladder.
+These tests read the clock, and the scan bench starts processes.
+
+- `bench_perf_scan_nesting` (`src/exits/scan/tests.rs`): the lenient scan on `$(` 100,
+  1k, 10k and 50k times, with and without the closing parens, on a thread with a
+  stack of 2 MiB. Each depth runs in a child process (this test binary again, with
+  `EFR_BENCH_SCAN_CASE`), because a stack overflow kills the process. A crash is a
+  count, and it stops the ladder.
+- `bench_perf_run_forms` (`tests/it/perf.rs`): `Engine::decide` with 20 user `ask`
+  rules on `rm f1..fN` and `time rg x f1..fN`, N = 100, 1k, 5k and 10k, with the
+  growth of the peak resident set.
+- `bench_perf_fact_requests` (`tests/it/perf.rs`): `fact_requests` on `rm -rf` and
+  `touch` lines of 100, 1k and 5k operands.
+- `bench_perf_decide_line` (`tests/it/perf.rs`): the base cost of one
+  `Engine::decide` and one `fact_requests` on a typical line and on a line of 100 KB.
