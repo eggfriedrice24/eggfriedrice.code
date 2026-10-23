@@ -130,6 +130,15 @@ into the GitHub release notes, and it stops when the section is missing.
   memory went from about 28 MiB to about 12 MiB. When the history has more than
   1,000 pages, a dim line now says that efr adds up only the turns of the newest
   1,000. Before, efr left out the older turns and did not say so.
+- A shell call in a large project is faster. Before and after each call, efr takes a
+  snapshot of the files that the call can change. In a project of 20,000 files, the
+  two snapshots of a call that changes nothing took about 54 ms. Now they take about
+  18 ms. git now checks the files on more than one thread.
+- After a command writes many files again, the calls of the next turns are fast
+  again. The first snapshot of each turn now updates the file times in efr's own
+  record. So the later snapshots do not read each file again to find that it did not
+  change. With 5,000 files of 10 KB, each call after such a write took about 210 ms.
+  Now it takes about 6 ms. Undo and its coverage do not change.
 
 ### Security
 

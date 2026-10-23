@@ -15,6 +15,7 @@ mod jobs;
 mod logs;
 mod mirror;
 mod perf;
+mod refresh;
 mod support;
 mod turns;
 mod undo;
