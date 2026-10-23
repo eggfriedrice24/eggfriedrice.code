@@ -730,8 +730,9 @@ starts processes.
   `touch` lines of 100, 1k and 5k operands. Budget: the slope of each line.
 - `bench_perf_decide_paths` (`tests/it/perf.rs`): `Engine::decide` on `rm -f` of 100,
   1k and 6,400 files with each file declared as a write and its facts, as efrd gives
-  them, in the project and outside it. Budget: the slope in the project. Outside the
-  project each file is an exit, and the facts of an exit are still found by a scan of
-  every fact, so it reports only.
+  them, in the project and outside it. Outside the project each file is an exit, and
+  each exit looks up the facts of its path in maps (`exits/facts.rs`), not in the
+  lists of `CallFacts`. Budget: the slope of each place. Each exit outside still holds
+  its own copy of the text of the `rm` command, which is most of the rest of the cost.
 - `bench_perf_decide_line` (`tests/it/perf.rs`): the base cost of one
   `Engine::decide` and one `fact_requests` on a typical line and on a line of 100 KB.

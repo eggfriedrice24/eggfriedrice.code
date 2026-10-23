@@ -259,12 +259,10 @@ fn bench_perf_decide_paths() {
             }
         }
         let label = format!("{place} slope over files");
-        let slope = report.slope(&label, &points);
-        // NOTE: outside the project each file is an exit, and the facts of each exit
-        // are still found by a scan of every fact (`CallFacts::target`): no budget yet.
-        if place == "in the project" {
-            slopes.push((label, slope));
-        }
+        // NOTE: outside the project each file is an exit, which looks up the facts of
+        // its path. v0.0.4 scanned every fact for each one: 6,400 files took 2.8 s, a
+        // slope of 1.8.
+        slopes.push((label.clone(), report.slope(&label, &points)));
     }
     report.finish();
     check_budget(&slopes, &stopped);

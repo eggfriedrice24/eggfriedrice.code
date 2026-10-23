@@ -23,6 +23,7 @@
 mod cover;
 mod critical;
 mod envelope;
+mod facts;
 mod git_code;
 mod names;
 mod needs;
@@ -44,6 +45,7 @@ pub(crate) use self::cover::set_copies;
 pub use self::critical::critical_deletes;
 pub(crate) use self::envelope::Envelope;
 use self::envelope::{WriteExit, read_exit, resolve};
+pub(crate) use self::facts::Facts;
 #[cfg(test)]
 pub(crate) use self::names::floor_names;
 pub use self::names::{GENERIC_STEMS, NAME_PHRASES, names_match};
@@ -417,8 +419,14 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     // `GIT_SSH_COMMAND` or `SSH_ASKPASS`, would choose the command that they run there.
     let ssh_env = segments.iter().any(|segment| programs::sets_ssh_env(&segment.words));
     let reach = input.facts.map_or(&[][..], |facts| &facts.reach_ports[..]);
+    // NOTE: each exit looks up the facts of its paths, so a line of many paths looks
+    // them up in maps, not in the lists of the daemon.
+    let facts = input.facts.map(Facts::new);
+    let facts = facts.as_ref();
     let mut found = Found::default();
-    let mut made: Vec<(PathBuf, bool)> = Vec::new();
+    // NOTE: the first form of a path that the line makes decides, as a scan of a list
+    // would.
+    let mut made: HashMap<PathBuf, bool> = HashMap::new();
     // NOTE: the text of a part is shared, so a part with many targets is not copied for
     // each one.
     let mut writes: Vec<(PathBuf, Rc<str>)> = Vec::new();
@@ -450,12 +458,19 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 [only] => only == ":" || only == "true",
                 _ => false,
             };
-            if bare && !redirect.append && exists(input.facts, &path) {
+            if bare && !redirect.append && exists(facts, &path) {
                 let targets = [Some(path.clone())];
                 let asks = cover::path_asks(&targets);
-                found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
+                found.extend_from(destructive(
+                    &envelope,
+                    &part,
+                    &targets,
+                    &asks,
+                    facts,
+                    input.support,
+                ));
             }
-            made.push((path.clone(), false));
+            made.entry(path.clone()).or_insert(false);
             writes.push((path, Rc::clone(&shared)));
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
@@ -543,12 +558,18 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                         None => vec![git_dir(command, dir, input.locations)],
                     };
                     let asks = cover::program_asks(command, assigned, dir, input.locations, &at);
-                    found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
+                    found.extend_from(destructive(
+                        &envelope,
+                        &part,
+                        &targets,
+                        &asks,
+                        facts,
+                        input.support,
+                    ));
                     continue;
                 }
                 let mut need = predicted(exit, &part);
                 if need.kind == ExitKind::Persistence {
-                    let facts = input.facts;
                     persist::route(
                         &mut need,
                         command,
@@ -576,7 +597,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             installs.extend(persist::installs(command, &at));
             for (word, dir_kind) in programs::made_paths(command) {
                 if let Some(path) = at(word) {
-                    made.push((path, dir_kind));
+                    made.entry(path).or_insert(dir_kind);
                 }
             }
             linked.extend(programs::link_paths(command).into_iter().filter_map(at));
@@ -590,12 +611,19 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
             }
             let operands = programs::recursive_rm_operands(command);
             let tracked = operands.iter().any(|word| {
-                at(word).and_then(|path| input.facts?.tracked(&path)).is_none_or(|count| count > 0)
+                at(word).and_then(|path| facts?.tracked(&path)).is_none_or(|count| count > 0)
             });
             if tracked {
                 let targets: Vec<Option<PathBuf>> = operands.into_iter().map(at).collect();
                 let asks = cover::path_asks(&targets);
-                found.extend_from(destructive(&envelope, &part, &targets, &asks, input));
+                found.extend_from(destructive(
+                    &envelope,
+                    &part,
+                    &targets,
+                    &asks,
+                    facts,
+                    input.support,
+                ));
             }
         }
     }
@@ -624,17 +652,12 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     let mut seen: HashSet<PathBuf> = HashSet::new();
-    let cx = WriteFacts {
-        facts: input.facts,
-        support: input.support,
-        linked: &linked,
-        installs: &installs,
-    };
+    let cx = WriteFacts { facts, support: input.support, linked: &linked, installs: &installs };
     for (path, part) in writes {
         if !seen.insert(path.clone()) {
             continue;
         }
-        let exit = envelope.write_exit(&path, input.facts, &made);
+        let exit = envelope.write_exit(&path, facts, &made);
         if let Some(need) = write_need(&envelope, &cx, exit, &path, &part, ExitSource::Predicted) {
             found.push(need);
         }
@@ -675,7 +698,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     if let Some(asked) = input.needs {
         let dir = start.as_deref();
         let cx = needs::NeedsContext { support: input.support, hosts: input.hosts, reach };
-        for need in needs::exits(asked, &envelope, dir, input.facts, &made, &cx) {
+        for need in needs::exits(asked, &envelope, dir, facts, &made, &cx) {
             found.push(need);
         }
     }
@@ -808,9 +831,10 @@ fn destructive(
     part: &str,
     targets: &[Option<PathBuf>],
     asks: &[CoverAsk],
-    input: &ExitInput<'_>,
+    facts: Option<&Facts<'_>>,
+    support: &AutoSupport,
 ) -> Option<ExitNeed> {
-    if cover::covers_all(asks, envelope, input.facts, input.support) {
+    if cover::covers_all(asks, envelope, facts, support) {
         return None;
     }
     let mut need = ExitNeed::new(ExitKind::Destructive, part, ExitSource::Predicted);
@@ -1265,8 +1289,8 @@ fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
 /// What the exit of a write needs beyond its path: the daemon's facts, the machine's
 /// support, the paths that the line makes as symbolic links, and what a `cp` or `ln`
 /// of the line puts where (destination, sources).
-pub(super) struct WriteFacts<'a> {
-    pub(super) facts: Option<&'a CallFacts>,
+pub(super) struct WriteFacts<'a, 'f> {
+    pub(super) facts: Option<&'a Facts<'f>>,
     pub(super) support: &'a AutoSupport,
     pub(super) linked: &'a [PathBuf],
     pub(super) installs: &'a [(PathBuf, Vec<PathBuf>)],
@@ -1281,7 +1305,7 @@ pub(super) struct WriteFacts<'a> {
 /// ([`Envelope::floor_edit`]).
 fn write_need(
     envelope: &Envelope<'_>,
-    cx: &WriteFacts<'_>,
+    cx: &WriteFacts<'_, '_>,
     exit: Option<WriteExit>,
     path: &Path,
     part: &str,
@@ -1319,12 +1343,12 @@ fn write_need(
 }
 
 /// True when a fact says `path` exists, or none says.
-fn exists(facts: Option<&CallFacts>, path: &Path) -> bool {
+fn exists(facts: Option<&Facts<'_>>, path: &Path) -> bool {
     facts.and_then(|facts| facts.target(path)).is_none_or(|kind| kind.is_some())
 }
 
 /// The kind of `path` when a fact says that it exists.
-fn existing_kind(facts: Option<&CallFacts>, path: &Path) -> Option<Option<TargetKind>> {
+fn existing_kind(facts: Option<&Facts<'_>>, path: &Path) -> Option<Option<TargetKind>> {
     facts.and_then(|facts| facts.target(path))
 }
 

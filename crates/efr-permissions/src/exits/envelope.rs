@@ -1,6 +1,7 @@
 //! The envelope of one call: its write roots, and what a path outside them is (spec
 //! 5.1, 5.3, 5.4, 7.2, 7.5).
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use efr_protocol::{ExitKind, ExitSource, Grant};
@@ -9,14 +10,13 @@ use super::cover::set_copies;
 use super::names::floor_names;
 use super::programs::is_sandbox_device;
 use super::scan::OPAQUE;
-use super::{Approver, ExitNeed, WriteBind, existing_kind};
+use super::{Approver, ExitNeed, Facts, WriteBind, existing_kind};
 use crate::path_class::normalize;
 use crate::tables::{
     GIT_SURFACE, PROTECTED_NAMES, floor_group, is_env_file, persistence_floors, sandbox_masks,
 };
 use crate::{
-    Access, AutoSupport, CallFacts, CoverAsk, CriticalWhy, FloorGroup, Locations, Source,
-    TargetKind,
+    Access, AutoSupport, CoverAsk, CriticalWhy, FloorGroup, Locations, Source, TargetKind,
 };
 
 /// The write roots of one call and the locations that classify the rest.
@@ -321,7 +321,7 @@ impl<'a> Envelope<'a> {
     pub(super) fn floor_edit(
         &self,
         need: &mut ExitNeed,
-        facts: Option<&CallFacts>,
+        facts: Option<&Facts<'_>>,
         support: &AutoSupport,
         linked: bool,
         from: Option<&[Source]>,
@@ -402,8 +402,8 @@ impl<'a> Envelope<'a> {
     pub(super) fn write_exit(
         &self,
         path: &Path,
-        facts: Option<&CallFacts>,
-        made: &[(PathBuf, bool)],
+        facts: Option<&Facts<'_>>,
+        made: &HashMap<PathBuf, bool>,
     ) -> Option<WriteExit> {
         let locations = self.locations;
         if locations.is_sealed(path) || locations.is_secret(path) {
@@ -439,14 +439,19 @@ impl<'a> Envelope<'a> {
 
     /// How a contained call may write `path`, a user path outside every root (spec
     /// 7.5). A missing fact counts as an existing target.
-    fn bind(&self, path: &Path, facts: Option<&CallFacts>, made: &[(PathBuf, bool)]) -> WriteBind {
+    fn bind(
+        &self,
+        path: &Path,
+        facts: Option<&Facts<'_>>,
+        made: &HashMap<PathBuf, bool>,
+    ) -> WriteBind {
         let parent = nearest_existing_parent(path, facts);
         let shared = self.is_shared(&parent);
         match existing_kind(facts, path) {
             Some(Some(TargetKind::Dir)) => WriteBind::Target,
-            Some(None) => match made.iter().find(|(made, _)| made == path) {
-                Some((_, true)) => WriteBind::MakeDir,
-                Some((_, false)) => WriteBind::MakeFile,
+            Some(None) => match made.get(path) {
+                Some(true) => WriteBind::MakeDir,
+                Some(false) => WriteBind::MakeFile,
                 None if shared => WriteBind::ExitChild,
                 None => WriteBind::Parent(parent),
             },
@@ -464,7 +469,7 @@ impl<'a> Envelope<'a> {
         &self,
         path: &Path,
         access: Access,
-        facts: Option<&CallFacts>,
+        facts: Option<&Facts<'_>>,
         support: &AutoSupport,
     ) -> Option<ExitNeed> {
         match access {
@@ -497,7 +502,7 @@ impl<'a> Envelope<'a> {
     pub(crate) fn tool_write_exit(
         &self,
         path: &Path,
-        facts: Option<&CallFacts>,
+        facts: Option<&Facts<'_>>,
         support: &AutoSupport,
     ) -> ExitNeed {
         let locations = self.locations;
@@ -583,7 +588,7 @@ fn in_git_dir(path: &Path) -> bool {
 }
 
 /// The nearest parent of `path` that exists, or that no fact says is missing.
-fn nearest_existing_parent(path: &Path, facts: Option<&CallFacts>) -> PathBuf {
+fn nearest_existing_parent(path: &Path, facts: Option<&Facts<'_>>) -> PathBuf {
     let mut dir = path.parent();
     while let Some(candidate) = dir {
         match existing_kind(facts, candidate) {

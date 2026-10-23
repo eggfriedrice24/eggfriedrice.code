@@ -28,8 +28,8 @@ use efr_protocol::ActionFacts;
 
 use super::programs::base_name;
 use super::scan::{OPAQUE, scan};
-use super::{Approver, Envelope, ExitNeed, Installed, cover};
-use crate::{AutoSupport, CallFacts, CoverAsk, Source};
+use super::{Approver, Envelope, ExitNeed, Facts, Installed, cover};
+use crate::{AutoSupport, CoverAsk, Source};
 
 /// The verbs of `systemctl --user` that the classifier may judge when named.
 const UNIT_VERBS: &[&str] = &["enable", "reenable", "preset", "mask", "add-wants", "add-requires"];
@@ -211,7 +211,7 @@ pub(super) fn installs(
 /// most [`ActionFacts::MAX_EDIT_BYTES`] of text.
 pub(super) fn readable(
     envelope: &Envelope<'_>,
-    facts: Option<&CallFacts>,
+    facts: Option<&Facts<'_>>,
     sources: &[Source],
 ) -> Option<Vec<Installed>> {
     let facts = facts?;
@@ -246,7 +246,7 @@ pub(super) fn route(
     words: &[String],
     line: &str,
     envelope: &Envelope<'_>,
-    facts: Option<&CallFacts>,
+    facts: Option<&Facts<'_>>,
     support: &AutoSupport,
     at: &dyn Fn(&str) -> Option<PathBuf>,
 ) {
@@ -305,7 +305,7 @@ fn named(
     need: &mut ExitNeed,
     copies: Vec<CoverAsk>,
     installs: Vec<Installed>,
-    facts: Option<&CallFacts>,
+    facts: Option<&Facts<'_>>,
     support: &AutoSupport,
 ) {
     if !support.floor_backup || cover::covered(&copies, facts) != Some(true) {

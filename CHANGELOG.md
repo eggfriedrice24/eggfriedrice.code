@@ -87,6 +87,9 @@ into the GitHub release notes, and it stops when the section is missing.
   path of the line leads through symbolic links. It looked up each missing directory
   again for each path. Now it looks up each directory once for the call. The time
   before a line of 10 `cd`s starts went from about 90 ms to about 20 ms.
+- In `auto`, an `rm` of many files outside your projects starts sooner. For each
+  file, efr searched all the facts of the call. With 6,400 files, the decision took
+  about 2.8 seconds. Now it takes about 0.2 seconds.
 - efrd no longer keeps the messages of a conversation in memory after the
   conversation is idle for 10 minutes. Before, efrd kept them for each conversation
   that ran a turn since efrd started, so its memory grew with use. The next prompt
