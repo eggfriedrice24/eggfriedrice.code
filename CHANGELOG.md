@@ -37,6 +37,7 @@ into the GitHub release notes, and it stops when the section is missing.
   100,000 lines in a `text` block took about 4 s. Now they take less than 0.1 s.
 - A question card shows a long command fast. Before, a command line of 100 KB took
   up to 2 seconds to show on a terminal that counts by grapheme cluster.
+- The input row under a running turn draws a long paste in about half the time.
 
 ### Fixed
 

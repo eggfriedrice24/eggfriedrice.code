@@ -295,6 +295,87 @@ proptest! {
 }
 
 #[test]
+fn control_characters_in_the_line_keep_their_stand_ins() {
+    let line =
+        RowLine { text: "a\x01b\x7f\tc\rd\x1b[2J\u{200b}e\u{85}".to_owned(), ..RowLine::default() };
+    assert_eq!(
+        line.layout(40, WidthMethod::CodePoint).rows,
+        ["a\u{2401}b\u{2421} c d\u{241b}[2J\u{fffd}e\u{fffd}"]
+    );
+}
+
+/// The layout of the line before the printable ASCII went straight into the row: the
+/// reference of the property test below.
+fn layout_before(line: &RowLine, columns: usize, method: WidthMethod) -> Layout {
+    use unicode_segmentation::UnicodeSegmentation as _;
+
+    fn shown_piece(piece: &str) -> String {
+        let mut shown = String::new();
+        for c in piece.chars() {
+            match c {
+                '\t' => shown.push(' '),
+                '\u{200d}' => shown.push('\u{200d}'),
+                c => shown.push_str(&crate::format::one_line(c.encode_utf8(&mut [0; 4]))),
+            }
+        }
+        shown
+    }
+
+    let columns = columns.max(1);
+    let mut rows = vec![String::new()];
+    let mut used = 0;
+    let mut cursor = None;
+    for (offset, piece) in line.text.grapheme_indices(true) {
+        if offset == line.cursor {
+            cursor = Some((rows.len() - 1, used));
+        }
+        if piece == "\n" || piece == "\r\n" {
+            rows.push(String::new());
+            used = 0;
+            continue;
+        }
+        let shown = shown_piece(piece);
+        let width = efr_render::text_width(&shown, method);
+        if used > 0 && used + width > columns {
+            rows.push(String::new());
+            used = 0;
+            if offset == line.cursor {
+                cursor = Some((rows.len() - 1, 0));
+            }
+        }
+        if let Some(row) = rows.last_mut() {
+            row.push_str(&shown);
+        }
+        used += width;
+    }
+    let (cursor_row, cursor_col) = cursor.unwrap_or((rows.len() - 1, used));
+    Layout { rows, cursor_row, cursor_col }
+}
+
+proptest! {
+    /// Any text, control characters too, has the layout that it had before.
+    #[test]
+    fn the_layout_is_the_one_it_was(
+        text in "([a-z ~]|\t|\n|\r\n|\r|\x01|\x1b|\x7f|\u{85}|\u{200b}|e\u{301}|\u{65e5}|\u{1f468}\u{200d}\u{1f469}|\u{1f1e9}\u{1f1ea}|\u{2764}\u{fe0f}){0,40}",
+        cursor in 0_usize..200,
+        columns in 0_usize..12,
+        grapheme in proptest::bool::ANY,
+    ) {
+        use unicode_segmentation::UnicodeSegmentation as _;
+
+        let method = if grapheme { WidthMethod::Grapheme } else { WidthMethod::CodePoint };
+        let starts: Vec<usize> = text
+            .grapheme_indices(true)
+            .map(|(at, _)| at)
+            .chain([text.len()])
+            .collect();
+        let cursor = starts[cursor % starts.len()];
+        let line = RowLine { text, cursor, ..RowLine::default() };
+        assert_eq!(line.layout(columns, method), layout_before(&line, columns, method));
+    }
+}
+
+#[test]
 fn a_cut_sequence_is_dropped_and_a_paste_goes_on_or_ends_with_its_text() {
     // An escape sequence that a question cut: the next key starts afresh.
     let mut line = typed(b"ab\x1b[");

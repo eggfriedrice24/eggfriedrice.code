@@ -451,17 +451,24 @@ impl RowLine {
                 used = 0;
                 continue;
             }
-            let shown = shown_piece(piece);
-            let width = text_width(&shown, method);
+            // NOTE: printable ASCII, most of what is typed or pasted, shows as it is and
+            // takes one column: it goes into the row with no copy of its own.
+            let stand_in;
+            let (shown, width) = if matches!(piece.as_bytes(), [b' '..=b'~']) {
+                (piece, 1)
+            } else {
+                stand_in = shown_piece(piece);
+                (stand_in.as_str(), text_width(&stand_in, method))
+            };
             if used > 0 && used + width > columns {
-                rows.push(String::new());
+                rows.push(String::with_capacity(columns));
                 used = 0;
                 if offset == self.cursor {
                     cursor = Some((rows.len() - 1, 0));
                 }
             }
             if let Some(row) = rows.last_mut() {
-                row.push_str(&shown);
+                row.push_str(shown);
             }
             used += width;
         }
