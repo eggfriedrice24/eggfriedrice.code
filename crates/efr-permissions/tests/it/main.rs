@@ -6,3 +6,4 @@
 #![cfg(test)]
 
 mod corpus;
+mod perf;

@@ -19,6 +19,7 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+efr-test-support.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 rstest.workspace = true

@@ -494,3 +494,6 @@ fn skip_here_documents(chars: &[char], mut at: usize, bodies: &[(String, bool)])
     }
     at
 }
+
+#[cfg(test)]
+mod tests;
