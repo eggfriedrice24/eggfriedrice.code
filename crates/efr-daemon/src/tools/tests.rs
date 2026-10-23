@@ -1911,3 +1911,229 @@ async fn full_call_marks_the_turn_undoable_outside_its_roots() {
     assert_eq!(undo.home_files, 1, "the copy before the write covers the home file");
     assert!(undo.undoable, "a full turn is undoable outside its roots: {undo:?}");
 }
+
+/// The old tally of a copy after its call, with a linear search of each list: the
+/// reference of the order and of the first-wins rule.
+fn old_add_after(
+    tally: &mut crate::tools::HomeTally,
+    call: CallId,
+    changed: &[efr_conversation::FileBackup],
+) {
+    tally.pending.retain(|(pending, _)| *pending != call);
+    for backup in changed {
+        match backup.reason {
+            None => {
+                if !tally.changed.contains(&backup.path) {
+                    tally.changed.push(backup.path.clone());
+                }
+            }
+            Some(reason) => {
+                let line =
+                    format!("{} ({})", backup.path.display(), crate::tools::reason_text(reason));
+                if !tally.not_covered.contains(&line) {
+                    tally.not_covered.push(line);
+                }
+            }
+        }
+    }
+}
+
+/// The old end of the copies of a call that wait.
+fn old_end_pending(tally: &mut crate::tools::HomeTally, call: CallId, why: &str) {
+    let names: Vec<String> = tally
+        .pending
+        .iter()
+        .filter(|(pending, _)| *pending == call)
+        .flat_map(|(_, names)| names.clone())
+        .collect();
+    tally.pending.retain(|(pending, _)| *pending != call);
+    for name in names {
+        let line = format!("{name} ({why})");
+        if !tally.not_covered.contains(&line) {
+            tally.not_covered.push(line);
+        }
+    }
+}
+
+/// The home file `n` of the tally tests, with no copy for `reason`.
+fn backup_of(n: usize, reason: Option<efr_protocol::UndoReason>) -> efr_conversation::FileBackup {
+    efr_conversation::FileBackup {
+        path: PathBuf::from(format!("/home/u/d{}/f{n}.txt", n % 7)),
+        backup: PathBuf::new(),
+        floor: false,
+        real: None,
+        reason,
+    }
+}
+
+mod home_tally {
+    use efr_protocol::{CallId, UndoReason};
+    use proptest::prelude::*;
+
+    use super::{backup_of, old_add_after, old_end_pending};
+    use crate::tools::HomeTally;
+
+    /// One step of the home copies of a turn.
+    #[derive(Debug, Clone)]
+    enum Step {
+        /// The copy before the call `call`, which names the targets `names`.
+        Before(u8, Vec<u8>),
+        /// The copy after the call, with each file `(n, why it has no copy)`.
+        After(u8, Vec<(u8, Option<u8>)>),
+        /// A job call leaves its copy.
+        Leave(u8),
+        /// A cache delete with no copy names each of its paths.
+        Extend(Vec<u8>),
+    }
+
+    fn reason(n: u8) -> UndoReason {
+        [UndoReason::Masked, UndoReason::OverLimit, UndoReason::Unknown][usize::from(n % 3)]
+    }
+
+    fn step() -> impl Strategy<Value = Step> {
+        let call = 0_u8..4;
+        prop_oneof![
+            (call.clone(), prop::collection::vec(0_u8..12, 0..5))
+                .prop_map(|(call, names)| Step::Before(call, names)),
+            (call.clone(), prop::collection::vec((0_u8..40, prop::option::of(0_u8..3)), 0..30))
+                .prop_map(|(call, files)| Step::After(call, files)),
+            call.prop_map(Step::Leave),
+            prop::collection::vec(0_u8..12, 0..4).prop_map(Step::Extend),
+        ]
+    }
+
+    fn call(n: u8) -> CallId {
+        CallId::from_uuid(uuid::Uuid::from_u128(u128::from(n) + 1))
+    }
+
+    fn name(n: u8) -> String {
+        format!("~/t{n}")
+    }
+
+    proptest! {
+        #[test]
+        fn the_sets_keep_the_lists_that_the_linear_search_kept(
+            steps in prop::collection::vec(step(), 0..40),
+        ) {
+            let (mut new, mut old) = (HomeTally::default(), HomeTally::default());
+            for step in steps {
+                match step {
+                    Step::Before(n, names) => {
+                        let names: Vec<String> = names.into_iter().map(name).collect();
+                        new.pending.push((call(n), names.clone()));
+                        old.pending.push((call(n), names));
+                    }
+                    Step::After(n, files) => {
+                        let changed: Vec<_> = files
+                            .into_iter()
+                            .map(|(file, why)| backup_of(usize::from(file), why.map(reason)))
+                            .collect();
+                        new.add_after(call(n), &changed, |path| path.display().to_string());
+                        old_add_after(&mut old, call(n), &changed);
+                    }
+                    Step::Leave(n) => {
+                        new.end_pending(call(n), "a job wrote it");
+                        old_end_pending(&mut old, call(n), "a job wrote it");
+                    }
+                    Step::Extend(names) => {
+                        let lines: Vec<String> =
+                            names.into_iter().map(|n| format!("{} (over)", name(n))).collect();
+                        new.extend_not_covered(lines.clone());
+                        old.not_covered.extend(lines);
+                    }
+                }
+            }
+            prop_assert_eq!(&new.changed, &old.changed);
+            prop_assert_eq!(&new.not_covered, &old.not_covered);
+            prop_assert_eq!(&new.pending, &old.pending);
+        }
+    }
+}
+
+/// The tally of the home copies of one turn whose cache delete removes a directory of
+/// 200, 2,000 and 20,000 files: the delete with its copy before and after
+/// (`copy_after` adds each removed file to the tally) and the end of the turn, which
+/// counts them. Then the tally alone, with as many files that no copy covers and as
+/// many targets of a job call that left its copy (`leave_copy`). The limit of the
+/// test config is raised above the largest size. Its budget: both grow with a slope
+/// below 1.3, the tally of 20,000 files takes less than 1 s, and the delete and the
+/// turn end of 20,000 files less than [`HOME_TALLY_DELETE`].
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_home_tally() {
+    use efr_test_support::bench::Report;
+    let mut report = Report::new("bench_perf_home_tally");
+    let exe = std::env::current_exe().unwrap();
+    let parent = exe.ancestors().nth(3).unwrap_or(Path::new(".")).join("tmp/efr-daemon-bench");
+    std::fs::create_dir_all(&parent).unwrap();
+    let id = |n: u128| uuid::Uuid::from_u128(n);
+    let (mut delete_points, mut tally_points) = (Vec::new(), Vec::new());
+    for files in [200_usize, 2_000, 20_000] {
+        let label = format!("{files} files");
+        let temp = tempfile::tempdir_in(&parent).unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let mut settings = Settings::default();
+        settings.snapshot.home_max_files = 100_000;
+        let kept = kept(&root, settings).await;
+        let big = kept.home.join(".cache/big");
+        for n in 0..files {
+            let dir = big.join(format!("d{}", n / 100));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("f{n}.txt")), format!("line {n}\n")).unwrap();
+        }
+        let call = call_of(2, 1, "shell", json!({"command": "rm -rf ~/.cache/big"}), &kept.home);
+        let start = std::time::Instant::now();
+        let deleted =
+            kept.toolbox.delete_cache_paths(&call.context, std::slice::from_ref(&big)).await;
+        let delete_time = start.elapsed();
+        assert_eq!(deleted.unwrap().deleted, std::slice::from_ref(&big), "{label}");
+        let start = std::time::Instant::now();
+        let changes = kept
+            .toolbox
+            .turn_changes(ConversationId::from_uuid(id(1)), TurnId::from_uuid(id(2)))
+            .await;
+        let end_time = start.elapsed();
+        let undo = changes.undo.unwrap();
+        assert_eq!(undo.home_files as usize, files, "{label}: {:?}", undo.not_covered);
+
+        let masked: Vec<_> =
+            (0..files).map(|n| backup_of(n, Some(efr_protocol::UndoReason::Masked))).collect();
+        let names: Vec<String> = (0..files).map(|n| format!("~/job/f{n}.txt")).collect();
+        let start = std::time::Instant::now();
+        let mut tally = crate::tools::HomeTally::default();
+        tally.add_after(CallId::from_uuid(id(7)), &masked, |path| path.display().to_string());
+        tally.pending.push((CallId::from_uuid(id(8)), names));
+        tally.end_pending(CallId::from_uuid(id(8)), "a job wrote it");
+        let tally_time = start.elapsed();
+        assert_eq!(tally.not_covered.len(), 2 * files, "{label}");
+
+        report.time(&format!("{label} cache delete with its copies"), &[delete_time]);
+        report.time(&format!("{label} turn end"), &[end_time]);
+        report.time(&format!("{label} tally of not covered and left files"), &[tally_time]);
+        report.count(&format!("{label} home files of the turn"), u64::from(undo.home_files));
+        report.count(&format!("{label} not covered lines"), tally.not_covered.len() as u64);
+        delete_points.push((files as u64, delete_time + end_time));
+        tally_points.push((files as u64, tally_time));
+        if [delete_time, end_time, tally_time].iter().any(|time| *time > Duration::from_secs(10)) {
+            report.count("stopped_at_n", files as u64);
+            break;
+        }
+    }
+    let delete_slope = report.slope("cache delete and turn end slope", &delete_points);
+    let tally_slope = report.slope("tally slope", &tally_points);
+    report.finish();
+    // The budget (wave 2): with a set beside each list of the tally, a copy that
+    // changes n files adds them in O(n). The linear search of each list made both
+    // quadratic.
+    assert_eq!(tally_points.len(), 3, "the ladder stopped early: {tally_points:?}");
+    assert!(delete_slope < 1.3, "the cache delete grows faster than linear: {delete_slope:.2}");
+    assert!(tally_slope < 1.3, "the tally grows faster than linear: {tally_slope:.2}");
+    let (most, time) = tally_points[tally_points.len() - 1];
+    assert!(time < Duration::from_secs(1), "the tally of {most} files took {time:?}");
+    let (most, time) = delete_points[delete_points.len() - 1];
+    assert!(time < HOME_TALLY_DELETE, "the cache delete of {most} files took {time:?}");
+}
+
+/// The budget of the cache delete and the turn end of 20,000 files: about 1 s on a
+/// busy machine; the linear search of the tally took 7 s.
+const HOME_TALLY_DELETE: Duration = Duration::from_millis(3_500);

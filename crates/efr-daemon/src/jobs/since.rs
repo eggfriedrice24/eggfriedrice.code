@@ -28,15 +28,13 @@ impl JobTable {
                 return turn_start;
             }
         };
-        let turns = self
-            .inner
-            .readers
-            .with(move |conn| efr_store::conversations::turns(conn, conversation));
-        let previous = match turns.await {
-            Ok(turns) => {
-                let before = turns.iter().position(|known| known.id == turn).unwrap_or(turns.len());
-                turns[..before].iter().filter_map(|known| known.started_at).max()
-            }
+        // NOTE: a turn that the store does not know has no previous turn, so every job
+        // counts.
+        let previous = self.inner.readers.with(move |conn| {
+            efr_store::conversations::previous_turn_start(conn, conversation, turn)
+        });
+        let previous = match previous.await {
+            Ok(previous) => previous,
             Err(error) => {
                 tracing::warn!(%error, "the turns of a conversation could not be read for its facts");
                 None

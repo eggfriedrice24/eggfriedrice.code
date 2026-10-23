@@ -232,6 +232,62 @@ async fn lifeline_write_end_not_inherited_by_other_jobs() {
 /// `job_ended` commits before the job leaves the table; in that gap the list and a
 /// find already show the end that the event recorded.
 #[tokio::test]
+async fn a_job_that_ended_before_the_previous_turn_counts_only_for_an_unknown_turn() {
+    let scene = Scene::new().await;
+    let job = started_before(&scene, 1, 4242, 1).await;
+    let ended = Event::JobEnded {
+        job_id: JobId::nth(1),
+        state: JobState::Exited,
+        exit_code: Some(0),
+        stopped_by: None,
+        output_bytes: 0,
+        ran_secs: 0,
+        tail: String::new(),
+        surface_changes: Vec::new(),
+        quarantined: false,
+        survivors: Vec::new(),
+        launcher_lost: false,
+        output_truncated: false,
+        blocked: Vec::new(),
+        blocked_more: 0,
+        bus_refused: Vec::new(),
+        bus_refused_more: 0,
+    };
+    scene.store.writer().append(Batch::new().event(scene.conversation, ended)).await.unwrap();
+    for n in [20, 21] {
+        scene.clock.advance(Duration::from_secs(600));
+        let turn = TurnId::from_uuid(id(n));
+        let queued = Event::PromptQueued {
+            turn_id: turn,
+            command_id: efr_protocol::CommandId::from_uuid(id(n + 100)),
+            text: "go on".to_owned(),
+            origin: Origin::Shell,
+            context: None,
+            settings: efr_protocol::TurnSettings::default(),
+            steers: Vec::new(),
+        };
+        let cwd = scene.dirs.root().to_path_buf();
+        let started = Event::TurnStarted {
+            turn_id: turn,
+            cwd: cwd.clone(),
+            scope: efr_protocol::Scope::Path(cwd),
+            settings: None,
+        };
+        let batch =
+            Batch::new().event(scene.conversation, queued).event(scene.conversation, started);
+        scene.store.writer().append(batch).await.unwrap();
+    }
+    let now = scene.clock.now_timestamp();
+    let from = async |turn: u128| {
+        scene.table.changed_from(scene.conversation, TurnId::from_uuid(id(turn)), now).await
+    };
+
+    assert_eq!(from(21).await, now, "the job ended before the previous turn started");
+    assert_eq!(from(20).await, job.started_at, "no turn came before the first");
+    assert_eq!(from(99).await, job.started_at, "an unknown turn has no previous turn");
+}
+
+#[tokio::test]
 async fn a_job_whose_end_is_recorded_lists_as_ended_while_still_in_the_table() {
     let scene = Scene::new().await;
     scene.start(1).await;

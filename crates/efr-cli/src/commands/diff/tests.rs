@@ -7,7 +7,7 @@ use efr_protocol::{
 use efr_render::{ColourMode, RenderOptions};
 use pretty_assertions::assert_eq;
 
-use super::{shown, sum_turns, summed_kind};
+use super::{counts, shown, sum_turns, summed_kind};
 use crate::error::Exit;
 use crate::run;
 use crate::testing::{
@@ -404,6 +404,82 @@ async fn efr_diff_stat_all_adds_up_every_turn_of_the_conversation() {
         "tests  +30\ncode   +14  -2\ndocs    +5\ntotal  +49  -2\n\nnew     docs/b.md   +5\nnew     src/a.rs    +14 -2\nnew     tests/a.rs  \
          +30\n\u{2026} 1 more file\n4 files changed, +49 -2\n"
     );
+}
+
+/// The events of `pages` (the newest page first) as `--all` keeps them, oldest first.
+fn kept(pages: &[&[EventEnvelope]]) -> Vec<Event> {
+    let filtered: Vec<Vec<Event>> = pages
+        .iter()
+        .map(|page| page.iter().map(|envelope| envelope.event.clone()).filter(counts).collect())
+        .collect();
+    filtered.into_iter().rev().flatten().collect()
+}
+
+#[test]
+fn the_kept_events_of_each_page_add_up_as_the_whole_history() {
+    let events = history();
+    let whole = sum_turns(events.iter().map(|envelope| &envelope.event));
+    for split in 0..=events.len() {
+        let (older, newer) = events.split_at(split);
+        let kept = kept(&[newer, older]);
+        assert_eq!(sum_turns(&kept), whole, "pages split at {split}");
+    }
+    let kept = kept(&[&events]);
+    assert_eq!(kept.len(), 6, "the turn that changed nothing is left out: {kept:#?}");
+}
+
+#[test]
+fn an_undo_and_a_redo_in_two_pages_keep_their_order() {
+    let change = || Some(listed(vec![changed("src/a.rs", ChangeKind::Modified, 1, 0)], 0));
+    let log = |events: Vec<Event>| -> Vec<EventEnvelope> {
+        events.into_iter().zip(1..).map(|(event, seq)| envelope(seq, event)).collect()
+    };
+    // NOTE: the undo is in the older page and the redo in the newer one: the turn
+    // counts. The other way round it does not.
+    let redone = log(vec![completed(1, change()), undo_applied(1, false), undo_applied(1, true)]);
+    let (older, newer) = redone.split_at(2);
+    assert_eq!(sum_turns(&kept(&[newer, older])).0, 1);
+    let undone = log(vec![completed(1, change()), undo_applied(1, true), undo_applied(1, false)]);
+    let (older, newer) = undone.split_at(2);
+    assert_eq!(sum_turns(&kept(&[newer, older])).0, 0);
+}
+
+#[tokio::test]
+async fn all_reads_pages_of_500_events_and_says_when_it_stops_at_the_page_cap() {
+    let env = TestEnv::new();
+    let daemon = env.listen();
+    let ctx = env.context();
+    let (mut out, captured) = capture();
+    let script = async {
+        let mut conn = daemon.accept().await;
+        let mut limits = Vec::new();
+        while let Some(frame) = conn.recv().await {
+            let ClientFrame::Request { id, method } = frame else { continue };
+            let Method::ConversationHistory(params) = method else {
+                panic!("unexpected {}", method.name());
+            };
+            limits.push(params.limit);
+            let n = u8::try_from(limits.len() % 100).unwrap();
+            let file = changed(&format!("src/f{n}.rs"), ChangeKind::Modified, 1, 0);
+            let events = vec![envelope(1, completed(n, Some(listed(vec![file], 0))))];
+            // NOTE: every page names an older one, so only the cap ends the reads.
+            let next_cursor = Some(PageCursor::new("older"));
+            conn.reply(id, &ConversationHistoryResult { events, next_cursor }).await;
+        }
+        limits
+    };
+    let id = conversation().to_string();
+    let line = command(&["diff", "--stat", "--all", "--conversation", &id]);
+    let (exit, limits) = tokio::join!(run::run(&line, &ctx, &mut out), script);
+
+    assert_eq!(exit, Exit::Success);
+    assert_eq!(limits.len(), 1_000, "the page cap");
+    assert!(limits.iter().all(|limit| *limit == Some(500)), "{:?}", &limits[..3]);
+    assert_eq!(
+        captured.stderr(),
+        "the history has more than 1000 pages; efr adds up only the turns of the newest 1000\n"
+    );
+    assert!(captured.stdout().ends_with("100 files changed, +1000\n"), "{}", captured.stdout());
 }
 
 #[test]

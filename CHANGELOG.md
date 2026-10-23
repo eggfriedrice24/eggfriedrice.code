@@ -106,6 +106,19 @@ into the GitHub release notes, and it stops when the section is missing.
   status line, is ready sooner with the ghostty screen. efr now reads only the 1,000
   newest rows of each screen that replays the output, not all 5,000 rows that ghostty
   keeps. The text of the result does not change.
+- A call that changes thousands of home files ends faster. A cache delete of 20,000
+  files took about 7 seconds. Now it takes about 1 second. The list of what undo does
+  not cover stays the same.
+- In `auto`, a shell call starts a little sooner in a long conversation with
+  background jobs. efr no longer reads every turn of the conversation to find when
+  the previous turn started. In a test conversation of 2,000 turns, this step took
+  about 3 ms. Now it takes about 0.3 ms.
+- `efr diff --stat --all` uses less memory and fewer requests in a long
+  conversation. It reads the history in pages of 500 events, and it keeps only the
+  ends of the turns that changed files and the undos. For 20,000 events, its peak
+  memory went from about 28 MiB to about 12 MiB. When the history has more than
+  1,000 pages, a dim line now says that efr adds up only the turns of the newest
+  1,000. Before, efr left out the older turns and did not say so.
 
 ### Security
 

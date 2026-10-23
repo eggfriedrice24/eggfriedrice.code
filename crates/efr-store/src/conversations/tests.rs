@@ -276,6 +276,55 @@ async fn turns_keep_their_status_and_the_unfinished_ones_are_listed() {
     assert_eq!(unknown, None);
 }
 
+/// The previous start as the facts of a call read it before: every turn of the
+/// conversation, then the latest start of those queued before `turn`.
+fn old_previous_start(all: &[Turn], turn: TurnId) -> Option<Timestamp> {
+    let before = all.iter().position(|known| known.id == turn).unwrap_or(all.len());
+    all[..before].iter().filter_map(|known| known.started_at).max()
+}
+
+#[tokio::test]
+async fn the_previous_turn_start_is_the_latest_start_of_the_turns_queued_before() {
+    let clock = TestClock::new();
+    let (writer, _thread) = testing::memory_writer(Arc::clone(&clock));
+    let (one, two) = (testing::conversation(1), testing::conversation(2));
+    let steps = [
+        Batch::new().event(one, testing::created(None)).event(two, testing::created(None)),
+        Batch::new().event(one, testing::queued(1, "first")),
+        Batch::new().event(one, testing::started(1, "/")),
+        Batch::new()
+            .event(one, testing::queued(2, "second"))
+            .event(one, testing::queued(3, "third")),
+        // NOTE: the third turn starts before the second, so the latest start is not the
+        // start of the turn just before.
+        Batch::new().event(one, testing::started(3, "/")),
+        Batch::new().event(two, testing::queued(4, "other")).event(two, testing::started(4, "/")),
+        Batch::new().event(one, testing::started(2, "/")),
+        Batch::new().event(one, testing::queued(5, "waits")),
+    ];
+    for batch in steps {
+        clock.advance(Duration::from_secs(60));
+        writer.append(batch).await.unwrap();
+    }
+    let all = on_writer(&writer, move |conn| turns(conn, one)).await.unwrap();
+    let previous = async |turn: TurnId| {
+        on_writer(&writer, move |conn| previous_turn_start(conn, one, turn)).await.unwrap()
+    };
+
+    assert_eq!(all.len(), 4);
+    for known in &all {
+        assert_eq!(previous(known.id).await, old_previous_start(&all, known.id), "{known:?}");
+    }
+    assert_eq!(previous(testing::turn(1)).await, None, "no turn before the first");
+    let second = all[1].started_at;
+    assert_eq!(previous(testing::turn(3)).await, second, "the second turn started last");
+    assert_eq!(previous(testing::turn(5)).await, second);
+    // NOTE: an unknown turn and a turn of another conversation have no previous turn,
+    // so every job counts; the old read took the latest start of every turn.
+    assert_eq!(previous(testing::turn(9)).await, None);
+    assert_eq!(previous(testing::turn(4)).await, None);
+}
+
 #[test]
 fn turn_status_names_round_trip_and_finished_ones_are_marked() {
     for status in TurnStatus::ALL {
