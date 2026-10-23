@@ -567,6 +567,18 @@ impl JobRun {
         self
     }
 
+    /// Writes the start byte to a launcher that may end before it reads the byte, such
+    /// as one that refuses its spec first. The pipe is then broken, and that is no
+    /// failure.
+    pub(crate) fn start_unless_ended(&mut self) -> &mut Self {
+        let lifeline = self.lifeline.as_ref().expect("the lifeline is open");
+        match rustix::io::write(lifeline, b"s") {
+            Ok(_) | Err(rustix::io::Errno::PIPE) => {}
+            Err(error) => panic!("the start byte: {error}"),
+        }
+        self
+    }
+
     /// Writes `bytes` on the lifeline after the start byte.
     pub(crate) fn send(&mut self, bytes: &[u8]) {
         let lifeline = self.lifeline.as_ref().expect("the lifeline is open");

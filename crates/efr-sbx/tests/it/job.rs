@@ -485,7 +485,9 @@ fn run_with_job_flag_refuses_call_spec() {
     let ran = fixture.project.join("ran");
     let call_dir = fixture.prepare(&format!("print ok > {}", q(&ran)));
     let mut run = fixture.spawn_job(&call_dir);
-    run.start();
+    // NOTE: the launcher refuses the spec before it reads the start byte, so it can end
+    // before the byte comes.
+    run.start_unless_ended();
     let run = run.wait(&fixture);
     let error = run.result().setup_error.clone().unwrap_or_default();
     assert!(error.contains("job's spec"), "{run:#?}");
