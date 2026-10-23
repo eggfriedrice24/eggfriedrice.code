@@ -97,7 +97,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `ResponsesAnswer::text` builds a whole streamed text answer, `ResponsesAnswer::tool_call`
   one function call sent whole, `ResponsesAnswer::custom_tool_call` one call of a
   freeform tool whose text streams in two deltas) and keeps every request,
-  `Authorization` header included (never shown by `Debug`). It also answers
+  `Authorization` header included (never shown by `Debug`), and the time when each
+  request arrived (`received_times`), for a bench. It also answers
   `GET /v1/models`, the model list that efrd fetches in the background and the check
   of a key at a login: with the `ModelsAnswer` of `set_models` (a catalog with its
   `ETag`, a bare status such as 304 or 503, a JSON body with a status such as the API
@@ -113,7 +114,8 @@ The real efr daemon, in-process, for the integration tests of `efr-daemon` and
   `MessagesAnswer::error` an error body of the API), with a `request-id` header on
   each answer. It keeps every call as a `MessagesRequest` (the body, `Authorization`,
   `x-api-key`, `anthropic-version`, `anthropic-beta` and `anthropic-workspace-id`;
-  `Debug` hides the key). It also answers `GET /v1/models` in pages by `limit` (20
+  `Debug` hides the key) and the time when each call arrived (`received_times`), for a
+  bench. It also answers `GET /v1/models` in pages by `limit` (20
   when absent) and `after_id`, from the list of `set_models` (`MessagesServer::model`
   makes an active entry), or with the answer of `refuse_models`, else with a 404, and
   keeps each request as a `ModelsPageRequest`. The provider's catalog fetch and its

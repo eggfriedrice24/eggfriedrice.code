@@ -11,6 +11,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -223,6 +224,7 @@ impl fmt::Debug for ModelsPageRequest {
 struct Queue {
     answers: VecDeque<MessagesAnswer>,
     received: Vec<MessagesRequest>,
+    received_at: Vec<Instant>,
     answered: usize,
     models: Option<Vec<Value>>,
     models_refusal: Option<MessagesAnswer>,
@@ -292,6 +294,14 @@ impl MessagesServer {
         lock(&self.queue).received.clone()
     }
 
+    /// When each model call of [`received`](Self::received) reached the server, in the
+    /// same order: the time its whole body arrived, before the server parsed it. A
+    /// bench splits with it the daemon's work before a model call from the stream
+    /// after it.
+    pub fn received_times(&self) -> Vec<Instant> {
+        lock(&self.queue).received_at.clone()
+    }
+
     /// The answers no model call has taken yet.
     pub fn remaining(&self) -> usize {
         lock(&self.queue).answers.len()
@@ -345,8 +355,10 @@ struct Answers {
 
 impl Respond for Answers {
     fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let at = Instant::now();
         let body = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
         let mut queue = lock(&self.queue);
+        queue.received_at.push(at);
         queue.received.push(MessagesRequest {
             body,
             authorization: header(request, "authorization"),
