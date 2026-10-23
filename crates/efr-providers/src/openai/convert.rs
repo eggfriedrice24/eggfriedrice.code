@@ -197,23 +197,59 @@ impl ResponsesBody {
     /// Every field but `input`: what must not change for a request to continue the
     /// previous answer of a WebSocket with only its new items.
     pub(crate) fn settings(&self) -> ResponsesBody {
-        ResponsesBody { input: Vec::new(), ..self.clone() }
+        // NOTE: every field is named, with no `..`, so the input is never copied only
+        // to be dropped, and a new field cannot be left out of the comparison.
+        let ResponsesBody {
+            kind,
+            model,
+            stream,
+            service_tier,
+            previous_response_id,
+            instructions,
+            input: _,
+            tools,
+            tool_choice,
+            parallel_tool_calls,
+            reasoning,
+            store,
+            include,
+            max_output_tokens,
+            prompt_cache_key,
+            text,
+        } = self;
+        ResponsesBody {
+            kind: *kind,
+            model: model.clone(),
+            stream: *stream,
+            service_tier: service_tier.clone(),
+            previous_response_id: previous_response_id.clone(),
+            instructions: instructions.clone(),
+            input: Vec::new(),
+            tools: tools.clone(),
+            tool_choice: *tool_choice,
+            parallel_tool_calls: *parallel_tool_calls,
+            reasoning: reasoning.clone(),
+            store: *store,
+            include: include.clone(),
+            max_output_tokens: *max_output_tokens,
+            prompt_cache_key: prompt_cache_key.clone(),
+            text: text.clone(),
+        }
     }
 
     /// The `response.create` message of the WebSocket transport for this body: the same
     /// fields with `input` replaced by `input`, continuing the answer `previous` when
-    /// one is given.
+    /// one is given. Only `input` is copied of the items.
     pub(crate) fn websocket_create(
         &self,
         previous: Option<&str>,
         input: &[Value],
     ) -> ResponsesBody {
-        ResponsesBody {
-            kind: Some("response.create"),
-            previous_response_id: previous.map(str::to_owned),
-            input: input.to_vec(),
-            ..self.settings()
-        }
+        let mut create = self.settings();
+        create.kind = Some("response.create");
+        create.previous_response_id = previous.map(str::to_owned);
+        create.input = input.to_vec();
+        create
     }
 }
 

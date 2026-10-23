@@ -53,7 +53,7 @@ mod continuation;
 
 pub(crate) use connection::Rejection;
 use connection::{Connection, Create, Delivery, Limits, Refusal};
-use continuation::{Plan, plan};
+use continuation::{Outgoing, Plan, plan};
 
 /// How long an unused connection stays open. A turn's calls follow each other within
 /// seconds; the next prompt may come minutes later, and a connection that waits for
@@ -218,7 +218,8 @@ impl Sockets {
             },
             Err(reason) => return Attempt::Skipped(reason),
         };
-        let plan = plan(taken.last.as_ref(), body);
+        let outgoing = Outgoing::of(body);
+        let plan = plan(taken.last.as_ref(), &outgoing);
         let route = Route {
             transport: "websocket",
             connection: if taken.new { "new" } else { "reused" },
@@ -228,15 +229,16 @@ impl Sockets {
             Plan::Full => (None, body.input()),
             Plan::Incremental { previous, input } => (Some(previous), input),
         };
-        let message = match serde_json::to_string(&body.websocket_create(previous, input)) {
-            Ok(message) => message,
-            Err(error) => {
-                return Attempt::Http(format!("the request could not be encoded: {error}"));
-            }
-        };
+        let message =
+            match serde_json::to_string(&outgoing.settings.websocket_create(previous, input)) {
+                Ok(message) => message,
+                Err(error) => {
+                    return Attempt::Http(format!("the request could not be encoded: {error}"));
+                }
+            };
         let (events, mut receiver) = mpsc::channel(EVENTS);
-        let create =
-            Create { message, settings: body.settings(), input: body.input().to_vec(), events };
+        let Outgoing { settings, prints, .. } = outgoing;
+        let create = Create { message, settings, prints, events };
         if !taken.send(create).await {
             return Attempt::Http("the websocket closed before the request".to_owned());
         }

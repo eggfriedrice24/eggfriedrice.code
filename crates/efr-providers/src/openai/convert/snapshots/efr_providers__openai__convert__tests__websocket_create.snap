@@ -1,0 +1,79 @@
+---
+source: crates/efr-providers/src/openai/convert/tests.rs
+expression: "serde_json::to_string_pretty(&create).unwrap()"
+---
+{
+  "type": "response.create",
+  "model": "gpt-5.5",
+  "stream": true,
+  "service_tier": "flex",
+  "previous_response_id": "resp_1",
+  "instructions": "You judge one action.",
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Which shell do I use?",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    }
+  ],
+  "tools": [
+    {
+      "description": "Run a command in the user's shell.",
+      "name": "shell",
+      "parameters": {
+        "properties": {
+          "command": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    }
+  ],
+  "tool_choice": "auto",
+  "parallel_tool_calls": false,
+  "reasoning": {
+    "effort": "low",
+    "summary": "auto"
+  },
+  "store": false,
+  "include": [
+    "reasoning.encrypted_content"
+  ],
+  "max_output_tokens": 4096,
+  "prompt_cache_key": "conversation-0192",
+  "text": {
+    "verbosity": "low",
+    "format": {
+      "type": "json_schema",
+      "name": "exit_verdict",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "verdict": {
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "strict": true
+    }
+  }
+}

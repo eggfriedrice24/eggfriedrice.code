@@ -2,7 +2,7 @@ use efr_provider::{Message, Request};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
-use super::{Continuation, Plan, plan};
+use super::{Continuation, Outgoing, Plan, Print};
 use crate::openai::OpenAiConfig;
 use crate::openai::convert::{ResponsesBody, request_body};
 
@@ -11,6 +11,11 @@ fn body(messages: Vec<Message>) -> ResponsesBody {
     request.system = Some("You are efr.".to_owned());
     request.messages = messages;
     request_body(&request, &OpenAiConfig::subscription(), None)
+}
+
+/// The plan of `body` after `last`.
+fn plan<'a>(last: Option<&'a Continuation>, body: &'a ResponsesBody) -> Plan<'a> {
+    super::plan(last, &Outgoing::of(body))
 }
 
 fn answer_item() -> Value {
@@ -22,6 +27,7 @@ fn after_hi() -> Continuation {
     let first = body(vec![Message::user("hi")]);
     let mut input = first.input().to_vec();
     input.push(answer_item());
+    let input = Print::all(&input).unwrap();
     Continuation { settings: first.settings(), input, response_id: "resp_1".to_owned() }
 }
 
@@ -79,6 +85,29 @@ fn a_rewritten_history_sends_the_whole_input() {
 }
 
 #[test]
+fn a_changed_item_of_the_same_size_in_the_prefix_sends_the_whole_input() {
+    let last = after_hi();
+    // The prompt before the answer, changed in one byte.
+    let prompt = body(vec![
+        Message::user("ho"),
+        Message::assistant("Hello.").with_provider_raw(json!([answer_item()])),
+        Message::user("next"),
+    ]);
+    // The answer's own item, as the next request sends it back, changed in one byte.
+    let mut changed = answer_item();
+    changed["content"][0]["text"] = json!("Hellp.");
+    let answer = body(vec![
+        Message::user("hi"),
+        Message::assistant("Hello.").with_provider_raw(json!([changed])),
+        Message::user("next"),
+    ]);
+
+    assert_eq!(prompt.input().len(), 3);
+    assert_eq!(plan(Some(&last), &prompt), Plan::Full);
+    assert_eq!(plan(Some(&last), &answer), Plan::Full);
+}
+
+#[test]
 fn a_shorter_history_or_an_answer_without_an_id_sends_the_whole_input() {
     let mut last = after_hi();
     assert_eq!(plan(Some(&last), &body(vec![Message::user("hi")])), Plan::Full);
@@ -93,4 +122,18 @@ fn the_plan_names_itself_for_the_debug_lines() {
     let body = body(history("next"));
     assert_eq!(plan(None, &body).name(), "full");
     assert_eq!(plan(Some(&last), &body).name(), "incremental");
+}
+
+#[test]
+fn a_print_is_the_same_only_for_the_same_json_text() {
+    let item = answer_item();
+    let mut other = answer_item();
+    other["content"][0]["text"] = json!("Hellp.");
+    let print = Print::of(&item).unwrap();
+
+    assert_eq!(Print::of(&item.clone()), Some(print));
+    assert_ne!(Print::of(&other), Some(print));
+    assert_eq!(serde_json::to_vec(&item).unwrap().len(), serde_json::to_vec(&other).unwrap().len());
+    let body = body(history("next"));
+    assert_eq!(Outgoing::of(&body).prints.map(|prints| prints.len()), Some(body.input().len()));
 }

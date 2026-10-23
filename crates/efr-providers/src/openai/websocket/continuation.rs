@@ -16,6 +16,14 @@
 //! connection, an interrupted or failed answer, a changed model, effort or tool list,
 //! and a history that a compaction or a rebuild changed, because its start no longer
 //! matches.
+//!
+//! A connection keeps a [`Print`] of each item, not the item: the length and a 128-bit
+//! hash of its JSON text. Two items with the same print are the same bytes on the
+//! wire, which is what the server compares. An item that cannot be encoded has no
+//! print, and its request sends the whole input and keeps no continuation.
+
+use std::hash::{DefaultHasher, Hasher};
+use std::io;
 
 use serde_json::Value;
 
@@ -26,10 +34,86 @@ use crate::openai::convert::ResponsesBody;
 pub(crate) struct Continuation {
     /// Every field of the request but `input`.
     pub(crate) settings: ResponsesBody,
-    /// The request's whole input, then the answer's output items.
-    pub(crate) input: Vec<Value>,
+    /// The prints of the request's whole input, then of the answer's output items.
+    pub(crate) input: Vec<Print>,
     /// The answer's id.
     pub(crate) response_id: String,
+}
+
+/// One input item as a continuation compares it: the length of its JSON text and a
+/// 128-bit hash of that text, as two halves so that a print takes 24 bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Print {
+    len: u64,
+    hash: [u64; 2],
+}
+
+impl Print {
+    /// The print of `item`, or `None` when it cannot be encoded.
+    pub(crate) fn of(item: &Value) -> Option<Print> {
+        let mut writer = PrintWriter::default();
+        serde_json::to_writer(&mut writer, item).ok()?;
+        let PrintWriter { len, low, high } = writer;
+        Some(Print { len, hash: [low.finish(), high.finish()] })
+    }
+
+    /// The prints of `items`, or `None` when one of them cannot be encoded.
+    pub(crate) fn all(items: &[Value]) -> Option<Vec<Print>> {
+        items.iter().map(Print::of).collect()
+    }
+}
+
+/// Hashes the JSON text as serde writes it, so no item is copied to a buffer.
+///
+/// NOTE: the two halves are SipHash with fixed keys (std's `DefaultHasher::new`), the
+/// second after one more leading byte. The hash is the same for the same bytes in one
+/// process, and that is all that a continuation needs: it lives in memory with its
+/// connection. Two different items of the same length have the same print only by a
+/// chance of about 2^-128; the model would then continue the old history.
+struct PrintWriter {
+    len: u64,
+    low: DefaultHasher,
+    high: DefaultHasher,
+}
+
+impl Default for PrintWriter {
+    fn default() -> Self {
+        let mut high = DefaultHasher::new();
+        high.write_u8(1);
+        PrintWriter { len: 0, low: DefaultHasher::new(), high }
+    }
+}
+
+impl io::Write for PrintWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.len = self.len.saturating_add(bytes.len() as u64);
+        self.low.write(bytes);
+        self.high.write(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A request as the continuation compares it, built once per call: the body, its
+/// settings and the prints of its input.
+#[derive(Debug)]
+pub(crate) struct Outgoing<'a> {
+    /// The body.
+    pub(crate) body: &'a ResponsesBody,
+    /// [`ResponsesBody::settings`] of the body.
+    pub(crate) settings: ResponsesBody,
+    /// The prints of the body's input, or `None` when an item cannot be encoded.
+    pub(crate) prints: Option<Vec<Print>>,
+}
+
+impl<'a> Outgoing<'a> {
+    /// The request of `body`.
+    pub(crate) fn of(body: &'a ResponsesBody) -> Outgoing<'a> {
+        Outgoing { body, settings: body.settings(), prints: Print::all(body.input()) }
+    }
 }
 
 /// What a request sends.
@@ -51,16 +135,17 @@ impl Plan<'_> {
     }
 }
 
-/// What `body` sends after `last`, the last completed answer of its connection.
-pub(crate) fn plan<'a>(last: Option<&'a Continuation>, body: &'a ResponsesBody) -> Plan<'a> {
-    let Some(last) = last else {
+/// What `next` sends after `last`, the last completed answer of its connection.
+pub(crate) fn plan<'a>(last: Option<&'a Continuation>, next: &Outgoing<'a>) -> Plan<'a> {
+    let (Some(last), Some(prints)) = (last, next.prints.as_deref()) else {
         return Plan::Full;
     };
-    if last.response_id.is_empty() || last.settings != body.settings() {
+    if last.response_id.is_empty() || last.settings != next.settings {
         return Plan::Full;
     }
-    match body.input().split_at_checked(last.input.len()) {
-        Some((known, new)) if known == last.input.as_slice() => {
+    let known = prints.get(..last.input.len());
+    match next.body.input().split_at_checked(last.input.len()) {
+        Some((_, new)) if known == Some(last.input.as_slice()) => {
             Plan::Incremental { previous: &last.response_id, input: new }
         }
         _ => Plan::Full,
