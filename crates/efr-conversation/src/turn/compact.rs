@@ -70,11 +70,27 @@ impl Turn {
         ContextLimits::new(window, self.config.compaction)
     }
 
-    /// The estimated context of `request`: the last real count plus the estimate of the
-    /// messages added since, or the estimate of the whole request when no real count
-    /// holds for this history. Live clients see it.
-    pub(super) fn estimate(&mut self, request: &Request) -> u64 {
+    /// The estimated context of the request of `window` on `base`: the last real count
+    /// plus the estimate of the messages added since, or the estimate of the whole
+    /// request when no real count holds for this history. The request is built only
+    /// then, so a call after a counted one does not copy the history to measure it.
+    /// Live clients see it.
+    pub(super) fn estimate(&mut self, base: &Request, window: &Window) -> u64 {
+        let tokens = match self.meter.known() {
+            Some(tokens) => tokens,
+            None => request_tokens(&with_window(base, window)),
+        };
+        self.show_estimate(tokens)
+    }
+
+    /// The estimated context of `request`, which the turn built to send; see
+    /// [`estimate`](Self::estimate).
+    pub(super) fn estimate_request(&mut self, request: &Request) -> u64 {
         let tokens = self.meter.estimate(request);
+        self.show_estimate(tokens)
+    }
+
+    fn show_estimate(&mut self, tokens: u64) -> u64 {
         self.estimated = Some(tokens);
         self.drafter.context(self.limits().gauge(tokens));
         tokens
@@ -107,7 +123,7 @@ impl Turn {
         base: &Request,
     ) -> Result<Guard, ConversationError> {
         let limits = self.limits();
-        let mut estimate = self.estimate(&with_window(base, window));
+        let mut estimate = self.estimate(base, window);
         let full = estimate >= limits.trigger || estimate > limits.hard_cap;
         // NOTE: a history that leaves out a turn would leave out one more at each turn
         // and change the start of every request; a summary in their place keeps the
@@ -121,7 +137,7 @@ impl Turn {
         let mut not_done = None;
         if (full || omits) && self.may_compact() {
             match self.compact(CompactionTrigger::Auto, estimate, window, base).await? {
-                Compacted::Done => estimate = self.estimate(&with_window(base, window)),
+                Compacted::Done => estimate = self.estimate(base, window),
                 Compacted::NotDone { failure } => not_done = Some(failure),
                 Compacted::Interrupted => return Ok(Guard::Interrupted),
             }
@@ -178,7 +194,7 @@ impl Turn {
             Compacted::Interrupted => return Ok(Recovered::Stop(Ending::Interrupted)),
         }
         let request = with_window(base, window);
-        let estimate = self.estimate(&request);
+        let estimate = self.estimate_request(&request);
         if estimate > limits.hard_cap {
             let body = context_full(Full::Cap, estimate, &limits);
             return Ok(Recovered::Stop(Ending::Failed(body)));
