@@ -31,6 +31,10 @@ into the GitHub release notes, and it stops when the section is missing.
   nests deeper holds code that efr does not read: only you approve it outside the
   sandbox, and full mode asks you before it runs. Before, a line of thousands of
   nested `$(` could stop efrd, with all its conversations.
+- An `ask` or `deny` rule for a program reads at most 16 forms of that program in one
+  command, such as each `git` after `env`. A command with more, such as
+  `env git git git ...`, matches the rule, so efr asks you or refuses it. Before, such
+  a line used efrd's time for each rule: 10,000 `git` words took about 1 second.
 
 ### Fixed
 

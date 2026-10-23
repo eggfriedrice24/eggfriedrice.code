@@ -32,6 +32,13 @@ use crate::command::{self, git, is_plain_char};
 use crate::path_class::{normalize, rehome};
 use crate::{Access, Effect, PathClass, PermissionsError};
 
+/// The most forms of the rule's program that a rule that asks or denies reads in one
+/// simple command ([`command::run_forms`]). Each form reads the rest of the command, and
+/// a form of `git` reads it again for each of its views, so `env git git git ...`
+/// cost the square of its words. Past it the rule matches, so the command asks or is
+/// denied: a real command names its program after a wrapper a few times at most.
+const MAX_FORMS: usize = 16;
+
 /// One rule: when a requirement matches `action` and `resource`, its effect is
 /// `effect`, unless a later rule matches too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -845,7 +852,13 @@ impl Rule {
         let git = pattern.program == "git";
         let first_decides = !git || pattern.under.is_none();
         // NOTE: a form of another program matches nothing and has no git view.
-        for form in command::run_forms(part.words).filter(|form| form.head == pattern.program) {
+        let forms = command::run_forms(part.words).filter(|form| form.head == pattern.program);
+        for (at, form) in forms.enumerate() {
+            // NOTE: fails closed: the forms past the cap are not read, so the rule
+            // counts as a match in any place.
+            if at == MAX_FORMS {
+                return Fit::Read;
+            }
             matched |= pattern.matches_form(form.head, form.rest, part.pattern);
             if git {
                 // NOTE: the form borrows the command's words when its program is the

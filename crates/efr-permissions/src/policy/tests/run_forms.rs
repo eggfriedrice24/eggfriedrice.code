@@ -9,7 +9,7 @@ use proptest::prelude::*;
 use super::cx;
 use crate::Effect;
 use crate::command::{self, git};
-use crate::policy::{Action, CommandPattern, Fit, Part, Resource, Rule, Under};
+use crate::policy::{Action, CommandPattern, Fit, MAX_FORMS, Part, Resource, Rule, Under};
 
 /// The forms as v0.0.4 made them: each one a copy of the rest of the line, each once.
 fn copied_run_forms(words: &[String]) -> Vec<Vec<String>> {
@@ -206,5 +206,37 @@ fn a_later_git_form_places_a_rule_with_under() {
     let part =
         Part { words: &words, pattern: false, privileged: false, dir: Some(Path::new("/home/u")) };
     assert_eq!(copied_fit(&rule, &pattern, &part), Fit::Read);
+    assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::Read);
+}
+
+/// `env` and then `git` `n` times.
+fn gits(n: usize) -> Vec<String> {
+    std::iter::once("env").chain(std::iter::repeat_n("git", n)).map(str::to_owned).collect()
+}
+
+/// Past [`MAX_FORMS`] forms of its program, a rule that asks or denies matches in any
+/// place: `env git git git ...` read the views of each form over the rest of the line,
+/// the square of its words. Up to the cap it fits as the copied forms did.
+#[test]
+fn a_rule_matches_a_command_with_more_forms_of_its_program_than_it_reads() {
+    let pattern = CommandPattern::new("git").with_args(["push"]).with_under("/tmp");
+    let rule = Rule::new(Action::Execute, Resource::Command(pattern.clone()), Effect::Ask);
+    let dir = Some(Path::new("/home/u"));
+    for n in [1, 2, MAX_FORMS] {
+        let words = gits(n);
+        let part = Part { words: &words, pattern: false, privileged: false, dir };
+        assert_eq!(copied_fit(&rule, &pattern, &part), Fit::No, "{n} gits");
+        assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::No, "{n} gits");
+    }
+    for n in [MAX_FORMS + 1, 10_000] {
+        let words = gits(n);
+        let part = Part { words: &words, pattern: false, privileged: false, dir };
+        assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::Read, "{n} gits");
+    }
+    // NOTE: a rule with no `under` still stops at the first form that matches.
+    let pattern = CommandPattern::new("git");
+    let rule = Rule::new(Action::Execute, Resource::Command(pattern.clone()), Effect::Deny);
+    let words = gits(10_000);
+    let part = Part { words: &words, pattern: false, privileged: false, dir };
     assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::Read);
 }
