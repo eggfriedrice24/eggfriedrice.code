@@ -11,6 +11,11 @@
 //!   follows a turn whose answer streams a list item with a nested rust fence of 30,
 //!   150, 300, 600 and 1,000 lines in 16-byte drafts, one each millisecond. A run that
 //!   takes more than 10 s is killed, and its ladder stops there.
+//! - `bench_perf_follow_gap`: the wall time of `efr send` in a pipe whose subscription
+//!   overflows after the first event and comes back as a snapshot of the newest 128
+//!   events, with a gap of 300, 1,000 and 3,000 events before them. It counts the pages
+//!   of `conversation.history` that efr reads and checks that each event shows once and
+//!   in order.
 //!
 //! `efr` gets a cleared environment with every efr root in a temp dir below cargo's
 //! target temp dir and `PATH=/usr/bin:/bin`, so it never reaches the real daemon.
@@ -28,9 +33,10 @@ use std::time::{Duration, Instant};
 
 use efr_protocol::framing::{self, Decoder};
 use efr_protocol::{
-    AdminStatusResult, ChangeKind, ClientFrame, ConversationDiffResult, ConversationSubscribeItem,
-    Draft, DraftPart, Event, EventEnvelope, FileChange, FileChanges, Method, PROTOCOL_VERSION,
-    PromptSendResult, RequestId, Seq, ServerFrame,
+    AdminStatusResult, ChangeKind, ClientFrame, ConversationDiffResult, ConversationHistoryResult,
+    ConversationSnapshot, ConversationStatus, ConversationSubscribeItem, ConversationSummary,
+    Draft, DraftPart, ErrorBody, Event, EventEnvelope, FileChange, FileChanges, Method,
+    PROTOCOL_VERSION, PageCursor, PromptSendResult, RequestId, Seq, ServerFrame,
 };
 use efr_test_support::bench::{self, Report};
 use serde::Serialize;
@@ -630,5 +636,171 @@ fn bench_perf_cli_memory() {
     // stream at every fence size, so its queue never overflows.
     for (lines, count) in &counts {
         assert_eq!(*count, 0, "fence {lines} lines: subscribed again after an overflow");
+    }
+}
+
+/// The events in a snapshot: as many as efrd puts in one.
+const SNAPSHOT_EVENTS: u64 = 128;
+
+/// The turn's message `n`, one line of its own in a pipe.
+fn gap_message(n: u64) -> EventEnvelope {
+    EventEnvelope {
+        seq: Seq::new(n),
+        conversation_id: Some(CONVERSATION.parse().unwrap()),
+        at: "2026-10-04T12:00:00Z".parse().unwrap(),
+        event: Event::AssistantMessageCompleted {
+            turn_id: TURN.parse().unwrap(),
+            index: u32::try_from(n).unwrap(),
+            text: format!("message {n}."),
+        },
+    }
+}
+
+/// The fake daemon's side of `efr send` after a gap of `gap` events: the prompt's
+/// receipt, message 4, an overflow, and then a snapshot of the newest
+/// [`SNAPSHOT_EVENTS`] messages with a cursor before them and the end of the turn. It
+/// answers each `conversation.history` from the log of messages 4 to the last one, as
+/// efrd pages it, and counts the pages in `pages`.
+fn gap_turn(conn: &mut Conn, gap: u64, pages: &AtomicU64) {
+    let (id, method) = conn.request();
+    assert!(matches!(method, Method::PromptSend(_)), "got {}", method.name());
+    let turn_id = TURN.parse().unwrap();
+    conn.reply(
+        id,
+        &PromptSendResult {
+            conversation_id: CONVERSATION.parse().unwrap(),
+            turn_id,
+            seq: Seq::new(3),
+            queued: false,
+            settings: None,
+            route: None,
+        },
+    );
+    let last = 4 + gap + SNAPSHOT_EVENTS;
+    let log: Vec<EventEnvelope> = (4..=last).map(gap_message).collect();
+    let (first, method) = conn.request();
+    assert!(matches!(method, Method::ConversationSubscribe(_)), "got {}", method.name());
+    conn.item(first, &ConversationSubscribeItem::Event(log[0].clone()));
+    conn.send(&ServerFrame::error(Some(first), ErrorBody::overflow(Seq::new(4))));
+    let (second, method) = conn.request();
+    let Method::ConversationSubscribe(params) = method else {
+        panic!("expected a subscribe, got {}", method.name());
+    };
+    assert_eq!(params.after_seq, Some(Seq::new(4)), "it subscribes after the last event shown");
+    let oldest = last - SNAPSHOT_EVENTS + 1;
+    let at: jiff::Timestamp = "2026-10-04T12:00:00Z".parse().unwrap();
+    let snapshot = ConversationSnapshot {
+        conversation: ConversationSummary {
+            id: CONVERSATION.parse().unwrap(),
+            title: None,
+            status: ConversationStatus::Running,
+            created_at: at,
+            updated_at: at,
+            last_seq: Seq::new(last),
+            cwd: None,
+            scope: None,
+            tty: None,
+        },
+        events: log[usize::try_from(oldest - 4).unwrap()..].to_vec(),
+        history_cursor: Some(PageCursor::new(format!("s:{oldest}"))),
+        hwm: Seq::new(last),
+    };
+    conn.item(second, &ConversationSubscribeItem::Snapshot(snapshot));
+    let completed = Event::TurnCompleted {
+        turn_id,
+        usage: None,
+        changes: None,
+        context: None,
+        stop: None,
+        undo: None,
+    };
+    conn.item(second, &envelope(last + 1, completed));
+    while let Some(frame) = conn.recv() {
+        let ClientFrame::Request { id, method: Method::ConversationHistory(params) } = frame else {
+            continue;
+        };
+        pages.fetch_add(1, Ordering::Relaxed);
+        let before = params
+            .cursor
+            .as_ref()
+            .and_then(|cursor| cursor.as_str().strip_prefix("s:"))
+            .map_or(u64::MAX, |seq| seq.parse().unwrap());
+        let limit = usize::try_from(params.limit.unwrap_or(100)).unwrap();
+        let older: Vec<&EventEnvelope> =
+            log.iter().filter(|envelope| envelope.seq.get() < before).collect();
+        let start = older.len().saturating_sub(limit);
+        let events: Vec<EventEnvelope> = older[start..].iter().map(|&e| e.clone()).collect();
+        let next_cursor = (start > 0).then(|| PageCursor::new(format!("s:{}", events[0].seq)));
+        conn.reply(id, &ConversationHistoryResult { events, next_cursor });
+    }
+}
+
+/// The numbers of the messages in efr's output, in their order.
+fn messages_shown(out: &str) -> Vec<u64> {
+    out.lines()
+        .filter_map(|line| line.trim().strip_prefix("message ")?.strip_suffix('.')?.parse().ok())
+        .collect()
+}
+
+#[test]
+#[ignore = "bench: run by just bench-perf"]
+fn bench_perf_follow_gap() {
+    const RUNS: usize = 5;
+    let mut report = Report::new("bench_perf_follow_gap");
+    let context = r#"{"pwd":"/srv","tty":"/dev/pts/9"}"#;
+    let mut points = Vec::new();
+    let mut checks = Vec::new();
+    for gap in [300_u64, 1_000, 3_000] {
+        let roots = Roots::new();
+        let pages = Arc::new(AtomicU64::new(0));
+        let counted = Arc::clone(&pages);
+        let (_, server) =
+            serve(&roots.socket(), RUNS + 1, move |conn| gap_turn(conn, gap, &counted));
+        let expected: Vec<u64> = (4..=4 + gap + SNAPSHOT_EVENTS).collect();
+        let (mut walls, mut once, mut shown) = (Vec::new(), 0_u64, 0);
+        for run in 0..=RUNS {
+            let started = Instant::now();
+            let output = roots
+                .command(env!("CARGO_BIN_EXE_efr"))
+                .args(["send", "--context-json", context, "--", "go on"])
+                .output()
+                .unwrap();
+            let wall = started.elapsed();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let messages = messages_shown(&String::from_utf8_lossy(&output.stdout));
+            shown = messages.len();
+            once += u64::from(messages == expected);
+            // The first run warms the caches.
+            if run > 0 {
+                walls.push(wall);
+            }
+            if wall > STOP_AFTER {
+                break;
+            }
+        }
+        if walls.len() < RUNS {
+            report.count(&format!("gap {gap}: stopped_at_n"), gap);
+            break;
+        }
+        server.join().unwrap();
+        let runs = RUNS as u64 + 1;
+        let per_run = pages.load(Ordering::Relaxed) / runs;
+        report.count(&format!("gap {gap}: events shown"), shown as u64);
+        report.count(&format!("gap {gap}: runs that showed each event once in order"), once);
+        report.count(&format!("gap {gap}: history pages per run"), per_run);
+        let stats = report.time(&format!("gap {gap}: efr send to exit"), &walls);
+        points.push((gap, stats.p50));
+        checks.push((gap, once == runs, per_run));
+    }
+    let slope = report.slope("efr send to exit over the gap (300/1k/3k)", &points);
+    report.finish();
+    // The budget: every event of the gap shows once and in order, efr reads the gap in
+    // pages of 128 back to the last event that it showed, and no further, and the time
+    // grows at most linearly with the gap.
+    assert!(slope < 1.3, "the time over the gap has the slope {slope:.2}");
+    for (gap, once, pages) in checks {
+        assert!(once, "gap {gap}: an event did not show, or showed twice or out of order");
+        let needed = (gap + 1).div_ceil(SNAPSHOT_EVENTS);
+        assert_eq!(pages, needed, "gap {gap}: pages of conversation.history");
     }
 }

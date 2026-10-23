@@ -5,7 +5,10 @@
 //! Ctrl+C asks the daemon to interrupt the turn (`turn.interrupt`, naming the
 //! followed turn) and then ends the command; a closed connection alone would leave the
 //! turn running in its conversation. A subscription that falls behind is resumed from
-//! the last event shown, so a slow terminal loses nothing.
+//! the last event shown, so a slow terminal loses nothing. When efrd cuts that gap to a
+//! snapshot of the newest events (more than 128 events or 1 MiB), the view reads the
+//! events that the snapshot left out with `conversation.history` and shows them first
+//! (`Follower::gap`).
 //!
 //! When the running call's command waits for input, the same key thread reads an
 //! answer line, which goes to the daemon with `input.respond`. A hidden answer stays in
@@ -92,12 +95,12 @@ use std::time::Duration;
 use efr_protocol::{
     ApprovalDecision, ApprovalRespond, ApprovalRespondResult, CallBackground, CallBackgroundResult,
     CallId, ConversationHistory, ConversationHistoryResult, ConversationId, ConversationSubscribe,
-    ConversationSubscribeItem, ErrorCode, Event, InputRespond, InputRespondResult, JobId, JobState,
-    JobsList, JobsListResult, JobsStop, JobsStopResult, LateSteer, Method, Origin, PromptSend,
-    PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId, RecentCommand,
-    SandboxSurfaceRespond, SandboxSurfaceRespondResult, SecretText, Seq, ShellContext,
-    ShellInterrupt, ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult, TurnSettings,
-    TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
+    ConversationSubscribeItem, ErrorCode, Event, EventEnvelope, InputRespond, InputRespondResult,
+    JobId, JobState, JobsList, JobsListResult, JobsStop, JobsStopResult, LateSteer, Method, Origin,
+    PageCursor, PromptSend, PromptSendResult, PromptWithdraw, PromptWithdrawResult, QuestionId,
+    RecentCommand, SandboxSurfaceRespond, SandboxSurfaceRespondResult, SecretText, Seq,
+    ShellContext, ShellInterrupt, ShellInterruptResult, TurnId, TurnInterrupt, TurnInterruptResult,
+    TurnSettings, TurnSteer, TurnSteerResult, WithdrawTarget, WithdrawnPrompt,
 };
 use efr_stdx::time::{Clock as _, Sleep};
 use efr_transport::client::{Client, ClientError, ItemStream};
@@ -143,6 +146,10 @@ const MAX_RESUBSCRIBES: u32 = 8;
 
 /// The events read to find the approvals that a queued prompt waits behind.
 const BLOCKING_PAGE: u32 = 500;
+
+/// The most events of one page of the events that a cut snapshot left out: as many as
+/// a snapshot holds.
+const GAP_PAGE: u32 = 128;
 
 /// How long a paste into the input row that a question cut may still go on into the
 /// row: a terminal sends a whole paste at once, so its end comes well within this.
@@ -692,10 +699,20 @@ impl Follower<'_> {
                         }
                         item = stream.next() => match item {
                             Some(Ok(value)) => {
+                                let end = match self.item(value, out, view).await {
+                                    Ok(end) => end,
+                                    // NOTE: the read of the events before a cut snapshot
+                                    // lost the connection. The view did not move, so it
+                                    // subscribes again after the same event.
+                                    Err(CliError::Client(error)) if lost(&error) => {
+                                        break Again::Lost(error);
+                                    }
+                                    Err(error) => return Err(error),
+                                };
                                 resubscribes = 0;
                                 reconnects = 0;
                                 ends = 0;
-                                if let Some(end) = self.item(value, out, view).await? {
+                                if let Some(end) = end {
                                     if !view.lingers() {
                                         return self.finished(end, view);
                                     }
@@ -878,8 +895,27 @@ impl Follower<'_> {
     ) -> Result<Option<TurnEnd>, CliError> {
         let (events, hwm) = match serde_json::from_value::<ConversationSubscribeItem>(value) {
             Ok(ConversationSubscribeItem::Event(envelope)) => (vec![envelope], None),
+            // NOTE: a cut snapshot leaves out the events before its own, also those after
+            // the last event that this view showed. They come first, in order, so the
+            // screen shows each event once.
             Ok(ConversationSubscribeItem::Snapshot(snapshot)) => {
-                (snapshot.events, Some(snapshot.hwm))
+                let mut events = match snapshot.history_cursor {
+                    Some(cursor) => {
+                        let (gap, refused) = Box::pin(self.gap(cursor)).await?;
+                        if let Some(message) = refused {
+                            let note = format!(
+                                "efr could not read the events before these: {}",
+                                crate::format::one_line(&message)
+                            );
+                            let step = view.note(&note, self.ctx.screen.size());
+                            self.show(out, view, &step)?;
+                        }
+                        gap
+                    }
+                    None => Vec::new(),
+                };
+                events.extend(snapshot.events);
+                (events, Some(snapshot.hwm))
             }
             Ok(ConversationSubscribeItem::Draft(draft)) => {
                 let step = view.draft(&draft, self.ctx.screen.size());
@@ -907,6 +943,58 @@ impl Follower<'_> {
             self.last_seen = self.last_seen.max(hwm);
         }
         Ok(None)
+    }
+
+    /// The events of the conversation after the last one that the view showed and
+    /// before a cut snapshot, oldest first: pages of `conversation.history` from the
+    /// snapshot's `cursor` back to that event, or to the first event. efrd fails a page
+    /// that is larger than one frame (`internal`), so that page is asked again with half
+    /// as many events, and the rest of the gap keeps that size. Another refusal ends the
+    /// read with what it got and the daemon's message, for a note. A lost connection is
+    /// the error: the view did not move, so it reads the same gap again once it
+    /// subscribes again.
+    async fn gap(
+        &self,
+        cursor: PageCursor,
+    ) -> Result<(Vec<EventEnvelope>, Option<String>), CliError> {
+        let mut pages: Vec<Vec<EventEnvelope>> = Vec::new();
+        let mut limit = GAP_PAGE;
+        let mut next = Some(cursor);
+        let mut refused = None;
+        while let Some(cursor) = next.take() {
+            let method = Method::ConversationHistory(ConversationHistory {
+                conversation_id: self.target.conversation,
+                cursor: Some(cursor.clone()),
+                limit: Some(limit),
+            });
+            let page = match self.client().call::<ConversationHistoryResult>(method).await {
+                Ok(page) => page,
+                Err(ClientError::Server { body })
+                    if body.code == ErrorCode::Internal && limit > 1 =>
+                {
+                    limit /= 2;
+                    next = Some(cursor);
+                    continue;
+                }
+                Err(error) if lost(&error) => return Err(error.into()),
+                Err(ClientError::Server { body }) => {
+                    refused = Some(body.message);
+                    break;
+                }
+                Err(error) => {
+                    refused = Some(error.to_string());
+                    break;
+                }
+            };
+            let reached = page.events.first().is_none_or(|first| first.seq <= self.last_seen);
+            let mut events = page.events;
+            events.retain(|envelope| envelope.seq > self.last_seen);
+            pages.push(events);
+            if !reached {
+                next = page.next_cursor;
+            }
+        }
+        Ok((pages.into_iter().rev().flatten().collect(), refused))
     }
 
     /// Writes a step and starts or stops reading keys as it says. The frame goes out at

@@ -67,6 +67,12 @@ into the GitHub release notes, and it stops when the section is missing.
   start of `conversation.subscribe` now has a history cursor. Before, the snapshot had
   no events and no cursor, so a client could not find that event and the events
   before it.
+- A followed turn now shows every event after a long gap. When efr subscribed again
+  after it fell behind or after a new connection, or when a prompt waited behind many
+  events, and more than 128 events or 1 MiB came in the gap, efrd sent only the newest
+  events, and the older ones never showed. efr now reads them with
+  `conversation.history` and shows each event once and in order, also an event over
+  1 MiB.
 - In a long conversation, a prompt reaches the model sooner. After a compaction with
   a summary, a turn no longer reads or rebuilds the earlier turns that the summary
   covers. In a test conversation of 2,000 turns, the time from the prompt to the

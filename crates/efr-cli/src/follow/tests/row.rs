@@ -1217,6 +1217,42 @@ async fn two_restarts_of_efrd_before_a_new_event_keep_the_view() {
     result.unwrap();
 }
 
+/// The review finding: after a restart of efrd, the view subscribed again after the
+/// last event that it showed, and efrd cut the gap to a snapshot. The newest event was
+/// over 1 MiB, so the snapshot held no event, and the events of the gap never showed.
+/// Now the view pages them from the snapshot's cursor and shows each one once.
+#[tokio::test]
+async fn after_a_restart_a_snapshot_without_events_shows_the_gap_and_its_large_event_once() {
+    use super::gap::{log, serve_history, shown, snapshot};
+    let setup = Setup::new();
+    let ctx = setup.context(true);
+    let big = format!("big {}end", "word ".repeat(1536 * 1024 / 5));
+    let mut log = log(12);
+    let large = Event::AssistantMessageCompleted { turn_id: turn(), index: 13, text: big };
+    log.push(crate::testing::envelope(13, large));
+    let (result, out) = run_row_restarting(&setup, &ctx, |daemon, _| async move {
+        let mut conn = daemon.accept().await;
+        let sub = subscribed(&mut conn, 10).await;
+        conn.item(sub, &efr_protocol::ConversationSubscribeItem::Event(log[1].clone())).await;
+        // efrd stops: it ends the stream and closes the connection.
+        conn.end(sub).await;
+        drop(conn);
+        let mut conn = daemon.accept().await;
+        let sub = subscribed(&mut conn, 11).await;
+        conn.item(sub, &snapshot(Vec::new(), 14, 13)).await;
+        conn.item(sub, &item(14, turn_completed())).await;
+        let limits = serve_history(&mut conn, &log, 11, u32::MAX).await;
+        assert_eq!(limits, [128]);
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert_eq!(shown(&out), [11, 12]);
+    assert_eq!(out.matches("big word").count(), 1, "the large event shows once: {out}");
+    assert!(out.find("message 12.").unwrap() < out.find("big word").unwrap());
+    assert!(out.contains("word end"), "the large event shows whole");
+}
+
 /// The review finding: when efrd ended the subscription for good, the command ended
 /// without giving back what the view had sent, which nothing says will run.
 #[tokio::test]

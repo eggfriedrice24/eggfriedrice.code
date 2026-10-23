@@ -10,7 +10,7 @@ state and never writes the daemon's database or credentials.
 
 | Command | Protocol | Notes |
 |---|---|---|
-| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row; the prompts of `EFR_QUEUED_PROMPTS` (one per line, from a paste of `,` lines) go behind it into its conversation, with the same handover: with the input row all at once, as Tab queues them, and the view follows each one; without the row each one when the turn before it ended; when efrd refuses one, it and those after it go into the row with the note `not queued: <message>`, and those that never went go back to the shell as `, ` lines (`draft.rs`); `efr new` does the same; the reply's first line is the result's `route` (`format/route.rs`): the switch of the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`, else the scope (`app`, or `○ no project · ~/notes`), with the settings note after ` · `; when `route.hint` names a git repository outside projects, a second muted line says so, such as `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.` (a path that is no plain shell word shows in full, in single quotes); typed by hand on a terminal, the context names efr's parent as its shell when that runs on the same terminal (`tty_nr` of `/proc/<ppid>/stat` against the device of stdin) |
+| `efr send [--context-json <json>] [--last-command <text>] [--conversation <id>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send`, then `conversation.subscribe` after the prompt's `seq`, with `conversation.history` for the events that a cut snapshot leaves out; from the input row `turn.steer`, `prompt.send`, `turn.interrupt` and `prompt.withdraw` | follows the turn until it ends, and then each prompt queued from its input row; the prompts of `EFR_QUEUED_PROMPTS` (one per line, from a paste of `,` lines) go behind it into its conversation, with the same handover: with the input row all at once, as Tab queues them, and the view follows each one; without the row each one when the turn before it ended; when efrd refuses one, it and those after it go into the row with the note `not queued: <message>`, and those that never went go back to the shell as `, ` lines (`draft.rs`); `efr new` does the same; the reply's first line is the result's `route` (`format/route.rs`): the switch of the terminal's conversation, such as `↪ back to "fix the tests" in app (2 h ago)`, else the scope (`app`, or `○ no project · ~/notes`), with the settings note after ` · `; when `route.hint` names a git repository outside projects, a second muted line says so, such as `○ ~/p/tool is a git repo but not a project: writes there ask you. efr project add ~/p/tool registers it.` (a path that is no plain shell word shows in full, in single quotes); typed by hand on a terminal, the context names efr's parent as its shell when that runs on the same terminal (`tty_nr` of `/proc/<ppid>/stat` against the device of stdin) |
 | `efr send --steer [--context-json <json>] [--conversation <id>] [--] [text]` | `conversations.list` with `tty` to find the terminal's current conversation (the one of its last prompt; an older efrd ignores the filter, and the scan of the pages finds the newest row with the tty), `turn.steer` | `--conversation <id>` skips the lookup; a steer takes no turn settings |
 | `efr new [--context-json <json>] [--last-command <text>] [--mode <m>] [--model <id>] [--effort <e>] [--] [prompt]` | `prompt.send` with `new_conversation` | the prompt is required (exit 2 without one); the plugin's bare `,new` sends nothing and makes the next `,` line run `efr new` |
 | `efr settings [--mode <m>] [--model <id>] [--effort <e>]` | `models.list`; `admin.status` for `--mode auto` and `--mode full` | the mode, model and effort that a prompt with these values would use, one `key = value  # source; choices: ...` line each; a value the daemon would refuse exits 2 with the choices; `--mode auto` with a sandbox that is not available prints a warning on stderr with the reason (turns run as `cautious`); `--mode full` exits 2 with the daemon's text, and prints nothing on stdout, when the config does not allow full mode (`full mode is off; set permissions.allow_full = true in config.toml by hand ...`) or efrd cannot run it (`full mode cannot run: efrd runs as root`), else it prints three lines on stderr: what full mode does, what efr still reads and asks, and that a script or a program that a line starts is not read. A daemon that does not report full mode leaves the check to `permissions.allow_full` as `efr` reads the file; the daemon checks each prompt again. Only the flag checks and warns: `EFR_MODE=full` (the terminal's choice that the plugin hands over) does not |
@@ -775,6 +775,19 @@ last part of the live zone, below the status row. Inline only: no alternate scre
   and the queued prompts of this view go back to the shell with a note, because
   nothing says whether they will run. Without the row, a connection that ends is the
   command's error, as before.
+- The gap of a subscription. The follow subscribes after the last event that it
+  showed: first after the prompt's event, then again after an overflow or a new
+  connection. When the gap is more than 128 events or 1 MiB, efrd sends a snapshot of
+  the newest events with a `history_cursor`. The view then reads the events that the
+  snapshot left out with `conversation.history` from that cursor, in pages of 128,
+  back to the last event that it showed, and shows them first, in order. So each
+  event shows once, also an event over 1 MiB, which no snapshot holds. efrd fails a
+  page that is larger than one frame (16 MiB), so the view asks for that page again
+  with half as many events and keeps that size for the rest of the gap. A lost
+  connection during the read is a lost connection of the subscription; another
+  refusal leaves the note `efr could not read the events before these: <message>`, and
+  the view goes on with the events that it has. `efr shell` does not read the gap: it
+  needs only what changed after `shell.status`, which are the newest events.
 - After a stop (Ctrl+Z, then `fg`), the reader sets its mode again and the next frame
   turns bracketed paste on again.
 - When `efr` ends, the text that is still in the row, with the keys that the reader
@@ -1307,6 +1320,11 @@ call that Esc stopped. `follow/tests/row.rs` runs the follow loop with the row
 against a fake daemon: the params of Enter, Tab, Esc, Alt+Up and Ctrl+C, a late steer,
 the prompts that the view follows, a question and a password that take the keys, the
 cursor and bracketed paste, and the text that goes to `EFR_DRAFT_FILE`.
+`follow/tests/gap.rs` runs the follow loop against a fake daemon that cuts the gap to
+a snapshot: a gap of 300 events after an overflow, a gap with one event of 1.5 MiB, a
+page too large for one frame that the view asks again with fewer events, and a refused
+page that leaves a note; `follow/tests/row.rs` adds a restart of efrd whose snapshot
+holds no event because its newest event is 1.5 MiB. Each event shows once and in order.
 `draft/tests.rs` checks the file's mode and content and the note without the plugin;
 `commands/send/tests.rs` the keys typed while the prompt goes out, a refused prompt
 and `render.turn_input = false`, and the prompts of `EFR_QUEUED_PROMPTS`: queued at
@@ -1415,6 +1433,12 @@ that takes more than 10 s stops its ladder.
 - `bench_perf_cli_memory` (`tests/it/perf.rs`): measures the peak memory, the CPU time
   and the wall time of `efr diff` on a terminal for 2k, 10k and 20k lines, and of
   `efr send` that follows a nested code fence of 30 to 1,000 lines in drafts.
+- `bench_perf_follow_gap` (`tests/it/perf.rs`): measures the wall time of `efr send`
+  in a pipe whose subscription overflows and comes back as a cut snapshot, with a gap
+  of 300, 1,000 and 3,000 events before the snapshot's 128. Budget: each run shows
+  every event once and in order, efr reads the gap in `ceil((gap + 1) / 128)` pages of
+  `conversation.history` and no more, and the slope of the time over the gap stays
+  below 1.3.
 - `bench_perf_zsh_prompt` (`tests/it/plugin_cost.rs`): measures `_efr_preexec` and
   `_efr_precmd` over 200 prompts in zsh, and the `source` of the plugin, with 50 to
   5,000 exported variables, 0 and 1,000 draft files, a deep `PWD`, a projects file and
