@@ -6,4 +6,5 @@
 #![cfg(test)]
 
 mod conformance;
+mod replay_screen;
 mod widths;
