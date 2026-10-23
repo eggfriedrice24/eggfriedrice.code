@@ -101,6 +101,7 @@ What the launcher writes, in order:
 | `$R/sbx/<conversation>/state.json`, `state.zsh` | contained calls only, when the records were valid |
 | `$R/sbx/<conversation>/config-listings.json` | contained calls only, after the surface guard, when its listings changed: git's listing of each config content that the call read. git reads the content on stdin, so a listing depends on the content alone, and the next call runs git only for a new content. A listing of another git (path, inode, size or times) is never used |
 | `$CALL/result.json` | last, by a rename, after every process of the call is gone; a contained call lists its cache deletes in `summary.cache_deletes` (at most 4096 paths and 256 KiB) and counts the rest in `cache_deletes_more` |
+| `$SBX/jobs/<call>/config-listings.json` | a contained job only, before its child starts: the config listings of the job's start, in the format of the shell dir's file. `guard-check` reads them and writes them back, under the job's guard lock, when its listings changed, so a check runs git only for a config content that is new since the last check. A file that is missing, too large or bad is no listing, and the check runs git for each config |
 | `$SBX/jobs/<call>/surface-before.json` | a contained job only, before its child starts: the guard's record of the job's start, on disk, for `guard-check` |
 | `$SBX/jobs/<call>/guard.json` | `guard-check` only: `{ "changes", "quarantined" }` |
 
@@ -116,7 +117,7 @@ that the file is there; a file that it cannot check (a link, another owner, an o
 mode, a byte in it) counts as there.
 
 A job writes `started`, its quarantine and `result.json` as above, and never `apply`,
-`state.json`, `state.zsh` or `config-listings.json`. It writes no `launcher.pid`:
+`state.json`, `state.zsh` or the shell dir's `config-listings.json`. It writes no `launcher.pid`:
 efrd keeps the launcher's pid and start time itself. Its call dir is
 `$R/sbx/<conversation>/jobs/<call>`, so nothing that reads the direct entries of the
 shell dir takes it for a call that still runs. The job's end guard and `guard-check`
@@ -288,7 +289,9 @@ sandbox cannot run here.
   from `result.json`.
 - `bench_perf_guard_check` (`tests/it/perf.rs`): `efr-sbx guard-check` of a finished
   job with 1, 5 and 10 git configs in the project. A counting `git` on the job's `PATH`
-  gives the git runs per check.
+  gives the git runs per check. Budget: no run for a check when no config changed, and
+  at most one run for a check after one config changed; the slope of the check's time
+  over its configs stays below 0.5.
 - `bench_perf_seccomp_compile` (`src/seccomp/tests.rs`): the JSON of a profile and its
   compile to BPF, for the profiles of the call, the network view, the bridge and the
   reach helper.

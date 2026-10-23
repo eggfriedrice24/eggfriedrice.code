@@ -12,7 +12,9 @@
 //!
 //! A contained job keeps the record of its start in its state dir, `$SBX/jobs/<call>`,
 //! so `efr-sbx guard-check` can compare with it while the job runs, and after a
-//! restart. The two hold the job's guard lock while they compare and move entries.
+//! restart. The two hold the job's guard lock while they compare and move entries. The
+//! state dir also keeps the job's config listings, so a check runs git only for a
+//! config that changed since the last check.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -191,13 +193,14 @@ impl Guard {
         guard
     }
 
-    /// Keeps the config listings of this call in `shell_dir` for the next call. A
-    /// listing that does not reach the disk costs the next call a run of git, nothing
-    /// more.
-    pub(crate) fn keep_listings(&self, shell_dir: &PrivateDir) {
+    /// Keeps the config listings of this guard in `dir` when they changed: the hidden
+    /// shell's sandbox dir for the next call, or a job's state dir for the next
+    /// `efr-sbx guard-check`. A listing that does not reach the disk costs the next
+    /// capture a run of git, nothing more.
+    pub(crate) fn keep_listings(&self, dir: &PrivateDir) {
         let json = self.listings.to_json();
         if json != self.kept {
-            let _ = shell_dir.write_atomic(CONFIG_LISTINGS_FILE, &json);
+            let _ = dir.write_atomic(CONFIG_LISTINGS_FILE, &json);
         }
     }
 
@@ -292,7 +295,13 @@ pub(crate) struct JobPlaces {
 impl Guard {
     /// Keeps this guard's record in `dir`, a job's state dir, with the job's places,
     /// for `efr-sbx guard-check`. It lies on disk, so a check after a reboot finds it.
+    /// The config listings of the job's start go to [`CONFIG_LISTINGS_FILE`] next to
+    /// it, so the first check runs git only for a config that changed.
     pub(crate) fn save(&self, dir: &PrivateDir, places: &JobPlaces) -> Result<(), SbxError> {
+        // NOTE: a file of its own, not a field of `Saved`: `Saved` denies unknown
+        // fields, so a new field breaks the record for a launcher that does not know it.
+        // A listings file that is not written only costs the checks runs of git.
+        let _ = dir.write_atomic(CONFIG_LISTINGS_FILE, &self.listings.to_json());
         let saved = Saved {
             before: self.before.clone(),
             started: self.started,
@@ -311,6 +320,9 @@ impl Guard {
     }
 
     /// The guard of a job from the record in `dir`, its state dir, and the job's places.
+    /// The listings come from [`CONFIG_LISTINGS_FILE`] there when they are of the
+    /// job's git as it is now; a file that is missing, too large or bad gives none, and
+    /// the capture runs git for each config.
     pub(crate) fn load(dir: &PrivateDir) -> Result<(Guard, JobPlaces), SbxError> {
         let path = dir.path().join(SURFACE_BEFORE_FILE);
         let Some(bytes) = dir.read(SURFACE_BEFORE_FILE, MAX_SAVED_BYTES)? else {
@@ -319,7 +331,12 @@ impl Guard {
         let saved: Saved = serde_json::from_slice(&bytes)
             .map_err(|error| SbxError::io("read", path, io::Error::other(error)))?;
         let lister = GitLister { git: saved.git };
-        let listings = ConfigListings::new(lister.identity());
+        let kept = dir
+            .read(CONFIG_LISTINGS_FILE, MAX_CONFIG_LISTINGS_BYTES)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let listings = ConfigListings::from_json(&kept, &lister.identity());
         let guard = Guard {
             pins: saved.pins,
             roots: saved.roots,
@@ -327,7 +344,7 @@ impl Guard {
             protected: saved.protected,
             lister,
             listings,
-            kept: Vec::new(),
+            kept,
             before: saved.before,
             started: saved.started,
         };
