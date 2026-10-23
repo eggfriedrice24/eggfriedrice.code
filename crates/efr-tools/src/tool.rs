@@ -1,5 +1,6 @@
 //! The tool boundary: what a tool tells the model, what a call needs, what it returns.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -271,20 +272,32 @@ impl ToolRequirements {
     /// that reads the file system. It blocks; async callers run it in `spawn_blocking`.
     #[must_use]
     pub fn with_real_paths(mut self, home: &Home) -> Self {
+        // NOTE: one look-up of each dir for the whole call, so the paths below a dir
+        // that does not exist cost nothing more.
+        let mut forms = paths::RealForms::new(home);
         let mut paths: Vec<PathAccess> = Vec::with_capacity(self.paths.len());
+        // NOTE: sets beside the lists, made at the first path that reaches another, so
+        // a line of many such paths does not compare each with every path before it.
+        let mut paths_seen: Option<HashSet<(PathBuf, AccessMode)>> = None;
+        let mut links_seen: Option<HashSet<(PathBuf, PathBuf)>> = None;
         for access in self.paths {
-            let real =
-                if access.path.is_absolute() { paths::real_form(home, &access.path) } else { None };
+            let real = if access.path.is_absolute() { forms.real_form(&access.path) } else { None };
             let mode = access.mode;
-            let declared = access.path.clone();
+            if let Some(paths_seen) = &mut paths_seen {
+                paths_seen.insert((access.path.clone(), mode));
+            }
+            let declared = real.is_some().then(|| access.path.clone());
             paths.push(access);
-            if let Some(real) = real {
-                if !self.links.iter().any(|(path, to)| *path == declared && *to == real) {
-                    self.links.push((declared, real.clone()));
-                }
-                if !paths.iter().any(|known| known.path == real && known.mode == mode) {
-                    paths.push(PathAccess { path: real, mode });
-                }
+            let (Some(real), Some(declared)) = (real, declared) else { continue };
+            let paths_seen = paths_seen.get_or_insert_with(|| {
+                paths.iter().map(|known| (known.path.clone(), known.mode)).collect()
+            });
+            let links_seen = links_seen.get_or_insert_with(|| self.links.iter().cloned().collect());
+            if links_seen.insert((declared.clone(), real.clone())) {
+                self.links.push((declared, real.clone()));
+            }
+            if paths_seen.insert((real.clone(), mode)) {
+                paths.push(PathAccess { path: real, mode });
             }
         }
         self.paths = paths;
