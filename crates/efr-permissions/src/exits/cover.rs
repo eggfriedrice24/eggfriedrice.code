@@ -2,7 +2,7 @@
 //! destroys or writes (efr's auto spec 10.7 and 10.8, phase B): the [`CoverAsk`]s of a
 //! destructive part of a line, and the copies of a home write.
 //!
-//! The engine only asks. The daemon answers each ask in [`CallFacts::covered`], and an
+//! The engine only asks. The daemon answers each ask in [`CallFacts::covered`](crate::CallFacts::covered), and an
 //! ask with no answer is never covered, so a lost fact keeps the question.
 
 use std::path::{Path, PathBuf};
@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use efr_protocol::ExitKind;
 
 use super::programs::{self, base_name, is_sandbox_device};
-use super::{Envelope, ExitNeed, WriteBind, existing_kind, git_dir};
+use super::{Envelope, ExitNeed, Facts, WriteBind, existing_kind, git_dir};
 use crate::command::git;
-use crate::{AutoSupport, CallFacts, CoverAsk, Locations, TargetKind};
+use crate::{AutoSupport, CoverAsk, Locations, TargetKind};
 
 /// The asks of a destructive part whose paths are `targets`: one [`CoverAsk::Path`]
 /// for each, or none when efr cannot name one of them. A part with no ask is never
@@ -117,7 +117,7 @@ fn cleans_ignored(word: &str) -> bool {
 pub(super) fn covers_all(
     asks: &[CoverAsk],
     envelope: &Envelope<'_>,
-    facts: Option<&CallFacts>,
+    facts: Option<&Facts<'_>>,
     support: &AutoSupport,
 ) -> bool {
     support.undo
@@ -174,7 +174,7 @@ pub(super) fn write_copies(
 /// Sets what efrd copies before the write of `need` ([`write_copies`] of its kind,
 /// target and bind), [`ExitNeed::backup_before_write`] when that is anything, and
 /// whether `facts` say that every copy is covered.
-pub(crate) fn set_copies(need: &mut ExitNeed, facts: Option<&CallFacts>, support: &AutoSupport) {
+pub(crate) fn set_copies(need: &mut ExitNeed, facts: Option<&Facts<'_>>, support: &AutoSupport) {
     let Some(path) = need.target.clone() else { return };
     let kind_fact = existing_kind(facts, &path);
     need.copies = write_copies(need.kind, &path, kind_fact, need.bind.as_ref(), support);
@@ -184,7 +184,7 @@ pub(crate) fn set_copies(need: &mut ExitNeed, facts: Option<&CallFacts>, support
 
 /// Whether the daemon covers every ask of `copies`, for the exit record: `None` when
 /// there is nothing to copy, `Some(false)` when a fact is missing.
-pub(super) fn covered(copies: &[CoverAsk], facts: Option<&CallFacts>) -> Option<bool> {
+pub(super) fn covered(copies: &[CoverAsk], facts: Option<&Facts<'_>>) -> Option<bool> {
     (!copies.is_empty()).then(|| {
         copies.iter().all(|ask| facts.is_some_and(|facts| facts.coverage(ask).is_covered()))
     })

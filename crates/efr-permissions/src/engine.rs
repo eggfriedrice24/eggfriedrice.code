@@ -8,7 +8,7 @@ use efr_protocol::{ExitKind, ExitSource, Grant, Mode, Origin, Scope};
 use crate::always::{self, AllowFloor, AllowRule, AlwaysVerdict};
 use crate::command::{self, SimpleCommand};
 use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
-use crate::exits::{self, Approver, Envelope, ExitInput, ExitNeed, PathFacts, Rebuild};
+use crate::exits::{self, Approver, Envelope, ExitInput, ExitNeed, Facts, PathFacts, Rebuild};
 use crate::jobs::job_refusal;
 use crate::path_class::normalize;
 use crate::policy::{MatchContext, Part, Target, expand};
@@ -333,6 +333,7 @@ impl Engine {
             contain: predicts && shell,
             full,
             support: base_support,
+            facts: requirements.facts.as_ref().map(Facts::new),
         };
 
         let analyzed = requirements.command.as_deref().map(command::analyze);
@@ -519,6 +520,7 @@ impl Engine {
         let Some(facts) = requirements.facts.as_ref().filter(|_| self.support.undo) else {
             return false;
         };
+        let facts = Facts::new(facts);
         let mut writes =
             requirements.paths.iter().filter(|access| access.access == Access::Write).peekable();
         writes.peek().is_some()
@@ -721,6 +723,9 @@ struct Judge<'a> {
     /// What the machine supports for this call: the `auto` sandbox's, or in full mode
     /// [`AutoSupport::for_full`].
     support: AutoSupport,
+    /// The facts of the call, with the maps that a file tool call of many paths looks
+    /// them up in.
+    facts: Option<Facts<'a>>,
 }
 
 impl Judge<'_> {
@@ -769,7 +774,7 @@ impl Judge<'_> {
         access: Access,
         reason: Reason,
     ) -> (Reason, Option<ExitNeed>) {
-        let facts = self.input.requirements.facts.as_ref();
+        let facts = self.facts.as_ref();
         let support = &self.support;
         match access {
             Access::Write if reason.effect == Effect::Ask && self.built_in(&reason.cause) => {

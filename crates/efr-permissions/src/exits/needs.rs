@@ -1,16 +1,17 @@
 //! The model's `needs`, normalized into exits.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
 
 use super::envelope::{Envelope, resolve};
 use super::programs::{ProxyRoute, is_host_device, proxy_route, reaches_job};
-use super::{Approver, ExitNeed, WriteFacts, write_need};
+use super::{Approver, ExitNeed, Facts, WriteFacts, write_need};
 use crate::jobs::service_socket;
 use crate::network::{HostList, host_and_port};
 use crate::path_class::normalize;
-use crate::{AutoSupport, CallFacts, Egress};
+use crate::{AutoSupport, Egress};
 
 /// What the exits of `needs` read about the machine: its sandbox's support and the
 /// host list of efr's proxy.
@@ -36,8 +37,8 @@ pub(super) fn exits(
     needs: &Needs,
     envelope: &Envelope<'_>,
     dir: Option<&Path>,
-    facts: Option<&CallFacts>,
-    made: &[(PathBuf, bool)],
+    facts: Option<&Facts<'_>>,
+    made: &HashMap<PathBuf, bool>,
     machine: &NeedsContext<'_>,
 ) -> Vec<ExitNeed> {
     let support = machine.support;
