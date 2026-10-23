@@ -1392,12 +1392,13 @@ decides only when a failing test stops waiting.
 ## Benches
 
 Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
-`efr-test-support`, a dev-dependency only. They report what they measure and have no
-time budget yet. A size that takes more than 10 s stops its ladder.
+`efr-test-support`, a dev-dependency only. They report what they measure. A bench
+with a budget fails when the budget fails; the list below names each budget. A size
+that takes more than 10 s stops its ladder.
 
 - `bench_perf_wrap_command` (`src/format/tests.rs`): `wrap_command` at 80 columns, by
   code point and by grapheme, on lines of 1 KB, 10 KB and 100 KB with and without
-  spaces.
+  spaces. Budget: each slope over bytes stays below 1.3.
 - `bench_perf_card_frames` (`src/follow/view/tests/perf.rs`): 600 ticks of a view with
   a pending approval that shows a diff. It counts the calls of `Card::render` through
   a counter that only tests build (`format::card::RENDERS`).

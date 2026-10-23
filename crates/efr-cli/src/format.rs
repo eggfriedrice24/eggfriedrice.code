@@ -22,7 +22,7 @@ use efr_stdx::text::is_format;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde_json::Value;
-use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_segmentation::{Graphemes, UnicodeSegmentation as _};
 
 pub(crate) mod always;
 pub(crate) mod card;
@@ -504,11 +504,13 @@ pub(crate) fn wrap_command(
     let mut indented = false;
     loop {
         let here = if indented { room.saturating_sub(indent) } else { room }.max(1);
-        if text_width(left, method) <= here {
+        if fits(left, here, method) {
             rows.push(CommandRow { text: left.to_owned(), indented, end: RowEnd::Last });
             return rows;
         }
         let budget = here.saturating_sub(mark);
+        // `after_space` holds the end of the last space after a word, and the width up
+        // to it.
         let (mut end, mut used, mut after_space, mut word) = (0, 0, None, false);
         for piece in pieces(left, method) {
             let width = text_width(piece, method);
@@ -522,7 +524,7 @@ pub(crate) fn wrap_command(
                 // NOTE: only a space after a word cuts: a row of spaces alone says
                 // nothing.
                 if word {
-                    after_space = Some(end);
+                    after_space = Some((end, used));
                 }
             } else {
                 word = true;
@@ -532,9 +534,7 @@ pub(crate) fn wrap_command(
         // such as `cp \`, with the rest of the row empty: a space cuts only a row that
         // is at least half full, or one that the word after it cannot reach.
         let (cut, kind) = match after_space {
-            Some(at) if at == end || text_width(&left[..at], method) * 2 >= here => {
-                (at, RowEnd::Space)
-            }
+            Some((at, width)) if at == end || width * 2 >= here => (at, RowEnd::Space),
             _ => (end, RowEnd::Word),
         };
         if cut >= left.len() {
@@ -584,7 +584,7 @@ pub(crate) fn wrap_spans(
                 continue;
             }
             let mut left = token;
-            while text_width(left, method) > room {
+            while !fits(left, room, method) {
                 let mut end = 0;
                 let mut taken = 0;
                 for piece in pieces(left, method) {
@@ -595,11 +595,13 @@ pub(crate) fn wrap_spans(
                     end += piece.len();
                     taken += width;
                 }
-                let (row, after) = left.split_at(end);
-                push_span(&mut rows, row, *tone);
-                if after.is_empty() {
+                // NOTE: one piece that is wider than a row has the row to itself and shows
+                // once.
+                if end == left.len() {
                     break;
                 }
+                let (row, after) = left.split_at(end);
+                push_span(&mut rows, row, *tone);
                 rows.push(Vec::new());
                 room = rest;
                 left = after;
@@ -714,7 +716,7 @@ pub(crate) fn run_heading(tool: &str, command: &str) -> Vec<String> {
 /// `text` cut to `columns` with `…` at the cut, as a terminal that counts widths by
 /// `method` shows it; whole when it fits. A grapheme cluster is never cut in two.
 pub(crate) fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
-    if text_width(text, method) <= columns {
+    if fits(text, columns, method) {
         return text.to_owned();
     }
     let mut out = String::new();
@@ -732,12 +734,50 @@ pub(crate) fn cut(text: &str, columns: usize, method: WidthMethod) -> String {
 }
 
 /// The pieces a terminal that counts by `method` gives a width each: code points, or
-/// grapheme clusters.
-fn pieces(text: &str, method: WidthMethod) -> Vec<&str> {
+/// grapheme clusters. They come one at a time, so a caller that stops at a full row
+/// does not cut the rest of the text.
+fn pieces(text: &str, method: WidthMethod) -> Pieces<'_> {
     match method {
-        WidthMethod::Grapheme => text.graphemes(true).collect(),
-        _ => text.split_inclusive(|_| true).collect(),
+        WidthMethod::Grapheme => Pieces::Clusters(text.graphemes(true)),
+        _ => Pieces::CodePoints(text),
     }
+}
+
+/// The iterator of [`pieces`].
+enum Pieces<'a> {
+    /// The text that is left, cut one code point at a time.
+    CodePoints(&'a str),
+    Clusters(Graphemes<'a>),
+}
+
+impl<'a> Iterator for Pieces<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        match self {
+            Pieces::CodePoints(left) => {
+                let c = left.chars().next()?;
+                let (piece, after) = left.split_at(c.len_utf8());
+                *left = after;
+                Some(piece)
+            }
+            Pieces::Clusters(clusters) => clusters.next(),
+        }
+    }
+}
+
+/// True when `text` takes at most `columns` columns on a terminal that counts by
+/// `method`. The count stops at the first piece past them, so a long text costs only
+/// the start of it.
+fn fits(text: &str, columns: usize, method: WidthMethod) -> bool {
+    let mut used = 0;
+    for piece in pieces(text, method) {
+        used += text_width(piece, method);
+        if used > columns {
+            return false;
+        }
+    }
+    true
 }
 
 /// The end of a tool call worth a line: a failure or a non-zero exit. `None` for a
