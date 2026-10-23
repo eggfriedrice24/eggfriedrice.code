@@ -18,6 +18,9 @@ clap.workspace = true
 efr-protocol.workspace = true
 efr-sandbox.workspace = true
 landlock.workspace = true
+# `signal` for the signal mask that holds a job-control or stop signal while its
+# handler is installed (src/signals.rs).
+nix = { workspace = true, features = ["signal"] }
 # Only in src/fds.rs: close_range, dup3 onto a fixed number, and the two raw system
 # calls of the probe's self-test (ADR 0007).
 libc.workspace = true

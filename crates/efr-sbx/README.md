@@ -78,7 +78,7 @@ where `efr-sbx guard-check` reads it while the job runs.
 | `src/fds.rs` | the only `unsafe` code: descriptor numbers the process does not own yet (ADR 0007) |
 | `src/real_fs.rs` | `FsView` over `openat2(RESOLVE_NO_SYMLINKS)` |
 | `src/os.rs` | the process, environment and time calls that `efr-stdx` routes elsewhere |
-| `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored; whether SIGINT or SIGQUIT stopped the call; for a job, SIGTERM and SIGHUP caught through a pipe for the stop thread |
+| `src/signals.rs` | SIGINT, SIGQUIT and SIGTSTP caught with a flag, never ignored, and blocked while the handlers are installed; whether SIGINT or SIGQUIT stopped the call; for a job, SIGTERM and SIGHUP caught through a pipe for the stop thread |
 | `src/dbus_proxy.rs` | `dbus-proxy`: the wrapper of `xdg-dbus-proxy`, with no code outside safe Rust but `fds.rs` |
 | `src/self_test/bus_proxy.rs` | `self-test --bus-proxy`: the checks of the bus proxy's domain, for the tests |
 | `src/bridge.rs` | the bridge of a proxy call: the starter, the server with its own session, name (`efr-bridge`), no dump, Landlock domain (`LandlockPolicy::bridge`) and seccomp profile (`SeccompProfile::bridge`), and the copies, two threads per connection, at most 64 connections |
@@ -144,7 +144,8 @@ and the result). Third-party crates: `landlock` 0.4.7, `seccompiler` 0.5.0 (with
 json frontend, which maps system call names to numbers), `rustix` (with `mount` for the
 layer helper, and `net` for the socket pair that brings its upper dirs back),
 `signal-hook`,
-`clap`, `libc` (only in `src/fds.rs`), `serde`, `serde_json` and `thiserror`.
+`clap`, `libc` (only in `src/fds.rs`), `nix` (with `signal`, for the signal mask in
+`src/signals.rs`), `serde`, `serde_json` and `thiserror`.
 
 No `efr-stdx`: it reaches tokio, and `xtask/src/deps.rs` forbids `efr-sbx -> tokio`.
 The launcher is a small process in the hidden shell's foreground job, so it has no
@@ -156,11 +157,12 @@ async runtime; it reads its own environment, which is the trusted shell's.
   of any step before the child starts is a setup failure (exit status 125 and
   `setup_error`); the line never runs elsewhere.
 - Ctrl+C (SIGINT or SIGQUIT) during the setup is not a failure. The launcher catches
-  the signal first. When the signal comes before bwrap or the exit child starts, the
-  launcher does not start it. When the signal breaks the setup, the result has the
-  signal and no `setup_error`, and the status is 128 plus the signal (130 for
-  SIGINT). A signal that comes while bwrap or the exit child starts goes to the
-  call's process group again.
+  the signal first. A signal that comes while the launcher installs its handlers
+  waits until the install is done, so it is never lost. When the signal comes before
+  bwrap or the exit child starts, the launcher does not start it. When the signal
+  breaks the setup, the result has the signal and no `setup_error`, and the status is
+  128 plus the signal (130 for SIGINT). A signal that comes while bwrap or the exit
+  child starts goes to the call's process group again.
 - During a contained launch the launcher is a child subreaper. When a signal ends
   bwrap before bwrap set the parent-death signal of the namespace's init, the init
   becomes the launcher's child, and the launcher ends it with SIGKILL. Without this,

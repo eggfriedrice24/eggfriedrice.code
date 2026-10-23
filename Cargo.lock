@@ -1070,6 +1070,7 @@ dependencies = [
  "efr-sandbox",
  "landlock",
  "libc",
+ "nix",
  "pretty_assertions",
  "rustix",
  "seccompiler",

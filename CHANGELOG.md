@@ -707,6 +707,8 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Fixed
 
+- In `auto`, a Ctrl+C at the very start of an agent's command could be lost, and the
+  command then ran to its end. Now the sandbox launcher always stops the command.
 - `$SCRATCH` now works in the agent's commands. The model read that `$SCRATCH` was its
   own directory, but the hidden shell did not set the variable, so `cd "$SCRATCH"` did
   not move, and a `git clone` after it landed in your project. Now every command of the
