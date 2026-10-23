@@ -5,3 +5,4 @@
 #![cfg(test)]
 
 mod conformance;
+mod osc_scan;
