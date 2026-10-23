@@ -9,8 +9,16 @@ auto spec, section 10).
 - One bare git repository per root in efr's data root: `$D/snapshots/<root-id>.git`,
   where `root-id` is the first 16 hex characters of the SHA-256 of the canonical root
   path. Its persistent index is `<root-id>.index` next to it. It keeps git's stat
-  cache, so a later snapshot hashes only changed files. `<root-id>.root` holds the
-  root's path for the collector. `$D` is masked in the sandbox, so sandboxed code
+  cache, so a later snapshot hashes only changed files. The turn's first snapshot of
+  a root brings that stat data up to date (`update-index --refresh`), so the later
+  snapshots of the turn read no file that did not change, also one that git saw as
+  racily clean. The refresh changes no tree. A snapshot lists what changed with one
+  `ls-files`, or, for an index of 1,000 entries or more, with `diff-files` and
+  `ls-files -o` at the same time, because `diff-files` stats the entries on several
+  threads (`--ignore-submodules=dirty`, so no git runs inside a nested repository).
+  It names each change that `ls-files` names, and also a file that only got new stat
+  data, which `git add` then brings up to date. `<root-id>.root` holds the root's
+  path for the collector. `$D` is masked in the sandbox, so sandboxed code
   cannot read, change or delete a snapshot.
 - `Snapshots::before_call` and `after_call`: a tree of each `Root` before and after a
   call that can write, and the `FileChanges` of the call. The first snapshot of a root
@@ -308,7 +316,16 @@ reports the git processes that it starts.
 - `bench_perf_snapshot_call` (`tests/it/perf.rs`): the first snapshot of a turn (with
   the mirror), one call with 0, 1 and 100 changed files, and the turn's end, in a
   repository of 100, 2,000 and 20,000 tracked files. Also 2,000 tracked files with a
-  `target/` dir of 10,000 files that is ignored, and that is not ignored.
+  `target/` dir of 10,000 files that is ignored, and that is not ignored. Its budget:
+  the turn's first snapshot runs one `update-index`; a call with no change runs two
+  `ls-files` below 1,000 files in the index and two `diff-files` and two `ls-files`
+  from 1,000 on, and nothing more; that call takes at most 60 ms at 19,900 tracked
+  files and 40 ms with the `target/` that is not ignored.
+- `bench_perf_snapshot_rewrite` (`tests/it/perf.rs`): 5,000 tracked files of 10 KB,
+  all written again in one call, then 10 calls with no change in the next turn. The
+  snapshot took the new files in the second in which they were written, so git sees
+  each one as racily clean until a refresh. Its budget: those calls take at most 3
+  times as long as the calls before the rewrite.
 - `bench_perf_left_out` (`tests/it/perf.rs`): the turn's end with 300, 3,000, 10,000
   and 20,000 ignored files that the snapshots leave out, in wall time and in the CPU
   time of the test process. Its budget: the CPU time grows with a slope below 1.3, and

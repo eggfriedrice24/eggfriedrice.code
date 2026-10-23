@@ -1,20 +1,23 @@
 //! One snapshot of one root: the tree of what is there now, written into the root's
 //! store.
 //!
-//! A snapshot asks git once what differs from the persistent index (`ls-files` of the
-//! modified, deleted and untracked files), so a root where nothing changed costs one
-//! git run and the tree of the last snapshot comes back. New untracked files above the
-//! size limit and nested repositories are left out, and a file of the index that grew
-//! past its limit leaves the index, so no call hashes it again. Only the changed paths
-//! are added,
-//! literally ([`stage`]), and `write-tree` writes the tree when one is needed
-//! ([`write_tree`]). With the ignored files of
-//! `IgnoredFiles::Small`, a second `ls-files` lists the ignored files and directories
-//! at the same time as the first, and the small ones outside build and dependency
-//! directories and outside nested repositories are added too. In a root where nothing
-//! changed, these two runs are all that the first snapshot of a turn costs. A root
-//! without a snapshot yet lists its ignored files only after the `max_files` check, so
-//! a root that is too big never pays for that listing.
+//! A snapshot asks git what differs from the persistent index (the modified, deleted
+//! and untracked files: one `ls-files`, or for an index of [`SPLIT_FROM_ENTRIES`] or
+//! more, `diff-files` and `ls-files -o` at the same time, which stat the entries on
+//! several threads), so a root where nothing changed costs one listing and the tree of
+//! the last snapshot comes back. The turn's first snapshot of a root first brings the
+//! stat data of the index up to date ([`refresh`]), so the later listings of the turn
+//! read no unchanged file. New untracked files above the size limit and nested
+//! repositories are left out, and a file of the index that grew past its limit leaves
+//! the index, so no call hashes it again. Only the changed paths are added, literally
+//! ([`stage`]), and `write-tree` writes the tree when one is needed ([`write_tree`]).
+//! With the ignored files of `IgnoredFiles::Small`, one more `ls-files` lists the
+//! ignored files and directories at the same time as the listing, and the small ones
+//! outside build and dependency directories and outside nested repositories are added
+//! too. In a root where nothing changed, the refresh and these runs are all that the
+//! first snapshot of a turn costs. A root without a snapshot yet lists its ignored
+//! files only after the `max_files` check, so a root that is too big never pays for
+//! that listing.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -110,6 +113,28 @@ impl Captured {
     }
 }
 
+/// Reads the output of a split listing ([`split_listing`]): `changed` of `diff-files
+/// -z --name-only` and `others` of `ls-files -z -o`, a path per record.
+pub(crate) fn parse_split(changed: &[u8], others: &[u8]) -> Listing {
+    let mut listing = Listing::default();
+    for (out, other) in [(changed, false), (others, true)] {
+        for record in out.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
+            // NOTE: as in `parse_listing`, a name that is not UTF-8 waits for a full
+            // snapshot.
+            let Ok(path) = std::str::from_utf8(record) else {
+                listing.not_utf8.push(String::from_utf8_lossy(record).into_owned());
+                continue;
+            };
+            if other {
+                listing.others.push(path.to_owned());
+            } else {
+                listing.changed.insert(path.to_owned());
+            }
+        }
+    }
+    listing
+}
+
 /// Reads `ls-files -z -t` output: a tag, a space and a path per record.
 pub(crate) fn parse_listing(out: &[u8]) -> Listing {
     let mut listing = Listing::default();
@@ -136,6 +161,9 @@ pub(crate) fn parse_listing(out: &[u8]) -> Listing {
 pub(crate) struct Take<'a> {
     /// Also take the small ignored files.
     pub(crate) ignored: bool,
+    /// First bring the stat data of the index up to the root ([`refresh`]): the turn's
+    /// first snapshot of the root does it.
+    pub(crate) refresh: bool,
     /// No tree of the store is known in this process: copy the project's exclude file
     /// first, and drop what the index holds below `skip`.
     pub(crate) fresh: bool,
@@ -155,7 +183,7 @@ pub(crate) async fn stage(
     take: Take<'_>,
     ready: &AtomicBool,
 ) -> Result<Captured, SnapshotError> {
-    let Take { ignored, fresh, skip } = take;
+    let Take { ignored, refresh: refreshed, fresh, skip } = take;
     let root = store.root().to_path_buf();
     if !store.exists() {
         let prepared = store.clone();
@@ -191,6 +219,9 @@ pub(crate) async fn stage(
     if entries > limits.max_files {
         return Ok(Captured::skipped(TOO_MANY_FILES));
     }
+    if refreshed && entries > 0 {
+        refresh(runner, store, &root).await?;
+    }
     // NOTE: both listings only read the root and the index. A root whose index holds
     // files had a snapshot, so it was below max_files: its two listings run together,
     // and the scan of the ignored files adds no git run to the time of the snapshot. A
@@ -198,14 +229,14 @@ pub(crate) async fn stage(
     // the ignored listing only once the max_files check passed: a root that is too big
     // never pays for it.
     let together = scan_ignored && entries > 0;
-    let (listed, early) = tokio::join!(listing(runner, store, &root, skip), async {
+    let (listed, early) = tokio::join!(listing(runner, store, &root, skip, entries), async {
         if together {
             ignored_listing(runner, store, &root, skip).await.map(Some)
         } else {
             Ok(None)
         }
     });
-    let listing = parse_listing(&listed?);
+    let listing = listed?;
     let early = early?;
     if entries + listing.others.len() as u64 > limits.max_files {
         return Ok(Captured::skipped(TOO_MANY_FILES));
@@ -431,19 +462,108 @@ pub(crate) fn log_failed_add(reported: &Reported, root: &Path, added: Added, out
 /// Why a root has no snapshot when it holds more files than `snapshot.max_files`.
 const TOO_MANY_FILES: &str = "the root has more files than snapshot.max_files";
 
-/// The modified, deleted and untracked files of the root of `store`, from `ls-files`,
-/// without the directories of `skip`.
+/// From this many entries of the index on, a listing stats them on several threads
+/// ([`split_listing`]); below it, one git run lists all ([`one_listing`]). git's
+/// preload of the index gives a thread to each 500 entries, so a smaller index gets
+/// one thread, and the second run only adds its start.
+pub(crate) const SPLIT_FROM_ENTRIES: u64 = 1000;
+
+/// The modified, deleted and untracked files of the root of `store`, whose index holds
+/// `entries` entries, without the directories of `skip`.
 async fn listing(
     runner: &Runner,
     store: &Store,
     root: &Path,
     skip: &[String],
-) -> Result<Vec<u8>, SnapshotError> {
+    entries: u64,
+) -> Result<Listing, SnapshotError> {
+    if entries >= SPLIT_FROM_ENTRIES {
+        split_listing(runner, store, root, skip).await
+    } else {
+        one_listing(runner, store, root, skip).await
+    }
+}
+
+/// [`listing`] in one `ls-files`, which stats each entry of the index in turn, then
+/// walks the root for the untracked files.
+pub(crate) async fn one_listing(
+    runner: &Runner,
+    store: &Store,
+    root: &Path,
+    skip: &[String],
+) -> Result<Listing, SnapshotError> {
     let mut args: Vec<String> = ["ls-files", "-z", "-t", "-m", "-d", "-o", "--exclude-standard"]
         .map(str::to_owned)
         .to_vec();
     args.extend(skipped_pathspecs(skip));
-    runner.checked(store, "ls-files", &args, Run { work_tree: Some(root), ..Run::default() }).await
+    let out = runner
+        .checked(store, "ls-files", &args, Run { work_tree: Some(root), ..Run::default() })
+        .await?;
+    Ok(parse_listing(&out))
+}
+
+/// [`listing`] in two git runs at the same time: `diff-files` stats the entries of the
+/// index on several threads and names the changed and deleted ones, and `ls-files -o`
+/// walks the root for the untracked files. Both compare the stat data of an entry as
+/// `ls-files -m` does, a racily clean entry by its content, so each change that
+/// [`one_listing`] finds is in it. It also names an entry whose stat data changed
+/// while its content did not (`ls-files` reads that content to drop it); `git add`
+/// then only brings its stat data up to date. `--ignore-submodules=dirty` compares a
+/// nested repository's commit as `ls-files` does, without a git run inside it.
+pub(crate) async fn split_listing(
+    runner: &Runner,
+    store: &Store,
+    root: &Path,
+    skip: &[String],
+) -> Result<Listing, SnapshotError> {
+    let mut changed: Vec<String> = [
+        "diff-files",
+        "-z",
+        "--name-only",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--ignore-submodules=dirty",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    changed.extend(skipped_pathspecs(skip));
+    let mut others: Vec<String> =
+        ["ls-files", "-z", "-o", "--exclude-standard"].map(str::to_owned).to_vec();
+    others.extend(skipped_pathspecs(skip));
+    let run = || Run { work_tree: Some(root), ..Run::default() };
+    let (changed, others) = tokio::join!(
+        runner.checked(store, "diff-files", &changed, run()),
+        runner.checked(store, "ls-files", &others, run()),
+    );
+    Ok(parse_split(&changed?, &others?))
+}
+
+/// Brings the stat data of the persistent index of `store` up to its root
+/// (`update-index -q --refresh`), once per turn. A listing reads the content of each
+/// entry that is racily clean (git compares whole seconds, so a file written in the
+/// second of the index or later may have changed with the same stat data) or whose
+/// stat data changed while its content did not, such as a file that a tool wrote
+/// again with the same bytes. A listing never writes the index, so without this each
+/// listing of the turn would read those files again. When an entry needs it, the
+/// refresh writes the index again, which ends the racy state of an older file. It
+/// changes no blob and no entry: an entry whose content changed keeps its old stat
+/// data, so a listing still names it, and an entry whose file is as new as the index
+/// stays racy, so a later listing still reads its content.
+async fn refresh(runner: &Runner, store: &Store, root: &Path) -> Result<(), SnapshotError> {
+    let output = runner
+        .run(
+            store,
+            &["update-index", "-q", "--ignore-submodules", "--refresh"],
+            Run { work_tree: Some(root), ..Run::default() },
+        )
+        .await?;
+    if !output.success {
+        // NOTE: the refresh only saves work; a listing reads the index as it is.
+        locked(store, "update-index")?;
+        tracing::debug!(root = %root.display(), code = ?output.code, "the stat data of a snapshot index could not be refreshed");
+    }
+    Ok(())
 }
 
 /// The ignored files and directories of the root of `store`, from `ls-files`, without

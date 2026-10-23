@@ -91,13 +91,18 @@ fn runs(world: &World) -> (u64, BTreeMap<String, u64>) {
     (all.len() as u64, by)
 }
 
-/// Reports the git processes of `case` from the logged world, in all and by subcommand.
-fn report_runs(report: &mut Report, world: &World, case: &str) {
+/// The git processes of each case, by subcommand, for the budgets.
+type Counted = BTreeMap<String, BTreeMap<String, u64>>;
+
+/// Reports the git processes of `case` from the logged world, in all and by subcommand,
+/// and keeps them in `counted`.
+fn report_runs(report: &mut Report, world: &World, case: &str, counted: &mut Counted) {
     let (all, by) = runs(world);
     report.count(&format!("{case}: git processes"), all);
     let text: Vec<String> = by.iter().map(|(name, n)| format!("{name} {n}")).collect();
     // NOTE: the report has no text lines; the subcommands go into the label.
     report.count(&format!("{case}:   ({})", text.join(", ")), all);
+    counted.insert(case.to_owned(), by);
 }
 
 /// The times of the steps of a turn on `roots`: the first snapshot (`pre` with the
@@ -150,35 +155,46 @@ async fn counted_turn(
     id: u128,
     roots: &dyn Fn() -> Vec<Root>,
     name: &str,
+    counted: &mut Counted,
 ) {
     let limits = Limits::default();
     let turn_id = turn(id);
     runs(world);
     let first = world.snapshots.before_call(conversation(1), turn_id, roots(), limits).await;
-    report_runs(report, world, &format!("{name}: first snapshot of a turn"));
+    report_runs(report, world, &format!("{name}: first snapshot of a turn"), counted);
     world.snapshots.after_call(first, limits).await;
     runs(world);
     for (at, count) in CHANGED.into_iter().enumerate() {
         let call = world.snapshots.before_call(conversation(1), turn_id, roots(), limits).await;
         change(dir, count, id * 10 + at as u128);
         world.snapshots.after_call(call, limits).await;
-        report_runs(report, world, &format!("{name}: one call, {count} changed"));
+        report_runs(report, world, &format!("{name}: one call, {count} changed"), counted);
     }
     world.snapshots.turn_end(turn_id, limits).await;
-    report_runs(report, world, &format!("{name}: turn end"));
+    report_runs(report, world, &format!("{name}: turn end"), counted);
+}
+
+/// What the steps of the call ladder found: the median of each case by the files of
+/// the index, and the git processes of each case.
+#[derive(Default)]
+struct Found {
+    points: Vec<(String, u64, Duration)>,
+    counted: Counted,
 }
 
 /// Times [`TURNS`] turns of `dir` in `world` and counts the git processes of one more
-/// in `logged`; true when a step took longer than [`STOP_AFTER`].
+/// in `logged`, as `files` in `found`; true when a step took longer than
+/// [`STOP_AFTER`].
 async fn ladder_step(
     report: &mut Report,
     world: &World,
     logged: &World,
     dir: &Path,
     name: &str,
-    points: &mut Vec<(String, u64, Duration)>,
     files: u64,
+    found: &mut Found,
 ) -> bool {
+    let points = &mut found.points;
     let roots = || vec![git_root(dir)];
     let limits = Limits::default();
     // The first snapshot ever: every file hashed, the whole history fetched.
@@ -215,7 +231,7 @@ async fn ladder_step(
         logged.snapshots.before_call(conversation(1), turn(1), logged_roots(), limits).await;
     logged.snapshots.after_call(first, limits).await;
     logged.snapshots.turn_end(turn(1), limits).await;
-    counted_turn(report, logged, dir, 90, &logged_roots, name).await;
+    counted_turn(report, logged, dir, 90, &logged_roots, name, &mut found.counted).await;
     slow
 }
 
@@ -223,7 +239,7 @@ async fn ladder_step(
 #[ignore = "bench: run by just bench-perf"]
 async fn bench_perf_snapshot_call() {
     let mut report = Report::new("bench_perf_snapshot_call");
-    let mut points = Vec::new();
+    let mut found = Found::default();
     for count in TRACKED {
         let world = World::in_target();
         let logged = World::in_target().logged();
@@ -232,14 +248,15 @@ async fn bench_perf_snapshot_call() {
         report.time(&format!("{count} files: fixture"), &[started.elapsed()]);
         let name = format!("{count} files");
         let slow =
-            ladder_step(&mut report, &world, &logged, &dir, &name, &mut points, count as u64).await;
+            ladder_step(&mut report, &world, &logged, &dir, &name, count as u64, &mut found).await;
         if slow {
             report.count("stopped_at_n", count as u64);
             break;
         }
     }
     for step in ["first", "call 0", "call 1", "call 100", "end"] {
-        let line: Vec<(u64, Duration)> = points
+        let line: Vec<(u64, Duration)> = found
+            .points
             .iter()
             .filter(|(name, _, _)| name == step)
             .map(|(_, files, time)| (*files, *time))
@@ -254,8 +271,9 @@ async fn bench_perf_snapshot_call() {
         let dir = repo(&world, "project", 2_000, ignore).await;
         write_files(&dir, "target/debug", TARGET_FILES);
         let name = if ignored { "target/ ignored" } else { "target/ not ignored" };
-        let mut ignored_points = Vec::new();
-        ladder_step(&mut report, &world, &logged, &dir, name, &mut ignored_points, 2_000).await;
+        // NOTE: the files of `target/` join the index when it is not ignored.
+        let files = if ignored { 2_000 } else { 2_000 + TARGET_FILES as u64 };
+        ladder_step(&mut report, &world, &logged, &dir, name, files, &mut found).await;
     }
 
     // The cap: 20,000 tracked files and the `.gitignore`.
@@ -268,6 +286,167 @@ async fn bench_perf_snapshot_call() {
     report.count("20000 files: roots that the snapshot skipped", u64::from(call.is_empty()));
     world.snapshots.after_call(call, Limits::default()).await;
     report.finish();
+    call_budgets(&found);
+}
+
+/// The index entries from which a listing runs `diff-files` beside `ls-files -o`
+/// (`SPLIT_FROM_ENTRIES` of the crate).
+const SPLIT_FROM_ENTRIES: usize = 1_000;
+
+/// The most that a call with no change may take at 19,900 tracked files, and at 2,000
+/// tracked files with a `target/` of 10,000 files that is not ignored (12,000 in the
+/// index).
+const CALL_0_AT_MOST: [(u64, Duration); 2] =
+    [(19_900, Duration::from_millis(60)), (12_000, Duration::from_millis(40))];
+
+/// The budgets of `bench_perf_snapshot_call`: the git processes of each case (the
+/// refresh once at the turn's first snapshot, the split listing from
+/// [`SPLIT_FROM_ENTRIES`] entries on, and nothing more in a call with no change), and
+/// the time of a call with no change on a large root.
+fn call_budgets(found: &Found) {
+    let runs = |case: &str| found.counted.get(case).cloned().unwrap_or_default();
+    for files in TRACKED {
+        let first = runs(&format!("{files} files: first snapshot of a turn"));
+        assert_eq!(first.get("update-index"), Some(&1), "{files} files: {first:?}");
+        let call = runs(&format!("{files} files: one call, 0 changed"));
+        let expected: BTreeMap<String, u64> = if files >= SPLIT_FROM_ENTRIES {
+            [("diff-files".to_owned(), 2), ("ls-files".to_owned(), 2)].into()
+        } else {
+            [("ls-files".to_owned(), 2)].into()
+        };
+        assert_eq!(call, expected, "{files} files: the git runs of a call with no change");
+        let next = runs(&format!("{files} files: one call, 1 changed"));
+        assert!(!next.contains_key("update-index"), "{files} files: {next:?}");
+    }
+    for (files, most) in CALL_0_AT_MOST {
+        let (_, _, time) = found
+            .points
+            .iter()
+            .find(|(case, at, _)| case == "call 0" && *at == files)
+            .unwrap_or_else(|| panic!("no call with no change at {files} files"));
+        assert!(*time <= most, "a call with no change at {files} files took {time:?}");
+    }
+}
+
+/// The tracked files of the rewrite bench.
+const REWRITTEN: usize = 5_000;
+
+/// The size of each of them.
+const REWRITTEN_BYTES: usize = 10 * 1024;
+
+/// The calls that the rewrite bench times before and after the rewrite.
+const REWRITE_CALLS: usize = 10;
+
+/// Writes the [`REWRITTEN`] files below `dir/src`, each of [`REWRITTEN_BYTES`], with
+/// `mark` in its first byte and `time` as their time.
+fn write_large(dir: &Path, mark: u8, time: SystemTime) {
+    for n in 0..REWRITTEN {
+        let path = dir.join(format!("src/d{}/f{n}.rs", n % 100));
+        let mut bytes = format!("/{} file {n}\n", char::from(mark)).into_bytes();
+        bytes.resize(REWRITTEN_BYTES, b'x');
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, &bytes).unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(time).unwrap();
+    }
+}
+
+/// The time of a file written now below `dir`, as the clock of the file system sees it.
+fn file_time_now(dir: &Path) -> SystemTime {
+    let stamp = dir.join("stamp");
+    std::fs::write(&stamp, "now").unwrap();
+    let time = std::fs::metadata(&stamp).unwrap().modified().unwrap();
+    std::fs::remove_file(&stamp).unwrap();
+    time
+}
+
+/// The times of [`REWRITE_CALLS`] calls with no change in turn `id` of `dir`, and the
+/// git processes of the logged world `logged` in one more such call.
+async fn quiet_calls(world: &World, logged: &World, dir: &Path, id: u128) -> (Vec<Duration>, u64) {
+    let limits = Limits::default();
+    let first =
+        world.snapshots.before_call(conversation(1), turn(id), vec![git_root(dir)], limits).await;
+    world.snapshots.after_call(first, limits).await;
+    let first =
+        logged.snapshots.before_call(conversation(1), turn(id), vec![git_root(dir)], limits).await;
+    logged.snapshots.after_call(first, limits).await;
+    runs(logged);
+    let call =
+        logged.snapshots.before_call(conversation(1), turn(id), vec![git_root(dir)], limits).await;
+    logged.snapshots.after_call(call, limits).await;
+    let (count, _) = runs(logged);
+    logged.snapshots.turn_end(turn(id), limits).await;
+    let mut times = Vec::new();
+    for _ in 0..REWRITE_CALLS {
+        let started = Instant::now();
+        let call = world
+            .snapshots
+            .before_call(conversation(1), turn(id), vec![git_root(dir)], limits)
+            .await;
+        assert_eq!(world.snapshots.after_call(call, limits).await, None);
+        times.push(started.elapsed());
+    }
+    world.snapshots.turn_end(turn(id), limits).await;
+    (times, count)
+}
+
+/// The plan's W3-E: 5,000 tracked files of 10 KB, all written again (as a `sed -i` on
+/// each does) in one call. Their time is 2 s after the write, so the snapshot after the
+/// call writes the index in a second that is not later than theirs, and git sees each
+/// entry as racily clean and must read each file to compare it. A turn 3 s later then
+/// makes 10 calls with no change. With the refresh at the turn's first snapshot, they
+/// cost what the calls before the rewrite cost; without it, each listing of each call
+/// reads all 50 MB again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "bench: run by just bench-perf"]
+async fn bench_perf_snapshot_rewrite() {
+    let mut report = Report::new("bench_perf_snapshot_rewrite");
+    let world = World::in_target();
+    let logged = World::in_target().logged();
+    let home = world.home();
+    let dir = world.dir("rewritten");
+    write_large(&dir, b'a', SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000));
+    git(&dir, &home, &[], &["init", "-q"]).await;
+    git(&dir, &home, &[], &["add", "-A"]).await;
+    git(&dir, &home, &[], &["commit", "-q", "-m", "the files"]).await;
+    let limits = Limits::default();
+    let first =
+        world.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits).await;
+    world.snapshots.after_call(first, limits).await;
+    world.snapshots.turn_end(turn(1), limits).await;
+    let first =
+        logged.snapshots.before_call(conversation(1), turn(1), vec![git_root(&dir)], limits).await;
+    logged.snapshots.after_call(first, limits).await;
+    logged.snapshots.turn_end(turn(1), limits).await;
+    let (before, runs) = quiet_calls(&world, &logged, &dir, 2).await;
+    let before = report.time("5000 files of 10 KB: a call with no change", &before);
+    report.count("5000 files of 10 KB: a call with no change: git processes", runs);
+
+    let call =
+        world.snapshots.before_call(conversation(1), turn(3), vec![git_root(&dir)], limits).await;
+    let started = Instant::now();
+    write_large(&dir, b'b', file_time_now(world.base.path()) + Duration::from_secs(2));
+    let changes = world.snapshots.after_call(call, limits).await.unwrap();
+    report.time("5000 files of 10 KB: the call that writes each again", &[started.elapsed()]);
+    assert_eq!(changes.files.len() + changes.more as usize, REWRITTEN);
+    world.snapshots.turn_end(turn(3), limits).await;
+    // NOTE: the next turn starts after the time of the files, as after a model's answer.
+    std::thread::sleep(Duration::from_secs(3));
+    let (after, runs) = quiet_calls(&world, &logged, &dir, 4).await;
+    let after =
+        report.time("5000 files of 10 KB: a call with no change, after the rewrite", &after);
+    let label = "5000 files of 10 KB: a call with no change, after the rewrite: git processes";
+    report.count(label, runs);
+    report.finish();
+    // The budget: the refresh makes the calls after the rewrite as cheap as before it.
+    // Without it, the median call took about 20 times as long.
+    assert!(
+        after.p50 <= before.p50 * 3,
+        "a call after the rewrite took {:?}, before it {:?}",
+        after.p50,
+        before.p50
+    );
 }
 
 /// A repository with one tracked file in each of 200 dirs and `count` ignored files

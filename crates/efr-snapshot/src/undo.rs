@@ -38,7 +38,7 @@ use crate::meta::{GitMeta, MAX_TOUCHED, Meta};
 use crate::object::ObjectId;
 use crate::project_git::{GitDirs, Pins};
 use crate::runner::Run;
-use crate::snapshots::{Root, Snapshots};
+use crate::snapshots::{Root, Snapshots, Taking};
 use crate::store::Store;
 use crate::turn::{MIRROR_TAKEN, turn_ref};
 
@@ -911,7 +911,7 @@ impl Snapshots {
         limits: &Limits,
     ) -> Result<(String, Option<&'static str>), SnapshotError> {
         let snap = self
-            .snap(&root.root, limits, true)
+            .snap(&root.root, limits, Taking::Ignored)
             .await
             .map_err(|_| SnapshotError::GitFailed { command: "add", store: store.git_dir() })?;
         let mut meta = self.undo_meta(plan, root, "before");
@@ -944,7 +944,7 @@ impl Snapshots {
         let mut parent = None;
         if let (Some(root), Some(before)) = (root, undo.and_then(|has| has.before.as_deref())) {
             let snap = self
-                .snap(&root.root, limits, true)
+                .snap(&root.root, limits, Taking::Ignored)
                 .await
                 .map_err(|_| SnapshotError::GitFailed { command: "add", store: store.git_dir() })?;
             let info = self.commit_info(store, before).await?;

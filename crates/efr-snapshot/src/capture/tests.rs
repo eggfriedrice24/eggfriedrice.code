@@ -5,8 +5,10 @@ use pretty_assertions::assert_eq;
 
 use super::{
     LeftOut, LeftOutReason, MAX_IGNORED_BYTES, Unreadable, by_size, keep_others, parse_listing,
-    small_ignored, unreadable,
+    parse_split, small_ignored, unreadable,
 };
+
+mod listing;
 
 fn left(path: &str, reason: LeftOutReason) -> LeftOut {
     LeftOut { path: path.to_owned(), reason }
@@ -41,6 +43,18 @@ fn a_listing_splits_tracked_changes_from_new_files() {
         ["gone.txt".to_owned(), "src/a.rs".to_owned()]
     );
     assert_eq!(listing.others, ["new.txt", "nested/"]);
+}
+
+#[test]
+fn a_split_listing_reads_the_changes_and_the_new_files_of_two_runs() {
+    let listing = parse_split(b"src/a.rs\0gone.txt\0", b"new.txt\0nested/\0bad\xff\0");
+    assert_eq!(
+        listing.changed.into_iter().collect::<Vec<_>>(),
+        ["gone.txt".to_owned(), "src/a.rs".to_owned()]
+    );
+    assert_eq!(listing.others, ["new.txt", "nested/"]);
+    assert_eq!(listing.not_utf8, ["bad\u{fffd}"]);
+    assert_eq!(parse_split(b"", b""), parse_listing(b""));
 }
 
 #[test]

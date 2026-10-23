@@ -17,7 +17,7 @@ use crate::meta::{GitMeta, MAX_TOUCHED, Meta};
 use crate::mirror::{MIRROR_FETCH_FAILED, Mirror};
 use crate::project_git::{GitDirs, Pins, ProjectGit, ProjectRefs};
 use crate::runner::Run;
-use crate::snapshots::{Missed, Pin, Root, Snap, Snapshots};
+use crate::snapshots::{Missed, Pin, Root, Snap, Snapshots, Taking};
 use crate::store::{self, Store};
 
 /// Which snapshot of a turn.
@@ -394,7 +394,7 @@ impl Snapshots {
         if let Some(reason) = kept.mirror.as_ref().and_then(|mirror| mirror.missing) {
             end.not_covered.push((path.clone(), format!("{NOT_COVERED_REFS}{reason}")));
         }
-        let post = match self.snap(&path, &limits, true).await {
+        let post = match self.snap(&path, &limits, Taking::Ignored).await {
             Ok(post) => post,
             Err(missed) => {
                 let reason = match missed {

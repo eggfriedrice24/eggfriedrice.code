@@ -14,7 +14,7 @@ use efr_protocol::{ConversationId, TurnId};
 use crate::capture::{self, LeftOut, LeftOutReason, Limits, MAX_IGNORED_BYTES};
 use crate::project_git::ProjectGit;
 use crate::runner::Run;
-use crate::snapshots::{Missed, Root, Snap, Snapshots};
+use crate::snapshots::{Missed, Root, Snap, Snapshots, Taking};
 use crate::store::Store;
 use crate::turn::View;
 
@@ -81,7 +81,9 @@ impl Snapshots {
             return all(CoverResult::NoSnapshot);
         };
         let first = !self.in_turn(turn, root.path());
-        let taken = self.snap(root.path(), &limits, true).await;
+        let taken = self
+            .snap(root.path(), &limits, if first { Taking::First } else { Taking::Ignored })
+            .await;
         let fresh = if first {
             self.start_root(conversation, turn, &root, taken, &limits).await
         } else {

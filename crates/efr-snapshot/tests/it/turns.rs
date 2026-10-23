@@ -193,8 +193,8 @@ async fn the_first_call_of_a_turn_in_an_unchanged_root_runs_the_two_listings_and
         world.snapshots.before_call(conversation(1), turn(2), vec![root(&dir)], limits()).await;
     assert_eq!(
         world.git_runs(),
-        ["commit-tree", "ls-files", "ls-files", "update-ref"],
-        "no add and no new tree; the commit and the ref of pre"
+        ["commit-tree", "ls-files", "ls-files", "update-index", "update-ref"],
+        "the refresh, no add and no new tree; the commit and the ref of pre"
     );
     world.snapshots.after_call(call, limits()).await;
     assert_eq!(world.git_runs(), ["ls-files"], "a later snapshot skips the ignored files");

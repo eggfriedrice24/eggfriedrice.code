@@ -197,6 +197,19 @@ pub(crate) struct Snap {
     pub(crate) modes: BTreeMap<String, u32>,
 }
 
+/// What one [`Snapshots::snap`] takes besides the changed files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Taking {
+    /// Nothing more: the snapshot of a call.
+    Changes,
+    /// The small ignored files: the turn's last snapshot, a coverage check after the
+    /// turn's first snapshot, an undo.
+    Ignored,
+    /// The turn's first snapshot of the root: the small ignored files, after a refresh
+    /// of the stat data of the index (`capture::refresh`).
+    First,
+}
+
 /// Why a snapshot has no tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Missed {
@@ -267,7 +280,8 @@ impl Snapshots {
         let roots = self.canonical(roots).await;
         let taken = futures::future::join_all(roots.into_iter().map(|root| async move {
             let first = !self.in_turn(turn, root.path());
-            let snap = self.snap(root.path(), &limits, first).await;
+            let taking = if first { Taking::First } else { Taking::Changes };
+            let snap = self.snap(root.path(), &limits, taking).await;
             let snap = if first {
                 self.start_root(conversation, turn, &root, snap, &limits).await?
             } else {
@@ -338,7 +352,7 @@ impl Snapshots {
         let missing: Vec<Root> =
             roots.into_iter().filter(|root| !self.in_turn(turn, root.path())).collect();
         futures::future::join_all(missing.into_iter().map(|root| async move {
-            let snap = self.snap(root.path(), &limits, true).await;
+            let snap = self.snap(root.path(), &limits, Taking::First).await;
             self.start_root(conversation, turn, &root, snap, &limits).await;
         }))
         .await;
@@ -363,7 +377,7 @@ impl Snapshots {
         };
         let roots = self.touch_paths(turn, &resolved);
         futures::future::join_all(roots.into_iter().map(|root| async move {
-            match self.snap(&root, &limits, false).await {
+            match self.snap(&root, &limits, Taking::Changes).await {
                 Ok(snap) => self.touch(turn, &root, &[], &snap.tree).await,
                 Err(_) => self.mark_failed(turn, &root),
             }
@@ -412,14 +426,15 @@ impl Snapshots {
         }
     }
 
-    /// One snapshot of the canonical `root`, or why there is none, with a line in the
-    /// log.
+    /// One snapshot of the canonical `root` that takes what `taking` says, or why there
+    /// is none, with a line in the log.
     pub(crate) async fn snap(
         &self,
         root: &Path,
         limits: &Limits,
-        ignored: bool,
+        taking: Taking,
     ) -> Result<Snap, Missed> {
+        let ignored = taking != Taking::Changes;
         let slot = self.slot(root);
         let _turn = slot.enter().await;
         let now = self.runner().clock().now();
@@ -437,7 +452,12 @@ impl Snapshots {
                 &self.inner.reported,
                 &store,
                 limits,
-                capture::Take { ignored, fresh: cached.is_none(), skip: &skip },
+                capture::Take {
+                    ignored,
+                    refresh: taking == Taking::First,
+                    fresh: cached.is_none(),
+                    skip: &skip,
+                },
                 &slot.ready,
             )
             .await?;
@@ -506,7 +526,12 @@ impl Snapshots {
                 &self.inner.reported,
                 &store,
                 limits,
-                capture::Take { ignored: false, fresh: cached.is_none(), skip: &skip },
+                capture::Take {
+                    ignored: false,
+                    refresh: false,
+                    fresh: cached.is_none(),
+                    skip: &skip,
+                },
                 &slot.ready,
             )
             .await?;
@@ -538,7 +563,9 @@ impl Snapshots {
             }
         }
         .await;
-        tracing::debug!(phase = "snapshot_after", root = %root.display(), elapsed_ms = %watch, "phase=snapshot_after elapsed_ms={}", watch);
+        // NOTE: not `snapshot_after`: efrd's line of that name holds this one of each
+        // root, and a sum of the lines of one name counted each root twice.
+        tracing::debug!(phase = "snapshot_changes", root = %root.display(), elapsed_ms = %watch, "phase=snapshot_changes elapsed_ms={}", watch);
         match compared {
             Ok(Ok(changes)) => Some(changes),
             Ok(Err(reason)) => {
