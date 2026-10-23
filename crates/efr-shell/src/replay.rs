@@ -13,7 +13,8 @@
 //! A row that scrolled off the top is out of reach of every cursor movement, so the
 //! scrollback is final; but a backend keeps only so much of it. A replay whose
 //! scrollback reaches [`TRUSTED_SCROLLBACK`] may have lost its oldest rows, so it is
-//! replayed again in two halves split at a line end.
+//! replayed again in two halves split at a line end. A replay therefore reads at most
+//! that many rows of scrollback: the text of a screen that holds more is not used.
 //!
 //! When the capture screen cannot start or stops early, the cleaner reads the bytes.
 //!
@@ -134,7 +135,10 @@ impl<'a> Replayer<'a> {
         while let Some(piece) = pieces.pop() {
             let last = pieces.is_empty();
             let size = Size { cols: self.size.cols, rows: rows_for(&piece, self.size) };
-            let snapshot = self.replay_piece(&piece, size, usize::MAX).await?;
+            // NOTE: both backends give the newest rows up to the limit. A piece that
+            // holds fewer rows reads whole, and one that holds the limit or more is
+            // split, as with all of its scrollback; its older rows are never built.
+            let snapshot = self.replay_piece(&piece, size, TRUSTED_SCROLLBACK).await?;
             if snapshot.scrollback.len() < TRUSTED_SCROLLBACK {
                 text.push_str(&screen_text(&snapshot, last));
                 continue;

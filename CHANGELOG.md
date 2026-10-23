@@ -102,6 +102,10 @@ into the GitHub release notes, and it stops when the section is missing.
 - efrd uses less CPU while a command in the hidden shell prints much output. efr now
   reads the output in chunks of up to 64 KiB, so it hands on 3 to 10 times fewer
   chunks. A prompt still shows as soon as the shell prints it.
+- The result of a command whose output moves the cursor, such as a build with a
+  status line, is ready sooner with the ghostty screen. efr now reads only the 1,000
+  newest rows of each screen that replays the output, not all 5,000 rows that ghostty
+  keeps. The text of the result does not change.
 
 ### Security
 
