@@ -22,6 +22,7 @@ use super::{
 use crate::compaction::Placed;
 
 mod covered;
+mod held;
 mod perf;
 
 fn turn(seed: u64) -> TurnId {
@@ -496,7 +497,9 @@ async fn store_with(batches: Vec<Vec<Event>>) -> TestStore {
 }
 
 async fn snapshot(store: &TestStore, limits: HistoryLimits) -> Snapshot {
-    Snapshot::read(store.readers(), conversation(), limits).await.expect("snapshot")
+    Snapshot::read(store.readers(), conversation(), limits, &HashMap::new())
+        .await
+        .expect("snapshot")
 }
 
 #[tokio::test]

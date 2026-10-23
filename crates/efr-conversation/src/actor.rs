@@ -1406,12 +1406,14 @@ impl ConversationActor {
 
     /// Keeps the messages of a finished turn for the history of the next ones. Of the
     /// earlier turns it keeps those that the turn's newest request carried: a turn that
-    /// a summary covers, or that the history left out, is never sent again.
+    /// a summary covers, or that the history left out, is never sent again. The
+    /// messages give back their unused room first, because they stay until the trim.
     fn remember(&mut self, end: TurnEnd) {
         if let Some(carried) = &end.carried {
             self.cache.retain(|turn_id, _| carried.contains(turn_id));
         }
-        if let Some(cached) = end.cached {
+        if let Some(mut cached) = end.cached {
+            cached.shrink();
             self.cache.insert(end.turn_id, Arc::new(cached));
         }
     }

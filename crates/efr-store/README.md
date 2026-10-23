@@ -47,7 +47,8 @@ across a restart:
   event that ends the turn (`Batch::turn_messages`), keeps every turn until a summary
   covers it, because every request sends those turns word for word, and
   `of_conversation` reads them back, so a conversation that goes on after a restart
-  sends the same request. They are not a
+  sends the same request. `of_conversation_except` reads only the turns that the
+  reader does not hold, and gives the ids of the others. They are not a
   projection: a rebuild leaves them alone. A `conversation_compacted` with a summary
   drops, in its own batch, the saved turns before its cut, and its `through_turn` too
   when the cut covers that whole turn: the summary takes their place in every later

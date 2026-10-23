@@ -585,6 +585,11 @@ results stay, as opencode does. A turn also saves its exact messages in
 `efr_store::turn_messages`, in the batch that records its end, and the store keeps
 every turn until a summary covers it. After a restart the snapshot reads them back in
 place of the empty cache, so the next request is the same as without the restart.
+A turn's start reads back only the saved turns that the cache lacks
+(`turn_messages::of_conversation_except`): it never copies or decodes the messages of
+a turn that the actor keeps in memory. The actor keeps each turn with its strings
+shrunk to their length, so a tool output does not keep the room of the buffer it grew
+in.
 Only a turn with no saved messages (one from before the table, or one whose saved
 messages cannot be read back) is rebuilt from the events, with the daemon's call ids
 and without provider items or its preamble.
@@ -690,7 +695,9 @@ The design:
    newer prune-only compaction never moves this cut, and a cut at a turn that the
    turns do not know covers no turn. The history is the same as when every turn is
    read: `history/tests/covered.rs` checks the window, the request and the context
-   breakdown with and without the skip.
+   breakdown with and without the skip. `history/tests/held.rs` checks them the same
+   way with the turns that the cache holds and with every saved turn decoded, also
+   after an idle trim and after a restart.
 3. There is no turn limit. `turn_messages` keeps every turn until a compaction with a
    summary covers it, and the actor keeps in memory the turns that the newest request
    carried, until it is idle for 10 minutes.

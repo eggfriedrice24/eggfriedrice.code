@@ -553,7 +553,8 @@ impl Turn {
         let config = Arc::clone(&self.config);
         let turn_id = self.turn_id();
         let snapshot =
-            Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history).await?;
+            Snapshot::read(&shared.deps.readers, shared.conversation_id, config.history, cache)
+                .await?;
         let summary = snapshot.summary.as_ref();
         self.cwd = match (&self.spec.context, summary.and_then(|summary| summary.cwd.as_ref())) {
             (Some(context), _) => context.pwd.clone(),

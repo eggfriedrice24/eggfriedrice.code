@@ -35,6 +35,10 @@ into the GitHub release notes, and it stops when the section is missing.
   command, such as each `git` after `env`. A command with more, such as
   `env git git git ...`, matches the rule, so efr asks you or refuses it. Before, such
   a line used efrd's time for each rule: 10,000 `git` words took about 1 second.
+- A prompt in a long conversation starts with less work and efrd uses less memory.
+  Before, each prompt read again from the database every earlier turn that efrd
+  still kept in memory, and each tool output in memory could use up to two times its
+  size.
 
 ### Fixed
 

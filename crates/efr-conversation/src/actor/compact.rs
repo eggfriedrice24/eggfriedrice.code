@@ -58,7 +58,8 @@ async fn compact(
 ) -> Result<ConversationCompactResult, ConversationError> {
     let conversation_id = shared.conversation_id;
     let config = shared.config.current();
-    let snapshot = Snapshot::read(&shared.deps.readers, conversation_id, config.history).await?;
+    let snapshot =
+        Snapshot::read(&shared.deps.readers, conversation_id, config.history, cache).await?;
     // NOTE: the model and the effort of the newest turn, so the summary request shares
     // the prefix of the last request and hits the prompt cache. A model that the model
     // list no longer has, as after a switch of `[model] provider`, gives way to the

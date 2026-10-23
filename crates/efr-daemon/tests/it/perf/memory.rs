@@ -17,6 +17,11 @@
 //! by a few MiB only. The growth bench moves the clock past the idle trim after each
 //! batch, so the slope is the memory that a conversation keeps after its trim (the
 //! next batches use the freed heap again), and fails when it passes [`GROWTH_BUDGET`].
+//!
+//! The memory bench also counts the saved messages that each turn's start decodes, from
+//! the history's debug event ([`Trims`] counts it too). The actor's cache holds every
+//! earlier turn of the load, so a start decodes none of them; it fails when the mean
+//! passes [`DECODE_BUDGET`].
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -55,6 +60,12 @@ const TRIM_BUDGET: u64 = 90;
 /// 0.06 to 0.076 MiB for each conversation; with it, 0.024 to 0.029 MiB.
 const GROWTH_BUDGET: u64 = 46 * 1024;
 
+/// The most bytes of saved message JSON that a turn's start of the memory bench may
+/// decode on average (64 KiB). The actor's cache holds every earlier turn, so the fixed
+/// code decodes none; before, each start decoded every saved turn of its conversation,
+/// about 0.8 MiB on average.
+const DECODE_BUDGET: u64 = 64 * 1024;
+
 /// The longest real time that a bench waits for the trims after it moved the clock.
 const TRIM_WAIT: Duration = Duration::from_secs(10);
 
@@ -67,15 +78,22 @@ fn memory() -> Memory {
 }
 
 /// The trims of the conversation actors of this process: how many there were, and the
-/// turns that they dropped.
+/// turns that they dropped; and the snapshot reads: how many there were, and the bytes
+/// of saved messages that they decoded.
 #[derive(Debug, Default)]
 struct Trims {
     trims: AtomicU64,
     turns: AtomicU64,
+    reads: AtomicU64,
+    decoded: AtomicU64,
 }
 
 /// The target of the actor's debug event of a trim, which names `turns`.
 const TRIM_TARGET: &str = "efr_conversation::actor";
+
+/// The target of the history's debug event of a snapshot read, which names `held` and
+/// `bytes`.
+const READ_TARGET: &str = "efr_conversation::history";
 
 /// True for the actor's debug event of a trim.
 fn is_trim(metadata: &Metadata<'_>) -> bool {
@@ -84,34 +102,48 @@ fn is_trim(metadata: &Metadata<'_>) -> bool {
         && metadata.fields().field("turns").is_some()
 }
 
-/// A layer that only counts the trims; every other span and event is off, so the
-/// benches measure no logging.
+/// True for the history's debug event of a snapshot read.
+fn is_read(metadata: &Metadata<'_>) -> bool {
+    metadata.is_event()
+        && metadata.target() == READ_TARGET
+        && metadata.fields().field("held").is_some()
+}
+
+/// A layer that only counts the trims and the snapshot reads; every other span and
+/// event is off, so the benches measure no logging.
 struct TrimLayer(&'static Trims);
 
 impl<S: Subscriber> Layer<S> for TrimLayer {
     fn register_callsite(&self, metadata: &'static Metadata<'static>) -> Interest {
-        if is_trim(metadata) { Interest::always() } else { Interest::never() }
+        if is_trim(metadata) || is_read(metadata) { Interest::always() } else { Interest::never() }
     }
 
     fn enabled(&self, metadata: &Metadata<'_>, _: Context<'_, S>) -> bool {
-        is_trim(metadata)
+        is_trim(metadata) || is_read(metadata)
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-        let mut turns = TurnsField(0);
+        if is_read(event.metadata()) {
+            let mut bytes = U64Field("bytes", 0);
+            event.record(&mut bytes);
+            self.0.reads.fetch_add(1, Ordering::SeqCst);
+            self.0.decoded.fetch_add(bytes.1, Ordering::SeqCst);
+            return;
+        }
+        let mut turns = U64Field("turns", 0);
         event.record(&mut turns);
         self.0.trims.fetch_add(1, Ordering::SeqCst);
-        self.0.turns.fetch_add(turns.0, Ordering::SeqCst);
+        self.0.turns.fetch_add(turns.1, Ordering::SeqCst);
     }
 }
 
-/// The `turns` field of the event of a trim.
-struct TurnsField(u64);
+/// The field of an event that the first value names.
+struct U64Field(&'static str, u64);
 
-impl Visit for TurnsField {
+impl Visit for U64Field {
     fn record_u64(&mut self, field: &Field, value: u64) {
-        if field.name() == "turns" {
-            self.0 = value;
+        if field.name() == self.0 {
+            self.1 = value;
         }
     }
 
@@ -139,6 +171,14 @@ impl Trims {
 
     fn turns(&self) -> u64 {
         self.turns.load(Ordering::SeqCst)
+    }
+
+    fn reads(&self) -> u64 {
+        self.reads.load(Ordering::SeqCst)
+    }
+
+    fn decoded(&self) -> u64 {
+        self.decoded.load(Ordering::SeqCst)
     }
 }
 
@@ -220,6 +260,7 @@ async fn bench_perf_daemon_memory() {
     let first = turns(&daemon, "/dev/pts/perf-memory-first", &cwd, 1, Instant::now() + IDLE).await;
     assert_eq!(first, 1);
     bench::reset_peak();
+    let (reads_before, decoded_before) = (trims.reads(), trims.decoded());
     let start = memory();
     report.bytes("after start: rss", start.rss);
     let begin = Instant::now();
@@ -233,6 +274,11 @@ async fn bench_perf_daemon_memory() {
     .await;
     let done: usize = ran.iter().sum();
     report.count("turns of the load", done as u64);
+    let reads = trims.reads() - reads_before;
+    let decoded = trims.decoded() - decoded_before;
+    let per_start = decoded / reads.max(1);
+    report.count("snapshot reads of the load", reads);
+    report.bytes("saved messages decoded per turn start (mean)", per_start);
     if done < CONVERSATIONS * TURNS {
         report.count("stopped_at_n (turns, 90 s)", done as u64);
     }
@@ -254,6 +300,11 @@ async fn bench_perf_daemon_memory() {
     assert!(
         dropped * 100 >= done as u64 * TRIM_BUDGET,
         "the idle period dropped {dropped} cached turns of {done}, under {TRIM_BUDGET}%"
+    );
+    assert!(reads >= done as u64, "{reads} snapshot reads for {done} turns");
+    assert!(
+        per_start <= DECODE_BUDGET,
+        "a turn's start decoded {per_start} bytes of saved messages, over {DECODE_BUDGET}"
     );
 }
 

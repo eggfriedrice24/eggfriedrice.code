@@ -40,7 +40,8 @@ pub(super) async fn run(
 ) -> Result<ConversationContextResult, ConversationError> {
     let conversation_id = shared.conversation_id;
     let config = shared.config.current();
-    let snapshot = Snapshot::read(&shared.deps.readers, conversation_id, config.history).await?;
+    let snapshot =
+        Snapshot::read(&shared.deps.readers, conversation_id, config.history, &cache).await?;
     // NOTE: the model of the newest turn, as a manual compaction picks it: a model that
     // the model list no longer has gives way to the default.
     let listed =

@@ -1,19 +1,21 @@
 //! The bench of a turn's start on the perf corpus: `Snapshot::read` and `window()`
 //! (the plan's W1-A and W1-B). Ignored; `just bench-perf` runs it in release.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hint::black_box;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use efr_protocol::TurnId;
 use efr_provider::ProviderId;
-use efr_store::{events, user_messages};
+use efr_store::{events, turn_messages, user_messages};
 use efr_test_support::bench::{self, Report};
 use efr_test_support::{
     PERF_MODEL, PERF_PROVIDER, PerfCorpus, PerfSize, TestClock, open_store_file,
 };
 
-use crate::history::{HistoryLimits, ModelKey, Snapshot, older_ranges, summary_cut};
+use crate::history::{CachedTurn, HistoryLimits, ModelKey, Snapshot, older_ranges, summary_cut};
 
 /// The seed of the corpus.
 const SEED: u64 = 42;
@@ -25,6 +27,11 @@ const STOP_AFTER: Duration = Duration::from_secs(10);
 /// turns that the summary covers, and every turn after the cut saved its messages, so
 /// it makes none; before the skip, L made 1,873.
 const MAX_RANGE_CALLS: usize = 4;
+
+/// The budget of saved message JSON that one read decodes, in bytes, when the actor's
+/// cache holds every saved turn. The read decodes only the turns that the cache lacks,
+/// so it decodes none; before, it decoded each saved turn at each turn's start.
+const MAX_HELD_BYTES: u64 = 0;
 
 /// The dir of the corpus files: cargo's target temp dir. A unit test gets no
 /// `CARGO_TARGET_TMPDIR`, so the dir comes from the test binary, which cargo puts at
@@ -52,6 +59,7 @@ async fn bench_perf_snapshot_read() {
     let cache = HashMap::new();
     let mut reads = Vec::new();
     let mut windows = Vec::new();
+    let mut held_reads = Vec::new();
     let mut over_budget = Vec::new();
     for size in PerfSize::ALL {
         let name = size.name();
@@ -69,11 +77,11 @@ async fn bench_perf_snapshot_read() {
         let events_in_log = readers.with(events::last_seq).await.unwrap().get();
         report.count(&format!("{name}: events in the log"), events_in_log);
 
-        let snapshot = Snapshot::read(&readers, id, limits).await.unwrap();
+        let snapshot = Snapshot::read(&readers, id, limits, &cache).await.unwrap();
         let cut = summary_cut(&snapshot.compactions);
         let ranges = older_ranges(&snapshot.turns, &snapshot.saved, &snapshot.page, cut);
         let read = bench::run_async(1, runs(size), || async {
-            black_box(Snapshot::read(&readers, id, limits).await.unwrap());
+            black_box(Snapshot::read(&readers, id, limits, &cache).await.unwrap());
         })
         .await;
         let stats = report.time(&format!("{name}: Snapshot::read"), &read);
@@ -87,6 +95,34 @@ async fn bench_perf_snapshot_read() {
         report.count(&format!("{name}: events of older turns"), snapshot.older.len() as u64);
         report.count(&format!("{name}: user events"), snapshot.user_events.len() as u64);
         reads.push((shape.turns.into(), stats.p50));
+
+        // A turn's start with the actor's cache: it holds every saved turn, as after
+        // the actor ran them, so the read decodes none of them.
+        let full: HashMap<TurnId, Arc<CachedTurn>> =
+            snapshot.saved.iter().map(|(turn_id, turn)| (*turn_id, Arc::clone(turn))).collect();
+        let decoded = |held: HashSet<TurnId>| {
+            let readers = readers.clone();
+            async move {
+                readers
+                    .with(move |conn| turn_messages::of_conversation_except(conn, id, &held))
+                    .await
+                    .unwrap()
+                    .bytes
+            }
+        };
+        let cold = decoded(HashSet::new()).await;
+        let warm = decoded(full.keys().copied().collect()).await;
+        report.bytes(&format!("{name}: saved messages decoded per read, empty cache"), cold);
+        report.bytes(&format!("{name}: saved messages decoded per read, full cache"), warm);
+        if warm > MAX_HELD_BYTES {
+            over_budget.push(format!("{name}: {warm} bytes decoded with the full cache"));
+        }
+        let held = bench::run_async(1, runs(size), || async {
+            black_box(Snapshot::read(&readers, id, limits, &full).await.unwrap());
+        })
+        .await;
+        let held_stats = report.time(&format!("{name}: Snapshot::read, full cache"), &held);
+        held_reads.push((shape.turns.into(), held_stats.p50));
 
         // The parts of the read on their own: the range queries of the turns that saved
         // no messages, and the user messages of the whole log.
@@ -141,6 +177,13 @@ async fn bench_perf_snapshot_read() {
     // NOTE: S, M and L grow the turns of one conversation; XL grows the log around it.
     report.slope("Snapshot::read over the turns, s to l", &reads[..reads.len().min(3)]);
     report.slope("window() over the turns, s to l", &windows[..windows.len().min(3)]);
+    report.slope(
+        "Snapshot::read with the full cache over the turns, s to l",
+        &held_reads[..held_reads.len().min(3)],
+    );
     report.finish();
-    assert!(over_budget.is_empty(), "over {MAX_RANGE_CALLS} range calls per read: {over_budget:?}");
+    assert!(
+        over_budget.is_empty(),
+        "over {MAX_RANGE_CALLS} range calls or {MAX_HELD_BYTES} bytes per read: {over_budget:?}"
+    );
 }
