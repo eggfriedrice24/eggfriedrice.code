@@ -230,9 +230,13 @@ pub const PERSISTENCE_FLOOR_GROUPS: &[(&str, FloorGroup)] = &[
 /// The group of the built-in floor of [`PERSISTENCE_FLOORS`] that `path`, a path in
 /// normal form, lies at or below in the home directory `home`.
 pub(crate) fn floor_group(home: &Path, path: &Path) -> Option<FloorGroup> {
+    // NOTE: each floor of the table is relative, so the rest of `path` below `home` is
+    // compared, with no path made for each floor: a call of many paths reads this for
+    // each one.
+    let below_home = path.strip_prefix(home).ok()?;
     PERSISTENCE_FLOOR_GROUPS
         .iter()
-        .find(|(relative, _)| path.starts_with(home.join(relative)))
+        .find(|(relative, _)| below_home.starts_with(relative))
         .map(|(_, group)| *group)
 }
 

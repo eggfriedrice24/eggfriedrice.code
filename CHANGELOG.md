@@ -36,6 +36,14 @@ into the GitHub release notes, and it stops when the section is missing.
   sandbox, and full mode asks you before it runs. Before, a line of thousands of
   nested `$(` could stop efrd, with all its conversations.
 
+### Fixed
+
+- A long shell line no longer stalls efrd before the call starts. efr checked each
+  path of the line against each other path, so an `rm` of a few thousand files took
+  about 9 seconds before it ran. It now takes a fraction of a second. A long line
+  behind a wrapper such as `env` or `time` under your `ask` rules no longer uses
+  gigabytes of memory.
+
 ## [0.0.4] - 2026-10-23
 
 ### Added

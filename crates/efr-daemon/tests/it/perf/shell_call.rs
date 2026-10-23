@@ -13,7 +13,8 @@
 //! contained background jobs (`sleep`) run, four conversations of four jobs each, in the
 //! same project, since a conversation runs at most 4. The `rm` lines run with no job,
 //! and the one of 100 KB again with 16 jobs; a call of it takes seconds, so it runs
-//! fewer times.
+//! fewer times. Budget: the `decide` span of the `rm` line of 100 KB stays below
+//! [`RM_100_KB_DECIDE`], and the `rm` ladder does not stop.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -39,6 +40,11 @@ const JOBS: [usize; 4] = [0, 1, 4, 16];
 
 /// The jobs that one conversation may run (`jobs.max_running`).
 const JOBS_PER_CONVERSATION: usize = 4;
+
+/// The budget of the `decide` span of the `rm` line of 100 KB. v0.0.4 took about 9 s,
+/// because the engine and the facts compared each path of the line with each other
+/// path; the decision is now linear in the line.
+const RM_100_KB_DECIDE: Duration = Duration::from_secs(4);
 
 /// A line that changes into 10 nested dirs, reads a file there and goes back.
 fn cds_line(project: &Path) -> String {
@@ -128,6 +134,7 @@ async fn bench_perf_shell_call_auto() {
     let mut running = 0;
     let mut rm_points = Vec::new();
     let mut rm_stopped = false;
+    let mut slow: Vec<String> = Vec::new();
     'rungs: for jobs in JOBS {
         while running < jobs {
             let tty = format!("/dev/pts/perf-jobs-{}", running / JOBS_PER_CONVERSATION);
@@ -172,6 +179,9 @@ async fn bench_perf_shell_call_auto() {
             let decide = decide_times(&model, &run);
             report.time(&format!("jobs {jobs} {name} call"), &call);
             let stats = report.time(&format!("jobs {jobs} {name} decide"), &decide);
+            if name == "rm 100 KB" && stats.p50 > RM_100_KB_DECIDE {
+                slow.push(format!("jobs {jobs} {name} decide p50 {:?}", stats.p50));
+            }
             if call.len() != times {
                 report.count(&format!("jobs {jobs} {name} calls (not {times})"), call.len() as u64);
             }
@@ -196,4 +206,8 @@ async fn bench_perf_shell_call_auto() {
     drop(client);
     daemon.stop().await.unwrap();
     report.finish();
+    if rm_stopped {
+        slow.push("the rm ladder stopped".to_owned());
+    }
+    assert!(slow.is_empty(), "over the budget of {RM_100_KB_DECIDE:?}: {slow:?}");
 }

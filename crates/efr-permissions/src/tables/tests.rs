@@ -98,3 +98,25 @@ fn env_files_are_masked_but_not_their_examples() {
         assert!(!is_env_file(name), "{name}");
     }
 }
+
+/// `floor_group` compares the rest of a path below the home directory with each floor,
+/// which holds because each floor is a relative path: the group is the one of the
+/// first floor that, joined to the home directory, the path lies at or below.
+#[test]
+fn each_floor_group_is_relative_and_found_below_the_home() {
+    let home = Path::new("/home/u");
+    let joined = |path: &Path| {
+        PERSISTENCE_FLOOR_GROUPS
+            .iter()
+            .find(|(relative, _)| path.starts_with(home.join(relative)))
+            .map(|(_, group)| *group)
+    };
+    for (relative, _) in PERSISTENCE_FLOOR_GROUPS {
+        assert!(Path::new(relative).is_relative(), "{relative}");
+        let floor = home.join(relative);
+        for path in [floor.clone(), floor.join("x"), Path::new("/home/v").join(relative)] {
+            assert_eq!(floor_group(home, &path), joined(&path), "{}", path.display());
+        }
+    }
+    assert_eq!(floor_group(home, home), None);
+}

@@ -560,3 +560,20 @@ fn a_write_sealed_root_must_be_absolute() {
         PermissionsError::NotAbsolute { path: "efr".into() }
     );
 }
+
+/// `is_secret` compares the rest of a path below the home directory with each home
+/// secret, which holds because each one is a relative path: a path is a secret when it
+/// lies at or below the secret joined to the home directory, and only then.
+#[test]
+fn each_home_secret_is_relative_and_found_below_the_home() {
+    let locations = Locations::new("/home/u").unwrap();
+    for secret in super::HOME_SECRETS {
+        assert!(Path::new(secret).is_relative(), "{secret}");
+        let path = Path::new("/home/u").join(secret);
+        assert!(locations.is_secret(&path), "{secret}");
+        assert!(locations.is_secret(&path.join("x")), "{secret}");
+        assert!(!locations.is_secret(&Path::new("/home/v").join(secret)), "{secret}");
+        assert!(!locations.is_secret(&Path::new("/home/u/p").join(secret)), "{secret}");
+    }
+    assert!(!locations.is_secret(Path::new("/home/u")));
+}
