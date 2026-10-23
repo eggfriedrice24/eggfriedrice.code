@@ -24,6 +24,17 @@ into the GitHub release notes, and it stops when the section is missing.
   such a command, efr checks the git files that each job can change. This check now
   runs git only for a git config that changed since the last check, not for each
   config each time.
+- In a long block that is still open (from 4 KB, such as a large table or a long list
+  item), the last line shows when it is complete, not letter by letter. A line of
+  code shows at once.
+
+### Fixed
+
+- A long code block in a list item or a quote streams at the same speed at line 1,000
+  as at line 30. Before, efr fell behind the reply at a few hundred lines. Parts of
+  the text then came late in one jump.
+- A very long code block renders in a time that grows only with its length. Before,
+  100,000 lines in a `text` block took about 4 s. Now they take less than 0.1 s.
 
 ### Security
 

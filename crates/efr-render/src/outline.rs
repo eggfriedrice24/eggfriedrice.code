@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 /// An open paragraph keeps at most this many complete lines in the live zone; past
 /// that, its earlier lines commit.
@@ -45,32 +45,54 @@ pub(crate) struct TopBlock {
     pub(crate) items: Vec<usize>,
     /// The info string and text, for a code block.
     pub(crate) code: Option<CodeText>,
+    /// Where the last element inside this block starts when that element is a fenced
+    /// code block (in a list item or a quote) and nothing comes after its text. The
+    /// fence can still be open; the streaming renderer checks that itself.
+    pub(crate) fence: Option<usize>,
 }
 
 /// The top-level blocks of `text`, in order.
 pub(crate) fn outline(text: &str) -> Vec<TopBlock> {
     let mut blocks: Vec<TopBlock> = Vec::new();
     let mut depth = 0_usize;
+    let mut in_fence = false;
     for (event, range) in Parser::new_ext(text, parser_options()).into_offset_iter() {
         match event {
             Event::Start(tag) => {
                 if depth == 0 {
                     blocks.push(top_block(&tag, range));
-                } else if depth == 1
-                    && matches!(tag, Tag::Item)
-                    && let Some(list) = blocks.last_mut()
-                {
-                    list.items.push(range.start);
+                } else if let Some(block) = blocks.last_mut() {
+                    if depth == 1 && matches!(tag, Tag::Item) {
+                        block.items.push(range.start);
+                    }
+                    in_fence = matches!(tag, Tag::CodeBlock(CodeBlockKind::Fenced(_)));
+                    block.fence = in_fence.then_some(range.start);
                 }
                 depth += 1;
             }
-            Event::End(_) => depth = depth.saturating_sub(1),
+            Event::End(tag) => {
+                if tag == TagEnd::CodeBlock {
+                    in_fence = false;
+                }
+                depth = depth.saturating_sub(1);
+            }
             Event::Rule if depth == 0 => {
-                blocks.push(TopBlock { kind: Kind::Rule, range, items: Vec::new(), code: None });
+                blocks.push(TopBlock {
+                    kind: Kind::Rule,
+                    range,
+                    items: Vec::new(),
+                    code: None,
+                    fence: None,
+                });
             }
             Event::Text(piece) if depth == 1 => {
                 if let Some(code) = blocks.last_mut().and_then(|block| block.code.as_mut()) {
                     code.text.push_str(&piece);
+                }
+            }
+            _ if depth > 0 && !in_fence => {
+                if let Some(block) = blocks.last_mut() {
+                    block.fence = None;
                 }
             }
             _ => {}
@@ -97,7 +119,7 @@ fn top_block(tag: &Tag<'_>, range: Range<usize>) -> TopBlock {
         }
         _ => Kind::Other,
     };
-    TopBlock { kind, range, items: Vec::new(), code }
+    TopBlock { kind, range, items: Vec::new(), code, fence: None }
 }
 
 impl TopBlock {
