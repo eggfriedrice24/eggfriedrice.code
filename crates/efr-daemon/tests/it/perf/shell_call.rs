@@ -14,7 +14,8 @@
 //! same project, since a conversation runs at most 4. The `rm` lines run with no job,
 //! and the one of 100 KB again with 16 jobs; a call of it takes seconds, so it runs
 //! fewer times. Budget: the `decide` span of the `rm` line of 100 KB stays below
-//! [`RM_100_KB_DECIDE`], and the `rm` ladder does not stop.
+//! [`RM_100_KB_DECIDE`], the one of the `cd`s below [`CDS_DECIDE`], and the `rm` ladder
+//! does not stop.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -45,6 +46,12 @@ const JOBS_PER_CONVERSATION: usize = 4;
 /// because the engine and the facts compared each path of the line with each other
 /// path; the decision is now linear in the line.
 const RM_100_KB_DECIDE: Duration = Duration::from_secs(4);
+
+/// The budget of the `decide` span of the line of 10 `cd`s, which declares 2,048
+/// paths. v0.0.4 took about 95 ms: the real path of each path cost a look-up of each
+/// level that did not exist, about 68 ms. Now each dir is looked up once for the call,
+/// and the span takes 20 to 40 ms on a busy machine.
+const CDS_DECIDE: Duration = Duration::from_millis(75);
 
 /// A line that changes into 10 nested dirs, reads a file there and goes back.
 fn cds_line(project: &Path) -> String {
@@ -182,6 +189,9 @@ async fn bench_perf_shell_call_auto() {
             if name == "rm 100 KB" && stats.p50 > RM_100_KB_DECIDE {
                 slow.push(format!("jobs {jobs} {name} decide p50 {:?}", stats.p50));
             }
+            if name == "10 cds" && stats.p50 > CDS_DECIDE {
+                slow.push(format!("jobs {jobs} {name} decide p50 {:?}", stats.p50));
+            }
             if call.len() != times {
                 report.count(&format!("jobs {jobs} {name} calls (not {times})"), call.len() as u64);
             }
@@ -209,5 +219,8 @@ async fn bench_perf_shell_call_auto() {
     if rm_stopped {
         slow.push("the rm ladder stopped".to_owned());
     }
-    assert!(slow.is_empty(), "over the budget of {RM_100_KB_DECIDE:?}: {slow:?}");
+    assert!(
+        slow.is_empty(),
+        "over the budget of {RM_100_KB_DECIDE:?} (rm) or {CDS_DECIDE:?} (cds): {slow:?}"
+    );
 }

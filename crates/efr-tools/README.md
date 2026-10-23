@@ -237,7 +237,11 @@ target as well. It keeps each link with the path it reaches in
 `~/.zshrc` is named by the names of `~/.zshrc`. It is the one step that reads the file
 system (it blocks; the daemon runs it on the blocking pool before the engine decides). A link that a glob expands
 to, or one below the root of a recursive search that the program follows, is not
-seen.
+seen. It looks up each directory once for the whole call (`paths::RealForms`), and a
+path below a directory that does not exist, or that cannot be searched, needs no
+look-up of its own, because the file system resolves a path through its parents
+first: the `cd`s of one line declare thousands of paths below a few dirs that do not
+exist.
 
 ## The apply_patch tool
 
@@ -592,7 +596,11 @@ with symbolic links made where a test needs one). The tests of `apply_patch` and
 `edit` run on the real engine; the shell tool runs against a fake
 `CommandRunner` that scripts results and progress, and tables cover the split, the
 paths each program reads and the declared paths with `cd` and globs. No test starts a
-shell, uses the network or touches the user's home.
+shell, uses the network or touches the user's home. The real forms of the declared
+paths have property tests (`src/paths/tests.rs`): on a temporary tree with links to
+dirs and files, relative, dangling and looping links, a link to `..` and a dir that
+cannot be searched, `RealForms` and `with_real_paths` give what the look-up of each
+level of each path gave in v0.0.4.
 
 The engine has unit tests next to each module (`src/patch/<module>/tests.rs`). The
 integration binary `tests/it` holds the property tests of `patch.rs`: a patch made
@@ -626,6 +634,13 @@ ladder.
   which the bench kills after 15 s. Budget: no K stops the ladder, `cat x` runs in at
   most 1024 directories, a line declares at most 4096 paths, each K takes less than
   10 ms, and the slope over the K past the cap (15 and more) stays below 1.3.
+- `bench_perf_real_paths` (`src/paths/tests.rs`): `with_real_paths` on the paths that
+  the shell tool declares for `cd c1 && ... && cd cK && cat x; cd <project>`, K = 4,
+  6, 8 and 10, in a project where `c1/.../c10/x` exists, with the count of the
+  declared paths and of the look-ups, and the time of the look-ups of v0.0.4 (one for
+  each missing level of each path: 35 ms for the 10 cds). Budget: at 10 cds the
+  look-ups stay below a tenth of the paths and the call takes less than 15 ms, and the
+  slope over the paths stays below 1.3.
 - `bench_perf_line_diff` (`tests/it/perf.rs`): `written_diff` on two one-line changes
   in files of 3k, 10k and 50k lines, and on a full rewrite of 50k lines, with the
   diff's line count and its added and removed counts. Budget: the two changes give

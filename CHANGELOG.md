@@ -83,6 +83,10 @@ into the GitHub release notes, and it stops when the section is missing.
   about 9 seconds before it ran. It now takes a fraction of a second. A long line
   behind a wrapper such as `env` or `time` under your `ask` rules no longer uses
   gigabytes of memory.
+- A shell line with many `cd`s starts sooner. Before the call, efr finds where each
+  path of the line leads through symbolic links. It looked up each missing directory
+  again for each path. Now it looks up each directory once for the call. The time
+  before a line of 10 `cd`s starts went from about 90 ms to about 20 ms.
 - efrd no longer keeps the messages of a conversation in memory after the
   conversation is idle for 10 minutes. Before, efrd kept them for each conversation
   that ran a turn since efrd started, so its memory grew with use. The next prompt

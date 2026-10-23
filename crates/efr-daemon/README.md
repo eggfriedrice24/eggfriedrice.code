@@ -1973,7 +1973,9 @@ the test binary, with a git first on its `PATH` that counts its runs.
 - `bench_perf_shell_call_auto`: one `shell` call in `auto` with the fake launcher, for
   `true`, 10 `cd`s and `rm` lines of 100 B to 100 KB, with 0, 1, 4 and 16 jobs. It
   needs `EFR_TEST_ZSH=1`. Budget: the decision of the `rm` line of 100 KB takes less
-  than 4 s (v0.0.4 took about 9 s).
+  than 4 s (v0.0.4 took about 9 s), and the decision of the line of 10 `cd`s less
+  than 75 ms at each count of jobs (v0.0.4 took about 95 ms, of which about 68 ms
+  went to the real paths of its 2,048 paths).
 - `bench_perf_subscribe_snapshot`: the start of `conversation.subscribe` on events of
   1 KB, 32 KB and 500 KB, and with a newest event of 1.5 MiB.
 - `bench_perf_daemon_memory`: the resident memory of this process after the start,
