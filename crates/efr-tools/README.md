@@ -608,3 +608,21 @@ then judges what the daemon really passes it. The test reads only the keys of th
 declaration, so a change to the engine's other keys does not break it. The code of
 this crate still does not depend on `efr-permissions`; the test needs that crate's
 directory in the checkout.
+
+## Benches
+
+Ignored tests that `just bench-perf` runs in release. They use the bench helpers of
+`efr-test-support`, a dev-dependency only. They report what they measure and have no
+time budget yet. A size that takes more than 10 s stops its ladder.
+
+- `bench_perf_declare_cds` (`src/shell_tool/declare/tests.rs`): `declared` on
+  `cd d1 && ... && cd dK && cat x` and on K groups `(cd gN && make)`, K = 5, 10, 15,
+  20 and 25, with the count of the directories that `cat x` runs in. Each K runs in a
+  child process (this test binary again, with `EFR_BENCH_DECLARE_CASE`), which the
+  bench kills after 15 s.
+- `bench_perf_line_diff` (`tests/it/perf.rs`): `written_diff` on two one-line changes
+  in files of 3k, 10k and 50k lines, and on a full rewrite of 50k lines, with the
+  diff's line count and its added and removed counts.
+- `bench_perf_patch_apply` (`tests/it/perf.rs`): `patch::apply` on a 5 MB file of 50k
+  lines with 1, 10 and 100 hunks, whose context matches exactly, with trailing spaces
+  and with ASCII quotes for typographic ones.
