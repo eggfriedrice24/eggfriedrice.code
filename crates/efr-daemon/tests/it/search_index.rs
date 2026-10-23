@@ -370,7 +370,7 @@ async fn append_turn(
 
 /// The corpus file of `size` with the events only (no index), built when it is
 /// missing; the same file as the store's benches.
-async fn corpus_file(size: CorpusSize) -> PathBuf {
+pub(crate) async fn corpus_file(size: CorpusSize) -> PathBuf {
     let name = format!(
         "{}-seed{SEED}-schema{}-{:016x}-gen{CORPUS_VERSION}-log.sqlite",
         size.name(),
