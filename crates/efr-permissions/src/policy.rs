@@ -335,6 +335,12 @@ impl CommandPattern {
         self.matches_words(words) && (!pattern || self.takes_patterns())
     }
 
+    /// [`matches_command`](Self::matches_command) of the words `program` and then
+    /// `rest`.
+    pub(crate) fn matches_form(&self, program: &str, rest: &[String], pattern: bool) -> bool {
+        self.matches_split(program, rest) && (!pattern || self.takes_patterns())
+    }
+
     /// True when a command whose words hold a pattern, such as `src/*.rs`, may match.
     ///
     /// NOTE: zsh replaces a pattern with the names it matches before the program runs,
@@ -360,10 +366,13 @@ impl CommandPattern {
 
     /// True when the words of one simple command, program first, match this pattern.
     pub(crate) fn matches_words(&self, words: &[String]) -> bool {
-        let Some((program, rest)) = words.split_first() else {
-            return false;
-        };
-        if *program != self.program || rest.len() < self.args.len() {
+        words.split_first().is_some_and(|(program, rest)| self.matches_split(program, rest))
+    }
+
+    /// True when the program `program` with the words `rest` after it matches this
+    /// pattern.
+    pub(crate) fn matches_split(&self, program: &str, rest: &[String]) -> bool {
+        if program != self.program || rest.len() < self.args.len() {
             return false;
         }
         let prefix = self.args.iter().zip(rest).all(|(wanted, word)| {
@@ -831,13 +840,31 @@ impl Rule {
         }
         let mut matched = false;
         let mut dirs: Vec<PathBuf> = Vec::new();
-        for words in command::run_forms(part.words) {
-            matched |= pattern.matches_command(&words, part.pattern);
-            if is_git(&words) {
-                let views = git::views(&words);
+        // NOTE: only the dirs of git's views can change where the pattern is placed, so
+        // without them the first form that matches decides.
+        let git = pattern.program == "git";
+        let first_decides = !git || pattern.under.is_none();
+        // NOTE: a form of another program matches nothing and has no git view.
+        for form in command::run_forms(part.words).filter(|form| form.head == pattern.program) {
+            matched |= pattern.matches_form(form.head, form.rest, part.pattern);
+            if git {
+                // NOTE: the form borrows the command's words when its program is the
+                // word as written, so only `/usr/bin/git` makes a copy.
+                let owned;
+                let words = match part.words.get(form.at..) {
+                    Some(words) if words.first().is_some_and(|word| word == form.head) => words,
+                    _ => {
+                        owned = form.words();
+                        &owned
+                    }
+                };
+                let views = git::views(words);
                 matched |= views.unreadable
                     || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
                 dirs.extend(views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)));
+            }
+            if matched && first_decides {
+                break;
             }
         }
         if matched && self.placed(pattern, part.dir, &dirs, cx) { Fit::Read } else { Fit::No }

@@ -304,6 +304,6 @@ fn a_line_that_runs_as_another_user(#[case] line: &str, #[case] expected: bool) 
 #[case::no_wrapper("cat git push", &["cat git push"])]
 fn run_forms_read_behind_wrappers_and_paths(#[case] line: &str, #[case] expected: &[&str]) {
     let words: Vec<String> = line.split(' ').map(str::to_owned).collect();
-    let forms: Vec<String> = run_forms(&words).iter().map(|form| form.join(" ")).collect();
+    let forms: Vec<String> = run_forms(&words).map(|form| form.words().join(" ")).collect();
     assert_eq!(forms, expected, "{line}");
 }
