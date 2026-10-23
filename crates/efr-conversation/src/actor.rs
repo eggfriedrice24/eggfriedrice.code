@@ -28,6 +28,12 @@
 //! context (`conversation.context`) runs at any time in a task of its own and only
 //! reads.
 //!
+//! An actor that is idle for [`IDLE_TRIM`] (no turn, compaction or undo runs and no
+//! prompt waits) drops the messages of the turns that it keeps in memory. The next
+//! turn reads them from `turn_messages`, as after a restart, so its request has the
+//! same bytes. Requests that do not start work, such as `conversation.state`, do not
+//! restart the period.
+//!
 //! Every request that changes the conversation records its event and the command's
 //! receipt in one batch, so a retried command id returns the stored result and nothing
 //! runs twice. A result that reports a sequence number is stored without it; the store
@@ -37,6 +43,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 mod compact;
 mod context;
@@ -53,6 +60,7 @@ use efr_protocol::{
     TurnUndoResult, UndoRefused, WithdrawTarget, WithdrawnPrompt, WithdrawnSteer,
 };
 use efr_stdx::id::uuid_v7;
+use efr_stdx::time::{Clock, Sleep};
 use efr_store::receipts::NewReceipt;
 use efr_store::{Batch, Committed};
 use serde::Serialize;
@@ -79,6 +87,10 @@ use crate::{
 /// Requests waiting for the actor; senders wait when it is full.
 const MAILBOX: usize = 64;
 
+/// How long an actor is idle before it drops the turns that it keeps in memory
+/// ([`ConversationActor::trim`]).
+pub(crate) const IDLE_TRIM: Duration = Duration::from_secs(10 * 60);
+
 const PROMPT_SEND: &str = "prompt.send";
 const TURN_STEER: &str = "turn.steer";
 const TURN_INTERRUPT: &str = "turn.interrupt";
@@ -98,7 +110,7 @@ pub struct ConversationActor {
     queue: VecDeque<TurnSpec>,
     running: Option<Running>,
     /// The exact messages of the turns this actor ran that the newest request carried,
-    /// for their provider items.
+    /// for their provider items. Emptied after [`IDLE_TRIM`] of idle time.
     cache: HashMap<TurnId, Arc<CachedTurn>>,
     /// The fresh context block of a compaction from an efrd before the stored block,
     /// read from disk once, so every request until the next compaction sends the same
@@ -111,6 +123,49 @@ pub struct ConversationActor {
     /// The notices of the conversation's background jobs, and the limits of the turns
     /// that they start.
     notices: notices::Notices,
+}
+
+/// The idle period of an actor that keeps turns in memory: when it started, and the
+/// sleep that ends it.
+#[derive(Default)]
+struct IdleTimer {
+    since: Option<jiff::Timestamp>,
+    sleep: Option<Sleep>,
+}
+
+impl std::fmt::Debug for IdleTimer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdleTimer").field("since", &self.since).finish_non_exhaustive()
+    }
+}
+
+impl IdleTimer {
+    /// Starts the period on `clock` when `idle` and none runs, and stops it when not
+    /// `idle`.
+    fn watch(&mut self, idle: bool, clock: &dyn Clock) {
+        if !idle {
+            *self = IdleTimer::default();
+        } else if self.since.is_none() {
+            self.since = Some(clock.now());
+            self.sleep = Some(clock.sleep(IDLE_TRIM));
+        }
+    }
+
+    /// True when the period has lasted [`IDLE_TRIM`] at `now`. The actor checks this
+    /// before each request, so when a request and the end of the sleep come at the
+    /// same time, the trim goes first.
+    fn is_over(&self, now: jiff::Timestamp) -> bool {
+        self.since
+            .is_some_and(|since| since.checked_add(IDLE_TRIM).is_ok_and(|deadline| now >= deadline))
+    }
+
+    /// The end of the period; never, when none runs.
+    async fn end(&mut self) {
+        match &mut self.sleep {
+            Some(sleep) => sleep.as_mut().await,
+            None => std::future::pending().await,
+        }
+    }
 }
 
 /// An undo in its task, and the callers that wait for its answer.
@@ -388,10 +443,21 @@ impl ConversationActor {
             notices::Notices::seeded(self.wake_starts().await, self.held_notices().await);
         let mut open = true;
         let mut stopped_reply = None;
+        let clock = Arc::clone(&self.shared.deps.clock);
+        // NOTE: a local, not a field: the sleep is not `Sync`, and the actor's methods
+        // hold `&self` across their awaits.
+        let mut idle = IdleTimer::default();
         while open || self.busy() {
+            idle.watch(self.may_trim(), &*clock);
             tokio::select! {
                 message = self.mailbox.recv(), if open => match message {
-                    Some(Message::Request(request)) => self.handle(*request).await,
+                    Some(Message::Request(request)) => {
+                        if idle.is_over(clock.now()) {
+                            idle = IdleTimer::default();
+                            self.trim();
+                        }
+                        self.handle(*request).await;
+                    }
                     Some(Message::Shutdown(reply)) => {
                         stopped_reply = Some(reply);
                         break;
@@ -401,6 +467,10 @@ impl ConversationActor {
                 ended = turn_end(&mut self.running) => self.turn_ended(ended).await,
                 ended = compaction_end(&mut self.compacting) => self.compaction_ended(ended),
                 ended = undo_end(&mut self.undoing) => self.undo_ended(ended),
+                () = idle.end() => {
+                    idle = IdleTimer::default();
+                    self.trim();
+                }
             }
             // NOTE: after every step, so a notice that waited for a turn, a compaction
             // or an undo starts its wake turn once the conversation is idle.
@@ -1344,6 +1414,27 @@ impl ConversationActor {
         if let Some(cached) = end.cached {
             self.cache.insert(end.turn_id, Arc::new(cached));
         }
+    }
+
+    /// True when the actor is idle and keeps turns in memory: no turn, compaction or
+    /// undo runs and no prompt waits. A job notice that still waits never starts a turn
+    /// on its own here: `wake_if_idle` ran after the last step, and a notice that it
+    /// held waits for the next prompt.
+    fn may_trim(&self) -> bool {
+        !self.busy() && self.queue.is_empty() && !self.cache.is_empty()
+    }
+
+    /// Drops the turns that the actor keeps in memory, after [`IDLE_TRIM`] of idle
+    /// time. The next turn reads their saved messages (`turn_messages`), as after a
+    /// restart, so its request has the same bytes; a turn whose messages could not be
+    /// saved is rebuilt from its events, as after a restart. The fresh block stays: it
+    /// is small, and only for a compaction from an efrd before the stored block would
+    /// the next turn read it from disk again, with other bytes.
+    fn trim(&mut self) {
+        // NOTE: `bench_perf_daemon_memory` counts this event by its target and its
+        // `turns` field.
+        tracing::debug!(turns = self.cache.len(), "the idle actor drops its turn cache");
+        self.cache = HashMap::new();
     }
 
     async fn append(

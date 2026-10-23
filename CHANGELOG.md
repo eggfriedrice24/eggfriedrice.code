@@ -77,6 +77,13 @@ into the GitHub release notes, and it stops when the section is missing.
   about 9 seconds before it ran. It now takes a fraction of a second. A long line
   behind a wrapper such as `env` or `time` under your `ask` rules no longer uses
   gigabytes of memory.
+- efrd no longer keeps the messages of a conversation in memory after the
+  conversation is idle for 10 minutes. Before, efrd kept them for each conversation
+  that ran a turn since efrd started, so its memory grew with use. The next prompt
+  reads the messages from the store and sends the same request to the model, so the
+  prompt cache of your provider still works. efrd uses the freed memory again for the
+  next turns, so the memory use that your system shows can stay high after an idle
+  period.
 
 ### Security
 
