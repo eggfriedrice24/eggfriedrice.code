@@ -7,13 +7,13 @@ use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalDecision, ApprovalRespond,
     Base64Bytes, CallBackground, CallId, Capabilities, CommandId, ConversationCompact,
-    ConversationContext, ConversationDiff, ConversationHistory, ConversationId, ConversationResume,
-    ConversationSearch, ConversationSubscribe, ConversationsList, ConversationsRecent,
-    ConversationsSearch, Hello, InputRespond, JobId, JobsList, JobsStop, LeaseReport, Method,
-    ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach,
-    PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain, SandboxSurfaceRespond, ScopeName,
-    SecretText, ShellContext, ShellInterrupt, ShellStatus, Size, TurnInterrupt, TurnSettings,
-    TurnSteer, TurnUndo, WithdrawTarget,
+    ConversationContext, ConversationDelete, ConversationDiff, ConversationHistory, ConversationId,
+    ConversationResume, ConversationSearch, ConversationSubscribe, ConversationsList,
+    ConversationsRecent, ConversationsSearch, Hello, InputRespond, JobId, JobsList, JobsStop,
+    LeaseReport, Method, ModelsList, Origin, Presence, PresenceSet, ProjectsList, PromptSend,
+    PromptWithdraw, PtyAttach, PtyId, PtyResize, PtyWrite, QuestionId, SandboxExplain,
+    SandboxSurfaceRespond, ScopeName, SecretText, ShellContext, ShellInterrupt, ShellStatus, Size,
+    TurnInterrupt, TurnSettings, TurnSteer, TurnUndo, WithdrawTarget,
 };
 
 const COMMAND: &str = "01928c4e-7a3b-7c1d-8e2f-00000000000c";
@@ -413,6 +413,18 @@ fn table() -> Vec<(Method, &'static str, ScopeName, bool, bool)> {
             false,
             false,
         ),
+        (
+            Method::ConversationDelete(ConversationDelete {
+                command_id: command(),
+                conversation_id: conversation(),
+                force: false,
+                stop: false,
+            }),
+            "conversation.delete",
+            ScopeName::Terminal,
+            true,
+            false,
+        ),
     ]
 }
 
@@ -529,6 +541,33 @@ fn jobs_stop_needs_operate_scope() {
     );
     let bad = json!({ "method": "jobs.stop", "params": { "command_id": COMMAND, "job_id": "3" } });
     assert!(serde_json::from_value::<Method>(bad).is_err(), "a job id is j and a number");
+}
+
+#[test]
+fn conversation_delete_needs_terminal_scope_and_a_command_id() {
+    let delete = Method::ConversationDelete(ConversationDelete {
+        command_id: command(),
+        conversation_id: conversation(),
+        force: false,
+        stop: false,
+    });
+    // NOTE: a phone holds no `terminal` scope by default and a model-side peer holds
+    // `read` only, so neither can erase the record of a conversation.
+    assert_eq!(ScopeName::for_method(&delete), ScopeName::Terminal);
+    assert_eq!(delete.command_id(), Some(command()));
+    let wire = serde_json::to_value(&delete).unwrap();
+    assert_eq!(
+        wire,
+        json!({
+            "method": "conversation.delete",
+            "params": { "command_id": COMMAND, "conversation_id": CONVERSATION }
+        })
+    );
+    let no_command = json!({
+        "method": "conversation.delete",
+        "params": { "conversation_id": CONVERSATION }
+    });
+    assert!(serde_json::from_value::<Method>(no_command).is_err(), "a delete is a write");
 }
 
 #[test]

@@ -50,6 +50,11 @@ struct Writers {
     /// PTYs whose shell exited. Output the reader still drains after the exit gets a
     /// writer of its own that closes after the chunk, so nothing is left open.
     closed: HashSet<PtyId>,
+    /// The tasks of the writers that close, so a delete can wait for them. A finished
+    /// one goes at the next close.
+    closing: HashMap<PtyId, Vec<JoinHandle<()>>>,
+    /// PTYs of deleted conversations: nothing of them is stored any more.
+    forgotten: HashSet<PtyId>,
 }
 
 /// Stores every PTY's bytes and fans them out to attached clients.
@@ -71,7 +76,35 @@ impl StoreRecording {
         // segment. Nothing waits for it here: the observer must not block.
         let mut writers = self.lock();
         writers.closed.insert(pty_id);
-        drop(writers.open.remove(&pty_id));
+        writers.closing.retain(|_, tasks| {
+            tasks.retain(|task| !task.is_finished());
+            !tasks.is_empty()
+        });
+        if let Some(Writer { chunks, task }) = writers.open.remove(&pty_id) {
+            drop(chunks);
+            writers.closing.entry(pty_id).or_default().push(task);
+        }
+    }
+
+    /// Stops the recording of `pty_id` for good, for a deleted conversation: no later
+    /// output or size of it is stored, and each writer of it has closed its segment
+    /// when this returns, so its files can go.
+    pub(crate) async fn forget(&self, pty_id: PtyId) {
+        let tasks: Vec<JoinHandle<()>> = {
+            let mut writers = self.lock();
+            writers.forgotten.insert(pty_id);
+            writers.closed.insert(pty_id);
+            let open = writers.open.remove(&pty_id).map(|Writer { chunks, task }| {
+                drop(chunks);
+                task
+            });
+            open.into_iter().chain(writers.closing.remove(&pty_id).unwrap_or_default()).collect()
+        };
+        for task in tasks {
+            if task.await.is_err() {
+                tracing::warn!(%pty_id, "a recording writer panicked");
+            }
+        }
     }
 
     /// Stores that `pty_id` took `size` and then tells the attached clients, after the
@@ -86,7 +119,10 @@ impl StoreRecording {
     /// Hands `step` to the writer of `pty_id` and waits until it is stored.
     async fn send(&self, pty_id: PtyId, step: Step) {
         let (stored, done) = oneshot::channel();
-        if self.sender(pty_id).send(Chunk { step, stored }).await.is_err() {
+        let Some(sender) = self.sender(pty_id) else {
+            return;
+        };
+        if sender.send(Chunk { step, stored }).await.is_err() {
             tracing::warn!(%pty_id, "the recording writer stopped; a chunk was not stored");
             return;
         }
@@ -105,11 +141,16 @@ impl StoreRecording {
         }
     }
 
-    fn sender(&self, pty_id: PtyId) -> mpsc::Sender<Chunk> {
+    /// The writer of `pty_id`, started when none runs; `None` for a PTY of a deleted
+    /// conversation.
+    fn sender(&self, pty_id: PtyId) -> Option<mpsc::Sender<Chunk>> {
         let mut writers = self.lock();
+        if writers.forgotten.contains(&pty_id) {
+            return None;
+        }
         if let Some(writer) = writers.open.get(&pty_id).filter(|writer| !writer.chunks.is_closed())
         {
-            return writer.chunks.clone();
+            return Some(writer.chunks.clone());
         }
         let (chunks, queue) = mpsc::channel(CHUNK_QUEUE);
         let task = tokio::spawn(write_loop(
@@ -118,10 +159,12 @@ impl StoreRecording {
             pty_id,
             queue,
         ));
-        if !writers.closed.contains(&pty_id) {
+        if writers.closed.contains(&pty_id) {
+            writers.closing.entry(pty_id).or_default().push(task);
+        } else {
             writers.open.insert(pty_id, Writer { chunks: chunks.clone(), task });
         }
-        chunks
+        Some(chunks)
     }
 
     fn lock(&self) -> MutexGuard<'_, Writers> {

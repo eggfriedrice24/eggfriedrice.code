@@ -469,6 +469,8 @@ conversation, so after a restart the same names are tried in order and the marke
 is found again; a name that something else holds falls back to 12 digits, the whole
 id, then the whole id with `-2` to `-9`. A symbolic link is never taken as scratch.
 The directory is made again, under the same name, when it goes missing.
+`scratch_dirs` finds every scratch directory of a conversation by its marker (never
+through a link, whatever the name), for the delete of the conversation.
 
 ### The tools reach this crate through `Toolbox`
 

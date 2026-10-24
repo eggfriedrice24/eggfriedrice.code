@@ -49,14 +49,15 @@ fn every_file_in_the_directory_is_a_step_in_order() {
 fn a_new_database_migrates_to_the_latest_version_without_a_backup() {
     let mut conn = db::open_in_memory().unwrap();
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!(report, MigrationReport { from: 0, to: 9, backup: None, rebuilt: false });
+    assert_eq!(report, MigrationReport { from: 0, to: 10, backup: None, rebuilt: false });
     assert!(report.applied());
-    assert_eq!(Migrations::version(&conn).unwrap(), 9);
+    assert_eq!(Migrations::version(&conn).unwrap(), 10);
     assert_eq!(
         tables(&conn),
         [
             "approvals",
             "compactions",
+            "conversation_deletes",
             "conversations",
             "events",
             "job_notices",
@@ -86,7 +87,7 @@ fn migrating_twice_does_nothing_the_second_time() {
     let mut conn = db::open(&dir.path().join("efr.sqlite")).unwrap();
     Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
     let report = Migrations::new().migrate(&mut conn, Some(&backups)).unwrap();
-    assert_eq!(report, MigrationReport { from: 9, to: 9, backup: None, rebuilt: false });
+    assert_eq!(report, MigrationReport { from: 10, to: 10, backup: None, rebuilt: false });
     assert!(!report.applied());
     assert!(!backups.exists(), "a new database needs no backup");
 }
@@ -108,9 +109,9 @@ fn an_existing_database_is_backed_up_before_it_migrates() {
     let backup = backups.join("efr.sqlite.2");
     assert_eq!(
         report,
-        MigrationReport { from: 2, to: 9, backup: Some(backup.clone()), rebuilt: true }
+        MigrationReport { from: 2, to: 10, backup: Some(backup.clone()), rebuilt: true }
     );
-    assert_eq!(Migrations::version(&conn).unwrap(), 9);
+    assert_eq!(Migrations::version(&conn).unwrap(), 10);
     let mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode, 0o600);
     let dir_mode = fs::metadata(&backups).unwrap().permissions().mode() & 0o777;
@@ -152,9 +153,9 @@ fn an_in_memory_database_gets_no_backup() {
 #[test]
 fn a_database_from_a_newer_build_is_refused() {
     let mut conn = db::open_in_memory().unwrap();
-    conn.pragma_update(None, "user_version", 10).unwrap();
+    conn.pragma_update(None, "user_version", 11).unwrap();
     let error = Migrations::new().migrate(&mut conn, None).unwrap_err();
-    assert!(matches!(error, StoreError::SchemaTooNew { found: 10, supported: 9 }), "{error:?}");
+    assert!(matches!(error, StoreError::SchemaTooNew { found: 11, supported: 10 }), "{error:?}");
 }
 
 static BROKEN: &[M<'static>] = &[
@@ -313,7 +314,7 @@ fn a_later_migration_keeps_the_search_tables() {
 
     let report = Migrations::from_steps(steps, REBUILDS).migrate(&mut conn, None).unwrap();
 
-    assert_eq!((report.from, report.to, report.rebuilt), (9, 10, true));
+    assert_eq!((report.from, report.to, report.rebuilt), (10, 11, true));
     assert_eq!(search_rows(&conn), before);
     integrity_check(&conn);
 }
@@ -340,14 +341,44 @@ fn migration_9_needs_no_rebuild() {
     let from_8 = tempfile::tempdir().unwrap();
     let mut conn = database_with_an_unprojected_event(from_8.path(), 8);
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!((report.from, report.to, report.rebuilt), (8, 9, false));
+    assert_eq!((report.from, report.to, report.rebuilt), (8, 10, false));
     assert!(crate::conversations::get(&conn, id).unwrap().is_none());
 
     let from_7 = tempfile::tempdir().unwrap();
     let mut conn = database_with_an_unprojected_event(from_7.path(), 7);
     let report = Migrations::new().migrate(&mut conn, None).unwrap();
-    assert_eq!((report.from, report.to, report.rebuilt), (7, 9, true));
+    assert_eq!((report.from, report.to, report.rebuilt), (7, 10, true));
     assert!(crate::conversations::get(&conn, id).unwrap().is_some());
+}
+
+#[test]
+fn migration_10_needs_no_rebuild_and_keeps_the_log_append_only() {
+    let id = crate::testing::conversation(1);
+    let from_9 = tempfile::tempdir().unwrap();
+    let mut conn = database_with_an_unprojected_event(from_9.path(), 9);
+    let report = Migrations::new().migrate(&mut conn, None).unwrap();
+    assert_eq!((report.from, report.to, report.rebuilt), (9, 10, false));
+    assert!(crate::conversations::get(&conn, id).unwrap().is_none());
+
+    // An event of a conversation without a tombstone stays.
+    let refused = conn.execute("DELETE FROM events WHERE seq = 1", []);
+    assert!(refused.is_err(), "{refused:?}");
+    // With a tombstone after it, it may go; the tombstone event itself may not.
+    conn.execute(
+        "INSERT INTO conversation_deletes (conversation_id, seq, requested_at, parts) \
+         VALUES (?1, 2, 0, '{}')",
+        [id.to_string()],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO events (seq, conversation_id, kind, payload, created_at) \
+         VALUES (2, ?1, 'conversation_deleted', '{\"kind\":\"conversation_deleted\",\"origin\":\"cli\"}', 0)",
+        [id.to_string()],
+    )
+    .unwrap();
+    assert!(conn.execute("DELETE FROM events WHERE seq = 2", []).is_err());
+    assert_eq!(conn.execute("DELETE FROM events WHERE seq = 1", []).unwrap(), 1);
+    assert!(conn.execute("UPDATE events SET kind = 'x' WHERE seq = 2", []).is_err());
 }
 
 /// The checked-in databases, one per schema version: `fixtures/db/efr.sqlite.<n>`.
@@ -366,7 +397,9 @@ fn every_fixture_database_migrates_to_the_latest_version() {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
-    names.sort();
+    names.sort_by_key(|name| {
+        name.rsplit('.').next().and_then(|version| version.parse::<u32>().ok()).unwrap_or(0)
+    });
     // A new migration ships with a fixture at its version.
     let expected: Vec<String> =
         (1..=latest).map(|version| format!("efr.sqlite.{version}")).collect();
@@ -405,6 +438,8 @@ fn every_fixture_database_migrates_to_the_latest_version() {
         let cursor: i64 =
             conn.query_row("SELECT indexed_seq FROM search_state", [], |row| row.get(0)).unwrap();
         assert_eq!(cursor, 0, "efr.sqlite.{version}");
+        let deletes = crate::deletes::pending(&conn).unwrap();
+        assert_eq!(deletes.len(), usize::from(version >= 10), "efr.sqlite.{version}");
         integrity_check(&conn);
     }
 }
@@ -632,6 +667,14 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
         bus_refused_more: 0,
     };
     store.writer().append(Batch::new().event(id, job_started).event(id, job_ended)).await.unwrap();
+    // NOTE: a second conversation whose delete stopped after its tombstone, from version
+    // 10 on: a later build must still finish it.
+    let gone = crate::testing::conversation(2);
+    let deleted = Batch::new()
+        .event(gone, crate::testing::created(Some("pts-2")))
+        .event(gone, crate::testing::queued(2, "a deleted prompt"))
+        .event(gone, Event::ConversationDeleted { origin: Origin::Cli });
+    store.writer().append(deleted).await.unwrap();
     let recordings = crate::recording::Recordings::new(
         recordings,
         store.writer().clone(),

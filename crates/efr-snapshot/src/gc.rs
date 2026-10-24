@@ -62,6 +62,20 @@ pub struct GcReport {
     pub refs_deleted: usize,
 }
 
+/// What [`Snapshots::forget_conversation`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ForgetReport {
+    /// The refs of the conversation that went, in every store.
+    pub refs_deleted: usize,
+    /// The root stores that held refs of no other conversation, and went whole.
+    pub stores_deleted: usize,
+    /// The undos of the conversation that its refs named, whose undo trash goes too.
+    pub undos: Vec<String>,
+    /// The stores whose refs could not be read or deleted; the next start tries again.
+    pub failed: usize,
+}
+
 /// A conversation and a turn, as their refs name them.
 type TurnKey = (String, String);
 
@@ -162,6 +176,96 @@ impl Snapshots {
             }
         }
         report
+    }
+
+    /// Deletes every ref of `conversation` in every store: its turns, their mirrors and
+    /// home copies, and its undos, with the objects that nothing else reaches (as the
+    /// collector prunes them, older than an hour). A root store that holds no ref of
+    /// another conversation after that, and no tree of a running turn or call, goes
+    /// whole, such as the store of the conversation's `$SCRATCH`; the home store stays.
+    /// The daemon calls it when the user deletes the conversation, after its turns and
+    /// jobs stopped.
+    pub async fn forget_conversation(&self, conversation: ConversationId) -> ForgetReport {
+        let mut report = ForgetReport::default();
+        let dir = self.dir().to_path_buf();
+        let mut all = match self.runner().blocking(&dir.clone(), move || stores(&dir)).await {
+            Ok(all) => all.into_iter().map(|store| (store, false)).collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), "the snapshot stores could not be listed");
+                report.failed += 1;
+                return report;
+            }
+        };
+        let home = self.home_store();
+        if home.exists() {
+            all.push((home, true));
+        }
+        let name = conversation.to_string();
+        for (store, is_home) in all {
+            match self.forget_in(&store, &name, is_home).await {
+                Ok((refs, undos, gone)) => {
+                    report.refs_deleted += refs;
+                    report.undos.extend(undos);
+                    report.stores_deleted += usize::from(gone);
+                }
+                Err(error) => {
+                    tracing::warn!(error = %efr_stdx::with_causes(&error), root = %store.root().display(), "the refs of a deleted conversation could not be deleted");
+                    report.failed += 1;
+                }
+            }
+        }
+        report.undos.sort();
+        report.undos.dedup();
+        report
+    }
+
+    /// [`Snapshots::forget_conversation`] in one store: the refs that went, the undos
+    /// that they named, and whether the store went whole.
+    async fn forget_in(
+        &self,
+        store: &Store,
+        conversation: &str,
+        is_home: bool,
+    ) -> Result<(usize, Vec<String>, bool), SnapshotError> {
+        let names = self.ref_names(store).await?;
+        let mut doomed = BTreeSet::new();
+        let mut undos: BTreeMap<TurnKey, Option<String>> = BTreeMap::new();
+        for (name, _) in &names {
+            if let Some(key) = turn_key(name).filter(|key| key.0 == conversation) {
+                doomed.insert(key);
+            } else if let Some((key, _)) = undo_key(name).filter(|(key, _)| key.0 == conversation) {
+                // NOTE: an undo that names no turn goes in `trim_refs`, whatever its
+                // turn was.
+                undos.insert(key, None);
+            }
+        }
+        let undo_ids: Vec<String> = undos.keys().map(|(_, undo)| undo.clone()).collect();
+        if doomed.is_empty() && undos.is_empty() {
+            // NOTE: a store that held nothing of the conversation is no business of its
+            // delete, even when it holds no ref at all.
+            return Ok((0, undo_ids, false));
+        }
+        let deleted = self.trim_refs(store, &doomed, &undos, None).await?;
+        if is_home {
+            return Ok((deleted, undo_ids, false));
+        }
+        let slot = self.slot(store.root());
+        let _turn = slot.enter().await;
+        let left = self.ref_names(store).await?;
+        if !left.is_empty() || !slot.live_trees().is_empty() {
+            return Ok((deleted, undo_ids, false));
+        }
+        let removed = store.clone();
+        let gone = self
+            .runner()
+            .blocking(&store.git_dir(), move || remove_store(&removed))
+            .await
+            .unwrap_or(false);
+        if gone {
+            slot.forget_store();
+            tracing::info!(root = %store.root().display(), "deleted the snapshot store of a deleted conversation");
+        }
+        Ok((deleted, undo_ids, gone))
     }
 
     /// Deletes `store` when its stamp is older than `max_age`; true when it went. A

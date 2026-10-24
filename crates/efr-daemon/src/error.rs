@@ -409,6 +409,15 @@ pub enum DaemonError {
         /// The conversation.
         conversation_id: ConversationId,
     },
+    /// `conversation.delete` without `stop` found a running turn, a queued prompt or a
+    /// compaction in the conversation, or found an undo at work, which no delete stops.
+    #[error("{}", busy_text(.conversation_id, *.undo))]
+    ConversationBusy {
+        /// The conversation.
+        conversation_id: ConversationId,
+        /// True for an undo, which no delete stops.
+        undo: bool,
+    },
     /// The conversation has no running turn.
     #[error("the conversation {conversation_id} has no running turn")]
     NoRunningTurn {
@@ -680,7 +689,9 @@ impl DaemonError {
             | DaemonError::ApprovalNotPending { .. }
             | DaemonError::PtyNotFound { .. }
             | DaemonError::CallNotRunning { .. } => ErrorCode::NotFound,
-            DaemonError::AlreadyRunning { .. } => ErrorCode::Busy,
+            DaemonError::AlreadyRunning { .. } | DaemonError::ConversationBusy { .. } => {
+                ErrorCode::Busy
+            }
             DaemonError::Rejected { body } => body.code,
             DaemonError::Store { source } => store_code(source),
             DaemonError::Conversation { source } => conversation_code(source),
@@ -785,6 +796,10 @@ impl DaemonError {
                         Some(data) => body.with_data(data),
                         None => body,
                     },
+                    // NOTE: a client asks whether to stop a turn, but never an undo.
+                    DaemonError::ConversationBusy { undo, .. } => body.with_data(
+                        serde_json::json!({ "busy": if *undo { "undo" } else { "turn" } }),
+                    ),
                     DaemonError::ForeignModel { name, provider, .. } => {
                         body.with_data(serde_json::json!({
                             "setting": "model",
@@ -796,6 +811,17 @@ impl DaemonError {
                 }
             }
         }
+    }
+}
+
+/// The text of [`DaemonError::ConversationBusy`].
+fn busy_text(conversation_id: &ConversationId, undo: bool) -> String {
+    if undo {
+        format!("an undo runs in the conversation {conversation_id}; a delete waits for its end")
+    } else {
+        format!(
+            "a turn, a queued prompt or a compaction runs in the conversation {conversation_id}"
+        )
     }
 }
 

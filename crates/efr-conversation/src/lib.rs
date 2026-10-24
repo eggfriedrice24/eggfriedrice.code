@@ -111,6 +111,7 @@ pub use notice::{
 };
 pub use presence::{AlwaysPresent, PresenceReader};
 pub use resolver::{GitScopeResolver, ScopeResolver};
+pub use scratch::scratch_dirs;
 pub use toolbox::{
     CacheDeleteOutcome, CallContext, FileBackup, OutputSink, SnapshotRecord, ToolCall, ToolOutcome,
     Toolbox, TurnChanges, UndoCandidate, UndoRequest,

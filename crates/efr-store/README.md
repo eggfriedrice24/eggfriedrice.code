@@ -25,7 +25,7 @@ across a restart:
   `Readers::with(|conn| ...)`. An in-memory store runs reads on the writer's
   connection with `query_only` set, because a private in-memory database has one
   connection.
-- `events`: the append-only event log. `read_after(seq, limit)` and the per
+- `events`: the event log, append-only except for the delete of a conversation. `read_after(seq, limit)` and the per
   conversation reads return `EventEnvelope`s; a kind this build does not know reads
   back as `Event::Unknown`. `read_turn_history_without` is the page of a turn's start
   without the body events (`BODY_KINDS`: the assistant's text, each tool call and its
@@ -109,9 +109,10 @@ across a restart:
   what it writes. A turn's commit runs one at 1,000 frames (`WAL_AUTOCHECKPOINT`,
   SQLite's default), which beside the indexer it seldom reaches. The tables
   are not projections: a rebuild leaves them alone. The batch that ends a turn writes
-  nothing here. A later delete of a conversation must also delete its `search_docs`
-  rows (its sequence numbers through `events_conversation`, each with an FTS5
-  `'delete'`) and its `search_titles` row.
+  nothing here. The delete of a conversation deletes its `search_docs` rows (its
+  sequence numbers through `events_conversation`, each with an FTS5 `'delete'`) and its
+  `search_titles` row, and `search_apply` writes no doc of a deleted conversation, so a
+  page that the indexer read before the delete adds none of its text.
 - `search` reads: `search::search` finds the conversations whose titles or text match
   a query, one row per conversation, best first; `search::search_in` finds the hits in
   one conversation for the preview; `titles`, `index_percent`, and
@@ -156,6 +157,21 @@ across a restart:
   for one lane in `bench_search_memory_xl`). An in-memory store runs both on the
   writer's connection, with the flags of
   the stop but no interrupt.
+- `deletes` (migration 10): the deletes of conversations. The event
+  `conversation_deleted` makes the writer write the tombstone row
+  (`conversation_deletes`, with the PTYs and undos that the conversation's events name)
+  and delete the conversation's projection rows in the same batch, so from that commit
+  on no read finds the conversation, and every later event of it fails its batch
+  (`UnknownConversation`, or `ConversationExists` for a new `conversation_created` of
+  its id). `WriterHandle::delete_step` then removes the rest in short transactions
+  (`STEP_EVENTS`, 2,000 events with their search docs and receipts each; the last one
+  the saved messages, the search title, the outbox rows and the recording segments),
+  each of which a stop may break off and a later step does again, and
+  `WriterHandle::delete_done` marks the end once efrd removed the files too.
+  `pending` lists the deletes that a start of efrd finishes. The trigger of the log
+  lets only an event of a deleted conversation from before its tombstone go; the
+  tombstone event stays, so the sequence numbers never go back. A rebuild of the
+  projections skips the events of a deleted conversation.
 - `outbox`: durable side effects, enqueued with the batch that decides them and
   claimed in id order through `WriterHandle::outbox_claim` and `outbox_done`.
   Replay-safe rows survive a restart; process-bound rows are cancelled at startup by
@@ -199,8 +215,9 @@ it, and keep their own small helpers in `testing.rs`.
   serial and the broadcast is in commit order without a further lock. A subscriber
   that subscribes, then reads the high-water mark, then forwards live events above it
   misses nothing and sees nothing twice.
-- The event log is append-only (triggers refuse `UPDATE` and `DELETE`), `seq` starts at
-  1 and only grows, and events carry full state, so projections are a function of the
+- The event log is append-only (triggers refuse `UPDATE` and `DELETE`; the one delete
+  is of the events of a deleted conversation from before its tombstone event, which
+  stays), `seq` starts at 1 and only grows, also over a delete, and events carry full state, so projections are a function of the
   log and can be rebuilt at any time.
 - A batch is all or nothing: events, projections, receipts, outbox rows and turn
   messages commit in one transaction or not at all, and a failed batch does not use up sequence numbers.

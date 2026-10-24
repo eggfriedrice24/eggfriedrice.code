@@ -195,7 +195,9 @@ pub(crate) fn remove(dirs: &[PathBuf]) {
     }
 }
 
-fn make_removable(dir: &Path) {
+/// Makes every dir at and below `dir` writable for its owner, links not followed, so
+/// `remove_dir_all` can empty it. It blocks.
+pub(crate) fn make_removable(dir: &Path) {
     use std::os::unix::fs::PermissionsExt as _;
     let mut todo = vec![dir.to_path_buf()];
     while let Some(dir) = todo.pop() {

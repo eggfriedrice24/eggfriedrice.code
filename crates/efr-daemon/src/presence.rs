@@ -154,6 +154,12 @@ impl PresenceTable {
         changes
     }
 
+    /// Forgets `conversation_id`, which the user deleted, so no change of its presence
+    /// is recorded any more.
+    pub(crate) fn forget(&self, conversation_id: ConversationId) {
+        self.lock().remove(&conversation_id);
+    }
+
     /// The conversations that the table knows, in no fixed order.
     pub(crate) fn known(&self) -> Vec<ConversationId> {
         self.lock().keys().copied().collect()

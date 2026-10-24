@@ -85,6 +85,7 @@ pub use methods::conversation_context::{
     CacheSummary, CompactionBrief, CompactionSummary, ContextItem, ContextPart, ContextPartKind,
     ConversationContext, ConversationContextResult, CountedUse, MAX_LARGEST,
 };
+pub use methods::conversation_delete::{ConversationDelete, ConversationDeleteResult};
 pub use methods::conversation_diff::{ConversationDiff, ConversationDiffResult};
 pub use methods::conversation_history::{ConversationHistory, ConversationHistoryResult};
 pub use methods::conversation_resume::{ConversationResume, ConversationResumeResult};

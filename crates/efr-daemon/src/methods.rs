@@ -46,6 +46,7 @@ mod approval_respond;
 mod call_background;
 mod conversation_compact;
 mod conversation_context;
+mod conversation_delete;
 mod conversation_diff;
 mod conversation_history;
 mod conversation_resume;
@@ -144,6 +145,7 @@ pub(crate) fn scope(method: &Method) -> ScopeName {
         Method::CallBackground(_) => ScopeName::Terminal,
         Method::ConversationsSearch(_) => ScopeName::Read,
         Method::ConversationSearch(_) => ScopeName::Read,
+        Method::ConversationDelete(_) => ScopeName::Terminal,
     }
 }
 
@@ -227,6 +229,9 @@ impl Input {
             | Method::ShellStatus(_)
             | Method::ConversationsSearch(_)
             | Method::ConversationSearch(_) => None,
+            // NOTE: a delete is the user's act, but a deleted conversation records no
+            // presence: the store refuses its events.
+            Method::ConversationDelete(_) => None,
         };
         conversation.map_or(Input::None, Input::Conversation)
     }
@@ -502,6 +507,9 @@ impl Dispatcher for Methods {
                 }
                 Method::ConversationSearch(params) => {
                     conversation_search::handle(state, params, &responder).await
+                }
+                Method::ConversationDelete(params) => {
+                    Box::pin(conversation_delete::handle(state, &context, params, &responder)).await
                 }
             };
             state.presence.record(touched).await;

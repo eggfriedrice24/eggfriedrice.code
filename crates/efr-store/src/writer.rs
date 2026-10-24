@@ -10,12 +10,13 @@
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use efr_protocol::{Event, EventEnvelope, Seq};
+use efr_protocol::{ConversationId, Event, EventEnvelope, Seq};
 use efr_stdx::time::Clock;
 use jiff::Timestamp;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use crate::deletes::{self, DeleteStep};
 use crate::outbox::{self, OutboxId, OutboxItem, OutboxReconciled};
 use crate::search::{self, SearchApplied, SearchPage};
 use crate::{StoreError, events, projection, reader, receipts, sql, turn_messages};
@@ -168,6 +169,27 @@ impl WriterHandle {
     /// writer built event by event; this is how a projection bug is repaired.
     pub async fn rebuild_projections(&self) -> Result<(), StoreError> {
         self.run(|state| state.write(|tx, _at| projection::rebuild(tx))).await
+    }
+
+    /// One step of the delete of `conversation_id`, in one transaction: at most
+    /// [`deletes::STEP_EVENTS`] of its events with their search docs and receipts, or,
+    /// when none is left, its saved messages, its search title, its outbox rows and the
+    /// index of its recordings. The caller repeats it until it answers
+    /// [`DeleteStep::RowsDone`]; a step that a stop broke off left nothing half done.
+    pub async fn delete_step(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<DeleteStep, StoreError> {
+        self.run(move |state| {
+            state.write(|tx, at| deletes::step(tx, conversation_id, deletes::STEP_EVENTS, at))
+        })
+        .await
+    }
+
+    /// Marks the delete of `conversation_id` done, once its rows and files are gone;
+    /// false when it has no tombstone or its rows are not gone yet.
+    pub async fn delete_done(&self, conversation_id: ConversationId) -> Result<bool, StoreError> {
+        self.run(move |state| state.write(|tx, at| deletes::done(tx, conversation_id, at))).await
     }
 
     /// Writes one page of the search indexer in one transaction: its docs, the title of

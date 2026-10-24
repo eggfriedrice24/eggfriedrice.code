@@ -115,7 +115,12 @@ auto spec, section 10).
   `refs/efr-live/<tree>`. Only a `<16 hex>.git` is a root store and `home.git` the
   home store: another repository in the directory is never listed, trimmed or deleted.
   `gc_keeping` also keeps the turns that it names: efrd names the turn that started
-  each background job that still runs.
+  each background job that still runs. `Snapshots::forget_conversation`
+  (`ForgetReport`) deletes every ref of a deleted conversation in every store (its
+  turns, mirrors, home copies and undos), with the same prune, and deletes whole each
+  root store that held refs of it and holds no ref of another conversation and no
+  tree of a running turn or call, such as the store of its `$SCRATCH`. The home store
+  stays. It returns the undo ids that the refs named, for the undo trash.
 - Undo (`undo.rs`): `Snapshots::plan_undo` plans the undo of one turn in each root
   whose store holds its `pre`. It acts only on the paths that the turn's calls changed
   (`touched` of `post`, or of `last` when efrd stopped in the turn). For each path it

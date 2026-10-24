@@ -7,7 +7,7 @@ use efr_test_support::{TestClock, TestDirs, TestRng};
 use jiff::civil::{Date, date};
 use pretty_assertions::assert_eq;
 
-use super::{MARKER, Scratch, names, slug};
+use super::{MARKER, Scratch, names, scratch_dirs, slug};
 use crate::ConversationError;
 
 const DAY: Date = date(2026, 10, 4);
@@ -162,4 +162,24 @@ fn a_root_that_cannot_be_made_is_an_error() {
     let error = scratch.ensure(DAY, None).unwrap_err();
 
     assert!(matches!(error, ConversationError::CreateScratchRoot { .. }), "{error:?}");
+}
+
+#[test]
+fn the_dirs_of_a_conversation_are_found_by_their_marker_and_never_through_a_link() {
+    let root = root();
+    let id = conversation(1);
+    let other = conversation(2);
+    let first = Scratch::new(&root.path, id).ensure(DAY, Some("Fix tests")).expect("claimed");
+    // A second dir of the same conversation, from a title that changed.
+    let second = Scratch::new(&root.path, id).ensure(DAY, Some("Other name")).expect("claimed");
+    Scratch::new(&root.path, other).ensure(DAY, Some("Fix tests")).expect("claimed");
+    let elsewhere = root.path.with_file_name("elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("target");
+    std::fs::write(elsewhere.join(MARKER), format!("{id}\n")).expect("forged marker");
+    std::os::unix::fs::symlink(&elsewhere, root.path.join("a-link")).expect("link");
+
+    let mut expected = vec![first, second];
+    expected.sort();
+    assert_eq!(scratch_dirs(&root.path, id), expected);
+    assert_eq!(scratch_dirs(&root.path.join("missing"), id), Vec::<PathBuf>::new());
 }

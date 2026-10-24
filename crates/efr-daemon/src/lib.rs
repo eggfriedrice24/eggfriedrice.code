@@ -24,6 +24,7 @@ mod catalog;
 mod config;
 mod connections;
 mod conversations;
+mod deletes;
 mod discovery;
 mod engine;
 mod error;

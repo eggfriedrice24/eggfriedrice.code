@@ -280,6 +280,11 @@ impl Live {
                 }
                 Offer::Overflowed | Offer::Closed => return false,
             }
+            // NOTE: nothing of a deleted conversation follows its tombstone, so the
+            // subscription ends after it.
+            if matches!(envelope.event, Event::ConversationDeleted { .. }) {
+                return false;
+            }
         }
         true
     }

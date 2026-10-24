@@ -273,7 +273,8 @@ fn create(
         [&id],
         |row| row.get(0),
     )?;
-    if exists {
+    // NOTE: a deleted conversation never comes back under its id.
+    if exists || crate::deletes::is_deleted(conn, conversation_id)? {
         return Err(StoreError::ConversationExists { conversation_id });
     }
     let route = route.map(|route| sql::to_json(route, "route")).transpose()?;
