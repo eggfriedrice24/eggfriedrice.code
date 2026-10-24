@@ -206,11 +206,14 @@ async fn until_hidden(
     }
 }
 
-/// Lets every other task run for a while, without real time.
+/// Lets every other task run for a while, then waits 50 ms of real time. The hidden zsh
+/// is a real process: on a slow machine it needs real time to exit after a close, and
+/// yields alone let the clock run ahead of it (as in `jobs_moved.rs`).
 async fn idle() {
     for _ in 0..2000 {
         tokio::task::yield_now().await;
     }
+    efr_stdx::time::SystemClock.sleep(Duration::from_millis(50)).await;
 }
 
 /// Sends the prompt, approves the shell call and waits, without moving the clock, until
