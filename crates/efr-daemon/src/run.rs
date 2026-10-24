@@ -135,7 +135,8 @@ pub struct Deps {
     pub(crate) unit_cgroup: Option<String>,
     /// True when efrd may hold each background job in a cgroup of its own below its
     /// delegated cgroup (ADR 0021), which moves efrd itself into `<unit>/daemon` at
-    /// start. Only [`Deps::from_process`] sets it, so a test daemon never moves.
+    /// start. Only [`Deps::from_process`] sets it, and only under the systemd unit
+    /// (`unit_cgroup`), so a test daemon and a hand-started efrd never move.
     pub(crate) job_cgroups: bool,
     /// What routing reads about processes and terminals; `None` reads `/proc`.
     pub(crate) procs: Option<Arc<dyn ProcView>>,
@@ -228,7 +229,9 @@ impl Deps {
         // NOTE: efrd's own PATH, never the hidden shell's (plan PB20).
         deps.programs_path = std::env::var_os("PATH");
         deps.unit_cgroup = sandbox::peers::unit_cgroup();
-        deps.job_cgroups = true;
+        // NOTE: efrd moves itself only below its own unit `efrd.service`, never below a
+        // terminal's scope that happens to be delegated (ADR 0021).
+        deps.job_cgroups = deps.unit_cgroup.is_some();
         // NOTE: only a build with the test seams reads the smoke's test hosts.
         deps.seams = deps.seams.with_process_env();
         Ok(deps

@@ -70,7 +70,9 @@ the cgroup v2 files itself.
    test daemon), when the unit's cgroup is not delegated (an older unit), with no
    cgroup v2, or when efrd cannot make or join a job's cgroup, the job runs as before:
    held by its session only. `JobCgroup::off` says why, and `efr jobs list` shows it.
-   Only `Deps::from_process` turns the cgroups on, so a test daemon never moves itself.
+   Only `Deps::from_process` turns the cgroups on, and only when efrd's cgroup is its
+   unit `efrd.service`, so a test daemon never moves itself, and neither does an efrd
+   that runs in a terminal's scope, also a delegated one.
 
 7. **The peer check covers the subtree.** A process in efrd's unit cgroup that is not
    efrd counts as model-side on the socket (DV49). With decision 2, efrd and its shells
