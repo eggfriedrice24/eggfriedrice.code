@@ -47,6 +47,12 @@ struct Harness {
 
 impl Harness {
     async fn start() -> Self {
+        Harness::launch(0).await
+    }
+
+    /// Starts the task, with `early` actor trims before its first poll: the actors
+    /// may trim before the task first runs.
+    async fn launch(early: u64) -> Self {
         let clock = TestClock::new();
         let store = Store::open_in_memory(clock.shared()).await.unwrap();
         let trimmer = Arc::new(Counting::default());
@@ -62,6 +68,10 @@ impl Harness {
             stop: stop.clone(),
         };
         let task = tokio::spawn(follow(parts, Arc::clone(&trimmer)));
+        // NOTE: a test runs on one thread, so the task has not run yet.
+        if early > 0 {
+            actor_trims.send_modify(|count| *count += early);
+        }
         let harness = Harness {
             store,
             clock,
@@ -252,5 +262,18 @@ async fn a_second_heap_trim_waits_for_the_gap_after_the_first() {
     h.clock.advance(Duration::from_secs(1));
     h.wait(|status| status.trims == 2).await;
     assert_eq!(h.calls(), 2);
+    h.finish().await;
+}
+
+#[tokio::test]
+async fn an_actor_trim_before_the_first_poll_of_the_task_counts() {
+    let mut h = Harness::launch(1).await;
+    let seen = tokio::time::timeout(Duration::from_secs(10), h.wait(|status| status.due.is_some()));
+    let status = seen.await.expect("the task saw the actor trim of before its first poll");
+    assert_eq!(status.actor_trims, 1);
+
+    h.clock.advance(QUIET);
+    h.wait(|status| status.trims == 1).await;
+    assert_eq!(h.calls(), 1);
     h.finish().await;
 }

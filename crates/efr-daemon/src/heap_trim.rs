@@ -108,9 +108,11 @@ struct HeapTrim<T> {
 }
 
 impl<T: Trimmer> HeapTrim<T> {
-    fn new(mut parts: HeapTrimParts, trimmer: Arc<T>) -> Self {
-        // NOTE: the count at the start is no trim of this task's time.
-        parts.actor_trims.borrow_and_update();
+    fn new(parts: HeapTrimParts, trimmer: Arc<T>) -> Self {
+        // NOTE: the receiver keeps the version that it saw last, from the start of the
+        // channel on, so an actor trim before the first poll of this task still wakes
+        // it. Marking the count as seen here lost such a trim, and the actors' memory
+        // then waited for the next one.
         let quiet_since = parts.clock.now();
         HeapTrim {
             parts,
