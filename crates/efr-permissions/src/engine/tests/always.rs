@@ -36,7 +36,8 @@ fn app() -> ProjectId {
 /// The machine: efr's config and dirs, a sealed secret root, the turn's project and a
 /// second project that lines may name (an envelope root), the private tmp, a cache
 /// overlay, a synced folder, a dotfile link floor and a `sandbox.protect` floor that
-/// does not exist yet, a credential agent and a session bus from the environment.
+/// does not exist yet, a credential agent and a session bus from the environment, and
+/// a `ControlPath` of the user's ssh config.
 fn machine() -> Locations {
     Locations::new(HOME)
         .unwrap()
@@ -73,6 +74,7 @@ fn machine() -> Locations {
         .unwrap()
         .with_session_bus("/tmp/dbus-AbCd1234")
         .unwrap()
+        .with_ssh_control_path("/run/user/1000/cm-%C")
 }
 
 /// The host list of efr's proxy: one denied host.
@@ -326,6 +328,7 @@ fn always_allow_rejects_desktop_ipc() {
 #[case::gpg("/run/user/1000/gnupg/S.gpg-agent", AllowFloor::CredentialAgent)]
 #[case::ssh_agent("/run/user/1000/ssh-agent.socket", AllowFloor::CredentialAgent)]
 #[case::vault("/run/user/1000/vault.sock", AllowFloor::CredentialAgent)]
+#[case::ssh_control("/run/user/1000/cm-0a1b2c", AllowFloor::CredentialAgent)]
 #[case::in_project("/home/u/p/app/run/dev.sock", AllowFloor::InWriteRoot)]
 #[case::in_named_project("/home/u/p/lib/dev.sock", AllowFloor::InWriteRoot)]
 #[case::efrd("/run/user/1000/efr/daemon.sock", AllowFloor::EfrDir)]

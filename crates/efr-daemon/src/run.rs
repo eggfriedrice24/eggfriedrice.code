@@ -482,6 +482,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     let efr_roots = crate::jobs::launch::root_vars(&shell_env);
     let zsh = shells::zsh_program(&settings.shell, &shell_env);
     let mut host_facts = HostFacts::from_env(&shell_env, zsh);
+    host_facts.ssh_control_paths = sandbox::ssh::control_paths(&home);
     let exe = std::env::current_exe().ok();
     if let Some(exe) = &exe {
         host_facts.binaries.push(exe.clone());

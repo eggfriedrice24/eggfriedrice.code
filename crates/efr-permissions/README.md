@@ -63,7 +63,9 @@ Modules:
   and the names of a dotfile link), `with_synced_root`, `with_sandbox_mask` and
   `with_credential_socket` (the socket of a credential agent, such as
   `$SSH_AUTH_SOCK`; the engine also knows such sockets by a word of their path, also
-  `credential` for git's credential cache from v0.0.4).
+  `credential` for git's credential cache from v0.0.4), and `with_ssh_control_path`
+  (a `ControlPath` of the user's ssh config, v0.0.5: a socket that it matches counts
+  as a credential agent's socket).
   Classification
   is lexical: `.` and `..` are resolved by name,
   nothing is read from the disk, and a relative path has no class. Symbolic links may
@@ -427,6 +429,16 @@ Modules:
   (`git_code::sets_git_env`: a `GIT_*`, `SSH_*` or `AUTOSSH_*` name, `HOME`,
   `XDG_CONFIG_HOME` or `PATH`), because efrd checks with the hidden shell's variables.
   With no facts at all (no sandbox in efrd), the route stays.
+- `exits/control.rs` (v0.0.5, OQS17): an ssh control socket is a logged-in session,
+  and it, not the host of the line, decides where a command runs. So each exit of a
+  command that makes or uses one (`ssh` or `autossh` with `-S`, `-M` (ssh only), `-O`
+  or an `-o` of `ControlPath`, `ControlMaster` or `ControlPersist`; `scp`, `sftp` or
+  `sshfs` with such an `-o`; `rsync -e` or `--rsh` with such an ssh) is
+  `Approver::User`, with a note. A `needs.sockets` socket that efrd says an ssh process
+  listens on (`CallFacts::ssh_sockets`, from `FactRequest::sockets`), or that a
+  `ControlPath` pattern of `Locations` matches (`matches_pattern`: each `%` token and
+  `${NAME}` matches any text), is `Approver::User` with the same note, and the
+  always-allow check refuses a rule of it as a credential agent's socket.
 - `exits/programs.rs` (v0.0.4, DV25): `npm`, `pnpm`, `yarn` and `bun publish` and
   every cargo upload verb (`publish` with or without `--no-verify`, `yank`, `owner`)
   are `upload` exits that only the user approves, with notes that say what they run.

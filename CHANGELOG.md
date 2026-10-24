@@ -167,6 +167,13 @@ into the GitHub release notes, and it stops when the section is missing.
   descriptor, so efr was not open to the fault.
 - efr now uses ctutils 0.4.5 in the keyring build. This version fixes the advisory
   RUSTSEC-2026-0385 of ctutils 0.4.2.
+- In `auto`, only you approve an ssh control socket, never the reviewer. A control
+  socket is a logged-in session, and it, not the host on the line, decides where a
+  command runs. This applies to a line with `ssh -S`, `ssh -M`, `ssh -O`, an `-o` of
+  `ControlPath`, `ControlMaster` or `ControlPersist` (also for `scp`, `sftp`, `sshfs`
+  and `rsync -e`), and to a socket grant of a socket that an ssh process listens on or
+  that a `ControlPath` of your ssh config names. Before, the reviewer could approve
+  such a line when a message of yours named its host.
 
 ## [0.0.4] - 2026-10-23
 

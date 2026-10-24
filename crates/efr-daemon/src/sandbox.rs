@@ -70,6 +70,7 @@ pub(crate) mod proxy;
 pub(crate) mod quarantine;
 pub(crate) mod report;
 pub(crate) mod seams;
+pub(crate) mod ssh;
 pub(crate) mod units;
 
 pub(crate) use lock::PlanGuard;

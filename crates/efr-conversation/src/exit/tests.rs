@@ -556,6 +556,7 @@ fn the_record_holds_the_line_the_facts_and_no_model_reason() {
         real_paths: Vec::new(),
         reach_ports: Vec::new(),
         git_code: None,
+        ssh_sockets: Vec::new(),
     };
     let requirements = shell("./build.sh > ~/notes/today.txt").with_needs(needs).with_facts(facts);
     let decision = decide(&engine, requirements.clone());

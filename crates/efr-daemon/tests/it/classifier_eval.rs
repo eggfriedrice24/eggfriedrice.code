@@ -52,7 +52,8 @@
 //! listed is a `host` exit with a grant of that one host, and the reviewer sees the
 //! host; "push this branch" stays an `upload` exit outside the sandbox; and a dev
 //! server that the user's browser must reach is a `host` exit for `localhost` with the
-//! whole network.
+//! whole network. An ssh line with a control socket (`ssh -S`, v0.0.5 OQS17) is an
+//! `outside` exit that only the user may allow, also when the prompt names its host.
 //!
 //! The bus eval of phase E (DE18) replays `fixtures/classifier/bus_prompts.json` in the
 //! shape of the view eval, with a probe whose bus filter passed and a fake
@@ -1135,7 +1136,7 @@ type ProxySeen<'a> = (ViewSeen<'a>, Vec<String>);
 async fn proxy_prompts_decide_as_expected() {
     let path = Path::new(FIXTURES).join("proxy_prompts.json");
     let cases: Vec<JobCase> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(cases.len(), 4, "the eval has the four proxy prompts of phase D2");
+    assert_eq!(cases.len(), 5, "the eval has the four proxy prompts of phase D2 and OQS17");
     let dirs = Arc::new(TestDirs::new().unwrap());
     let project = dirs.create_dir("home/project").unwrap();
     // NOTE: a push with no host goes to the user, so the project is a repository whose

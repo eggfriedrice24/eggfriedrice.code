@@ -254,6 +254,11 @@ pub struct CallFacts {
     /// line that asks, `None` counts as not checked, and only the user may approve its
     /// `outside` or `upload` exit.
     pub git_code: Option<GitCodeFacts>,
+    /// The sockets of [`FactRequest::sockets`](crate::FactRequest) that an ssh process
+    /// listens on: ssh control sockets, each a logged-in session (OQS17). Only the user
+    /// approves a socket grant of one. efrd lists every socket of the request here when
+    /// it cannot look, so a lost fact asks the user.
+    pub ssh_sockets: Vec<PathBuf>,
 }
 
 /// A repository whose git code efrd checks before a git or gh line may run outside the

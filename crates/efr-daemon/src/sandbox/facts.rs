@@ -21,6 +21,9 @@
 //! with a link that leads nowhere on its way, or one that efrd cannot look at, gets no
 //! fact, so no rule covers it.
 //!
+//! For each socket of `needs.sockets` it tells whether an ssh process listens there
+//! (`ssh.rs`, OQS17): an ssh control socket, which only the user opens.
+//!
 //! For a persistence form whose content is another file (plan PB19a), it also reads
 //! each source that the engine names ([`FactRequest::sources`]): the real file behind
 //! every link, whether it changed in this turn (its mtime or ctime at or after the
@@ -95,6 +98,8 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
     let resolved = tokio::task::spawn_blocking(move || {
         real.iter().filter_map(|path| Some((path.clone(), real_path(path)?))).collect()
     });
+    let sockets = input.request.sockets.clone();
+    let ssh = tokio::task::spawn_blocking(move || super::ssh::listened(&sockets));
     let looked = tokio::task::spawn_blocking(move || {
         let mut found: Vec<(PathBuf, Option<TargetKind>)> = Vec::new();
         // NOTE: the paths of `found`, so a call of many targets stays linear.
@@ -127,6 +132,8 @@ pub(crate) async fn collect(input: &FactInput<'_>, git: &Git, home: &Home) -> Ca
     }
     facts.sources = read.await.unwrap_or_default();
     facts.real_paths = resolved.await.unwrap_or_default();
+    // NOTE: a lost fact counts every named socket as an ssh control socket (OQS17).
+    facts.ssh_sockets = ssh.await.unwrap_or_else(|_| input.request.sockets.clone());
     let git = git.clone().with_timeout(GIT_TIMEOUT);
     for dir in &input.request.tracked {
         let rebuildable = dir
