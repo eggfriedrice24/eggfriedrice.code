@@ -1,6 +1,6 @@
 use pretty_assertions::assert_eq;
 
-use crate::run::os_name;
+use crate::run::{os_name, recording_retention};
 
 #[test]
 fn the_os_name_is_the_pretty_name_then_the_name() {
@@ -13,6 +13,20 @@ fn the_os_name_is_the_pretty_name_then_the_name() {
     assert_eq!(os_name(bare).as_deref(), Some("Alpine"));
     assert_eq!(os_name("ID=x\n"), None);
     assert_eq!(os_name("PRETTY_NAME=\"\"\n"), None);
+}
+
+#[test]
+fn the_recording_retention_follows_the_settings_and_zero_turns_a_limit_off() {
+    let mut settings = efr_config::Settings::default().recording;
+    let retention = recording_retention(&settings);
+    assert_eq!(retention.max_age, Some(std::time::Duration::from_secs(14 * 24 * 3600)));
+    assert_eq!(retention.max_bytes, Some(2 << 30));
+    assert_eq!(retention.live_tail, crate::methods::MAX_REPLAY);
+
+    (settings.max_age_days, settings.max_gib) = (0, 0);
+    let off = recording_retention(&settings);
+    assert_eq!((off.max_age, off.max_bytes), (None, None));
+    assert_eq!(off.live_tail, crate::methods::MAX_REPLAY, "the tail stays");
 }
 
 mod daemon {

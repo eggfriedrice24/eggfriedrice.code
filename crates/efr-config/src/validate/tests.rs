@@ -153,6 +153,21 @@ fn snapshot_limits_and_diff_lines_have_ranges() {
 }
 
 #[test]
+fn recording_limits_have_ranges_and_zero_turns_them_off() {
+    let defaults = Settings::default().recording;
+    assert_eq!((defaults.max_age_days, defaults.max_gib), (14, 2));
+    let mut settings = Settings::default();
+    settings.recording.max_age_days = 3_651;
+    assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("recording.max_age_days"));
+    let mut settings = Settings::default();
+    settings.recording.max_gib = 10_001;
+    assert_eq!(check(&settings).map_err(|invalid| invalid.key), Err("recording.max_gib"));
+    let mut settings = Settings::default();
+    (settings.recording.max_age_days, settings.recording.max_gib) = (0, 0);
+    assert!(check(&settings).is_ok(), "0 turns each limit off");
+}
+
+#[test]
 fn sandbox_cache_limits_have_ranges() {
     let mut settings = Settings::default();
     settings.sandbox.cache_days = 0;

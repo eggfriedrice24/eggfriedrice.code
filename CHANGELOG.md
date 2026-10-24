@@ -40,6 +40,14 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ### Changed
 
+- efrd now deletes old recordings of the hidden shells' terminals. Once an hour, it
+  deletes the recording of a shell that exited more than 14 days ago
+  (`recording.max_age_days`), and, while all recordings take more than 2 GiB
+  (`recording.max_gib`), the oldest parts first. It always keeps the newest part, and
+  at least the last 1 MiB, of a shell that still runs. 0 turns a limit off. Before,
+  efrd kept every recording forever, so the data directory grew without a limit. A
+  client that resumes from output that went gets a screen snapshot, or for an exited
+  shell, only what is left.
 - The diff of an approval preview and of a finished write now shows only the changed
   hunks. Before, two small changes far apart in a large file showed as the whole file
   removed and added again, and the added and removed counts were wrong.

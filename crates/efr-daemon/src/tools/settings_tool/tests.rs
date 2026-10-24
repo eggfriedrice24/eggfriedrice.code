@@ -1156,9 +1156,14 @@ fn loosens_more_coverage_limits() {
     let others: Vec<(&str, Settings)> = vec![
         ("snapshot.keep_turns", changed(|s| s.snapshot.keep_turns += 1)),
         ("snapshot.max_age_days", changed(|s| s.snapshot.max_age_days += 1)),
+        // NOTE: the recordings change what efr keeps of output, not what runs without
+        // a question.
+        ("recording.max_age_days", changed(|s| s.recording.max_age_days = 0)),
+        ("recording.max_gib", changed(|s| s.recording.max_gib = 1)),
     ];
     for (row, next) in &others {
         assert!(!crate::loosens::loosens(&base, next), "{row} must not loosen");
+        assert!(!crate::loosens::loosens(next, &base), "{row} back must not loosen");
     }
 }
 

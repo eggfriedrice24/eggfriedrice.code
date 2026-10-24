@@ -78,6 +78,7 @@ mod turn_interrupt;
 mod turn_steer;
 mod turn_undo;
 
+pub(crate) use pty_attach::MAX_REPLAY;
 pub use search::SearchRowHook;
 
 /// The scopes of a phone connection.

@@ -1415,6 +1415,13 @@ A model-side peer holds no `approve` scope at all.
   `turn_id` it takes the newest finished turn of the conversation; without a
   `conversation_id` it takes the named turn's conversation, else the terminal's. A
   turn without snapshots changed no files, so its list is empty.
+- An hourly task (`run.rs`, `collect_recordings`) deletes the recording of a hidden
+  shell that exited more than `recording.max_age_days` days ago, and the oldest
+  segments first while all recordings pass `recording.max_gib` GiB. It keeps the newest
+  segment and at least the last 1 MiB (`MAX_REPLAY`) of each shell that can still
+  write, so `pty.attach` of a running shell always finds what it replays. A resume of a
+  recording whose first bytes went gets a later start: a screen snapshot for a running
+  shell, and what is left for an exited one.
 - An hourly task keeps the refs of the newest `snapshot.keep_turns` turns of each
   conversation whole across every store, the home store too, keeps the mirrors of a
   store within four times `snapshot.mirror_max_mib`, and deletes a store without a

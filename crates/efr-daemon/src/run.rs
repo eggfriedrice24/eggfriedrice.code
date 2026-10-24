@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use efr_config::Settings;
+use efr_config::{RecordingSettings, Settings};
 use efr_conversation::{
     ConversationDeps, ExitJudge, GitScopeResolver, HostInfo, PresenceReader, draft_channel,
 };
@@ -33,7 +33,7 @@ use efr_stdx::env::Var;
 use efr_stdx::paths::{Dirs, RootSource as StdxRootSource, RootSources};
 use efr_stdx::rng::{Rng, SystemRng};
 use efr_stdx::time::{Clock, SystemClock};
-use efr_store::recording::Recordings;
+use efr_store::recording::{Recordings, Retention};
 use efr_store::{Readers, Store, StoreConfig};
 use efr_transport::UnixListener;
 use jiff::tz::TimeZone;
@@ -80,6 +80,9 @@ const SANDBOX_GC_INTERVAL: Duration = Duration::from_secs(3600);
 
 /// How often the snapshot collector looks.
 const SNAPSHOT_GC_INTERVAL: Duration = Duration::from_secs(3600);
+
+/// How often the recording collector looks.
+const RECORDING_GC_INTERVAL: Duration = Duration::from_secs(3600);
 
 /// What the daemon takes from the outside world.
 #[non_exhaustive]
@@ -884,6 +887,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         )),
         tokio::spawn(collect_sandbox_layers(Arc::clone(&state), stop.clone())),
         tokio::spawn(collect_snapshots(Arc::clone(&state), stop.clone())),
+        tokio::spawn(collect_recordings(Arc::clone(&state), stop.clone())),
         tokio::spawn(state.providers.models().serve(stop.clone())),
         tokio::spawn(search_index::follow(
             state.writer.clone(),
@@ -1081,6 +1085,46 @@ async fn collect_snapshots(state: Arc<State>, stop: CancellationToken) {
             tracing::debug!(outputs, "removed the outputs of old jobs");
         }
     }
+}
+
+/// Keeps the recordings of the hidden shells small, once an hour: the recording of a
+/// shell that exited more than `recording.max_age_days` ago goes, and while all
+/// recordings pass `recording.max_gib`, the oldest segments go first. The newest
+/// segment of each shell that can still write stays, with at least the last
+/// [`MAX_REPLAY`](crate::methods::MAX_REPLAY) bytes, so a resume of a
+/// running shell always finds what it replays. The pass costs one read of the index
+/// and one listing of the files.
+async fn collect_recordings(state: Arc<State>, stop: CancellationToken) {
+    loop {
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = state.clock.sleep(RECORDING_GC_INTERVAL) => {}
+        }
+        let retention = recording_retention(&state.settings.borrow().recording);
+        match state.recordings.collect(retention).await {
+            Ok(collected) if collected.failed > 0 => {
+                tracing::warn!(
+                    ?collected,
+                    "some recording files could not be removed; the next pass tries again"
+                );
+            }
+            Ok(collected) if collected.segments + collected.orphans > 0 => {
+                tracing::debug!(?collected, "collected old recordings");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(error = %efr_stdx::with_causes(&error), "the recordings could not be collected");
+            }
+        }
+    }
+}
+
+/// What the collector keeps by `settings`: 0 turns a limit off.
+pub(crate) fn recording_retention(settings: &RecordingSettings) -> Retention {
+    let days = u64::from(settings.max_age_days);
+    let max_age = (days > 0).then(|| Duration::from_secs(days * 24 * 3600));
+    let max_bytes = (settings.max_gib > 0).then(|| u64::from(settings.max_gib) << 30);
+    Retention::new(max_age, max_bytes, crate::methods::MAX_REPLAY)
 }
 
 /// When the turns that job notices started began in the last hour before `now`, in

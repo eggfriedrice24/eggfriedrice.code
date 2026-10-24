@@ -208,6 +208,15 @@ efr's own snapshots, which show what a call and a turn changed in files.
 | `home_max_files` | `2000` | live | The most files of one directory that efr copies before a call can write all of it, outside the project and `$SCRATCH`, from 0 to 100000. A larger directory gets no copy, and the end of the turn says so. |
 | `home_max_mib` | `256` | live | The most MiB of one directory that efr copies before a call can write all of it, outside the project and `$SCRATCH`, from 0 to 16384. A larger directory gets no copy, and the end of the turn says so. |
 
+## [recording]
+
+How long efrd keeps the recordings of the hidden shells' terminals.
+
+| Key | Default | Applies | Description |
+|---|---|---|---|
+| `max_age_days` | `14` | live | Days after its shell exited after which the recording of a hidden shell is deleted, from 0 to 3650; 0 keeps it. |
+| `max_gib` | `2` | live | The most GiB that all recordings may take, from 0 to 10000; 0 sets no limit. Past it, efrd deletes the oldest segments first, but never the newest segment or the last 1 MiB of a shell that still runs. |
+
 ## [presence]
 
 When efr counts you away from a conversation, and how long a question waits then.

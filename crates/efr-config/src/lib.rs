@@ -9,7 +9,8 @@
 //!   ([`AllowRule`], re-exported from `efr-permissions`), [`NetworkSettings`] with
 //!   [`NetworkHost`], [`DbusSettings`],
 //!   [`ClassifierSettings`],
-//!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`PresenceSettings`], [`JobsSettings`],
+//!   [`UndoSettings`], [`SnapshotSettings`] with [`IgnoredFiles`], [`RecordingSettings`],
+//!   [`PresenceSettings`], [`JobsSettings`],
 //!   [`ResumeSettings`] with [`ResumePicker`],
 //!   [`DiffSettings`] with [`DiffGroups`], [`RenderSettings`] with [`Progress`], [`RenderColors`] and
 //!   [`DiffColors`]): every key with its default, read with
@@ -84,6 +85,7 @@ pub use tables::diff::{DiffGroups, DiffSettings};
 pub use tables::jobs::JobsSettings;
 pub use tables::network::{NetworkHost, NetworkSettings};
 pub use tables::presence::PresenceSettings;
+pub use tables::recording::RecordingSettings;
 pub use tables::render::{
     AUTO_THEME, COLOR_ROLES, ColorValue, DiffColors, Progress, RenderColors, RenderSettings,
     RoleColor,

@@ -9,7 +9,7 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 |---|---|---|
 | `$XDG_DATA_HOME/efr/efr.sqlite` (+ `-wal`, `-shm`) | the one database | `efr-store` |
 | `$XDG_DATA_HOME/efr/daemon.lock` | exclusive `flock`; decides single instance | `efr-daemon/src/lock.rs` |
-| `$XDG_DATA_HOME/efr/recordings/<pty_id>/<start_seq>.rec` | append-only PTY recording segments; the delete of a conversation removes the dirs of its PTYs | `efr-store/src/recording.rs` |
+| `$XDG_DATA_HOME/efr/recordings/<pty_id>/<start_seq>.rec` | append-only PTY recording segments. Once an hour, efrd deletes the recording of a hidden shell that exited more than `recording.max_age_days` days ago, and the oldest segments first while all recordings take more than `recording.max_gib` GiB. It never deletes the newest segment, or the last 1 MiB, of a shell that can still write: one that runs, that the database does not know yet, or that exited less than an hour ago. It also removes a segment file that has no row in `recording_segments` | `efr-store/src/recording.rs`, `recording/retention.rs` |
 | `$XDG_DATA_HOME/efr/scratch/<YYYY-MM-DD>-<slug>-<idtail>/` | `$SCRATCH` per conversation, claimed with a non-recursive `mkdir` and marked with `.efr-conversation`, which names the conversation. The delete of the conversation removes each dir whose marker names it | `efr-conversation/src/scratch.rs` |
 | `$SCRATCH/jobs/` (0700, marker `.efr-jobs`), `$SCRATCH/jobs/<id>.out` | the output of each background job of the conversation, which efrd writes from the job's pipe: the first 1 MiB and the last 8 MiB. efrd makes the dir before every contained call; an entry of that name without the marker goes aside to `jobs.moved-<n>`. Every contained call reads it but cannot write it, and snapshots leave it out. efr removes an output 7 days after its job ended, and keeps at most 20 outputs of ended jobs per conversation | `efr-daemon/src/jobs/output.rs` |
 | `$XDG_DATA_HOME/efr/snapshots/<root-id>.git`, `<root-id>.index`, `<root-id>.root` | efr's own snapshot store: one bare git repository per project or `$SCRATCH` (`root-id` is the first 16 hex characters of the SHA-256 of the root's canonical path), its persistent index and the root's path. Refs per turn: `refs/efr/<conversation>/<turn>/pre` (written at the turn's first snapshot of the root), `/last` (moved after each call, with the paths that the turn's calls changed), `/post` (at the turn's end) and `/undone` (after an undo). `refs/efr-mirror/<conversation>/<turn>/` holds the project's branches, tags, `refs/stash` and `HEAD` at the turn's start, at most `snapshot.mirror_max_mib` MiB of objects per turn and 4 times that per store. `refs/efr-undo/<conversation>/<undo-id>/` holds the state before an undo (`before`, `started`, `mirror/`), so a redo can take it back. The store holds the project's `.env` files and other small ignored files too, for up to `snapshot.max_age_days` days. The sandbox masks it with the rest of the data root. The collector keeps or drops a turn whole across every store: the newest `snapshot.keep_turns` turns of each conversation. It deletes a store without a snapshot for `snapshot.max_age_days` | `efr-snapshot` |
@@ -110,7 +110,12 @@ conversations or the daemon's socket. The config root stays readable and read-on
 - `outbox(id, kind, payload, replay_safe INTEGER, claimed_at, done_at)`. Replay-safe
   rows survive a restart; process-bound rows are cancelled at startup.
 - `recording_segments(pty_id, start_seq, path, bytes, started_at, closed_at)` indexes
-  the recording files.
+  the recording files. The collector reads all rows in one scan in the order of the
+  primary key, with the `shells` row of each PTY, so it needs no index of its own. It
+  deletes the rows in one writer transaction and unlinks the files after the commit. A
+  stop between the two leaves only files without a row, and the next pass removes
+  them. When the whole recording of a PTY goes, one row without a file stays at the
+  offset after its last byte.
 - `turn_messages(conversation_id, turn_id, position, provider, model, message JSON,
   turn_seq)`, keyed by `(turn_id, position)`: the exact messages of a finished turn
   with the provider's own items (`provider_raw`), which no event holds. Saved in the
@@ -255,3 +260,10 @@ sizes alone never rotates. `pty.attach(since_seq)` and the shell tool's output s
 read through `efr_store::recording::read_range(pty_id, start, end)`. Shell marks carry
 recording offsets, so the output of one command is the range between its OSC 133 `C`
 and `D` marks.
+
+A recording is a resume buffer and a record of recent output, not a permanent record.
+When the collector deleted the first segments of a PTY, a read reports a later start
+(`RecordedRange::start`): the offset of the first segment that is left, or for a
+recording that went whole, the offset after its last byte. `pty.attach` with an older
+`since_seq` then starts with a screen snapshot for a running shell, and replays only
+what is left for an exited one.
