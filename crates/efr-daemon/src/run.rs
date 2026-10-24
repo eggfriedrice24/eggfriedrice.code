@@ -133,6 +133,10 @@ pub struct Deps {
     /// `sandbox/peers.rs`; `None` turns that rule off. Only [`Deps::from_process`] sets
     /// it, so a test daemon never applies it.
     pub(crate) unit_cgroup: Option<String>,
+    /// True when efrd may hold each background job in a cgroup of its own below its
+    /// delegated cgroup (ADR 0021), which moves efrd itself into `<unit>/daemon` at
+    /// start. Only [`Deps::from_process`] sets it, so a test daemon never moves.
+    pub(crate) job_cgroups: bool,
     /// What routing reads about processes and terminals; `None` reads `/proc`.
     pub(crate) procs: Option<Arc<dyn ProcView>>,
     /// A test's hook in the row loop of each search; `None` has none.
@@ -160,6 +164,7 @@ impl fmt::Debug for Deps {
             .field("seams", &self.seams)
             .field("programs_path", &self.programs_path)
             .field("unit_cgroup", &self.unit_cgroup)
+            .field("job_cgroups", &self.job_cgroups)
             .field("procs", &self.procs)
             .field("search_hook", &self.search_hook)
             .finish_non_exhaustive()
@@ -197,6 +202,7 @@ impl Deps {
             seams: Seams::default(),
             programs_path: None,
             unit_cgroup: None,
+            job_cgroups: false,
             procs: None,
             search_hook: None,
         }
@@ -222,6 +228,7 @@ impl Deps {
         // NOTE: efrd's own PATH, never the hidden shell's (plan PB20).
         deps.programs_path = std::env::var_os("PATH");
         deps.unit_cgroup = sandbox::peers::unit_cgroup();
+        deps.job_cgroups = true;
         // NOTE: only a build with the test seams reads the smoke's test hosts.
         deps.seams = deps.seams.with_process_env();
         Ok(deps
@@ -418,6 +425,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         seams,
         programs_path,
         unit_cgroup,
+        job_cgroups,
         procs,
         search_hook,
     } = deps;
@@ -425,6 +433,18 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
     // before anything else happens.
     let socket = dirs.checked_socket_path().map_err(|source| DaemonError::SocketPath { source })?;
     let lock = DaemonLock::acquire(&dirs.lock_path())?;
+    // NOTE: before efrd starts any process: it moves itself into `<unit>/daemon`, so its
+    // unit's cgroup can give its controllers to the job cgroups (ADR 0021).
+    let job_cgroups = if job_cgroups {
+        tokio::task::spawn_blocking(crate::jobs::cgroup::Cgroups::setup)
+            .await
+            .unwrap_or_else(|_| crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT))
+    } else {
+        crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT)
+    };
+    if let Some(reason) = job_cgroups.reason() {
+        tracing::info!(reason, "background jobs end by their session only, with no cgroup");
+    }
     // NOTE: a change that the config hold kept back before this start stays held
     // (full mode, DF17), so a restart never applies it in silence.
     let (config, held) = Box::pin(reload::kept::restore(dirs.state(), config)).await;
@@ -628,6 +648,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         },
         full: full.clone(),
         host_ports: job_seams.host_ports(),
+        cgroups: job_cgroups,
     });
     let ended = jobs.recover().await?;
     // NOTE: a job that the last efrd left running ends now, before the notices task

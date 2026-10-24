@@ -191,6 +191,7 @@ pub(crate) fn job_info(
         forwards: Vec::new(),
         moved_from: None,
         waits_input: false,
+        cgroup: None,
     }
 }
 

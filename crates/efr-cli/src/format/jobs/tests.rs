@@ -438,3 +438,39 @@ fn the_list_marks_a_moved_job_that_waits_for_input() {
     let rows = [ListRow { job: &job, conversation: None, leftover: false }];
     assert!(!list(&rows, now()).contains("waits for input"));
 }
+
+/// A running job shows the memory and the CPU time of its cgroup, or why it has none
+/// (ADR 0021); an ended one shows neither.
+#[test]
+fn the_list_shows_the_cgroup_of_a_running_job() {
+    let mut job = moved(42, Vec::new());
+    job.moved_from = None;
+    job.cgroup = Some(efr_protocol::JobCgroup {
+        off: None,
+        memory_bytes: Some(183_500_800),
+        cpu_usec: Some(42_150_000),
+    });
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert_eq!(
+        list(&rows, now()),
+        "j3  running  ends in 1h 0m  0 B  make deploy  (183.5 MB of memory, 42.1 s of CPU)\n"
+    );
+    job.cgroup = Some(efr_protocol::JobCgroup {
+        off: Some("efrd's cgroup is not delegated (Delegate=yes)".to_owned()),
+        ..efr_protocol::JobCgroup::default()
+    });
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert_eq!(
+        list(&rows, now()),
+        "j3  running  ends in 1h 0m  0 B  make deploy  (no cgroup: efrd's cgroup is not \
+         delegated (Delegate=yes))\n"
+    );
+    // NOTE: a cgroup that says nothing yet adds nothing, and an ended job shows none.
+    job.cgroup = Some(efr_protocol::JobCgroup::default());
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert_eq!(list(&rows, now()), "j3  running  ends in 1h 0m  0 B  make deploy\n");
+    job.cgroup = Some(efr_protocol::JobCgroup { memory_bytes: Some(1), ..Default::default() });
+    job.state = JobState::Exited;
+    let rows = [ListRow { job: &job, conversation: None, leftover: false }];
+    assert!(!list(&rows, now()).contains("memory"));
+}

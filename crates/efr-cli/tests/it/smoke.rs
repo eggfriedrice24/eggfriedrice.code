@@ -594,7 +594,14 @@ async fn efr_jobs_stop_works() {
     // NOTE: the test daemon's clock stands still in the past, so the time limit may
     // read as passed.
     assert!(row.starts_with("j1  running  ends "), "{row}");
-    assert!(row.trim_end().ends_with("echo job-out; sleep 20"), "{row}");
+    // NOTE: a test daemon never moves itself into a cgroup, so the job says why it has
+    // none (ADR 0021).
+    assert!(
+        row.trim_end().ends_with(
+            "echo job-out; sleep 20  (no cgroup: efrd does not run as its systemd unit)"
+        ),
+        "{row}"
+    );
 
     let stopped = run(jobs(&["stop", "j1"])).await;
     assert!(stopped.status.success(), "{}", text(&stopped.stderr));

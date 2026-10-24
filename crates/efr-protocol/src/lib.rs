@@ -63,8 +63,8 @@ pub use ids::{
     RequestId, Seq, TurnId, UndoId,
 };
 pub use jobs::{
-    ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy, MovedCall, NoticeKind,
-    PortForward, WAKE_QUESTION, Watch,
+    ForwardOutcome, HeldReason, JobCgroup, JobId, JobInfo, JobState, JobStopBy, MovedCall,
+    NoticeKind, PortForward, WAKE_QUESTION, Watch,
 };
 pub use method::Method;
 pub use methods::admin_config_reload::{AdminConfigReload, AdminConfigReloadResult};

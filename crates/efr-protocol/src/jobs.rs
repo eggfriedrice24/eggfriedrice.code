@@ -399,6 +399,32 @@ pub struct JobInfo {
     /// false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub waits_input: bool,
+    /// How efrd holds the processes of the job (v0.0.5): in a cgroup of the job's own,
+    /// with its memory and CPU, or by the job's session only, with the reason. Absent
+    /// from an efrd before v0.0.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cgroup: Option<JobCgroup>,
+}
+
+/// The cgroup of a job (v0.0.5): efrd makes one for each job below its own delegated
+/// cgroup, so the stop of the job kills every process of the job, also one that left its
+/// session, and the memory and the CPU time of the job can be seen.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+pub struct JobCgroup {
+    /// Why the job has no cgroup of its own, and efrd holds its processes by its
+    /// session only, such as `efrd's cgroup is not delegated (Delegate=yes)`. Absent
+    /// when the job has its cgroup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off: Option<String>,
+    /// The memory of the job's processes in bytes: what they use now while the job
+    /// runs (`memory.current`), the most that they used at its end (`memory.peak`).
+    /// Absent when the kernel does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+    /// The CPU time of the job's processes so far, in microseconds (`usage_usec` of
+    /// `cpu.stat`). Absent when the kernel does not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_usec: Option<u64>,
 }
 
 /// The `shell` call that a job came from, when the user moved a running call into a job

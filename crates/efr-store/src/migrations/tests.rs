@@ -604,6 +604,7 @@ async fn write_latest_fixture(path: &Path, recordings: &Path) {
         forwards: Vec::new(),
         moved_from: None,
         waits_input: false,
+        cgroup: None,
     };
     let job_started = Event::JobStarted {
         turn_id: job.turn_id,

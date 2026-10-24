@@ -746,7 +746,9 @@ spec; `docs/sandbox.md` for the user's view):
 - Socket peers (`sandbox/peers.rs`): a process that descends from a hidden zsh, or
   shares a hidden zsh's session, and a process that is gone, get the `read` scope
   only (`methods.rs`, `granted(surface, peer)`). Under the systemd user unit, a peer
-  whose cgroup is efrd's own and that is not efrd gets `read` too (DV49): an orphan of
+  whose cgroup is efrd's unit cgroup or below it and that is not efrd gets `read` too
+  (DV49; below it since the job cgroups of ADR 0021, `<unit>/daemon` and
+  `<unit>/jobs/...`): an orphan of
   an exit child job that called `setsid` and lost its launcher leaves the job's session
   and tree, but not the unit's cgroup. `Deps::from_process` reads efrd's cgroup once
   (`peers::unit_cgroup`, the `0::` line of `/proc/self/cgroup` when it ends in
@@ -918,13 +920,25 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   a rename. It keeps the last 8 KiB for the end, and matches lines of at most 4 KiB with
   the watch pattern. A write that fails drops the file, never the pipe, and the end says
   `output_truncated`.
+- Job cgroups (`jobs/cgroup.rs`, ADR 0021): with `Delegate=yes` in its unit, efrd
+  checks the `user.delegate` mark of its own cgroup at start (`Cgroups::setup`, only
+  when `Deps::from_process` built the deps), moves itself into `<unit>/daemon`, gives
+  `<unit>` and `<unit>/jobs` the `memory`, `cpu` and `pids` controllers, and removes
+  what the last efrd left in `<unit>/jobs` (`JobTable::recover`). `JobTable::spawn`
+  makes `<unit>/jobs/<conversation>-j<n>` and moves the launcher in before the start
+  byte; `JobTable::adopt` moves a moved call's shell and every process below it.
+  `jobs.list` reads `memory.current` and `cpu.stat` of each running job. Without a
+  delegated subtree, or when a step fails, the job has `JobCgroup::off` with the
+  reason and ends by its session only.
 - The task of each job runs under the table's own cancel token, never in efrd's
   `background` tasks. It waits for the launcher, a stop (`job_stop` for the model,
   `jobs.stop` for the user) or the time limit on efrd's clock. A stop sends SIGCONT and
   SIGTERM through the launcher's pidfd and SIGKILL after 6 s; every end sweeps the job's
   session (`jobs/sweep.rs`: SIGKILL through a pidfd to each process whose session is the
   launcher's pid, never efrd's own; the pidfd's process must still have the session and
-  start time that the scan found). Then it reads the rest of the output and
+  start time that the scan found), and kills the job's cgroup (`jobs/cgroup.rs`,
+  ADR 0021: `cgroup.kill`, else SIGKILL to each pid of `cgroup.procs`; it keeps the
+  most memory and the CPU time in `JobInfo::cgroup` and removes the dir). Then it reads the rest of the output and
   `result.json`, records `job_ended` (with the processes that may still run and whether
   the launcher was lost), hands the conversation's actor the notice, and removes the
   job's dirs. A job that the model stopped, or that efrd stopped because full mode went

@@ -1492,12 +1492,35 @@ turned off`). Esc and the end of a turn never stop a job. The time limit counts 
 time on the clock, so a suspend counts too.
 
 A stop sends SIGTERM to the job's processes, then SIGKILL after a short wait. Then efrd
-ends every process that still has the job's session (the sweep). The end names the
+ends every process that still has the job's session (the sweep), and every process of
+the job's cgroup (see "The cgroup of a job"). The end names the
 processes that may still run, and a launcher that efr lost. When efrd stops, it stops
 every job. When efrd dies, each launcher sees that and stops its job. At the next
 start, efrd records each job that the last efrd left as `stopped because efrd
 restarted`, checks its git surface, and ends what is left of it. The terminal of the
 job's conversation gets that end line at its next prompt.
+
+### The cgroup of a job
+
+When efrd runs as its systemd unit with `Delegate=yes` (the unit of `just install` and
+of the AUR packages from 0.0.5), each job runs in a cgroup of its own (ADR 0021). At its
+start efrd moves itself into `<unit>/daemon`, and each job gets
+`<unit>/jobs/<conversation>-j<n>`. efrd puts the launcher there before the job starts
+anything, so every process of the job is in it. A call that you move with Ctrl+B moves
+into its own cgroup at the move, with every process below its shell.
+
+- The end of a job kills every process of its cgroup (`cgroup.kill`), also a process
+  that left the job's session with `setsid`. The sweep of the session still runs too.
+- `efr jobs list` shows the memory and the CPU time of each running job, such as
+  `(183.5 MB of memory, 42.1 s of CPU)`, and the model's `jobs` tool shows them too.
+- When efrd cannot give a job a cgroup, the job runs as before, held by its session
+  only, and `efr jobs list` says why, such as `(no cgroup: efrd's cgroup is not
+  delegated (Delegate=yes))`: efrd runs by hand or in a test, the installed unit has no
+  `Delegate=yes`, or the machine has no cgroup v2. After you install the new unit, run
+  `systemctl --user daemon-reload` and restart efrd.
+- A job in the exit child runs as you, and you own the delegated cgroups. Such a job
+  can move its own processes out of its cgroup on purpose. The sweep of the session and
+  the peer check of efrd's socket still apply to it.
 
 ### Notices and wake turns
 
@@ -2090,7 +2113,8 @@ the config hold of full mode holds it.
 | a snapshot holds no empty dirs, fifos, sockets, devices, extended attributes, ACLs, owners or hard links | a covered `rm -r` loses them, and undo makes hard-linked files separate | the preview notes `empty directories and special files do not come back` |
 | `at`, `batch` and `systemd-run --user` | they run later with no copy | they stay with you; a started unit runs on after an undo |
 | a background job in the exit child runs as you | it can open the hidden shell's terminal by its path and read efr's runtime files | it holds no terminal and no descriptor of one; `no_new_privs`; its time limit; a thin mount namespace for such jobs comes later |
-| a job in the exit child that starts a process in a new session (`setsid`) and ends its own launcher, in any order | that process can escape the stop, the time limit and the sweep; the end does not name it, and efrd's socket counts it as your process, not the model's | the sweep by the job's session ends every other process; the end names a lost launcher; a cgroup per job comes later |
+| a job in the exit child that starts a process in a new session (`setsid`) and ends its own launcher, in any order | without a job cgroup (efrd not under its unit, or a unit with no `Delegate=yes`), that process can escape the stop, the time limit and the sweep; the end does not name it | the cgroup of the job (ADR 0021) kills it at the end; the sweep by the job's session ends every other process; the end names a lost launcher; efrd's socket counts each process in its unit's cgroup and below as the model's |
+| a job in the exit child moves its own processes out of its cgroup on purpose | it runs as you and owns the delegated cgroups, so the cgroup kill does not reach them | the sweep by the job's session; efrd's socket counts every process in its unit's cgroup and below as the model's; a contained job has a cgroup namespace of its own |
 | a job keeps the sandbox plan of its start | a new mask, secret or floor of a settings change does not reach a running job | stop the job and let the model start it again |
 | a job writes a path that a later call also changes | that change stays with the later call's turn, not with the job's | undo refuses while a job writes in its roots |
 | a dev server listens on the sandbox's own loopback | in a foreground call, your browser cannot reach it, and it stops when the call ends | the model starts a server as a background job, and efr forwards its port to the same port of your `127.0.0.1` (see "Ports of a job") |

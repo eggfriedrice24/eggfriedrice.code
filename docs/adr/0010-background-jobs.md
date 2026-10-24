@@ -52,7 +52,8 @@ it ends, and what its output can do in the conversation.
    it. A process of an exit child job that calls `setsid` escapes the sweep once its
    launcher is gone, and the socket then counts it as the user's. A cgroup per job
    closes that, but it changes the systemd unit (`Delegate=yes`), so it
-   waits for a later phase. The docs name the limit.
+   waits for a later phase. The docs name the limit. ADR 0021 (v0.0.5) adds the
+   cgroup per job; the session sweep stays.
 
 7. **A notice is an event of its own and never enters a running turn.** A job's end is
    `job_ended`; the notice that the model reads is `job_notice`, which a turn records

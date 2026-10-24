@@ -134,6 +134,8 @@ package() {
   sed 's|^ExecStart=%h/\.local/bin/efrd$|ExecStart=/usr/bin/efrd|' systemd/efrd.service \
     > "$pkgdir/usr/lib/systemd/user/efrd.service"
   grep -qx 'ExecStart=/usr/bin/efrd' "$pkgdir/usr/lib/systemd/user/efrd.service"
+  # Each background job runs in a cgroup of its own below efrd's (ADR 0021).
+  grep -qx 'Delegate=yes' "$pkgdir/usr/lib/systemd/user/efrd.service"
   install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
   install -Dm0644 -t "$pkgdir/usr/share/doc/efr-code/" README.md \
     docs/config.md docs/permissions.md docs/sandbox.md
