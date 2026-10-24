@@ -361,7 +361,7 @@
               "type": "null"
             }
           ],
-          "description": "Where the command must run: a directory or below it (absolute or starting with\n`~`), `\"project\"` for the turn's registered project, or `\"scratch\"` for the\nconversation's `$SCRATCH`. The directory is where the hidden shell is when the\nline starts; after a `cd`, `pushd` or `popd` earlier in the line it is unknown,\nand the pattern matches nothing."
+          "description": "Where the command must run: a directory or below it (absolute or starting with\n`~`), `\"project\"` for the turn's registered project, or `\"scratch\"` for the\nconversation's `$SCRATCH`. The directory is where the hidden shell is when the\nline starts. After a `cd`, `pushd` or `popd` earlier in the line, an `allow` rule\nmatches nothing; an `ask` or `deny` rule matches unless efr can prove that the\ncommand runs outside: the dir where the line starts and the target of each `cd`\nto an absolute path or below `~` all lie outside, and no other change of directory\ncomes before it."
         }
       },
       "required": [

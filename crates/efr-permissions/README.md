@@ -122,6 +122,13 @@ Modules:
   `exits/cover.rs` and the git code check of `exits/git_code.rs`. Each keeps its own
   idea of which options it accepts, so `cover.rs` still accepts only `--no-pager`,
   `-P`, `--no-optional-locks` and one `-C`.
+- `command::directory_change` (v0.0.5, OQL9): where a `cd`, `chdir`, `pushd` or
+  `popd` goes: home, one directory that the word names (absolute, `~` or below `~`),
+  or unknown (a relative target, `cd -`, a stack entry, `popd`, `pushd` alone, two
+  operands, a pattern, or a `cd` behind a wrapper such as `time`).
+  `policy/place.rs` walks the line: before the first change each command runs in the
+  start dir (`Place::Start`), after one in the start dir or any target so far
+  (`Place::Among`, at most 32 dirs), after an unknown one anywhere (`Place::Unknown`).
 - `policy`: `Policy`, an ordered list of `Rule { action, resource, effect }` in which
   the last match wins. A `command` resource is a `CommandPattern`: the program, the
   words that must follow it (`args`, with `a|b` alternatives and a trailing `*`), the
@@ -129,8 +136,7 @@ Modules:
   cluster, `-word` as `find` reads it, or a substring of an operand), `min_operands`
   and `max_operands`, `max_options` (with `max_operands`, 0 allows the `args` alone),
   `under` (`Under`: a directory, `"project"` or `"scratch"`) where the command must
-  run, which matches only while the line's directory is known: before any `cd`,
-  `pushd` or `popd` in it, and `check` (`Check`, in `policy/check.rs`): a check of the
+  run, and `check` (`Check`, in `policy/check.rs`): a check of the
   words that a list of words cannot express, `sed_print_only` for a `sed` that only
   prints and `ref_names` for git operands that can only be refs. A command rule with
   the action `network` matches the network access of that command. For the program
@@ -150,7 +156,16 @@ Modules:
   asks or denies more. A rule that allows reads neither form. A rule reads at most
   `MAX_FORMS` (16) forms of its program in one command, because each form reads the
   rest of the command and a git form reads it again for each view; past the cap the
-  rule matches in any place, so `env git git git ...` asks or is denied.
+  rule matches in any place, so `env git git git ...` asks or is denied. `under` of a
+  rule that allows matches only in `Place::Start`, before any change of directory; of
+  a rule that asks or denies, in any dir of the place and of git's `-C`, and
+  in every dir for `Place::Unknown` (OQL9), as a read form, so such a match only
+  makes the effect stricter. For a line that `analyze` cannot split, the engine also
+  reads each command that the lenient split of `exits/scan.rs` finds in it
+  (`exits::lenient_commands`) against the command rules that ask or deny, with an
+  unknown place (`Engine` `tightened_opaque`): the strictest one that matches decides
+  when it is at least as strict as the rules for every command line, so
+  `cd "$DIR" && git push` meets `deny git push`, also in full mode.
   `Policy::base(mode)` is the built-in policy of a mode: `manual` is `any any ask`
   and the secrets rule; `cautious` is `Policy::defaults()`, the table above as eight
   rules followed by the read-only commands of `policy/defaults.rs` (`ls`, `cat`, `rg`,
@@ -686,9 +701,14 @@ proptest property:
   Adding a requirement never loosens a decision (property).
 - A command line is allowed only when every simple command in it is (property: no
   operator joins an asked command to an allowed one), so allowing `git status` never
-  allows `git status; rm -rf ~`. A line that `command::analyze` cannot split matches
-  only the rules whose resource is `any`, which ask by default (property: no line with
-  a `$(` or backquote outside single quotes is allowed by the defaults).
+  allows `git status; rm -rf ~`. A line that `command::analyze` cannot split is
+  allowed only by the rules whose resource is `any`, which ask by default (property: no
+  line with a `$(` or backquote outside single quotes is allowed by the defaults); a
+  command rule that asks or denies can still make it stricter through the commands
+  that the lenient split finds in it.
+- A rule that asks or denies is never looser after v0.0.5's readings (OQL9) than in
+  v0.0.4 (property, `policy/tests/places.rs`): a match through a dir that efr cannot
+  prove only makes the effect stricter.
 - `sudo`, `sudoedit`, `doas`, `su`, `pkexec` and `run0`, also behind a wrapper such as
   `env` or inside a substitution, always need approval: no command pattern matches
   them and an `allow` from a rule for every command line becomes `ask`.

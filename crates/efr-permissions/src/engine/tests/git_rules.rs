@@ -259,17 +259,21 @@ fn under_of_a_tightening_rule_counts_gits_dirs(
 }
 
 #[test]
-fn under_matches_nothing_when_no_dir_is_known() {
+fn under_reads_gits_dirs_from_each_dir_the_line_may_be_in() {
     let deny = pattern(&["push"]).with_under("~/work");
     let engine = with_rules(vec![rule(deny, Effect::Deny)]);
-    // After a `cd`, the shell's dir is not known, and a relative `-C` is not either.
+    // The `cd` may fail, so a relative `-C` counts from `~` too (OQL9).
     let line = "cd /srv && git -C work push";
     let decision = decide_in(&engine, Mode::Cautious, shell_in(line, "/home/u"));
-    assert_ne!(decision.effect(), Effect::Deny);
+    assert_eq!(decision.effect(), Effect::Deny);
     // An absolute `-C` is known.
     let line = "cd /srv && git -C /home/u/work push";
-    let decision = decide_in(&engine, Mode::Cautious, shell_in(line, "/home/u"));
+    let decision = decide_in(&engine, Mode::Cautious, shell_in(line, "/srv"));
     assert_eq!(decision.effect(), Effect::Deny);
+    // From `/srv` and `/tmp`, `-C work` is outside `~/work`.
+    let line = "cd /tmp && git -C work push";
+    let decision = decide_in(&engine, Mode::Cautious, shell_in(line, "/srv"));
+    assert_ne!(decision.effect(), Effect::Deny);
 }
 
 #[test]

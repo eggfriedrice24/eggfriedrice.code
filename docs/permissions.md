@@ -903,8 +903,15 @@ few words after it, without long words, quoted text or the value of `--option=va
 so a token on the line does not show twice.
 
 The engine cannot see through some constructs. A line that holds one of them matches
-no command rule. Only a rule whose resource is `any` can decide it, and the built-in
-rule 0 asks:
+no command rule that allows. A rule whose resource is `any` decides it, and the
+built-in rule 0 asks. An `ask` or `deny` command rule of yours also reads each command
+that efr finds in such a line, the commands inside a substitution too, so
+`deny git push` denies `git push $(git branch --show-current)` and
+`cd "$DIR" && git push`, in every mode. efr does not know where such a command runs,
+so a rule with `under` matches it too. Such a rule can only make the decision
+stricter. A variable or a substitution that stands for the program or for a word of
+the rule's `args`, as in `$GIT push`, still hides the command from the rule. The
+constructs are:
 
 - a command substitution: `$(...)` or backquotes;
 - a process substitution: `<(...)`, `>(...)` or `=(...)`;
@@ -1165,8 +1172,9 @@ Put your rules in `$XDG_CONFIG_HOME/efr/config.toml`. Each rule has an `action`
   - `under`: where the command must run: a directory or below it, `"project"` for the
     root of the turn's registered project or below it, or `"scratch"` for the
     conversation's `$SCRATCH` or below it. It is the hidden shell's directory when the
-    line starts. After a `cd`, `pushd` or `popd` earlier in the line, the directory is
-    unknown and the rule matches nothing;
+    line starts. After a `cd`, `pushd` or `popd` earlier in the line, an `allow` rule
+    matches nothing. An `ask` or `deny` rule matches unless efr can prove that the
+    command runs outside the directory (see "`under` after a `cd`" below);
   - `check`: a check of the words after `args` that words alone cannot express:
     `"sed_print_only"` (for `sed` only) or `"ref_names"`, as the tables above use them.
 
@@ -1220,6 +1228,29 @@ config is not on the line: write a rule for its name too, such as `args = ["p"]`
 `ask` or `deny` rule also reads git behind a wrapper or by its path, such as
 `env git -C ~/p/app push` or `/usr/bin/git push`. A rule for another program still
 compares the words right after the program.
+
+### `under` after a `cd`
+
+A `cd` in the line changes where the commands after it run, but a `cd` can fail or
+run in a pipeline, so they can also run in the directory before it. An `allow` rule
+with `under` matches only before the first `cd`, `pushd` or `popd` of the line. An
+`ask` or `deny` rule with `under` matches a later command too, unless efr can prove
+that the command runs outside the rule's directory: the directory where the line
+starts, and the target of each `cd`, `pushd` or `chdir` before the command, all lie
+outside. efr can read a target that is an absolute path, `~` or below `~`, and `cd`
+with no operand. efr cannot read, so the rule matches:
+
+- a relative target, such as `cd sub` or `cd ..`: `CDPATH` can move it;
+- `cd -`, a stack entry such as `cd +1`, `popd` and `pushd` with no operand;
+- two operands (`cd old new`) and a pattern (`cd /tmp/w*`);
+- a `cd` behind a wrapper, such as `time cd /tmp`;
+- a `cd` to a variable or a substitution, such as `cd "$DIR"` (see the constructs
+  above);
+- a line whose start directory efr does not know.
+
+So with `deny git push` and `under = "~/work"`, `cd sub && git push` is denied from
+any directory, and `cd /tmp && git push` is denied from `~/work/app` but not from
+`/srv`. efr compares the names of the directories; it does not follow a symbolic link.
 
 ### Example: allow `cargo test` in one project
 

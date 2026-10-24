@@ -1028,6 +1028,21 @@ pub struct FactRequest {
     pub sockets: Vec<PathBuf>,
 }
 
+/// The words of each simple command that the lenient split finds in `line`, program
+/// first, without the assignments before it, the commands of its substitutions
+/// included: what a rule that asks or denies reads in a line that
+/// [`command::analyze`](crate::command::analyze) cannot split (OQL9). A substitution or
+/// an expansion stands in its word as [`OPAQUE`].
+pub(crate) fn lenient_commands(line: &str) -> Vec<Vec<String>> {
+    scan::scan(line)
+        .into_iter()
+        .filter_map(|mut segment| {
+            let at = segment.words.iter().position(|word| !is_assignment(word))?;
+            Some(segment.words.split_off(at))
+        })
+        .collect()
+}
+
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the
 /// same lenient split, so every path it asks about is here.
 pub fn fact_requests(line: &str, command_dir: Option<&Path>, locations: &Locations) -> FactRequest {

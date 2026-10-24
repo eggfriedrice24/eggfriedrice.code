@@ -14,6 +14,7 @@ mod protection;
 mod proxy;
 mod reach;
 mod settings;
+mod under_cd;
 
 use std::path::PathBuf;
 

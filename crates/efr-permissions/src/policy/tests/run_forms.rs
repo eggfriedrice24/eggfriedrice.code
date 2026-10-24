@@ -9,7 +9,7 @@ use proptest::prelude::*;
 use super::cx;
 use crate::Effect;
 use crate::command::{self, git};
-use crate::policy::{Action, CommandPattern, Fit, MAX_FORMS, Part, Resource, Rule, Under};
+use crate::policy::{Action, CommandPattern, Fit, MAX_FORMS, Part, Place, Resource, Rule, Under};
 
 /// The forms as v0.0.4 made them: each one a copy of the rest of the line, each once.
 fn copied_run_forms(words: &[String]) -> Vec<Vec<String>> {
@@ -38,14 +38,15 @@ fn copied_run_forms(words: &[String]) -> Vec<Vec<String>> {
 }
 
 /// How v0.0.4 matched a rule that asks or denies against the command `part`, past
-/// the match of its words as they are.
-fn copied_fit(rule: &Rule, pattern: &CommandPattern, part: &Part<'_>) -> Fit {
+/// the match of its words as they are. v0.0.4 knew the dir only before any change of
+/// directory, and a pattern with `under` matched nothing without it.
+pub(super) fn copied_fit(rule: &Rule, pattern: &CommandPattern, part: &Part<'_>) -> Fit {
     let cx = cx();
+    let dir = part.place.known();
     if part.privileged {
         return Fit::No;
     }
-    if pattern.matches_command(part.words, part.pattern) && rule.placed(pattern, part.dir, &[], &cx)
-    {
+    if pattern.matches_command(part.words, part.pattern) && rule.placed(pattern, dir, &[], &cx) {
         return Fit::Raw;
     }
     let is_git = |words: &[String]| {
@@ -59,10 +60,10 @@ fn copied_fit(rule: &Rule, pattern: &CommandPattern, part: &Part<'_>) -> Fit {
             let views = git::views(&words);
             matched |= views.unreadable
                 || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
-            dirs.extend(views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)));
+            dirs.extend(views.dirs.iter().flat_map(|dirs| dirs.resolve(dir, cx.home)));
         }
     }
-    if matched && rule.placed(pattern, part.dir, &dirs, &cx) { Fit::Read } else { Fit::No }
+    if matched && rule.placed(pattern, dir, &dirs, &cx) { Fit::Read } else { Fit::No }
 }
 
 /// The words of a random line: wrappers with their values, program paths, git's own
@@ -185,12 +186,17 @@ proptest! {
     ) {
         let effect = if deny { Effect::Deny } else { Effect::Ask };
         let rule = Rule::new(Action::Execute, Resource::Command(pattern.clone()), effect);
-        let dir = known_dir.then(|| Path::new("/home/u/p/app"));
-        let part = Part { words: &words, pattern: globbed, privileged: false, dir };
-        prop_assert_eq!(
-            rule.runs(&pattern, &part, &cx()),
-            copied_fit(&rule, &pattern, &part),
-            "{:?} against {:?}", pattern, words
+        let place =
+            if known_dir { Place::Start(Path::new("/home/u/p/app")) } else { Place::Unknown };
+        let part = Part { words: &words, pattern: globbed, privileged: false, place };
+        let new = rule.runs(&pattern, &part, &cx());
+        let old = copied_fit(&rule, &pattern, &part);
+        // NOTE: where the dir is not known, a pattern with `under` now matches what its
+        // words match (OQL9), and only as a read form.
+        let unplaced = !known_dir && pattern.under.is_some() && old == Fit::No;
+        prop_assert!(
+            new == old || (unplaced && new == Fit::Read),
+            "{:?} against {:?}: {:?}, was {:?}", pattern, words, new, old
         );
     }
 }
@@ -203,8 +209,8 @@ fn a_later_git_form_places_a_rule_with_under() {
     let rule = Rule::new(Action::Execute, Resource::Command(pattern.clone()), Effect::Ask);
     let words: Vec<String> =
         "env git push git -C /tmp push".split(' ').map(str::to_owned).collect();
-    let part =
-        Part { words: &words, pattern: false, privileged: false, dir: Some(Path::new("/home/u")) };
+    let place = Place::Start(Path::new("/home/u"));
+    let part = Part { words: &words, pattern: false, privileged: false, place };
     assert_eq!(copied_fit(&rule, &pattern, &part), Fit::Read);
     assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::Read);
 }
@@ -221,22 +227,22 @@ fn gits(n: usize) -> Vec<String> {
 fn a_rule_matches_a_command_with_more_forms_of_its_program_than_it_reads() {
     let pattern = CommandPattern::new("git").with_args(["push"]).with_under("/tmp");
     let rule = Rule::new(Action::Execute, Resource::Command(pattern.clone()), Effect::Ask);
-    let dir = Some(Path::new("/home/u"));
+    let place = Place::Start(Path::new("/home/u"));
     for n in [1, 2, MAX_FORMS] {
         let words = gits(n);
-        let part = Part { words: &words, pattern: false, privileged: false, dir };
+        let part = Part { words: &words, pattern: false, privileged: false, place };
         assert_eq!(copied_fit(&rule, &pattern, &part), Fit::No, "{n} gits");
         assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::No, "{n} gits");
     }
     for n in [MAX_FORMS + 1, 10_000] {
         let words = gits(n);
-        let part = Part { words: &words, pattern: false, privileged: false, dir };
+        let part = Part { words: &words, pattern: false, privileged: false, place };
         assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::Read, "{n} gits");
     }
     // NOTE: a rule with no `under` still stops at the first form that matches.
     let pattern = CommandPattern::new("git");
     let rule = Rule::new(Action::Execute, Resource::Command(pattern.clone()), Effect::Deny);
     let words = gits(10_000);
-    let part = Part { words: &words, pattern: false, privileged: false, dir };
+    let part = Part { words: &words, pattern: false, privileged: false, place };
     assert_eq!(rule.runs(&pattern, &part, &cx()), Fit::Read);
 }
