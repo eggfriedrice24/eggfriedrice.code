@@ -42,7 +42,7 @@ pub(crate) fn settle(
                     // NOTE: a job answers at once, so nobody can answer this question;
                     // and undo of a job's turn needs `--force`, so it is not covered.
                     settled.push(Reason {
-                        subject: Subject::JobPart { part: need.part.clone(), kind: need.kind },
+                        subject: Subject::JobPart { part: need.part.to_string(), kind: need.kind },
                         effect: Effect::Deny,
                         cause: Cause::NotAsJob,
                     });

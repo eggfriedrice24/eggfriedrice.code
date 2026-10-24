@@ -37,7 +37,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use efr_protocol::{BusKind, ExitKind, ExitSource, Grant, Needs};
 
@@ -141,8 +141,9 @@ pub struct ExitNeed {
     /// one control socket for the terminal of the prompt.
     pub grants: Vec<Grant>,
     /// The simple command that needs it, its words joined by spaces, or the whole line
-    /// when no one command does.
-    pub part: String,
+    /// when no one command does. The exits of one part share its text, so a part of
+    /// thousands of paths is not copied for each one.
+    pub part: Arc<str>,
     /// Who may approve it. [`ExitNeed`] starts with the default of its kind:
     /// [`Approver::User`] for a kind that [`ExitKind::user_only`] names,
     /// [`Approver::Classifier`] for the rest. Only the places that spec 9.1 names
@@ -230,7 +231,7 @@ impl fmt::Debug for Installed {
 impl ExitNeed {
     /// An exit of `kind` for `part`, with the default approver of its kind and nothing
     /// else.
-    pub(crate) fn new(kind: ExitKind, part: impl Into<String>, source: ExitSource) -> Self {
+    pub(crate) fn new(kind: ExitKind, part: impl Into<Arc<str>>, source: ExitSource) -> Self {
         ExitNeed {
             kind,
             grants: Vec::new(),
@@ -429,7 +430,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     let mut made: HashMap<PathBuf, bool> = HashMap::new();
     // NOTE: the text of a part is shared, so a part with many targets is not copied for
     // each one.
-    let mut writes: Vec<(PathBuf, Rc<str>)> = Vec::new();
+    let mut writes: Vec<(PathBuf, Arc<str>)> = Vec::new();
     let mut fetch: Option<Ecosystem> = None;
     let mut linked: Vec<PathBuf> = Vec::new();
     let mut installs: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
@@ -438,8 +439,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     for segment in &segments {
         let dir = if segment.after_cd { None } else { start.as_deref() };
         let at = |word: &str| resolve(word, dir, input.locations);
-        let part = part_text(segment);
-        let shared: Rc<str> = Rc::from(part.as_str());
+        let part: Arc<str> = Arc::from(part_text(segment));
         let assigned = segment.words.iter().any(|word| is_assignment(word));
         for redirect in &segment.redirects {
             let Some(path) = at(&redirect.target) else { continue };
@@ -471,7 +471,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 ));
             }
             made.entry(path.clone()).or_insert(false);
-            writes.push((path, Rc::clone(&shared)));
+            writes.push((path, Arc::clone(&part)));
         }
         for (command, by_shell) in programs::placed_commands(&segment.words) {
             fetch = fetch.or_else(|| programs::package_fetch(command));
@@ -606,7 +606,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 .chain(programs::sed_in_place_targets(command))
             {
                 if let Some(path) = at(word) {
-                    writes.push((path, Rc::clone(&shared)));
+                    writes.push((path, Arc::clone(&part)));
                 }
             }
             let operands = programs::recursive_rm_operands(command);
@@ -630,7 +630,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
     // NOTE: built at the first declared write, so a line with many of them resolves each
     // word once, not once for each write.
     let mut naming: Option<Naming<'_>> = None;
-    let whole_line: Rc<str> = Rc::from(input.line);
+    let whole_line: Arc<str> = Arc::from(input.line);
     for PathAccess { path, access } in input.paths {
         let Some(path) = normalize(path).map(|path| input.locations.rehome(&path).into_owned())
         else {
@@ -641,7 +641,7 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                 let naming = naming.get_or_insert_with(|| {
                     Naming::new(&segments, start.as_deref(), input.locations)
                 });
-                let part = naming.part(&path).unwrap_or_else(|| Rc::clone(&whole_line));
+                let part = naming.part(&path).unwrap_or_else(|| Arc::clone(&whole_line));
                 writes.push((path, part));
             }
             Access::Read | Access::ReadTree => {
@@ -703,12 +703,17 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
         }
     }
     let mut found = found.needs;
+    // NOTE: the rule of the program words is the same for each `outside` exit of the
+    // line, so the call finds it once.
+    let mut words_approver: Option<Approver> = None;
     for need in &mut found {
         match need.kind {
             // NOTE: the stricter of the form's approver and the rule of the program
             // words, so a `rustup` form that must be named stays so.
             ExitKind::Outside => {
-                need.approver = need.approver.max(outside_approver(input, &envelope));
+                let words = *words_approver
+                    .get_or_insert_with(|| outside_approver(input, &envelope, &segments));
+                need.approver = need.approver.max(words);
             }
             ExitKind::Host => need.package_fetch = fetch,
             ExitKind::Bus if need.grants.contains(&WHOLE_SESSION_BUS) => {
@@ -794,25 +799,37 @@ fn whole_session_bus(need: &mut ExitNeed) {
 /// such code can edit a floor file or read a masked file with no name, no backup and no
 /// exit of its own. Else the classifier. A cache overlay and the private tmp are no
 /// real write root: the sandbox never writes the real files there.
-fn outside_approver(input: &ExitInput<'_>, envelope: &Envelope<'_>) -> Approver {
+///
+/// `segments` is the lenient split of the line.
+fn outside_approver(
+    input: &ExitInput<'_>,
+    envelope: &Envelope<'_>,
+    segments: &[Segment],
+) -> Approver {
     let Some(facts) = input.facts else {
         return Approver::User;
     };
-    let unread = scan::scan(input.line).iter().any(|segment| {
+    let unread = segments.iter().any(|segment| {
         programs::commands(&segment.words).into_iter().any(programs::runs_unread_code)
     });
     if unread {
         return Approver::User;
     }
     let request = fact_requests(input.line, input.command_dir, input.locations);
+    let builtins: HashSet<&str> = request.builtins.iter().map(String::as_str).collect();
+    // NOTE: the first fact of a word decides, as a scan of the list would.
+    let mut known: HashMap<&str, (Option<&Path>, bool)> = HashMap::new();
+    for (word, path, changed) in &facts.programs {
+        known.entry(word.as_str()).or_insert((path.as_deref(), *changed));
+    }
     let trusted =
-        request.programs.iter().filter(|word| !request.builtins.contains(word)).all(|word| {
-            match facts.programs.iter().find(|(known, _, _)| known == word) {
-                None | Some((_, _, true)) => false,
-                Some((_, Some(path), false)) => {
+        request.programs.iter().filter(|word| !builtins.contains(word.as_str())).all(|word| {
+            match known.get(word.as_str()) {
+                None | Some((_, true)) => false,
+                Some((Some(path), false)) => {
                     normalize(path).is_some_and(|path| !envelope.in_real_root(&path))
                 }
-                Some((_, None, false)) => true,
+                Some((None, false)) => true,
             }
         });
     if trusted { Approver::Classifier } else { Approver::User }
@@ -828,7 +845,7 @@ fn outside_approver(input: &ExitInput<'_>, envelope: &Envelope<'_>) -> Approver 
 /// exit goes; every other exit of the line keeps its route.
 fn destructive(
     envelope: &Envelope<'_>,
-    part: &str,
+    part: &Arc<str>,
     targets: &[Option<PathBuf>],
     asks: &[CoverAsk],
     facts: Option<&Facts<'_>>,
@@ -837,7 +854,7 @@ fn destructive(
     if cover::covers_all(asks, envelope, facts, support) {
         return None;
     }
-    let mut need = ExitNeed::new(ExitKind::Destructive, part, ExitSource::Predicted);
+    let mut need = ExitNeed::new(ExitKind::Destructive, Arc::clone(part), ExitSource::Predicted);
     let known = !targets.is_empty()
         && targets
             .iter()
@@ -889,21 +906,38 @@ pub(crate) fn link_names(mut needs: Vec<ExitNeed>, facts: Option<&CallFacts>) ->
     let Some(facts) = facts.filter(|facts| !facts.links.is_empty()) else {
         return needs;
     };
+    // NOTE: the links of each real file and the needs of each target, in the order of
+    // their lists, so a call of many paths finds each one in a map, not in a scan.
+    let mut links: HashMap<&Path, Vec<&Path>> = HashMap::new();
+    for (link, real) in &facts.links {
+        links.entry(real.as_path()).or_default().push(link.as_path());
+    }
+    let mut by_target: HashMap<&Path, Vec<usize>> = HashMap::new();
+    for (at, need) in needs.iter().enumerate() {
+        if let Some(target) = &need.target {
+            by_target.entry(target.as_path()).or_default().push(at);
+        }
+    }
+    // NOTE: the names come from the needs as they are before any of them gets more.
     let mut added: Vec<(usize, Vec<String>)> = Vec::new();
     for (at, need) in needs.iter().enumerate() {
         let Some(target) = &need.target else { continue };
-        for (link, _) in facts.links.iter().filter(|(_, real)| real == target) {
-            let names = needs
-                .iter()
-                .filter(|other| other.target.as_ref() == Some(link))
-                .flat_map(|other| other.names.iter().cloned());
-            added.push((at, names.collect()));
+        let names: Vec<String> = links
+            .get(target.as_path())
+            .into_iter()
+            .flatten()
+            .flat_map(|link| by_target.get(link).into_iter().flatten())
+            .flat_map(|other| needs[*other].names.iter().cloned())
+            .collect();
+        if !names.is_empty() {
+            added.push((at, names));
         }
     }
     for (at, names) in added {
         let need = &mut needs[at];
+        let mut known: HashSet<String> = need.names.iter().cloned().collect();
         for name in names {
-            if !need.names.contains(&name) {
+            if known.insert(name.clone()) {
                 need.names.push(name);
             }
         }
@@ -1275,8 +1309,8 @@ impl Found {
 }
 
 /// The predicted exit of the simple command `part` that a program table found.
-fn predicted(exit: programs::Found, part: &str) -> ExitNeed {
-    let mut need = ExitNeed::new(exit.kind, part, ExitSource::Predicted);
+fn predicted(exit: programs::Found, part: &Arc<str>) -> ExitNeed {
+    let mut need = ExitNeed::new(exit.kind, Arc::clone(part), ExitSource::Predicted);
     need.grants = exit.grants;
     need.target = exit.target;
     need.approver = exit.approver;
@@ -1308,11 +1342,11 @@ fn write_need(
     cx: &WriteFacts<'_, '_>,
     exit: Option<WriteExit>,
     path: &Path,
-    part: &str,
+    part: &Arc<str>,
     source: ExitSource,
 ) -> Option<ExitNeed> {
     let exit = exit?;
-    let mut need = ExitNeed::new(exit.kind, part, source);
+    let mut need = ExitNeed::new(exit.kind, Arc::clone(part), source);
     need.target = Some(path.to_path_buf());
     match exit.kind {
         ExitKind::Write => {
@@ -1366,7 +1400,7 @@ struct Naming<'s> {
     /// Each path that a word names, with the first segment that names it.
     first: HashMap<PathBuf, usize>,
     /// The [`part_text`] of each segment, made when a path first needs it.
-    parts: Vec<Option<Rc<str>>>,
+    parts: Vec<Option<Arc<str>>>,
 }
 
 impl<'s> Naming<'s> {
@@ -1386,11 +1420,11 @@ impl<'s> Naming<'s> {
     }
 
     /// The text of the first simple command that names `path`.
-    fn part(&mut self, path: &Path) -> Option<Rc<str>> {
+    fn part(&mut self, path: &Path) -> Option<Arc<str>> {
         let at = *self.first.get(path)?;
         let segments = self.segments;
-        let part = self.parts[at].get_or_insert_with(|| Rc::from(part_text(&segments[at])));
-        Some(Rc::clone(part))
+        let part = self.parts[at].get_or_insert_with(|| Arc::from(part_text(&segments[at])));
+        Some(Arc::clone(part))
     }
 }
 

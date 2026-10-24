@@ -1131,7 +1131,7 @@ pub(crate) fn record(action: Action<'_>, messages: &UserMessages, turn: &TurnExi
         .decision
         .exits()
         .filter(|need| need.kind == ExitKind::Upload)
-        .map(|need: &ExitNeed| need.part.clone())
+        .map(|need: &ExitNeed| need.part.to_string())
         .collect();
     // NOTE: the command that leaves, not the first of the line: `uname; df -h` runs
     // `df -h` outside, and a label of `uname` would name the wrong program. Only a
@@ -1140,8 +1140,8 @@ pub(crate) fn record(action: Action<'_>, messages: &UserMessages, turn: &TurnExi
     let leaving =
         |need: &&ExitNeed| need.kind == ExitKind::Outside && need.source == ExitSource::Predicted;
     for need in action.decision.exits().filter(leaving) {
-        if !outside_commands.contains(&need.part) {
-            outside_commands.push(need.part.clone());
+        if !outside_commands.iter().any(|command| **command == *need.part) {
+            outside_commands.push(need.part.to_string());
         }
     }
     ExitRecord {

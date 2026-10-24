@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use efr_protocol::{BusKind, DesktopKind, ExitKind, ExitSource, Grant, Needs};
 
@@ -54,7 +55,7 @@ pub(super) fn exits(
             &cx,
             exit,
             &path,
-            &format!("needs.write {}", path.display()),
+            &Arc::from(format!("needs.write {}", path.display())),
             source,
         ));
     }

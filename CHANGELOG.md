@@ -149,6 +149,11 @@ into the GitHub release notes, and it stops when the section is missing.
   record. So the later snapshots do not read each file again to find that it did not
   change. With 5,000 files of 10 KB, each call after such a write took about 210 ms.
   Now it takes about 6 ms. Undo and its coverage do not change.
+- In `auto`, efr decides a long shell line that writes many files outside the
+  project faster and with less memory. Before, each exit of the line kept its own
+  copy of the whole command. For an `rm -f` of 6,400 files, the decision took about
+  100 ms and about 540 MB of memory. Now it takes about 50 ms and about 10 MB. The
+  decision and its questions do not change.
 
 ### Security
 

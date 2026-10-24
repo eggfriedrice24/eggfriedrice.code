@@ -145,7 +145,7 @@ fn destructive_coverage_keeps_other_exits_of_the_line() {
         shell_with(line, Coverage::Covered, &facts, &[]).with_write("/home/u/.bash_history");
     let decision = decide(&engine, requirements);
     let destructive = decision.exits().find(|need| need.kind == ExitKind::Destructive).unwrap();
-    assert_eq!(destructive.part, "truncate -s 0 ~/.bash_history");
+    assert_eq!(&*destructive.part, "truncate -s 0 ~/.bash_history");
     assert_eq!(destructive.approver, Approver::User);
     assert!(kinds(&decision).contains(&ExitKind::Write), "{:?}", kinds(&decision));
 }

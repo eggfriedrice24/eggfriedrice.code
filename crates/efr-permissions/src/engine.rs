@@ -652,7 +652,7 @@ impl Engine {
 /// for: no job may hold it ([`job_refusal`]).
 fn not_as_job(need: &ExitNeed) -> Reason {
     Reason {
-        subject: Subject::JobPart { part: need.part.clone(), kind: need.kind },
+        subject: Subject::JobPart { part: need.part.to_string(), kind: need.kind },
         effect: Effect::Deny,
         cause: Cause::NotAsJob,
     }

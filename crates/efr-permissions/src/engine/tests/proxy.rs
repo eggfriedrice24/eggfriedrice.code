@@ -274,7 +274,7 @@ fn needs_hosts_raw_word_normalized() {
         needs_decision(&proxy_engine(), &["  https://User:pw@GitLab.Test.:443/group/x?y  "]);
     assert_eq!(exits[0].grants, [host("gitlab.test", 443)]);
     assert_eq!(exits[0].hosts, ["gitlab.test"]);
-    assert_eq!(exits[0].part, "needs.hosts gitlab.test");
+    assert_eq!(&*exits[0].part, "needs.hosts gitlab.test");
 }
 
 #[rstest]

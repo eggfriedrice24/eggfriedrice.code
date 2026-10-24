@@ -693,7 +693,7 @@ fn reason_part(decision: &Decision) -> String {
     decision
         .exits()
         .find(|need| need.kind == ExitKind::Destructive)
-        .map(|need| need.part.clone())
+        .map(|need| need.part.to_string())
         .unwrap_or_default()
 }
 

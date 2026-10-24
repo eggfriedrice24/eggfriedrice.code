@@ -1236,7 +1236,7 @@ pub(super) fn home_write(target: &Path) -> efr_permissions::ExitNeed {
     efr_permissions::ExitNeed {
         kind: efr_protocol::ExitKind::Write,
         grants: Vec::new(),
-        part: format!("write_file {}", target.display()),
+        part: format!("write_file {}", target.display()).into(),
         approver: efr_permissions::Approver::Classifier,
         names: Vec::new(),
         hosts: Vec::new(),
