@@ -9,8 +9,8 @@ The schema lands with `efr-store` in milestone 1; the tables below are the plan.
 |---|---|---|
 | `$XDG_DATA_HOME/efr/efr.sqlite` (+ `-wal`, `-shm`) | the one database | `efr-store` |
 | `$XDG_DATA_HOME/efr/daemon.lock` | exclusive `flock`; decides single instance | `efr-daemon/src/lock.rs` |
-| `$XDG_DATA_HOME/efr/recordings/<pty_id>/<start_seq>.rec` | append-only PTY recording segments | `efr-store/src/recording.rs` |
-| `$XDG_DATA_HOME/efr/scratch/<YYYY-MM-DD>-<slug>-<idtail>/` | `$SCRATCH` per conversation, claimed with a non-recursive `mkdir` | `efr-conversation/src/scratch.rs` |
+| `$XDG_DATA_HOME/efr/recordings/<pty_id>/<start_seq>.rec` | append-only PTY recording segments; the delete of a conversation removes the dirs of its PTYs | `efr-store/src/recording.rs` |
+| `$XDG_DATA_HOME/efr/scratch/<YYYY-MM-DD>-<slug>-<idtail>/` | `$SCRATCH` per conversation, claimed with a non-recursive `mkdir` and marked with `.efr-conversation`, which names the conversation. The delete of the conversation removes each dir whose marker names it | `efr-conversation/src/scratch.rs` |
 | `$SCRATCH/jobs/` (0700, marker `.efr-jobs`), `$SCRATCH/jobs/<id>.out` | the output of each background job of the conversation, which efrd writes from the job's pipe: the first 1 MiB and the last 8 MiB. efrd makes the dir before every contained call; an entry of that name without the marker goes aside to `jobs.moved-<n>`. Every contained call reads it but cannot write it, and snapshots leave it out. efr removes an output 7 days after its job ended, and keeps at most 20 outputs of ended jobs per conversation | `efr-daemon/src/jobs/output.rs` |
 | `$XDG_DATA_HOME/efr/snapshots/<root-id>.git`, `<root-id>.index`, `<root-id>.root` | efr's own snapshot store: one bare git repository per project or `$SCRATCH` (`root-id` is the first 16 hex characters of the SHA-256 of the root's canonical path), its persistent index and the root's path. Refs per turn: `refs/efr/<conversation>/<turn>/pre` (written at the turn's first snapshot of the root), `/last` (moved after each call, with the paths that the turn's calls changed), `/post` (at the turn's end) and `/undone` (after an undo). `refs/efr-mirror/<conversation>/<turn>/` holds the project's branches, tags, `refs/stash` and `HEAD` at the turn's start, at most `snapshot.mirror_max_mib` MiB of objects per turn and 4 times that per store. `refs/efr-undo/<conversation>/<undo-id>/` holds the state before an undo (`before`, `started`, `mirror/`), so a redo can take it back. The store holds the project's `.env` files and other small ignored files too, for up to `snapshot.max_age_days` days. The sandbox masks it with the rest of the data root. The collector keeps or drops a turn whole across every store: the newest `snapshot.keep_turns` turns of each conversation. It deletes a store without a snapshot for `snapshot.max_age_days` | `efr-snapshot` |
 | `$XDG_DATA_HOME/efr/snapshots/home.git` | efr's home store: before an approved write outside the project and `$SCRATCH` in `auto`, efrd copies each file that the call can change into it, and after the call it records the state after the call. Ref `refs/efr/<conversation>/<turn>/home/<n>` per copy: a commit "before" and a child commit "after", each with `files/<absolute path>` and a manifest `efr-home.json` (the state of each path, its mode, a link's target, the dirs above a missing path that were missing too). efrd streams the bytes to `git fast-import`, so git never reads a home path. At most 16 MiB per file; a directory with more than `snapshot.home_max_files` files or `snapshot.home_max_mib` MiB gets no copy. The collector keeps it with the turns of the root stores | `efr-snapshot/src/home.rs`, `efr-daemon/src/home.rs` |
@@ -94,7 +94,9 @@ conversations or the daemon's socket. The config root stays readable and read-on
 ## Schema
 
 - `events(seq INTEGER PRIMARY KEY, conversation_id, turn_id, kind TEXT, payload JSON,
-  created_at)`. `seq` is global and only grows. Events carry full state, never deltas,
+  created_at)`. `seq` is global and only grows. Triggers refuse each `UPDATE` and each
+  `DELETE`, except the delete of an event of a deleted conversation from before its
+  tombstone (migration 10, below). Events carry full state, never deltas,
   so a subscriber can resume from `after_seq` without the projections. The payload is
   the serde form of `efr_protocol::Event`; an unknown kind reads back as
   `Event::Unknown { kind, payload }` so old readers keep advancing.
@@ -159,9 +161,45 @@ conversations or the daemon's socket. The config root stays readable and read-on
   projections: the log cannot give them back without efrd's redaction, so a rebuild of
   the projections leaves them alone. The batch that ends a turn writes nothing here.
   The index `conversations_updated` (`updated_at, last_seq`) gives the recent list and
-  the titles of a search newest first with no sort. A later delete of a conversation
-  must also delete its `search_docs` rows, each with an FTS5 `'delete'`, and its
-  `search_titles` row.
+  the titles of a search newest first with no sort. The delete of a conversation
+  deletes its `search_docs` rows, each with an FTS5 `'delete'`, and its
+  `search_titles` row; a page of the indexer that it read before the delete writes no
+  doc of a deleted conversation.
+- The deletes of conversations (migration 10): `conversation_deletes(conversation_id,
+  seq, requested_at, parts JSON, rows_done_at, done_at)`, the tombstone of each
+  deleted conversation. `conversation.delete` goes in this order, so a stop of efrd at
+  any point never leaves a part of the conversation visible:
+  1. efrd stops the conversation's actor, its background jobs (it waits for their
+     ends) and its hidden shell;
+  2. the event `conversation_deleted` commits with the method's receipt. Its batch
+     writes the tombstone row, with the PTYs and the undos that the conversation's
+     events name (`parts`), and deletes the conversation's rows of the projections
+     (`conversations`, `turns`, `approvals`, `shells`, `compactions`, `jobs`,
+     `job_notices`). From this commit on, no list, search or read shows the
+     conversation, and every later event of it fails its batch;
+  3. writer jobs of at most 2,000 events each delete its events before the tombstone,
+     their `search_docs` rows and the `receipts` that name them; the last job deletes
+     its `turn_messages`, its `search_titles` row, its `outbox` rows (by the
+     `conversation_id` of their payload) and the `recording_segments` of its PTYs,
+     and sets `rows_done_at`;
+  4. efrd deletes its snapshot refs in every store (`refs/efr/<conversation>/`,
+     `refs/efr-mirror/<conversation>/`, `refs/efr-undo/<conversation>/` and the home
+     copies) and each root store that holds refs of no other conversation, such as the
+     store of its `$SCRATCH`; then its files: `recordings/<pty_id>/` of each PTY, each
+     `$SCRATCH` dir whose marker names it, `$XDG_STATE_HOME/efr/sandbox/<conversation>/`,
+     `$XDG_RUNTIME_DIR/efr/sbx/<conversation>/`, `file-backups/<conversation>/` and
+     `undo-trash/<undo-id>/` of each of its undos;
+  5. `done_at` marks the end.
+  Each start of efrd finishes the deletes without `done_at`, before the socket opens.
+  The tombstone event and the tombstone row stay: they hold no text, and the event
+  keeps the sequence numbers above every event that went, so a number never names two
+  events. A rebuild of the projections skips every event of a deleted conversation.
+  The loose objects of the snapshot stores that only the deleted refs reached go with
+  the prune of the delete when they are older than an hour, else at a later
+  collection. The database file keeps the deleted bytes in its free pages until
+  SQLite writes them again (no `secure_delete`), the FTS5 segments keep the tokens of
+  the deleted docs, which no query matches any more, until a merge, and each copy of
+  `backups/` from before the delete keeps the conversation.
 
 ## Migrations
 
@@ -174,10 +212,11 @@ conversations or the daemon's socket. The config root stays readable and read-on
   `0003_receipts_outbox.sql`, `0004_shells_recordings.sql`,
   `0005_turn_messages.sql`, `0006_compactions.sql`, `0007_jobs.sql` (the jobs of
   phase C), `0008_routes.sql` (the route columns of the conversations, v0.0.4) and
-  `0009_search.sql` (the search index, v0.0.4). Each step has a flag that says whether
-  it changes a projection. The first start of an efrd with such a migration rebuilds
+  `0009_search.sql` (the search index, v0.0.4) and `0010_deletes.sql` (the tombstones
+  of deleted conversations, v0.0.5). Each step has a flag that says whether it changes
+  a projection. The first start of an efrd with such a migration rebuilds
   the projections from the log once: about 3 s for 100,000 events in a debug build.
-  `0009_search.sql` has no flag, so it rebuilds nothing. The devices and scopes table
+  `0009_search.sql` and `0010_deletes.sql` have no flag, so they rebuild nothing. The devices and scopes table
   waits for the phone milestone, because a forward-only migration makes an unused
   table permanent.
 - `0009_search.sql` creates the search tables empty, with the cursor at 0. After the

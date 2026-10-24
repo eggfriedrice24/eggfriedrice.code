@@ -6,12 +6,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AdminConfigReload, AdminLoginApiKey, AdminLoginOpenAi, AdminLogout, AdminProjectAdd,
     AdminProjectRemove, AdminSandboxCheck, AdminStatus, ApprovalRespond, CallBackground, CommandId,
-    ConversationCompact, ConversationContext, ConversationDiff, ConversationHistory,
-    ConversationResume, ConversationSearch, ConversationSubscribe, ConversationsList,
-    ConversationsRecent, ConversationsSearch, Hello, InputRespond, JobsList, JobsStop, LeaseReport,
-    ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw, PtyAttach, PtyResize,
-    PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName, ShellInterrupt, ShellStatus,
-    TurnInterrupt, TurnSteer, TurnUndo,
+    ConversationCompact, ConversationContext, ConversationDelete, ConversationDiff,
+    ConversationHistory, ConversationResume, ConversationSearch, ConversationSubscribe,
+    ConversationsList, ConversationsRecent, ConversationsSearch, Hello, InputRespond, JobsList,
+    JobsStop, LeaseReport, ModelsList, PresenceSet, ProjectsList, PromptSend, PromptWithdraw,
+    PtyAttach, PtyResize, PtyWrite, SandboxExplain, SandboxSurfaceRespond, ScopeName,
+    ShellInterrupt, ShellStatus, TurnInterrupt, TurnSteer, TurnUndo,
 };
 
 /// A request: the wire method name and its params.
@@ -151,6 +151,10 @@ pub enum Method {
     /// `conversation.search`: the places in one conversation that match some words.
     #[serde(rename = "conversation.search")]
     ConversationSearch(ConversationSearch),
+    /// `conversation.delete`: delete a conversation and everything that efr keeps of
+    /// it.
+    #[serde(rename = "conversation.delete")]
+    ConversationDelete(ConversationDelete),
 }
 
 impl Method {
@@ -198,6 +202,7 @@ impl Method {
             Method::CallBackground(_) => "call.background",
             Method::ConversationsSearch(_) => "conversations.search",
             Method::ConversationSearch(_) => "conversation.search",
+            Method::ConversationDelete(_) => "conversation.delete",
         }
     }
 
@@ -219,6 +224,7 @@ impl Method {
             Method::ConversationResume(params) => Some(params.command_id),
             Method::ShellInterrupt(params) => Some(params.command_id),
             Method::CallBackground(params) => Some(params.command_id),
+            Method::ConversationDelete(params) => Some(params.command_id),
             Method::Hello(_)
             | Method::ConversationsList(_)
             | Method::ConversationSubscribe(_)
@@ -292,7 +298,8 @@ impl Method {
             | Method::ShellStatus(_)
             | Method::CallBackground(_)
             | Method::ConversationsSearch(_)
-            | Method::ConversationSearch(_) => false,
+            | Method::ConversationSearch(_)
+            | Method::ConversationDelete(_) => false,
         }
     }
 }
@@ -339,13 +346,15 @@ impl ScopeName {
             // A stop of a command left in the hidden shell signals what runs on that
             // PTY, so it needs the same scope, which a phone never holds. A move of a
             // running call to the background is a person's act at their own terminal,
-            // so it needs that scope too.
+            // so it needs that scope too. A delete removes the record that undo and the
+            // reviewer read and cannot be taken back, so it needs that scope as well.
             Method::PtyAttach(_)
             | Method::PtyWrite(_)
             | Method::PtyResize(_)
             | Method::InputRespond(_)
             | Method::ShellInterrupt(_)
-            | Method::CallBackground(_) => ScopeName::Terminal,
+            | Method::CallBackground(_)
+            | Method::ConversationDelete(_) => ScopeName::Terminal,
             Method::AdminProjectAdd(_)
             | Method::AdminProjectRemove(_)
             | Method::AdminStatus(_)

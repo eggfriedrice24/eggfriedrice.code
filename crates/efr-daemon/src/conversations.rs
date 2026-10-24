@@ -18,7 +18,7 @@
 //! event committed; a claim for a pick-up that then fails is released. A slot whose
 //! shell died stays until a new holder replaces it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use efr_conversation::{
@@ -77,6 +77,9 @@ pub(crate) struct Conversations {
     deps: ConversationDeps,
     live: Mutex<HashMap<ConversationId, ConversationHandle>>,
     ttys: Mutex<Routes>,
+    /// The conversations that a delete stops or deleted: no job notice reaches them,
+    /// so no wake turn starts in one.
+    deleting: Mutex<HashSet<ConversationId>>,
 }
 
 /// The slots of every terminal, and the slots whose conversation another terminal
@@ -295,6 +298,16 @@ impl Routes {
         }
     }
 
+    /// Lets every slot that holds `conversation_id` go, because the user deleted the
+    /// conversation, as the projection's rows went with its tombstone. The next prompt
+    /// of such a slot starts a new conversation.
+    pub(crate) fn forget(&mut self, conversation_id: ConversationId) {
+        for terminal in self.terminals.values_mut() {
+            terminal.slots.retain(|_, slot| slot.conversation_id != conversation_id);
+        }
+        self.terminals.retain(|_, terminal| !terminal.slots.is_empty());
+    }
+
     /// Where the conversation of `tty`'s slot `route` went, when another terminal took
     /// it since the start; the record goes with the answer.
     pub(crate) fn take_moved(
@@ -319,6 +332,7 @@ impl Conversations {
             deps,
             live: Mutex::default(),
             ttys: Mutex::new(Routes::from_rows(slots)),
+            deleting: Mutex::default(),
         }
     }
 
@@ -469,6 +483,27 @@ impl Conversations {
         title: Option<String>,
     ) {
         self.lock_ttys().attached(tty, route, conversation_id, routed_seq, title);
+    }
+
+    /// Marks `conversation_id` as one that a delete stops, or `false`: the delete
+    /// recorded nothing, and the conversation goes on.
+    pub(crate) fn set_deleting(&self, conversation_id: ConversationId, deleting: bool) {
+        let mut set = self.deleting.lock().unwrap_or_else(PoisonError::into_inner);
+        if deleting {
+            set.insert(conversation_id);
+        } else {
+            set.remove(&conversation_id);
+        }
+    }
+
+    /// True while a delete stops `conversation_id`, and after it deleted it.
+    pub(crate) fn is_deleting(&self, conversation_id: ConversationId) -> bool {
+        self.deleting.lock().unwrap_or_else(PoisonError::into_inner).contains(&conversation_id)
+    }
+
+    /// See [`Routes::forget`].
+    pub(crate) fn forget_slots(&self, conversation_id: ConversationId) {
+        self.lock_ttys().forget(conversation_id);
     }
 
     /// See [`Routes::take_moved`].

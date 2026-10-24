@@ -17,7 +17,8 @@
 //! tables (`events`, the projections, `receipts`, `outbox`, `recording`) are public
 //! too: they hold the read functions that run inside `Readers::with`, and their types;
 //! so are `turn_messages`, `user_messages`, `jobs` and `search`, the search index of
-//! the conversations, which efrd fills in the background.
+//! the conversations, which efrd fills in the background, and `deletes`, the tombstones
+//! of deleted conversations.
 
 // NOTE: missing_docs is set here and not in Cargo.toml, because Cargo rejects a
 // `[lints]` table that both inherits the workspace lints and adds its own.
@@ -27,6 +28,7 @@ pub mod approvals;
 pub mod compactions;
 pub mod conversations;
 pub mod db;
+pub mod deletes;
 mod error;
 pub mod events;
 pub mod jobs;

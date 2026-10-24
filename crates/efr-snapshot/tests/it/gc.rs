@@ -446,3 +446,63 @@ async fn gc_keeps_the_home_copy_of_an_undo_with_its_turn() {
     world.snapshots.gc(1, KEEP_LONG).await;
     assert_eq!(refs(&home_git, &home).await, Vec::<String>::new(), "the turn went whole");
 }
+
+/// One call of conversation `n` in turn `turn_n` that writes `text` into `a.txt` of
+/// `dir`, and the turn's end.
+async fn one_turn(world: &World, n: u128, turn_n: u128, dir: &std::path::Path, text: &str) {
+    let call =
+        world.snapshots.before_call(conversation(n), turn(turn_n), vec![root(dir)], limits()).await;
+    write(&dir.join("a.txt"), text);
+    world.snapshots.after_call(call, limits()).await;
+    world.snapshots.finish_turn(turn(turn_n), limits()).await.unwrap();
+}
+
+/// The store whose root file names `dir`.
+fn store_of(world: &World, dir: &std::path::Path) -> std::path::PathBuf {
+    stores(&world.store_dir())
+        .into_iter()
+        .find(|store| {
+            let root = store.with_extension("root");
+            std::fs::read(root).is_ok_and(|bytes| bytes == dir.as_os_str().as_encoded_bytes())
+        })
+        .unwrap()
+}
+
+#[tokio::test]
+async fn forget_deletes_the_refs_of_a_conversation_and_the_store_that_only_it_used() {
+    let world = World::new();
+    let shared = world.dir("p");
+    let scratch = world.dir("scratch-1");
+    write(&shared.join("a.txt"), "0\n");
+    write(&scratch.join("a.txt"), "0\n");
+    one_turn(&world, 1, 1, &shared, "1\n").await;
+    one_turn(&world, 1, 2, &scratch, "1\n").await;
+    one_turn(&world, 2, 3, &shared, "2\n").await;
+    assert_eq!(stores(&world.store_dir()).len(), 2);
+    let shared_store = store_of(&world, &shared);
+    // An undo of conversation 1, as `capture_before_undo` names its refs.
+    let undo = "00000007-0000-7000-8000-000000000001";
+    let env = [("GIT_DIR", shared_store.as_path())];
+    let pre = format!("refs/efr/{}/{}/pre", conversation(1), turn(1));
+    let commit = git(&world.home(), &world.home(), &env, &["rev-parse", &pre]).await;
+    let before = format!("refs/efr-undo/{}/{undo}/before", conversation(1));
+    git(&world.home(), &world.home(), &env, &["update-ref", &before, commit.trim()]).await;
+
+    let report = world.snapshots.forget_conversation(conversation(1)).await;
+
+    assert_eq!(report.stores_deleted, 1, "{report:?}");
+    assert_eq!(report.undos, vec![undo.to_owned()]);
+    assert_eq!(report.failed, 0);
+    assert_eq!(stores(&world.store_dir()), vec![shared_store.clone()]);
+    let left = refs(&shared_store, &world.home()).await;
+    assert!(!left.is_empty());
+    let one = conversation(1).to_string();
+    let two = conversation(2).to_string();
+    assert!(left.iter().all(|name| !name.contains(&one) && name.contains(&two)), "{left:?}");
+    // The other conversation's turn keeps its diff.
+    let kept = world.snapshots.turn_diff(conversation(2), None, true, 100).await.unwrap().unwrap();
+    assert!(kept.diff.unwrap().contains("-1\n+2\n"));
+    // A second forget finds nothing to do.
+    let again = world.snapshots.forget_conversation(conversation(1)).await;
+    assert_eq!((again.refs_deleted, again.stores_deleted, again.failed), (0, 0, 0));
+}

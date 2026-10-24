@@ -23,6 +23,8 @@
 //! SQLite's passive checkpoint, so a turn's commit seldom reaches its own at
 //! [`WAL_AUTOCHECKPOINT`](crate::WAL_AUTOCHECKPOINT) (the plan's DQ45).
 
+use std::collections::HashMap;
+
 use efr_protocol::{ConversationId, Seq};
 use rusqlite::{Connection, OptionalExtension as _, Statement, params};
 
@@ -282,7 +284,23 @@ pub(crate) fn apply(conn: &Connection, page: &SearchPage) -> Result<SearchApplie
         return Ok(SearchApplied::Stale);
     }
     let mut docs = Docs::prepare(conn)?;
+    let mut deleted = conn.prepare(crate::deletes::IS_DELETED)?;
+    let mut known: HashMap<ConversationId, bool> = HashMap::new();
     for doc in &page.docs {
+        // NOTE: the page may have read the events of a conversation that was deleted
+        // since; its text never goes into the index.
+        let gone = match known.get(&doc.conversation_id) {
+            Some(gone) => *gone,
+            None => {
+                let gone: bool =
+                    deleted.query_row([doc.conversation_id.to_string()], |row| row.get(0))?;
+                known.insert(doc.conversation_id, gone);
+                gone
+            }
+        };
+        if gone {
+            continue;
+        }
         // NOTE: a stale page cannot reach here, so a doc never exists twice; a row that
         // does is taken out first anyway, so the index and the docs stay in step.
         docs.remove(doc.seq)?;

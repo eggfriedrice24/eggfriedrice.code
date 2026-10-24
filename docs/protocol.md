@@ -660,3 +660,18 @@ No protocol version has shipped yet.
   the same refusals. The command's `shell_command_ended` then has `how: moved`, which
   the enum had already. A daemon from before refuses such a call as one that does not
   run. No fixture changes.
+- Version 1, additive: the delete of a conversation. New method `conversation.delete`
+  (scope `terminal`, with a command id) with `conversation_id`, and `force` and `stop`
+  (each false when absent). Its result is `deleted` (`conversation_id`, and `title`,
+  `jobs_stopped` and `not_removed`, each absent when not set) or `held` (`tty`, and
+  `title` when set) when another open terminal holds the conversation and `force` is
+  not set; a kind that a reader does not know reads as `unknown`. A running turn, a
+  queued prompt or a compaction refuses it as `busy` unless `stop` is set, and an undo
+  that runs refuses it as `busy` always; the error's `data` is `{"busy": "turn"}` or
+  `{"busy": "undo"}`. A conversation that does not exist, or that is deleted, is
+  `not_found`. New event kind `conversation_deleted` with `origin`: the last event of
+  the conversation and the only one that stays in the log; a subscription of the
+  conversation ends after it. A daemon from before refuses the method as a frame that
+  is not valid. New fixtures `conversation_delete_params.json`,
+  `conversation_delete_result.json`, `conversation_delete_result_held.json` and
+  `events/conversation_deleted.json`.

@@ -171,7 +171,7 @@ async fn seeded(
 
 /// Moves the daemon's clock through the debounce and the pauses of its indexer until
 /// every event up to `seq` is in the index.
-async fn indexed(daemon: &TestDaemon, seq: Seq) {
+pub(crate) async fn indexed(daemon: &TestDaemon, seq: Seq) {
     let clock = daemon.clock();
     let mut status = daemon.search_index();
     loop {

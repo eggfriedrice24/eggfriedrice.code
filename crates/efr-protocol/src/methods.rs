@@ -26,6 +26,7 @@ pub(crate) mod approval_respond;
 pub(crate) mod call_background;
 pub(crate) mod conversation_compact;
 pub(crate) mod conversation_context;
+pub(crate) mod conversation_delete;
 pub(crate) mod conversation_diff;
 pub(crate) mod conversation_history;
 pub(crate) mod conversation_resume;

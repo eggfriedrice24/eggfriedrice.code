@@ -84,10 +84,11 @@ fn method_index(method: &Method) -> usize {
         Method::CallBackground(_) => 37,
         Method::ConversationsSearch(_) => 38,
         Method::ConversationSearch(_) => 39,
+        Method::ConversationDelete(_) => 40,
     }
 }
 
-const METHOD_COUNT: usize = 40;
+const METHOD_COUNT: usize = 41;
 
 /// The position of an event kind in the enum, for the same purpose as `method_index`.
 fn event_index(event: &Event) -> usize {
@@ -147,10 +148,11 @@ fn event_index(event: &Event) -> usize {
         Event::ShellCommandDetached { .. } => 52,
         Event::ShellCommandInputChanged { .. } => 53,
         Event::ShellCommandEnded { .. } => 54,
+        Event::ConversationDeleted { .. } => 55,
     }
 }
 
-const EVENT_COUNT: usize = 55;
+const EVENT_COUNT: usize = 56;
 
 /// The position of an input wait in the enum, for the same purpose as `method_index`.
 fn input_wait_index(input: InputWait) -> usize {

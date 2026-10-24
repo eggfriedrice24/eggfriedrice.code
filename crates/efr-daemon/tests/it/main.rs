@@ -17,6 +17,7 @@ mod catalog;
 mod classifier_eval;
 mod compact;
 mod context;
+mod conversation_delete;
 mod drafts;
 mod full;
 mod hello;

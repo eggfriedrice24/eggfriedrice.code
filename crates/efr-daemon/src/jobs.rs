@@ -1099,6 +1099,26 @@ impl JobTable {
         }
     }
 
+    /// Stops every running job of `conversation` with the cause `by` and waits for
+    /// their ends, for the delete of the conversation; the jobs as they ended. Each stop
+    /// escalates on its own, as [`stop`](Self::stop) does.
+    pub(crate) async fn stop_conversation(
+        &self,
+        conversation: ConversationId,
+        by: JobStopBy,
+    ) -> Vec<JobInfo> {
+        let keys: Vec<JobKey> = self
+            .lock()
+            .running
+            .keys()
+            .filter(|key| key.conversation == conversation)
+            .copied()
+            .collect();
+        let stops = keys.into_iter().map(|key| self.stop(key, by));
+        let ended = futures::future::join_all(stops).await;
+        ended.into_iter().filter_map(Result::ok).collect()
+    }
+
     /// At efrd's stop: stops every job with `daemon_stop`, records each end with no
     /// notice, then cancels the job tasks. It waits at most [`STOP_GRACE`] in all for
     /// the launchers, and the sweep after.
@@ -2127,6 +2147,9 @@ pub(crate) async fn deliver(
 ) {
     for notice in first {
         let conversation = notice.conversation;
+        if state.conversations.is_deleting(conversation) {
+            continue;
+        }
         if let Err(error) = state.conversations.open(conversation).notice(notice.input).await {
             tracing::warn!(%conversation, %error, "a job notice could not reach its conversation");
         }
@@ -2140,6 +2163,12 @@ pub(crate) async fn deliver(
             },
         };
         let conversation = notice.conversation;
+        // NOTE: the end of a job that a delete stopped would start a wake turn, which
+        // would send the conversation to the model while it goes.
+        if state.conversations.is_deleting(conversation) {
+            tracing::debug!(%conversation, "a job notice of a deleted conversation was dropped");
+            continue;
+        }
         if let Err(error) = state.conversations.open(conversation).notice(notice.input).await {
             tracing::warn!(%conversation, %error, "a job notice could not reach its conversation");
         }

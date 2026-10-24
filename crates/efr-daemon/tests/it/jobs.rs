@@ -891,6 +891,55 @@ async fn jobs_stop_ends_a_job_for_the_user() {
 }
 
 #[tokio::test]
+async fn delete_stops_a_running_job_first() {
+    let setup = Setup::new();
+    let fifo = setup.fifo("go");
+    let line = format!("echo deleting; read answer < {}", fifo.display());
+    let daemon = setup.start(JobModel::shell(vec![background(&line)])).await;
+    let (sent, _) = auto_turn(&daemon, "start it").await;
+    let data = setup.dirs.dirs().data().to_path_buf();
+    assert_eq!(files_named(&data, "j1.out").len(), 1);
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let mut follow = daemon.follow(&client, sent.conversation_id).await.unwrap();
+
+    let delete = Method::ConversationDelete(efr_protocol::ConversationDelete {
+        command_id: command_id(70),
+        conversation_id: sent.conversation_id,
+        force: false,
+        stop: false,
+    });
+    let answer: efr_protocol::ConversationDeleteResult = client.call(delete).await.unwrap();
+
+    let efr_protocol::ConversationDeleteResult::Deleted { jobs_stopped, not_removed, .. } = answer
+    else {
+        panic!("not deleted: {answer:?}")
+    };
+    assert_eq!((jobs_stopped, not_removed), (1, Vec::new()));
+    // The job ended by the user's stop before the tombstone, and the follow ends with
+    // the tombstone.
+    let events =
+        events_until(&mut follow, |event| matches!(event, Event::ConversationDeleted { .. }))
+            .await
+            .unwrap();
+    let ended_at = events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                envelope.event,
+                Event::JobEnded { stopped_by: Some(JobStopBy::User), state: JobState::Stopped, .. }
+            )
+        })
+        .expect("the job's end");
+    assert!(ended_at < events.len() - 1);
+    let all: JobsListResult =
+        client.call(Method::JobsList(JobsList { conversation_id: None })).await.unwrap();
+    assert_eq!(all.jobs, Vec::new(), "no job of it runs or is listed");
+    assert_eq!(files_named(&data, "j1.out"), Vec::<PathBuf>::new(), "its output went");
+    drop((client, follow));
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn job_stop_escalates_when_launcher_is_stopped() {
     // NOTE: the launcher stops itself with SIGSTOP and its child ignores SIGTERM: the
     // stop sends SIGCONT and SIGTERM, and the sweep by session ends the child.

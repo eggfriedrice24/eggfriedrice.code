@@ -991,6 +991,15 @@ pub enum Event {
         how: ShellCommandEnd,
     },
 
+    /// The user deleted the conversation (`conversation.delete`). It is the last event
+    /// of the conversation and the only one that stays in the log: efrd removes every
+    /// other event of the conversation after it, and the store refuses each later
+    /// event of it. A subscription of the conversation ends after it.
+    ConversationDeleted {
+        /// The surface that asked.
+        origin: Origin,
+    },
+
     /// An event of a kind that this build does not know. It encodes back to the same JSON
     /// object it was decoded from. The schema leaves it out: it describes the known
     /// kinds, and says that readers must accept others.
@@ -1082,6 +1091,7 @@ impl Event {
             | Event::ShellCommandDetached { .. }
             | Event::ShellCommandInputChanged { .. }
             | Event::ShellCommandEnded { .. }
+            | Event::ConversationDeleted { .. }
             | Event::Unknown { .. } => None,
         }
     }

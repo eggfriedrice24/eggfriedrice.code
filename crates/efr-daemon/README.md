@@ -430,6 +430,29 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   prompt fails, the shell ends. A job keeps running, and its notices go
   to the new terminal, because they follow the projection's `tty`. A `held` answer
   keeps no receipt, so the client asks and sends a new command with `take`.
+- `conversation.delete` (`methods/conversation_delete.rs`, scope `terminal`) deletes a
+  conversation and everything that efr keeps of it. When another open terminal holds
+  it (the rule of `held`, as for a resume; the terminal of the connection's hello
+  never counts), it deletes nothing and answers `held`, unless the params say
+  `force`; that answer keeps no receipt. A running turn, a queued prompt or a
+  compaction is `busy` (data `{"busy": "turn"}`) unless the params say `stop`, and an
+  undo that runs is `busy` (`{"busy": "undo"}`) also with `stop`: an undo that stops
+  half way leaves the project half restored. Then efrd stops the actor, every running
+  job of the conversation (`JobTable::stop_conversation`, the user's stop, waiting for
+  each end) and the hidden shell with its screen, and records `conversation_deleted`
+  with the receipt. After that commit the slots of every terminal let the
+  conversation go, the presence table forgets it, and whatever raced the commit (an
+  actor, a job, a shell) stops again; its events fail in the store. `deletes.rs`
+  removes the rest: the recording writers of its PTYs stop for good
+  (`StoreRecording::forget`, which waits for the writer that closes a segment), its
+  rows go in writer steps, its snapshot refs and the stores that only it used go
+  (`Snapshots::forget_conversation`), then its files: the recordings of its PTYs, each
+  `$SCRATCH` dir whose marker names it (`efr_conversation::scratch_dirs`), its sandbox
+  state dir, its runtime dir of the hidden shell, its legacy file backups and the undo
+  trash of each of its undos, removed without following a link, a dir made writable
+  first. A path that stays is logged and named in `not_removed`, and the delete stays
+  open: each start of efrd finishes the open deletes (`deletes::finish_pending`) before
+  its socket opens. A subscription of the conversation ends after the tombstone.
 - `conversation.subscribe` subscribes to the store's commits, reads the high-water
   mark, replays a gap of at most 128 events and 1 MiB or sends a bounded snapshot with a
   history cursor, then forwards live events through a 64-item queue. With `drafts`,

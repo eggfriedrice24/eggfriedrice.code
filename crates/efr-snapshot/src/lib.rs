@@ -36,7 +36,9 @@
 //! - [`Snapshots::gc`], [`Snapshots::gc_capped`] and [`Snapshots::gc_keeping`]
 //!   ([`GcReport`]): the newest turns of each conversation stay whole across every
 //!   store, and the turns that the daemon names, the mirrors of a store stay within
-//!   their limit, and a store unused for too long goes.
+//!   their limit, and a store unused for too long goes; [`Snapshots::forget_conversation`]
+//!   ([`ForgetReport`]): every ref of a deleted conversation, and each root store that
+//!   no other conversation uses.
 //! - [`Limits`], [`SKIPPED_DIRS`], [`MAX_IGNORED_BYTES`]: what a snapshot takes;
 //!   [`shown_prefix`]: how a root's paths show; [`blob_id`]: git's id of a file.
 //!
@@ -75,7 +77,7 @@ pub use capture::{LeftOut, LeftOutReason, Limits, MAX_IGNORED_BYTES, SKIPPED_DIR
 pub use changes::shown_prefix;
 pub use cover::{CoverResult, RootCover};
 pub use error::SnapshotError;
-pub use gc::GcReport;
+pub use gc::{ForgetReport, GcReport};
 pub use history::TurnDiff;
 pub use home::{
     HomeCopy, HomeDelta, HomeEntries, HomeEntry, HomePlan, HomeReader, HomeState, HomeStep,

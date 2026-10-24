@@ -121,6 +121,19 @@ impl Scratch {
     }
 }
 
+/// Every scratch directory of `conversation_id` under `root`: each directory there, not
+/// a link, whose marker names the conversation, for the delete of the conversation.
+/// The name does not count, because a title that changed gives another name. It
+/// blocks; a root that cannot be read gives none.
+pub fn scratch_dirs(root: &Path, conversation_id: ConversationId) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let scratch = Scratch::new(root, conversation_id);
+    let mut found: Vec<PathBuf> =
+        entries.flatten().map(|entry| entry.path()).filter(|path| scratch.is_ours(path)).collect();
+    found.sort();
+    found
+}
+
 /// True when anything, a dangling link included, is at `path`.
 fn exists(path: &Path) -> bool {
     match path.symlink_metadata() {
