@@ -410,7 +410,8 @@ declares. The tailnet listener must grant the phone scopes by its own pairing.
   prompt turns (a job notice turn and a withdrawn prompt do not count), whether the
   asking terminal holds it (`here`) and which other open terminal holds it
   (`open_in`, the rule of a pick-up). The phone sends no `tty`, so it sees every
-  holder. `conversation.resume` (`methods/conversation_resume.rs`) moves a
+  holder. Each row's title is the title of a search row, with its secrets replaced.
+  `conversation.resume` (`methods/conversation_resume.rs`) moves a
   conversation to the terminal that asks. It needs the shell's or `efr`'s connection
   whose process runs on that terminal, as a pick-up does; a phone or a made-up tty is
   `forbidden`. When another open terminal holds the conversation, it moves nothing and
@@ -1572,7 +1573,8 @@ uses too).
   point into: the search title (from the indexed text of the first prompt), else the
   projection's title after the index redaction. When efr cut the projection's title at
   80 characters, the row loses its last word too, so a key that the cut made too short
-  to be recognised never shows. `conversations.recent` keeps the projection's title.
+  to be recognised never shows. `conversations.recent` shows the same title
+  (`methods::search::titled`), so the list without the picker hides the same secrets.
 - **Hits.** A hit has its kind, its event, its turn, its time and a `history_cursor`
   whose `conversation.history` page ends at the hit. `index.percent` shows while the
   indexer is more than 5,000 events behind the log.

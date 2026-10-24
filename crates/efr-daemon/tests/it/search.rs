@@ -484,24 +484,28 @@ async fn empty_query_shows_redacted_titles() {
     params.text = cut_prompt();
     let sent: PromptSendResult = place.send(params).await;
 
-    // Before the indexer reached it: the projection's title, cut in the key.
+    // Before the indexer reached it: the projection's title without the word that the
+    // cut made too short for the redaction. The list of `conversations.recent`, which
+    // `efr resume` prints without the picker, shows the same title.
     let (recent, searched) = both_lists(&place.daemon, "pts-1", &place.app).await;
-    let raw = recent.conversations[0].summary.title.clone().unwrap();
-    assert_eq!(raw, format!("{BEFORE_KEY}sk-ant-AbCdEfGhIjKlM..."), "the list as it was");
+    let listed = recent.conversations[0].summary.title.clone().unwrap();
     let shown = searched.rows[0].conversation.summary.title.clone().unwrap();
     assert_eq!(shown, "deploy the app to the big cluster today and use the key: ...");
+    assert_eq!(listed, shown, "the list without the picker");
 
-    // After: the title of the indexed text of the prompt.
+    // After: the title of the indexed text of the prompt, in both lists.
     let client = place.daemon.client().await.unwrap();
     let events = place.daemon.events(&client, sent.conversation_id).await.unwrap();
     indexed(&place.daemon, events.last().unwrap().seq).await;
-    let (_, searched) = both_lists(&place.daemon, "pts-1", &place.app).await;
-    let shown = searched.rows[0].conversation.summary.title.clone().unwrap();
-    assert_eq!(shown, format!("{BEFORE_KEY}[***] please"));
-    for text in [raw.as_str(), shown.as_str()] {
+    let (recent, searched) = both_lists(&place.daemon, "pts-1", &place.app).await;
+    let listed_after = recent.conversations[0].summary.title.clone().unwrap();
+    let shown_after = searched.rows[0].conversation.summary.title.clone().unwrap();
+    assert_eq!(shown_after, format!("{BEFORE_KEY}[***] please"));
+    assert_eq!(listed_after, shown_after, "the list without the picker");
+    for text in [&listed, &shown, &listed_after, &shown_after] {
+        assert!(!text.contains("AbCdEfGh"), "{text}");
         assert!(!text.contains("NoPqRsTu"), "{text}");
     }
-    assert!(!shown.contains("AbCdEfGh"), "{shown}");
     place.stop().await;
 }
 
