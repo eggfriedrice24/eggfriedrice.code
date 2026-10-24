@@ -1952,8 +1952,8 @@ the replay and efr's rules; the real models are a manual check.
 The heap trim has unit tests in `heap_trim/tests.rs` (an in-memory store, a
 `TestClock` and a trimmer that only counts its calls, so they need no glibc): one heap
 trim after the quiet period of many actor trims and none after it without a new actor
-trim, none while a turn runs, a turn that starts in the quiet period, and the gap
-between two heap trims.
+trim, none while a turn runs, a turn that starts in the quiet period, the gap
+between two heap trims, and an actor trim before the task first runs.
 
 The search indexer has unit tests in `search_index/tests.rs` (an in-memory store, a
 `TestClock` and a store seam that fails a read or takes a set time for a job: the
