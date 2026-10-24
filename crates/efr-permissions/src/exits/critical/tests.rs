@@ -8,7 +8,8 @@ use pretty_assertions::assert_eq;
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::critical_deletes;
+use super::{DirWalk, critical_deletes, dirs};
+use crate::exits::scan::CdTarget;
 use crate::exits::{Approver, Envelope, ExitInput};
 use crate::network::HostList;
 use crate::{AutoSupport, CriticalDelete, CriticalTarget, CriticalWhy, Locations};
@@ -577,5 +578,46 @@ fn above_root_approver_is_unchanged() {
         let place = locations.is_at_or_above_home(path) || !path.starts_with(HOME);
         let user = place || envelope.holds(path).is_some();
         assert_eq!(user, *approver == User, "{}", path.display());
+    }
+}
+
+/// A random `cd` target: absolute, relative, below `~`, by `$HOME`, `-`, or with an
+/// expansion that efr cannot read.
+fn cd_target() -> impl Strategy<Value = CdTarget> {
+    prop::sample::select(vec![
+        ("/tmp/x", "/tmp/x"),
+        ("/home/u/p", "/home/u/p"),
+        ("sub", "sub"),
+        ("..", ".."),
+        ("~/p/app", "~/p/app"),
+        ("\u{1}HOME/p", "$HOME/p"),
+        ("\u{1}/x", "\"$X\"/x"),
+        ("-", "-"),
+        ("/", "/"),
+    ])
+    .prop_map(|(word, raw)| CdTarget { word: word.to_owned(), raw: raw.to_owned() })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(4_096))]
+
+    /// The walk of a line's segments gives each segment the dirs that `dirs` gives for
+    /// its own list of `cd`s, in the same order.
+    #[test]
+    fn the_walk_gives_each_segment_the_dirs_of_its_cds(
+        cds in prop::collection::vec(cd_target(), 0..24),
+        mut ends in prop::collection::vec(0_usize..25, 1..12),
+        start in prop::sample::select(vec![None, Some(APP), Some(HOME), Some("/srv")]),
+    ) {
+        let locations = machine();
+        let start = start.map(PathBuf::from);
+        ends.iter_mut().for_each(|end| *end = (*end).min(cds.len()));
+        ends.sort_unstable();
+        let mut walk = DirWalk::new(start.clone());
+        for end in ends {
+            let walked = walk.after(&cds[..end], &locations).to_vec();
+            let read = dirs(std::slice::from_ref(&start), Some(&cds[..end]), &locations);
+            prop_assert_eq!(walked, read, "after {} cds", end);
+        }
     }
 }

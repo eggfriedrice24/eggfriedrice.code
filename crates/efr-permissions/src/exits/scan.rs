@@ -14,6 +14,9 @@
 //! level a substitution is code that efr does not read: one segment of its own stands
 //! for it, and only the user approves a line that holds one.
 
+use std::ops::Deref;
+use std::sync::Arc;
+
 /// Stands in a word for text that only the shell knows: a substitution or a parameter
 /// expansion. A word that holds it names no path the engine can resolve.
 pub(super) const OPAQUE: char = '\u{1}';
@@ -42,7 +45,7 @@ pub(super) struct Segment {
     /// one of them goes where efr cannot read, such as `popd`, `cd -` or `cd "$X"`.
     /// Empty when no such command comes before it. Only the guard of full mode reads
     /// it (`critical.rs`); [`after_cd`](Self::after_cd) stays what the exits read.
-    pub(super) cds: Option<Vec<CdTarget>>,
+    pub(super) cds: Option<Cds>,
     /// True for the segment that stands for a substitution below [`MAX_DEPTH`], whose
     /// text the split did not read: its words are `sh -c` and an [`OPAQUE`] script, so
     /// every reader that looks for code it cannot read finds it.
@@ -57,6 +60,31 @@ pub(super) struct CdTarget {
     /// The word as the line wrote it.
     pub(super) raw: String,
 }
+
+/// The targets of the `cd`s before one segment: the first `end` targets of the line,
+/// which all its segments share. A line of 10,000 `cd`s copied each list into each
+/// segment, the square of its `cd`s: 10.7 s in `auto`.
+#[derive(Debug, Clone)]
+pub(super) struct Cds {
+    all: Arc<[CdTarget]>,
+    end: usize,
+}
+
+impl Deref for Cds {
+    type Target = [CdTarget];
+
+    fn deref(&self) -> &[CdTarget] {
+        &self.all[..self.end]
+    }
+}
+
+impl PartialEq for Cds {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for Cds {}
 
 /// The target of an output redirection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,11 +106,14 @@ fn scan_to(line: &str, max_depth: usize) -> Vec<Segment> {
     let chars: Vec<char> = line.chars().collect();
     let mut out = Vec::new();
     scan_into(&chars, &mut out, Depth { at: 0, max: max_depth });
-    let mut after_cd = false;
-    let mut cds: Option<Vec<CdTarget>> = Some(Vec::new());
-    for segment in &mut out {
-        segment.after_cd = after_cd;
-        segment.cds.clone_from(&cds);
+    // NOTE: the targets of the line in one list, and for each segment whether a `cd`
+    // came before it and how many targets it sees: `None` once a `cd` went where efr
+    // cannot read, for that segment and every later one.
+    let mut targets: Vec<CdTarget> = Vec::new();
+    let mut each: Vec<(bool, Option<usize>)> = Vec::with_capacity(out.len());
+    let (mut after_cd, mut lost) = (false, false);
+    for segment in &out {
+        each.push((after_cd, (!lost).then_some(targets.len())));
         let Some(at) = segment.words.iter().position(|word| !is_assignment(word)) else {
             continue;
         };
@@ -90,11 +121,17 @@ fn scan_to(line: &str, max_depth: usize) -> Vec<Segment> {
         if matches!(program, "cd" | "pushd" | "popd") {
             after_cd = true;
             let target = if program == "popd" { None } else { cd_target(segment, at + 1) };
-            cds = cds.zip(target).map(|(mut list, target)| {
-                list.push(target);
-                list
-            });
+            match target {
+                Some(target) if !lost => targets.push(target),
+                Some(_) => {}
+                None => lost = true,
+            }
         }
+    }
+    let all: Arc<[CdTarget]> = targets.into();
+    for (segment, (after_cd, end)) in out.iter_mut().zip(each) {
+        segment.after_cd = after_cd;
+        segment.cds = end.map(|end| Cds { all: Arc::clone(&all), end });
     }
     out
 }

@@ -306,8 +306,9 @@ Modules:
   narrower: a pattern of a plain `rm` is critical only in `/`, `~`, a dir above `~` or
   a system dir (`rm *.o` runs), and `git clean` in the turn's own project root is not
   critical, because the project snapshot covers it. A literal `cd` before a command
-  moves its dir (`Segment::cds`); because a `cd` can fail or run in a subshell, the
-  dir before each `cd` counts too. A brace word such as `~/{p,x}` is expanded. A
+  moves its dir (`Segment::cds`, a part of one list that all the segments of a line
+  share); because a `cd` can fail or run in a subshell, the dir before each `cd`
+  counts too. From one start the guard reads each `cd` of the line once (`DirWalk`). A brace word such as `~/{p,x}` is expanded. A
   delete inside a script or a program is not seen. `auto` never reads the guard.
 - `exits/view.rs` (phase D1): the network view rule. `exits::views` gives
   `Grant::NetView` to a shell call whose line only reads the host's network, on a
@@ -785,9 +786,13 @@ starts processes.
   100, 1k, 5k and 10k: `systemctl` with N unknown options before `restart` (OQL4), N
   `cd`s before `git push` (OQL9), and `git push` with a substitution of N words, which
   `analyze` cannot split (OQL9). v0.0.4 allowed all three. Budget: each line asks,
-  and the slope of each line. In `auto` the line of 10k `cd`s takes about 10 s,
-  because each segment of the lenient split (`exits/scan.rs`) copies the targets of
-  the `cd`s before it. The bench leaves the exits out.
+  and the slope of each line. The line of `cd`s also runs in `auto` and in full mode,
+  with the exits and the guard, N = 1k, 10k and 50k. Each segment of the lenient split
+  (`exits/scan.rs`) copied the targets of the `cd`s before it, so 10k `cd`s took
+  10.7 s in `auto`, and the guard (`exits/critical.rs`) read each list again for each
+  segment, so 2k `cd`s took 41 s in full mode. Now the segments share one list
+  (`scan::Cds`) and the guard walks it once (`DirWalk`). Budget: the slopes, and 10k
+  `cd`s below 100 ms in each mode (about 10 ms and 15 ms).
 - `bench_perf_fact_requests` (`tests/it/perf.rs`): `fact_requests` on `rm -rf` and
   `touch` lines of 100, 1k and 5k operands. Budget: the slope of each line.
 - `bench_perf_decide_paths` (`tests/it/perf.rs`): `Engine::decide` on `rm -f` of 100,
