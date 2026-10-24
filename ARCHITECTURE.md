@@ -32,7 +32,7 @@ shipped binary.
 |---|---|---|---|---|
 | `efr-stdx` | lib | 0 | XDG paths, `Clock` and `Rng` traits, `process::command`, atomic and 0600 writes, files changed through a link, named threads, UUIDv7 | none |
 | `efr-protocol` | lib | 0 | everything on the wire: frames, `Method`, params and results, `Event`, ids, `Scope`, `ShellContext`, framing, `PROTOCOL_VERSION`; no tokio, no IO | `efr-stdx` |
-| `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages, the search index (FTS5) with its reads, its search lanes and the indexer's read connection | `efr-protocol`, `efr-stdx` |
+| `efr-store` | lib | 1 | the only SQLite owner: migrations, the single writer, readers, events, projections, receipts, outbox, recording index, turn messages, the search index (FTS5) with its reads, its search lanes and the indexer's read connection, the tombstones and steps of conversation deletes | `efr-protocol`, `efr-stdx` |
 | `efr-credentials` | lib | 1 | `SecretStore` and the 0600 file store; optional keyring | `efr-stdx` |
 | `efr-permissions` | lib | 1 | pure policy: path classes, the built-in policy of each permission mode (`manual`, `cautious`, `auto`, `full`), config protection, the exits of the `auto` sandbox, the settle pass of full mode and its delete guard, the views of the host that a line gets with no exit, the rules of the bus filter (the built-in read methods, the checks of `[[dbus.allow]]` and the proxy's arguments), the always-allow rules with their floor checks and their match, and the Allow / Contain / Ask / Deny decision | `efr-protocol` |
 | `efr-scope` | lib | 1 | cwd to `Scope`: git discovery, dotfiles layouts, the project registry and its changes that keep comments | `efr-protocol`, `efr-stdx` |
@@ -56,7 +56,7 @@ shipped binary.
 | `efr-conversation` | lib | 3 | one actor per conversation: queue, turn loop, the single permission check point, approvals, interrupt, steer, withdraw; in `auto` the launch of each shell call, exit questions and their records (in full mode too, with the judge `full`, the timed question of a guarded delete and the gate before each call), the review of an exit by the `ExitJudge` before the user with the allow rule and the naming rule, the denial pause, the away wait through `PresenceReader`, the cache delete questions, the quarantine question and the fallback to `cautious`; the undo of a turn between turns; the index redaction of search (`redact_for_index`, `REDACTION_VERSION`); drives tools through its own `Toolbox` trait, implemented by `efr-daemon` | `efr-provider`, `efr-permissions`, `efr-scope`, `efr-store`, `efr-sandbox`, `efr-protocol`, `efr-stdx` |
 | `efr-transport` | lib | 3 | the protocol edge: codec, Unix listener, connection table, subscriptions, the `Dispatcher` trait; `client`: the client side of the protocol for `efr`, tests and the proxy | `efr-protocol`, `efr-stdx` |
 | `efr-daemon` | bin `efrd` | 4 | the composition root; one file per protocol method; the settings tool, which needs `efr-config` and so cannot live in `efr-tools`; the `auto` sandbox service: the launcher's copy, the probe, the spec of each call, the plan lock, the facts of a line (with the git remotes), the turn-end report, the read-only scope of model-side socket peers, the gate of full mode (`full.rs`: whether efrd allows or refuses it, the count of running full work) and the config hold (`loosens.rs`, `reload.rs`), and the network proxy's socket for each call with its lifetime, its host list and the hosts that a token in a project file denies; the bus filter: an `xdg-dbus-proxy` for each filtered bus of a call or a job, with its self-test and the refusals of its log; the writer of always-allow rules, which checks a rule and appends it to `config.toml`; the judge of `auto` exits (the reviewer's request and its chain of models), the presence of each conversation, the table of background jobs (the launch, the output file, the time limit, the stops, the sweep of a job's session and the port forwards of a contained job on `127.0.0.1`), the home copies of the files that an approved exit, or an exit that full mode let through, writes outside the roots, the apply of an undo or a redo with the undo trash, and the deletes in the real tool caches; the search indexer (a background task with its text rules and its duty cycle) and the search methods with their time caps; the heap trim (`heap_trim.rs`: one `malloc_trim` after the actors' idle trims), and its one `unsafe` module `malloc.rs` (ADR 0020) | every library crate above except the test crates |
-| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `resume`, `diff`, `compact`, `context`, `jobs` (list, stop), `shell`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`, `search`; the fzf picker of `resume`, inline below the command line; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
+| `efr-cli` | bin `efr` | 4 | `efr send`, `new`, `status`, `history`, `resume`, `conversation delete`, `diff`, `compact`, `context`, `jobs` (list, stop), `shell`, `settings`, `models`, `login` (openai, openai-api, anthropic), `logout`, `config` (show, check, edit, set, unset, schema, reload), `project` (list, add, remove, through the daemon), `paths`, `sandbox` (check, explain, allow), `undo`, `search`; the fzf picker of `resume`, inline below the command line; renders replies through `efr-render` | `efr-transport`, `efr-config`, `efr-render`, `efr-protocol`, `efr-stdx` |
 | `efr-test-daemon` | dev | T | `TestDaemon` and scenario replay; used only from `tests/` of `efr-daemon` and `efr-cli` | `efr-daemon`, `efr-test-support`, `efr-transport`, `efr-protocol` |
 
 None of these crates exists in the first commit; they land in the order of the
@@ -430,6 +430,24 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   `crates/efr-daemon/tests/it/search_index.rs` and `crates/efr-cli/tests/it/search_cost.rs`
   (`just bench-search`); the tests with the real fzf in
   `crates/efr-cli/tests/it/picker.rs` (`just test-fzf`).
+- Conversation delete: the method in `crates/efr-protocol/src/methods/conversation_delete.rs`
+  and the event `conversation_deleted`; the tombstone, its steps and the trigger in
+  `crates/efr-store/src/deletes.rs` and `crates/efr-store/src/migrations/0010_deletes.sql`,
+  the guard of the search index in `crates/efr-store/src/search.rs`; in efrd, the
+  handler in `crates/efr-daemon/src/methods/conversation_delete.rs`, the steps after
+  the tombstone and the end of an open delete at the start in
+  `crates/efr-daemon/src/deletes.rs`, the stop of the jobs
+  (`JobTable::stop_conversation`) in `crates/efr-daemon/src/jobs.rs`, the end of the
+  recordings (`StoreRecording::forget`) in `crates/efr-daemon/src/shells/recording.rs`;
+  the snapshot refs (`Snapshots::forget_conversation`) in
+  `crates/efr-snapshot/src/gc.rs`; the scratch dirs (`scratch_dirs`) in
+  `crates/efr-conversation/src/scratch.rs`; `efr conversation delete` in
+  `crates/efr-cli/src/commands/conversation.rs`, its lines in
+  `crates/efr-cli/src/format/delete.rs`, and Ctrl-D of the picker in
+  `crates/efr-cli/src/commands/resume.rs`. The tests over a `TestDaemon` are in
+  `crates/efr-daemon/tests/it/conversation_delete.rs` and `jobs.rs`, the store's in
+  `crates/efr-store/src/deletes/tests.rs`, and the real fzf's in
+  `crates/efr-cli/tests/it/picker.rs`.
 - The OSC 133 and OSC 7 scanner: `crates/efr-screen/src/shell_marks/`.
 - Freeform tools, whose input is text: the definition in
   `crates/efr-provider/src/request.rs`, which models take the freeform form in

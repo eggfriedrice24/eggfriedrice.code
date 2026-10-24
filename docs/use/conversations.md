@@ -1,6 +1,6 @@
 # Conversations, resume and search
 
-<!-- sources: README.md "Use" (scopes, sticky scope, repo hint, tty_idle_hours, pick-up, `,new`, `,resume`, the fzf picker, `,away`, `ctx`, `,compact`, `,context`, the commands by hand); docs/config.md [conversation], [compaction], [presence], [resume]; crates/efr-cli/src/cli.rs (history, resume, search, compact, context, away); crates/efr-cli/README.md (the rows of efr history, compact, context, resume, search, away; Context); crates/efr-cli/src/commands/resume.rs, search.rs; crates/efr-cli/src/picker.rs; crates/efr-cli/src/format/route.rs, resume.rs, search.rs and their snapshots; shell/zsh/efr.plugin.zsh (,resume); docs/adr/0019-conversation-search.md -->
+<!-- sources: README.md "Use" (scopes, sticky scope, repo hint, tty_idle_hours, pick-up, `,new`, `,resume`, the fzf picker, `,away`, `ctx`, `,compact`, `,context`, the commands by hand); docs/config.md [conversation], [compaction], [presence], [resume]; crates/efr-cli/src/cli.rs (history, resume, conversation delete, search, compact, context, away); crates/efr-cli/README.md (the rows of efr history, compact, context, resume, search, away; Context); crates/efr-cli/src/commands/resume.rs, search.rs, conversation.rs; crates/efr-daemon/src/methods/conversation_delete.rs, crates/efr-daemon/src/deletes.rs; crates/efr-cli/src/picker.rs; crates/efr-cli/src/format/route.rs, resume.rs, search.rs and their snapshots; shell/zsh/efr.plugin.zsh (,resume); docs/adr/0019-conversation-search.md -->
 
 A conversation is the record of your prompts, the model's answers and the tool calls
 in between. efr keeps your conversations, so you can continue one later, find it by
@@ -145,6 +145,7 @@ the full screen, and it clears its rows when it closes.
 |---|---|
 | Enter | Continue the conversation here, as `,resume N` does. |
 | Ctrl+O | Print the conversation into your scrollback, as `efr history` does. It moves nothing. |
+| Ctrl+D | Delete the conversation, after a question on one line. Then the picker opens again with its query, without that row. |
 | Esc | Close the picker. Nothing changes. |
 
 `,resume <words>` opens the picker with the words as its query. Without fzf, it prints
@@ -198,6 +199,56 @@ daemon's answer for scripts.
 Other users of the machine can read the arguments of a process. So the words of
 `efr search` show in the process list. `,resume <words>` keeps them out of it: the
 plugin gives the words to efr, and efr gives them to fzf, in the environment.
+
+## Delete a conversation
+
+`efr conversation delete <id>` deletes a conversation and everything that efr keeps of
+it. The id can be the start of an id, from 4 characters, as `efr search` shows it.
+Ctrl+D in the `,resume` picker does the same for the selected row.
+
+efr asks first, on one line:
+
+```text
+Delete "why is the build slow"? Nothing takes a delete back. [y/N]
+deleted "why is the build slow"; efrd stopped its background job
+```
+
+`y` deletes it. Any other key, Enter or Esc deletes nothing. `--yes` deletes with no
+question. Without a terminal, such as in a script, efr deletes only with `--yes`.
+
+efrd deletes these parts of the conversation:
+
+- its events, with your prompts, the model's answers and the tool calls,
+- its rows in the search index, so `efr search` and `,resume` never find its text
+  again,
+- the recordings of its hidden shell,
+- its `$SCRATCH`, with the output files of its background jobs,
+- its sandbox dirs, with its private `/tmp` and its cache layers,
+- its snapshots, and the snapshot store of its `$SCRATCH`,
+- its undo trash.
+
+Before the delete, efrd stops the background jobs of the conversation and waits for
+their end. Then it closes the conversation's hidden shell.
+
+efr asks again in these two cases:
+
+- Another open terminal holds the conversation:
+  `"fix the tests" is open in /dev/pts/4. Delete it there too? [y/N]`. The next
+  prompt in that terminal starts a new conversation.
+- A turn runs in the conversation, or a prompt waits in its queue:
+  `A turn runs in "fix the tests". Stop it and delete? [y/N]`.
+
+`--force` deletes in both cases with no question. efr never stops an undo that runs:
+wait until the undo ends, then delete.
+
+A stop of efrd in the middle of a delete never shows half a conversation. The
+conversation goes from every list and search at the first step. The next start of
+efrd removes the rest. When efrd cannot remove a file, efr names it, and the next
+start of efrd tries again.
+
+A copy of the database that efrd took before a migration (`backups/` in the data root)
+keeps the conversation. [Storage](../storage.md) tells what stays on the disk after a
+delete.
 
 ## See a conversation
 

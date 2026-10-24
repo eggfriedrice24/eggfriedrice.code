@@ -1074,6 +1074,8 @@ pub(crate) enum Script {
     /// Waits for Ctrl+C, then ends as interrupted, or for a SIGTERM, then fails as
     /// ended by it, as fzf does.
     UntilStopped,
+    /// Ends run n with outcome n, and each run after the last with `Closed`.
+    Outcomes(Vec<Outcome>),
 }
 
 /// A picker for the command tests: it finds the fzf of [`fzf`] or fails with a
@@ -1149,12 +1151,19 @@ impl Picker for ScriptedPicker {
     }
 
     fn run(&self, _fzf: Fzf, request: PickRequest, stops: Stops) -> Picking<'_> {
-        self.requests.lock().unwrap().push(request);
+        let run = {
+            let mut requests = self.requests.lock().unwrap();
+            requests.push(request);
+            requests.len() - 1
+        };
         self.running.notify_waiters();
         let script = self.script.clone();
         Box::pin(async move {
             match script {
                 Script::Outcome(outcome) => Ok(outcome),
+                Script::Outcomes(outcomes) => {
+                    Ok(outcomes.get(run).cloned().unwrap_or(Outcome::Closed))
+                }
                 Script::UntilStopped => {
                     let Stops { interrupt, terminate } = stops;
                     tokio::select! {

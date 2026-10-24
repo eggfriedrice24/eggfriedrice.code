@@ -2,11 +2,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use efr_protocol::{
-    Capabilities, ClientFrame, ConversationHistory, ConversationHistoryResult, ConversationId,
-    ConversationResume, ConversationResumeResult, ConversationStatus, ConversationSummary,
-    ConversationsListResult, ConversationsRecent, ConversationsRecentResult, ConversationsSearch,
-    ConversationsSearchResult, ErrorBody, ErrorCode, Method, RecentConversation, RouteLabel,
-    RouteScope, SearchRow, Seq,
+    Capabilities, ClientFrame, ConversationDelete, ConversationDeleteResult, ConversationHistory,
+    ConversationHistoryResult, ConversationId, ConversationResume, ConversationResumeResult,
+    ConversationStatus, ConversationSummary, ConversationsListResult, ConversationsRecent,
+    ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult, ErrorBody,
+    ErrorCode, Method, RecentConversation, RouteLabel, RouteScope, SearchRow, Seq,
 };
 use efr_stdx::env::{Env, Var};
 use pretty_assertions::assert_eq;
@@ -97,6 +97,7 @@ struct Ran {
     resumes: Vec<ConversationResume>,
     searches: Vec<ConversationsSearch>,
     histories: Vec<ConversationHistory>,
+    deletes: Vec<ConversationDelete>,
 }
 
 /// What the fake daemon answers.
@@ -110,6 +111,8 @@ struct Daemon {
     keys: Option<(Arc<ScriptedKeys>, u8)>,
     /// hello announces the search methods.
     searching: bool,
+    /// For each `conversation.delete`, in turn.
+    deletes: Vec<Result<ConversationDeleteResult, ErrorBody>>,
 }
 
 /// Runs `efr resume <args>` against a daemon that lists [`recent`], lists `listed` for
@@ -123,13 +126,13 @@ async fn resume_with(
     answers: Vec<Result<ConversationResumeResult, ErrorBody>>,
     keys: Option<(Arc<ScriptedKeys>, u8)>,
 ) -> Ran {
-    resume_in(ctx, env, args, Daemon { listed, answers, keys, searching: false }).await
+    resume_in(ctx, env, args, Daemon { listed, answers, keys, ..Daemon::default() }).await
 }
 
 /// Runs `efr resume <args>` against the fake `daemon`. A search answers
 /// [`search_result`], the history of a conversation an empty page.
 async fn resume_in(ctx: Context, env: &TestEnv, args: &[&str], daemon: Daemon) -> Ran {
-    let Daemon { listed, answers, keys, searching } = daemon;
+    let Daemon { listed, answers, keys, searching, deletes } = daemon;
     let fake = env.listen();
     let ctx = match &keys {
         Some((keys, _)) => Context { keys: Arc::clone(keys) as Arc<dyn Keys>, ..ctx },
@@ -142,6 +145,7 @@ async fn resume_in(ctx: Context, env: &TestEnv, args: &[&str], daemon: Daemon) -
         let mut conn = fake.accept_with(capabilities).await;
         let mut seen = Seen::default();
         let mut answers = answers.into_iter();
+        let mut deletes = deletes.into_iter();
         while let Some(frame) = conn.recv().await {
             let ClientFrame::Request { id, method } = frame else { continue };
             match method {
@@ -164,6 +168,13 @@ async fn resume_in(ctx: Context, env: &TestEnv, args: &[&str], daemon: Daemon) -
                         next_cursor: None,
                     };
                     conn.reply(id, &list).await;
+                }
+                Method::ConversationDelete(params) => {
+                    seen.deletes.push(params);
+                    match deletes.next().expect("an answer for each delete") {
+                        Ok(result) => conn.reply(id, &result).await,
+                        Err(body) => conn.fail(id, body).await,
+                    }
                 }
                 Method::ConversationResume(params) => {
                     seen.resumes.push(params);
@@ -195,6 +206,7 @@ async fn resume_in(ctx: Context, env: &TestEnv, args: &[&str], daemon: Daemon) -
         resumes: seen.resumes,
         searches: seen.searches,
         histories: seen.histories,
+        deletes: seen.deletes,
     }
 }
 
@@ -205,6 +217,7 @@ struct Seen {
     resumes: Vec<ConversationResume>,
     searches: Vec<ConversationsSearch>,
     histories: Vec<ConversationHistory>,
+    deletes: Vec<ConversationDelete>,
 }
 
 /// What a search answers: the rows of [`recent`], with their whole ids.
@@ -510,6 +523,66 @@ async fn enter_in_the_picker_resumes_the_row() {
             "--bind=change:first+reload-sync:exec '/usr/bin/efr' search --picker --tty '/dev/pts/7'"
         )
     );
+}
+
+#[tokio::test]
+async fn ctrl_d_in_the_picker_asks_deletes_and_opens_it_again_with_the_query() {
+    let env = TestEnv::new();
+    let delete = Outcome::Delete { id: id(2), query: "slow".to_owned() };
+    let picker = Arc::new(ScriptedPicker::running(Script::Outcomes(vec![delete])));
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx =
+        Context { keys: Arc::clone(&keys) as Arc<dyn Keys>, ..on_a_terminal(&env, &picker, None) };
+    let deleted = ConversationDeleteResult::Deleted {
+        conversation_id: id(2),
+        title: Some("why is the build slow".to_owned()),
+        jobs_stopped: 0,
+        not_removed: Vec::new(),
+    };
+    let daemon = Daemon {
+        listed: vec![summary(1, "fix the tests"), summary(2, "why is the build slow")],
+        deletes: vec![Ok(deleted)],
+        ..searching()
+    };
+    let answer = async {
+        keys.press(b'y').await;
+    };
+    let (ran, ()) = tokio::join!(Box::pin(resume_in(ctx, &env, &[], daemon)), answer);
+
+    assert_eq!(ran.exit, Exit::Success, "{}", ran.stderr);
+    assert_eq!(
+        bare(&ran.stdout),
+        "Delete \"why is the build slow\"? Nothing takes a delete back. [y/N]\n\
+         deleted \"why is the build slow\"\n"
+    );
+    let [delete] = ran.deletes.try_into().unwrap();
+    assert_eq!((delete.conversation_id, delete.force, delete.stop), (id(2), false, false));
+    // The picker opens again with the query that it had, and new rows.
+    let [first, again] = picker.requests().try_into().unwrap();
+    assert_eq!((first.query, again.query.as_deref()), (None, Some("slow")));
+    let queries: Vec<&str> = ran.searches.iter().map(|search| search.query.as_str()).collect();
+    assert_eq!(queries, ["", "slow"]);
+    assert!(ran.resumes.is_empty());
+}
+
+#[tokio::test]
+async fn ctrl_d_and_n_deletes_nothing_and_opens_the_picker_again() {
+    let env = TestEnv::new();
+    let delete = Outcome::Delete { id: id(2), query: String::new() };
+    let picker = Arc::new(ScriptedPicker::running(Script::Outcomes(vec![delete])));
+    let keys = Arc::new(ScriptedKeys::default());
+    let ctx =
+        Context { keys: Arc::clone(&keys) as Arc<dyn Keys>, ..on_a_terminal(&env, &picker, None) };
+    let daemon = Daemon { listed: vec![summary(2, "why is the build slow")], ..searching() };
+    let answer = async {
+        keys.press(b'n').await;
+    };
+    let (ran, ()) = tokio::join!(Box::pin(resume_in(ctx, &env, &[], daemon)), answer);
+
+    assert_eq!(ran.exit, Exit::Success, "{}", ran.stderr);
+    assert!(ran.deletes.is_empty());
+    assert_eq!(bare(&ran.stderr), "nothing was deleted\n");
+    assert_eq!(picker.requests().len(), 2);
 }
 
 #[tokio::test]

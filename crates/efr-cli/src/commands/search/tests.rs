@@ -155,7 +155,7 @@ async fn picker_waits_then_asks_with_the_query_the_terminal_and_the_directory() 
     assert_eq!(ran.stderr, "");
     let lines: Vec<&str> = ran.stdout.lines().collect();
     assert_eq!(lines.len(), 3, "{}", ran.stdout);
-    assert_eq!(lines[0], "\tenter resume · ctrl-o print · esc close");
+    assert_eq!(lines[0], "\tenter resume · ctrl-o print · ctrl-d delete · esc close");
     assert!(lines[1].starts_with(&format!("{}\trsync the photos", id(1))), "{}", lines[1]);
 }
 
@@ -181,7 +181,7 @@ async fn picker_failure_becomes_the_note_of_the_header() {
     assert_eq!((ran.exit, ran.stderr.as_str()), (Exit::Success, ""));
     assert_eq!(
         ran.stdout,
-        "\tenter resume · ctrl-o print · esc close   the daemon failed the request with internal: the search failed in the store\n"
+        "\tenter resume · ctrl-o print · ctrl-d delete · esc close   the daemon failed the request with internal: the search failed in the store\n"
     );
 }
 
@@ -190,7 +190,7 @@ async fn busy_efrd_gives_an_empty_list_with_no_note() {
     let ran = picker_failing_with(ErrorBody::new(ErrorCode::Busy, "no search lane")).await;
 
     assert_eq!((ran.exit, ran.stderr.as_str()), (Exit::Success, ""));
-    assert_eq!(ran.stdout, "\tenter resume · ctrl-o print · esc close\n");
+    assert_eq!(ran.stdout, "\tenter resume · ctrl-o print · ctrl-d delete · esc close\n");
 }
 
 #[tokio::test]
@@ -215,7 +215,10 @@ async fn without_efrd_the_header_says_that_efrd_does_not_answer() {
     let ran = run_with(&ctx, &["search", "--picker", "--tty", TTY], async {}).await;
 
     assert_eq!((ran.exit, ran.stderr.as_str()), (Exit::Success, ""));
-    assert_eq!(ran.stdout, "\tenter resume · ctrl-o print · esc close   efrd does not answer\n");
+    assert_eq!(
+        ran.stdout,
+        "\tenter resume · ctrl-o print · ctrl-d delete · esc close   efrd does not answer\n"
+    );
 }
 
 #[tokio::test]
@@ -248,7 +251,7 @@ async fn a_query_over_256_characters_fails_before_a_call() {
     assert_eq!((ran.exit, ran.stderr.as_str()), (Exit::Success, ""));
     assert_eq!(
         ran.stdout,
-        "\tenter resume · ctrl-o print · esc close   the query is longer than 256 characters\n"
+        "\tenter resume · ctrl-o print · ctrl-d delete · esc close   the query is longer than 256 characters\n"
     );
 }
 

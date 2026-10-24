@@ -68,6 +68,9 @@ pub(crate) enum Command {
     /// asks first. Other words search: the picker opens with them, or without fzf the
     /// best matches print.
     Resume(ResumeArgs),
+    /// Delete a conversation and everything that efr keeps of it.
+    #[command(subcommand)]
+    Conversation(ConversationCommand),
     /// Find the conversations whose titles or text match some words, best first.
     ///
     /// efrd searches the titles, your prompts, the model's answers and the commands that
@@ -135,6 +138,35 @@ pub(crate) enum Command {
     /// Check the sandbox of the auto mode, or explain what it does with a path.
     #[command(subcommand)]
     Sandbox(SandboxCommand),
+}
+
+/// The `efr conversation` commands.
+#[derive(Debug, Subcommand)]
+pub(crate) enum ConversationCommand {
+    /// Delete a conversation: its events, its search text, its recordings, its
+    /// $SCRATCH, its snapshots and its undo trash. Nothing takes a delete back.
+    ///
+    /// efr asks first on a terminal. efrd stops the conversation's background jobs and
+    /// closes its hidden shell first. When another open terminal holds the
+    /// conversation, or a turn runs in it, efr asks again; --force deletes without these
+    /// questions.
+    Delete(ConversationDeleteArgs),
+}
+
+/// The arguments of `efr conversation delete`.
+#[derive(Debug, Args)]
+pub(crate) struct ConversationDeleteArgs {
+    /// The conversation: its id, or at least 4 characters of the start of it, as efr
+    /// search and efr resume show it.
+    #[arg(value_name = "ID")]
+    pub(crate) id: String,
+    /// Delete with no question. Without a terminal, efr deletes only with --yes.
+    #[arg(long, short = 'y')]
+    pub(crate) yes: bool,
+    /// Delete also when another open terminal holds the conversation, and stop its
+    /// running turn first.
+    #[arg(long)]
+    pub(crate) force: bool,
 }
 
 /// The `efr sandbox` commands.

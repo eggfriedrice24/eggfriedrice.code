@@ -32,9 +32,9 @@
 
 use efr_protocol::{
     ConversationHistory, ConversationHistoryResult, ConversationId, ConversationResume,
-    ConversationResumeResult, ConversationsList, ConversationsListResult, ConversationsRecent,
-    ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult, ErrorCode, Method,
-    Origin, ShellContext,
+    ConversationResumeResult, ConversationSummary, ConversationsList, ConversationsListResult,
+    ConversationsRecent, ConversationsRecentResult, ConversationsSearch, ConversationsSearchResult,
+    ErrorCode, Method, Origin, ShellContext,
 };
 use efr_render::RenderOptions;
 use efr_stdx::env::Var;
@@ -51,6 +51,7 @@ use crate::output::Output;
 use crate::picker::{Fzf, NoPicker, Outcome, PickRequest, PickerLook, Stops, fzf_colours};
 use crate::terminal::Background;
 
+use super::conversation;
 use super::history::{self, Shown};
 use super::search;
 use super::send::Handover;
@@ -226,27 +227,59 @@ async fn pick_or_list(
             return list(ctx, out, client, context, plugin, query.as_deref(), no.note()).await;
         }
     };
-    let rows = first_rows(ctx, client, context, query.as_deref()).await;
-    let request = PickRequest {
-        rows: rows.into_bytes(),
-        query: query.clone(),
-        look,
-        cwd: context.pwd.clone(),
-    };
-    let stops = Stops { interrupt: ctx.interrupt.wait(), terminate: ctx.terminate.wait() };
-    match ctx.picker.run(fzf, request, stops).await? {
-        Outcome::Resume(id) => {
-            let target = id.to_string();
-            resume_loop(ctx, out, client, context, id, false, &target).await
-        }
-        Outcome::Print(id) => print(ctx, out, client, id).await,
-        Outcome::Closed => Ok(()),
-        Outcome::Interrupted => Err(CliError::Interrupted),
-        Outcome::Failed(status) => {
-            let note = Outcome::failure_note(status);
-            list(ctx, out, client, context, plugin, query.as_deref(), Some(note)).await
+    let mut query = query;
+    loop {
+        let rows = first_rows(ctx, client, context, query.as_deref()).await;
+        let request = PickRequest {
+            rows: rows.into_bytes(),
+            query: query.clone(),
+            look: look.clone(),
+            cwd: context.pwd.clone(),
+        };
+        let stops = Stops { interrupt: ctx.interrupt.wait(), terminate: ctx.terminate.wait() };
+        match ctx.picker.run(fzf.clone(), request, stops).await? {
+            Outcome::Resume(id) => {
+                let target = id.to_string();
+                return resume_loop(ctx, out, client, context, id, false, &target).await;
+            }
+            Outcome::Print(id) => return print(ctx, out, client, id).await,
+            Outcome::Delete { id, query: typed } => {
+                delete_row(ctx, out, client, id).await?;
+                // NOTE: the picker opens again below the lines of the delete, with the
+                // query that it had, and without the row that went.
+                query = Some(typed).filter(|typed| !typed.trim().is_empty());
+            }
+            Outcome::Closed => return Ok(()),
+            Outcome::Interrupted => return Err(CliError::Interrupted),
+            Outcome::Failed(status) => {
+                let note = Outcome::failure_note(status);
+                return list(ctx, out, client, context, plugin, query.as_deref(), Some(note)).await;
+            }
         }
     }
+}
+
+/// Ctrl-D in the picker: the question on one line, then the delete of `id`, with the
+/// questions of a held or a busy conversation, as `efr conversation delete` asks them.
+async fn delete_row(
+    ctx: &Context,
+    out: &mut Output,
+    client: &Client,
+    id: ConversationId,
+) -> Result<(), CliError> {
+    let title = find(client, &id.to_string()).await.ok().and_then(|summary| summary.title);
+    let short_id = conversation::short_id(id);
+    let target = id.to_string();
+    let asked =
+        conversation::Asked { title: title.as_deref(), short_id: &short_id, target: &target };
+    let options = ctx.render_options(effective_width(ctx.screen.size()));
+    let question = format::delete::question(asked.title, asked.short_id);
+    out.out(&format!("{}\n", format::paint(&question, Tone::Attention, &options)))?;
+    if !yes(ctx).await? {
+        out.err(&format!("{}\n", format::paint("nothing was deleted", Tone::Dim, &options)));
+        return Ok(());
+    }
+    conversation::delete_loop(ctx, out, client, id, &asked, false).await.map(|_| ())
 }
 
 /// The look of the picker: the commands run this efr on the context's terminal, and
@@ -439,6 +472,13 @@ pub(crate) async fn resolve(client: &Client, query: &str) -> Result<Conversation
     if let Ok(id) = query.parse::<ConversationId>() {
         return Ok(id);
     }
+    Ok(find(client, query).await?.id)
+}
+
+/// The conversation that `query` names, as [`resolve`] finds it, with its summary from
+/// the list of conversations: a whole id or the start of exactly one id. A whole id
+/// that the first pages do not list fails as not found.
+pub(crate) async fn find(client: &Client, query: &str) -> Result<ConversationSummary, CliError> {
     let prefix = query.to_ascii_lowercase();
     if prefix.len() < MIN_PREFIX {
         return Err(CliError::ConversationNotFound { query: query.to_owned() });
@@ -462,9 +502,9 @@ pub(crate) async fn resolve(client: &Client, query: &str) -> Result<Conversation
             None => break,
         }
     }
-    match matches.as_slice() {
-        [one] => Ok(one.id),
-        [] => Err(CliError::ConversationNotFound { query: query.to_owned() }),
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(CliError::ConversationNotFound { query: query.to_owned() }),
         _ => {
             let mut named: Vec<String> = matches
                 .iter()
@@ -484,7 +524,7 @@ pub(crate) async fn resolve(client: &Client, query: &str) -> Result<Conversation
 
 /// Reads keys until one answers the question: `y` says yes; `n`, Enter and Esc say no,
 /// the default. Ctrl+C stops `efr`.
-async fn yes(ctx: &Context) -> Result<bool, CliError> {
+pub(crate) async fn yes(ctx: &Context) -> Result<bool, CliError> {
     let mut reader = ctx.keys.start()?;
     let mut interrupt = ctx.interrupt.wait();
     let answer = loop {

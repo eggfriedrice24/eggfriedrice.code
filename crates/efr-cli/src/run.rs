@@ -5,8 +5,8 @@ use std::fmt::Write as _;
 
 use crate::cli::{Cli, Command};
 use crate::commands::{
-    away, compact, config, context, diff, history, jobs, login, logout, models, new, paths,
-    project, resume, sandbox, search, send, settings, shell, status, undo,
+    away, compact, config, context, conversation, diff, history, jobs, login, logout, models, new,
+    paths, project, resume, sandbox, search, send, settings, shell, status, undo,
 };
 use crate::context::Context;
 use crate::error::{CliError, Exit};
@@ -51,6 +51,7 @@ pub(crate) async fn run(command: &Command, ctx: &Context, out: &mut Output) -> E
         Command::Status => status::run(ctx, out).await,
         Command::History(args) => history::run(ctx, out, args).await,
         Command::Resume(args) => resume::run(ctx, out, args).await,
+        Command::Conversation(command) => conversation::run(ctx, out, command).await,
         Command::Search(args) => search::run(ctx, out, args).await,
         Command::Diff(args) => diff::run(ctx, out, args).await,
         Command::Undo(args) => Box::pin(undo::run(ctx, out, args)).await,

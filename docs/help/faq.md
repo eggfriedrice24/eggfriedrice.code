@@ -133,6 +133,14 @@ every secret. The full text of each conversation stays in `efr.sqlite`, with no
 redaction. [What the search finds](../use/conversations.md#what-the-search-finds)
 tells more.
 
+### How do I delete a conversation?
+
+`efr conversation delete <id>` deletes it, or Ctrl+D on its row in the `,resume`
+picker. efrd deletes its events, its search text, its recordings, its `$SCRATCH`, its
+snapshots and its undo trash. The backups that efrd takes before a migration of the
+database keep their copy. [Delete a conversation](../use/conversations.md#delete-a-conversation)
+tells more.
+
 ### Can I keep my settings in a dotfiles repository?
 
 Yes. `config.toml` holds no secrets. Make `~/.config/efr/config.toml` a symbolic link

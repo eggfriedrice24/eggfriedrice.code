@@ -115,6 +115,9 @@ pub(crate) enum Outcome {
     Resume(ConversationId),
     /// Ctrl-O on a row: print the conversation, as `efr history` does.
     Print(ConversationId),
+    /// Ctrl-D on a row: delete the conversation after a question, then open the picker
+    /// again with the query that it had (empty: none).
+    Delete { id: ConversationId, query: String },
     /// Esc, or Enter with no row: nothing changes.
     Closed,
     /// Ctrl+C.
@@ -217,7 +220,10 @@ pub(crate) fn fzf_args(look: &PickerLook) -> Vec<OsString> {
         "--with-nth=2..".to_owned(),
         "--header-lines=1".to_owned(),
         "--prompt=resume> ".to_owned(),
-        "--expect=ctrl-o,esc".to_owned(),
+        "--expect=ctrl-o,ctrl-d,esc".to_owned(),
+        // NOTE: the query comes back first, so the picker opens again with it after a
+        // delete.
+        "--print-query".to_owned(),
         // NOTE: the reload has no closing parenthesis and comes last in its own
         // --bind, so no character of the path of efr can end it.
         format!("--bind=change:first+reload-sync:exec {efr} search --picker --tty {tty}"),
@@ -341,8 +347,9 @@ pub(crate) fn parse_version(text: &str) -> Option<Version> {
 }
 
 /// What fzf's exit `status` (`None` for a signal) and its `stdout` mean. With
-/// `--expect`, the first line is the key that ended fzf (empty for Enter) and the
-/// second the chosen row, whose first field, before the tab, is the conversation id.
+/// `--print-query` and `--expect`, the first line is the query, the second the key that
+/// ended fzf (empty for Enter) and the third the chosen row, whose first field, before
+/// the tab, is the conversation id.
 pub(crate) fn outcome(status: Option<i32>, stdout: &[u8]) -> Outcome {
     match status {
         Some(0 | 1) => {}
@@ -350,6 +357,7 @@ pub(crate) fn outcome(status: Option<i32>, stdout: &[u8]) -> Outcome {
         other => return Outcome::Failed(other),
     }
     let mut lines = stdout.split(|byte| *byte == b'\n');
+    let query = lines.next().map(String::from_utf8_lossy).unwrap_or_default().into_owned();
     let key = lines.next().unwrap_or_default();
     let id = lines
         .next()
@@ -360,6 +368,7 @@ pub(crate) fn outcome(status: Option<i32>, stdout: &[u8]) -> Outcome {
         (b"esc", _) | (_, None) => Outcome::Closed,
         (b"", Some(id)) => Outcome::Resume(id),
         (b"ctrl-o", Some(id)) => Outcome::Print(id),
+        (b"ctrl-d", Some(id)) => Outcome::Delete { id, query },
         _ => Outcome::Closed,
     }
 }
