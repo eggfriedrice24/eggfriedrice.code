@@ -23,6 +23,20 @@ into the GitHub release notes, and it stops when the section is missing.
   call runs, and in `,shell`. A command outside the sandbox asks first, as a running
   call does. The hidden shell is free at once, and the job's notice tells the agent
   when the command ends. Before, such a command held the hidden shell until it ended.
+- `efr conversation delete <id>` deletes a conversation and everything that efr keeps
+  of it: its events, its search text, the recordings of its hidden shell, its
+  `$SCRATCH`, its sandbox dirs, its snapshots and its undo trash. The id can be the
+  start of an id, as `efr search` shows it. efr asks first on a terminal, and `--yes`
+  skips the question. Without a terminal, efr deletes only with `--yes`.
+- Before a delete, efrd stops the background jobs of the conversation and closes its
+  hidden shell. When another open terminal holds the conversation, or a turn runs in
+  it, efr asks again. `--force` deletes in both cases with no question. efr never stops
+  an undo that runs.
+- Ctrl+D in the `,resume` picker deletes the selected conversation after a question on
+  one line. Then the picker opens again with its query.
+- A stop of efrd during a delete never shows half a conversation: the conversation goes
+  from every list and search at the first step, and the next start of efrd removes the
+  rest.
 
 ### Changed
 

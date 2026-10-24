@@ -210,6 +210,23 @@ pub(crate) enum CliError {
     #[error("{} is open in {tty}; efr resume --take {target} moves it", .title.as_deref().map_or_else(|| "the conversation".to_owned(), |title| format!("{title:?}")))]
     ResumeHeld { title: Option<String>, tty: String, target: String },
 
+    /// `efr conversation delete` cannot ask its question: stdin is no terminal, and
+    /// `--yes` is not given. Nothing was deleted.
+    #[error("efr conversation delete needs a terminal or --yes; nothing was deleted")]
+    DeleteNeedsYes,
+
+    /// Another open terminal holds the conversation that `efr conversation delete`
+    /// should delete, and efr cannot ask: stdin is no terminal. Nothing was deleted.
+    #[error("{} is open in {tty}; efr conversation delete --force {target} deletes it", .title.as_deref().map_or_else(|| "the conversation".to_owned(), |title| format!("{title:?}")))]
+    DeleteHeld { title: Option<String>, tty: String, target: String },
+
+    /// A turn runs in the conversation that `efr conversation delete` should delete,
+    /// and efr cannot ask: stdin is no terminal. Nothing was deleted.
+    #[error(
+        "a turn runs in the conversation; efr conversation delete --force {target} stops it and deletes the conversation"
+    )]
+    DeleteBusy { target: String },
+
     /// The daemon does not know a method of this efr: it is an older build.
     #[error("efrd is older than this efr; restart it: systemctl --user restart efrd")]
     OlderDaemon,
@@ -401,6 +418,7 @@ impl CliError {
             | CliError::NoKey { .. }
             | CliError::KeyTooLong { .. }
             | CliError::UndoNeedsYes
+            | CliError::DeleteNeedsYes
             | CliError::NoAllowRule { .. }
             | CliError::AllowRemoveNeedsTerminal
             | CliError::AmbiguousConversation { .. }

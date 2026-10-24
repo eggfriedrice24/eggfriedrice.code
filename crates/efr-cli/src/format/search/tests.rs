@@ -155,18 +155,21 @@ fn picker_header_says_how_far_the_index_is_and_why_the_search_stopped() {
     };
     insta::assert_snapshot!(
         picker_rows(&result, now(), &pipe()),
-        @"\tenter resume · ctrl-o print · esc close   indexing: 40% · partial: time cap"
+        @"\tenter resume · ctrl-o print · ctrl-d delete · esc close   indexing: 40% · partial: time cap"
     );
     let result =
         ConversationsSearchResult { partial: Some(SearchPartial::RowCap), ..Default::default() };
     insta::assert_snapshot!(
         picker_rows(&result, now(), &pipe()),
-        @"\tenter resume · ctrl-o print · esc close   partial: row cap"
+        @"\tenter resume · ctrl-o print · ctrl-d delete · esc close   partial: row cap"
     );
-    assert_eq!(picker_header(None, &pipe()), "\tenter resume · ctrl-o print · esc close\n");
+    assert_eq!(
+        picker_header(None, &pipe()),
+        "\tenter resume · ctrl-o print · ctrl-d delete · esc close\n"
+    );
     insta::assert_snapshot!(
         readable(&picker_header(Some("efrd does not answer"), &terminal())).replace('\t', "\\t"),
-        @r"\t\e[1menter\e[0m\e[2m resume\e[0m\e[2m · \e[0m\e[1mctrl-o\e[0m\e[2m print\e[0m\e[2m · \e[0m\e[1mesc\e[0m\e[2m close\e[0m   \e[2mefrd does not answer\e[0m"
+        @r"\t\e[1menter\e[0m\e[2m resume\e[0m\e[2m · \e[0m\e[1mctrl-o\e[0m\e[2m print\e[0m\e[2m · \e[0m\e[1mctrl-d\e[0m\e[2m delete\e[0m\e[2m · \e[0m\e[1mesc\e[0m\e[2m close\e[0m   \e[2mefrd does not answer\e[0m"
     );
 }
 

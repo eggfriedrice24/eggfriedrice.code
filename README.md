@@ -74,7 +74,7 @@ printenv ANTHROPIC_API_KEY | efr login anthropic
 - `, <prompt>` sends a prompt with the current directory, the terminal, the last command and the recent commands of the terminal. The reply goes into your scrollback, and your prompt comes back when the turn ends.
 - `,` alone, or Ctrl+Space, switches sticky agent mode on: every line goes to the agent until you type `,` alone again.
 - While a turn runs, Enter in the input row steers it, Tab queues a prompt, and Esc interrupts it.
-- `,new` starts a new conversation, and `,resume` finds an older one.
+- `,new` starts a new conversation, `,resume` finds an older one, and `efr conversation delete` deletes one.
 - `,mode`, `,model` and `,effort` choose the permission mode, the model and the effort for one terminal.
 - `efr diff` shows what the last turn changed, and `efr undo` takes it back.
 

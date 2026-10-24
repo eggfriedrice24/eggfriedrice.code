@@ -29,6 +29,7 @@ pub(crate) mod card;
 pub(crate) mod changes;
 pub(crate) mod context;
 pub(crate) mod context_report;
+pub(crate) mod delete;
 pub(crate) mod groups;
 pub(crate) mod hidden_shell;
 pub(crate) mod jobs;

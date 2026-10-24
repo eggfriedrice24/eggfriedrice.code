@@ -12,7 +12,8 @@ expression: "args().join(\"\\n\").replace('\\t', \"<TAB>\")"
 --with-nth=2..
 --header-lines=1
 --prompt=resume> 
---expect=ctrl-o,esc
+--expect=ctrl-o,ctrl-d,esc
+--print-query
 --bind=change:first+reload-sync:exec '/home/user/my bin/it'\''s/efr' search --picker --tty '/dev/pts/7'
 --preview=exec '/home/user/my bin/it'\''s/efr' search --preview {1} --tty '/dev/pts/7'
 --preview-window=right,50%,border-left,<50(down,50%,border-top)

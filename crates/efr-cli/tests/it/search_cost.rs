@@ -56,7 +56,7 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 while read -r _; do :; done
-printf 'esc\n\n'
+printf '\nesc\n\n'
 "#;
 
 /// The budget of the peak memory, in KiB.

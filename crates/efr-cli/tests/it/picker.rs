@@ -6,8 +6,9 @@
 //! that never holds `~/.local/bin`. `--version` prints the version that the test
 //! chooses. Otherwise it records its command line, its environment and its stdin, runs
 //! the command of its `reload-sync` action with `FZF_QUERY` set as fzf does, then
-//! prints the key that the test chooses and the first row of the reload, as fzf prints
-//! them with `--expect`, and exits with the status that the test chooses.
+//! prints the query, the key that the test chooses and the first row of the reload, as fzf
+//! prints them with `--print-query` and `--expect`, and exits with the status that the test
+//! chooses.
 //!
 //! `efr` gets a cleared environment with every efr root in a temporary directory, so it
 //! never reaches the real daemon.
@@ -65,7 +66,7 @@ if [ -n "$FAKE_FZF_QUERY" ]; then
 else
   row=$(sed -n 2p "$dir/stdin")
 fi
-printf '%s\n%s\n' "$FAKE_FZF_KEY" "$row"
+printf '%s\n%s\n%s\n' "$FAKE_FZF_QUERY" "$FAKE_FZF_KEY" "$row"
 exit "${FAKE_FZF_EXIT:-0}"
 "#;
 
@@ -854,6 +855,19 @@ impl Picking {
         rustix::io::write(&self.master, keys.as_bytes()).unwrap();
     }
 
+    /// Waits until efr reads single keys: the terminal is out of its canonical mode.
+    fn until_keys_read(&self) {
+        let deadline = Instant::now() + E2E_WAIT;
+        loop {
+            let modes = rustix::termios::tcgetattr(&self.master).unwrap().local_modes;
+            if !modes.contains(rustix::termios::LocalModes::ICANON) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "efr never read a key");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     /// Pastes `text`, which fzf takes as one change of its query.
     fn paste(&self, text: &str) {
         self.keys(&format!("\x1b[200~{text}\x1b[201~"));
@@ -1092,5 +1106,111 @@ async fn e2e_fzf_key_to_rows_times() {
         ms(sorted[sorted.len() - 1]),
     )
     .unwrap();
+    daemon.stop().await.unwrap();
+}
+
+/// Runs the built `efr` with `args` against `daemon`, without a terminal and with no
+/// variable of the real machine; its status and stdout.
+fn efr_by_hand(daemon: &TestDaemon, args: &[&str]) -> (ExitStatus, String) {
+    let dirs = daemon.dirs().dirs();
+    let output = efr_stdx::process::command(env!("CARGO_BIN_EXE_efr"), daemon.cwd())
+        .into_std()
+        .args(args)
+        .env_clear()
+        .env("HOME", daemon.dirs().home())
+        .env("PATH", "/usr/bin:/bin")
+        .env("EFR_CONFIG_DIR", dirs.config())
+        .env("EFR_DATA_DIR", dirs.data())
+        .env("EFR_STATE_DIR", dirs.state())
+        .env("EFR_RUNTIME_DIR", dirs.runtime())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    (output.status, format!("{}{stderr}", String::from_utf8_lossy(&output.stdout)))
+}
+
+/// The id of the conversation whose first prompt is `title`, from the index.
+async fn id_of(daemon: &TestDaemon, title: &str) -> efr_protocol::ConversationId {
+    let client = daemon.client().await.unwrap();
+    let method = Method::ConversationsSearch(efr_protocol::ConversationsSearch {
+        query: title.to_owned(),
+        limit: Some(5),
+        ..Default::default()
+    });
+    let found: ConversationsSearchResult = client.call(method).await.unwrap();
+    found.rows[0].conversation.summary.id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delete_by_hand_and_efr_search_finds_none_of_its_text() {
+    let (daemon, _server) = indexed_daemon(None).await;
+    let id = id_of(&daemon, E2E_TURNS[0].0).await;
+    let (status, found) =
+        tokio::task::block_in_place(|| efr_by_hand(&daemon, &["search", "rsync"]));
+    assert!(status.success() && found.contains(E2E_TURNS[0].0), "{found}");
+
+    // NOTE: the ids of one test share their first parts, which hold the time.
+    let start = id.to_string()[..30].to_owned();
+    let (status, out) = tokio::task::block_in_place(|| {
+        efr_by_hand(&daemon, &["conversation", "delete", "--yes", &start])
+    });
+
+    assert!(status.success(), "{status:?} {out}");
+    assert_eq!(out, format!("deleted \"{}\"\n", E2E_TURNS[0].0));
+    for words in ["rsync", "laptop", "photos"] {
+        let (status, found) =
+            tokio::task::block_in_place(|| efr_by_hand(&daemon, &["search", words]));
+        assert!(status.success());
+        assert_eq!(found, "no conversation matches\n", "{words}");
+    }
+    let (_, found) = tokio::task::block_in_place(|| efr_by_hand(&daemon, &["search", "docker"]));
+    assert!(found.contains(E2E_TURNS[1].0), "{found}");
+    daemon.stop().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn e2e_fzf_ctrl_d_asks_deletes_and_opens_the_picker_again_with_its_query() {
+    let Some(fzf) = real_fzf() else { return };
+    let (daemon, _server) = indexed_daemon(None).await;
+
+    let (status, screen) = pick(&daemon, &fzf, &[], |picking| {
+        picking.recent();
+        picking.keys("rsync");
+        picking.rows("rsync", &[E2E_TURNS[0].0]);
+        picking.keys("\x04");
+        picking.screen.wait("the question of the delete", |shown| {
+            let contents = shown.parser.screen().contents();
+            (contents.contains("Nothing takes a delete back. [y/N]")
+                && !contents.contains("enter resume"))
+            .then_some(())
+        });
+        // NOTE: efr throws away the keys typed before it reads the answer, as for every
+        // question; its key thread leaves the canonical mode after that.
+        picking.until_keys_read();
+        picking.keys("y");
+        // The picker opens again below the lines of the delete, with its query and no
+        // row (the lines above name the title, so the rows count, not the titles).
+        let counted = |query: &'static str, count: &'static str| {
+            move |shown: &Shown| {
+                let contents = shown.parser.screen().contents();
+                (contents.contains("deleted \"rsync the photos to the laptop\"")
+                    && contents.contains(&format!("resume> {query}"))
+                    && contents.contains(count))
+                .then_some(())
+            }
+        };
+        picking.screen.wait("the picker again with rsync", counted("rsync", "0/0"));
+        picking.keys("\x15");
+        picking.screen.wait("the two other rows", counted("", "2/2"));
+        picking.keys("\x1b");
+        picking.end()
+    })
+    .await;
+
+    assert!(status.success(), "{status:?}\n{screen}");
+    assert!(screen.contains("deleted \"rsync the photos to the laptop\""), "{screen}");
+    let (_, found) = tokio::task::block_in_place(|| efr_by_hand(&daemon, &["search", "rsync"]));
+    assert_eq!(found, "no conversation matches\n");
     daemon.stop().await.unwrap();
 }

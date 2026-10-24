@@ -59,7 +59,8 @@ const CUT: &str = "\u{2026}";
 const NO_TITLE: &str = "(no title)";
 
 /// The keys of the picker, as its header shows them.
-const KEYS: [(&str, &str); 3] = [("enter", "resume"), ("ctrl-o", "print"), ("esc", "close")];
+const KEYS: [(&str, &str); 4] =
+    [("enter", "resume"), ("ctrl-o", "print"), ("ctrl-d", "delete"), ("esc", "close")];
 
 /// The byte ranges in `text` of `ranges`, which count Unicode code points: each one cut
 /// to the text, an empty or reversed one dropped, sorted, and those that overlap or

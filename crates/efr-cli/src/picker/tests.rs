@@ -46,7 +46,8 @@ fn fzf_args_reload_with_the_query_in_the_environment_only() {
         }
     }
     assert!(args.contains(&"--height=40%".to_owned()));
-    assert!(args.contains(&"--expect=ctrl-o,esc".to_owned()));
+    assert!(args.contains(&"--expect=ctrl-o,ctrl-d,esc".to_owned()));
+    assert!(args.contains(&"--print-query".to_owned()));
 }
 
 #[test]
@@ -168,20 +169,25 @@ fn a_reason_that_the_user_may_not_expect_has_a_note() {
 fn outcome_reads_the_key_and_the_row() {
     let id = ID.parse().unwrap();
     let row = format!("{ID}\tfix the tests  app  2h  3\n");
-    let printed = |key: &str| format!("{key}\n{row}").into_bytes();
+    let printed = |key: &str| format!("rsync\n{key}\n{row}").into_bytes();
     assert_eq!(outcome(Some(0), &printed("")), Outcome::Resume(id));
     assert_eq!(outcome(Some(0), &printed("ctrl-o")), Outcome::Print(id));
+    assert_eq!(
+        outcome(Some(0), &printed("ctrl-d")),
+        Outcome::Delete { id, query: "rsync".to_owned() }
+    );
     assert_eq!(outcome(Some(0), &printed("esc")), Outcome::Closed);
-    assert_eq!(outcome(Some(0), b"\n"), Outcome::Closed, "Enter with no row");
-    assert_eq!(outcome(Some(1), b"\n"), Outcome::Closed, "no match");
-    assert_eq!(outcome(Some(0), b"\n\tenter resume\n"), Outcome::Closed, "an empty id");
+    assert_eq!(outcome(Some(0), b"\n\n"), Outcome::Closed, "Enter with no row");
+    assert_eq!(outcome(Some(1), b"x\n\n"), Outcome::Closed, "no match");
+    assert_eq!(outcome(Some(0), b"\n\n\tenter resume\n"), Outcome::Closed, "an empty id");
+    assert_eq!(outcome(Some(0), b"\nctrl-d\n\n"), Outcome::Closed, "Ctrl-D with no row");
     assert_eq!(outcome(Some(130), b""), Outcome::Interrupted);
     assert_eq!(outcome(Some(2), b""), Outcome::Failed(Some(2)));
     assert_eq!(outcome(None, b""), Outcome::Failed(None), "a signal");
-    let tabs = format!("\n{ID}\ta title\twith\ttabs\n");
+    let tabs = format!("\n\n{ID}\ta title\twith\ttabs\n");
     assert_eq!(outcome(Some(0), tabs.as_bytes()), Outcome::Resume(id));
-    assert_eq!(outcome(Some(0), b"\n\xff\xfe\tbad\n"), Outcome::Closed, "not UTF-8");
-    assert_eq!(outcome(Some(0), b"\nnot-an-id\tx\n"), Outcome::Closed);
+    assert_eq!(outcome(Some(0), b"\n\n\xff\xfe\tbad\n"), Outcome::Closed, "not UTF-8");
+    assert_eq!(outcome(Some(0), b"\n\nnot-an-id\tx\n"), Outcome::Closed);
 }
 
 /// A directory with an executable `fzf` in it.
