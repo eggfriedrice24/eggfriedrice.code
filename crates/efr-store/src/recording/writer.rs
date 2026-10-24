@@ -260,7 +260,7 @@ impl OpenSegment {
     }
 }
 
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, StoreError> + Send + 'static,
 ) -> Result<T, StoreError> {
     tokio::task::spawn_blocking(work)

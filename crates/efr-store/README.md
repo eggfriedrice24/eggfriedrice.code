@@ -183,6 +183,15 @@ across a restart:
   `pty.attach(since_seq)` and the shell marks use. `RecordingWriter::resize` stores a
   new size of the PTY at the current offset; it takes no stream bytes.
   `Recordings::read_range` slices the bytes and returns the sizes in the range.
+  `Recordings::collect` runs one pass of the collector (`recording/retention.rs`) with a
+  `Retention`: the recording of a PTY whose shell exited more than `max_age` ago goes
+  whole, and the oldest segments go first while all files pass `max_bytes`. The newest
+  segment of a PTY that can still start a writer stays, with the segments before it up
+  to `live_tail` stream bytes. A PTY can write while its shell runs, while the shells
+  projection does not know it, and for `WRITER_GRACE` (an hour) after its exit. The
+  rows go in one writer transaction, then the files; a file without a row is an orphan
+  that the next pass removes. A read of a PTY whose first bytes went reports a later
+  `RecordedRange::start`.
 - `Store` and `StoreConfig`: open, back up, migrate and start the writer, the readers,
   the search lanes and the index reader in one call.
 

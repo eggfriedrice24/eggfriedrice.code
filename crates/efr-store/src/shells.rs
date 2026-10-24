@@ -31,7 +31,7 @@ impl ShellStatus {
         }
     }
 
-    fn from_column(text: &str) -> Result<Self, StoreError> {
+    pub(crate) fn from_column(text: &str) -> Result<Self, StoreError> {
         [ShellStatus::Running, ShellStatus::Exited]
             .into_iter()
             .find(|status| status.as_str() == text)
