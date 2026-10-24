@@ -127,6 +127,12 @@ Modules:
   256), the limits of the copy of a directory outside the roots. The spec named some
   of them `undo.*`; they live here because the snapshots come before undo
   (`docs/adr/0008-snapshot-config-keys.md`).
+- `tables/recording`: `[recording]` (`RecordingSettings`, from v0.0.5), what efrd's
+  hourly collector keeps of the recordings of the hidden shells' terminals:
+  `max_age_days` (0 to 3650, default 14; the recording of a shell that exited longer
+  ago goes) and `max_gib` (0 to 10000, default 2; past it the oldest segments go
+  first). 0 turns a limit off. The newest segment and the last 1 MiB of a shell that
+  still runs always stay. Both keys apply from the next pass.
 - `settings`: `Settings`, the whole file. `Settings::parse` reads the text with unknown
   keys refused, reads `[[permissions.rules]]` one by one so an error names
   `permissions.rules[N]`, records which keys the file set, and runs the checks.

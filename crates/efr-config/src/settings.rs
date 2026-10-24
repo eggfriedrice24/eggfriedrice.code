@@ -16,8 +16,8 @@ use crate::{
     AnthropicSettings, ClassifierSettings, CompactionSettings, ConfigError, ContextSettings,
     ConversationSettings, DEFAULT_LOG, DbusSettings, DiffSettings, JobsSettings, Location,
     ModelSettings, NetworkSettings, OpenAiSettings, PermissionSettings, PresenceSettings,
-    RenderSettings, ResumeSettings, SandboxSettings, ScreenChoice, ShellSettings, SnapshotSettings,
-    Source, UndoSettings,
+    RecordingSettings, RenderSettings, ResumeSettings, SandboxSettings, ScreenChoice,
+    ShellSettings, SnapshotSettings, Source, UndoSettings,
 };
 
 /// The file name under the config root.
@@ -71,6 +71,8 @@ pub struct Settings {
     pub undo: UndoSettings,
     /// efr's own snapshots, which show what a call and a turn changed in files.
     pub snapshot: SnapshotSettings,
+    /// How long efrd keeps the recordings of the hidden shells' terminals.
+    pub recording: RecordingSettings,
     /// When efr counts you away from a conversation, and how long a question waits
     /// then.
     pub presence: PresenceSettings,
@@ -108,6 +110,7 @@ impl Default for Settings {
             classifier: ClassifierSettings::default(),
             undo: UndoSettings::default(),
             snapshot: SnapshotSettings::default(),
+            recording: RecordingSettings::default(),
             presence: PresenceSettings::default(),
             jobs: JobsSettings::default(),
             resume: ResumeSettings::default(),

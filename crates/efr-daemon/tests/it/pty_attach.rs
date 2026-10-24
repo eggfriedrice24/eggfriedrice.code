@@ -1,10 +1,15 @@
 //! `pty.attach`, `pty.write` and `pty.resize` over a `TestDaemon`: sequence numbers are
 //! offsets in the PTY's recording, a resume replays from its offset, a fresh attach
-//! starts with the screen, and live output follows without a hole or a repeat.
+//! starts with the screen, and live output follows without a hole or a repeat. The
+//! hourly collector deletes the recording of a shell that exited long ago, and a resume
+//! of it then replays nothing.
 
+use std::time::Duration;
+
+use efr_daemon::ChildStatus;
 use efr_protocol::{
-    Base64Bytes, ErrorCode, Method, PtyAttach, PtyAttachItem, PtyId, PtyResize, PtyResizeResult,
-    PtyWrite, PtyWriteResult, Seq, Size,
+    Base64Bytes, ErrorCode, Event, Method, PtyAttach, PtyAttachItem, PtyId, PtyResize,
+    PtyResizeResult, PtyWrite, PtyWriteResult, Seq, Size,
 };
 use efr_test_daemon::{ClientError, ItemStream, PROMPT, Replay, command_output};
 use efr_test_support::Wait;
@@ -183,5 +188,36 @@ async fn attaching_to_a_pty_that_does_not_exist_is_not_found() {
     let Err(ClientError::Server { body }) = ended else { panic!("{ended:?}") };
     assert_eq!(body.code, ErrorCode::NotFound);
     drop(stream);
+    replay.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_resume_of_a_shell_whose_recording_went_replays_nothing_and_ends() {
+    let replay = Replay::run("pty_attach_since_seq").await.unwrap();
+    let pty_id = pty_id(&replay);
+    let printed = printed();
+    let holder = replay.daemon().holder().unwrap().clone();
+    assert!(holder.end(pty_id, ChildStatus::Exited { code: 0 }));
+    Wait::new("the shell's exit")
+        .until_some_async(async || {
+            let events = replay.events().await.unwrap();
+            events.iter().any(|e| matches!(e.event, Event::ShellExited { .. })).then_some(())
+        })
+        .await
+        .unwrap();
+    // Before the collector: the whole recording, then the end of the stream.
+    let mut before = attach(&replay, Some(0)).await;
+    assert_eq!(output(&mut before, 0, printed.len()).await, printed);
+    assert!(before.next().await.is_none(), "an exited shell's stream ends after the replay");
+
+    // The default keeps the recording of an exited shell for 14 days.
+    replay.daemon().clock().advance(Duration::from_secs(15 * 24 * 3600));
+    let dir = replay.daemon().dirs().dirs().data().join("recordings").join(pty_id.to_string());
+    Wait::new("the collector").until(|| !dir.exists()).await.unwrap();
+    let mut after = attach(&replay, Some(0)).await;
+    let ended = Wait::new("the end").until_some_async(async || Some(after.next().await)).await;
+
+    assert!(ended.unwrap().is_none(), "nothing is left to replay");
+    drop((before, after));
     replay.stop().await.unwrap();
 }

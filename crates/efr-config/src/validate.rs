@@ -12,8 +12,8 @@ use crate::tables::diff::{check_glob, check_name};
 use crate::tables::render::{COLOR_EXPECTED, CONFIG_COLOR_KEYS};
 use crate::{
     ClassifierSettings, CompactionSettings, DiffSettings, JobsSettings, ModelEntry,
-    NetworkSettings, PROVIDERS, PresenceSettings, RenderColors, SandboxSettings, Settings,
-    SnapshotSettings,
+    NetworkSettings, PROVIDERS, PresenceSettings, RecordingSettings, RenderColors, SandboxSettings,
+    Settings, SnapshotSettings,
 };
 
 /// What `permissions.mode = "full"` needs: the gate key next to it. The text names both
@@ -81,6 +81,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
         network,
         classifier,
         snapshot,
+        recording,
         presence,
         jobs,
         diff,
@@ -220,6 +221,7 @@ pub(crate) fn check(settings: &Settings) -> Result<(), Invalid> {
     check_network(network)?;
     check_classifier(classifier)?;
     check_snapshot(snapshot)?;
+    check_recording(recording)?;
     check_presence(presence)?;
     check_jobs(jobs)?;
     check_diff(diff)?;
@@ -282,6 +284,17 @@ fn check_model_entry(key: &'static str, entry: &ModelEntry) -> Result<(), Invali
 /// The checks of `[compaction]`.
 fn check_compaction(compaction: &CompactionSettings) -> Result<(), Invalid> {
     within("compaction.auto_at", u64::from(compaction.auto_at), 1..=99, "between 1 and 99")
+}
+
+/// The checks of `[recording]`.
+fn check_recording(recording: &RecordingSettings) -> Result<(), Invalid> {
+    within(
+        "recording.max_age_days",
+        u64::from(recording.max_age_days),
+        0..=3_650,
+        "between 0 and 3650",
+    )?;
+    within("recording.max_gib", u64::from(recording.max_gib), 0..=10_000, "between 0 and 10000")
 }
 
 /// The checks of `[snapshot]`, in the order of the table.

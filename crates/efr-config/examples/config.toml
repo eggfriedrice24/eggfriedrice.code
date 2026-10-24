@@ -406,6 +406,18 @@
 # write all of it, from 0 to 16384. A larger directory gets no copy.
 # home_max_mib = 256
 
+[recording]
+# efrd records the terminal of each hidden shell, so a client that attaches again gets
+# the output that it missed. Once an hour, it deletes old recordings. It always keeps
+# the newest segment, and at least the last 1 MiB, of a shell that still runs.
+# Days after its shell exited after which the recording of a hidden shell is deleted,
+# from 0 to 3650; 0 keeps it.
+# max_age_days = 14
+
+# The most GiB that all recordings may take, from 0 to 10000; 0 sets no limit. Past
+# it, efrd deletes the oldest segments first.
+# max_gib = 2
+
 [presence]
 # The minutes without input in a conversation after which efr counts you away, from 1
 # to 1440. efr away and ,away also count you away; your next input ends it.

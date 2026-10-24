@@ -1025,6 +1025,27 @@
         }
       ]
     },
+    "RecordingSettings": {
+      "additionalProperties": false,
+      "description": "`[recording]`: the age and the size after which efrd deletes the recordings of the\nhidden shells' terminals, once an hour. It always keeps the newest segment, and at\nleast the last 1 MiB, of a shell that still runs. Every key applies from the next\npass.",
+      "properties": {
+        "max_age_days": {
+          "default": 14,
+          "description": "Days after its shell exited after which the recording of a hidden shell is\ndeleted, from 0 to 3650; 0 keeps it.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_gib": {
+          "default": 2,
+          "description": "The most GiB that all recordings may take, from 0 to 10000; 0 sets no limit. Past\nit, efrd deletes the oldest segments first, but never the newest segment or the\nlast 1 MiB of a shell that still runs.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "RenderColors": {
       "additionalProperties": false,
       "description": "The colour of each role: `[render.colors]` in `config.toml`, `[colors]` in a theme\nfile. A role that is not set keeps the colour of the layer below it.",
@@ -1877,6 +1898,14 @@
         "push": true
       },
       "description": "When efr counts you away from a conversation, and how long a question waits\nthen."
+    },
+    "recording": {
+      "$ref": "#/$defs/RecordingSettings",
+      "default": {
+        "max_age_days": 14,
+        "max_gib": 2
+      },
+      "description": "How long efrd keeps the recordings of the hidden shells' terminals."
     },
     "render": {
       "$ref": "#/$defs/RenderSettings",
