@@ -82,6 +82,11 @@ into the GitHub release notes, and it stops when the section is missing.
   the text then came late in one jump.
 - A very long code block renders in a time that grows only with its length. Before,
   100,000 lines in a `text` block took about 4 s. Now they take less than 0.1 s.
+- efr decides a shell line with many `cd`s in a time that grows only with the line.
+  Before, each command of the line copied the targets of all the `cd`s before it, and
+  full mode read them again for each command: 10,000 `cd`s took about 11 s in `auto`,
+  and 2,000 `cd`s took about 41 s in full mode. Now 10,000 `cd`s take about 10 ms in
+  `auto` and 15 ms in full mode. The decision does not change.
 - A question card shows a long command fast. Before, a command line of 100 KB took
   up to 2 seconds to show on a terminal that counts by grapheme cluster.
 - The input row under a running turn draws a long paste in about half the time.

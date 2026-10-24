@@ -237,8 +237,11 @@ fn bench_perf_rule_readings() {
     // NOTE: v0.0.5's readings of an ask rule (OQL4, OQL9) in `cautious`, after a rule
     // that allows every command line. v0.0.4 allowed all three lines: it compared the
     // words right after `systemctl`, matched nothing with `under` after a `cd`, and
-    // read no rule but `any` in a line that cannot be split. The exits of `auto` are
-    // not part of this bench.
+    // read no rule but `any` in a line that cannot be split. The line of `cd`s runs in
+    // `auto` and in full mode too, with the exits: each segment of the lenient split
+    // copied the targets of the `cd`s before it, so 10k `cd`s took 10.7 s in `auto` (a
+    // slope of 2.2), and the guard of full mode read each list again for each segment,
+    // so 2k `cd`s took 41 s there (a slope of 3.0).
     let rules = vec![
         Rule::new(Action::Execute, Resource::Any, Effect::Allow),
         Rule::new(
@@ -255,22 +258,38 @@ fn bench_perf_rule_readings() {
     let engine = Engine::with_rules(locations(), Policy::new(rules).unwrap());
     let mut report = Report::new("bench_perf_rule_readings");
     let (mut slopes, mut stopped) = (Vec::new(), Vec::new());
-    for at in 0..3 {
+    let mut cds_10k: Vec<(String, Duration)> = Vec::new();
+    let small: &[u64] = &[100, 1_000, 5_000, 10_000];
+    let ladders = [
+        (0, Mode::Cautious, small),
+        (1, Mode::Cautious, small),
+        (2, Mode::Cautious, small),
+        (1, Mode::Auto, &[1_000, 10_000, 50_000]),
+        (1, Mode::Full, &[1_000, 10_000, 50_000]),
+    ];
+    for (at, mode, sizes) in ladders {
         let mut points = Vec::new();
-        let mut name = "";
-        for n in [100_u64, 1_000, 5_000, 10_000] {
+        let mut name = String::new();
+        for &n in sizes {
             let (label, line) = reading_lines(n as usize)[at].clone();
-            name = label;
+            name = match mode {
+                Mode::Auto => format!("{label} in auto"),
+                Mode::Full => format!("{label} in full"),
+                _ => label.to_owned(),
+            };
             let mut input = input(&line);
-            input.mode = Mode::Cautious;
+            input.mode = mode;
             let mut effect = None;
             let runs = samples(|| effect = Some(engine.decide(&input).effect()));
             assert_eq!(effect, Some(Effect::Ask), "{name} with {n} words");
             let stats = report.time(&format!("{name} x {n}"), &runs);
+            if mode != Mode::Cautious && n == 10_000 {
+                cds_10k.push((name.clone(), stats.p50));
+            }
             points.push((n, stats.p50));
             if stats.p50 > LIMIT {
                 report.count(&format!("{name} stopped_at_n"), n);
-                stopped.push(name.to_owned());
+                stopped.push(name.clone());
                 break;
             }
         }
@@ -279,6 +298,10 @@ fn bench_perf_rule_readings() {
     }
     report.finish();
     check_budget(&slopes, &stopped);
+    // NOTE: about 10 ms in `auto` and 15 ms in full mode on a busy machine.
+    for (name, p50) in cds_10k {
+        assert!(p50 < Duration::from_millis(100), "{name} x 10000: {p50:?}, the budget is 100 ms");
+    }
 }
 
 #[test]

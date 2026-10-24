@@ -14,6 +14,8 @@ use proptest::prelude::*;
 
 use super::{MAX_DEPTH, OPAQUE, Segment, scan, scan_to};
 
+mod cds;
+
 /// The variable that names the case of a child process, such as `closed:1000`.
 const CASE: &str = "EFR_BENCH_SCAN_CASE";
 

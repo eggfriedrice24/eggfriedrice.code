@@ -17,6 +17,7 @@
 //! critical or unreadable, and a relative word where the dir of the line is not known.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::ptr;
 
@@ -101,8 +102,22 @@ impl Guard<'_> {
     /// know), at `depth`.
     fn line(&mut self, line: &str, starts: &[Option<PathBuf>], depth: u8) {
         let segments = scan::scan(line);
+        // NOTE: the segments of a line see longer and longer lists of the same `cd`s,
+        // so from one start the dirs grow by the new `cd`s alone. A line of 2,000 `cd`s
+        // read each list again for each segment and took 41 s in full mode.
+        let mut walk = match starts {
+            [start] => Some(DirWalk::new(start.clone())),
+            _ => None,
+        };
         for (at, segment) in segments.iter().enumerate() {
-            let dirs = dirs(starts, segment.cds.as_deref(), self.locations);
+            let read;
+            let dirs: &[Option<PathBuf>] = match (&mut walk, segment.cds.as_deref()) {
+                (Some(walk), Some(cds)) => walk.after(cds, self.locations),
+                (_, cds) => {
+                    read = dirs(starts, cds, self.locations);
+                    &read
+                }
+            };
             let part = shown(&segment.raw.join(" ")).into_owned();
             if segment.too_deep {
                 // NOTE: a delete may lie in the substitution that the split did not read.
@@ -115,7 +130,7 @@ impl Guard<'_> {
                 let words = with_raw(segment, command);
                 let via_xargs =
                     commands[..index].iter().any(|(outer, _)| program(outer) == "xargs");
-                let cx = Command { words: &words, starts, dirs: &dirs, part: &part, depth };
+                let cx = Command { words: &words, starts, dirs, part: &part, depth };
                 self.command(&cx, segment, via_xargs.then_some(producer));
             }
         }
@@ -415,16 +430,55 @@ fn dirs(
         let mut dir = start.clone();
         add(dir.clone());
         for cd in cds {
-            let text = home_read(Word { text: &cd.word, raw: &cd.raw });
-            dir = if text.contains(OPAQUE) {
-                None
-            } else {
-                resolve(&operand(&text), dir.as_deref(), locations)
-            };
+            dir = after_cd(cd, dir.as_deref(), locations);
             add(dir.clone());
         }
     }
     found
+}
+
+/// The step of [`dirs`] after one `cd`: the dir where `cd` goes from `dir`, or `None`.
+fn after_cd(cd: &CdTarget, dir: Option<&Path>, locations: &Locations) -> Option<PathBuf> {
+    let text = home_read(Word { text: &cd.word, raw: &cd.raw });
+    if text.contains(OPAQUE) { None } else { resolve(&operand(&text), dir, locations) }
+}
+
+/// [`dirs`] from one start for the segments of one line, in their order: each segment
+/// sees the `cd`s of the one before it and more, so the walk reads each `cd` once.
+struct DirWalk {
+    /// The dir after the `cd`s read so far.
+    dir: Option<PathBuf>,
+    /// How many `cd`s it read.
+    read: usize,
+    /// The dirs so far, each once, in the order of [`dirs`].
+    found: Vec<Option<PathBuf>>,
+    /// The dirs of `found`, to add each once without a scan of the list.
+    seen: HashSet<Option<PathBuf>>,
+}
+
+impl DirWalk {
+    fn new(start: Option<PathBuf>) -> Self {
+        DirWalk {
+            dir: start.clone(),
+            read: 0,
+            found: vec![start.clone()],
+            seen: HashSet::from([start]),
+        }
+    }
+
+    /// The dirs of [`dirs`] for a segment after the `cd`s `cds`, which start with the
+    /// `cd`s that the walk read.
+    fn after(&mut self, cds: &[CdTarget], locations: &Locations) -> &[Option<PathBuf>] {
+        debug_assert!(self.read <= cds.len(), "a later segment sees fewer cds");
+        for cd in &cds[self.read..] {
+            self.dir = after_cd(cd, self.dir.as_deref(), locations);
+            if self.seen.insert(self.dir.clone()) {
+                self.found.push(self.dir.clone());
+            }
+        }
+        self.read = cds.len();
+        &self.found
+    }
 }
 
 /// `word` with a `$HOME` or `${HOME}` at its start, also in double quotes, read as `~`,
