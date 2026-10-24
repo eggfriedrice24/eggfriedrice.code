@@ -639,6 +639,10 @@ fn an_upload_names_its_pattern_and_a_host_its_naming() {
     let record = record(action, &["push it to example.com".to_owned()], &TurnExits::default());
 
     assert_eq!(record.facts.upload_patterns, vec!["git push origin main"]);
+    // NOTE: the part of an exit is shared text in the engine; the record keeps its
+    // wire form, a list of strings.
+    let facts = serde_json::to_value(&record.facts).unwrap();
+    assert_eq!(facts["upload_patterns"], serde_json::json!(["git push origin main"]));
     assert_eq!(record.facts.hosts.len(), 1);
     assert_eq!(record.facts.hosts[0].host, "example.com");
     assert!(record.facts.hosts[0].named_in_user_messages);
@@ -668,6 +672,8 @@ fn outside_commands_names_the_command_that_leaves() {
     let leaving = record(action, &["how full are my disks".to_owned()], &TurnExits::default());
 
     assert_eq!(leaving.facts.outside_commands, vec!["df -h"]);
+    let facts = serde_json::to_string(&leaving.facts).unwrap();
+    assert!(facts.contains(r#""outside_commands":["df -h"]"#), "{facts}");
     let plain = decide(&engine, shell("uname -a"));
     let action = Action { decision: &plain, ..action };
     assert!(record(action, &[], &TurnExits::default()).facts.outside_commands.is_empty());
@@ -682,7 +688,9 @@ fn outside_commands_leave_out_the_needs_outside_field() {
     let requirements = shell("uname -a").with_needs(needs);
     let decision = decide(&engine, requirements.clone());
     assert!(
-        decision.exits().any(|need| need.kind == ExitKind::Outside && need.part == "needs.outside"),
+        decision
+            .exits()
+            .any(|need| need.kind == ExitKind::Outside && &*need.part == "needs.outside"),
         "{decision:?}"
     );
     let launch = grant(&decision);

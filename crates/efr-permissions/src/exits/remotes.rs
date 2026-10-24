@@ -7,6 +7,7 @@
 //! the exits of the line carry every host that it reaches.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use efr_protocol::{ExitKind, ExitSource, Grant};
 
@@ -225,12 +226,12 @@ pub(super) fn proxy_fetch_exit(
     kind: RemoteUse,
     remotes: &[&RemoteFact],
     list: &HostList,
-    part: &str,
+    part: &Arc<str>,
 ) -> Option<ExitNeed> {
     let urls = urls(kind, remotes);
     let hosts = hosts(&urls);
     if urls.iter().any(|url| url.ssh) {
-        let mut need = ExitNeed::new(ExitKind::Outside, part, ExitSource::Predicted);
+        let mut need = ExitNeed::new(ExitKind::Outside, Arc::clone(part), ExitSource::Predicted);
         // NOTE: a remote of a pinned project git dir that did not change since the
         // conversation's first call counts as named (DP23); a submodule never does.
         let project = remotes.iter().all(|remote| remote.project && !remote.submodule);
@@ -264,7 +265,7 @@ pub(super) fn proxy_fetch_exit(
     if grants.is_empty() {
         return None;
     }
-    let mut need = ExitNeed::new(ExitKind::Host, part, ExitSource::Predicted);
+    let mut need = ExitNeed::new(ExitKind::Host, Arc::clone(part), ExitSource::Predicted);
     need.grants = grants;
     need.hosts = hosts;
     Some(need)

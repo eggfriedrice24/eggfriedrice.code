@@ -44,8 +44,9 @@ const JOBS_PER_CONVERSATION: usize = 4;
 
 /// The budget of the `decide` span of the `rm` line of 100 KB. v0.0.4 took about 9 s,
 /// because the engine and the facts compared each path of the line with each other
-/// path; the decision is now linear in the line.
-const RM_100_KB_DECIDE: Duration = Duration::from_secs(4);
+/// path; the decision is now linear in the line, and the span takes 160 to 180 ms on a
+/// busy machine.
+const RM_100_KB_DECIDE: Duration = Duration::from_millis(600);
 
 /// The budget of the `decide` span of the line of 10 `cd`s, which declares 2,048
 /// paths. v0.0.4 took about 95 ms: the real path of each path cost a look-up of each

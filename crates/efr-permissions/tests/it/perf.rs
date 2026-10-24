@@ -272,6 +272,7 @@ fn bench_perf_decide_paths() {
     let engine = engine();
     let mut report = Report::new("bench_perf_decide_paths");
     let (mut slopes, mut stopped) = (Vec::new(), Vec::new());
+    let mut over: Vec<String> = Vec::new();
     // NOTE: in the project the sandbox writes each file; outside it each file is an
     // exit of its own.
     for (place, dir, prefix) in
@@ -280,11 +281,20 @@ fn bench_perf_decide_paths() {
         let mut points = Vec::new();
         for n in [100_u64, 1_000, 6_400] {
             let input = rm_input(n as usize, dir, prefix);
+            let reset = bench::reset_peak();
+            let before = Memory::of_self();
             let mut effect = None;
             let runs = samples(|| effect = Some(engine.decide(&input).effect()));
             // NOTE: the user's rule for `rm` asks.
             assert_eq!(effect, Some(Effect::Ask), "rm -f of {n} files {place}");
             let stats = report.time(&format!("rm -f of {n} files {place}"), &runs);
+            if let (true, Some(before), Some(after)) = (reset, before, Memory::of_self()) {
+                let growth = after.peak.saturating_sub(before.rss);
+                report.bytes(&format!("rm -f of {n} files {place}: peak rss growth"), growth);
+                if growth > DECIDE_PATHS_GROWTH {
+                    over.push(format!("{n} files {place}: peak rss growth {growth} bytes"));
+                }
+            }
             points.push((n, stats.p50));
             if stats.p50 > LIMIT {
                 report.count(&format!("{place} stopped_at_n"), n);
@@ -295,12 +305,30 @@ fn bench_perf_decide_paths() {
         let label = format!("{place} slope over files");
         // NOTE: outside the project each file is an exit, which looks up the facts of
         // its path. v0.0.4 scanned every fact for each one: 6,400 files took 2.8 s, a
-        // slope of 1.8.
-        slopes.push((label.clone(), report.slope(&label, &points)));
+        // slope of 1.8. Then each exit copied the text of the whole `rm`: 6,400 files
+        // took about 100 ms, a slope of 0.93 to 1.22.
+        let slope = report.slope(&label, &points);
+        if slope >= DECIDE_PATHS_SLOPE {
+            over.push(format!("{label}: slope {slope:.2}"));
+        }
+        slopes.push((label, slope));
     }
     report.finish();
     check_budget(&slopes, &stopped);
+    assert!(
+        over.is_empty(),
+        "over the budget of slope {DECIDE_PATHS_SLOPE} or {DECIDE_PATHS_GROWTH} bytes: {over:?}"
+    );
 }
+
+/// The largest slope of the decision over the files of an `rm -f`. Each exit of the
+/// line now shares the text of its part, and the slope is about 1.0.
+const DECIDE_PATHS_SLOPE: f64 = 1.15;
+
+/// The largest growth of the peak resident set while the engine decides an `rm -f` of
+/// files. The exits of 6,400 files outside the project held a copy of the whole line
+/// each, about 530 MB; they now share one.
+const DECIDE_PATHS_GROWTH: u64 = 64 * 1024 * 1024;
 
 /// `runs` runs of `f` after 20 to warm up, which give the base cost of a short call; or,
 /// for `runs` 0, the [`samples`] of a long call.

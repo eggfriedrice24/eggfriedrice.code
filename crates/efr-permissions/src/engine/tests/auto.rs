@@ -257,7 +257,7 @@ fn exits_redirect_home_is_write() {
     assert_eq!(needs[0].grants, [Grant::Write { path: target.clone() }]);
     assert!(!needs[0].user_only());
     assert_eq!(needs[0].names, ["/home/u/notes.txt", "~/notes.txt", "u/notes.txt"]);
-    assert_eq!(needs[0].part, "echo x");
+    assert_eq!(&*needs[0].part, "echo x");
     assert_eq!(
         decision.reasons().last().unwrap().to_string(),
         format!(

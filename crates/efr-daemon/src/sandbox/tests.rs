@@ -201,7 +201,7 @@ async fn a_prepared_call_has_a_private_call_dir_with_its_spec_and_nonce() {
     let need = ExitNeed {
         kind: ExitKind::Write,
         grants: vec![Grant::Write { path: target.clone() }],
-        part: "echo hi > ~/notes.txt".to_owned(),
+        part: "echo hi > ~/notes.txt".into(),
         approver: Approver::Classifier,
         names: Vec::new(),
         hosts: Vec::new(),

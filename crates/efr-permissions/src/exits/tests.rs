@@ -252,3 +252,4 @@ fn remote_rows_match_the_classifier() {
 }
 
 mod fact_requests;
+mod per_call;
