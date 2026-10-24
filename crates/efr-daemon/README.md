@@ -832,7 +832,10 @@ spec; `docs/sandbox.md` for the user's view):
   run that fails or passes 200 ms gives `checked = false`. The toolbox keeps the check
   of each call; right before an exit child starts, under the plan lock, it checks
   again, and a change of the writable parts stops the call with `GIT_CODE_CHANGED`.
-  Before every other foreground upload in the exit child it runs every job's guard. In a
+  A test of `tools/git_code.rs` runs this path with real git: a `core.sshCommand` or a
+  hook of a nested repository of the project makes an outside `git fetch` from an ssh
+  remote and a `git push` ones that only the user approves, and the same code in the
+  pinned git dir of the project keeps the reviewer. Before every other foreground upload in the exit child it runs every job's guard. In a
   build with the test seams, `Seams::proxy_deps` gives the proxy a table of test names
   (`Deps::with_proxy_hosts`, `EFR_TEST_PROXY_HOSTS` for the smoke's `efrd`), or refuses
   every name and address with no table, and the pacman files are `/dev/null`.
