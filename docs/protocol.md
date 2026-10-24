@@ -675,3 +675,6 @@ No protocol version has shipped yet.
   is not valid. New fixtures `conversation_delete_params.json`,
   `conversation_delete_result.json`, `conversation_delete_result_held.json` and
   `events/conversation_deleted.json`.
+- Version 1, no change of the frames: the `summary.title` of each row of
+  `conversations.recent` is now the title with its secrets replaced, the same title
+  that the row of `conversations.search` with an empty query shows.

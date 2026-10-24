@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use efr_protocol::{PageCursor, SearchHit, SearchPartial};
+use efr_protocol::{PageCursor, RecentConversation, SearchHit, SearchPartial};
 use efr_stdx::time::{Clock, Sleep, Stopwatch};
 use efr_store::StoreError;
 use efr_store::search::{DocKind, FoundHit, SearchStop};
@@ -210,6 +210,17 @@ fn history_cursor(seq: efr_protocol::Seq) -> PageCursor {
 /// never shows.
 pub(crate) fn shown_title(search: Option<String>, projection: Option<&str>) -> Option<String> {
     search.or_else(|| projection.and_then(redacted_title))
+}
+
+/// `conversation` with the title that a row of `,resume` shows: in the picker, in
+/// `efr search` and in the list without the picker. It is [`shown_title`] of
+/// `search_title` and the projection's title.
+pub(crate) fn titled(
+    mut conversation: RecentConversation,
+    search_title: Option<String>,
+) -> RecentConversation {
+    conversation.summary.title = shown_title(search_title, conversation.summary.title.as_deref());
+    conversation
 }
 
 fn redacted_title(title: &str) -> Option<String> {

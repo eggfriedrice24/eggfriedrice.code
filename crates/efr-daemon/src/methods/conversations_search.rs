@@ -14,8 +14,8 @@
 use std::collections::HashMap;
 
 use efr_protocol::{
-    ConversationId, ConversationsSearch, ConversationsSearchResult, RecentConversation, RouteScope,
-    SearchIndexState, SearchPartial, SearchRow, SearchStats,
+    ConversationId, ConversationsSearch, ConversationsSearchResult, RouteScope, SearchIndexState,
+    SearchPartial, SearchRow, SearchStats,
 };
 use efr_scope::Registry;
 use efr_store::conversations::{self as stored, RecentRow};
@@ -27,9 +27,7 @@ use crate::engine::load_registry;
 use crate::methods::page_size;
 use crate::methods::prompt_send::read_place;
 use crate::methods::recent_rows::recent_rows;
-use crate::methods::search::{
-    HARD_CAP, Ran, Run, partial_name, search_error, shown_title, wire_hit,
-};
+use crate::methods::search::{HARD_CAP, Ran, Run, partial_name, search_error, titled, wire_hit};
 use crate::routing;
 use crate::state::State;
 
@@ -218,13 +216,4 @@ async fn found(
         })
         .collect();
     Ok(searched)
-}
-
-/// `conversation` with the title that a search row shows.
-fn titled(
-    mut conversation: RecentConversation,
-    search_title: Option<String>,
-) -> RecentConversation {
-    conversation.summary.title = shown_title(search_title, conversation.summary.title.as_deref());
-    conversation
 }

@@ -244,6 +244,9 @@ into the GitHub release notes, and it stops when the section is missing.
   denied `git push`.
 - `time cd /x` now counts as a change of directory. zsh runs it in the shell, so
   before, a rule with `under` judged the commands after it by the old directory.
+- The numbered list of `,resume` without fzf now shows each title with its secrets
+  replaced by `[***]`, as the picker and `efr search` show it. Before, the list
+  showed the raw title of the first prompt, with a key that the prompt held.
 
 ## [0.0.4] - 2026-10-23
 

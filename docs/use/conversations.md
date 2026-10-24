@@ -173,7 +173,8 @@ The rules of a query:
 Before text goes into the index, efrd removes the secrets that it recognises and puts
 `[***]` in their place. It cannot recognise every secret. For example, it misses
 prose such as "my password is hunter2". The raw text stays in the conversation's log,
-as before.
+as before. The titles in the picker, in `efr search` and in the numbered list without
+fzf come from the same redaction.
 
 After an upgrade, efrd builds the index of your old conversations in the background.
 Until it ends, a search finds fewer conversations, and the list shows how far the
