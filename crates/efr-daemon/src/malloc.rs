@@ -38,8 +38,8 @@ pub fn init() {
         // `free` writes `mp_.trim_threshold` and `mp_.mmap_threshold` on any thread
         // without a lock (the dynamic threshold), so a call while other threads
         // allocate does nothing that glibc does not do itself; `main` calls it before
-        // any other thread starts all the same. `M_TRIM_THRESHOLD` is a parameter that glibc knows, so the call cannot
-        // fail, and its result (1) says nothing more.
+        // any other thread starts all the same. `M_TRIM_THRESHOLD` is a parameter that
+        // glibc knows, so the call cannot fail, and its result (1) says nothing more.
         unsafe {
             libc::mallopt(libc::M_TRIM_THRESHOLD, TRIM_THRESHOLD);
         }
