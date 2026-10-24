@@ -94,8 +94,9 @@
 # efr_prompt_info, a function that prints `app` or `○` (with the full mark in full
 # mode) for your own prompt (`setopt prompt_subst; RPROMPT='$(efr_prompt_info)'`), and
 # the variable $efr_scope, which precmd sets, for a prompt with no subshell
-# (`RPROMPT='${efr_scope}'`). Both double each `%` of a project's name, so a prompt
-# shows `50%` as `50%` and not as a prompt escape. The plugin never changes PROMPT or
+# (`RPROMPT='${efr_scope}'`). Both double each `%` of a project's name, and each `!`
+# while prompt_bang is on, so a prompt shows `50%` as `50%` and `a!` as `a!`, and not
+# as a prompt escape or a history number. The plugin never changes PROMPT or
 # RPROMPT itself. It knows the scope with no fork and no git: efrd writes the
 # registered projects to projects.tsv in its runtime root, one `<root><tab><name>`
 # line each, and the plugin reads the file again only when it changed, then matches
@@ -244,8 +245,12 @@ fi
 # The scope of the next prompt for your own prompt (see efr_prompt_info): the name of
 # the registered project that holds $PWD, the outside mark (`○`) anywhere else, or
 # empty while efrd never wrote its projects file. precmd sets it. Each `%` of the name
-# is doubled, because a prompt reads `%` as the start of an escape.
+# is doubled, because a prompt reads `%` as the start of an escape, and so is each `!`
+# while prompt_bang is on, because that option reads `!` as the history number.
 typeset -g efr_scope=
+# 1 when the user's prompt_bang was on at the last precmd or efr_prompt_info. They read
+# it before `emulate -L zsh`, which turns the option off inside a function.
+typeset -gi _efr_prompt_bang=0
 # The same scope as efr_scope with its `%` as typed, for the marker in PREDISPLAY,
 # which zle shows as plain text.
 typeset -g _efr_scope_text=
@@ -1215,7 +1220,8 @@ _efr_read_projects() {
 # project whose root holds $PWD, or else ${PWD:A} (its links resolved), as efrd routes;
 # the outside mark (`○`) anywhere else; empty without a projects file. A root matches
 # only whole components: ~/p/app holds ~/p/app/src but not ~/p/apple. The deepest root
-# wins. Sets efr_scope to the same text with each `%` doubled for a prompt.
+# wins. Sets efr_scope to the same text with each `%` doubled for a prompt, and each
+# `!` too while _efr_prompt_bang is 1.
 _efr_update_scope() {
   emulate -L zsh
   if ! _efr_read_projects; then
@@ -1241,16 +1247,20 @@ _efr_update_scope() {
     _efr_scope_text=$_efr_outside_mark
   fi
   efr_scope=${_efr_scope_text//\%/%%}
+  (( _efr_prompt_bang )) && efr_scope=${efr_scope//\!/!!}
+  return 0
 }
 
 # Prints the scope of a prompt sent now, for your own prompt: the project's name, such
 # as `app`, or `○` outside projects, after the full mark (EFR_FULL_MARK) and a blank
 # while the terminal's prompts run in full mode. No colours, and nothing without a
-# projects file. Each `%` of the name is doubled, as in $efr_scope, so a prompt with
-# prompt_subst shows it as typed. It starts no program, but $(efr_prompt_info) is a
-# subshell; the variable $efr_scope needs none. For example:
+# projects file. Each `%` of the name is doubled, as in $efr_scope, and each `!` while
+# prompt_bang is on, so a prompt with prompt_subst shows it as typed. It starts no
+# program, but $(efr_prompt_info) is a subshell; the variable $efr_scope needs none.
+# For example:
 #   setopt prompt_subst; RPROMPT='$(efr_prompt_info)'
 efr_prompt_info() {
+  if [[ -o prompt_bang ]]; then _efr_prompt_bang=1; else _efr_prompt_bang=0; fi
   emulate -L zsh
   _efr_update_scope
   [[ -n $efr_scope ]] || return 0
@@ -1410,6 +1420,7 @@ _efr_precmd() {
   _efr_take_draft
   _efr_print_notices
   _efr_register_completion
+  if [[ -o prompt_bang ]]; then _efr_prompt_bang=1; else _efr_prompt_bang=0; fi
   _efr_update_scope
 }
 
