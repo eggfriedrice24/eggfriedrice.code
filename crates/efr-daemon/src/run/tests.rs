@@ -582,7 +582,9 @@ mod daemon {
         deps.holder = None;
         let mut config = config;
         config.shell.login = false;
-        let daemon = serve_with(config, deps).await;
+        // NOTE: boxed, so the future of each caller stays below clippy's large_futures
+        // limit.
+        let daemon = Box::pin(serve_with(config, deps)).await;
         let (mut terminal, _) = RawClient::hello(&daemon.socket, Some(TTY)).await;
         let (mut other, _) = RawClient::hello(&daemon.socket, None).await;
 
