@@ -276,7 +276,7 @@ proptest! {
     }
 }
 
-/// `FactRequest::with_needs` as v0.0.4 wrote it.
+/// `FactRequest::with_needs` as v0.0.4 wrote it, with the sockets of v0.0.5 (OQS17).
 fn listed_with_needs(
     mut request: FactRequest,
     needs: &efr_protocol::Needs,
@@ -301,9 +301,11 @@ fn listed_with_needs(
         }
     }
     for word in needs.sockets.iter().take(efr_protocol::Needs::MAX_SOCKETS) {
-        if let Some(path) = resolve(word, start.as_deref(), locations)
-            && !request.real_paths.contains(&path)
-        {
+        let Some(path) = resolve(word, start.as_deref(), locations) else { continue };
+        if !request.sockets.contains(&path) {
+            request.sockets.push(path.clone());
+        }
+        if !request.real_paths.contains(&path) {
             request.real_paths.push(path);
         }
     }

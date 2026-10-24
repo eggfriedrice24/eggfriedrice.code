@@ -844,13 +844,15 @@ async fn home_file_changed_says_whether_the_home_store_covers_it() {
 }
 
 #[tokio::test]
-async fn an_ssh_control_socket_in_scratch_keeps_todays_decision() {
-    // DS13 of the v0.0.4 shell items: the shell tool tells the model not to use an ssh
-    // control socket. This records what a call of such a line gets today, on a machine
-    // with no proxy: a `host` exit with the whole network for one contained call, and a
-    // question that the user may need to type (ssh is the hard flag). The socket in
-    // $SCRATCH needs no grant; a rule that makes it "only you" is OQS17.
-    let setup = reviewed(None);
+async fn an_ssh_control_socket_in_scratch_is_only_for_the_user() {
+    // OQS17 of the v0.0.4 shell items (v0.0.5): an ssh control socket is a logged-in
+    // session, and the socket, not the host of the line, decides where the command
+    // runs. So the user alone approves such a line, also when a message names its host:
+    // the reviewer never sees it. On a machine with no proxy it is a `host` exit with the
+    // whole network for one contained call, and a question that the user may need to
+    // type (ssh is the hard flag). The DS13 hint of the shell tool stays.
+    let judge = FakeJudge::answering(vec![allows()]);
+    let setup = reviewed(Some(Arc::clone(&judge)));
     let line = "ssh -S $SCRATCH/cm host true";
     let declared = Requirements::none()
         .with_command(line)
@@ -867,14 +869,17 @@ async fn an_ssh_control_socket_in_scratch_keeps_todays_decision() {
         panic!("the question shows the exit: {asked:?}");
     };
     assert_eq!(
-        (exit.kinds.clone(), exit.launch.clone(), interactive),
+        (exit.kinds.clone(), exit.launch.clone(), interactive, exit.user_only),
         (
             vec![ExitKind::Host],
             Launch::Contained { grants: vec![efr_protocol::Grant::OpenNetwork] },
+            true,
             true
         )
     );
+    assert!(exit.facts.iter().any(|fact| fact.contains("ssh control socket")), "{exit:?}");
     h.answer(call_id, ApprovalDecision::Deny).await;
     h.wait_end(sent.turn_id).await;
     assert!(h.toolbox.ran().is_empty());
+    assert_eq!(judge.calls(), 0, "the reviewer never sees it");
 }

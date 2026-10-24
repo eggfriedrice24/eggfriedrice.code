@@ -364,6 +364,7 @@ fn requirements(line: &Line, phase_b: bool) -> Requirements {
         // call writes (v0.0.4, DV22).
         git_code: (!request.git_code.is_empty())
             .then(|| GitCodeFacts { checked: true, items: Vec::new() }),
+        ssh_sockets: Vec::new(),
     })
 }
 

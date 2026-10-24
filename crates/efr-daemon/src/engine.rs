@@ -426,6 +426,11 @@ fn with_sandbox(
         locations =
             add(locations, socket.clone(), "credential socket", |l, p| l.with_credential_socket(p));
     }
+    // NOTE: an ssh control socket is a logged-in session, so a socket at a
+    // `ControlPath` of the user's ssh config asks the user too (OQS17).
+    for pattern in &facts.host.ssh_control_paths {
+        locations = locations.with_ssh_control_path(pattern);
+    }
     // NOTE: a session bus at another path than `/run/user/<uid>/bus`, such as one of
     // `dbus-launch` below `/tmp`, is still the whole session bus (DV18).
     for socket in facts.host.session_bus.iter().chain(&facts.host.session_bus_real) {

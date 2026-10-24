@@ -81,7 +81,8 @@ pub(super) fn exits(
     }
     for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
         let Some(path) = resolve(word, dir, locations) else { continue };
-        found.push(socket(envelope, path, source));
+        let ssh = facts.is_some_and(|facts| facts.ssh_sockets.contains(&path));
+        found.push(socket(envelope, path, source, ssh));
     }
     if let Some(bus) = needs.bus {
         let mut need = ExitNeed::new(ExitKind::Bus, "needs.bus", source);
@@ -131,8 +132,11 @@ pub(super) fn exits(
 /// socket inside an engine secret, such as `~/.gnupg/S.gpg-agent`, is a `secret` floor,
 /// and one of efr's own roots, such as efrd's socket, a `config` floor. Only the user
 /// approves a socket under a mask or one of a credential agent
-/// ([`is_credential_agent`]), because a key there signs and logs in as the user.
-fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNeed {
+/// ([`is_credential_agent`]), because a key there signs and logs in as the user, and
+/// an ssh control socket (`ssh`, a fact of efrd that an ssh process listens there; or
+/// a `ControlPath` of the user's ssh config), because it is a logged-in session
+/// (OQS17).
+fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource, ssh: bool) -> ExitNeed {
     let part = format!("needs.sockets {}", path.display());
     let locations = envelope.locations();
     let floor = if envelope.is_secret(&path) {
@@ -179,6 +183,10 @@ fn socket(envelope: &Envelope<'_>, path: PathBuf, source: ExitSource) -> ExitNee
         if envelope.is_masked(&path) || is_credential_agent(&path, locations) {
             need.approver = Approver::User;
         }
+        if ssh || is_ssh_control(&path, locations) {
+            need.approver = Approver::User;
+            need.notes.push(super::control::CONTROL_NOTE.to_owned());
+        }
     }
     need.target = Some(path);
     need
@@ -213,8 +221,21 @@ pub(crate) fn named_desktop(path: &Path, name: &str) -> Option<DesktopKind> {
 const AGENT_WORDS: &[&str] =
     &["agent", "ssh", "gnupg", "gpg", "keyring", "gcr", "keyboxd", "credential"];
 
+/// True when `path` is the place of an ssh control socket that a `ControlPath` of the
+/// user's ssh config names
+/// ([`Locations::with_ssh_control_path`](crate::Locations::with_ssh_control_path),
+/// OQS17).
+pub(crate) fn is_ssh_control(path: &Path, locations: &crate::Locations) -> bool {
+    let text = path.to_string_lossy();
+    locations
+        .ssh_control_paths()
+        .iter()
+        .any(|pattern| super::control::matches_pattern(pattern, &text))
+}
+
 /// True when `path` is the socket of a credential agent: one that the daemon knows from
 /// the environment ([`Locations::with_credential_socket`](crate::Locations::with_credential_socket)),
+/// an ssh control socket of the user's ssh config ([`is_ssh_control`]),
 /// or one whose name or dir holds a word of [`AGENT_WORDS`], such as
 /// `/run/user/1000/gnupg/S.gpg-agent`, `/tmp/ssh-XXXX/agent.123`,
 /// `/run/user/1000/ssh-agent.socket`, `~/.1password/agent.sock` or
@@ -222,7 +243,9 @@ const AGENT_WORDS: &[&str] =
 /// case, inside a longer name, so a socket of another program can ask too; that only
 /// adds a question.
 pub(crate) fn is_credential_agent(path: &Path, locations: &crate::Locations) -> bool {
-    if locations.credential_sockets().iter().any(|known| known == path) {
+    if locations.credential_sockets().iter().any(|known| known == path)
+        || is_ssh_control(path, locations)
+    {
         return true;
     }
     path.components().any(|component| match component {

@@ -68,6 +68,10 @@ pub(crate) struct HostFacts {
     /// The sockets of the user's credential agents: `$SSH_AUTH_SOCK` and the socket of
     /// `$GPG_AGENT_INFO`. In `auto` only the user approves one of them.
     pub(crate) agent_sockets: Vec<PathBuf>,
+    /// The `ControlPath` patterns of the user's ssh config (`ssh::control_paths`): an
+    /// ssh control socket there is a logged-in session, which only the user opens in
+    /// `auto` (OQS17).
+    pub(crate) ssh_control_paths: Vec<String>,
     /// The desktop variables of efrd's start environment, for a desktop grant of a
     /// prompt whose terminal sent none.
     pub(crate) desktop: DesktopEnv,
@@ -102,6 +106,7 @@ impl HostFacts {
             zdotdir: absolute("ZDOTDIR"),
             binaries: Vec::new(),
             agent_sockets: agent_sockets(env),
+            ssh_control_paths: Vec::new(),
             desktop: super::desktop::from_env(env),
         }
     }

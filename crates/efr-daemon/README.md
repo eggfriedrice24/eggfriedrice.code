@@ -728,7 +728,15 @@ spec; `docs/sandbox.md` for the user's view):
   `PATH`. For the always-allow rules (phase E), each path of `FactRequest::real_paths`
   gets its real path after every link (`CallFacts::real_paths`): for a path that does
   not exist, the real path of its nearest existing parent with the rest joined. A path
-  with a link that leads nowhere on its way gets no fact, so no rule covers it.
+  with a link that leads nowhere on its way gets no fact, so no rule covers it. Each
+  socket of `FactRequest::sockets` that an ssh process listens on goes to
+  `CallFacts::ssh_sockets` (`sandbox/ssh.rs`, v0.0.5 OQS17): efrd reads the socket
+  inodes of each process named `ssh` and the listening sockets of its
+  `/proc/<pid>/net/unix`, and never connects to a socket; when it cannot read `/proc`,
+  every socket of the request counts. At start, `sandbox/ssh.rs` also reads the
+  `ControlPath` patterns of `~/.ssh/config`, `/etc/ssh/ssh_config` and their `Include`
+  files into `HostFacts::ssh_control_paths`, which the engine gets through
+  `Locations::with_ssh_control_path`.
 - After a call, the quarantine question's "keep" moves the changes back
   (`sandbox/quarantine.rs`), and at the end of the turn the report lists the files
   that run code later outside the sandbox (`sandbox/report.rs`, from the hardened

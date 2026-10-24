@@ -20,6 +20,7 @@
 //! of a tree that only the user may risk, such as `~`, `/`, a system dir or a project.
 //! `auto` never reads it; it is no exit.
 
+mod control;
 mod cover;
 mod critical;
 mod envelope;
@@ -500,7 +501,15 @@ pub fn predict(input: &ExitInput<'_>) -> Vec<ExitNeed> {
                     _ => Vec::new(),
                 }
             };
+            // NOTE: an ssh control socket is a logged-in session, and the session, not
+            // the host of the line, decides where a command runs, so no host name on the
+            // line can name it to the reviewer (OQS17).
+            let control = control::makes_or_uses(command);
             for mut exit in programs::classify(command, input.support, input.hosts, reach) {
+                if control {
+                    exit.approver = Approver::User;
+                    exit.notes.push(control::CONTROL_NOTE.to_owned());
+                }
                 if exit.kind == ExitKind::Outside && rustup && rustup_env {
                     exit.approver = Approver::User;
                 }
@@ -1013,6 +1022,10 @@ pub struct FactRequest {
     /// DV22). The answer goes to [`CallFacts::git_code`]; with no answer such an exit
     /// is one that only the user may approve.
     pub git_code: Vec<GitCodeAsk>,
+    /// The sockets of `needs.sockets` ([`FactRequest::with_needs`]), for which efrd
+    /// tells whether an ssh process listens there: an ssh control socket (OQS17). The
+    /// answers go to [`CallFacts::ssh_sockets`].
+    pub sockets: Vec<PathBuf>,
 }
 
 /// The facts that [`predict`] reads for `line`, which starts in `command_dir`: the
@@ -1141,6 +1154,9 @@ impl FactRequest {
         self.add_covers(asks);
         for word in needs.sockets.iter().take(Needs::MAX_SOCKETS) {
             if let Some(path) = resolve(word, start.as_deref(), locations) {
+                if !self.sockets.contains(&path) {
+                    self.sockets.push(path.clone());
+                }
                 once(&mut self.real_paths, &mut real, path);
             }
         }

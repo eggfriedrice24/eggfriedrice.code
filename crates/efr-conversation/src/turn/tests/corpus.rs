@@ -179,6 +179,7 @@ fn requirements(line: &Line, text: &str) -> Requirements {
         // NOTE: the project's git code lies in its pinned git dir (v0.0.4, DV22).
         git_code: (!request.git_code.is_empty())
             .then(|| efr_protocol::GitCodeFacts { checked: true, items: Vec::new() }),
+        ssh_sockets: Vec::new(),
     })
 }
 

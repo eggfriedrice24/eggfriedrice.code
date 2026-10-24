@@ -71,5 +71,18 @@
       "launch": { "kind": "contained", "grants": [{ "kind": "open_network" }] },
       "max_minutes": null
     }
+  },
+  {
+    "prompt": "run uptime on build.example.org over the control socket /tmp/cm",
+    "input": { "command": "ssh -S /tmp/cm build.example.org uptime" },
+    "reviewer": null,
+    "expect": {
+      "judged": [["user", "deny"]],
+      "asked": true,
+      "exits": ["outside"],
+      "hosts": ["build.example.org"],
+      "launch": { "kind": "unsandboxed" },
+      "max_minutes": null
+    }
   }
 ]

@@ -186,6 +186,9 @@ pub struct Locations {
     /// The sockets of the user's credential agents that the daemon knows from the
     /// environment, such as `$SSH_AUTH_SOCK`.
     credential_sockets: Vec<PathBuf>,
+    /// The `ControlPath` patterns of the user's ssh config, with `~` expanded: an ssh
+    /// control socket there is a logged-in session (OQS17).
+    ssh_control_paths: Vec<String>,
     /// The sockets of the user's session bus that the daemon knows from the
     /// environment, such as the `unix:path=` of `$DBUS_SESSION_BUS_ADDRESS`, besides
     /// `/run/user/<uid>/bus`.
@@ -224,6 +227,7 @@ impl Locations {
             floor_roots: Vec::new(),
             mask_roots: Vec::new(),
             credential_sockets: Vec::new(),
+            ssh_control_paths: Vec::new(),
             session_buses: Vec::new(),
             efr_binaries: Vec::new(),
             efr_roots: Vec::new(),
@@ -269,6 +273,7 @@ impl Locations {
             floor_roots,
             mask_roots,
             credential_sockets,
+            ssh_control_paths: _,
             session_buses,
             efr_binaries,
             efr_roots,
@@ -537,6 +542,30 @@ impl Locations {
         Ok(self)
     }
 
+    /// Adds a `ControlPath` of the user's ssh config, such as `~/.cache/ssh/%C` or
+    /// `/tmp/%r@%h:%p`: an ssh control socket there is a logged-in session, so in `auto`
+    /// only the user approves a socket grant of a path that the pattern matches, as for a
+    /// credential agent (OQS17). A `~` or `%d` at the start stands for the home
+    /// directory; each other `%` token and each `${NAME}` matches any text. `none` and
+    /// a relative pattern add nothing, because ssh makes no socket for them.
+    #[must_use]
+    pub fn with_ssh_control_path(mut self, pattern: &str) -> Self {
+        let pattern = pattern.trim().trim_matches('"');
+        let home = self.home.to_string_lossy().into_owned();
+        let expanded = if let Some(rest) = pattern.strip_prefix("~/") {
+            format!("{home}/{rest}")
+        } else if let Some(rest) = pattern.strip_prefix("%d/") {
+            format!("{home}/{rest}")
+        } else {
+            pattern.to_owned()
+        };
+        let usable = expanded.starts_with('/') || expanded.starts_with("${");
+        if usable && !self.ssh_control_paths.contains(&expanded) {
+            self.ssh_control_paths.push(expanded);
+        }
+        self
+    }
+
     /// Adds a socket of the user's session bus, such as the `unix:path=` of
     /// `$DBUS_SESSION_BUS_ADDRESS` and its form with links resolved: a socket that the
     /// model names there is the whole session bus, which only the user approves (DV18),
@@ -647,6 +676,11 @@ impl Locations {
     /// The credential agent sockets that the daemon added.
     pub(crate) fn credential_sockets(&self) -> &[PathBuf] {
         &self.credential_sockets
+    }
+
+    /// The `ControlPath` patterns of the user's ssh config that the daemon added.
+    pub(crate) fn ssh_control_paths(&self) -> &[String] {
+        &self.ssh_control_paths
     }
 
     /// The class of `path` for a conversation whose `$SCRATCH` is `scratch`, or `None`

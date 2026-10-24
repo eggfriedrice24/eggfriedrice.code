@@ -2579,6 +2579,71 @@ fn cache_socket_grant_is_user_only() {
     }
 }
 
+/// A line that makes or uses an ssh control socket (OQS17): the socket, not the host of
+/// the line, decides where a command runs, so only the user approves each exit of that
+/// command, with a note; with no proxy and under it. A line with no control socket
+/// keeps its route.
+#[rstest]
+#[case::path("ssh -S /tmp/cm host true", true)]
+#[case::scratch("ssh -S $SCRATCH/cm host true", true)]
+#[case::master("ssh -M -o ControlPersist=10m -fN host", true)]
+#[case::option("ssh -o ControlPath=/tmp/cm host true", true)]
+#[case::control_command("ssh -O exit host", true)]
+#[case::scp("scp -o ControlPath=/tmp/cm a.txt host:b.txt", true)]
+#[case::rsync("rsync -a -e 'ssh -S /tmp/cm' src/ host:dst/", true)]
+#[case::path_none("ssh -S none host true", false)]
+#[case::plain("ssh host true", false)]
+fn ssh_control_socket_lines_are_user_only(#[case] line: &str, #[case] control: bool) {
+    for egress in [Egress::None, Egress::Proxy] {
+        let engine = engine().with_support(AutoSupport { egress, ..AutoSupport::default() });
+        let decision = engine.decide(&in_auto(shell(line).with_network().with_interactive()));
+        let exits: Vec<_> = decision.exits().collect();
+        assert!(!exits.is_empty(), "{line:?} {egress:?}");
+        for need in exits {
+            let noted = need.notes.iter().any(|note| note.contains("ssh control socket"));
+            assert_eq!(noted, control, "{line:?} {egress:?} {need:?}");
+            if control {
+                assert_eq!(need.approver, Approver::User, "{line:?} {egress:?}");
+            }
+        }
+    }
+}
+
+/// A socket that the model names in `needs.sockets` is an ssh control socket when efrd
+/// found an ssh process that listens there, or when a `ControlPath` of the user's ssh
+/// config matches it (OQS17): only the user approves it, as a credential agent's
+/// socket. Another socket in the same place stays with the reviewer.
+#[rstest]
+#[case::listened_in_scratch("/tmp/cm", true, Approver::User)]
+#[case::config_tokens("/tmp/u@example.org:22", false, Approver::User)]
+#[case::config_hash("/home/u/.cache/ssh/0a1b2c3d", false, Approver::User)]
+#[case::config_variable("/run/user/1000/ssh-0a1b", false, Approver::User)]
+#[case::other_socket("/tmp/app.sock", false, Approver::Classifier)]
+#[case::other_cache_socket("/home/u/.cache/app/app.sock", false, Approver::Classifier)]
+fn ssh_control_sockets_are_user_only(
+    #[case] socket: &str,
+    #[case] listened: bool,
+    #[case] approver: Approver,
+) {
+    let locations = auto_locations()
+        .with_ssh_control_path("/tmp/%r@%h:%p")
+        .with_ssh_control_path("~/.cache/ssh/%C")
+        .with_ssh_control_path("${XDG_RUNTIME_DIR}/ssh-%C")
+        .with_ssh_control_path("none")
+        .with_ssh_control_path("relative/%C");
+    let facts = CallFacts {
+        ssh_sockets: if listened { vec![PathBuf::from(socket)] } else { Vec::new() },
+        ..CallFacts::default()
+    };
+    let needs = Needs { sockets: vec![socket.to_owned()], ..Needs::default() };
+    let decision = Engine::with_defaults(locations)
+        .decide(&in_auto(shell("./client").with_needs(needs).with_facts(facts)));
+    let need = decision.exits().find(|need| need.source == ExitSource::Needs).unwrap();
+    assert_eq!((need.kind, need.approver), (ExitKind::Socket, approver), "{socket}");
+    let noted = need.notes.iter().any(|note| note.contains("ssh control socket"));
+    assert_eq!(noted, approver == Approver::User, "{socket}");
+}
+
 #[test]
 fn auto_needs_become_exits() {
     let needs = Needs {
