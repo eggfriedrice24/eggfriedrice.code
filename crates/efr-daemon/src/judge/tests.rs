@@ -541,6 +541,36 @@ async fn a_re_ask_stays_within_the_time_of_its_step() {
     );
 }
 
+/// Sweep item 13: the line of each re-ask counts the classifier model's answers that fit
+/// the schema and the placeholders among them, since efrd started. An answer of the
+/// turn's model, and one that does not fit the schema, count for neither.
+#[tokio::test]
+async fn the_re_ask_line_counts_the_placeholders_of_the_classifier_model() {
+    let setup = setup(Scripted::new([
+        // The first exit: two placeholders, then the turn's model.
+        Reply::Text(ALLOW_X),
+        Reply::Text(ALLOW_EMPTY),
+        Reply::Text(ALLOW),
+        // The second exit: a real rationale at once.
+        Reply::Text(ALLOW),
+        // The third exit: no JSON, then the turn's model.
+        Reply::Text("allow"),
+        Reply::Text(ALLOW),
+    ]));
+    let record = record();
+    assert_eq!(setup.judge.placeholder_counts(), (0, 0));
+    let first = setup.judge.judge(input(&ids(1), &record)).await;
+    assert_eq!(first.chain_step, ChainStep::TurnModel);
+    assert_eq!(setup.judge.placeholder_counts(), (2, 2));
+    let second = setup.judge.judge(input(&ids(2), &record)).await;
+    assert_eq!(second.chain_step, ChainStep::ClassifierModel);
+    assert_eq!(setup.judge.placeholder_counts(), (2, 3));
+    let third = setup.judge.judge(input(&ids(3), &record)).await;
+    assert_eq!(third.chain_step, ChainStep::TurnModel);
+    assert_eq!(setup.judge.placeholder_counts(), (2, 3));
+    assert_eq!(setup.provider.models_asked(), [SMALL, SMALL, TURN, SMALL, SMALL, TURN]);
+}
+
 #[tokio::test]
 async fn an_empty_rationale_goes_to_the_next_step() {
     let setup = setup(Scripted::new([
