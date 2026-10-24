@@ -34,7 +34,10 @@
 //! holds the two orders equal.
 //! A `rationale` that is shorter than [`MIN_RATIONALE_CHARS`] or a
 //! placeholder (`x`, `n/a`, `tbd`) makes the answer unreadable: the classifier model
-//! gets the same request once more, and a second such answer goes to the next step. When
+//! gets the same request once more, and a second such answer goes to the next step. The
+//! debug line of each re-ask names how many answers of the classifier model fit the
+//! schema since efrd started (`answers`) and how many of them had a placeholder
+//! (`placeholders`), so the log tells how often it happens with today's order. When
 //! a step answers that it does not take the output form, the judge sends the step once
 //! more without it, and leaves the form out for that model for the daemon's life; the
 //! prompt still asks for the JSON.
@@ -57,6 +60,7 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -125,6 +129,33 @@ pub(crate) struct ClassifierJudge {
     small_model: &'static str,
     clock: Arc<dyn Clock>,
     memory: Memory,
+    /// How often the classifier model wrote a placeholder rationale since efrd started.
+    placeholders: Placeholders,
+}
+
+/// The answers of the classifier model that fit the schema since efrd started, and how
+/// many of them had a placeholder rationale. The line of each re-ask names both, so the
+/// log tells how often the model writes no real rationale with the output order of
+/// today's schema.
+#[derive(Debug, Default)]
+struct Placeholders {
+    answers: AtomicU64,
+    placeholders: AtomicU64,
+}
+
+impl Placeholders {
+    /// Counts one answer of the classifier model that fit the schema; `placeholder` when
+    /// its rationale was a placeholder. Returns the counts after it, as
+    /// `(placeholders, answers)`.
+    fn count(&self, placeholder: bool) -> (u64, u64) {
+        let answers = self.answers.fetch_add(1, Ordering::Relaxed) + 1;
+        let placeholders = if placeholder {
+            self.placeholders.fetch_add(1, Ordering::Relaxed) + 1
+        } else {
+            self.placeholders.load(Ordering::Relaxed)
+        };
+        (placeholders, answers)
+    }
 }
 
 impl ClassifierJudge {
@@ -143,7 +174,15 @@ impl ClassifierJudge {
             small_model: vendor.classifier_model(),
             clock,
             memory: Memory::default(),
+            placeholders: Placeholders::default(),
         }
+    }
+
+    /// The counts of [`Placeholders`], as `(placeholders, answers)`.
+    #[cfg(test)]
+    fn placeholder_counts(&self) -> (u64, u64) {
+        let answers = self.placeholders.answers.load(Ordering::Relaxed);
+        (self.placeholders.placeholders.load(Ordering::Relaxed), answers)
     }
 
     /// The steps of the chain for `input`, in order: each model with its step.
@@ -193,7 +232,16 @@ impl ClassifierJudge {
         let requests = async {
             loop {
                 let request = request(&step.model, effort.clone(), record, with_format, egress);
-                match self.send(request).await {
+                let answer = self.send(request).await;
+                let counts = match &answer {
+                    Ok(_) | Err(Failure::Placeholder)
+                        if step.chain_step == ChainStep::ClassifierModel =>
+                    {
+                        Some(self.placeholders.count(answer.is_err()))
+                    }
+                    _ => None,
+                };
+                match answer {
                     Err(Failure::FormatRefused) if with_format => {
                         tracing::info!(model = %step.model, "the classifier model refused the output form; efrd sends it without the form from now on");
                         self.memory.refuses_format(&step.model);
@@ -201,7 +249,10 @@ impl ClassifierJudge {
                     }
                     Err(Failure::FormatRefused) => return Err(Failure::Refused),
                     Err(Failure::Placeholder) if ask_again => {
-                        tracing::debug!(model = %step.model, "the classifier model wrote no real rationale; efrd asks it once more");
+                        let (placeholders, answers) = counts.unwrap_or_default();
+                        // NOTE: the counts are in the text too, because the journal's
+                        // short form shows no fields.
+                        tracing::debug!(model = %step.model, placeholders, answers, "the classifier model wrote no real rationale; efrd asks it once more (placeholders={placeholders} answers={answers})");
                         ask_again = false;
                         *reasked = true;
                     }

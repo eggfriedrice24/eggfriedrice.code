@@ -1214,7 +1214,9 @@ and applies the verdict; efrd gives it the parts below (`run.rs` wires them into
   is shorter than 12 characters or a placeholder (`x`, `n/a`, `tbd`) makes the answer
   unreadable: the classifier model gets the same request once more
   (`JudgeOutcome::reasked`, which the turn records as `exit_judged.reasked`), and a
-  second such answer goes to the next step. The judge returns the model's judgement as
+  second such answer goes to the next step. The debug line of the re-ask has the
+  fields `answers` (the classifier model's answers that fit the schema since efrd
+  started) and `placeholders` (how many of them had a placeholder rationale). The judge returns the model's judgement as
   it is, with the SHA-256 of the record that the model read. What it keeps between exits
   (`judge/memory.rs`): the allow and deny verdicts of each conversation's current turn,
   the models that a conversation skips, and the models that refused the output form, for
