@@ -1138,3 +1138,81 @@ async fn ctrl_b_moves_a_contained_call_at_once() {
     let shell_dir = call_dir.parent().unwrap();
     assert!(shell_dir.is_dir(), "the shell's dir, with the sandbox state, stays");
 }
+
+/// Ctrl+B also moves a command that a call left running in the hidden shell (OQS16,
+/// DS30): by the call id of that call, after the same preview and yes outside the
+/// sandbox. The command's identity as a command left running ends with `moved`, the
+/// hidden shell is free at once, and the job owns the command to its end.
+#[tokio::test]
+async fn ctrl_b_moves_a_command_left_running_in_the_hidden_shell() {
+    if !zsh_enabled("ctrl_b_moves_a_command_left_running_in_the_hidden_shell") {
+        return;
+    }
+    let place = Place::new();
+    let server = ResponsesServer::start().await;
+    let line = place.line("echo efr-after; sh -c 'exit 4'");
+    let input = json!({ "command": line, "timeout_seconds": 2 });
+    let answers =
+        vec![ResponsesAnswer::tool_call("call_1", "shell", &input), ResponsesAnswer::text("done")];
+    let daemon = place.daemon(&server, answers).await;
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, call_id, mut stream) =
+        start(&daemon, &client, 1, Some(Mode::Cautious)).await;
+    // NOTE: the call's timeout passes on the daemon's clock: its command is left running.
+    let seen = events_while_time_passes(&daemon, &mut stream, 30, |event| {
+        matches!(event, Event::TurnCompleted { .. })
+    })
+    .await;
+    assert!(
+        seen.iter().any(|envelope| matches!(
+            envelope.event,
+            Event::ToolCallCompleted { left_running: true, .. }
+        )),
+        "{seen:#?}"
+    );
+    let status = Method::ShellStatus(efr_protocol::ShellStatus { conversation_id });
+    let busy: efr_protocol::ShellStatusResult = client.call(status.clone()).await.unwrap();
+    assert_eq!(busy.busy.map(|busy| busy.call_id), Some(call_id));
+
+    let job_id = moved_after_yes(&client, conversation_id, call_id).await;
+    assert_eq!(job_id, JobId::nth(1));
+    let free: efr_protocol::ShellStatusResult = client.call(status).await.unwrap();
+    assert_eq!(free.busy, None, "the hidden shell is free at the move");
+    let mut started = None;
+    let mut moved = false;
+    while started.is_none() || !moved {
+        let seen = events_until(&mut stream, |event| {
+            matches!(event, Event::JobStarted { .. } | Event::ShellCommandEnded { .. })
+        })
+        .await
+        .unwrap();
+        for envelope in seen {
+            match envelope.event {
+                Event::JobStarted { job, .. } => started = Some(job),
+                Event::ShellCommandEnded { call_id: ended, how, .. } => {
+                    assert_eq!((ended, how), (call_id, efr_protocol::ShellCommandEnd::Moved));
+                    moved = true;
+                }
+                _ => {}
+            }
+        }
+    }
+    let job = started.unwrap();
+    let moved_from = job.moved_from.clone().unwrap();
+    assert_eq!((moved_from.call_id, job.launch.clone()), (call_id, Launch::Unsandboxed));
+    // NOTE: a second move finds no command left running.
+    let again = client.call::<CallBackgroundResult>(background(5, conversation_id, call_id, None));
+    assert_eq!(refusal(again.await), "the call does not run");
+
+    place.release().await;
+    let seen = until_job_ended(&mut stream).await;
+    let Some(Event::JobEnded { state, exit_code, launcher_lost, .. }) =
+        seen.last().map(|envelope| envelope.event.clone())
+    else {
+        unreachable!()
+    };
+    assert_eq!((state, exit_code), (JobState::Exited, Some(4)));
+    assert!(!launcher_lost, "a line typed into the shell has no launcher to lose");
+    let output = output_of(&job.output);
+    assert!(output.contains("efr-after"), "{output:?}");
+}

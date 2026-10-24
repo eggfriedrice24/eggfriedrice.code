@@ -18,6 +18,11 @@ into the GitHub release notes, and it stops when the section is missing.
   model's `jobs` tool show the memory and the CPU time of each running job. Without a
   delegated cgroup, a job ends by its session as before, and `efr jobs list` says why.
   Install the new unit, then run `systemctl --user daemon-reload` and restart efrd.
+- Ctrl+B also moves a command that a call left running in the hidden shell into a
+  background job, while the command waits for no input: in the turn view while no
+  call runs, and in `,shell`. A command outside the sandbox asks first, as a running
+  call does. The hidden shell is free at once, and the job's notice tells the agent
+  when the command ends. Before, such a command held the hidden shell until it ended.
 
 ### Changed
 

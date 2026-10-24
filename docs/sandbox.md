@@ -1597,9 +1597,16 @@ records the decision.
   press Ctrl+B twice, because tmux takes the first one. The key acts only on a call
   that does not start a job and does not wait for your answer to a question. It does
   not act on a call of a turn that your prompt waits behind, such as a wake turn: the
-  view may not have seen that call start. With no such call, a note says `no shell
-  call of this turn runs; ctrl+b moves only a running shell call`. A phone cannot move
-  a call.
+  view may not have seen that call start. With no such call, a note says `no running
+  shell call or command left in the hidden shell to move`. A phone cannot move a call.
+- **A command left running.** Ctrl+B also moves a command that a call left running
+  in the hidden shell at its timeout (see "A busy hidden shell"): in the turn view while
+  no call runs, and in `efr shell` (`,shell`), whose keys line then says `ctrl+b moves
+  it to a background job`. It moves only while it waits for no input, with the same
+  question and the same checks as a running call. Its call answered the model long
+  ago, so the model reads nothing at the move; the hidden shell is free at once, and
+  the job's notice tells the model at its end. The command's file changes after the
+  move do not join the turn of its call, as for any command left running.
 - **The question.** A call in the sandbox moves at once, with no question. It keeps
   its sandbox, so the move allows nothing new, and your key press is the answer, also
   in `cautious` and `manual`. A call outside the sandbox (an approved exit, a call in

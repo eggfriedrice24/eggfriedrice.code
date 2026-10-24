@@ -390,7 +390,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   (`MovedCall`) in `crates/efr-protocol/src/jobs.rs`; `MOVED_FILE` and
   `RuntimePaths::moved_file` in `crates/efr-sandbox/src/spec.rs`, and the launcher's
   end of a moved call (`call::moved`) in `crates/efr-sbx/src/call.rs` and
-  `crates/efr-sbx/src/exit_child.rs`. In efr-shell: `request_move` and the checks of
+  `crates/efr-sbx/src/exit_child.rs`. In efr-shell: `request_move`, `request_left_move`
+  (a command left running in the hidden shell, v0.0.5 OQS16) and the checks of
   the hand-over in `crates/efr-shell/src/sessions.rs` and `session.rs`, the adopted run
   (`AdoptedRun`, its tee and its looks) in `crates/efr-shell/src/adopt.rs`, and the
   streaming cleaner of its output in `crates/efr-shell/src/capture/stream.rs`. The

@@ -3,7 +3,7 @@ source: crates/efr-cli/src/commands/shell/tests.rs
 expression: out
 ---
 the hidden shell runs: rsync -a -e ssh u@h:src/ dst/ (for 0.0s; you approved it)
-it waits for no input now · ctrl+c stops it · esc leaves it
+it waits for no input now · ctrl+b moves it to a background job · ctrl+c stops it · esc leaves it
 efr asked the command to stop; ctrl+c again closes the hidden shell
 close the hidden shell? [y/n]
 efr closes the hidden shell; the next call starts a new one

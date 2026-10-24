@@ -980,7 +980,15 @@ impl DaemonToolbox {
         let watch = Stopwatch::start();
         let result = lock::run_holding(prepared.guard, &started, &*self.clock, invoke).await;
         tracing::debug!(phase = "sandboxed_run", elapsed_ms = %watch, "phase=sandboxed_run elapsed_ms={}", watch);
-        if let Some(adopted) = self.moved_run(registration).await {
+        // NOTE: a call whose command runs on past its timeout keeps its registration
+        // for a move of that command (OQS16), with the roots of its job.
+        let left = matches!(&result, Ok(result) if result.left_running).then(|| {
+            crate::jobs::moves::LeftParts {
+                guard_roots: prepared.guard_roots.clone(),
+                write_roots: prepared.write_roots.clone(),
+            }
+        });
+        if let Some(adopted) = self.moved_run(registration, left).await {
             // NOTE: the moved call runs on in its sandbox, with writable git dirs and
             // only its end guard (DS25, OQS8): the outside git check counts its roots
             // until its launcher wrote the result.
@@ -1158,7 +1166,9 @@ impl DaemonToolbox {
             conversation_id: call.context.conversation_id,
         };
         let invoked = self.registry.invoke(&call.name, context, call.input, &mut sink).await;
-        if let Some(adopted) = self.moved_run(registration).await {
+        let left = matches!(&invoked, Ok(result) if result.left_running)
+            .then(crate::jobs::moves::LeftParts::default);
+        if let Some(adopted) = self.moved_run(registration, left).await {
             let mut outcome = self.finish_move(adopted, moves::MoveParts::default()).await;
             // NOTE: the moved command writes on; the job's files join the call's turn
             // at its end (DS28).

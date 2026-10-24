@@ -655,3 +655,8 @@ No protocol version has shipped yet.
   `cpu_usec`, each absent when not set. The fixtures `jobs_list_result.json`,
   `jobs_stop_result.json`, `events/job_started.json` and
   `events/job_started_moved.json` now set it.
+- Version 1, additive: `call.background` also takes the id of a call whose command was
+  left running in the hidden shell, and moves that command, with the same preview and
+  the same refusals. The command's `shell_command_ended` then has `how: moved`, which
+  the enum had already. A daemon from before refuses such a call as one that does not
+  run. No fixture changes.

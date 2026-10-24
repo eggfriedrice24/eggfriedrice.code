@@ -255,6 +255,80 @@ async fn esc_leaves_the_command_and_the_typed_text_goes() {
     assert!(setup.keys.discarded());
 }
 
+async fn background(conn: &mut Conn) -> (RequestId, efr_protocol::CallBackground) {
+    let (id, method) = conn.request().await;
+    let Method::CallBackground(params) = method else {
+        panic!("expected call.background, got {}", method.name());
+    };
+    (id, params)
+}
+
+/// Ctrl+B moves a command in the sandbox at once (OQS16): efrd answers `moved`, and
+/// `efr shell` says which job holds it and ends.
+#[tokio::test]
+async fn ctrl_b_moves_the_command_into_a_job() {
+    let setup = Setup::new();
+    let keys = Arc::clone(&setup.keys);
+    let status = ShellStatusResult { busy: Some(busy(InputWait::None, true)) };
+    let (result, out, _) = run(&setup, true, status, |mut conn, seen| async move {
+        subscribed(&mut conn).await;
+        shows(&seen, "ctrl+b moves it to a background job").await;
+        keys.type_bytes(&[0x02]).await;
+        let (id, params) = background(&mut conn).await;
+        assert_eq!((params.call_id, params.confirm), (call(), None));
+        let moved =
+            efr_protocol::CallBackgroundResult::Moved { job_id: efr_protocol::JobId::nth(2) };
+        conn.reply(id, &moved).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(
+        out.ends_with(&format!("{RSYNC} moved to the background as job j2; efr jobs shows it\n")),
+        "{out}"
+    );
+}
+
+/// A command outside the sandbox moves only after the question, with the preview's
+/// token; a refusal is a note and the command stays.
+#[tokio::test]
+async fn ctrl_b_asks_first_outside_the_sandbox_and_a_refusal_is_a_note() {
+    let setup = Setup::new();
+    let keys = Arc::clone(&setup.keys);
+    let status = ShellStatusResult { busy: Some(busy(InputWait::None, false)) };
+    let (result, out, _) = run(&setup, true, status, |mut conn, seen| async move {
+        subscribed(&mut conn).await;
+        shows(&seen, "esc leaves it").await;
+        keys.type_bytes(&[0x02]).await;
+        let (id, _) = background(&mut conn).await;
+        conn.fail(id, ErrorBody::new(ErrorCode::Invalid, "jobs are off (jobs.enabled = false)"))
+            .await;
+        shows(&seen, "the command was not moved: jobs are off").await;
+        keys.type_bytes(&[0x02]).await;
+        let (id, params) = background(&mut conn).await;
+        assert_eq!(params.confirm, None);
+        let preview = efr_protocol::CallBackgroundResult::Preview {
+            token: 7,
+            command: RSYNC.to_owned(),
+            max_minutes: 60,
+            exits: Vec::new(),
+        };
+        conn.reply(id, &preview).await;
+        shows(&seen, "move this command to the background? [y/n]").await;
+        keys.press(b'y').await;
+        let (id, params) = background(&mut conn).await;
+        assert_eq!(params.confirm, Some(7));
+        let moved =
+            efr_protocol::CallBackgroundResult::Moved { job_id: efr_protocol::JobId::nth(1) };
+        conn.reply(id, &moved).await;
+        conn.until_closed().await;
+    })
+    .await;
+    result.unwrap();
+    assert!(out.contains("with your full rights after the turn"), "{out}");
+    assert!(out.ends_with("as job j1; efr jobs shows it\n"), "{out}");
+}
+
 #[tokio::test]
 async fn the_terminal_modes_come_back_after_an_error_and_after_sigterm() {
     let setup = Setup::new();

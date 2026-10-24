@@ -141,6 +141,7 @@ until the command ends.
 | Enter | Answer the wait. A password is not shown. |
 | Ctrl+C | Stop the command. |
 | Ctrl+C again | Ask `close the hidden shell? [y/n]`, for a command that ignores Ctrl+C. |
+| Ctrl+B | Move the command into a background job, while it waits for no input. A command outside the sandbox asks `move this command to the background? [y/n]` first. The hidden shell is free at once. |
 | Esc | Leave. The command stays as it is. |
 
 ### What waits and what stops
@@ -163,7 +164,9 @@ until the command ends.
 
 [A command left running](../permissions.md#a-command-left-running) has the full rules.
 To make a long command free the hidden shell, move it to a job with Ctrl+B: see
-[Background jobs](jobs.md#move-a-running-command-to-the-background).
+[Background jobs](jobs.md#move-a-running-command-to-the-background). This works while
+its call runs, and also after its call answered and the command was left running: in
+the turn view while no call runs, and in `,shell`.
 
 ## Settings
 

@@ -824,7 +824,9 @@ ends. The engine decides a job as follows.
 - A job's question is local only: a phone never answers it. While you are away, it
   expires, and no job starts. A `n` starts no job.
 - You can move the agent's running `shell` call into a job with Ctrl+B in the turn
-  view ([`docs/sandbox.md`](sandbox.md), "Moving a call to the background"). The
+  view ([`docs/sandbox.md`](sandbox.md), "Moving a call to the background"), and a
+  command that a call left running in the hidden shell, also with Ctrl+B in `,shell`,
+  under the same rules. The
   engine decides the line again as a job, with the mode and the settings of the key
   press. A `Deny` refuses the move, so the kinds above never become a job this way
   either, and neither does a line with the hard `interactive` flag. A call in the

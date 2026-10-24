@@ -1220,6 +1220,14 @@ impl SandboxService {
         self.reaches().push((call_dir, reach));
     }
 
+    /// Takes the reach of the call past its timeout in `call_dir`, whose command moved
+    /// into a job (OQS16): a job gets no reach, so the caller ends it.
+    pub(crate) fn take_reach(&self, call_dir: &Path) -> Option<ReachCall> {
+        let mut reaches = self.reaches();
+        let at = reaches.iter().position(|(dir, _)| dir == call_dir)?;
+        Some(reaches.remove(at).1)
+    }
+
     fn reaches(&self) -> std::sync::MutexGuard<'_, Vec<(PathBuf, ReachCall)>> {
         // NOTE: each change is whole, so a poisoned lock still holds a usable list.
         self.inner.reaches.lock().unwrap_or_else(PoisonError::into_inner)

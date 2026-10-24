@@ -346,6 +346,16 @@ Ctrl+B in the turn view:
   no marks for the command (a sentinel run), the line starts a shell or a REPL, the
   command waits for input, or a full-screen program holds the screen. The reason is a
   short text for the user.
+- `ShellSessions::request_left_move(conversation, call, to)` (v0.0.5, OQS16) hands
+  over a command that `call` left running at its timeout, with the same rules: the
+  actor's `SessionCore::adopt_left` takes the orphan as its adopted run when the shell
+  still runs that command, it is a marked command that runs, it is no shell or REPL,
+  it waits for no input and nobody is stopping it, and no full-screen program holds
+  the screen; else `ShellError::NotMovable` with the reason. The observer gets
+  `ShellNotice::CommandEnded` with `how: moved`, so the command's identity as a command
+  left running ends, then `ShellNotice::Adopted`. No call gets `Completion::Moved`: it
+  answered at its timeout. The watch of the command left running ends at the move
+  (`SessionHandle::adopted`), so its limit never stops the job's command.
 - At the hand-over, before the slot lets go of the old shell, the observer gets
   `ShellNotice::Adopted` with the old PTY: the daemon must never route it to the
   conversation's next shell.

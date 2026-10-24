@@ -98,6 +98,17 @@ the user the answer to a job question.
 8. **Undo.** The file changes that a moved command makes after the move join the turn
    of the call at the job's end, as for a job that the model started.
 
+9. **A command left running moves too (v0.0.5, OQS16).** A command that its call left
+   running in the hidden shell at its timeout (ADR 0017) moves by that call's id, with
+   the same checks and the same question, and also only while it waits for no input:
+   the turn view's Ctrl+B acts on it while no call runs, and so does Ctrl+B in `efr
+   shell`. The hand-over is the same (`request_left_move`); efrd keeps the call's
+   registration for it, and the handler makes the job itself, because no tool path
+   waits any more. The call's proxy socket and bus filters come from the lists of calls
+   past their timeout; its reach ends. The model reads nothing at the move, and the
+   command's changes after the move do not join its turn, as for any command left
+   running. Undo still waits while the job runs in its roots.
+
 Rejected:
 
 - Starting the command again as a job: it runs twice, and the first run's work is

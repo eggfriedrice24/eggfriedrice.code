@@ -316,6 +316,98 @@ async fn moved_contained_call_keeps_proxy_and_writes_no_state() {
     daemon.stop().await.unwrap();
 }
 
+/// Ctrl+B on a contained command that its call left running in the hidden shell (OQS16,
+/// DS30): it moves at once, as a running contained call does. The job gets the call's
+/// proxy socket from the list of calls past their timeout, so the command reaches its
+/// proxy host after the move, and the launcher's end writes no shell state.
+#[tokio::test]
+async fn left_contained_command_moves_and_keeps_its_proxy() {
+    let test = "left_contained_command_moves_and_keeps_its_proxy";
+    if !can_run(test) {
+        return;
+    }
+    let dirs = target_dirs();
+    let fifo = gate(&dirs);
+    let ca = TestCa::new(&dirs.root().join("ca"), &[REGISTRY.0]).await;
+    let server = Server::start(REGISTRY.1, &ca, |_: &Logged| Answer::ok("ok\n"));
+    script(
+        &dirs.home().join("project/after.sh"),
+        &format!(
+            "curl -sS --cacert '{}' -o /dev/null -w 'get=%{{http_code}}\\n' \
+             https://registry.test/after",
+            ca.pem.display()
+        ),
+    );
+    let left_line = format!("echo {READY}; read go < ~/gate/go; ./after.sh");
+    let model = ScriptedModel::reviewed(
+        vec![("shell", json!({ "command": left_line, "timeout_seconds": 2 }))],
+        REVIEWER_ASKS,
+    );
+    let provider = Arc::clone(&model) as Arc<dyn Provider>;
+    let mut options = Options::new(&["curl"]);
+    options.hosts = vec![(REGISTRY.0, server.address())];
+    options.allow = vec![REGISTRY.0.to_owned()];
+    let Some(daemon) = proxy_daemon(test, &dirs, provider, options).await else { return };
+    let client = daemon.client_for_tty(TTY).await.unwrap();
+    let (conversation_id, call_id, mut stream) =
+        start(&daemon, &client, "check the registry").await;
+    let before = state_files(&dirs, conversation_id);
+    // NOTE: the call's timeout passes on the daemon's clock while the command waits for
+    // the gate: the call answers, and its command is left running.
+    let started = Instant::now();
+    let mut left = false;
+    while !left {
+        tokio::select! {
+            biased;
+            item = stream.next() => {
+                left = envelopes(item.unwrap().unwrap()).iter().any(|envelope| matches!(
+                    envelope.event,
+                    Event::ToolCallCompleted { left_running: true, .. }
+                ));
+            }
+            () = efr_stdx::time::SystemClock.sleep(PACE) => {
+                assert!(started.elapsed() < REAL_TIME_LIMIT, "the call did not answer");
+                daemon.clock().advance(Duration::from_secs(1));
+            }
+        }
+    }
+    let moved: CallBackgroundResult =
+        client.call(background(1, conversation_id, call_id, None)).await.unwrap();
+    let CallBackgroundResult::Moved { job_id } = moved else { panic!("{moved:?}") };
+    let call_dir = dirs
+        .dirs()
+        .runtime()
+        .join("sbx")
+        .join(conversation_id.to_string())
+        .join(call_id.to_string());
+    assert!(call_dir.join(efr_sandbox::MOVED_FILE).exists(), "the launcher sees the move");
+
+    release(&fifo).await;
+    let seen = until_job_ended(&daemon, &mut stream, 30).await;
+    let job = seen
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            Event::JobStarted { job, .. } => Some(job.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no job started: {seen:#?}"));
+    assert_eq!((job.id, job.moved_from.map(|from| from.call_id)), (job_id, Some(call_id)));
+    assert!(matches!(job.launch, Launch::Contained { .. }));
+    let Some(Event::JobEnded { state, exit_code, launcher_lost, .. }) =
+        seen.last().map(|envelope| envelope.event.clone())
+    else {
+        unreachable!()
+    };
+    let text = std::fs::read_to_string(&job.output).unwrap_or_default();
+    let report = format!("log: {:#?}\noutput:\n{text}", server.log());
+    assert_eq!((state, exit_code), (JobState::Exited, Some(0)), "{report}");
+    assert!(!launcher_lost, "{report}");
+    assert!(text.contains("get=200"), "the job kept the call's proxy: {report}");
+    assert_eq!(state_files(&dirs, conversation_id), before, "{report}");
+    drop((stream, client));
+    daemon.stop().await.unwrap();
+}
+
 #[tokio::test]
 async fn moved_exit_child_call_is_swept_at_stop() {
     let test = "moved_exit_child_call_is_swept_at_stop";

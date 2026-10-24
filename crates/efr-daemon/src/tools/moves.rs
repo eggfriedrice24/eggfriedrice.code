@@ -10,20 +10,20 @@
 //! `job_moved_text` (DS29) in place of the run's own answer.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use efr_config::Settings;
 
 use efr_conversation::{CallContext, ToolOutcome};
-use efr_protocol::{CacheMode, JobId, JobInfo, JobState, MovedCall, SandboxSummary};
+use efr_protocol::{CacheMode, JobInfo, SandboxSummary};
 use efr_shell::AdoptedRun;
 use efr_tools::job_moved_text;
 use serde_json::Value;
 
 use super::DaemonToolbox;
 use crate::jobs::forward::reach::ReachCall;
-use crate::jobs::moves::{self, Confirmed, Moved, Registration, RunningCall};
-use crate::jobs::{AdoptedJob, output, stop_adopted};
+use crate::jobs::moves::{
+    self, Confirmed, LeftParts, Moved, MovedParts, Registration, RunningCall,
+};
 use crate::sandbox::bus::BusCall;
 use crate::sandbox::proxy::ProxyCall;
 
@@ -122,8 +122,14 @@ impl DaemonToolbox {
     /// The run that efr-shell handed over for the move of the call of `registration`,
     /// once the call answered; `None` when no move was under way. A move that the run
     /// did not take (its command ended first) answers the handler and frees its place.
-    pub(super) async fn moved_run(&self, registration: Option<Registration>) -> Option<Adopted> {
-        let (running, mut confirmed) = registration?.finish()?;
+    /// A call whose command was `left` running stays for a move of that command
+    /// (OQS16).
+    pub(super) async fn moved_run(
+        &self,
+        registration: Option<Registration>,
+        left: Option<LeftParts>,
+    ) -> Option<Adopted> {
+        let (running, mut confirmed) = registration?.finish(left)?;
         match (&mut confirmed.adopted).await {
             Ok(run) => Some(Adopted { running, confirmed, run }),
             Err(_) => {
@@ -154,88 +160,29 @@ impl DaemonToolbox {
     pub(super) async fn finish_move(&self, adopted: Adopted, parts: MoveParts) -> ToolOutcome {
         let Adopted { running, confirmed, run } = adopted;
         let Confirmed { slot, reply, check, .. } = confirmed;
-        // NOTE: only now that efr-shell handed the run over: a launcher that ended
-        // before the hand-over wrote the shell state of a call that did not move. One
-        // that ends after it but before the mark writes its state before any later call
-        // of the conversation can run, since this call has not answered yet (DS23).
-        if let Some(dir) = &running.call_dir {
-            make_moved_file(dir.join(efr_sandbox::MOVED_FILE)).await;
-        }
         let MoveParts { proxy, bus, reach, guard_roots, write_roots } = parts;
         // NOTE: a job gets no reach (DS34, OQS10); the helper closes its listeners first.
         if let Some(reach) = reach {
             reach.unreach_all().await;
         }
-        let context = &running.context;
         let Some(jobs) = &self.jobs else {
             let _ = reply.send(Err(moves::NO_JOBS));
             return ToolOutcome::error(MOVE_FAILED);
         };
-        let conversation = context.conversation_id;
-        let number = match jobs.number(conversation).await {
-            Ok(number) => number,
-            Err(error) => {
-                tracing::warn!(%conversation, error = %error, "a moved call got no job number; efr stops it");
-                stop_adopted(&run).await;
-                let _ = reply.send(Err(moves::NOT_RECORDED));
-                return ToolOutcome::error(MOVE_FAILED);
-            }
-        };
-        let id = JobId::nth(number);
-        let now = self.clock.now();
-        let after = Duration::try_from(now.duration_since(running.started)).unwrap_or_default();
         let head = run.head().to_owned();
-        let output_path = context.scratch.join(efr_sandbox::JOB_DIR).join(output::file_name(&id));
         let proxied = proxy.is_some();
-        let info = JobInfo {
-            id,
-            conversation_id: conversation,
-            turn_id: context.turn_id,
-            call_id: context.call_id,
-            command: running.command.clone(),
-            launch: check.launch.clone(),
-            state: JobState::Running,
-            started_at: now,
-            ends_by: now,
-            ended_at: None,
-            exit_code: None,
-            stopped_by: None,
-            output: output_path,
-            output_bytes: 0,
-            watch: None,
-            wakes: 0,
-            forwards: Vec::new(),
-            moved_from: Some(MovedCall {
-                call_id: context.call_id,
-                turn_id: context.turn_id,
-                after_secs: after.as_secs(),
-                exits: check.exits.clone(),
-                launcher: running.call_dir.is_some(),
-            }),
-            waits_input: false,
-            cgroup: None,
-        };
-        let job = AdoptedJob {
-            info,
-            limit: Duration::from_secs(u64::from(check.minutes) * 60),
-            scratch: context.scratch.clone(),
-            call_dir: running.call_dir.clone(),
-            guard_roots,
-            write_roots,
-            contained: running.contained,
-            proxy,
-            bus,
-            full: context.is_full(),
-        };
-        let info = match jobs.adopt(run, slot, job).await {
-            Ok(info) => info,
-            Err(error) => {
-                tracing::warn!(%conversation, error = %error, "a moved call could not become a job; efr stopped it");
-                let _ = reply.send(Err(moves::NOT_RECORDED));
-                return ToolOutcome::error(MOVE_FAILED);
-            }
-        };
+        let parts = MovedParts { proxy, bus, guard_roots, write_roots };
+        let now = self.clock.now();
+        let (info, after) =
+            match moves::into_job(jobs, now, &running, slot, &check, run, parts).await {
+                Ok(made) => made,
+                Err(reason) => {
+                    let _ = reply.send(Err(reason));
+                    return ToolOutcome::error(MOVE_FAILED);
+                }
+            };
         let _ = reply.send(Ok(Moved { job: info.id.clone() }));
+        let context = &running.context;
         // NOTE: the new hidden shell starts where the old one was at the move: its
         // directory changes only at a prompt, so it is where the call started.
         let cwd = context.shell_cwd.clone().unwrap_or_else(|| context.cwd.clone());
@@ -251,20 +198,5 @@ impl DaemonToolbox {
             ..SandboxSummary::default()
         });
         ToolOutcome::ok(output).with_job(info).with_sandbox(summary)
-    }
-}
-
-/// Makes `$CALL/moved` as an empty file in one call (`O_CREAT | O_EXCL`, 0600), so the
-/// launcher of a moved call writes no shell state at its end (DS23).
-async fn make_moved_file(path: PathBuf) {
-    let made = tokio::task::spawn_blocking(move || {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)
-    })
-    .await;
-    if !matches!(made, Ok(Ok(_))) {
-        tracing::warn!(
-            "the moved mark of a call could not be made; its launcher may write the shell state of its start"
-        );
     }
 }

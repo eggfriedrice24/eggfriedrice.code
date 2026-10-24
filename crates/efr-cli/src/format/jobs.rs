@@ -35,10 +35,11 @@ pub(crate) const NO_JOB: &str = "no job runs";
 /// The keys of the stop key's question.
 pub(crate) const STOP_KEYS: &[(&str, &str)] = &[("y", "yes"), ("n", "no")];
 
-/// The note of the background key when no shell call of the followed turn runs: the
-/// key moves only a running shell call of the turn that this `efr` follows.
+/// The note of the background key when no shell call of the followed turn runs and no
+/// command that waits for nothing was left running in the hidden shell: the key moves
+/// only those (OQS16).
 pub(crate) const NO_CALL: &str =
-    "no shell call of this turn runs; ctrl+b moves only a running shell call";
+    "no running shell call or command left in the hidden shell to move";
 
 /// The title of the background key's question, for a call that runs outside the
 /// sandbox.
