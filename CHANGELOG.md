@@ -45,6 +45,11 @@ into the GitHub release notes, and it stops when the section is missing.
   because it has these turns as messages. The request to the model stays the same. In
   a test of 20 conversations of 50 turns, each turn with a tool output of 32 KiB,
   efrd now allocates about one third less memory for each turn.
+- efrd gives freed memory back to the system after an idle period. When a
+  conversation was idle for 10 minutes and no turn ran for 30 seconds, efrd tells
+  glibc to give back its free heap, at most one time in 5 minutes. In a test of 20
+  conversations of 50 turns, efrd then used about 60 MiB, about one third of its
+  peak. Before, it kept about 90% of its peak.
 
 ### Fixed
 

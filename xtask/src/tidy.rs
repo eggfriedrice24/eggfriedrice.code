@@ -19,6 +19,8 @@ pub(crate) const UNSAFE_ALLOWLIST: &[&str] = &[
     "crates/efr-fdpass/src/lib.rs",
     // The sandbox launcher's descriptor numbers (ADR 0007).
     "crates/efr-sbx/src/fds.rs",
+    // glibc's mallopt and malloc_trim in efrd (ADR 0020).
+    "crates/efr-daemon/src/malloc.rs",
 ];
 
 /// Files in which `cfg(feature = ...)` may appear, one per feature, so feature-gated

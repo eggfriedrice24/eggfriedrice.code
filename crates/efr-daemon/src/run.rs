@@ -47,6 +47,7 @@ use crate::conversations::{self, Conversations};
 use crate::discovery::{self, DaemonInfo};
 use crate::engine::{EngineParts, Probed};
 use crate::full::FullTurns;
+use crate::heap_trim::{self, GlibcTrimmer, HeapTrimParts};
 use crate::jobs::{JobParts, JobTable, SpawnEnv};
 use crate::judge::ClassifierJudge;
 use crate::lock::DaemonLock;
@@ -705,6 +706,10 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         reloads.clone(),
         Arc::clone(&clock),
     );
+    // NOTE: the actors count their idle trims here, and the heap trim follows it. It
+    // follows the turns from here on, before any actor can start one.
+    let (idle_trims, idle_trims_watch) = watch::channel(0);
+    let heap_committed = writer.subscribe();
     let conversation_deps = ConversationDeps {
         provider: providers.active(),
         toolbox: Arc::new(toolbox),
@@ -720,6 +725,7 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
         presence: Arc::clone(&presence) as Arc<dyn PresenceReader>,
         drafts: drafts.clone(),
         allow_writer: Some(Arc::new(allow_writer)),
+        idle_trims,
     };
     let slots = conversations::load_slots(&readers).await?;
     let repo_hints = {
@@ -857,6 +863,17 @@ pub async fn start(config: Settings, deps: Deps) -> Result<Daemon, DaemonError> 
             Arc::clone(&state.clock),
             index_status,
             stop.clone(),
+        )),
+        tokio::spawn(heap_trim::follow(
+            HeapTrimParts {
+                actor_trims: idle_trims_watch,
+                committed: heap_committed,
+                readers: state.readers.clone(),
+                clock: Arc::clone(&state.clock),
+                status: heap_trim::status_channel().0,
+                stop: stop.clone(),
+            },
+            Arc::new(GlibcTrimmer),
         )),
     ];
     if watch_config && let Some(watching) = reload::watcher::watch(&state).await {

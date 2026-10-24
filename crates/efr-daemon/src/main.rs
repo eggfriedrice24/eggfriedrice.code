@@ -30,6 +30,8 @@ struct Args {
 }
 
 fn main() -> ExitCode {
+    // NOTE: first of all, before the runtime starts a thread (ADR 0020).
+    efr_daemon::init_malloc();
     let args = Args::parse();
     match daemon(args) {
         Ok(()) => ExitCode::SUCCESS,

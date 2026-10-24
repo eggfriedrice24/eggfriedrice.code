@@ -602,6 +602,9 @@ them from `turn_messages`, as after a restart, so its request has the same bytes
 efrd keeps in memory only the turns of the conversations that ran a turn in the last
 10 minutes. The actor keeps its fresh block: only for a compaction from an efr before
 the stored block would the next turn read the block from disk again, with other bytes.
+Each trim adds one to the count of `ConversationDeps::idle_trims`, a `watch` that the
+daemon follows to give the freed heap back to the system. This crate knows nothing of
+the allocator.
 
 A call of a freeform tool (its input is text, such as a patch) keeps that kind on the
 way: `ContentBlock::ToolCall` has `freeform` set in the saved messages, and the turn

@@ -670,6 +670,8 @@ pub(crate) struct Setup {
     pub(crate) sandbox: SandboxStatus,
     /// The channel of the turns' drafts; a test subscribes to it to see them.
     pub(crate) drafts: broadcast::Sender<ConversationDraft>,
+    /// The count of the actor's idle trims, as the daemon watches it.
+    pub(crate) idle_trims: watch::Sender<u64>,
     /// The judge of an exit before the user; none unless a test gives one.
     pub(crate) judge: Option<Arc<FakeJudge>>,
     /// Where an `a` answer saves its rule; none unless a test gives one, so a question
@@ -707,6 +709,7 @@ impl Setup {
             project: None,
             sandbox: ready(),
             drafts: draft_channel(),
+            idle_trims: watch::channel(0).0,
             judge: None,
             allow_writer: None,
             presence: Arc::default(),
@@ -840,6 +843,7 @@ impl Setup {
                 .allow_writer
                 .clone()
                 .map(|writer| writer as Arc<dyn crate::AllowWriter>),
+            idle_trims: self.idle_trims.clone(),
         };
         let (settings, receiver) = watch::channel(Arc::new(self.config.clone()));
         let handle =
@@ -860,6 +864,7 @@ impl Setup {
             sandbox,
             judge: self.judge,
             presence: self.presence,
+            idle_trims: self.idle_trims,
         }
     }
 }
@@ -886,6 +891,8 @@ pub(crate) struct Harness {
     pub(crate) judge: Option<Arc<FakeJudge>>,
     /// The presence that the turns read.
     pub(crate) presence: Arc<FakePresence>,
+    /// The count of the actor's idle trims.
+    pub(crate) idle_trims: watch::Sender<u64>,
 }
 
 impl Harness {
@@ -922,6 +929,7 @@ impl Harness {
             project: None,
             sandbox: self.sandbox.borrow().clone(),
             drafts: draft_channel(),
+            idle_trims: self.idle_trims,
             judge: self.judge,
             allow_writer: None,
             presence: self.presence,
