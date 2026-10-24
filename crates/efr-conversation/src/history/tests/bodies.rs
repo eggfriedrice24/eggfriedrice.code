@@ -152,14 +152,31 @@ async fn assert_same(
 /// settings and counts), each checked as a turn starts and as the context breakdown
 /// reads it: the page without the bodies changes nothing that the model or the user
 /// sees.
-#[tokio::test]
-async fn leaving_out_the_bodies_changes_no_window_of_random_conversations() {
-    let rng = TestRng::new(6);
+///
+/// The 150 conversations are three tests of 50, so nextest runs them at the same time
+/// and each stays well inside its time limit on a slow CI runner.
+async fn leaving_out_the_bodies_changes_no_window_of(seeds: std::ops::Range<u64>, rng: u64) {
+    let rng = TestRng::new(rng);
     let mut left = 0;
-    for seed in 0..150 {
+    for seed in seeds {
         let (store, running) = random_conversation(seed).await;
         left += assert_same(&store, running, None, &rng).await;
         left += assert_same(&store, None, running, &rng).await;
     }
-    assert!(left > 1000, "the reads left out {left} events");
+    assert!(left > 300, "the reads left out {left} events");
+}
+
+#[tokio::test]
+async fn leaving_out_the_bodies_changes_no_window_of_random_conversations() {
+    leaving_out_the_bodies_changes_no_window_of(0..50, 6).await;
+}
+
+#[tokio::test]
+async fn leaving_out_the_bodies_changes_no_window_of_more_random_conversations() {
+    leaving_out_the_bodies_changes_no_window_of(50..100, 7).await;
+}
+
+#[tokio::test]
+async fn leaving_out_the_bodies_changes_no_window_of_the_last_random_conversations() {
+    leaving_out_the_bodies_changes_no_window_of(100..150, 8).await;
 }
