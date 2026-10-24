@@ -185,8 +185,17 @@ pub(crate) struct Snapshot {
     pub(crate) summary: Option<ConversationSummary>,
     /// Every turn of the conversation, oldest first.
     pub(crate) turns: Vec<Turn>,
-    /// The newest events of the conversation, oldest first.
+    /// The newest events of the conversation, oldest first, without the body events
+    /// (`events::BODY_KINDS`) of each turn that the window never rebuilds: a turn in
+    /// [`saved`](Self::saved), and a turn that the newest summary covers whole
+    /// ([`bodiless`]). Every event in it is the event of the log, and the page reaches
+    /// back as far as without the filter. No reader of the page other than the rebuild
+    /// of a turn reads a body event.
     pub(crate) page: Vec<EventEnvelope>,
+    /// The sequence number of the oldest event of the page, also when the page leaves
+    /// that event out: where the page starts.
+    #[cfg_attr(not(test), expect(dead_code, reason = "only the tests read where the page starts"))]
+    pub(crate) first: Option<Seq>,
     /// The events before the page of each finished turn that saved no messages and
     /// started before the page, oldest first, so such a turn is rebuilt whole.
     pub(crate) older: Vec<EventEnvelope>,
@@ -211,13 +220,28 @@ pub(crate) enum Covered {
     Keep,
 }
 
-/// What a read did with the saved turns: the turns that it decoded, the turns that the
-/// cache held, and the bytes of JSON that it decoded.
+/// What a read does with the body events of a turn whose messages the window never
+/// rebuilds. Only the tests keep them, to show that the history is the same without
+/// them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Bodies {
+    /// Leave them out of the page: the read never decodes them.
+    Skip,
+    /// Read every event of the page.
+    #[cfg_attr(not(test), expect(dead_code, reason = "only the tests keep the bodies"))]
+    Keep,
+}
+
+/// What a read did with the saved turns and the page: the turns that it decoded, the
+/// turns that the cache held, and the bytes of JSON that it decoded; the events that
+/// the page left out, and the bytes of event JSON that it decoded.
 #[derive(Debug, Clone, Copy)]
 struct Decoded {
     turns: usize,
     held: usize,
     bytes: u64,
+    left_out: u64,
+    page_bytes: u64,
 }
 
 impl Snapshot {
@@ -230,7 +254,8 @@ impl Snapshot {
         limits: HistoryLimits,
         cache: &HashMap<TurnId, Arc<CachedTurn>>,
     ) -> Result<Self, ConversationError> {
-        Snapshot::read_with(readers, conversation_id, limits, Covered::Skip, cache).await
+        Snapshot::read_with(readers, conversation_id, limits, Covered::Skip, Bodies::Skip, cache)
+            .await
     }
 
     /// Reads the snapshot of `conversation_id` in one read transaction. With
@@ -244,11 +269,16 @@ impl Snapshot {
     /// every saved turn is decoded. A turn that the cache holds but the store did not
     /// save is not in `saved`, as before: the read gets its events when the page does
     /// not hold them.
+    ///
+    /// With [`Bodies::Skip`], the page leaves out the body events of each turn that the
+    /// window never rebuilds ([`bodiless`]), so a turn's start does not decode the tool
+    /// outputs of the turns that it has as messages.
     pub(crate) async fn read_with(
         readers: &Readers,
         conversation_id: ConversationId,
         limits: HistoryLimits,
         covered: Covered,
+        bodies: Bodies,
         cache: &HashMap<TurnId, Arc<CachedTurn>>,
     ) -> Result<Self, ConversationError> {
         let held: HashSet<TurnId> = cache.keys().copied().collect();
@@ -257,12 +287,13 @@ impl Snapshot {
             .with(move |conn| {
                 let compactions = compactions::latest(conn, conversation_id)?;
                 let turns = conversations::turns(conn, conversation_id)?;
-                let page = events::read_turn_history(conn, conversation_id, limits.max_events)?;
                 let stored = turn_messages::of_conversation_except(conn, conversation_id, &held)?;
-                let decoded = Decoded {
+                let mut decoded = Decoded {
                     turns: stored.turns.len(),
                     held: stored.held.len(),
                     bytes: stored.bytes,
+                    left_out: 0,
+                    page_bytes: 0,
                 };
                 let mut saved: HashMap<TurnId, Arc<CachedTurn>> = stored
                     .turns
@@ -277,8 +308,22 @@ impl Snapshot {
                     Covered::Skip => summary_cut(&compactions),
                     Covered::Keep => None,
                 };
+                // NOTE: the saved turns and the cut are known first, so the page leaves
+                // out exactly the bodies that the window does not read.
+                let without = match bodies {
+                    Bodies::Skip => bodiless(&turns, &saved, cut),
+                    Bodies::Keep => HashSet::new(),
+                };
+                let page = events::read_turn_history_without(
+                    conn,
+                    conversation_id,
+                    limits.max_events,
+                    &without,
+                )?;
+                decoded.left_out = page.left_out;
+                decoded.page_bytes = page.bytes;
                 let mut older = BTreeMap::new();
-                for (from, through) in older_ranges(&turns, &saved, &page, cut) {
+                for (from, through) in older_ranges(&turns, &saved, page.first, cut) {
                     let events = events::read_turn_range(conn, conversation_id, from, through)?;
                     older.extend(events.into_iter().map(|envelope| (envelope.seq, envelope)));
                 }
@@ -286,7 +331,8 @@ impl Snapshot {
                 let snapshot = Snapshot {
                     summary: conversations::get(conn, conversation_id)?,
                     turns,
-                    page,
+                    page: page.events,
+                    first: page.first,
                     older,
                     saved,
                     compactions,
@@ -302,6 +348,8 @@ impl Snapshot {
             decoded = decoded.turns,
             held = decoded.held,
             bytes = decoded.bytes,
+            left_out = decoded.left_out,
+            page_bytes = decoded.page_bytes,
             "the snapshot decoded the saved turns that the cache lacks"
         );
         Ok(snapshot)
@@ -526,19 +574,40 @@ fn summary_cut(compactions: &LatestCompactions) -> Option<Cut> {
     compaction.summary.as_ref().map(|_| Cut::of(compaction))
 }
 
+/// The turns whose body events the window never reads, so the page can leave them out:
+/// each turn with saved messages, which the window takes instead of a rebuild, and each
+/// turn that `cut` (the summary's) covers whole, which the window leaves out before it
+/// looks up its messages. A turn that the cache holds but the store did not save keeps
+/// its bodies, so the window can rebuild it with any cache.
+fn bodiless(
+    turns: &[Turn],
+    saved: &HashMap<TurnId, Arc<CachedTurn>>,
+    cut: Option<Cut>,
+) -> HashSet<TurnId> {
+    let mut bodiless: HashSet<TurnId> = saved.keys().copied().collect();
+    if let Some(cut) = cut {
+        let order: HashMap<TurnId, usize> =
+            turns.iter().enumerate().map(|(at, turn)| (turn.id, at)).collect();
+        let position = |turn: TurnId| order.get(&turn).copied();
+        bodiless.extend(
+            turns.iter().map(|turn| turn.id).filter(|turn| cut.covers_turn(*turn, position)),
+        );
+    }
+    bodiless
+}
+
 /// The ranges of sequence numbers to read for the turns that the page cannot rebuild:
 /// each finished turn that saved no messages and that `cut` (the summary's) does not
-/// cover whole, from its `prompt_queued` up to the first event of `page` or its own
-/// last event. A turn from an efr before the saved messages, or one whose saved
-/// messages cannot be read back, has such a range. A turn whose saved messages a
-/// compaction with a summary dropped has none: the cut covers it.
+/// cover whole, from its `prompt_queued` up to the page's `first` event or its own last
+/// event. A turn from an efr before the saved messages, or one whose saved messages
+/// cannot be read back, has such a range. A turn whose saved messages a compaction with
+/// a summary dropped has none: the cut covers it.
 fn older_ranges(
     turns: &[Turn],
     saved: &HashMap<TurnId, Arc<CachedTurn>>,
-    page: &[EventEnvelope],
+    first: Option<Seq>,
     cut: Option<Cut>,
 ) -> Vec<(Seq, Seq)> {
-    let first = page.first().map(|envelope| envelope.seq);
     let order: HashMap<TurnId, usize> = match cut {
         Some(_) => turns.iter().enumerate().map(|(at, turn)| (turn.id, at)).collect(),
         None => HashMap::new(),

@@ -224,6 +224,146 @@ async fn last_seq_is_zero_for_an_empty_log_and_the_newest_seq_after() {
     assert_eq!(on_writer(&writer, last_seq).await.unwrap(), Seq::new(2));
 }
 
+/// A seeded generator for the random logs below: splitmix64.
+struct Mix(u64);
+
+impl Mix {
+    fn below(&mut self, n: u64) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        (z ^ (z >> 31)) % n
+    }
+}
+
+/// An event of turn `turn`: one of each kind of [`BODY_KINDS`] for `pick` 0 to 3, then
+/// an output update and other events of a turn.
+fn turn_event(turn: u64, pick: u64) -> Event {
+    let turn_id = testing::turn(turn);
+    match pick {
+        0 => Event::AssistantMessageUpdated {
+            turn_id,
+            index: 0,
+            offset: 0,
+            delta: "stream".repeat(100),
+        },
+        1 => Event::AssistantMessageCompleted { turn_id, index: 0, text: "answer".repeat(100) },
+        2 => Event::ToolCallStarted {
+            turn_id,
+            call_id: testing::call(turn),
+            tool: "shell".to_owned(),
+            input: json!({ "command": "ls" }),
+            manual_input: false,
+            launch: None,
+            freeform: false,
+        },
+        3 => Event::ToolCallCompleted {
+            turn_id,
+            call_id: testing::call(turn),
+            output: "x".repeat(4096),
+            truncated: false,
+            is_error: false,
+            exit_code: None,
+            sandbox: None,
+            refusal: None,
+            changes: None,
+            diff: None,
+            left_running: false,
+        },
+        4 => Event::ToolCallOutputUpdated {
+            turn_id,
+            call_id: testing::call(turn),
+            tail: "building".to_owned(),
+            bytes: 10,
+        },
+        5 => Event::TurnSteered { turn_id, text: "steer".to_owned() },
+        6 => testing::started(turn, "/home/u"),
+        _ => prompt(turn, "a prompt"),
+    }
+}
+
+#[test]
+fn the_body_kinds_are_the_kinds_of_the_body_events() {
+    let kinds: Vec<String> = (0..4).map(|pick| turn_event(1, pick).kind().to_owned()).collect();
+    assert_eq!(kinds, BODY_KINDS);
+}
+
+/// Random logs of two conversations: the page without the bodies of some turns is the
+/// full page without exactly those events, it reaches back as far, and every event that
+/// it holds is the event of the log.
+#[tokio::test]
+async fn the_page_without_bodies_leaves_out_only_the_bodies_of_the_named_turns() {
+    let mut mix = Mix(11);
+    let mut left = 0;
+    for _ in 0..60 {
+        let (writer, _thread) = testing::memory_writer(TestClock::new());
+        let (one, two) = (testing::conversation(1), testing::conversation(2));
+        let mut batch =
+            Batch::new().event(one, testing::created(None)).event(two, testing::created(None));
+        for _ in 0..mix.below(60) {
+            // NOTE: a turn belongs to one conversation, and only its first prompt makes
+            // its row.
+            let (conversation, turn) =
+                if mix.below(4) == 0 { (two, 10) } else { (one, 1 + mix.below(5)) };
+            batch = batch.event(conversation, turn_event(turn, mix.below(7)));
+        }
+        writer.append(batch).await.unwrap();
+        let named: HashSet<TurnId> =
+            (1..=6).filter(|_| mix.below(2) == 0).map(testing::turn).collect();
+        let limit = u32::try_from(1 + mix.below(70)).unwrap();
+
+        let asked = named.clone();
+        let (full, thin) = on_writer(&writer, move |conn| {
+            let full = read_turn_history(conn, one, limit)?;
+            let thin = read_turn_history_without(conn, one, limit, &asked)?;
+            Ok((full, thin))
+        })
+        .await
+        .unwrap();
+
+        let body = |envelope: &EventEnvelope| {
+            BODY_KINDS.contains(&envelope.event.kind())
+                && envelope.event.turn_id().is_some_and(|turn| named.contains(&turn))
+        };
+        let kept: Vec<EventEnvelope> = full.iter().filter(|e| !body(e)).cloned().collect();
+        assert_eq!(thin.events, kept);
+        assert_eq!(thin.first, full.first().map(|envelope| envelope.seq));
+        assert_eq!(thin.left_out, (full.len() - kept.len()) as u64);
+        let bytes: usize =
+            kept.iter().map(|e| serde_json::to_string(&e.event).unwrap().len()).sum();
+        assert_eq!(thin.bytes, bytes as u64);
+        left += thin.left_out;
+    }
+    assert!(left > 100, "the pages left out {left} events");
+}
+
+#[tokio::test]
+async fn a_page_that_leaves_out_its_oldest_event_still_starts_there() {
+    let (writer, _thread) = testing::memory_writer(TestClock::new());
+    let one = testing::conversation(1);
+    writer
+        .append(
+            Batch::new()
+                .event(one, testing::created(None))
+                .event(one, turn_event(1, 3))
+                .event(one, turn_event(1, 1))
+                .event(one, turn_event(2, 3)),
+        )
+        .await
+        .unwrap();
+    let named: HashSet<TurnId> = [testing::turn(1)].into();
+
+    let page = on_writer(&writer, move |conn| read_turn_history_without(conn, one, 3, &named))
+        .await
+        .unwrap();
+
+    let seqs: Vec<u64> = page.events.iter().map(|envelope| envelope.seq.get()).collect();
+    assert_eq!(seqs, [4], "the bodies of turn 1 stay out, the one of turn 2 stays");
+    assert_eq!(page.first, Some(Seq::new(2)), "the limit counts the events left out");
+    assert_eq!(page.left_out, 2);
+}
+
 #[tokio::test]
 async fn a_bound_beyond_the_largest_sqlite_integer_reads_nothing() {
     let (writer, _thread) = testing::memory_writer(TestClock::new());

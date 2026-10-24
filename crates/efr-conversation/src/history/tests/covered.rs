@@ -8,8 +8,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use efr_protocol::{
-    CallId, CommandId, Compaction, CompactionId, CompactionTrigger, ConversationCompact, ErrorBody,
-    ErrorCode, Event, Origin, Scope, Seq, TurnId, TurnSettings,
+    CallId, CommandId, Compaction, CompactionId, CompactionTrigger, ContextUse,
+    ConversationCompact, EffectiveSettings, ErrorBody, ErrorCode, Event, Mode, Origin,
+    OverriddenSettings, PtyId, Scope, Seq, TurnId, TurnSettings, Usage,
 };
 use efr_provider::{Message, ProviderId, Request};
 use efr_stdx::id::uuid_v7;
@@ -21,10 +22,11 @@ use efr_test_support::{TestClock, TestRng, TestStore};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
+use super::bodies::assert_page_without_bodies;
 use super::{completed, conversation, finished, key, started};
 use crate::compaction::with_window;
 use crate::context::breakdown;
-use crate::history::{CachedTurn, Covered, HistoryLimits, ModelKey, Snapshot};
+use crate::history::{Bodies, CachedTurn, Covered, HistoryLimits, ModelKey, Snapshot};
 use crate::testing::{Recorder, compacting, compactions, request};
 
 /// The page sizes and byte limits that each check reads with: a page that holds one
@@ -61,12 +63,15 @@ async fn assert_same(
     for (max_events, max_bytes) in LIMITS {
         let limits = HistoryLimits::new(max_events, max_bytes);
         let none = HashMap::new();
-        let read =
-            |covered| Snapshot::read_with(store.readers(), conversation(), limits, covered, &none);
-        let (mut skipped, mut kept) =
-            (read(Covered::Skip).await.expect("read"), read(Covered::Keep).await.expect("read"));
+        let read = |covered, bodies| {
+            Snapshot::read_with(store.readers(), conversation(), limits, covered, bodies, &none)
+        };
+        let (mut skipped, mut kept) = (
+            read(Covered::Skip, Bodies::Skip).await.expect("read"),
+            read(Covered::Keep, Bodies::Keep).await.expect("read"),
+        );
         assert_eq!(skipped.turns, kept.turns);
-        assert_eq!(skipped.page, kept.page);
+        assert_page_without_bodies(&skipped, &kept);
         assert_eq!(skipped.compactions, kept.compactions);
         assert!(kept.older.len() >= skipped.older.len());
         if kept.older.len() > skipped.older.len() {
@@ -113,6 +118,12 @@ async fn assert_same(
 /// each event, as the actor writes it.
 struct Script {
     rng: TestRng,
+    /// The generator of the facts that only the page gives (the hidden shell, a turn's
+    /// settings, the counts at a turn's end), apart from `rng`, so the turns, the
+    /// bodies and the compactions stay those of a seed without them.
+    facts: TestRng,
+    /// The shells that started so far.
+    shells: u64,
     batches: Vec<Batch>,
     /// The sequence number of the next event; 1 is `conversation_created`.
     seq: u64,
@@ -126,6 +137,8 @@ impl Script {
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
         Script {
             rng: TestRng::new(seed),
+            facts: TestRng::new(seed ^ 0x5eed_fac7),
+            shells: 0,
             batches: vec![Batch::new().event(conversation(), created)],
             seq: 2,
             turns: Vec::new(),
@@ -139,6 +152,44 @@ impl Script {
 
     fn chance(&self, percent: u64) -> bool {
         self.below(100) < percent
+    }
+
+    fn fact(&self, percent: u64) -> bool {
+        self.facts.next_u64() % 100 < percent
+    }
+
+    /// Sometimes an event of the hidden shell: it starts, moves or exits.
+    fn shell(&mut self, events: &mut Vec<Event>) {
+        if !self.fact(20) {
+            return;
+        }
+        let pick = self.facts.next_u64() % 3;
+        // NOTE: each shell that starts has a pty of its own.
+        if pick == 0 {
+            self.shells += 1;
+        }
+        let pty_id = PtyId::from_uuid(uuid_v7(&TestClock::new(), &TestRng::new(500 + self.shells)));
+        let cwd = PathBuf::from(format!("/home/u/dir{}", self.facts.next_u64() % 4));
+        let event = match pick {
+            0 => Event::ShellStarted { pty_id, cwd, pid: None },
+            1 => Event::CwdChanged { pty_id, cwd, host: None },
+            _ => Event::ShellExited { pty_id, exit_code: Some(0) },
+        };
+        self.push(events, event);
+    }
+
+    /// Sometimes the counts of a turn's end: its usage and its context.
+    fn counts(&self) -> (Option<Usage>, Option<ContextUse>) {
+        let usage = self.fact(60).then(|| Usage {
+            context_tokens: if self.fact(80) { 1000 + self.facts.next_u64() % 1000 } else { 0 },
+            ..Usage::new(1000, 10)
+        });
+        let context = self.fact(70).then(|| ContextUse {
+            tokens: 2000 + self.facts.next_u64() % 1000,
+            limit: 76_000,
+            window: 100_000,
+        });
+        (usage, context)
     }
 
     fn id(&mut self) -> u64 {
@@ -183,12 +234,16 @@ impl Script {
             steers,
         };
         self.push(events, queued);
-        let started = Event::TurnStarted {
-            turn_id: t,
-            cwd: PathBuf::from("/home/u"),
-            scope: Scope::Machine,
-            settings: None,
-        };
+        let model = if self.fact(50) { "m" } else { "n" };
+        let settings = self.fact(70).then(|| EffectiveSettings {
+            mode: Mode::Cautious,
+            model: model.to_owned(),
+            effort: None,
+            overridden: OverriddenSettings::default(),
+            fallback: None,
+        });
+        let cwd = PathBuf::from(format!("/home/u/cwd{}", self.facts.next_u64() % 3));
+        let started = Event::TurnStarted { turn_id: t, cwd, scope: Scope::Machine, settings };
         self.push(events, started);
     }
 
@@ -287,6 +342,7 @@ pub(super) async fn random_conversation(seed: u64) -> (TestStore, Option<TurnId>
         s.queued(&mut events, t, steers);
         let mut index = 0;
         for _ in 0..s.below(5) {
+            s.shell(&mut events);
             match s.below(7) {
                 0 | 1 => {
                     let text = format!("answer {number}.{index}");
@@ -348,28 +404,23 @@ pub(super) async fn random_conversation(seed: u64) -> (TestStore, Option<TurnId>
         if inside && let Some(compaction) = summary.take() {
             s.push(&mut events, compaction);
         }
+        let (usage, context) = s.counts();
         let end = match s.below(4) {
             0 => Event::TurnFailed {
                 turn_id: t,
                 error: ErrorBody::new(ErrorCode::Unauthorized, "no"),
-                usage: None,
-                context: None,
+                usage,
+                context,
                 changes: None,
                 undo: None,
             },
-            1 => Event::TurnInterrupted {
-                turn_id: t,
-                usage: None,
-                context: None,
-                changes: None,
-                undo: None,
-            },
+            1 => Event::TurnInterrupted { turn_id: t, usage, context, changes: None, undo: None },
             2 => Event::TurnCancelled { turn_id: t },
             _ => Event::TurnCompleted {
                 turn_id: t,
-                usage: None,
+                usage,
                 changes: None,
-                context: None,
+                context,
                 stop: None,
                 undo: None,
             },
@@ -612,6 +663,7 @@ async fn real_compactions_give_the_same_request_with_and_without_the_skip() {
         h.conversation_id,
         limits,
         Covered::Keep,
+        Bodies::Keep,
         &HashMap::new(),
     )
     .await

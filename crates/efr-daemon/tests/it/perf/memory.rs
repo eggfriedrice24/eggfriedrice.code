@@ -21,7 +21,10 @@
 //! The memory bench also counts the saved messages that each turn's start decodes, from
 //! the history's debug event ([`Trims`] counts it too). The actor's cache holds every
 //! earlier turn of the load, so a start decodes none of them; it fails when the mean
-//! passes [`DECODE_BUDGET`].
+//! passes [`DECODE_BUDGET`]. It counts the event JSON that the page of each start
+//! decodes from the same event: the page leaves out the body events of the turns that
+//! the start has as messages, so it decodes no earlier tool output; it fails when the
+//! mean passes [`PAGE_BUDGET`].
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -66,6 +69,12 @@ const GROWTH_BUDGET: u64 = 46 * 1024;
 /// about 0.8 MiB on average.
 const DECODE_BUDGET: u64 = 64 * 1024;
 
+/// The most bytes of event JSON that the page of a turn's start of the memory bench may
+/// decode on average (64 KiB). The page leaves out the bodies of the turns that the
+/// start has as messages, so the fixed code decodes about 16 KiB; before, each start
+/// decoded every tool output of its page again, about 0.8 MiB on average.
+const PAGE_BUDGET: u64 = 64 * 1024;
+
 /// The longest real time that a bench waits for the trims after it moved the clock.
 const TRIM_WAIT: Duration = Duration::from_secs(10);
 
@@ -86,6 +95,7 @@ struct Trims {
     turns: AtomicU64,
     reads: AtomicU64,
     decoded: AtomicU64,
+    page: AtomicU64,
 }
 
 /// The target of the actor's debug event of a trim, which names `turns`.
@@ -126,8 +136,11 @@ impl<S: Subscriber> Layer<S> for TrimLayer {
         if is_read(event.metadata()) {
             let mut bytes = U64Field("bytes", 0);
             event.record(&mut bytes);
+            let mut page = U64Field("page_bytes", 0);
+            event.record(&mut page);
             self.0.reads.fetch_add(1, Ordering::SeqCst);
             self.0.decoded.fetch_add(bytes.1, Ordering::SeqCst);
+            self.0.page.fetch_add(page.1, Ordering::SeqCst);
             return;
         }
         let mut turns = U64Field("turns", 0);
@@ -179,6 +192,10 @@ impl Trims {
 
     fn decoded(&self) -> u64 {
         self.decoded.load(Ordering::SeqCst)
+    }
+
+    fn page(&self) -> u64 {
+        self.page.load(Ordering::SeqCst)
     }
 }
 
@@ -260,7 +277,8 @@ async fn bench_perf_daemon_memory() {
     let first = turns(&daemon, "/dev/pts/perf-memory-first", &cwd, 1, Instant::now() + IDLE).await;
     assert_eq!(first, 1);
     bench::reset_peak();
-    let (reads_before, decoded_before) = (trims.reads(), trims.decoded());
+    let (reads_before, decoded_before, page_before) =
+        (trims.reads(), trims.decoded(), trims.page());
     let start = memory();
     report.bytes("after start: rss", start.rss);
     let begin = Instant::now();
@@ -277,8 +295,10 @@ async fn bench_perf_daemon_memory() {
     let reads = trims.reads() - reads_before;
     let decoded = trims.decoded() - decoded_before;
     let per_start = decoded / reads.max(1);
+    let page_per_start = (trims.page() - page_before) / reads.max(1);
     report.count("snapshot reads of the load", reads);
     report.bytes("saved messages decoded per turn start (mean)", per_start);
+    report.bytes("event JSON of the page decoded per turn start (mean)", page_per_start);
     if done < CONVERSATIONS * TURNS {
         report.count("stopped_at_n (turns, 90 s)", done as u64);
     }
@@ -305,6 +325,10 @@ async fn bench_perf_daemon_memory() {
     assert!(
         per_start <= DECODE_BUDGET,
         "a turn's start decoded {per_start} bytes of saved messages, over {DECODE_BUDGET}"
+    );
+    assert!(
+        page_per_start <= PAGE_BUDGET,
+        "a turn's page decoded {page_per_start} bytes of event JSON, over {PAGE_BUDGET}"
     );
 }
 

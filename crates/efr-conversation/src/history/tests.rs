@@ -21,6 +21,7 @@ use super::{
 };
 use crate::compaction::Placed;
 
+mod bodies;
 mod covered;
 mod held;
 mod perf;
