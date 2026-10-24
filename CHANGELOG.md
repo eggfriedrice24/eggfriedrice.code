@@ -64,6 +64,16 @@ into the GitHub release notes, and it stops when the section is missing.
   glibc to give back its free heap, at most one time in 5 minutes. In a test of 20
   conversations of 50 turns, efrd then used about 60 MiB, about one third of its
   peak. Before, it kept about 90% of its peak.
+- An `ask` or `deny` rule for `systemctl`, `cargo`, `docker` or `kubectl` now skips
+  the program's own options before the subcommand, as a rule for `git` does. So a
+  rule for `systemctl restart` also asks for `systemctl --user restart nginx`, a rule
+  for `cargo publish` for `cargo +nightly publish`, a rule for `docker push` for
+  `docker -H ssh://prod push app`, and a rule for `kubectl delete` for
+  `kubectl -n prod delete pod web`. An option that efr does not know counts both with
+  and without a value, so the rule asks rather than misses. `cargo --config` with a
+  file or an alias, and `kubectl --kuberc`, can rename a subcommand, so the rule
+  matches every command with one of them. An `allow` rule still compares the words
+  right after the program.
 
 ### Fixed
 
