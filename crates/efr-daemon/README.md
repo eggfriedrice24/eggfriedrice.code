@@ -1982,8 +1982,10 @@ the test binary, with a git first on its `PATH` that counts its runs.
   after 20 conversations of 50 turns, and after an idle period of 3 hours on the
   clock. It counts the turns that the idle trim of the conversation actors drops
   (from the actor's debug event), and fails when the trim drops less than 90% of the
-  turns of the load. The resident set has no budget: glibc keeps most of the freed
-  heap in its arenas, so it falls by a few MiB only.
+  turns of the load. It also counts the saved messages and the event JSON of the page
+  that each turn's start decodes (from the history's debug event), and fails when
+  either mean passes 64 KiB. The resident set has no budget: glibc keeps most of the
+  freed heap in its arenas, so it falls by a few MiB only.
 - `bench_perf_daemon_growth`: the resident memory after 50, 150 and 300 conversations
   of 5 turns, and its growth for each conversation. After each batch the bench moves
   the clock past the idle trim and waits for the trims, so the growth is what a

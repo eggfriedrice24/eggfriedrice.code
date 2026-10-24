@@ -31,7 +31,7 @@ use crate::testing::{Harness, Recorder, Setup, request};
 /// empty cache: none (after a trim or a restart), every saved turn, a random part of
 /// them, and every saved turn with a cached copy of each finished turn that saved
 /// nothing (its save failed) and of a turn that the conversation does not have.
-fn caches(full: &Snapshot, rng: &TestRng) -> Vec<HashMap<TurnId, Arc<CachedTurn>>> {
+pub(super) fn caches(full: &Snapshot, rng: &TestRng) -> Vec<HashMap<TurnId, Arc<CachedTurn>>> {
     let all: HashMap<TurnId, Arc<CachedTurn>> =
         full.saved.iter().map(|(id, turn)| (*id, Arc::clone(turn))).collect();
     let part = all
@@ -166,12 +166,22 @@ fn a_cached_turn_gives_back_the_room_that_its_strings_do_not_use() {
 }
 
 /// What one snapshot read reported: the saved turns that it decoded, the saved turns
-/// that the cache held, and the bytes of JSON that it decoded.
+/// that the cache held, and the bytes of JSON that it decoded; the events that the page
+/// left out, and the bytes of event JSON that the page decoded.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Read {
     decoded: u64,
     held: u64,
     bytes: u64,
+    left_out: u64,
+    page_bytes: u64,
+}
+
+impl Read {
+    /// The saved turns that the read decoded and held, and the bytes of their JSON.
+    fn saved(self) -> (u64, u64, u64) {
+        (self.decoded, self.held, self.bytes)
+    }
 }
 
 impl Visit for Read {
@@ -180,6 +190,8 @@ impl Visit for Read {
             "decoded" => self.decoded = value,
             "held" => self.held = value,
             "bytes" => self.bytes = value,
+            "left_out" => self.left_out = value,
+            "page_bytes" => self.page_bytes = value,
             _ => {}
         }
     }
@@ -258,7 +270,8 @@ fn bytes(request: &Request, count: usize) -> String {
 
 /// The real actor: while its cache holds the earlier turns, a turn's start decodes no
 /// saved turn; after an idle trim and after a restart it decodes each of them once,
-/// and the cache keeps them for the next start. Every request starts with the bytes of
+/// and the cache keeps them for the next start. The page of no start decodes the
+/// bodies of the earlier turns. Every request starts with the bytes of
 /// the request before it, so the model reads the same history from the cache and from
 /// the store.
 #[tokio::test]
@@ -281,14 +294,26 @@ async fn a_turn_start_decodes_only_the_saved_turns_that_the_cache_lacks() {
     let six = turn_read(&mut h, &reads, "prompt 6").await;
     let seven = turn_read(&mut h, &reads, "prompt 7").await;
 
-    let held = |held| Read { decoded: 0, held, bytes: 0 };
-    assert_eq!([one, two, three], [held(0), held(1), held(2)], "the cache holds each turn");
+    let held = |held| (0, held, 0);
+    let saved = [one, two, three].map(Read::saved);
+    assert_eq!(saved, [held(0), held(1), held(2)], "the cache holds each turn");
     assert_eq!((four.decoded, four.held), (3, 0), "after the trim");
     assert!(four.bytes > 2 * 32 * 1024, "two reads of 32 KiB: {four:?}");
-    assert_eq!(five, held(4), "the cache keeps the turns that the trim dropped again");
+    assert_eq!(five.saved(), held(4), "the cache keeps the turns that the trim dropped again");
     assert_eq!((six.decoded, six.held), (5, 0), "after the restart");
     assert!(six.bytes > four.bytes, "{six:?}");
-    assert_eq!(seven, held(6), "the cache keeps the turns that the restart dropped again");
+    assert_eq!(seven.saved(), held(6), "the cache keeps the turns that the restart dropped again");
+    // NOTE: the page never decodes the body of a turn that it has as messages, so no
+    // start decodes an output of 32 KiB again: not with the cache, not after the trim
+    // or the restart, when the saved turns take the cache's place.
+    let starts = [one, two, three, four, five, six, seven];
+    for (number, read) in starts.iter().enumerate() {
+        assert!(read.page_bytes < 16 * 1024, "start {}: {read:?}", number + 1);
+    }
+    assert_eq!(one.left_out, 0, "the first start has no earlier turn");
+    for read in [two, three, four, six] {
+        assert!(read.left_out > 0, "the page left out the bodies: {read:?}");
+    }
 
     let requests: Vec<Request> =
         model.requests().into_iter().filter(|request| !request.side_call).collect();

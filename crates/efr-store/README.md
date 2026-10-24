@@ -27,7 +27,11 @@ across a restart:
   connection.
 - `events`: the append-only event log. `read_after(seq, limit)` and the per
   conversation reads return `EventEnvelope`s; a kind this build does not know reads
-  back as `Event::Unknown`.
+  back as `Event::Unknown`. `read_turn_history_without` is the page of a turn's start
+  without the body events (`BODY_KINDS`: the assistant's text, each tool call and its
+  result) of the turns that the caller names. SQLite never copies such an event out,
+  the event still counts towards the limit, and every event of the page is the event
+  of the log.
 - `conversations`, `approvals`, `shells`, `compactions`, `jobs`: projections of the log for
   listing and paging, rebuilt from the events by `WriterHandle::rebuild_projections`.
   `compactions::latest` reads the newest `conversation_compacted` with a summary and

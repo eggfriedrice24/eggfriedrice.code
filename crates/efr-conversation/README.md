@@ -699,7 +699,14 @@ The design:
    read: `history/tests/covered.rs` checks the window, the request and the context
    breakdown with and without the skip. `history/tests/held.rs` checks them the same
    way with the turns that the cache holds and with every saved turn decoded, also
-   after an idle trim and after a restart.
+   after an idle trim and after a restart. The page leaves out the body events (the
+   assistant's text, each tool call and its result) of each turn that the window
+   never rebuilds: a turn with saved messages, and a turn that the newest summary
+   covers whole. So a turn's start does not decode the tool outputs of the earlier
+   turns again. Only the rebuild of a turn reads body events; the other facts of the
+   page (the directories, the hidden shell, the settings, the counts at a turn's end)
+   come from other events. `history/tests/bodies.rs` checks the window, the request,
+   the breakdown and these facts with and without the bodies.
 3. There is no turn limit. `turn_messages` keeps every turn until a compaction with a
    summary covers it, and the actor keeps in memory the turns that the newest request
    carried, until it is idle for 10 minutes.

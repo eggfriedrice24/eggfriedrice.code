@@ -40,6 +40,11 @@ into the GitHub release notes, and it stops when the section is missing.
   still kept in memory, and each tool output in memory could use up to two times its
   size. After a restart of efrd or 10 idle minutes, only the first prompt reads the
   earlier turns from the database.
+- A prompt in a long conversation uses less memory when it starts. efrd no longer
+  reads the tool outputs and answers of the earlier turns again from the event log,
+  because it has these turns as messages. The request to the model stays the same. In
+  a test of 20 conversations of 50 turns, each turn with a tool output of 32 KiB,
+  efrd now allocates about one third less memory for each turn.
 
 ### Fixed
 

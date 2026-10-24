@@ -79,7 +79,7 @@ async fn bench_perf_snapshot_read() {
 
         let snapshot = Snapshot::read(&readers, id, limits, &cache).await.unwrap();
         let cut = summary_cut(&snapshot.compactions);
-        let ranges = older_ranges(&snapshot.turns, &snapshot.saved, &snapshot.page, cut);
+        let ranges = older_ranges(&snapshot.turns, &snapshot.saved, snapshot.first, cut);
         let read = bench::run_async(1, runs(size), || async {
             black_box(Snapshot::read(&readers, id, limits, &cache).await.unwrap());
         })
