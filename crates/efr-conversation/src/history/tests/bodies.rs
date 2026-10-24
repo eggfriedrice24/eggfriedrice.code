@@ -3,11 +3,13 @@
 //! no event that the log does not hold, and reaches back as far. The window, the
 //! request that the model gets, the context breakdown and every fact that a turn reads
 //! from the page stay byte for byte the same as with the whole page: with any cache of
-//! the actor, an empty one as after an idle trim or a restart included.
+//! the actor, an empty one as after an idle trim or a restart included. The count of a
+//! request without a copy of its history ([`parts_len`]) is the length of the request.
 
 use std::collections::HashMap;
 
 use efr_protocol::{EventEnvelope, TurnId};
+use efr_provider::{Message, Request};
 use efr_store::conversations::TurnStatus;
 use efr_store::events::BODY_KINDS;
 use efr_test_support::{TestRng, TestStore};
@@ -16,9 +18,9 @@ use pretty_assertions::assert_eq;
 use super::covered::{LIMITS, random_conversation};
 use super::held::caches;
 use super::{conversation, key};
-use crate::compaction::with_window;
+use crate::compaction::{parts_len, with_window};
 use crate::context::breakdown::{self, end_usage};
-use crate::context::context_base;
+use crate::context::{context_base, json_len};
 use crate::history::{Bodies, Covered, HistoryLimits, Snapshot, bodiless, summary_cut};
 use crate::testing::request;
 
@@ -67,6 +69,8 @@ async fn assert_same(
     rng: &TestRng,
 ) -> usize {
     let base = request(Vec::new());
+    // NOTE: a request that offers no tool shows each call as text.
+    let bare = Request { tools: Vec::new(), ..request(vec![Message::user("before")]) };
     let mut left = 0;
     for (max_events, max_bytes) in LIMITS {
         let limits = HistoryLimits::new(max_events, max_bytes);
@@ -124,6 +128,13 @@ async fn assert_same(
                     let json =
                         |window| serde_json::to_string(&with_window(&base, window)).expect("json");
                     assert_eq!(json(&new), json(&old), "the request, {what}, {model:?}");
+                    for base in [&base, &bare] {
+                        assert_eq!(
+                            parts_len(base, &new.head, &new.placed),
+                            json_len(&with_window(base, &new)),
+                            "the count without a copy, {what}, {model:?}"
+                        );
+                    }
                     assert_eq!(
                         breakdown::measure(&base, &new, &numbers),
                         breakdown::measure(&base, &old, &numbers),

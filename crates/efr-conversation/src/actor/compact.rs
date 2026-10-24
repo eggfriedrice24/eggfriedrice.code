@@ -20,7 +20,7 @@ use efr_store::Batch;
 
 use super::receipt;
 use crate::ConversationError;
-use crate::compaction::{self, Job, Outcome, request_tokens, with_window};
+use crate::compaction::{self, Job, Outcome, window_tokens};
 use crate::context::ContextLimits;
 use crate::fresh::{self, Fresh};
 use crate::history::{CachedTurn, ModelKey, Snapshot};
@@ -107,7 +107,7 @@ async fn compact(
         one_shot: false,
         provider_options: crate::turn::provider_options(&config, shared.conversation_id),
     };
-    let tokens_before = request_tokens(&with_window(&base, &window));
+    let tokens_before = window_tokens(&base, &window);
     let job = Job {
         provider: &*shared.deps.provider,
         base: &base,
@@ -151,7 +151,7 @@ async fn compact(
         window: limits.window,
         limit: limits.limit(),
         tokens_before,
-        tokens_after: request_tokens(&with_window(&base, &built.window)),
+        tokens_after: window_tokens(&base, &built.window),
         through_turn: built.cut.through_turn,
         through_message: built.cut.through_message,
         kept_turns: built.kept_turns,

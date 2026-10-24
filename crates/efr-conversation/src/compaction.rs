@@ -20,7 +20,7 @@ use tracing::Instrument as _;
 
 use crate::context::{
     ContextLimits, PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB,
-    SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS, estimate_tokens,
+    SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_REASONING_TOKENS, TAIL_TOKENS, estimate_tokens, json_len,
 };
 use crate::gap::{self, CallGap};
 use crate::interrupt::Interrupt;
@@ -64,11 +64,12 @@ pub(crate) struct Window {
 impl Window {
     /// The messages of the request, in order.
     pub(crate) fn messages(&self) -> Vec<Message> {
-        self.head
-            .iter()
-            .cloned()
-            .chain(self.placed.iter().map(|placed| placed.message.clone()))
-            .collect()
+        self.iter().cloned().collect()
+    }
+
+    /// The messages of the request, in order, without a copy.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Message> {
+        self.head.iter().chain(self.placed.iter().map(|placed| &placed.message))
     }
 }
 
@@ -140,10 +141,6 @@ impl Pruning {
 }
 
 pub(crate) use crate::context::{message_tokens, request_tokens};
-
-fn json_len<T: serde::Serialize>(value: &T) -> u64 {
-    serde_json::to_vec(value).map_or(0, |json| json.len() as u64)
-}
 
 /// True for a user message that holds only tool results.
 pub(crate) fn is_results(message: &Message) -> bool {
@@ -392,6 +389,25 @@ pub(crate) fn with_window(base: &Request, window: &Window) -> Request {
     Request { messages: unoffered::as_offered(window.messages(), &base.tools), ..base.clone() }
 }
 
+/// The estimated tokens of [`with_window`] of `base` and `window`, counted without a
+/// copy of the history: `base` is measured without its messages, and each message as
+/// the request holds it ([`unoffered::offered_len`]). The count is the
+/// [`request_tokens`] of the request that [`with_window`] builds.
+pub(crate) fn window_tokens(base: &Request, window: &Window) -> u64 {
+    estimate_tokens(parts_len(base, &window.head, &window.placed))
+}
+
+/// The length as JSON of the request of `base` with the messages of `head` and
+/// `placed`, as [`with_window`] builds it.
+pub(crate) fn parts_len(base: &Request, head: &[Message], placed: &[Placed]) -> u64 {
+    let messages = head.iter().chain(placed.iter().map(|placed| &placed.message));
+    let count = (head.len() + placed.len()) as u64;
+    // NOTE: compact JSON writes a list as `[` and `]` around its items, with a `,`
+    // between two of them.
+    let list = 2 + count.saturating_sub(1) + unoffered::offered_len(messages, &base.tools);
+    json_len(base).saturating_sub(json_len(&base.messages)) + list
+}
+
 /// One compaction to run.
 pub(crate) struct Job<'a> {
     pub(crate) provider: &'a dyn Provider,
@@ -448,15 +464,13 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     // NOTE: after an overflow the estimate has just counted too low, so it cannot show
     // that pruning alone makes the request fit; only a summary can. Only a summary
     // takes the place of the turns that the window leaves out, too.
-    if job.trigger == CompactionTrigger::Auto && job.window.omitted == 0 && pruning.worth_it() {
-        let pruned = Window {
-            head: job.window.head.clone(),
-            placed: pruning.placed.clone(),
-            omitted: job.window.omitted,
-        };
-        if request_tokens(&with_window(job.base, &pruned)) < job.limits.trigger {
-            return Outcome::Pruned(pruning);
-        }
+    if job.trigger == CompactionTrigger::Auto
+        && job.window.omitted == 0
+        && pruning.worth_it()
+        && estimate_tokens(parts_len(job.base, &job.window.head, &pruning.placed))
+            < job.limits.trigger
+    {
+        return Outcome::Pruned(pruning);
     }
     let tail = tail_start(&job.window.placed);
     if tail == 0 {
@@ -482,7 +496,7 @@ pub(crate) async fn run(job: Job<'_>) -> Outcome {
     // least as large as the request that the provider refused is refused too, so the
     // oldest messages go before the first try. A history that grew on a model with a
     // larger window fits the window of the turn's model this way.
-    let refused = overflow.then(|| request_tokens(&with_window(job.base, job.window)));
+    let refused = overflow.then(|| window_tokens(job.base, job.window));
     let whole = request_tokens(&summary_of(&job, &messages, Trim::default()));
     let mut trim = Trim::default();
     if whole > job.limits.hard_cap || refused.is_some_and(|refused| whole >= refused) {

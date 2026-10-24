@@ -17,8 +17,8 @@ use efr_stdx::id::uuid_v7;
 use super::stream::Response;
 use super::{Ending, Turn, context_tokens, provider_failure};
 use crate::compaction::{
-    self, Job, Outcome, Pruning, Window, cut_before, gap_note, request_tokens, summary_message,
-    turn_count, with_window,
+    self, Job, Outcome, Pruning, Window, cut_before, gap_note, summary_message, turn_count,
+    window_tokens, with_window,
 };
 use crate::context::{BREAKER_TRIES, ContextLimits, Full, context_full};
 use crate::fresh::{self, Fresh};
@@ -72,13 +72,12 @@ impl Turn {
 
     /// The estimated context of the request of `window` on `base`: the last real count
     /// plus the estimate of the messages added since, or the estimate of the whole
-    /// request when no real count holds for this history. The request is built only
-    /// then, so a call after a counted one does not copy the history to measure it.
-    /// Live clients see it.
+    /// request when no real count holds for this history, counted without a copy of
+    /// the history ([`window_tokens`]). Live clients see it.
     pub(super) fn estimate(&mut self, base: &Request, window: &Window) -> u64 {
         let tokens = match self.meter.known() {
             Some(tokens) => tokens,
-            None => request_tokens(&with_window(base, window)),
+            None => window_tokens(base, window),
         };
         self.show_estimate(tokens)
     }
@@ -294,7 +293,7 @@ impl Turn {
             self.miss(tokens_before, limits);
             return Ok(Compacted::NotDone { failure });
         };
-        let tokens_after = request_tokens(&with_window(base, &built.window));
+        let tokens_after = window_tokens(base, &built.window);
         let compaction = Compaction {
             compaction_id,
             turn_id: Some(self.turn_id()),

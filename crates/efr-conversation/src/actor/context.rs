@@ -63,15 +63,18 @@ pub(super) async fn run(
     let head = snapshot.summary().and_then(|compaction| fresh::stored(compaction, fresh.as_ref()));
 
     // NOTE: the running turn counts as ended here, so the window rebuilds its messages
-    // so far from the page, with a result for each call that still runs.
-    let mut view = snapshot.clone();
-    for turn in &mut view.turns {
+    // so far from the page, with a result for each call that still runs. Only the
+    // turns change for it, and they change back after it: the ends below read them.
+    let mut snapshot = snapshot;
+    let turns = snapshot.turns.clone();
+    for turn in &mut snapshot.turns {
         if Some(turn.id) == running && turn.status == TurnStatus::Running {
             turn.status = TurnStatus::Completed;
         }
     }
     let history = config.history.for_window(limits.window);
-    let window = view.window(None, &cache, &key, history, head.as_deref());
+    let window = snapshot.window(None, &cache, &key, history, head.as_deref());
+    snapshot.turns = turns;
     let base = Request {
         model: model.clone(),
         system: config.system_prompt.clone().filter(|system| !system.is_empty()),

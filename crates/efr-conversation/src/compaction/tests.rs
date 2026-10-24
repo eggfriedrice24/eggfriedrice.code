@@ -1,13 +1,17 @@
 use efr_protocol::TurnId;
-use efr_provider::{ContentBlock, Message, Role};
+use efr_provider::{ContentBlock, Message, Request, Role};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 use super::{
-    Cut, LeftOut, Placed, SUMMARY_CLOSE, SUMMARY_OPEN, SUMMARY_PROMPT, cut_before, message_tokens,
-    minimal_tail, prune, summary_message, summary_prompt, tail_start,
+    Cut, LeftOut, Placed, SUMMARY_CLOSE, SUMMARY_OPEN, SUMMARY_PROMPT, Window, cut_before,
+    message_tokens, minimal_tail, parts_len, prune, request_tokens, summary_message,
+    summary_prompt, tail_start, window_tokens, with_window,
 };
-use crate::context::{PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB, TAIL_TOKENS};
+use crate::context::{
+    PRUNE_KEEP_TOKENS, PRUNE_MIN_TOKENS, PRUNED_OUTPUT_STUB, TAIL_TOKENS, json_len,
+};
+use crate::testing::request;
 
 /// The headings that the summary prompt asks for, in their order: the record format of
 /// a compaction and of the handoff of milestone 4.
@@ -349,6 +353,55 @@ fn covers_turn_agrees_with_covers_on_every_message() {
                     "{cut:?} and turn {number}"
                 );
             }
+        }
+    }
+}
+
+/// A window of `placed` after `head`.
+fn window(head: Vec<Message>, placed: Vec<Placed>) -> Window {
+    Window { head, placed, omitted: 0 }
+}
+
+#[test]
+fn the_count_of_a_window_without_a_copy_is_the_length_of_its_request() {
+    let both = Message::new(
+        Role::Assistant,
+        vec![
+            ContentBlock::ToolCall {
+                call_id: "c3".to_owned(),
+                name: "gone".to_owned(),
+                input: json!({"a": 1}),
+                freeform: false,
+            },
+            ContentBlock::ToolResult {
+                call_id: "c3".to_owned(),
+                output: "in the same message".to_owned(),
+                is_error: true,
+            },
+        ],
+    );
+    let windows = [
+        window(Vec::new(), Vec::new()),
+        window(vec![Message::user("fresh"), summary_message("summary")], Vec::new()),
+        window(
+            vec![Message::user("fresh")],
+            vec![
+                at(1, 0, Message::user("prompt")),
+                at(1, 1, call("c1")),
+                at(1, 2, result("c1", 300)),
+                at(2, 0, both),
+                at(2, 1, result("c3", 10)),
+                at(2, 2, Message::assistant("done")),
+            ],
+        ),
+    ];
+    let offered = request(Vec::new());
+    let bare = Request { tools: Vec::new(), ..request(vec![Message::user("before")]) };
+    for base in [&offered, &bare] {
+        for window in &windows {
+            let built = with_window(base, window);
+            assert_eq!(parts_len(base, &window.head, &window.placed), json_len(&built));
+            assert_eq!(window_tokens(base, window), request_tokens(&built));
         }
     }
 }
