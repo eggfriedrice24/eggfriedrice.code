@@ -12,8 +12,16 @@
 //! The daemon's `RecordingSink` holds one [`RecordingWriter`] per PTY. The writer
 //! adds a segment's index row before it creates the file and closes the row after the
 //! file is flushed, all through the store's single writer; a reader treats a row
-//! without a file as empty. Appends are not flushed one by one: a recording is an
-//! audit trail and a resume buffer, and a crash loses at most the unflushed tail.
+//! without a file as empty. Appends are not flushed one by one: a recording is a
+//! resume buffer and a record of recent output, and a crash loses at most the
+//! unflushed tail.
+//!
+//! A recording is not kept forever. [`Recordings::collect`] (`retention.rs`) deletes
+//! the recording of a shell that exited longer ago than an age, and the oldest
+//! segments first while all recordings pass a size. It never deletes the newest
+//! segment of a PTY that can still start a writer, nor the segments before it up to a
+//! tail of stream bytes. A read of a PTY whose first bytes went reports a later
+//! [`RecordedRange::start`].
 
 use std::fs::{self, DirBuilder};
 use std::io;
@@ -29,8 +37,10 @@ use rusqlite::{Connection, Row, params};
 use crate::{Readers, StoreError, WriterHandle, sql};
 
 mod format;
+mod retention;
 mod writer;
 
+pub use retention::{Collected, Retention, WRITER_GRACE};
 pub use writer::RecordingWriter;
 
 const TABLE: &str = "recording_segments";
