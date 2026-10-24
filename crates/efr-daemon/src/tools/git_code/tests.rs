@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use efr_config::Settings;
 use efr_conversation::Toolbox as _;
 use efr_permissions::{
-    Approver, ConversationPolicy, DecisionInput, Engine, Locations, Requirements,
+    Approver, AutoSupport, ConversationPolicy, DecisionInput, Egress, Engine, Locations,
+    Requirements,
 };
 use efr_protocol::{ExitKind, GitCodeFacts, Mode, Origin, Scope};
 use pretty_assertions::assert_eq;
@@ -147,4 +148,71 @@ async fn a_line_with_no_git_code_ask_keeps_no_check() {
     let requirements = kept.toolbox.requirements(&call).await.unwrap();
     assert_eq!(requirements.facts.unwrap().git_code, None);
     assert!(!kept.toolbox.git_checks.has(call.context.call_id));
+}
+
+/// Who may approve each exit of `requirements` in `auto` under the proxy that runs
+/// outside the sandbox (`outside` and `upload`). Under the proxy, a fetch from an ssh
+/// remote runs outside.
+fn outside_approvers(home: &Path, requirements: Requirements) -> Vec<(ExitKind, Approver)> {
+    let engine = Engine::with_defaults(Locations::new(home).unwrap())
+        .with_support(AutoSupport { egress: Egress::Proxy, ..AutoSupport::default() });
+    let decision = engine.decide(&DecisionInput {
+        requirements,
+        scope: Scope::Machine,
+        origin: Origin::Shell,
+        mode: Mode::Auto,
+        conversation_policy: ConversationPolicy::new(home.join("scratch")),
+    });
+    decision
+        .exits()
+        .filter(|need| matches!(need.kind, ExitKind::Outside | ExitKind::Upload))
+        .map(|need| (need.kind, need.approver))
+        .collect()
+}
+
+/// The gap of phase D2: an outside `git fetch` or `git push` runs the repository's
+/// `core.sshCommand` and its hooks with the user's rights. When a sandboxed command can
+/// write them, as in a nested repository of the project, only the user approves the
+/// line. The same code in the pinned git dir of the project keeps the reviewer.
+#[tokio::test]
+async fn writable_ssh_command_or_hook_makes_fetch_and_push_user_only() {
+    let (kept, app, _dir) = machine().await;
+    let nested = app.join("vendor/x");
+    for repo in [&app, &nested] {
+        git(repo, &["remote", "add", "origin", "git@github.com:o/r.git"]).await;
+    }
+    let mut n = 0;
+    let mut check = async |dir: &Path, user_only: bool, why: &str| {
+        for line in ["git fetch origin", "git push origin main"] {
+            n += 1;
+            let found = requirements(&kept, n, line, dir).await;
+            let approvers = outside_approvers(&kept.home, found);
+            assert!(!approvers.is_empty(), "{why}: {line}: no exit runs outside");
+            for (kind, approver) in approvers {
+                assert_eq!(approver == Approver::User, user_only, "{why}: {line}: {kind:?}");
+            }
+        }
+    };
+
+    check(&nested, false, "no planted code").await;
+
+    let config = nested.join(".git/config");
+    git(&nested, &["config", "core.sshCommand", "sh -c 'payload; exec ssh \"$@\"' --"]).await;
+    let facts = git_code(&kept, 100, "git fetch origin", &nested).await.unwrap();
+    assert_eq!(writable(&facts), [("core.sshcommand".to_owned(), config)]);
+    check(&nested, true, "core.sshCommand in a writable config").await;
+
+    git(&nested, &["config", "--unset", "core.sshCommand"]).await;
+    let planted = hook(&nested.join(".git/hooks"), "reference-transaction");
+    let facts = git_code(&kept, 101, "git push origin main", &nested).await.unwrap();
+    assert_eq!(writable(&facts), [("hooks/reference-transaction".to_owned(), planted.clone())]);
+    check(&nested, true, "a hook in a writable hooks dir").await;
+    std::fs::remove_file(&planted).unwrap();
+
+    // The project's own config and hooks lie in its pinned git dir.
+    git(&app, &["config", "core.sshCommand", "ssh -i key"]).await;
+    hook(&app.join(".git/hooks"), "reference-transaction");
+    let facts = git_code(&kept, 102, "git fetch origin", &app).await.unwrap();
+    assert!(facts.clean(), "{facts:?}");
+    check(&app, false, "the pinned project's own code").await;
 }
