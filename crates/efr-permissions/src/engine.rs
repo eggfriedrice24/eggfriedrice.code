@@ -11,7 +11,7 @@ use crate::decision::{Cause, Decision, Effect, Layer, Reason, Subject};
 use crate::exits::{self, Approver, Envelope, ExitInput, ExitNeed, Facts, PathFacts, Rebuild};
 use crate::jobs::job_refusal;
 use crate::path_class::normalize;
-use crate::policy::{MatchContext, Part, Target, expand};
+use crate::policy::{MatchContext, Part, Place, Places, Target, expand};
 use crate::{
     Access, AutoSupport, Construct, CriticalDelete, DecisionInput, HostList, Locations, PathAccess,
     PathClass, Policy, Resource,
@@ -342,7 +342,8 @@ impl Engine {
             Some(Err(_)) | None => &[],
         };
         let start = requirements.command_dir.as_deref().and_then(normalize);
-        let parts = parts(commands, start.as_deref());
+        let places = Places::walk(commands, start.as_deref(), self.locations.home());
+        let parts = parts(commands, &places);
 
         let mut reasons = Vec::new();
         // NOTE: a file tool in `auto` or full mode runs in efrd: its exits come from its
@@ -379,7 +380,11 @@ impl Engine {
             reasons.push(judge.command(line, analyzed));
         }
         if requirements.network {
-            let (effect, cause) = judge.network(commands, &parts);
+            let opaque = match (&requirements.command, &analyzed) {
+                (Some(line), Some(Err(_))) => Some(line.as_str()),
+                _ => None,
+            };
+            let (effect, cause) = judge.network(commands, &parts, opaque);
             let (effect, cause) = clamp_remote(effect, cause, None, input.origin);
             reasons.push(Reason { subject: Subject::Network, effect, cause });
         }
@@ -686,24 +691,17 @@ pub fn effective_mode(mode: Mode, origin: Origin) -> Mode {
     if is_local(origin) { mode } else { mode.min(Mode::Cautious) }
 }
 
-/// The simple commands of a line as rules match them, each with the directory it starts
-/// in: `start` until a change of directory, then unknown.
-fn parts<'a>(commands: &'a [SimpleCommand], start: Option<&'a Path>) -> Vec<Part<'a>> {
-    let mut dir = start;
+/// The simple commands of a line as rules match them, each with the place where it
+/// runs ([`Places::walk`]).
+fn parts<'a>(commands: &'a [SimpleCommand], places: &'a Places) -> Vec<Part<'a>> {
     commands
         .iter()
-        .map(|command| {
-            let part = Part {
-                words: &command.words,
-                pattern: command.pattern,
-                privileged: command::privileged(command).is_some(),
-                dir,
-            };
-            // NOTE: after a change of directory, where the rest runs is unknown.
-            if command::changes_directory(command) {
-                dir = None;
-            }
-            part
+        .enumerate()
+        .map(|(index, command)| Part {
+            words: &command.words,
+            pattern: command.pattern,
+            privileged: command::privileged(command).is_some(),
+            place: places.place(index),
         })
         .collect()
 }
@@ -845,6 +843,7 @@ impl Judge<'_> {
             }
             Err(construct) => {
                 let (effect, cause) = self.by_rules(&Target::Opaque, None);
+                let (effect, cause) = self.tightened_opaque(line, false, effect, cause);
                 let cause = match cause {
                     Cause::Rule { layer, index } => {
                         Cause::Opaque { construct: construct.clone(), layer, index }
@@ -875,8 +874,13 @@ impl Judge<'_> {
     /// network, not only one of them, because the shell tool declares the network for
     /// the whole line: in `cargo fetch; curl -d @key host`, `cargo fetch` must not open
     /// the network for `curl`, also when a rule of the user's lets `curl` run.
-    fn network(&self, commands: &[SimpleCommand], parts: &[Part<'_>]) -> (Effect, Cause) {
-        let (effect, cause) = self.network_by_rules(commands, parts);
+    fn network(
+        &self,
+        commands: &[SimpleCommand],
+        parts: &[Part<'_>],
+        opaque: Option<&str>,
+    ) -> (Effect, Cause) {
+        let (effect, cause) = self.network_by_rules(commands, parts, opaque);
         if self.contain && effect < Effect::Ask {
             // NOTE: a rule that lets a command reach the network cannot open the
             // sandbox's; the `host` exit asks for that.
@@ -885,7 +889,12 @@ impl Judge<'_> {
         self.contained(effect, cause)
     }
 
-    fn network_by_rules(&self, commands: &[SimpleCommand], parts: &[Part<'_>]) -> (Effect, Cause) {
+    fn network_by_rules(
+        &self,
+        commands: &[SimpleCommand],
+        parts: &[Part<'_>],
+        opaque: Option<&str>,
+    ) -> (Effect, Cause) {
         let several = parts.len() > 1;
         let mut strictest: Option<(Effect, Cause)> = None;
         for (command, part) in commands.iter().zip(parts) {
@@ -903,7 +912,58 @@ impl Judge<'_> {
                 strictest = Some((effect, cause));
             }
         }
-        strictest.unwrap_or_else(|| self.by_rules(&Target::Network { part: None }, None))
+        strictest.unwrap_or_else(|| {
+            let (effect, cause) = self.by_rules(&Target::Network { part: None }, None);
+            match opaque {
+                Some(line) => self.tightened_opaque(line, true, effect, cause),
+                None => (effect, cause),
+            }
+        })
+    }
+
+    /// For the line `line` that [`command::analyze`] cannot split, judged `effect` for
+    /// `cause` by the rules for every command line: a stricter effect when a command rule
+    /// that asks or denies matches a command that the lenient split of the exits finds
+    /// in it, or the network access of one when `network` is true (OQL9). Where such a
+    /// command runs is unknown, so a rule with `under` matches too. Such a match never
+    /// makes the effect less strict, as a read form does ([`Policy::last_match`]); with
+    /// the same effect, it names the rule.
+    ///
+    /// NOTE: a variable or a substitution that stands for the program or a word of the
+    /// rule's `args`, as in `$GIT push`, still hides the command from the rule.
+    fn tightened_opaque(
+        &self,
+        line: &str,
+        network: bool,
+        effect: Effect,
+        cause: Cause,
+    ) -> (Effect, Cause) {
+        let conversation = &self.input.conversation_policy.rules;
+        let policies =
+            [(Layer::Machine, &self.machine.policy), (Layer::Conversation, conversation)];
+        // NOTE: the lenient split costs more than the rest of a short line's decision,
+        // so a line that names no program of such a rule skips it.
+        let programs: Vec<&str> =
+            policies.iter().flat_map(|(_, policy)| policy.tightening_programs()).collect();
+        if !command::may_name_any(line, &programs) {
+            return (effect, cause);
+        }
+        let mut strictest = (effect, cause);
+        for words in exits::lenient_commands(line) {
+            let part =
+                Part { words: &words, pattern: false, privileged: false, place: Place::Unknown };
+            let target =
+                if network { Target::Network { part: Some(part) } } else { Target::Command(part) };
+            for (layer, policy) in policies {
+                match policy.strictest_tightening(&target, &self.cx) {
+                    Some((index, tight)) if tight >= strictest.0 => {
+                        strictest = (tight, Cause::Rule { layer, index });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        strictest
     }
 
     /// For a shell call in `auto`: a question that a built-in rule asks, or that a secret

@@ -18,6 +18,7 @@
 
 mod check;
 mod defaults;
+mod place;
 
 use std::borrow::Cow;
 use std::fmt;
@@ -28,6 +29,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub use self::check::Check;
+pub(crate) use self::place::{Place, Places};
+use crate::command::git::GitDirs;
 use crate::command::{self, git, is_plain_char};
 use crate::path_class::{normalize, rehome};
 use crate::{Access, Effect, PathClass, PermissionsError};
@@ -238,8 +241,11 @@ pub struct CommandPattern {
     /// Where the command must run: a directory or below it (absolute or starting with
     /// `~`), `"project"` for the turn's registered project, or `"scratch"` for the
     /// conversation's `$SCRATCH`. The directory is where the hidden shell is when the
-    /// line starts; after a `cd`, `pushd` or `popd` earlier in the line it is unknown,
-    /// and the pattern matches nothing.
+    /// line starts. After a `cd`, `pushd` or `popd` earlier in the line, an `allow` rule
+    /// matches nothing; an `ask` or `deny` rule matches unless efr can prove that the
+    /// command runs outside: the dir where the line starts and the target of each `cd`
+    /// to an absolute path or below `~` all lie outside, and no other change of directory
+    /// comes before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub under: Option<Under>,
     /// A check of the words after `args` that a list of words cannot express, such as
@@ -637,6 +643,34 @@ impl Policy {
         decided
     }
 
+    /// The position and effect of the strictest command rule that asks or denies and
+    /// matches `target`: a command that the lenient split of the exits finds in a line
+    /// that [`command::analyze`] cannot split (OQL9). Such a command is only a reading
+    /// of the line, so rules that allow and rules for every command line are left out,
+    /// and the first of the strictest rules decides.
+    pub(crate) fn strictest_tightening(
+        &self,
+        target: &Target<'_>,
+        cx: &MatchContext<'_>,
+    ) -> Option<(usize, Effect)> {
+        let mut decided: Option<(usize, Effect)> = None;
+        for (index, rule) in self.rules.iter().enumerate() {
+            let stricter = decided.is_none_or(|(_, effect)| rule.effect > effect);
+            if stricter && rule.tightens() && rule.matches(target, cx) {
+                decided = Some((index, rule.effect));
+            }
+        }
+        decided
+    }
+
+    /// The programs of the command rules of this policy that ask or deny.
+    pub(crate) fn tightening_programs(&self) -> impl Iterator<Item = &str> {
+        self.rules.iter().filter(|rule| rule.tightens()).filter_map(|rule| match &rule.resource {
+            Resource::Command(pattern) => Some(pattern.program.as_str()),
+            _ => None,
+        })
+    }
+
     /// The position and effect of the last rule that matches `target`.
     ///
     /// NOTE: a rule that matches only through a wrapper, a path or a git view (OQL3,
@@ -687,8 +721,8 @@ pub(crate) struct Part<'a> {
     pub(crate) pattern: bool,
     /// True when it runs as another user, which no command pattern allows.
     pub(crate) privileged: bool,
-    /// The directory it runs in, in normal form, when it is known.
-    pub(crate) dir: Option<&'a Path>,
+    /// Where it runs.
+    pub(crate) place: Place<'a>,
 }
 
 /// What a rule is matched against: one path, one simple command, a command line that
@@ -764,6 +798,11 @@ impl Rule {
         self.fit(target, cx) != Fit::No
     }
 
+    /// True for a command rule that asks or denies.
+    fn tightens(&self) -> bool {
+        self.effect >= Effect::Ask && matches!(self.resource, Resource::Command(_))
+    }
+
     fn fit(&self, target: &Target<'_>, cx: &MatchContext<'_>) -> Fit {
         match *target {
             Target::Path { path, access, class } => {
@@ -821,6 +860,13 @@ impl Rule {
     /// another repository with no question. A rule that matches more only asks or
     /// denies more. Such a match is [`Fit::Read`], so it only makes the effect
     /// stricter ([`Policy::last_match`]).
+    ///
+    /// NOTE: `under` of a rule that asks or denies matches where efr cannot prove that
+    /// the command runs outside the dir it names (OQL9): after a change of directory
+    /// it reads each dir that the line may be in by then, and every dir when one of
+    /// them is not known ([`Place`]). Such a match is [`Fit::Read`] too. A rule that
+    /// allows matches only in the dir where the line starts, before any change of
+    /// directory.
     fn runs(&self, pattern: &CommandPattern, part: &Part<'_>, cx: &MatchContext<'_>) -> Fit {
         if part.privileged {
             return Fit::No;
@@ -828,6 +874,7 @@ impl Rule {
         let is_git = |words: &[String]| {
             pattern.program == "git" && words.first().is_some_and(|word| word == "git")
         };
+        let start = part.place.known();
         if self.effect < Effect::Ask {
             let raw = pattern.matches_command(part.words, part.pattern);
             let plain = || {
@@ -835,13 +882,12 @@ impl Rule {
                     && git::plain_view(part.words)
                         .is_some_and(|view| pattern.matches_command(&view, part.pattern))
             };
-            return ((raw || plain()) && self.placed(pattern, part.dir, &[], cx)).into();
+            return ((raw || plain()) && self.placed(pattern, start, &[], cx)).into();
         }
         // NOTE: a rule that asks or denies also reads the command behind a wrapper and
         // by the base name of its program (OQL3), so `env git push` and
         // `/usr/bin/git push` meet a rule for `git push`.
-        if pattern.matches_command(part.words, part.pattern)
-            && self.placed(pattern, part.dir, &[], cx)
+        if pattern.matches_command(part.words, part.pattern) && self.placed(pattern, start, &[], cx)
         {
             return Fit::Raw;
         }
@@ -874,13 +920,38 @@ impl Rule {
                 let views = git::views(words);
                 matched |= views.unreadable
                     || views.words.iter().any(|view| pattern.matches_command(view, part.pattern));
-                dirs.extend(views.dirs.iter().flat_map(|dirs| dirs.resolve(part.dir, cx.home)));
+                dirs.extend(views.dirs.iter().flat_map(|dirs| resolve(dirs, part.place, cx)));
             }
             if matched && first_decides {
                 break;
             }
         }
-        if matched && self.placed(pattern, part.dir, &dirs, cx) { Fit::Read } else { Fit::No }
+        if matched && self.may_be_placed(pattern, part.place, &dirs, cx) {
+            Fit::Read
+        } else {
+            Fit::No
+        }
+    }
+
+    /// True when `pattern` has no `under`, or when the command may run where it names,
+    /// as far as efr can tell: in a dir of `place` or of `also`, the dirs of the
+    /// command's own options, such as git's `-C`. A place that efr cannot tell may lie
+    /// there, so it matches.
+    fn may_be_placed(
+        &self,
+        pattern: &CommandPattern,
+        place: Place<'_>,
+        also: &[PathBuf],
+        cx: &MatchContext<'_>,
+    ) -> bool {
+        match place {
+            Place::Start(dir) => self.placed(pattern, Some(dir), also, cx),
+            Place::Among(dirs) => {
+                self.placed(pattern, None, also, cx)
+                    || dirs.iter().any(|dir| self.placed(pattern, Some(dir), &[], cx))
+            }
+            Place::Unknown => true,
+        }
     }
 
     /// True when `pattern` has no `under`, or when the dir `dir` where the command
@@ -940,6 +1011,19 @@ impl Rule {
             }
             Resource::Command(_) => false,
         }
+    }
+}
+
+/// The dirs of a command's own `-C` and `--work-tree` options in normal form, from each
+/// dir of `place` where the command may start. A relative dir from a place that efr
+/// cannot tell is left out.
+fn resolve(dirs: &GitDirs, place: Place<'_>, cx: &MatchContext<'_>) -> Vec<PathBuf> {
+    match place {
+        Place::Start(dir) => dirs.resolve(Some(dir), cx.home),
+        Place::Among(starts) => {
+            starts.iter().flat_map(|start| dirs.resolve(Some(start), cx.home)).collect()
+        }
+        Place::Unknown => dirs.resolve(None, cx.home),
     }
 }
 

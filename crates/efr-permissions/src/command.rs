@@ -271,13 +271,60 @@ pub fn runs_as_another_user(line: &str) -> bool {
     }
 }
 
-/// True when `command` changes the shell's directory, so the commands after it may run
-/// elsewhere.
-pub(crate) fn changes_directory(command: &SimpleCommand) -> bool {
-    command
-        .words
-        .first()
-        .is_some_and(|program| matches!(base_name(program), "cd" | "pushd" | "popd" | "chdir"))
+/// Where a change of directory goes, as [`directory_change`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DirChange<'w> {
+    /// To the home directory: `cd` with no operand.
+    Home,
+    /// To the one directory that the word names: an absolute path, `~` or `~/...`.
+    To(&'w str),
+    /// To a directory that the text does not show: `cd -`, a stack entry such as `+1`,
+    /// `popd`, `pushd` with no operand, a relative path (`CDPATH` and `cdable_vars` may
+    /// move it), two operands (zsh's replace form), a pattern, or a `cd` behind a
+    /// wrapper such as `time`, which zsh runs in the shell itself.
+    Unknown,
+}
+
+/// The programs that change the hidden shell's directory.
+const CD_PROGRAMS: &[&str] = &["cd", "chdir", "pushd", "popd"];
+
+/// Where `command` moves the shell's directory, or `None` when it does not change it.
+/// The commands after it may run there, or where they ran before, because a `cd` can
+/// fail or run in a pipeline (efr's v0.0.4 live items plan, OQL9).
+pub(crate) fn directory_change(command: &SimpleCommand) -> Option<DirChange<'_>> {
+    let (program, args) = command.words.split_first()?;
+    let program = base_name(program);
+    if !CD_PROGRAMS.contains(&program) {
+        // NOTE: `time cd /x` moves the shell, and a wrapper's values are not known, so
+        // any form that names a `cd` program leaves the directory unknown.
+        let behind = run_forms(&command.words).skip(1).any(|form| CD_PROGRAMS.contains(&form.head));
+        return behind.then_some(DirChange::Unknown);
+    }
+    if program == "popd" || command.pattern {
+        return Some(DirChange::Unknown);
+    }
+    // NOTE: zsh's `cd` and `pushd` take `-q`, `-s`, `-L` and `-P`, also in one word,
+    // and `--` ends them; any other word is an operand.
+    let operands = args
+        .iter()
+        .position(|word| {
+            !(word.len() > 1
+                && word.starts_with('-')
+                && word[1..].chars().all(|c| matches!(c, 'q' | 's' | 'L' | 'P')))
+        })
+        .map_or(&[][..], |at| &args[at..]);
+    let operands = match operands.split_first() {
+        Some((first, rest)) if first == "--" => rest,
+        _ => operands,
+    };
+    Some(match operands {
+        [] if program == "pushd" => DirChange::Unknown,
+        [] => DirChange::Home,
+        [word] if word.starts_with('/') || word == "~" || word.starts_with("~/") => {
+            DirChange::To(word)
+        }
+        _ => DirChange::Unknown,
+    })
 }
 
 /// A privileged program named anywhere in a line that [`analyze`] could not split, by a
@@ -286,6 +333,16 @@ pub(crate) fn privileged_anywhere(line: &str) -> Option<&'static str> {
     line.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/')))
         .map(base_name)
         .find_map(|word| PRIVILEGED.iter().copied().find(|program| *program == word))
+}
+
+/// True when a word of `line`, by a coarse scan that would rather find one too many,
+/// may be one of `programs`, as written or by its base name. Quotes and backslashes are
+/// dropped first, so `g'i't` reads as `git`.
+pub(crate) fn may_name_any(line: &str, programs: &[&str]) -> bool {
+    let unquoted: String = line.chars().filter(|c| !matches!(c, '\\' | '\'' | '"')).collect();
+    unquoted
+        .split(|c: char| !is_plain_char(c))
+        .any(|word| programs.contains(&word) || programs.contains(&base_name(word)))
 }
 
 fn base_name(word: &str) -> &str {

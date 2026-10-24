@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use efr_protocol::Mode;
 
 use super::{
-    Action, Check, CommandPattern, MatchContext, Part, Policy, Resource, Rule, Target, Under,
-    defaults,
+    Action, Check, CommandPattern, MatchContext, Part, Place, Policy, Resource, Rule, Target,
+    Under, defaults,
 };
 use crate::{Access, Effect, PathClass, PermissionsError};
 
@@ -203,7 +203,12 @@ fn actions_and_resources_select_targets(
     assert_eq!(matched(tree), reads);
     assert_eq!(matched(write("/home/u/p/app/a", PathClass::UserData)), writes);
     assert_eq!(
-        matched(Target::Command(Part { words: &ls, pattern: false, privileged: false, dir: None })),
+        matched(Target::Command(Part {
+            words: &ls,
+            pattern: false,
+            privileged: false,
+            place: Place::Unknown
+        })),
         runs
     );
     assert_eq!(matched(Target::Opaque), runs_opaque);
@@ -213,8 +218,12 @@ fn actions_and_resources_select_targets(
 #[test]
 fn a_privileged_command_matches_only_rules_for_every_command() {
     let sudo = words("sudo ls");
-    let target =
-        Target::Command(Part { words: &sudo, pattern: false, privileged: true, dir: None });
+    let target = Target::Command(Part {
+        words: &sudo,
+        pattern: false,
+        privileged: true,
+        place: Place::Unknown,
+    });
     let pattern = Policy::new(vec![Rule::new(
         Action::Execute,
         Resource::Command(CommandPattern::new("sudo")),
@@ -436,12 +445,16 @@ fn under_limits_a_command_to_a_directory(#[case] dir: &'static str, #[case] expe
         words: &cargo_test,
         pattern: false,
         privileged: false,
-        dir: Some(Path::new(dir)),
+        place: Place::Start(Path::new(dir)),
     });
     assert_eq!(policy.last_match(&target, &cx).is_some(), expected, "{dir}");
-    let unknown =
-        Target::Command(Part { words: &cargo_test, pattern: false, privileged: false, dir: None });
-    assert_eq!(policy.last_match(&unknown, &cx), None, "an unknown directory matches nothing");
+    let unknown = Target::Command(Part {
+        words: &cargo_test,
+        pattern: false,
+        privileged: false,
+        place: Place::Unknown,
+    });
+    assert_eq!(policy.last_match(&unknown, &cx), None, "an unknown directory allows nothing");
 }
 
 #[test]
@@ -869,7 +882,12 @@ fn under_project_and_scratch_name_the_turns_places(
         Policy::new(vec![Rule::new(Action::Execute, Resource::Command(pattern), Effect::Allow)])
             .unwrap();
     let cargo = words("cargo test");
-    let part = Part { words: &cargo, pattern: false, privileged: false, dir: Some(Path::new(dir)) };
+    let part = Part {
+        words: &cargo,
+        pattern: false,
+        privileged: false,
+        place: Place::Start(Path::new(dir)),
+    };
     let target = Target::Command(part);
     assert_eq!(policy.last_match(&target, &cx_with_scratch()).is_some(), expected, "{dir}");
     let nowhere = MatchContext { project_root: None, scratch: None, ..cx() };
@@ -894,7 +912,7 @@ fn a_network_rule_for_a_command_matches_that_commands_network_access_only() {
         Rule::new(action, Resource::Command(pattern), Effect::Allow)
     };
     let npm = words("npm ci");
-    let part = Part { words: &npm, pattern: false, privileged: false, dir: None };
+    let part = Part { words: &npm, pattern: false, privileged: false, place: Place::Unknown };
     let network = Policy::new(vec![rule(Action::Network)]).unwrap();
     assert!(network.last_match(&Target::Network { part: Some(part) }, &cx()).is_some());
     assert!(network.last_match(&Target::Network { part: None }, &cx()).is_none());
@@ -950,4 +968,5 @@ fn the_cautious_policy_round_trips_through_toml() {
     assert_eq!(toml::from_str::<Config>(&text).unwrap(), config);
 }
 
+mod places;
 mod run_forms;

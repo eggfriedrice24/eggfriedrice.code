@@ -188,6 +188,22 @@ into the GitHub release notes, and it stops when the section is missing.
   and `rsync -e`), and to a socket grant of a socket that an ssh process listens on or
   that a `ControlPath` of your ssh config names. Before, the reviewer could approve
   such a line when a message of yours named its host.
+- An `ask` or `deny` rule with `under` now applies after a `cd` in the line, unless
+  efr can prove that the command runs outside the rule's directory. Before, the rule
+  matched nothing after any `cd`, so `cd sub && git push` ran without the question or
+  the refusal of a `deny git push` rule for `~/work`. Now efr reads where each `cd`
+  goes: a target that is absolute or below `~` counts, together with the directory
+  before it, because a `cd` can fail. After a relative `cd`, `cd -`, `popd` or a `cd`
+  to a variable, the directory is unknown and the rule applies. An `allow` rule with
+  `under` still matches only before the first `cd`.
+- An `ask` or `deny` command rule now also applies to a line that efr cannot split
+  into simple commands, such as `git push $(git branch --show-current)` or
+  `cd "$DIR" && git push`. efr reads each command that it finds in the line, the
+  commands of a substitution too. Before, only a rule for every command line judged
+  such a line, so in full mode it ran with no question although a rule of yours
+  denied `git push`.
+- `time cd /x` now counts as a change of directory. zsh runs it in the shell, so
+  before, a rule with `under` judged the commands after it by the old directory.
 
 ## [0.0.4] - 2026-10-23
 

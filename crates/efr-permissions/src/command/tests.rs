@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{
-    Construct, SimpleCommand, analyze, privileged, privileged_anywhere, run_forms,
+    Construct, SimpleCommand, analyze, may_name_any, privileged, privileged_anywhere, run_forms,
     runs_as_another_user,
 };
 
@@ -306,4 +306,18 @@ fn run_forms_read_behind_wrappers_and_paths(#[case] line: &str, #[case] expected
     let words: Vec<String> = line.split(' ').map(str::to_owned).collect();
     let forms: Vec<String> = run_forms(&words).map(|form| form.words().join(" ")).collect();
     assert_eq!(forms, expected, "{line}");
+}
+
+#[rstest]
+#[case::plain("git push $(x)", true)]
+#[case::by_path("/usr/bin/git push $(x)", true)]
+#[case::quoted("'git' push $(x)", true)]
+#[case::split_by_quotes("g'i't push $(x)", true)]
+#[case::escaped("g\\it push $(x)", true)]
+#[case::in_a_substitution("echo $(git push)", true)]
+#[case::behind_a_wrapper("X=$(y) env nice git push", true)]
+#[case::in_another_word("cargo build > out", false)]
+#[case::not_named("ls $(pwd)", false)]
+fn a_coarse_scan_finds_a_program_in_any_word(#[case] line: &str, #[case] named: bool) {
+    assert_eq!(may_name_any(line, &["git", "rg"]), named, "{line:?}");
 }
