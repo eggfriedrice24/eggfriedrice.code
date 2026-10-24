@@ -38,6 +38,8 @@ package() {
   install -Dm0644 -t "$pkgdir/usr/share/zsh/plugins/efr/" shell/zsh/efr.plugin.zsh
   # release.yml already points this unit at /usr/bin/efrd.
   install -Dm0644 -t "$pkgdir/usr/lib/systemd/user/" systemd/efrd.service
+  # Each background job runs in a cgroup of its own below efrd's (ADR 0021).
+  grep -qx 'Delegate=yes' "$pkgdir/usr/lib/systemd/user/efrd.service"
   install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
   install -Dm0644 -t "$pkgdir/usr/share/doc/efr-code/" README.md \
     docs/config.md docs/permissions.md docs/sandbox.md

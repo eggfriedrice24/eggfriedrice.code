@@ -213,6 +213,7 @@ impl DaemonToolbox {
                 launcher: running.call_dir.is_some(),
             }),
             waits_input: false,
+            cgroup: None,
         };
         let job = AdoptedJob {
             info,

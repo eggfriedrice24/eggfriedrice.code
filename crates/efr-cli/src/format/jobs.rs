@@ -4,7 +4,8 @@
 //! link on a terminal), the mark of a turn that a job notice started, the question of
 //! the stop key, the question and the notes of the background key (Ctrl+B) and the
 //! start of a job that the user moved from a running call, and the rows of `efr jobs
-//! list` (with the forwarded ports of a running job and the mark of a moved one).
+//! list` (with the forwarded ports of a running job, its memory and CPU time from its
+//! cgroup or why it has none, and the mark of a moved one).
 //!
 //! A job's command, its output and its tail come from a program, not from efr: every
 //! piece of them goes through [`one_line`] or [`lines`], so a control character or a
@@ -15,8 +16,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use efr_protocol::{
-    Blocked, Event, ExitInfo, ForwardOutcome, HeldReason, JobId, JobInfo, JobState, JobStopBy,
-    SurfaceChange,
+    Blocked, Event, ExitInfo, ForwardOutcome, HeldReason, JobCgroup, JobId, JobInfo, JobState,
+    JobStopBy, SurfaceChange,
 };
 use efr_render::{RenderOptions, WidthMethod};
 use jiff::Timestamp;
@@ -465,6 +466,23 @@ fn state_words(job: &JobInfo) -> String {
     }
 }
 
+/// What the cgroup of a running job says (ADR 0021): its memory and CPU time, such as
+/// `183.5 MB of memory, 42.1 s of CPU`, or why it has no cgroup, such as `no cgroup:
+/// efrd's cgroup is not delegated (Delegate=yes)`. `None` when it says nothing yet.
+pub(crate) fn cgroup_words(cgroup: &JobCgroup) -> Option<String> {
+    if let Some(off) = &cgroup.off {
+        return Some(format!("no cgroup: {}", one_line(off)));
+    }
+    let mut parts = Vec::new();
+    if let Some(bytes) = cgroup.memory_bytes {
+        parts.push(format!("{} of memory", size(bytes)));
+    }
+    if let Some(usec) = cgroup.cpu_usec {
+        parts.push(format!("{}.{} s of CPU", usec / 1_000_000, usec / 100_000 % 10));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
 /// When `job` ends or ended, at `now`: `ends in 52m 3s`, `ends now`, `ended 5m 3s ago`.
 fn when(job: &JobInfo, now: Timestamp) -> String {
     match (job.state, job.ended_at) {
@@ -500,6 +518,11 @@ pub(crate) fn list(rows: &[ListRow<'_>], now: Timestamp) -> String {
             }
             if row.job.state == JobState::Running && row.job.waits_input {
                 let _ = write!(command, "  {WAITS_MARK}");
+            }
+            if row.job.state == JobState::Running
+                && let Some(words) = row.job.cgroup.as_ref().and_then(cgroup_words)
+            {
+                let _ = write!(command, "  ({words})");
             }
             if row.leftover {
                 command.push_str("  (its processes may still run)");

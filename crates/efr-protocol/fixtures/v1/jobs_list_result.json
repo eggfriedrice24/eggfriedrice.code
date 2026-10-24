@@ -36,7 +36,11 @@
           "listen": "::1",
           "port": 5173
         }
-      ]
+      ],
+      "cgroup": {
+        "memory_bytes": 183500800,
+        "cpu_usec": 42100000
+      }
     },
     {
       "id": "j4",
@@ -72,7 +76,10 @@
         ],
         "launcher": true
       },
-      "waits_input": true
+      "waits_input": true,
+      "cgroup": {
+        "off": "efrd's cgroup is not delegated (Delegate=yes)"
+      }
     }
   ]
 }

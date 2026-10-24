@@ -64,6 +64,7 @@ use crate::sandbox::plan::{SANDBOX_DIR, SHELL_DIR};
 use crate::sandbox::proxy::ProxyCall;
 use crate::sandbox::seams::HostPorts;
 
+pub(crate) mod cgroup;
 pub(crate) mod forward;
 pub(crate) mod guard;
 pub(crate) mod launch;
@@ -152,6 +153,9 @@ pub(crate) struct JobParts {
     pub(crate) full: FullTurns,
     /// The host ports of the job port forwards: the system's, or a test's.
     pub(crate) host_ports: Arc<dyn HostPorts>,
+    /// The cgroups of the jobs below efrd's delegated cgroup, or why there are none
+    /// (ADR 0021).
+    pub(crate) cgroups: cgroup::Cgroups,
 }
 
 /// A job that the toolbox prepared: the launcher may start it.
@@ -218,6 +222,9 @@ pub(crate) struct Spawned {
     process: launch::Spawned,
     output: output::Output,
     matches: mpsc::UnboundedReceiver<String>,
+    /// The job's cgroup, which holds the launcher before its start byte; `Err` is why
+    /// the job has none (ADR 0021).
+    cgroup: Result<cgroup::JobGroup, String>,
 }
 
 impl Spawned {
@@ -254,6 +261,8 @@ struct Inner {
     forwards: forward::Forwards,
     /// The foreground `shell` calls that may move into a job.
     moves: moves::Moves,
+    /// The cgroups of the jobs, or why there are none.
+    cgroups: cgroup::Cgroups,
     table: Mutex<Table>,
     notices: mpsc::UnboundedSender<Notice>,
     /// Cancelled once efrd recorded the end of every job at its stop.
@@ -327,13 +336,24 @@ struct Entry {
     /// The job's port forwards until the job ends; dropping them closes the socket,
     /// the listeners and the connections.
     forward: Option<forward::JobForward>,
+    /// The job's cgroup, for its memory and CPU while it runs.
+    cgroup: Option<cgroup::JobGroup>,
 }
 
 impl JobTable {
     /// The table, and the queue of notices that `run.rs` hands to the actors.
     pub(crate) fn new(parts: JobParts) -> (JobTable, mpsc::UnboundedReceiver<Notice>) {
-        let JobParts { clock, writer, readers, dirs, launcher, spawn_env, full, host_ports } =
-            parts;
+        let JobParts {
+            clock,
+            writer,
+            readers,
+            dirs,
+            launcher,
+            spawn_env,
+            full,
+            host_ports,
+            cgroups,
+        } = parts;
         let (notices, queue) = mpsc::unbounded_channel();
         let inner = Inner {
             clock,
@@ -345,6 +365,7 @@ impl JobTable {
             full,
             forwards: forward::Forwards::new(host_ports),
             moves: moves::Moves::default(),
+            cgroups,
             table: Mutex::new(Table::default()),
             notices,
             cancel: CancellationToken::new(),
@@ -471,6 +492,10 @@ impl JobTable {
         let process =
             launch::spawn(&self.inner.launcher, &job.call_dir, &job.cwd, &self.inner.spawn_env)?;
         self.lock().launchers.insert(process.pid);
+        // NOTE: the launcher starts nothing before its start byte, so each process that
+        // it starts is born in the job's cgroup (ADR 0021).
+        let number = job.info.id.number().unwrap_or(0);
+        let cgroup = self.job_cgroup(job.info.conversation_id, number, &[process.pid]);
         let file = match output::OutputFile::create(
             &job.scratch,
             &output::file_name(&job.info.id),
@@ -486,7 +511,43 @@ impl JobTable {
         let reader = process.output.try_clone()?;
         let output =
             output::spawn_reader(job.info.id.as_str(), reader, file, job.matcher.clone(), send)?;
-        Ok(Spawned { process, output, matches })
+        Ok(Spawned { process, output, matches, cgroup })
+    }
+
+    /// The new cgroup of the job `number` of `conversation`, with the processes `pids`
+    /// in it; `Err` is why the job has none, and its processes stay where they are.
+    fn job_cgroup(
+        &self,
+        conversation: ConversationId,
+        number: u32,
+        pids: &[u32],
+    ) -> Result<cgroup::JobGroup, String> {
+        let group = self.inner.cgroups.create(&cgroup::job_name(conversation, number))?;
+        for (index, pid) in pids.iter().enumerate() {
+            if let Err(error) = group.add(*pid) {
+                // NOTE: a process below the first that ended meanwhile is no loss; the
+                // first is the launcher or the shell, which holds every other.
+                if index > 0 && error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error())
+                {
+                    continue;
+                }
+                group.kill();
+                group.remove();
+                return Err(format!("efrd could not move the job into its cgroup: {error}"));
+            }
+        }
+        Ok(group)
+    }
+
+    /// What `job_started` says of the cgroup of a job: none used yet, or why it has
+    /// none.
+    fn cgroup_info(cgroup: &Result<cgroup::JobGroup, String>) -> efr_protocol::JobCgroup {
+        match cgroup {
+            Ok(_) => efr_protocol::JobCgroup::default(),
+            Err(reason) => {
+                efr_protocol::JobCgroup { off: Some(reason.clone()), ..Default::default() }
+            }
+        }
     }
 
     /// Writes the start byte of `spawned` and waits until its launcher wrote `started`
@@ -512,7 +573,16 @@ impl JobTable {
             launch::signal(spawned.process.pidfd.as_ref(), pid, Signal::KILL);
         }
         let _ = spawned.process.child.wait().await;
-        let swept = tokio::task::spawn_blocking(move || sweep::kill_session(pid)).await;
+        let group = spawned.cgroup.as_ref().ok().cloned();
+        let swept = tokio::task::spawn_blocking(move || {
+            let left = sweep::kill_session(pid);
+            if let Some(group) = group {
+                group.kill();
+                group.remove();
+            }
+            left
+        })
+        .await;
         drop(swept);
         self.lock().launchers.remove(&pid);
         let result = read_result(&job.call_dir).await;
@@ -535,7 +605,7 @@ impl JobTable {
         mut job: NewJob,
         kept: Option<KeptSnapshot>,
     ) -> Result<JobInfo, DaemonError> {
-        let Spawned { process, output, matches } = spawned;
+        let Spawned { process, output, matches, cgroup } = spawned;
         let proxy = job.proxy.take();
         let bus = job.bus.take();
         let socket = job.forward.take();
@@ -544,6 +614,8 @@ impl JobTable {
         info.started_at = now;
         info.ends_by = now.checked_add(job.limit).unwrap_or(now);
         info.state = JobState::Running;
+        info.cgroup = Some(Self::cgroup_info(&cgroup));
+        let cgroup = cgroup.ok();
         let event = Event::JobStarted {
             turn_id: info.turn_id,
             call_id: info.call_id,
@@ -583,6 +655,7 @@ impl JobTable {
             proxy,
             bus,
             forward: None,
+            cgroup: cgroup.clone(),
         };
         // NOTE: counted before the job is in the table, so no reload between the two
         // finds the job running and not counted.
@@ -619,6 +692,7 @@ impl JobTable {
             output_path: info.output.clone(),
             watching,
             left: Vec::new(),
+            cgroup,
         };
         tokio::spawn(task.run());
         match recorded {
@@ -652,6 +726,21 @@ impl JobTable {
         job.info.started_at = now;
         job.info.ends_by = now.checked_add(job.limit).unwrap_or(now);
         job.info.state = JobState::Running;
+        // NOTE: the shell first, so a process that it starts meanwhile is born in the
+        // job's cgroup; then every process below it (ADR 0021).
+        let (table, conversation) = (self.clone(), job.info.conversation_id);
+        let number = job.info.id.number().unwrap_or(0);
+        let cgroup = tokio::task::spawn_blocking(move || {
+            let mut pids = vec![pid];
+            pids.extend(
+                sweep::descendants(Path::new("/proc"), pid).into_iter().map(|process| process.pid),
+            );
+            table.job_cgroup(conversation, number, &pids)
+        })
+        .await
+        .unwrap_or_else(|_| Err("efrd could not make the job's cgroup".to_owned()));
+        job.info.cgroup = Some(Self::cgroup_info(&cgroup));
+        let cgroup = cgroup.ok();
         let info = job.info.clone();
         // NOTE: a line typed into the hidden shell had no prepare that made the dir.
         let scratch = job.scratch.clone();
@@ -728,6 +817,7 @@ impl JobTable {
             proxy: job.proxy,
             bus: job.bus,
             forward: None,
+            cgroup: cgroup.clone(),
         };
         if job.full {
             self.inner.full.begin_job(key);
@@ -754,6 +844,7 @@ impl JobTable {
             output_path: info.output.clone(),
             watching: None,
             left: Vec::new(),
+            cgroup,
         };
         tokio::spawn(task.run());
         tracing::info!(conversation = %key.conversation, job = %info.id, "a running call moved into a background job");
@@ -878,10 +969,14 @@ impl JobTable {
 
     /// The running job `key` as it stands now, with the bytes of its output so far.
     pub(crate) fn live(&self, key: JobKey) -> Option<JobInfo> {
-        let table = self.lock();
-        let entry = table.running.get(&key)?;
-        let mut info = entry.info.clone();
-        info.output_bytes = entry.output.bytes();
+        let (mut info, group) = {
+            let table = self.lock();
+            let entry = table.running.get(&key)?;
+            let mut info = entry.info.clone();
+            info.output_bytes = entry.output.bytes();
+            (info, entry.cgroup.clone())
+        };
+        with_usage(&mut info, group.as_ref());
         Some(info)
     }
 
@@ -899,14 +994,24 @@ impl JobTable {
 
     /// The running jobs of `conversation`, or of every conversation.
     fn live_of(&self, conversation: Option<ConversationId>) -> Vec<JobInfo> {
-        let table = self.lock();
-        table
-            .running
-            .values()
-            .filter(|entry| conversation.is_none_or(|id| entry.meta.key.conversation == id))
-            .map(|entry| {
-                let mut info = entry.info.clone();
-                info.output_bytes = entry.output.bytes();
+        let found: Vec<(JobInfo, Option<cgroup::JobGroup>)> = {
+            let table = self.lock();
+            table
+                .running
+                .values()
+                .filter(|entry| conversation.is_none_or(|id| entry.meta.key.conversation == id))
+                .map(|entry| {
+                    let mut info = entry.info.clone();
+                    info.output_bytes = entry.output.bytes();
+                    (info, entry.cgroup.clone())
+                })
+                .collect()
+        };
+        // NOTE: the cgroup files are read after the lock: two small reads of each job.
+        found
+            .into_iter()
+            .map(|(mut info, group)| {
+                with_usage(&mut info, group.as_ref());
                 info
             })
             .collect()
@@ -1062,6 +1167,12 @@ impl JobTable {
     ) -> Result<Vec<(ConversationId, Event)>, DaemonError> {
         let rows = self.inner.readers.with(efr_store::jobs::running).await?;
         let dirs = self.inner.dirs.clone();
+        // NOTE: a job cgroup of the last efrd holds no job of this one (ADR 0021).
+        let cgroups = self.inner.cgroups.clone();
+        let cleaned = tokio::task::spawn_blocking(move || cgroups.clean()).await.unwrap_or(0);
+        if cleaned > 0 {
+            tracing::info!(cleaned, "efrd removed the job cgroups of the last efrd");
+        }
         let mut ended = Vec::new();
         for row in rows {
             let info = row.info;
@@ -1249,6 +1360,8 @@ struct JobTask {
     /// The processes below a moved command's shell that a close before the end could
     /// not kill.
     left: Vec<String>,
+    /// The job's cgroup; `None` when it has none (ADR 0021).
+    cgroup: Option<cgroup::JobGroup>,
 }
 
 /// What runs a job, and the rules of its end (DS22).
@@ -1368,19 +1481,46 @@ impl JobTask {
     async fn sweep(&self) -> Vec<String> {
         let session = self.pid;
         let JobProcess::Adopted { run, .. } = &self.process else {
-            return tokio::task::spawn_blocking(move || sweep::kill_session(session))
+            let mut left = tokio::task::spawn_blocking(move || sweep::kill_session(session))
                 .await
                 .unwrap_or_default();
+            left.extend(self.kill_cgroup().await);
+            left.sort();
+            left.dedup();
+            return left;
         };
         let below = close_adopted(run).await;
         let mut left = tokio::task::spawn_blocking(move || sweep::kill_session(session))
             .await
             .unwrap_or_default();
+        left.extend(self.kill_cgroup().await);
         left.extend(below);
         left.extend(self.left.iter().cloned());
         left.sort();
         left.dedup();
         left
+    }
+
+    /// Kills every process of the job's cgroup, also one that left the job's session or
+    /// its tree (ADR 0021), and returns the names of those that are still there.
+    async fn kill_cgroup(&self) -> Vec<String> {
+        let Some(group) = self.cgroup.clone() else { return Vec::new() };
+        tokio::task::spawn_blocking(move || if group.kill() { Vec::new() } else { group.names() })
+            .await
+            .unwrap_or_default()
+    }
+
+    /// The most memory and the CPU time that the job used, read before its cgroup goes,
+    /// and then the cgroup goes; `None` when the job has none.
+    async fn end_cgroup(&self) -> Option<efr_protocol::JobCgroup> {
+        let group = self.cgroup.clone()?;
+        tokio::task::spawn_blocking(move || {
+            let usage = group.usage(true);
+            group.remove();
+            usage
+        })
+        .await
+        .ok()
     }
 
     /// Everything after the launcher ended: the sweep, the rest of the output, the
@@ -1513,6 +1653,9 @@ impl JobTask {
         // NOTE: the forwards ended with the job, and so did any wait.
         final_info.forwards.clear();
         final_info.waits_input = false;
+        if let Some(usage) = self.end_cgroup().await {
+            final_info.cgroup = Some(usage);
+        }
         let tail = self.output.tail();
         // NOTE: the changes that a guard check moved while the job ran are gone from
         // the surface, so the launcher's end guard no longer sees them.
@@ -1595,6 +1738,13 @@ impl JobTask {
 /// `live`, unless the record has the job's end. `job_ended` commits before the job
 /// leaves the table, so the record of the end wins, and the list never shows a job as
 /// running after its `job_ended`.
+/// `info` with the memory and the CPU time of its cgroup `group` now.
+fn with_usage(info: &mut JobInfo, group: Option<&cgroup::JobGroup>) {
+    if let Some(group) = group {
+        info.cgroup = Some(group.usage(false));
+    }
+}
+
 fn with_live(row: JobInfo, live: &[JobInfo]) -> JobInfo {
     if row.ended_at.is_some() {
         return row;
@@ -1797,12 +1947,29 @@ pub(crate) fn job_line(job: &JobInfo, now: Timestamp, ports: Option<&str>) -> St
         (JobState::Running, Some(ports)) => format!(", {ports}"),
         _ => String::new(),
     };
+    let usage = match (job.state, job.cgroup.as_ref().and_then(usage_text)) {
+        (JobState::Running, Some(usage)) => format!(", {usage}"),
+        _ => String::new(),
+    };
     format!(
-        "{} {}: {command} ({when}, {} bytes of output{ports})",
+        "{} {}: {command} ({when}, {} bytes of output{ports}{usage})",
         job.id,
         job.state.as_str(),
         job.output_bytes
     )
+}
+
+/// The memory and the CPU time of a job's cgroup in words (ADR 0021), such as
+/// `175 MiB of memory, 42.1 s of CPU`; `None` when the cgroup says neither.
+pub(crate) fn usage_text(cgroup: &efr_protocol::JobCgroup) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(bytes) = cgroup.memory_bytes {
+        parts.push(format!("{} MiB of memory", bytes / (1024 * 1024)));
+    }
+    if let Some(usec) = cgroup.cpu_usec {
+        parts.push(format!("{}.{} s of CPU", usec / 1_000_000, usec / 100_000 % 10));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 /// The job call dir of `call` of `conversation`, `$R/sbx/<conversation>/jobs/<call>`.

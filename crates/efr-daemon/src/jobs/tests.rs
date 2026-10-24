@@ -44,6 +44,11 @@ struct Scene {
 
 impl Scene {
     async fn new() -> Scene {
+        Scene::with_cgroups(super::cgroup::Cgroups::off(super::cgroup::NOT_A_UNIT)).await
+    }
+
+    /// A scene whose jobs get their cgroups from `cgroups` (ADR 0021).
+    async fn with_cgroups(cgroups: super::cgroup::Cgroups) -> Scene {
         let dirs = TestDirs::new().unwrap();
         let clock = TestClock::new();
         let store = TestStore::open(clock.shared()).await.unwrap();
@@ -65,6 +70,7 @@ impl Scene {
             },
             full: full.clone(),
             host_ports: Arc::new(crate::sandbox::seams::TestHostPorts::new()),
+            cgroups,
         });
         let conversation = ConversationId::from_uuid(id(1));
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
@@ -95,6 +101,7 @@ impl Scene {
             forwards: Vec::new(),
             moved_from: None,
             waits_input: false,
+            cgroup: None,
         }
     }
 
@@ -192,6 +199,65 @@ async fn launcher_waits_for_start_byte_after_peer_list() {
     scene.table.drop_lifeline(scene.key(1));
     scene.ended(1).await;
     assert!(!scene.table.model_side().contains(&pid), "a launcher that ended is not listed");
+}
+
+/// With no delegated cgroup a job says why it has none, and it ends by its session
+/// (ADR 0021).
+#[tokio::test]
+async fn a_job_without_a_cgroup_says_why() {
+    let scene = Scene::new().await;
+    let info = scene.start(1).await;
+    let off = efr_protocol::JobCgroup {
+        off: Some(super::cgroup::NOT_A_UNIT.to_owned()),
+        ..efr_protocol::JobCgroup::default()
+    };
+    assert_eq!(info.cgroup.as_ref(), Some(&off));
+    assert_eq!(scene.table.live(scene.key(1)).unwrap().cgroup, Some(off));
+    scene.table.drop_lifeline(scene.key(1));
+    scene.ended(1).await;
+}
+
+/// A job runs in a cgroup of its own (ADR 0021): the launcher is in it before its start
+/// byte, `jobs.list` shows its memory and CPU time while it runs, and its end kills the
+/// cgroup, keeps the most memory that it used and removes it. The cgroup files are
+/// plain files of a test dir here; `cgroup/tests.rs` kills a real one.
+#[tokio::test]
+async fn a_job_runs_in_its_own_cgroup() {
+    let root = tempfile::tempdir().unwrap();
+    let scene =
+        Scene::with_cgroups(super::cgroup::Cgroups::in_dir(root.path().to_path_buf())).await;
+    let job = scene.new_job(1);
+    let mut spawned = scene.table.spawn(&job).unwrap();
+    let dir = root.path().join(super::cgroup::job_name(scene.conversation, 1));
+    let procs = std::fs::read_to_string(dir.join("cgroup.procs")).unwrap();
+    assert_eq!(procs, spawned.pid().to_string(), "the launcher is in before its start byte");
+    assert!(!job.call_dir.join(efr_sandbox::STARTED_FILE).exists());
+    scene.table.start(&mut spawned, &job).await.unwrap();
+    let info = scene.table.begin(spawned, job, None).await.unwrap();
+    assert_eq!(info.cgroup, Some(efr_protocol::JobCgroup::default()));
+    for (name, text) in [
+        ("memory.current", "1048576\n"),
+        ("memory.peak", "4194304\n"),
+        ("cpu.stat", "usage_usec 2500000\n"),
+        ("cgroup.events", "populated 0\n"),
+    ] {
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+    let listed = scene.table.list(Some(scene.conversation)).await.unwrap();
+    let usage = efr_protocol::JobCgroup {
+        off: None,
+        memory_bytes: Some(1_048_576),
+        cpu_usec: Some(2_500_000),
+    };
+    assert_eq!(listed[0].cgroup.as_ref(), Some(&usage));
+    assert!(
+        super::job_line(&listed[0], scene.clock.now_timestamp(), None)
+            .ends_with("1 MiB of memory, 2.5 s of CPU)"),
+        "{listed:?}"
+    );
+    let ended = scene.table.stop(scene.key(1), JobStopBy::User).await.unwrap();
+    assert_eq!(ended.cgroup.and_then(|cgroup| cgroup.memory_bytes), Some(4_194_304));
+    assert!(!dir.join("cgroup.kill").exists(), "an empty cgroup needs no kill");
 }
 
 #[tokio::test]

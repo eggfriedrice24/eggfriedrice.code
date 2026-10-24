@@ -25,7 +25,11 @@
       "pattern": "error|panic",
       "max_wakes": 3
     },
-    "wakes": 0
+    "wakes": 0,
+    "cgroup": {
+      "memory_bytes": 183500800,
+      "cpu_usec": 42100000
+    }
   },
   "launcher_pid": 48211,
   "launcher_start": 9120455

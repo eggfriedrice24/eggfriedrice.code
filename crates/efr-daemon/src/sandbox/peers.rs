@@ -24,9 +24,11 @@
 //! child job that calls `setsid` and loses its launcher leaves the job's session and
 //! the launcher's tree, so the walk clears it. But it stays in the cgroup of
 //! `efrd.service`. So when efrd's own cgroup ends in [`UNIT_SUFFIX`] ([`unit_cgroup`]),
-//! a peer in that same cgroup that is not efrd itself is model-side. A hand-started
-//! efrd and a test daemon have no unit cgroup, and the rule is off. The rule only
-//! reduces a peer that the walk cleared; it never makes a peer the user's.
+//! a peer in that same cgroup, or in a cgroup below it, that is not efrd itself is
+//! model-side: with its job cgroups (ADR 0021) efrd runs in `<unit>/daemon` and each job
+//! in `<unit>/jobs/<job>`. A hand-started efrd and a test daemon have no unit cgroup, and
+//! the rule is off. The rule only reduces a peer that the walk cleared; it never makes a
+//! peer the user's.
 
 use std::fs;
 
@@ -140,12 +142,18 @@ fn side_in(
     // NOTE: only a peer that the walk cleared gets here, so the rule can only reduce it.
     if let Some(unit) = unit
         && pid != own
-        && processes.cgroup(pid).as_deref() == Some(unit)
+        && processes.cgroup(pid).is_some_and(|cgroup| in_unit(&cgroup, unit))
     {
         return PeerSide::ModelSide;
     }
     // NOTE: read once more, so a peer that ended during the walk counts as gone.
     if processes.parent(pid).is_none() { PeerSide::Unknown } else { PeerSide::User }
+}
+
+/// True when `cgroup` is the unit's cgroup `unit` or a cgroup below it: efrd's own
+/// `daemon` and each job's cgroup below `jobs` (ADR 0021).
+fn in_unit(cgroup: &str, unit: &str) -> bool {
+    cgroup.strip_prefix(unit).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Walks up from `pid` until one of the ends of [`WalkEnd`].

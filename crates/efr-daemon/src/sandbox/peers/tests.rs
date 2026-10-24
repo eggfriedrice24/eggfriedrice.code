@@ -254,6 +254,29 @@ fn peer_in_efrd_cgroup_is_model_side() {
     assert_eq!(super::unit_of(Some("/app.slice/my-efrd.service".to_owned())), None);
 }
 
+/// With the job cgroups of ADR 0021, efrd runs in `<unit>/daemon` and each job in
+/// `<unit>/jobs/<job>`: a peer in any cgroup below the unit's, but efrd, is model-side,
+/// and a cgroup whose name only starts with the unit's is not below it.
+#[test]
+fn peer_below_efrd_unit_cgroup_is_model_side() {
+    let mut table = unit_table();
+    let below = [
+        (74, format!("{UNIT}/jobs/0192f0c1-7a00-7000-8000-000000000001-j3")),
+        (75, format!("{UNIT}/daemon")),
+        (76, format!("{UNIT}-other")),
+    ];
+    for (pid, cgroup) in below {
+        table.0.insert(pid, (1, pid));
+        table.1.insert(pid, cgroup);
+    }
+    table.1.insert(50, format!("{UNIT}/daemon"));
+    let side = |pid| super::side_in(&table, Some(pid), &[], 50, Some(UNIT));
+    assert_eq!(side(74), PeerSide::ModelSide, "a process of a job's cgroup");
+    assert_eq!(side(75), PeerSide::ModelSide, "a process in efrd's own cgroup");
+    assert_eq!(side(76), PeerSide::User, "a cgroup that only starts with the unit's name");
+    assert_eq!(side(50), PeerSide::User, "efrd itself");
+}
+
 #[test]
 fn peer_rule_off_for_a_hand_started_efrd() {
     // NOTE: an efrd that the user started in a terminal has the terminal's cgroup, and

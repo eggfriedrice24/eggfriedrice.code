@@ -71,6 +71,7 @@ fn job_started(turn: u64) -> Event {
         forwards: Vec::new(),
         moved_from: None,
         waits_input: false,
+        cgroup: None,
     };
     Event::JobStarted {
         turn_id: job.turn_id,

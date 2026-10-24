@@ -19,6 +19,11 @@ Restart=always
 RestartSec=5
 # An OOM kill of one hidden shell must not take the daemon down with it.
 OOMPolicy=continue
+# efrd gets the cgroup subtree of this unit: it moves itself into <unit>/daemon and
+# runs each background job in a cgroup of its own below <unit>/jobs, so the stop of a
+# job kills every process of it (docs/adr/0021-job-cgroups.md). The AUR packages check
+# this line.
+Delegate=yes
 # NOTE: no EFR_LOG here: the filter defaults to info, and a variable would win over the
 # log key of config.toml, which reloads live.
 

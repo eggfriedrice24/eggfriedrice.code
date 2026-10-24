@@ -494,6 +494,7 @@ async fn job_table(home: &Path) -> (crate::jobs::JobTable, efr_test_support::Tes
         spawn_env: crate::jobs::SpawnEnv::default(),
         full: crate::full::FullTurns::default(),
         host_ports: Arc::new(crate::sandbox::seams::TestHostPorts::new()),
+        cgroups: crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT),
     });
     (table, store)
 }

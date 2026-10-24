@@ -82,6 +82,7 @@ impl Scene {
             },
             full: crate::full::FullTurns::default(),
             host_ports: std::sync::Arc::new(crate::sandbox::seams::TestHostPorts::new()),
+            cgroups: crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT),
         });
         let conversation = ConversationId::from_uuid(id(1));
         let created = Event::ConversationCreated { origin: Origin::Shell, tty: None, route: None };
@@ -112,6 +113,7 @@ impl Scene {
             forwards: Vec::new(),
             moved_from: None,
             waits_input: false,
+            cgroup: None,
         }
     }
 

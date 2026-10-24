@@ -383,6 +383,7 @@ impl DaemonToolbox {
             forwards: Vec::new(),
             moved_from: None,
             waits_input: false,
+            cgroup: None,
         };
         let mut named_paths: Vec<PathBuf> =
             declared.paths.iter().map(|access| access.path.clone()).collect();

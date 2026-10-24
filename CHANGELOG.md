@@ -10,6 +10,15 @@ into the GitHub release notes, and it stops when the section is missing.
 
 ## [Unreleased]
 
+### Added
+
+- Each background job runs in a cgroup of its own when efrd runs as its systemd unit.
+  The unit now has `Delegate=yes`. The stop of a job kills every process of the job,
+  also a process that left the job's session with `setsid`. `efr jobs list` and the
+  model's `jobs` tool show the memory and the CPU time of each running job. Without a
+  delegated cgroup, a job ends by its session as before, and `efr jobs list` says why.
+  Install the new unit, then run `systemctl --user daemon-reload` and restart efrd.
+
 ### Changed
 
 - The diff of an approval preview and of a finished write now shows only the changed

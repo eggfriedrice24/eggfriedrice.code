@@ -176,13 +176,16 @@ dependencies of its own, or a second binary needs it.
 ## Startup and restart order
 
 At milestone 1 there is one unit, `efrd.service` (`Type=notify`, `Restart=always`,
-`RestartSec=5`, `OOMPolicy=continue`, and `ExecReload` sending SIGHUP, which reloads
-the config). The hidden shells are children of the daemon, so they end when the daemon
-stops. `efrd` starts in this order (the roots come from `EFR_<ROOT>_DIR`, else
-`$EFR_HOME/<root>`, else XDG; the socket path is checked first):
+`RestartSec=5`, `OOMPolicy=continue`, `Delegate=yes`, and `ExecReload` sending SIGHUP,
+which reloads the config). The hidden shells are children of the daemon, so they end
+when the daemon stops. `efrd` starts in this order (the roots come from
+`EFR_<ROOT>_DIR`, else `$EFR_HOME/<root>`, else XDG; the socket path is checked first):
 
 1. Take the exclusive `flock` on `$XDG_DATA_HOME/efr/daemon.lock`; exit if another
-   daemon holds it. The lock, not `daemon.json`, decides single instance.
+   daemon holds it. The lock, not `daemon.json`, decides single instance. Then, when
+   the unit's cgroup is delegated, move into `<unit>/daemon` before any process
+   starts, so each background job can get a cgroup of its own below `<unit>/jobs`
+   (ADR 0021).
 2. Load the config with `efr-config` (defaults, then `config.toml`, then `EFR_*`
    variables, then flags).
 3. Copy the database to `backups/efr.sqlite.<user_version>`, then run the forward-only
@@ -293,7 +296,8 @@ and adds `efr-daemon -> efr-pty` to the forbidden edges.
   the `env` file of the hidden shell in `crates/efr-shell/assets/zsh/efr-integration.zsh`.
   In efrd: the job table in `crates/efr-daemon/src/jobs.rs`, the spawn with the lifeline
   in `jobs/launch.rs`, the output file in `jobs/output.rs`, the sweep by session id in
-  `jobs/sweep.rs`, the guard of a running job in `jobs/guard.rs`, the jobs that keep
+  `jobs/sweep.rs`, the cgroup of each job below efrd's delegated cgroup (ADR 0021) in
+  `jobs/cgroup.rs`, the guard of a running job in `jobs/guard.rs`, the jobs that keep
   an undo from running in `jobs/undo.rs`, the programs that a job wrote in
   `jobs/since.rs`, the daemon-wide window of wake turns in `jobs/wakes.rs` and the
   removal of old job outputs in `jobs/retention.rs`; a job's writes join its start turn

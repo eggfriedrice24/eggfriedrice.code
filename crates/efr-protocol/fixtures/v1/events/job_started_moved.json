@@ -35,6 +35,9 @@
         }
       ],
       "launcher": true
+    },
+    "cgroup": {
+      "off": "efrd's cgroup is not delegated (Delegate=yes)"
     }
   },
   "launcher_pid": 48190,

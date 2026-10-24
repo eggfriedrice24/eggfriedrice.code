@@ -79,6 +79,7 @@ async fn job_stop_of_ended_job_returns_state() {
         spawn_env: crate::jobs::SpawnEnv::default(),
         full: crate::full::FullTurns::default(),
         host_ports: std::sync::Arc::new(crate::sandbox::seams::TestHostPorts::new()),
+        cgroups: crate::jobs::cgroup::Cgroups::off(crate::jobs::cgroup::NOT_A_UNIT),
     });
     let id = |n: u128| uuid::Uuid::from_u128(n);
     // NOTE: the conversation of the tools' test calls.
@@ -106,6 +107,7 @@ async fn job_stop_of_ended_job_returns_state() {
         forwards: Vec::new(),
         moved_from: None,
         waits_input: false,
+        cgroup: None,
     };
     let batch = Batch::new()
         .event(

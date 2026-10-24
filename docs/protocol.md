@@ -649,3 +649,9 @@ No protocol version has shipped yet.
   `conversation_search_params.json`, `conversation_search_result.json`,
   `search_kinds.json` and `search_partials.json`; `hello_result.json` now sets
   `search`.
+- Version 1, additive: the cgroup of a background job (ADR 0021). `JobInfo` gains
+  `cgroup` (absent from an efrd before 0.0.5) with `off` (why the job has no cgroup of
+  its own), `memory_bytes` (now while the job runs, the most at its end) and
+  `cpu_usec`, each absent when not set. The fixtures `jobs_list_result.json`,
+  `jobs_stop_result.json`, `events/job_started.json` and
+  `events/job_started_moved.json` now set it.
