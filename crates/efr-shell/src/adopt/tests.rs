@@ -438,3 +438,117 @@ async fn adopted_looks_report_a_hidden_wait() {
         SignalTarget::Child
     )));
 }
+
+/// Runs `command` for [`call`] with a timeout of 5 s and lets the clock pass it, so the
+/// command is left running in the hidden shell; returns its terminal.
+async fn left_running(harness: &Harness, command: &str) -> FakeTerminal {
+    let sessions = harness.sessions.clone();
+    let request = request(command).with_timeout(Duration::from_secs(5));
+    let run = tokio::spawn(async move {
+        sessions.run_command(conversation(), request, &mut crate::NoProgress).await
+    });
+    let mut terminal = harness.holder.terminal(0).await;
+    terminal.prompt().await;
+    terminal.typed_line().await;
+    terminal.print(b"\r\n\x1b]133;C\x07step 1\r\n").await;
+    // The deadline, the run's look and the shell's startup timer.
+    for _ in 0..5 {
+        harness.clock.wait_for_sleeps(3).await;
+        harness.clock.advance(Duration::from_secs(1));
+    }
+    assert_eq!(run.await.unwrap().unwrap().completion, Completion::StillRunning);
+    assert!(harness.sessions.busy(conversation()).is_some(), "the command is left running");
+    terminal
+}
+
+/// Asks to move the command that `call` left running and returns why it cannot.
+async fn left_refused(harness: &Harness, call: CallId) -> &'static str {
+    let (to, adopted) = oneshot::channel();
+    let error = harness.sessions.request_left_move(conversation(), call, to).await.unwrap_err();
+    assert!(adopted.await.is_err(), "a refused move hands nothing over");
+    match error {
+        ShellError::NotMovable { reason, .. } => reason,
+        other => panic!("not a refused move: {other:?}"),
+    }
+}
+
+/// What a refused move of a command that no longer runs in the hidden shell says.
+const NOT_LEFT: &str = "the command no longer runs in the hidden shell";
+
+/// A command left running moves into a job as a running call does (OQS16): the job
+/// owns the old shell, the command's end reaches it, its identity as a command left
+/// running ends with `moved`, and the conversation's slot lets go of the shell.
+#[tokio::test]
+async fn left_command_moves_into_a_job() {
+    let harness = Harness::new(ZSH);
+    let mut terminal = left_running(&harness, "make all").await;
+    let (to, adopted) = oneshot::channel();
+    harness.sessions.request_left_move(conversation(), call(), to).await.unwrap();
+    let mut adopted = adopted.await.unwrap();
+    assert_eq!(adopted.head(), "step 1\n");
+    let ended = ShellNotice::CommandEnded {
+        conversation: conversation(),
+        call: Some(call()),
+        exit_code: None,
+        how: efr_protocol::ShellCommandEnd::Moved,
+    };
+    let handed = ShellNotice::Adopted { conversation: conversation(), pty_id: terminal.pty_id };
+    let notices = harness.notices.all();
+    assert!(notices.contains(&ended) && notices.contains(&handed), "{notices:?}");
+    let sessions = &harness.sessions;
+    assert!(sessions.busy(conversation()).is_none());
+    assert!(matches!(sessions.state(conversation()).await, Err(ShellError::NoShell { .. })));
+    // A second request finds no shell that runs the command.
+    assert_eq!(left_refused(&harness, call()).await, NOT_LEFT);
+
+    // NOTE: the watch of the command left running ends at the move, so no time on the
+    // clock stops the job's command.
+    for _ in 0..3 {
+        harness.clock.advance(Duration::from_secs(60));
+        tokio::task::yield_now().await;
+    }
+    assert!(!harness.holder.signals().iter().any(|(pty, _, _)| *pty == terminal.pty_id));
+    let output = adopted.take_output().unwrap();
+    terminal.print(b"step 2\r\n\x1b]133;D;0\x07").await;
+    terminal.prompt().await;
+    assert_eq!(adopted.ended().await.unwrap().exit_code, Some(0));
+    assert_eq!(read_all(output).await, "step 2\n");
+}
+
+/// Only the command that the named call left running moves, and only while it waits
+/// for no input.
+#[tokio::test]
+async fn left_move_of_another_call_or_a_waiting_command_is_refused() {
+    let harness = Harness::new(ZSH);
+    let other: CallId = "01920000-0000-7000-8000-0000000c0de3".parse().unwrap();
+    assert_eq!(left_refused(&harness, call()).await, NOT_LEFT);
+    // NOTE: a client that can answer follows, so the watch keeps the wait.
+    harness.followers.set(1);
+    let mut terminal = left_running(&harness, "sudo -v").await;
+    assert_eq!(left_refused(&harness, other).await, NOT_LEFT);
+    terminal.print(b"[sudo] password for u: ").await;
+    harness.modes.set(Some(HIDDEN));
+    let hidden = ShellNotice::CommandInputChanged {
+        conversation: conversation(),
+        call: Some(call()),
+        input: InputWait::Hidden,
+        contained: false,
+        looks_secret: false,
+        prompt: "[sudo] password for u:".to_owned(),
+    };
+    // The watch's looks of the command left running, beside the shell's startup timer.
+    for _ in 0..5 {
+        if harness.notices.all().contains(&hidden) {
+            break;
+        }
+        harness.clock.wait_for_sleeps(2).await;
+        harness.clock.advance(Duration::from_secs(1));
+        tokio::task::yield_now().await;
+    }
+    harness.notices.wait_for(|notice| *notice == hidden).await;
+    assert_eq!(
+        left_refused(&harness, call()).await,
+        "the command waits for input; answer it first"
+    );
+    assert!(harness.sessions.busy(conversation()).is_some(), "the command stays");
+}

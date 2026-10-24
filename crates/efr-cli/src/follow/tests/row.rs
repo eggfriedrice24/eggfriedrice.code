@@ -1842,7 +1842,7 @@ async fn ctrl_b_with_no_running_shell_call_says_so_and_sends_nothing() {
     let (result, out, _) = run_row(&setup, &ctx, |mut conn, seen| async move {
         let sub = subscribed(&mut conn, 10).await;
         keys.press(CTRL_B).await;
-        shows(&seen, "no shell call of this turn runs").await;
+        shows(&seen, "no running shell call or command left").await;
         conn.item(sub, &item(11, turn_completed())).await;
         let frames = conn.until_closed().await;
         assert_eq!(moves(&frames), 0);

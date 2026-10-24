@@ -1122,6 +1122,21 @@ A `shell` call with `background: true` starts a job (efr's auto spec, section 3.
   is marked adopted at the hand-over, whatever the handler does: efr-shell's
   `ShellNotice::Adopted` reaches the shells' observer, which calls `Ptys::adopt`
   (`pty.write` and `pty.resize` with it get `not_found`, the idle collector skips it).
+- A command left running moves too (v0.0.5, OQS16, DS30). A call that answers with
+  `left_running` and no move keeps its registration as a left call
+  (`Registration::finish` with `LeftParts`, the guard and write roots of its job), at
+  most one for each conversation. `call.background` with that call's id, when no
+  running call has the id, checks the live state first (`ShellSessions::busy` must name
+  the call, else `the command ended before it moved`, and the left call goes; a wait
+  is `the command waits for input; answer it first`), then the same `moves::check`,
+  place, preview and token (`Moves::preview_left`, `answered_left`). The handler takes
+  the left call, asks `ShellSessions::request_left_move`, puts the left call back when
+  efr-shell refuses, and makes the job itself with `moves::into_job`: `$CALL/moved`
+  first, the call's proxy socket and bus filters from the lists of calls past their
+  timeout (`ProxyService::take_timed_out`, `BusService::take_timed_out`), and the end
+  of its reach (`SandboxService::take_reach`, `unreach_all`). The model reads nothing
+  at the move; the job's notice tells it at the end. The command's writes after the
+  move do not join the turn of its call, as for any command left running.
 - The job of a moved call (`JobProcess::Adopted`): its time limit is
   `jobs.default_minutes` cut to `jobs.max_minutes`, from the move; its proxy socket and
   bus filters live in its entry; it has no state dir, no lifeline, no forwards and no

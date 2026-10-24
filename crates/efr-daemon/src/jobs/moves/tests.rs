@@ -157,10 +157,51 @@ fn a_call_registers_only_while_it_runs_and_for_its_conversation() {
     let registration = moves.register(running);
     assert!(moves.running(conversation, call_id).is_some());
     assert!(moves.running(ConversationId::from_uuid(id(2)), call_id).is_none());
-    assert!(registration.finish().is_none(), "no move was under way");
+    assert!(registration.finish(None).is_none(), "no move was under way");
     assert!(moves.running(conversation, call_id).is_none());
     let running = call(1, Mode::Cautious, Launch::Direct, line("sleep 600"));
     drop(moves.register(running));
     assert!(moves.running(conversation, call_id).is_none(), "a dropped call goes too");
     assert_eq!(moves.preview(call_id, Vec::new(), Timestamp::UNIX_EPOCH), None);
+}
+
+/// A call whose command was left running stays for a move of that command (OQS16):
+/// one for each conversation, previewed and answered as a running call, taken once, and
+/// put back when efr-shell did not hand it over.
+#[test]
+fn a_left_call_stays_for_a_move_of_its_command() {
+    let moves = Moves::default();
+    let running = call(1, Mode::Cautious, Launch::Direct, line("make all"));
+    let (conversation, call_id) = (running.context.conversation_id, running.context.call_id);
+    let parts = super::LeftParts { guard_roots: Vec::new(), write_roots: vec!["/home/u/p".into()] };
+    assert!(moves.register(running).finish(Some(parts)).is_none(), "no move was under way");
+    assert!(moves.running(conversation, call_id).is_none(), "it no longer runs as a call");
+    assert!(moves.left_call(conversation, call_id).is_some());
+    assert!(moves.left_call(ConversationId::from_uuid(id(2)), call_id).is_none());
+
+    let now = Timestamp::UNIX_EPOCH;
+    let token = moves.preview_left(call_id, Vec::new(), now).unwrap();
+    assert_eq!(moves.answered_left(call_id, token + 1, &[], now), Err(EXPIRED));
+    let token = moves.preview_left(call_id, Vec::new(), now).unwrap();
+    assert_eq!(moves.answered_left(call_id, token, &[], now), Ok(()));
+
+    let (taken, parts) = moves.take_left(call_id).unwrap();
+    assert_eq!(parts.write_roots, [std::path::PathBuf::from("/home/u/p")]);
+    assert!(moves.take_left(call_id).is_none(), "taken once");
+    moves.restore_left(taken, parts);
+    assert!(moves.left_call(conversation, call_id).is_some(), "put back after a refusal");
+
+    // NOTE: the hidden shell takes no other call while one runs, so a later left call of
+    // the conversation replaces it.
+    let mut later = call(1, Mode::Cautious, Launch::Direct, line("make check"));
+    later.context.call_id = CallId::from_uuid(id(101));
+    moves.register(later).finish(Some(super::LeftParts::default()));
+    assert!(moves.left_call(conversation, call_id).is_none());
+    assert!(moves.left_call(conversation, CallId::from_uuid(id(101))).is_some());
+    moves.forget_left(CallId::from_uuid(id(101)));
+    assert!(moves.left_call(conversation, CallId::from_uuid(id(101))).is_none());
+    // A call that ended keeps nothing.
+    let running = call(3, Mode::Cautious, Launch::Direct, line("true"));
+    moves.register(running).finish(None);
+    assert!(moves.left_call(ConversationId::from_uuid(id(3)), call_id).is_none());
 }

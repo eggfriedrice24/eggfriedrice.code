@@ -120,6 +120,9 @@ impl OrphanWatch {
             tokio::select! {
                 () = next => {}
                 _ = self.session.ended() => return,
+                // NOTE: a command that a background job adopted is the job's now, with a
+                // watch of its own (OQS16); this watch must never stop it.
+                () = self.session.adopted(self.run.id) => return,
             }
             let looked = self
                 .session

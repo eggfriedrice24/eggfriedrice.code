@@ -299,6 +299,14 @@ impl ProxyService {
         self.calls().timed_out.push((call_dir, call));
     }
 
+    /// Takes the listener of the call past its timeout in `call_dir`, for the job that
+    /// its command moved into (OQS16): the job serves it until it ends.
+    pub(crate) fn take_timed_out(&self, call_dir: &Path) -> Option<ProxyCall> {
+        let mut calls = self.calls();
+        let at = calls.timed_out.iter().position(|(dir, _)| dir == call_dir)?;
+        Some(calls.timed_out.remove(at).1)
+    }
+
     /// Closes the listener of each call past its timeout whose `result.json` appeared or
     /// whose call dir went, and returns how many it closed. The gc pass and the next
     /// prepare call it.

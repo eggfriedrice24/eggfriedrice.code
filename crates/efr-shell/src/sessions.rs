@@ -29,8 +29,8 @@ use crate::reader::{self, ReaderTargets};
 use crate::replay::Replayer;
 use crate::run::{Progress, RunMode, screen_tail, timed_out};
 use crate::session::{
-    Activity, Detached, ENDED, INBOX_CAPACITY, Life, Looked, Msg, NOT_STARTED, RunEnd, RunOrder,
-    SessionActor, SessionCore, SessionHandle, until,
+    Activity, Detached, ENDED, INBOX_CAPACITY, Life, Looked, Msg, NOT_LEFT, NOT_STARTED, RunEnd,
+    RunOrder, SessionActor, SessionCore, SessionHandle, until,
 };
 use crate::writer::{self, WRITE_CAPACITY};
 use crate::{
@@ -524,6 +524,53 @@ impl ShellSessions {
         let (reply, answer) = oneshot::channel();
         requests.send(MoveRequest { to, reply }).await.map_err(|_| refused(ANSWERED))?;
         answer.await.map_err(|_| refused(ANSWERED))?
+    }
+
+    /// Hands the command that `call` left running in the conversation's hidden shell to
+    /// a background job, as the user asks with Ctrl+B (OQS16, DS30): the same hand-over
+    /// as [`request_move`](Self::request_move), for a command whose call answered
+    /// already, so no call gets [`Completion::Moved`]. The command keeps its PTY, its
+    /// process tree and its sandbox; the [`AdoptedRun`] goes on `to`, and the
+    /// conversation's slot lets go of the shell. The command's identity as a command
+    /// left running ends with `shell_command_ended` and `how: moved`.
+    ///
+    /// It fails with [`ShellError::NotMovable`], and `to` is dropped, when the hidden
+    /// shell no longer runs a command that `call` left there, the shell gives no marks
+    /// for it or it is a shell or a REPL, it waits for input, efr is stopping it, or a
+    /// full-screen program holds the screen. Nothing moves then.
+    pub async fn request_left_move(
+        &self,
+        conversation: ConversationId,
+        call: CallId,
+        to: oneshot::Sender<AdoptedRun>,
+    ) -> Result<(), ShellError> {
+        let refused = |reason| ShellError::NotMovable { conversation, reason };
+        let session = self.existing(conversation).map_err(|_| refused(NOT_LEFT))?;
+        if session.left.borrow().as_ref().and_then(|left| left.call) != Some(call) {
+            return Err(refused(NOT_LEFT));
+        }
+        // NOTE: a job reads its command's output as lines, as for a running call.
+        match session.screen.snapshot(0).await {
+            Ok(capture) if capture.snapshot.alternate_screen => {
+                return Err(refused("a full-screen program cannot move"));
+            }
+            Ok(_) => {}
+            Err(_) => return Err(refused("the screen of the hidden shell cannot be read")),
+        }
+        let (tee, output) = adopt::tee();
+        let (end, answer) = oneshot::channel();
+        let (reply, adopted) = oneshot::channel();
+        session.send(Msg::AdoptLeft { call, tee, end, reply }).await.map_err(|_| refused(ENDED))?;
+        let left = match adopted.await {
+            Ok(Ok(left)) => left,
+            Ok(Err(reason)) => return Err(refused(reason)),
+            Err(_) => return Err(refused(ENDED)),
+        };
+        let (reply, answered) = oneshot::channel();
+        let moved = Moved { request: MoveRequest { to, reply }, adoption: left.adoption, output };
+        // NOTE: the call answered long ago; nobody reads the result of the hand-over.
+        let _ = self.hand_over(&session, left.id, left.offer, left.contained, moved, answer).await;
+        answered.await.map_err(|_| refused(ENDED))?
     }
 
     fn moves_lock(&self) -> MutexGuard<'_, HashMap<CallId, MoveSlot>> {

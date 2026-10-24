@@ -353,3 +353,29 @@ fn without_keys_a_wait_of_a_left_command_is_a_note() {
     assert!(err.contains("waits for a password"), "{err}");
     assert_eq!(view.left_keys(), None);
 }
+
+/// With no call running, Ctrl+B moves the command that a call left running in the
+/// hidden shell, by its call's id, while that command waits for nothing (OQS16).
+#[test]
+fn ctrl_b_moves_a_left_command_that_waits_for_nothing() {
+    let mut view = wide_terminal();
+    let events = [
+        started("cargo build --release", false),
+        left_completed(),
+        detached("cargo build --release", InputWait::None, false, ""),
+    ];
+    last_step(&mut view, &events, true);
+    assert_eq!(view.background_call(), Some(call()));
+    // A wait must be answered first; the move would be refused.
+    last_step(&mut view, &[input_changed(InputWait::Visible, false, false, "[y/N] ")], true);
+    assert_eq!(view.background_call(), None);
+    last_step(&mut view, &[input_changed(InputWait::None, false, false, "")], true);
+    assert_eq!(view.background_call(), Some(call()));
+    // A command that moved, or ended, moves no more.
+    view.moved(call(), efr_protocol::JobId::nth(1));
+    assert_eq!(view.background_call(), None);
+    let mut view = wide_terminal();
+    last_step(&mut view, &events, true);
+    last_step(&mut view, &[ended(ShellCommandEnd::Moved, None)], true);
+    assert_eq!(view.background_call(), None);
+}

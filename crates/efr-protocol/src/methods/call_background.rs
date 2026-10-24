@@ -21,6 +21,11 @@ use crate::{CallId, CommandId, ConversationId, ExitInfo, JobId};
 /// the preview in `confirm`. The daemon checks the call again then, and refuses when the
 /// job decision changed since the preview.
 ///
+/// `call_id` may also name a call whose command was left running in the hidden shell
+/// (`shell_command_detached`): the daemon then moves that command, with the same checks
+/// and the same preview, while it waits for no input. The command's
+/// `shell_command_ended` then says `moved`.
+///
 /// It needs the scope `terminal`, so the phone and the model's own commands can never
 /// move a call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

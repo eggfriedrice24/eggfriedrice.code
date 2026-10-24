@@ -16,6 +16,10 @@
 //! - Ctrl+C sends `shell.interrupt` (SIGINT to the command). A second Ctrl+C asks `close
 //!   the hidden shell? [y/n]`, and `y` sends it with `close`, for a command that ignores
 //!   SIGINT.
+//! - Ctrl+B, while the command waits for nothing, sends `call.background` with the
+//!   command's call id (OQS16): the command moves into a background job and the hidden
+//!   shell is free. A command outside the sandbox first gets efrd's preview and the
+//!   question of the turn view's Ctrl+B; only `y` moves it.
 //! - Esc leaves the command as it is.
 //!
 //! The key reader holds the terminal in its own mode; every way out stops it, also an
@@ -26,9 +30,9 @@
 //! and only the echo of a shown answer is written again in place.
 
 use efr_protocol::{
-    ConversationId, ConversationSubscribe, ConversationSubscribeItem, ErrorCode, Event,
-    InputRespond, InputRespondResult, InputWait, Method, Origin, ShellInterrupt,
-    ShellInterruptResult, ShellStatus, ShellStatusResult,
+    CallBackground, CallBackgroundResult, ConversationId, ConversationSubscribe,
+    ConversationSubscribeItem, ErrorCode, Event, InputRespond, InputRespondResult, InputWait,
+    Method, Origin, ShellInterrupt, ShellInterruptResult, ShellStatus, ShellStatusResult,
 };
 use efr_transport::client::{Client, ClientError, ItemStream};
 use futures::StreamExt as _;
@@ -41,7 +45,7 @@ use crate::context::Context;
 use crate::error::CliError;
 use crate::follow::since_then;
 use crate::format::hidden_shell::{self, approver, secret_wait};
-use crate::format::{self, Tone};
+use crate::format::{self, Tone, jobs};
 use crate::keys::{ESC, Key, KeyReader};
 use crate::live::effective_width;
 use crate::output::Output;
@@ -69,7 +73,10 @@ const SANDBOXED: &str =
 const ANSWER_KEYS: &str = "enter answers \u{b7} ctrl+c stops it \u{b7} esc leaves it";
 
 /// The keys while the command waits for nothing.
-const RUN_KEYS: &str = "it waits for no input now \u{b7} ctrl+c stops it \u{b7} esc leaves it";
+const RUN_KEYS: &str = "it waits for no input now \u{b7} ctrl+b moves it to a background job \u{b7} ctrl+c stops it \u{b7} esc leaves it";
+
+/// Ctrl+B, which moves the command into a background job.
+const CTRL_B: u8 = 0x02;
 
 /// The question of a second Ctrl+C.
 const CLOSE_QUESTION: &str = "close the hidden shell? [y/n]";
@@ -214,6 +221,8 @@ enum Keys {
     Watch,
     /// To the question of a second Ctrl+C.
     Close,
+    /// To the question of Ctrl+B, whose `y` moves the command with the preview's token.
+    Move(u64),
 }
 
 impl Session<'_> {
@@ -321,7 +330,16 @@ impl Session<'_> {
         }
         let byte = key.byte();
         match keys {
+            Keys::Watch if byte == CTRL_B => self.background(out, busy, None).await,
             Keys::Watch => Ok(Step::Stay),
+            Keys::Move(token) => match byte {
+                b'y' | b'Y' => self.background(out, busy, Some(token)).await,
+                b'n' | b'N' | ESC => {
+                    out.out("the command runs on here\n")?;
+                    Ok(Step::Keys(self.show_wait(out, busy)?))
+                }
+                _ => Ok(Step::Stay),
+            },
             Keys::Close => match byte {
                 b'y' | b'Y' => {
                     if self.interrupt(out, busy, true).await? {
@@ -382,6 +400,51 @@ impl Session<'_> {
             }
             Err(ClientError::Server { body }) => {
                 out.out(&format!("the answer was not sent: {}\n", format::one_line(&body.message)))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Asks efrd to move the command into a background job (OQS16): with no `confirm`
+    /// after Ctrl+B, with the preview's token after a `y`. A preview asks the question of
+    /// the turn view's Ctrl+B; a refusal is a note, and the command stays here.
+    async fn background(
+        &mut self,
+        out: &mut Output,
+        busy: &Busy,
+        confirm: Option<u64>,
+    ) -> Result<Step, CliError> {
+        let method = Method::CallBackground(CallBackground {
+            conversation_id: self.conversation_id,
+            call_id: busy.call_id,
+            command_id: self.ctx.command_id(),
+            confirm,
+        });
+        match self.client.call::<CallBackgroundResult>(method).await {
+            Ok(CallBackgroundResult::Moved { job_id }) => {
+                let command = format::one_line(&busy.command);
+                out.out(&format!(
+                    "{command} moved to the background as job {job_id}; efr jobs shows it\n"
+                ))?;
+                Ok(Step::Leave)
+            }
+            Ok(CallBackgroundResult::Preview { token, command, max_minutes, exits })
+                if confirm.is_none() =>
+            {
+                let mut lines = vec![format!("{}? [y/n]", jobs::MOVE_TITLE)];
+                lines.push(format!("{BAR}{}", jobs::command(&command, 60)));
+                lines.push(jobs::move_risk(max_minutes));
+                lines.extend(exits.iter().map(|exit| jobs::move_exit(exit, None)));
+                out.out(&format!("{}\n", lines.join("\n")))?;
+                Ok(Step::Keys(Keys::Move(token)))
+            }
+            Ok(_) => {
+                out.out(&format!("{}\n", jobs::not_moved("press ctrl+b again")))?;
+                Ok(Step::Keys(self.show_wait(out, busy)?))
+            }
+            Err(ClientError::Server { body }) => {
+                out.out(&format!("{}\n", jobs::not_moved(&body.message)))?;
+                Ok(Step::Keys(self.show_wait(out, busy)?))
             }
             Err(error) => Err(error.into()),
         }

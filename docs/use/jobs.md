@@ -206,6 +206,12 @@ The view then shows `(moved to job j3)` in place of the result. The agent reads 
 output so far, the job's id and the output file. A job notice tells the agent when the
 command ends.
 
+Ctrl+B also moves a command that a call left running in the hidden shell at its
+timeout, such as a slow build: in the turn view while no call runs, and in `,shell`.
+It moves only while it waits for no input, with the same question. Its call answered
+the agent already, so the agent reads nothing at the move; the hidden shell is free at
+once, and the job's notice tells the agent when the command ends.
+
 A moved command is different from a job that the agent starts:
 
 - Its time limit (60 minutes) counts from the move.

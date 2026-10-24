@@ -405,6 +405,14 @@ impl BusService {
         self.timed_out().push((call_dir, call));
     }
 
+    /// Takes the proxies of the call past its timeout in `call_dir`, for the job that its
+    /// command moved into (OQS16): the job keeps them until it ends.
+    pub(crate) fn take_timed_out(&self, call_dir: &Path) -> Option<BusCall> {
+        let mut timed_out = self.timed_out();
+        let at = timed_out.iter().position(|(dir, _)| dir == call_dir)?;
+        Some(timed_out.remove(at).1)
+    }
+
     /// Finishes the proxies of each call past its timeout whose `result.json` appeared
     /// or whose call dir went, and returns how many calls it finished. The gc pass and
     /// the next prepare of a call with a bus view call it, as the proxy's sweep.

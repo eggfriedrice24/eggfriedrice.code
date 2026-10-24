@@ -85,6 +85,15 @@ pub(crate) enum Msg {
     /// its adopted run, sends its output to `tee` from now on, and answers its end on
     /// the run's reply channel. The reason says why it cannot move.
     Adopt { id: u64, tee: Tee, reply: oneshot::Sender<Result<Adoption, &'static str>> },
+    /// Hand the command that `call` left running to a background job (OQS16): the
+    /// session keeps it as its adopted run, sends its output to `tee` from now on, and
+    /// answers its end on `end`. The reason says why it cannot move.
+    AdoptLeft {
+        call: CallId,
+        tee: Tee,
+        end: oneshot::Sender<Result<RunEnd, ShellError>>,
+        reply: oneshot::Sender<Result<LeftAdoption, &'static str>>,
+    },
     /// Type `text` for the running command of `call`, if it waits for such input, or,
     /// with `manual`, if the job that the last look saw holds the terminal. `Debug` shows no text:
     /// `SecretText` hides it.
@@ -343,6 +352,22 @@ struct Adopted {
 
 /// Why a run cannot move: its command has not started yet.
 pub(crate) const NOT_STARTED: &str = "the call has not started";
+
+/// Why a command left running cannot move: the hidden shell no longer runs it.
+pub(crate) const NOT_LEFT: &str = "the command no longer runs in the hidden shell";
+
+/// A command left running that a background job adopted (OQS16), with what the watch of
+/// the adopted run needs.
+#[derive(Debug)]
+pub(crate) struct LeftAdoption {
+    /// The run's id, which a look names.
+    pub(crate) id: u64,
+    /// Which waits the run reports.
+    pub(crate) offer: Offer,
+    /// The command runs in the auto mode's sandbox.
+    pub(crate) contained: bool,
+    pub(crate) adoption: Adoption,
+}
 
 /// Why a run cannot move: it ended, or it is no run of this shell.
 pub(crate) const ENDED: &str = "the call ended";
@@ -856,6 +881,60 @@ impl SessionCore {
         self.adopted = Some(Adopted { id, run, reply, tee });
         self.adopted_shell = true;
         Ok(Adoption { kept, range, cwd: self.state.cwd.clone(), call_dir })
+    }
+
+    /// Hands the command that `call` left running to a background job, as [`adopt`]
+    /// hands a running call (OQS16): from now on its output goes to `tee` and its end to
+    /// `end`. Only a marked command that runs, reports visible waits, waits for nothing
+    /// and is not being stopped moves; else the reason says why not. Its identity as a
+    /// command left running ends with `how: moved`.
+    ///
+    /// [`adopt`]: Self::adopt
+    pub(crate) fn adopt_left(
+        &mut self,
+        call: CallId,
+        tee: Tee,
+        end: oneshot::Sender<Result<RunEnd, ShellError>>,
+    ) -> Result<LeftAdoption, &'static str> {
+        let orphan = self
+            .orphan
+            .as_ref()
+            .filter(|orphan| orphan.left && orphan.call == Some(call))
+            .ok_or(NOT_LEFT)?;
+        if !orphan.machine.running() {
+            return Err(NOT_LEFT);
+        }
+        // NOTE: the rules of a running call's move: one command that a job can own,
+        // with no wait that nobody could answer in a job (DS27).
+        if !matches!(orphan.machine, Machine::Marks(_)) {
+            return Err("the shell gives no marks for this command, so it cannot move");
+        }
+        if orphan.offer != Offer::All {
+            return Err("a shell or a REPL cannot move");
+        }
+        if orphan.waiting.is_some() {
+            return Err("the command waits for input; answer it first");
+        }
+        if orphan.stopping.is_some() {
+            return Err("efr is stopping the command");
+        }
+        let Some(Orphan { id, machine: Machine::Marks(run), contained, offer, .. }) =
+            self.orphan.take()
+        else {
+            unreachable!("the orphan was checked above as a marked command left running");
+        };
+        let (kept, range) = run.partial();
+        let call_dir = run.sandbox_dir().map(PathBuf::from);
+        self.adopted = Some(Adopted { id, run, reply: end, tee });
+        self.adopted_shell = true;
+        self.observer.notice(ShellNotice::CommandEnded {
+            conversation: self.conversation,
+            call: Some(call),
+            exit_code: None,
+            how: ShellCommandEnd::Moved,
+        });
+        let adoption = Adoption { kept, range, cwd: self.state.cwd.clone(), call_dir };
+        Ok(LeftAdoption { id, offer, contained, adoption })
     }
 
     /// The adopted run's command ended with `output`.
@@ -1403,6 +1482,9 @@ impl SessionActor {
                 Msg::Adopt { id, tee, reply } => {
                     let _ = reply.send(self.core.adopt(id, tee));
                 }
+                Msg::AdoptLeft { call, tee, end, reply } => {
+                    let _ = reply.send(self.core.adopt_left(call, tee, end));
+                }
                 Msg::Answer { call, text, hidden, manual, reply } => {
                     let typed = answer(&mut self.core, &self.terminal, call, &text, hidden, manual);
                     let _ = reply.send(typed);
@@ -1749,6 +1831,15 @@ impl SessionHandle {
             self.ended().await;
         }
         Ok(())
+    }
+
+    /// Waits until a background job adopted run `id` (OQS16), or the shell ended.
+    pub(crate) async fn adopted(&self, id: u64) {
+        let mut activity = self.activity.clone();
+        tokio::select! {
+            _ = activity.wait_for(|activity| activity.adopted == Some(id)) => {}
+            _ = self.ended() => {}
+        }
     }
 
     /// Waits until run `id` no longer goes on without a caller: its command ended, or

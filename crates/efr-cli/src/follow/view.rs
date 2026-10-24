@@ -2296,16 +2296,26 @@ impl TurnView {
 
     /// The call that the background key (Ctrl+B) can move: the running `shell` call of
     /// the followed turn, which does not start a job, waits for no approval and was not
-    /// moved yet. `None` while the followed prompt waits behind another turn: the view
-    /// may not have seen the start of that turn's call, such as of a turn that a job
-    /// notice started.
+    /// moved yet. With no call running, the call whose command was left running in the
+    /// hidden shell, while that command waits for nothing (OQS16): efrd moves the
+    /// command by its call's id. `None` while the followed prompt waits behind another
+    /// turn: the view may not have seen the start of that turn's call, such as of a turn
+    /// that a job notice started.
     pub(crate) fn background_call(&self) -> Option<CallId> {
-        let call = self.call.as_ref()?;
+        if self.queued {
+            return None;
+        }
+        let Some(call) = self.call.as_ref() else {
+            let left = self.left.as_deref()?;
+            let movable = left.wait == InputWait::None
+                && left.asking.is_none()
+                && !self.jobs.moved.contains_key(&left.call_id);
+            return movable.then_some(left.call_id);
+        };
         let shell = self.tools.get(&call.call_id).is_some_and(|tool| tool == SHELL_TOOL);
         let movable = shell
             && !call.awaiting
             && !call.background()
-            && !self.queued
             && !self.ended
             && !self.jobs.moved.contains_key(&call.call_id);
         movable.then_some(call.call_id)
