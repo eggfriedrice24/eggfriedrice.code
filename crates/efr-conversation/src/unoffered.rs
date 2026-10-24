@@ -26,24 +26,78 @@ use efr_provider::{
     ContentBlock, Message, ToolDefinition, unoffered_call_text, unoffered_result_text,
 };
 
+use crate::context::json_len;
+
 /// `messages` for a request that offers `tools`: each call of a tool that `tools` does
 /// not name becomes a text block in its place, and each result of such a call becomes
 /// a text block in the result's place. Every other block, and each message's
 /// `provider_raw`, stays as it is.
 pub(crate) fn as_offered(mut messages: Vec<Message>, tools: &[ToolDefinition]) -> Vec<Message> {
-    let offered: HashSet<&str> = tools.iter().map(|tool| tool.name.as_str()).collect();
-    let mut calls: HashMap<String, String> = HashMap::new();
+    let mut offer = Offer::new(tools);
     for message in &mut messages {
+        offer.apply(message);
+    }
+    messages
+}
+
+/// The length as JSON of each of `messages` as [`as_offered`] gives them for `tools`,
+/// summed, without a copy of the messages: a message that [`as_offered`] does not
+/// change is measured as it is, and only a message that it changes is copied first.
+pub(crate) fn offered_len<'a>(
+    messages: impl IntoIterator<Item = &'a Message>,
+    tools: &[ToolDefinition],
+) -> u64 {
+    let mut offer = Offer::new(tools);
+    messages
+        .into_iter()
+        .map(|message| {
+            if !offer.changes(message) {
+                return json_len(message);
+            }
+            let mut shown = message.clone();
+            offer.apply(&mut shown);
+            json_len(&shown)
+        })
+        .sum()
+}
+
+/// The tools that a request offers, and the calls so far of a tool that it does not
+/// offer, with their tool names.
+struct Offer<'a> {
+    offered: HashSet<&'a str>,
+    calls: HashMap<String, String>,
+}
+
+impl<'a> Offer<'a> {
+    fn new(tools: &'a [ToolDefinition]) -> Self {
+        let offered = tools.iter().map(|tool| tool.name.as_str()).collect();
+        Offer { offered, calls: HashMap::new() }
+    }
+
+    /// True when [`apply`](Self::apply) changes `message`: it holds a call of a tool
+    /// that is not offered, or a result of such a call before it. A message without
+    /// such a call adds no call, so its results look up the calls before it.
+    fn changes(&self, message: &Message) -> bool {
+        message.content.iter().any(|block| match block {
+            ContentBlock::ToolCall { name, .. } => !self.offered.contains(name.as_str()),
+            ContentBlock::ToolResult { call_id, .. } => self.calls.contains_key(call_id),
+            _ => false,
+        })
+    }
+
+    /// Shows each call of a tool that is not offered in `message`, and each result of
+    /// such a call, as text.
+    fn apply(&mut self, message: &mut Message) {
         for block in &mut message.content {
             let text = match &*block {
                 ContentBlock::ToolCall { call_id, name, input, .. }
-                    if !offered.contains(name.as_str()) =>
+                    if !self.offered.contains(name.as_str()) =>
                 {
-                    calls.insert(call_id.clone(), name.clone());
+                    self.calls.insert(call_id.clone(), name.clone());
                     unoffered_call_text(call_id, name, input)
                 }
                 ContentBlock::ToolResult { call_id, output, is_error } => {
-                    match calls.get(call_id) {
+                    match self.calls.get(call_id) {
                         Some(name) => unoffered_result_text(call_id, name, output, *is_error),
                         None => continue,
                     }
@@ -53,7 +107,6 @@ pub(crate) fn as_offered(mut messages: Vec<Message>, tools: &[ToolDefinition]) -
             *block = ContentBlock::Text { text };
         }
     }
-    messages
 }
 
 #[cfg(test)]

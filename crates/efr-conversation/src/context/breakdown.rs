@@ -73,7 +73,6 @@ pub(crate) fn measure(base: &Request, window: &Window, turns: &HashMap<TurnId, u
     // NOTE: the request's messages are the window's, one for one and block for block,
     // with a call of a tool that the request does not offer as text; the kind comes
     // from the window, the size from what the request sends.
-    let originals = window.messages();
     // NOTE: `None` for a message of the head, before the turns.
     let places: Vec<Option<Option<u32>>> = window
         .head
@@ -81,8 +80,8 @@ pub(crate) fn measure(base: &Request, window: &Window, turns: &HashMap<TurnId, u
         .map(|_| None)
         .chain(window.placed.iter().map(|placed| Some(turns.get(&placed.turn).copied())))
         .collect();
-    let calls = call_labels(&originals);
-    for ((original, sent), place) in originals.iter().zip(&request.messages).zip(places) {
+    let calls = call_labels(window.iter());
+    for ((original, sent), place) in window.iter().zip(&request.messages).zip(places) {
         match place {
             None => {
                 let bytes = json_len(sent);
@@ -100,9 +99,10 @@ pub(crate) fn measure(base: &Request, window: &Window, turns: &HashMap<TurnId, u
 }
 
 /// The label and the tool of each call in `messages`, by call id.
-fn call_labels(messages: &[Message]) -> HashMap<String, (String, Option<String>)> {
+fn call_labels<'a>(
+    messages: impl Iterator<Item = &'a Message>,
+) -> HashMap<String, (String, Option<String>)> {
     messages
-        .iter()
         .flat_map(|message| &message.content)
         .filter_map(|block| match block {
             ContentBlock::ToolCall { call_id, name, input, .. } => {
